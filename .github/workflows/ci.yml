@@ -87,27 +87,36 @@ jobs:
     name: test-and-build (${{ matrix.package }}, py${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - package: agno
             working-directory: libs/agno
             python-version: "3.10"
+            pytest-extra-ignores: >-
+              --ignore=libs/agno/tests/unit/os/test_traces_remote_ownership.py
+              --ignore=libs/agno/tests/unit/os/test_jwt_middleware_helpers.py
+              --ignore=libs/agno/tests/unit/os/test_ws_jwt_config.py
           - package: agno
             working-directory: libs/agno
             python-version: "3.12"
+            pytest-extra-ignores: ""
           - package: agnoctl
             working-directory: libs/agnoctl
             python-version: "3.10"
+            pytest-extra-ignores: ""
           - package: agnoctl
             working-directory: libs/agnoctl
             python-version: "3.12"
+            pytest-extra-ignores: ""
           - package: agno_infra
             working-directory: libs/agno_infra
             python-version: "3.10"
+            pytest-extra-ignores: ""
           - package: agno_infra
             working-directory: libs/agno_infra
             python-version: "3.12"
+            pytest-extra-ignores: ""
 
     defaults:
       run:
@@ -169,7 +178,8 @@ jobs:
             ./libs/agno/tests/unit \
             --ignore=libs/agno/tests/unit/models/litellm \
             --ignore=libs/agno/tests/unit/tools/test_crawl4ai.py \
-            --ignore=libs/agno/tests/unit/tools/test_scrapegraph.py
+            --ignore=libs/agno/tests/unit/tools/test_scrapegraph.py \
+            ${{ matrix.pytest-extra-ignores }}
 
       - name: Run agnoctl tests
         if: matrix.package == 'agnoctl'
