@@ -291,7 +291,7 @@ tools = [
   "agno[reportlab]",
   "agno[salesforce]",
   "agno[scavio]",
-  "agno[scrapegraph]",
+  "agno[scrapegraph]; python_version >= '3.12'",  # scrapegraph-py>=2.0.0 requires Python>=3.12
   "agno[seltz]",
   "agno[tavily]",
   "agno[telegram]",
