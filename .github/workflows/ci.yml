@@ -180,9 +180,16 @@ jobs:
       - name: Run agno_infra tests
         if: matrix.package == 'agno_infra'
         run: |
-          set -e
           source ../../.venv/bin/activate
-          python -m pytest tests --pass-with-no-tests
+          set +e
+          python -m pytest tests
+          code=$?
+          set -e
+          if [ "$code" -eq 5 ]; then
+            echo "No agno_infra tests found; skipping."
+            exit 0
+          fi
+          exit "$code"
 
       - name: Build package
         run: |
