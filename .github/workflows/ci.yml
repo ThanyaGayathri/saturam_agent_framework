@@ -17,7 +17,7 @@ jobs:
     name: validate (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.12"]
 
@@ -29,11 +29,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install uv
-        run: |
-          set -e
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
 
       - name: Install dependencies
         run: |
@@ -52,7 +49,7 @@ jobs:
     name: validate agno_infra (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.12"]
 
@@ -64,11 +61,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install uv
-        run: |
-          set -e
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
 
       - name: Install dependencies
         run: |
@@ -130,11 +124,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install uv
-        run: |
-          set -e
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
 
       - name: Install agno dependencies
         if: matrix.package == 'agno'
@@ -215,6 +206,9 @@ jobs:
       - validate
       - validate-agno-infra
       - test-and-build
+    # always() is intentional: without it, this job is skipped when an upstream
+    # job fails, and GitHub branch protection treats "skipped" as "passed".
+    # The shell checks below enforce the real result.
     if: always()
     steps:
       - name: Require all jobs
