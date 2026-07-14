@@ -11,8 +11,14 @@ source ${CURR_DIR}/_utils.sh
 
 print_heading "Validating agno_infra"
 
+# Aggregate exit codes so a failure in either tool fails the script,
+# while still running both tools to surface all failures in one pass.
+EXIT_CODE=0
+
 print_heading "Running: ruff check ${AGNO_INFRA_DIR}"
-ruff check ${AGNO_INFRA_DIR}
+ruff check ${AGNO_INFRA_DIR} || EXIT_CODE=1
 
 print_heading "Running: mypy ${AGNO_INFRA_DIR} --config-file ${AGNO_INFRA_DIR}/pyproject.toml"
-mypy ${AGNO_INFRA_DIR} --config-file ${AGNO_INFRA_DIR}/pyproject.toml
+mypy ${AGNO_INFRA_DIR} --config-file ${AGNO_INFRA_DIR}/pyproject.toml || EXIT_CODE=1
+
+exit ${EXIT_CODE}
