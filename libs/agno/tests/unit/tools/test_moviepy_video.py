@@ -18,10 +18,10 @@ def moviepy_video_module(monkeypatch):
     fake_moviepy.VideoFileClip = FakeClip
 
     monkeypatch.setitem(sys.modules, "moviepy", fake_moviepy)
-    sys.modules.pop("agno.tools.moviepy_video", None)
-    module = importlib.import_module("agno.tools.moviepy_video")
+    sys.modules.pop("egpt.tools.moviepy_video", None)
+    module = importlib.import_module("egpt.tools.moviepy_video")
     yield module
-    sys.modules.pop("agno.tools.moviepy_video", None)
+    sys.modules.pop("egpt.tools.moviepy_video", None)
 
 
 def test_create_srt_cleans_temp_file_when_replace_fails(moviepy_video_module, monkeypatch, tmp_path):

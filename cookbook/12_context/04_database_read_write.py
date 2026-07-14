@@ -20,9 +20,9 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.context.database import DatabaseContextProvider
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context.database import DatabaseContextProvider
+from egpt.models.openai import OpenAIResponses
 from sqlalchemy import create_engine, text
 
 # ---------------------------------------------------------------------------

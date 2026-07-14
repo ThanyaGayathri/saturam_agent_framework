@@ -17,11 +17,11 @@ This is useful for:
 - A/B testing with human judgment
 """
 
-from agno.db.sqlite import SqliteDb
-from agno.workflow.condition import Condition
-from agno.workflow.step import Step
-from agno.workflow.types import OnReject, StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.db.sqlite import SqliteDb
+from egpt.workflow.condition import Condition
+from egpt.workflow.step import Step
+from egpt.workflow.types import OnReject, StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 # ============================================================

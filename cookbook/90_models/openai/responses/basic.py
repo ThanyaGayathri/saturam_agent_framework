@@ -5,8 +5,8 @@ Openai Basic
 Cookbook example for `openai/responses/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.openai import OpenAIResponses
 import asyncio
 
 # ---------------------------------------------------------------------------

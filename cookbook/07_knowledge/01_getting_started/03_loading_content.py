@@ -20,15 +20,15 @@ Sync equivalents (insert, insert_many) are also available.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.wikipedia_reader import WikipediaReader
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.wikipedia_reader import WikipediaReader
 
-# Also available: from agno.knowledge.reader.arxiv_reader import ArxivReader
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.qdrant import Qdrant
-from agno.vectordb.search import SearchType
+# Also available: from egpt.knowledge.reader.arxiv_reader import ArxivReader
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.qdrant import Qdrant
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

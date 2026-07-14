@@ -7,13 +7,13 @@ Demonstrates input validation and transformation pre-hooks for team runs.
 
 from typing import Optional
 
-from agno.agent import Agent
-from agno.exceptions import CheckTrigger, InputCheckError
-from agno.models.openai import OpenAIResponses
-from agno.run.team import TeamRunInput
-from agno.session.team import TeamSession
-from agno.team import Team
-from agno.utils.log import log_debug
+from egpt.agent import Agent
+from egpt.exceptions import CheckTrigger, InputCheckError
+from egpt.models.openai import OpenAIResponses
+from egpt.run.team import TeamRunInput
+from egpt.session.team import TeamSession
+from egpt.team import Team
+from egpt.utils.log import log_debug
 from pydantic import BaseModel
 
 

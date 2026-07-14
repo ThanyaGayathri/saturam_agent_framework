@@ -8,11 +8,11 @@ Demonstrates loop-based workflow execution with an end-condition evaluator and m
 import asyncio
 from typing import List
 
-from agno.agent import Agent
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
-from agno.workflow import Loop, Step, Workflow
-from agno.workflow.types import StepOutput
+from egpt.agent import Agent
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow import Loop, Step, Workflow
+from egpt.workflow.types import StepOutput
 
 # ---------------------------------------------------------------------------
 # Create Agents

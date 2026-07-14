@@ -5,10 +5,10 @@ Custom Tools
 Demonstrates a team using a custom FAQ tool plus web-search fallback.
 """
 
-from agno.agent import Agent
-from agno.team import Team
-from agno.tools import tool
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.team import Team
+from egpt.tools import tool
+from egpt.tools.websearch import WebSearchTools
 
 
 @tool()

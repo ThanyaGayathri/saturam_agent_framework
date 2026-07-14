@@ -5,19 +5,19 @@ Workflow With Steps
 Demonstrates workflow with steps.
 """
 
-from agno.agent.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai.chat import OpenAIChat
+from egpt.agent.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai.chat import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Example
 # ---------------------------------------------------------------------------
 # Import the workflows
-from agno.os import AgentOS
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.step import Step
-from agno.workflow.steps import Steps
-from agno.workflow.workflow import Workflow
+from egpt.os import AgentOS
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.step import Step
+from egpt.workflow.steps import Steps
+from egpt.workflow.workflow import Workflow
 
 # Define agents for different tasks
 researcher = Agent(

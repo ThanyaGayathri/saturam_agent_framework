@@ -7,9 +7,9 @@ Crawl4aiTools has a single enable_ flag: enable_crawl.
 Run: `uv pip install crawl4ai` to install the dependencies
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.crawl4ai import Crawl4aiTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.crawl4ai import Crawl4aiTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

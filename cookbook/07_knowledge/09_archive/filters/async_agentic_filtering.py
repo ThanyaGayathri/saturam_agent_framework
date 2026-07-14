@@ -1,15 +1,15 @@
 import asyncio
 import os
 
-from agno.agent import Agent
-from agno.db.sqlite import AsyncSqliteDb
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.utils.media import (
+from egpt.agent import Agent
+from egpt.db.sqlite import AsyncSqliteDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.utils.media import (
     SampleDataFileExtension,
     download_knowledge_filters_sample_data,
 )
-from agno.vectordb.pgvector import PgVector
+from egpt.vectordb.pgvector import PgVector
 
 # Download all sample sales files and get their paths
 downloaded_csv_paths = download_knowledge_filters_sample_data(

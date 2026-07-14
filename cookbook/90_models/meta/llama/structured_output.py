@@ -7,8 +7,8 @@ Cookbook example for `meta/llama/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.meta import Llama
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.meta import Llama
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

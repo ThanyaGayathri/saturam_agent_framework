@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from agno.tools.evm import EvmTools
+from egpt.tools.evm import EvmTools
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ def mock_web3_client():
 @pytest.fixture
 def mock_web3_constructor():
     """Mock the Web3 constructor and HTTPProvider."""
-    with patch("agno.tools.evm.Web3") as mock_web3_class, patch("agno.tools.evm.HTTPProvider") as mock_http_provider:
+    with patch("egpt.tools.evm.Web3") as mock_web3_class, patch("egpt.tools.evm.HTTPProvider") as mock_http_provider:
         yield mock_web3_class, mock_http_provider
 
 

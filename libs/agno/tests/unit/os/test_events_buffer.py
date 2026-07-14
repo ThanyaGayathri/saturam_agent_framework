@@ -1,7 +1,7 @@
 """Tests for EventsBuffer — monotonic indexing and trim correctness."""
 
-from agno.os.managers import EventsBuffer
-from agno.run.agent import RunContentEvent
+from egpt.os.managers import EventsBuffer
+from egpt.run.agent import RunContentEvent
 
 
 def _make_event(content: str) -> RunContentEvent:

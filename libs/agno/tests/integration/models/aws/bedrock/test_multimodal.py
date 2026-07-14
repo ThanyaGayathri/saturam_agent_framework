@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.media import File, Image
-from agno.models.aws import AwsBedrock
-from agno.utils.media import download_file
+from egpt.agent.agent import Agent
+from egpt.media import File, Image
+from egpt.models.aws import AwsBedrock
+from egpt.utils.media import download_file
 
 
 @pytest.mark.asyncio

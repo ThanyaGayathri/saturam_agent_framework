@@ -4,11 +4,11 @@ Example AgentOS app where the agent has a custom lifespan.
 
 from contextlib import asynccontextmanager
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.anthropic import Claude
-from agno.os import AgentOS
-from agno.utils.log import log_info
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.anthropic import Claude
+from egpt.os import AgentOS
+from egpt.utils.log import log_info
 
 # ---------------------------------------------------------------------------
 # Create Example

@@ -7,9 +7,9 @@ Demonstrates this reasoning cookbook example.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.azure.openai_chat import AzureOpenAI
-from agno.run.agent import RunEvent  # noqa
+from egpt.agent import Agent
+from egpt.models.azure.openai_chat import AzureOpenAI
+from egpt.run.agent import RunEvent  # noqa
 
 
 # ---------------------------------------------------------------------------

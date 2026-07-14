@@ -8,8 +8,8 @@ distinguished in the registry (addresses duplicate-id issue):
 - Stable id within a single instance
 """
 
-from agno.memory.manager import MemoryManager
-from agno.session.summary import SessionSummaryManager
+from egpt.memory.manager import MemoryManager
+from egpt.session.summary import SessionSummaryManager
 
 # =============================================================================
 # MemoryManager identity

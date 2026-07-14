@@ -2,10 +2,10 @@
 SurrealDB Memory Creation
 """
 
-from agno.db.surrealdb import SurrealDb
-from agno.memory import MemoryManager, UserMemory
-from agno.models.message import Message
-from agno.models.openai import OpenAIChat
+from egpt.db.surrealdb import SurrealDb
+from egpt.memory import MemoryManager, UserMemory
+from egpt.models.message import Message
+from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

@@ -11,10 +11,10 @@ To get started, either set `REDIS_URL`, or start local Redis with:
 import asyncio
 import os
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.redis import RedisVectorDb
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.redis import RedisVectorDb
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

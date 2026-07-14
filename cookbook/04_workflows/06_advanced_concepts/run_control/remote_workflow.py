@@ -8,7 +8,7 @@ Demonstrates executing a workflow hosted on a remote server using `RemoteWorkflo
 import asyncio
 import os
 
-from agno.workflow import RemoteWorkflow
+from egpt.workflow import RemoteWorkflow
 
 # ---------------------------------------------------------------------------
 # Create Remote Workflow

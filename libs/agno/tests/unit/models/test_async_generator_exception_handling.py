@@ -10,8 +10,8 @@ and `function_call_success = False`, matching sync generator behavior.
 
 import pytest
 
-from agno.run import RunContext
-from agno.tools.function import Function, FunctionCall
+from egpt.run import RunContext
+from egpt.tools.function import Function, FunctionCall
 
 
 @pytest.mark.asyncio

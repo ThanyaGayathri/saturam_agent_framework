@@ -2,9 +2,9 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from pydantic import BaseModel
 
-from agno.models.google.gemini import Gemini
-from agno.models.message import Message
-from agno.tools.function import Function
+from egpt.models.google.gemini import Gemini
+from egpt.models.message import Message
+from egpt.tools.function import Function
 
 
 def test_no_parameters_tool_parsing():

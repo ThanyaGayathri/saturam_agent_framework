@@ -1,4 +1,4 @@
-from agno.db.migrations.utils import quote_db_identifier
+from egpt.db.migrations.utils import quote_db_identifier
 
 
 def test_quote_db_identifier_postgres():

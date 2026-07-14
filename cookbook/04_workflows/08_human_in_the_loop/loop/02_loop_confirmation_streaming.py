@@ -18,18 +18,18 @@ Key difference from non-streaming:
 - Get WorkflowRunOutput from session after streaming completes
 """
 
-from agno.db.sqlite import SqliteDb
-from agno.run.workflow import (
+from egpt.db.sqlite import SqliteDb
+from egpt.run.workflow import (
     StepCompletedEvent,
     StepPausedEvent,
     StepStartedEvent,
     WorkflowCompletedEvent,
     WorkflowStartedEvent,
 )
-from agno.workflow.loop import Loop
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.workflow.loop import Loop
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 # ============================================================

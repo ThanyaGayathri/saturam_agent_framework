@@ -5,8 +5,8 @@ Composio Tools
 Demonstrates composio tools.
 """
 
-from agno.agent import Agent
 from composio_agno import Action, ComposioToolSet
+from egpt.agent import Agent
 
 # ---------------------------------------------------------------------------
 # Create Agent

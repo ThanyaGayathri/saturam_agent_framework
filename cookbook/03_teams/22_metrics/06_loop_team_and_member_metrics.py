@@ -16,12 +16,12 @@ Key thing to know:
 from os import getenv
 from typing import Iterable, Optional, Union
 
-from agno.agent import Agent
-from agno.metrics import RunMetrics
-from agno.models.openai import OpenAIChat
-from agno.run.agent import RunOutput
-from agno.run.team import TeamRunOutput
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.metrics import RunMetrics
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import RunOutput
+from egpt.run.team import TeamRunOutput
+from egpt.team import Team
 from rich.pretty import pprint
 
 endpoint = getenv("AZURE_OPENAI_ENDPOINT")

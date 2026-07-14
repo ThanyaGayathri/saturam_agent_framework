@@ -6,16 +6,16 @@ Demonstrates using Registry with AgentOS for tools, functions, schemas,
 models, and vector database components.
 """
 
-from agno.db.postgres import PostgresDb
-from agno.models.anthropic import Claude
-from agno.models.google.gemini import Gemini
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.registry import Registry
-from agno.tools.calculator import CalculatorTools
-from agno.tools.parallel import ParallelTools
-from agno.tools.youtube import YouTubeTools
-from agno.vectordb.pgvector import PgVector
+from egpt.db.postgres import PostgresDb
+from egpt.models.anthropic import Claude
+from egpt.models.google.gemini import Gemini
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.registry import Registry
+from egpt.tools.calculator import CalculatorTools
+from egpt.tools.parallel import ParallelTools
+from egpt.tools.youtube import YouTubeTools
+from egpt.vectordb.pgvector import PgVector
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 from typing import List, Optional, Union
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.openai import OpenAIChat
 
 
 def test_tool_call_custom_tool_no_parameters():

@@ -7,9 +7,9 @@ Demonstrates this reasoning cookbook example.
 
 from textwrap import dedent
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.ibm import WatsonX
-from agno.tools.reasoning import ReasoningTools
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.ibm import WatsonX
+from egpt.tools.reasoning import ReasoningTools
 
 
 # ---------------------------------------------------------------------------

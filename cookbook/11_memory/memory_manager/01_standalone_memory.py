@@ -5,8 +5,8 @@ Standalone Memory Manager CRUD
 This example shows how to add, get, delete, and replace user memories manually.
 """
 
-from agno.db.postgres import PostgresDb
-from agno.memory import MemoryManager, UserMemory
+from egpt.db.postgres import PostgresDb
+from egpt.memory import MemoryManager, UserMemory
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

@@ -5,8 +5,8 @@ Postgres Tools
 Demonstrates postgres tools.
 """
 
-from agno.agent import Agent
-from agno.tools.postgres import PostgresTools
+from egpt.agent import Agent
+from egpt.tools.postgres import PostgresTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -8,13 +8,13 @@ you can pass a callable predicate that decides at runtime whether review is need
 In this example, only outputs longer than 200 characters trigger review.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.workflow import OnReject
-from agno.workflow.step import Step
-from agno.workflow.types import HumanReview, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.workflow import OnReject
+from egpt.workflow.step import Step
+from egpt.workflow.types import HumanReview, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 def needs_review(step_output: StepOutput) -> bool:

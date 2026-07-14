@@ -5,9 +5,9 @@ Mistral Structured Output With Tool Use
 Cookbook example for `mistral/structured_output_with_tool_use.py`.
 """
 
-from agno.agent import Agent
-from agno.models.mistral import MistralChat
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.mistral import MistralChat
+from egpt.tools.websearch import WebSearchTools
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------

@@ -7,9 +7,9 @@ Demonstrates Zep-powered memory retrieval for an Agno agent.
 
 import time
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.zep import ZepTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.zep import ZepTools
 
 # ---------------------------------------------------------------------------
 # Setup

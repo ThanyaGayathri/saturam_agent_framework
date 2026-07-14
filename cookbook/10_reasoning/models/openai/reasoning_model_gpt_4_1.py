@@ -5,8 +5,8 @@ Reasoning Model Gpt 4 1
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.openai.responses import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.openai.responses import OpenAIResponses
 
 
 # ---------------------------------------------------------------------------

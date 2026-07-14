@@ -17,12 +17,12 @@ This matters in production for two reasons:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.website_reader import WebsiteReader
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.lancedb import LanceDb, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.website_reader import WebsiteReader
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.lancedb import LanceDb, SearchType
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -105,16 +105,16 @@ if __name__ == "__main__":
         # 4. Same knob exists on the other URL-fetching readers
         # -------------------------------------------------------------------
 
-        #   from agno.knowledge.reader.firecrawl_reader import FirecrawlReader
+        #   from egpt.knowledge.reader.firecrawl_reader import FirecrawlReader
         #   FirecrawlReader(api_key=..., allowed_hosts=["docs.agno.com"])
         #
-        #   from agno.knowledge.reader.docling_reader import DoclingReader
+        #   from egpt.knowledge.reader.docling_reader import DoclingReader
         #   DoclingReader(allowed_hosts=["docs.agno.com"])
         #
-        #   from agno.knowledge.reader.llms_txt_reader import LLMsTxtReader
+        #   from egpt.knowledge.reader.llms_txt_reader import LLMsTxtReader
         #   LLMsTxtReader(allowed_hosts=["docs.agno.com"])
         #
-        #   from agno.knowledge.reader.web_search_reader import WebSearchReader
+        #   from egpt.knowledge.reader.web_search_reader import WebSearchReader
         #   WebSearchReader(allowed_hosts=["docs.agno.com", "github.com"])
 
     asyncio.run(main())

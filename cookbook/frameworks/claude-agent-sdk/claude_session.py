@@ -12,8 +12,8 @@ Usage:
     python cookbook/frameworks/claude-agent-sdk/claude_session.py
 """
 
-from agno.agents.claude import ClaudeAgent
-from agno.db.postgres import PostgresDb
+from egpt.agents.claude import ClaudeAgent
+from egpt.db.postgres import PostgresDb
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 pg_db = PostgresDb(db_url=db_url)

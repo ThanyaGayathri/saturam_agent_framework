@@ -14,11 +14,11 @@ import uuid
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.agent import RunCancelledEvent, RunCompletedEvent, RunEvent
-from agno.run.base import RunStatus
-from agno.run.cancel import cancel_run, register_run
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import RunCancelledEvent, RunCompletedEvent, RunEvent
+from egpt.run.base import RunStatus
+from egpt.run.cancel import cancel_run, register_run
 
 pytestmark = pytest.mark.skipif(not os.getenv("OPENAI_API_KEY"), reason="OPENAI_API_KEY not set")
 
@@ -34,7 +34,7 @@ def test_cancel_agent_during_sync_streaming(shared_db):
     - Partial content is collected before cancellation
     - Resources are cleaned up (run removed from tracking)
     """
-    from agno.run.cancel import _cancellation_manager
+    from egpt.run.cancel import _cancellation_manager
 
     agent = Agent(
         name="Streaming Agent",
@@ -188,7 +188,7 @@ async def test_cancel_agent_during_async_streaming(shared_db):
     - Run status is set to cancelled
     - Resources are cleaned up
     """
-    from agno.run.cancel import _cancellation_manager
+    from egpt.run.cancel import _cancellation_manager
 
     agent = Agent(
         name="Async Streaming Agent",
@@ -289,7 +289,7 @@ async def test_cancel_agent_async_streaming_preserves_content_in_db(shared_db):
 # ============================================================================
 def test_cancel_non_existent_agent_run():
     """Test that cancelling a non-existent run returns False."""
-    from agno.db.sqlite import SqliteDb
+    from egpt.db.sqlite import SqliteDb
 
     agent = Agent(
         name="Test Agent",

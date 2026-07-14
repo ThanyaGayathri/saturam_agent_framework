@@ -5,9 +5,9 @@ Image To Image
 Image To Image.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.fal import FalTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.fal import FalTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

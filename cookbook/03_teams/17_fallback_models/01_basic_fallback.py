@@ -6,10 +6,10 @@ When the team leader's primary model fails (after exhausting retries),
 fallback models are tried in order until one succeeds.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.models.openai import OpenAIChat
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.models.openai import OpenAIChat
+from egpt.team import Team
 
 researcher = Agent(
     name="Researcher",

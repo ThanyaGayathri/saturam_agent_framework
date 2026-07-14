@@ -5,8 +5,8 @@ Together Basic
 Cookbook example for `together/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.together import Together
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.together import Together
 import asyncio
 
 # ---------------------------------------------------------------------------

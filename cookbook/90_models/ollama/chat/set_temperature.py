@@ -5,8 +5,8 @@ Ollama Set Temperature
 Cookbook example for `ollama/chat/set_temperature.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.ollama import Ollama
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.ollama import Ollama
 
 # ---------------------------------------------------------------------------
 # Create Agent

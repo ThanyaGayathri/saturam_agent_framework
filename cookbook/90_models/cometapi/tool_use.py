@@ -7,9 +7,9 @@ Cookbook example for `cometapi/tool_use.py`.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.cometapi import CometAPI
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.cometapi import CometAPI
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

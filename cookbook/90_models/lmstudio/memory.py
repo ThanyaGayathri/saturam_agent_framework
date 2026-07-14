@@ -6,9 +6,9 @@ Steps:
 3. Run: `python cookbook/92_models/lmstudio/memory.py` to run the agent
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.lmstudio import LMStudio
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.lmstudio import LMStudio
 
 # ---------------------------------------------------------------------------
 # Create Agent

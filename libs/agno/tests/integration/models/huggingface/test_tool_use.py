@@ -1,10 +1,10 @@
 import pytest
 
-from agno.agent import Agent, ToolCallCompletedEvent, ToolCallStartedEvent
-from agno.models.huggingface import HuggingFace
-from agno.tools.exa import ExaTools
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent, ToolCallCompletedEvent, ToolCallStartedEvent
+from egpt.models.huggingface import HuggingFace
+from egpt.tools.exa import ExaTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 
 def test_tool_use():

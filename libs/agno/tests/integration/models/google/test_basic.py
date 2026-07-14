@@ -2,10 +2,10 @@ import pytest
 from google.genai import types
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.db.sqlite import SqliteDb
-from agno.models.google import Gemini
-from agno.run.base import RunStatus
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.db.sqlite import SqliteDb
+from egpt.models.google import Gemini
+from egpt.run.base import RunStatus
 
 
 def _assert_metrics(response: RunOutput):
@@ -247,7 +247,7 @@ def test_custom_client_params():
 
 
 def test_count_tokens():
-    from agno.models.message import Message
+    from egpt.models.message import Message
 
     model = Gemini(id="gemini-flash-latest")
     messages = [
@@ -262,8 +262,8 @@ def test_count_tokens():
 
 
 def test_count_tokens_with_tools():
-    from agno.models.message import Message
-    from agno.tools.calculator import CalculatorTools
+    from egpt.models.message import Message
+    from egpt.tools.calculator import CalculatorTools
 
     model = Gemini(id="gemini-flash-latest")
     messages = [
@@ -282,7 +282,7 @@ def test_count_tokens_with_tools():
 @pytest.mark.asyncio
 async def test_acount_tokens():
     """Test async token counting."""
-    from agno.models.message import Message
+    from egpt.models.message import Message
 
     model = Gemini(id="gemini-flash-latest")
     messages = [
@@ -300,8 +300,8 @@ async def test_acount_tokens():
 @pytest.mark.asyncio
 async def test_acount_tokens_with_tools():
     """Test async token counting with tools."""
-    from agno.models.message import Message
-    from agno.tools.calculator import CalculatorTools
+    from egpt.models.message import Message
+    from egpt.tools.calculator import CalculatorTools
 
     model = Gemini(id="gemini-flash-latest")
     messages = [
@@ -323,7 +323,7 @@ async def test_acount_tokens_with_tools():
 @pytest.mark.asyncio
 async def test_acount_tokens_vertexai():
     """Test async token counting with VertexAI."""
-    from agno.models.message import Message
+    from egpt.models.message import Message
 
     model = Gemini(id="gemini-flash-latest", vertexai=True)
     messages = [

@@ -5,23 +5,23 @@ Prerequisites:
 uv pip install -U fastapi uvicorn sqlalchemy pgvector psycopg openai ddgs
 """
 
-from agno import __version__ as agno_version
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.os.interfaces.a2a import A2A
-from agno.os.interfaces.agui import AGUI
-from agno.os.interfaces.slack import Slack
-from agno.os.interfaces.telegram import Telegram
-from agno.os.interfaces.whatsapp import Whatsapp
-from agno.registry import Registry
-from agno.team import Team
-from agno.tools.mcp import MCPTools
-from agno.vectordb.pgvector import PgVector
-from agno.workflow import Workflow
-from agno.workflow.step import Step
+from egpt import __version__ as agno_version
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.os.interfaces.a2a import A2A
+from egpt.os.interfaces.agui import AGUI
+from egpt.os.interfaces.slack import Slack
+from egpt.os.interfaces.telegram import Telegram
+from egpt.os.interfaces.whatsapp import Whatsapp
+from egpt.registry import Registry
+from egpt.team import Team
+from egpt.tools.mcp import MCPTools
+from egpt.vectordb.pgvector import PgVector
+from egpt.workflow import Workflow
+from egpt.workflow.step import Step
 
 # ---------------------------------------------------------------------------
 # Create Example

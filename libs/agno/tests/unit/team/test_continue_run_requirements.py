@@ -4,10 +4,10 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from agno.models.response import ToolExecution
-from agno.run import RunStatus
-from agno.run.requirement import RunRequirement
-from agno.run.team import TeamRunOutput
+from egpt.models.response import ToolExecution
+from egpt.run import RunStatus
+from egpt.run.requirement import RunRequirement
+from egpt.run.team import TeamRunOutput
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -31,7 +31,7 @@ def _make_requirement(**te_overrides) -> RunRequirement:
 
 class TestPropagateMemberPause:
     def test_copies_requirements_with_member_context(self):
-        from agno.team._tools import _propagate_member_pause
+        from egpt.team._tools import _propagate_member_pause
 
         # Create a mock member agent
         member_agent = MagicMock()
@@ -47,7 +47,7 @@ class TestPropagateMemberPause:
         run_response = MagicMock()
         run_response.requirements = None
 
-        with patch("agno.team._tools.get_member_id", return_value="member-id-abc"):
+        with patch("egpt.team._tools.get_member_id", return_value="member-id-abc"):
             _propagate_member_pause(run_response, member_agent, member_run_response)
 
         assert run_response.requirements is not None
@@ -59,7 +59,7 @@ class TestPropagateMemberPause:
 
     def test_deep_copies_requirements(self):
         """Modifying the copied requirement must not affect the original."""
-        from agno.team._tools import _propagate_member_pause
+        from egpt.team._tools import _propagate_member_pause
 
         member_agent = MagicMock()
         member_agent.name = "Agent"
@@ -72,7 +72,7 @@ class TestPropagateMemberPause:
         run_response = MagicMock()
         run_response.requirements = None
 
-        with patch("agno.team._tools.get_member_id", return_value="id-1"):
+        with patch("egpt.team._tools.get_member_id", return_value="id-1"):
             _propagate_member_pause(run_response, member_agent, member_run_response)
 
         # Modify the copied requirement
@@ -82,8 +82,8 @@ class TestPropagateMemberPause:
 
     def test_user_input_schema_is_deeply_copied(self):
         """Mutating the copied user_input_schema must not affect the original."""
-        from agno.team._tools import _propagate_member_pause
-        from agno.tools.function import UserInputField
+        from egpt.team._tools import _propagate_member_pause
+        from egpt.tools.function import UserInputField
 
         member_agent = MagicMock()
         member_agent.name = "Agent"
@@ -100,7 +100,7 @@ class TestPropagateMemberPause:
         run_response = MagicMock()
         run_response.requirements = None
 
-        with patch("agno.team._tools.get_member_id", return_value="id-1"):
+        with patch("egpt.team._tools.get_member_id", return_value="id-1"):
             _propagate_member_pause(run_response, member_agent, member_run_response)
 
         copied_req = run_response.requirements[0]
@@ -113,7 +113,7 @@ class TestPropagateMemberPause:
 
     def test_tool_execution_is_deeply_copied(self):
         """Mutating the copied tool_execution must not affect the original."""
-        from agno.team._tools import _propagate_member_pause
+        from egpt.team._tools import _propagate_member_pause
 
         member_agent = MagicMock()
         member_agent.name = "Agent"
@@ -127,7 +127,7 @@ class TestPropagateMemberPause:
         run_response = MagicMock()
         run_response.requirements = None
 
-        with patch("agno.team._tools.get_member_id", return_value="id-1"):
+        with patch("egpt.team._tools.get_member_id", return_value="id-1"):
             _propagate_member_pause(run_response, member_agent, member_run_response)
 
         copied_req = run_response.requirements[0]
@@ -137,7 +137,7 @@ class TestPropagateMemberPause:
         assert original_tool_execution.confirmed is None
 
     def test_empty_requirements_does_nothing(self):
-        from agno.team._tools import _propagate_member_pause
+        from egpt.team._tools import _propagate_member_pause
 
         member_agent = MagicMock()
         member_run_response = MagicMock()
@@ -151,7 +151,7 @@ class TestPropagateMemberPause:
         assert run_response.requirements is None
 
     def test_multiple_requirements_all_copied(self):
-        from agno.team._tools import _propagate_member_pause
+        from egpt.team._tools import _propagate_member_pause
 
         member_agent = MagicMock()
         member_agent.name = "Agent"
@@ -165,14 +165,14 @@ class TestPropagateMemberPause:
         run_response = MagicMock()
         run_response.requirements = None
 
-        with patch("agno.team._tools.get_member_id", return_value="id-1"):
+        with patch("egpt.team._tools.get_member_id", return_value="id-1"):
             _propagate_member_pause(run_response, member_agent, member_run_response)
 
         assert len(run_response.requirements) == 2
         assert all(r.member_agent_id == "id-1" for r in run_response.requirements)
 
     def test_appends_to_existing_requirements(self):
-        from agno.team._tools import _propagate_member_pause
+        from egpt.team._tools import _propagate_member_pause
 
         member_agent = MagicMock()
         member_agent.name = "Agent"
@@ -186,7 +186,7 @@ class TestPropagateMemberPause:
         run_response = MagicMock()
         run_response.requirements = [existing_req]
 
-        with patch("agno.team._tools.get_member_id", return_value="id-1"):
+        with patch("egpt.team._tools.get_member_id", return_value="id-1"):
             _propagate_member_pause(run_response, member_agent, member_run_response)
 
         assert len(run_response.requirements) == 2
@@ -200,8 +200,8 @@ class TestPropagateMemberPause:
 class TestFindMemberRouteById:
     def _make_team_with_members(self):
         """Create a team hierarchy for testing."""
-        from agno.agent import Agent
-        from agno.team.team import Team
+        from egpt.agent import Agent
+        from egpt.team.team import Team
 
         agent_a = Agent(name="Agent A")
         agent_b = Agent(name="Agent B")
@@ -213,8 +213,8 @@ class TestFindMemberRouteById:
         return team, agent_a, agent_b, agent_c, sub_team
 
     def test_direct_member_match(self):
-        from agno.team._tools import _find_member_route_by_id
-        from agno.utils.team import get_member_id
+        from egpt.team._tools import _find_member_route_by_id
+        from egpt.utils.team import get_member_id
 
         team, agent_a, _, _, _ = self._make_team_with_members()
         member_id = get_member_id(agent_a)
@@ -227,8 +227,8 @@ class TestFindMemberRouteById:
 
     def test_nested_member_returns_sub_team(self):
         """For a member nested inside a sub-team, should return the sub-team for routing."""
-        from agno.team._tools import _find_member_route_by_id
-        from agno.utils.team import get_member_id
+        from egpt.team._tools import _find_member_route_by_id
+        from egpt.utils.team import get_member_id
 
         team, _, _, agent_c, sub_team = self._make_team_with_members()
         member_id = get_member_id(agent_c)
@@ -240,7 +240,7 @@ class TestFindMemberRouteById:
         assert member is sub_team  # Routes through sub-team, not directly to agent_c
 
     def test_unknown_member_returns_none(self):
-        from agno.team._tools import _find_member_route_by_id
+        from egpt.team._tools import _find_member_route_by_id
 
         team, _, _, _, _ = self._make_team_with_members()
         result = _find_member_route_by_id(team, "nonexistent-id")
@@ -254,7 +254,7 @@ class TestFindMemberRouteById:
 
 class TestNormalizeRequirementsPayload:
     def test_converts_dict_to_run_requirement(self):
-        from agno.team._run import _normalize_requirements_payload
+        from egpt.team._run import _normalize_requirements_payload
 
         req = _make_requirement(requires_confirmation=True)
         d = req.to_dict()
@@ -264,14 +264,14 @@ class TestNormalizeRequirementsPayload:
         assert isinstance(result[0], RunRequirement)
 
     def test_passes_through_run_requirement_objects(self):
-        from agno.team._run import _normalize_requirements_payload
+        from egpt.team._run import _normalize_requirements_payload
 
         req = _make_requirement(requires_confirmation=True)
         result = _normalize_requirements_payload([req])
         assert result[0] is req  # Same object, not a copy
 
     def test_handles_mixed_list(self):
-        from agno.team._run import _normalize_requirements_payload
+        from egpt.team._run import _normalize_requirements_payload
 
         req = _make_requirement(requires_confirmation=True)
         d = _make_requirement(external_execution_required=True).to_dict()
@@ -289,34 +289,34 @@ class TestNormalizeRequirementsPayload:
 
 class TestRequirementClassification:
     def test_has_member_requirements(self):
-        from agno.team._run import _has_member_requirements
+        from egpt.team._run import _has_member_requirements
 
         req = _make_requirement(requires_confirmation=True)
         req.member_agent_id = "agent-1"
         assert _has_member_requirements([req]) is True
 
     def test_has_no_member_requirements(self):
-        from agno.team._run import _has_member_requirements
+        from egpt.team._run import _has_member_requirements
 
         req = _make_requirement(requires_confirmation=True)
         assert _has_member_requirements([req]) is False
 
     def test_has_team_level_requirements(self):
-        from agno.team._run import _has_team_level_requirements
+        from egpt.team._run import _has_team_level_requirements
 
         req = _make_requirement(requires_confirmation=True)
         # No member_agent_id means it's a team-level requirement
         assert _has_team_level_requirements([req]) is True
 
     def test_has_no_team_level_requirements(self):
-        from agno.team._run import _has_team_level_requirements
+        from egpt.team._run import _has_team_level_requirements
 
         req = _make_requirement(requires_confirmation=True)
         req.member_agent_id = "agent-1"
         assert _has_team_level_requirements([req]) is False
 
     def test_mixed_requirements(self):
-        from agno.team._run import _has_member_requirements, _has_team_level_requirements
+        from egpt.team._run import _has_member_requirements, _has_team_level_requirements
 
         team_req = _make_requirement(requires_confirmation=True)
         member_req = _make_requirement(external_execution_required=True)
@@ -327,7 +327,7 @@ class TestRequirementClassification:
         assert _has_team_level_requirements(reqs) is True
 
     def test_empty_list(self):
-        from agno.team._run import _has_member_requirements, _has_team_level_requirements
+        from egpt.team._run import _has_member_requirements, _has_team_level_requirements
 
         assert _has_member_requirements([]) is False
         assert _has_team_level_requirements([]) is False
@@ -340,20 +340,20 @@ class TestRequirementClassification:
 
 class TestBuildContinuationMessage:
     def test_empty_results(self):
-        from agno.team._run import _build_continuation_message
+        from egpt.team._run import _build_continuation_message
 
         msg = _build_continuation_message([])
         assert "completed" in msg.lower()
 
     def test_single_result(self):
-        from agno.team._run import _build_continuation_message
+        from egpt.team._run import _build_continuation_message
 
         msg = _build_continuation_message(["[Agent A]: Deployment successful"])
         assert "Agent A" in msg
         assert "Deployment successful" in msg
 
     def test_multiple_results(self):
-        from agno.team._run import _build_continuation_message
+        from egpt.team._run import _build_continuation_message
 
         msg = _build_continuation_message(
             [
@@ -462,13 +462,13 @@ class TestMixedHITLTypes:
         assert ext_req.is_resolved() is True
 
     def test_mixed_member_and_team_level_requirements(self):
-        from agno.team._run import _has_member_requirements, _has_team_level_requirements
+        from egpt.team._run import _has_member_requirements, _has_team_level_requirements
 
         team_conf_req = _make_requirement(requires_confirmation=True)
         member_ext_req = _make_requirement(external_execution_required=True)
         member_ext_req.member_agent_id = "agent-1"
 
-        from agno.tools.function import UserInputField
+        from egpt.tools.function import UserInputField
 
         member_input_req = _make_requirement(
             requires_user_input=True,
@@ -497,10 +497,10 @@ class TestDeeplyNestedTeams:
     """Test _find_member_route_by_id with 3+ levels of nesting."""
 
     def test_three_level_nesting_returns_top_sub_team(self):
-        from agno.agent import Agent
-        from agno.team._tools import _find_member_route_by_id
-        from agno.team.team import Team
-        from agno.utils.team import get_member_id
+        from egpt.agent import Agent
+        from egpt.team._tools import _find_member_route_by_id
+        from egpt.team.team import Team
+        from egpt.utils.team import get_member_id
 
         deep_agent = Agent(name="Deep Agent")
         inner_team = Team(name="Inner Team", members=[deep_agent])
@@ -517,10 +517,10 @@ class TestDeeplyNestedTeams:
         assert idx == 0
 
     def test_three_level_nesting_direct_child_match(self):
-        from agno.agent import Agent
-        from agno.team._tools import _find_member_route_by_id
-        from agno.team.team import Team
-        from agno.utils.team import get_member_id
+        from egpt.agent import Agent
+        from egpt.team._tools import _find_member_route_by_id
+        from egpt.team.team import Team
+        from egpt.utils.team import get_member_id
 
         deep_agent = Agent(name="Deep Agent")
         inner_team = Team(name="Inner Team", members=[deep_agent])
@@ -537,9 +537,9 @@ class TestDeeplyNestedTeams:
         assert member is outer_team
 
     def test_deeply_nested_unknown_returns_none(self):
-        from agno.agent import Agent
-        from agno.team._tools import _find_member_route_by_id
-        from agno.team.team import Team
+        from egpt.agent import Agent
+        from egpt.team._tools import _find_member_route_by_id
+        from egpt.team.team import Team
 
         deep_agent = Agent(name="Deep Agent")
         inner_team = Team(name="Inner Team", members=[deep_agent])
@@ -558,7 +558,7 @@ class TestMemberRunResponseCleanup:
     """Verify that _member_run_response is cleared after routing consumption."""
 
     def test_propagate_sets_member_run_response(self):
-        from agno.team._tools import _propagate_member_pause
+        from egpt.team._tools import _propagate_member_pause
 
         member_agent = MagicMock()
         member_agent.name = "Agent"
@@ -571,7 +571,7 @@ class TestMemberRunResponseCleanup:
         run_response = MagicMock()
         run_response.requirements = None
 
-        with patch("agno.team._tools.get_member_id", return_value="id-1"):
+        with patch("egpt.team._tools.get_member_id", return_value="id-1"):
             _propagate_member_pause(run_response, member_agent, member_run_response)
 
         # _member_run_response should be set
@@ -673,31 +673,31 @@ class TestAsyncGatherErrorHandling:
 
 class TestToolResultRequiresHumanInput:
     def test_matching_string(self):
-        from agno.team._run import _tool_result_requires_human_input
+        from egpt.team._run import _tool_result_requires_human_input
 
         tool = _make_tool_execution(result="Tool requires human input to proceed")
         assert _tool_result_requires_human_input(tool) is True
 
     def test_case_insensitive(self):
-        from agno.team._run import _tool_result_requires_human_input
+        from egpt.team._run import _tool_result_requires_human_input
 
         tool = _make_tool_execution(result="REQUIRES HUMAN INPUT")
         assert _tool_result_requires_human_input(tool) is True
 
     def test_no_match(self):
-        from agno.team._run import _tool_result_requires_human_input
+        from egpt.team._run import _tool_result_requires_human_input
 
         tool = _make_tool_execution(result="Success: operation completed")
         assert _tool_result_requires_human_input(tool) is False
 
     def test_none_result(self):
-        from agno.team._run import _tool_result_requires_human_input
+        from egpt.team._run import _tool_result_requires_human_input
 
         tool = _make_tool_execution(result=None)
         assert _tool_result_requires_human_input(tool) is False
 
     def test_non_string_result(self):
-        from agno.team._run import _tool_result_requires_human_input
+        from egpt.team._run import _tool_result_requires_human_input
 
         tool = _make_tool_execution(result={"key": "requires human input"})
         assert _tool_result_requires_human_input(tool) is False
@@ -731,7 +731,7 @@ class TestPrepareMemberHitlContinuation:
         return run_messages
 
     def test_updates_delegate_task_to_member(self):
-        from agno.team._run import _prepare_member_hitl_continuation
+        from egpt.team._run import _prepare_member_hitl_continuation
 
         tool = _make_tool_execution(
             tool_name="delegate_task_to_member",
@@ -747,7 +747,7 @@ class TestPrepareMemberHitlContinuation:
         assert "Done" in tool.result
 
     def test_updates_delegate_task_to_members_plural(self):
-        from agno.team._run import _prepare_member_hitl_continuation
+        from egpt.team._run import _prepare_member_hitl_continuation
 
         tool = _make_tool_execution(
             tool_name="delegate_task_to_members",
@@ -762,7 +762,7 @@ class TestPrepareMemberHitlContinuation:
         assert "Done" in tool.result
 
     def test_updates_multiple_matching_tools(self):
-        from agno.team._run import _prepare_member_hitl_continuation
+        from egpt.team._run import _prepare_member_hitl_continuation
 
         tool1 = _make_tool_execution(
             tool_name="delegate_task_to_member",
@@ -785,7 +785,7 @@ class TestPrepareMemberHitlContinuation:
 
     def test_falls_back_to_any_tool_with_human_input(self):
         """If no delegate tool matches, falls back to any tool with human input result."""
-        from agno.team._run import _prepare_member_hitl_continuation
+        from egpt.team._run import _prepare_member_hitl_continuation
 
         tool = _make_tool_execution(
             tool_name="some_other_tool",
@@ -800,7 +800,7 @@ class TestPrepareMemberHitlContinuation:
         assert "Done" in tool.result
 
     def test_resets_run_state(self):
-        from agno.team._run import _prepare_member_hitl_continuation
+        from egpt.team._run import _prepare_member_hitl_continuation
 
         tool = _make_tool_execution(
             tool_name="delegate_task_to_member",
@@ -825,7 +825,7 @@ class TestPrepareMemberHitlContinuation:
 
 class TestContinueRunApprovalResolution:
     def test_continue_run_dispatch_uses_resolved_admin_approval_without_requirements(self):
-        from agno.team._run import continue_run_dispatch
+        from egpt.team._run import continue_run_dispatch
 
         team = MagicMock()
         team.session_id = None
@@ -863,18 +863,18 @@ class TestContinueRunApprovalResolution:
             paused_run_response.requirements[0].confirm()
 
         with (
-            patch("agno.team._init._has_async_db", return_value=False),
-            patch("agno.team._init._initialize_session", return_value=("session-1", None)),
-            patch("agno.team._storage._read_or_create_session", return_value=team_session),
-            patch("agno.team._storage._update_metadata"),
-            patch("agno.team._storage._load_session_state", return_value={}),
-            patch("agno.team._run_options.resolve_run_options", return_value=opts),
-            patch("agno.team._response.get_response_format", return_value=None),
-            patch("agno.team._tools._determine_tools_for_model", return_value=[]),
-            patch("agno.team._run._get_continue_run_messages", return_value=MagicMock(messages=[])),
-            patch("agno.team._run._handle_team_tool_call_updates"),
-            patch("agno.team._run._continue_run", return_value=sentinel) as mock_continue,
-            patch("agno.run.approval.check_and_apply_approval_resolution", side_effect=_resolve_approval) as mock_apply,
+            patch("egpt.team._init._has_async_db", return_value=False),
+            patch("egpt.team._init._initialize_session", return_value=("session-1", None)),
+            patch("egpt.team._storage._read_or_create_session", return_value=team_session),
+            patch("egpt.team._storage._update_metadata"),
+            patch("egpt.team._storage._load_session_state", return_value={}),
+            patch("egpt.team._run_options.resolve_run_options", return_value=opts),
+            patch("egpt.team._response.get_response_format", return_value=None),
+            patch("egpt.team._tools._determine_tools_for_model", return_value=[]),
+            patch("egpt.team._run._get_continue_run_messages", return_value=MagicMock(messages=[])),
+            patch("egpt.team._run._handle_team_tool_call_updates"),
+            patch("egpt.team._run._continue_run", return_value=sentinel) as mock_continue,
+            patch("egpt.run.approval.check_and_apply_approval_resolution", side_effect=_resolve_approval) as mock_apply,
         ):
             result = continue_run_dispatch(
                 team,
@@ -888,7 +888,7 @@ class TestContinueRunApprovalResolution:
         mock_continue.assert_called_once()
 
     def test_acontinue_run_uses_resolved_admin_approval_without_requirements(self):
-        from agno.team._run import _acontinue_run
+        from egpt.team._run import _acontinue_run
 
         team = MagicMock()
         team.retries = 0
@@ -921,19 +921,19 @@ class TestContinueRunApprovalResolution:
 
         async def _exercise():
             with (
-                patch("agno.team._run._asetup_session", new=AsyncMock(return_value=team_session)),
-                patch("agno.team._run.aregister_run", new=AsyncMock()),
-                patch("agno.team._run.acleanup_run", new=AsyncMock()),
-                patch("agno.team._init._disconnect_connectable_tools"),
-                patch("agno.team._init._disconnect_mcp_tools", new=AsyncMock()),
-                patch("agno.team._tools._check_and_refresh_mcp_tools", new=AsyncMock()),
-                patch("agno.team._tools._aget_learning_tools", new=AsyncMock(return_value=[])),
-                patch("agno.team._tools._determine_tools_for_model", return_value=[]),
-                patch("agno.team._run._get_continue_run_messages", return_value=MagicMock(messages=[])),
-                patch("agno.team._run._ahandle_team_tool_call_updates", new=AsyncMock()),
-                patch("agno.team._run._ahandle_model_response_for_continue", new=AsyncMock(return_value=sentinel)),
+                patch("egpt.team._run._asetup_session", new=AsyncMock(return_value=team_session)),
+                patch("egpt.team._run.aregister_run", new=AsyncMock()),
+                patch("egpt.team._run.acleanup_run", new=AsyncMock()),
+                patch("egpt.team._init._disconnect_connectable_tools"),
+                patch("egpt.team._init._disconnect_mcp_tools", new=AsyncMock()),
+                patch("egpt.team._tools._check_and_refresh_mcp_tools", new=AsyncMock()),
+                patch("egpt.team._tools._aget_learning_tools", new=AsyncMock(return_value=[])),
+                patch("egpt.team._tools._determine_tools_for_model", return_value=[]),
+                patch("egpt.team._run._get_continue_run_messages", return_value=MagicMock(messages=[])),
+                patch("egpt.team._run._ahandle_team_tool_call_updates", new=AsyncMock()),
+                patch("egpt.team._run._ahandle_model_response_for_continue", new=AsyncMock(return_value=sentinel)),
                 patch(
-                    "agno.run.approval.acheck_and_apply_approval_resolution",
+                    "egpt.run.approval.acheck_and_apply_approval_resolution",
                     side_effect=_resolve_approval,
                 ) as mock_apply,
             ):
@@ -951,7 +951,7 @@ class TestContinueRunApprovalResolution:
         asyncio.run(_exercise())
 
     def test_acontinue_run_stream_uses_run_id_for_empty_requirements(self):
-        from agno.team._run import _acontinue_run_stream
+        from egpt.team._run import _acontinue_run_stream
 
         team = MagicMock()
         team.retries = 0
@@ -981,16 +981,16 @@ class TestContinueRunApprovalResolution:
 
         async def _exercise():
             with (
-                patch("agno.team._run._asetup_session", new=AsyncMock(return_value=team_session)),
-                patch("agno.team._run.aregister_run", new=AsyncMock()),
-                patch("agno.team._run.acleanup_run", new=AsyncMock()),
-                patch("agno.team._init._disconnect_connectable_tools"),
-                patch("agno.team._init._disconnect_mcp_tools", new=AsyncMock()),
+                patch("egpt.team._run._asetup_session", new=AsyncMock(return_value=team_session)),
+                patch("egpt.team._run.aregister_run", new=AsyncMock()),
+                patch("egpt.team._run.acleanup_run", new=AsyncMock()),
+                patch("egpt.team._init._disconnect_connectable_tools"),
+                patch("egpt.team._init._disconnect_mcp_tools", new=AsyncMock()),
                 patch(
-                    "agno.run.approval.acheck_and_apply_approval_resolution",
+                    "egpt.run.approval.acheck_and_apply_approval_resolution",
                     new=AsyncMock(),
                 ) as mock_apply,
-                patch("agno.team._hooks.ahandle_team_run_paused_stream", side_effect=_pause_stream),
+                patch("egpt.team._hooks.ahandle_team_run_paused_stream", side_effect=_pause_stream),
             ):
                 events = []
                 async for event in _acontinue_run_stream(
@@ -1017,13 +1017,13 @@ class TestMemberContinueKwargsFromRunContext:
     """Verify the helper that builds kwargs forwarded to member continue_run calls."""
 
     def test_none_run_context_returns_empty(self):
-        from agno.team._run import _member_continue_kwargs_from_run_context
+        from egpt.team._run import _member_continue_kwargs_from_run_context
 
         assert _member_continue_kwargs_from_run_context(None) == {}
 
     def test_forwards_dependencies_metadata_filters(self):
-        from agno.run import RunContext
-        from agno.team._run import _member_continue_kwargs_from_run_context
+        from egpt.run import RunContext
+        from egpt.team._run import _member_continue_kwargs_from_run_context
 
         rc = RunContext(
             run_id="r",
@@ -1044,8 +1044,8 @@ class TestMemberContinueKwargsFromRunContext:
         assert "session_state" not in kwargs
 
     def test_only_forwards_set_fields(self):
-        from agno.run import RunContext
-        from agno.team._run import _member_continue_kwargs_from_run_context
+        from egpt.run import RunContext
+        from egpt.team._run import _member_continue_kwargs_from_run_context
 
         rc = RunContext(
             run_id="r",
@@ -1089,7 +1089,7 @@ class TestRoutingForwardsRunContextToMembers:
         return run_response, session, member_run_output
 
     def _make_run_context(self):
-        from agno.run import RunContext
+        from egpt.run import RunContext
 
         return RunContext(
             run_id="team-run-1",
@@ -1102,7 +1102,7 @@ class TestRoutingForwardsRunContextToMembers:
         )
 
     def test_sync_routing_forwards_dependencies(self):
-        from agno.team._run import _route_requirements_to_members
+        from egpt.team._run import _route_requirements_to_members
 
         run_response, session, _member_run_output = self._make_run_response_with_member_req()
         run_context = self._make_run_context()
@@ -1114,7 +1114,7 @@ class TestRoutingForwardsRunContextToMembers:
 
         team = MagicMock()
 
-        with patch("agno.team._tools._find_member_route_by_id", return_value=(0, member)):
+        with patch("egpt.team._tools._find_member_route_by_id", return_value=(0, member)):
             _route_requirements_to_members(team, run_response=run_response, session=session, run_context=run_context)
 
         member.continue_run.assert_called_once()
@@ -1124,7 +1124,7 @@ class TestRoutingForwardsRunContextToMembers:
         assert kwargs["knowledge_filters"] == {"tag": "v"}
 
     def test_sync_routing_run_id_fallback_forwards_dependencies(self):
-        from agno.team._run import _route_requirements_to_members
+        from egpt.team._run import _route_requirements_to_members
 
         run_response, session, _ = self._make_run_response_with_member_req()
         # Force the run_id fallback path (no cached member RunOutput)
@@ -1138,14 +1138,14 @@ class TestRoutingForwardsRunContextToMembers:
 
         team = MagicMock()
 
-        with patch("agno.team._tools._find_member_route_by_id", return_value=(0, member)):
+        with patch("egpt.team._tools._find_member_route_by_id", return_value=(0, member)):
             _route_requirements_to_members(team, run_response=run_response, session=session, run_context=run_context)
 
         kwargs = member.continue_run.call_args.kwargs
         assert kwargs["dependencies"] == {"user_token": "Bearer abc"}
 
     def test_async_routing_forwards_dependencies(self):
-        from agno.team._run import _aroute_requirements_to_members
+        from egpt.team._run import _aroute_requirements_to_members
 
         run_response, session, _ = self._make_run_response_with_member_req()
         run_context = self._make_run_context()
@@ -1158,7 +1158,7 @@ class TestRoutingForwardsRunContextToMembers:
         team = MagicMock()
 
         async def _exercise():
-            with patch("agno.team._tools._find_member_route_by_id", return_value=(0, member)):
+            with patch("egpt.team._tools._find_member_route_by_id", return_value=(0, member)):
                 await _aroute_requirements_to_members(
                     team, run_response=run_response, session=session, run_context=run_context
                 )
@@ -1172,7 +1172,7 @@ class TestRoutingForwardsRunContextToMembers:
         assert kwargs["knowledge_filters"] == {"tag": "v"}
 
     def test_async_streaming_routing_forwards_dependencies(self):
-        from agno.team._run import _aroute_requirements_to_members_stream
+        from egpt.team._run import _aroute_requirements_to_members_stream
 
         run_response, session, _ = self._make_run_response_with_member_req()
         run_context = self._make_run_context()
@@ -1192,7 +1192,7 @@ class TestRoutingForwardsRunContextToMembers:
         team.store_events = False
 
         async def _exercise():
-            with patch("agno.team._tools._find_member_route_by_id", return_value=(0, member)):
+            with patch("egpt.team._tools._find_member_route_by_id", return_value=(0, member)):
                 member_results = []
                 async for _ in _aroute_requirements_to_members_stream(
                     team,
@@ -1213,7 +1213,7 @@ class TestRoutingForwardsRunContextToMembers:
         assert kwargs["knowledge_filters"] == {"tag": "v"}
 
     def test_sync_streaming_routing_forwards_dependencies(self):
-        from agno.team._run import _route_requirements_to_members_stream
+        from egpt.team._run import _route_requirements_to_members_stream
 
         run_response, session, _ = self._make_run_response_with_member_req()
         run_context = self._make_run_context()
@@ -1232,7 +1232,7 @@ class TestRoutingForwardsRunContextToMembers:
         team.events_to_skip = []
         team.store_events = False
 
-        with patch("agno.team._tools._find_member_route_by_id", return_value=(0, member)):
+        with patch("egpt.team._tools._find_member_route_by_id", return_value=(0, member)):
             member_results = []
             list(
                 _route_requirements_to_members_stream(
@@ -1253,7 +1253,7 @@ class TestRoutingForwardsRunContextToMembers:
 
     def test_routing_with_none_run_context_does_not_inject_kwargs(self):
         """When the team has no run_context (defensive), no forwarding kwargs are added."""
-        from agno.team._run import _route_requirements_to_members
+        from egpt.team._run import _route_requirements_to_members
 
         run_response, session, _ = self._make_run_response_with_member_req()
 
@@ -1263,7 +1263,7 @@ class TestRoutingForwardsRunContextToMembers:
 
         team = MagicMock()
 
-        with patch("agno.team._tools._find_member_route_by_id", return_value=(0, member)):
+        with patch("egpt.team._tools._find_member_route_by_id", return_value=(0, member)):
             _route_requirements_to_members(team, run_response=run_response, session=session, run_context=None)
 
         kwargs = member.continue_run.call_args.kwargs

@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.knowledge.document import Document
-from agno.vectordb.search import SearchType
+from egpt.knowledge.document import Document
+from egpt.vectordb.search import SearchType
 
 
 @pytest.fixture()
@@ -103,7 +103,7 @@ def stub_redisvl(monkeypatch):
 def import_redisdb(stub_redisvl):
     """Import RedisVectorDb after stubbing dependencies and return (RedisVectorDb, search_idx_mock)."""
     # Delayed import to ensure patches are in place
-    from agno.vectordb.redis import RedisVectorDb  # type: ignore
+    from egpt.vectordb.redis import RedisVectorDb  # type: ignore
 
     search_idx_mock, async_idx_mock = stub_redisvl
     return RedisVectorDb, search_idx_mock, async_idx_mock
@@ -144,7 +144,7 @@ def redis_db(import_redisdb, mock_embedder):
 
 @pytest.fixture()
 def import_knowledge():
-    from agno.knowledge.knowledge import Knowledge
+    from egpt.knowledge.knowledge import Knowledge
 
     return Knowledge
 

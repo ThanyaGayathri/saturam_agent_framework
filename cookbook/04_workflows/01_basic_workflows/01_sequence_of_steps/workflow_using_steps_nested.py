@@ -5,16 +5,16 @@ Workflow Using Nested Steps
 Demonstrates nested workflow composition using `Steps`, `Condition`, and `Parallel`.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.exa import ExaTools
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.condition import Condition
-from agno.workflow.parallel import Parallel
-from agno.workflow.step import Step
-from agno.workflow.steps import Steps
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.exa import ExaTools
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.condition import Condition
+from egpt.workflow.parallel import Parallel
+from egpt.workflow.step import Step
+from egpt.workflow.steps import Steps
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Agents

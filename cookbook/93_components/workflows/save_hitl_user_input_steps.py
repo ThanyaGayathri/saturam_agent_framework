@@ -7,13 +7,13 @@ input, saving it to the database, and loading it back. The user_input_schema
 (field names, types, descriptions) round-trips through to_dict / from_dict.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.registry import Registry
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput, UserInputField
-from agno.workflow.workflow import Workflow, get_workflow_by_id
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.registry import Registry
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput, UserInputField
+from egpt.workflow.workflow import Workflow, get_workflow_by_id
 
 # ---------------------------------------------------------------------------
 # Setup

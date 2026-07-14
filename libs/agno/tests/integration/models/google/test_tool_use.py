@@ -3,10 +3,10 @@ from enum import Enum
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.google import Gemini
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.google import Gemini
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 
 def test_tool_use():

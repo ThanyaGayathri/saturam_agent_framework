@@ -5,8 +5,8 @@ Groq Basic
 Cookbook example for `groq/reasoning/basic.py`.
 """
 
-from agno.agent import Agent
-from agno.models.groq import Groq
+from egpt.agent import Agent
+from egpt.models.groq import Groq
 
 # ---------------------------------------------------------------------------
 # Create Agent

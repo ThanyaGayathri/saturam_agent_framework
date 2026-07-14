@@ -7,11 +7,11 @@ Example showing how tools can access media (images, videos, audio, files) passed
 
 from typing import Optional, Sequence
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.google import Gemini
-from agno.models.openai import OpenAIResponses  # noqa: F401
-from agno.tools import Toolkit
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.google import Gemini
+from egpt.models.openai import OpenAIResponses  # noqa: F401
+from egpt.tools import Toolkit
 
 
 # ---------------------------------------------------------------------------

@@ -8,9 +8,9 @@ from typing import Dict, List, Optional
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.media import Image
-from agno.utils.media import resolve_image_mime_type
-from agno.utils.models.openai_responses import (
+from egpt.media import Image
+from egpt.utils.media import resolve_image_mime_type
+from egpt.utils.models.openai_responses import (
     _process_bytes_image,
     _process_image,
     _process_image_path,

@@ -10,8 +10,8 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from agno.agent import Agent
-from agno.tools.decorator import tool
+from egpt.agent import Agent
+from egpt.tools.decorator import tool
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

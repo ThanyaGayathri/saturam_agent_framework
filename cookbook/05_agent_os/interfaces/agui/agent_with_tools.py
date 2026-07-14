@@ -7,12 +7,12 @@ Demonstrates agent with tools.
 
 from typing import List
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.os.interfaces.agui import AGUI
-from agno.tools import tool
-from agno.tools.websearch import WebSearchTools
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.os.interfaces.agui import AGUI
+from egpt.tools import tool
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

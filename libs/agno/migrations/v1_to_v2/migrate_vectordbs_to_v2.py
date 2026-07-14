@@ -13,7 +13,7 @@ To use the script simply:
 - Run the script
 """
 
-from agno.utils.log import log_error, log_info, log_warning
+from egpt.utils.log import log_error, log_info, log_warning
 
 # ------------ Setup for PGVector ------------
 
@@ -62,7 +62,7 @@ def migrate_pgvector_table(table_name: str, schema: str = "ai") -> None:
         log_info(f"Starting migration for PgVector table: {schema}.{table_name}")
 
         # Create PgVector instance to get database connection
-        from agno.vectordb.pgvector.pgvector import PgVector
+        from egpt.vectordb.pgvector.pgvector import PgVector
 
         pgvector = PgVector(
             table_name=table_name,
@@ -141,7 +141,7 @@ def migrate_singlestore_table(table_name: str, schema: str = "ai") -> None:
     try:
         log_info(f"Starting migration for SingleStore table: {schema}.{table_name}")
 
-        from agno.vectordb.singlestore.singlestore import SingleStore
+        from egpt.vectordb.singlestore.singlestore import SingleStore
 
         singlestore = SingleStore(
             collection=table_name,

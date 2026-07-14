@@ -3,11 +3,11 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import pytest
 
-from agno.db.base import AsyncBaseDb
-from agno.memory import MemoryManager, UserMemory
+from egpt.db.base import AsyncBaseDb
+from egpt.memory import MemoryManager, UserMemory
 
 if TYPE_CHECKING:
-    from agno.tracing.schemas import Span, Trace
+    from egpt.tracing.schemas import Span, Trace
 
 
 class DummyAsyncMemoryDb(AsyncBaseDb):

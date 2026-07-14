@@ -2,12 +2,12 @@ import uuid
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.db.sqlite.async_sqlite import AsyncSqliteDb
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.team.team import Team
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent.agent import Agent
+from egpt.db.sqlite.async_sqlite import AsyncSqliteDb
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.team.team import Team
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # -- 1. Workflow class convenience functions --
 

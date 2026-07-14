@@ -11,16 +11,16 @@ Requirements:
 - PostgreSQL with pgvector running
 """
 
-from agno.agent import Agent
-from agno.knowledge.embedder.aws_bedrock import AwsBedrockEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reranker.aws_bedrock import (
+from egpt.agent import Agent
+from egpt.knowledge.embedder.aws_bedrock import AwsBedrockEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reranker.aws_bedrock import (
     AmazonReranker,
     AwsBedrockReranker,
     CohereBedrockReranker,
 )
-from agno.models.aws.bedrock import AwsBedrock
-from agno.vectordb.pgvector import PgVector
+from egpt.models.aws.bedrock import AwsBedrock
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Knowledge Base

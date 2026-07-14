@@ -7,8 +7,8 @@ Demonstrates custom tools.
 
 from dataclasses import dataclass
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
@@ -106,8 +106,8 @@ if __name__ == "__main__":
     import asyncio
     from dataclasses import dataclass
 
-    from agno.agent import Agent
-    from agno.models.openai import OpenAIChat
+    from egpt.agent import Agent
+    from egpt.models.openai import OpenAIChat
     from pydantic import BaseModel
 
     async def dict_tool(name: str, age: int, city: str):

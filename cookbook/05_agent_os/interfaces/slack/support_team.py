@@ -19,14 +19,14 @@ Environment variables:
     SLACK_USER_TOKEN    User token (xoxp-) required for search_messages
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os.app import AgentOS
-from agno.os.interfaces.slack import Slack
-from agno.team import Team
-from agno.tools.slack import SlackTools
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.slack import Slack
+from egpt.team import Team
+from egpt.tools.slack import SlackTools
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

@@ -13,11 +13,11 @@ Tests cover:
 
 import pytest
 
-from agno.run.base import RunStatus
-from agno.workflow import Router
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.run.base import RunStatus
+from egpt.workflow import Router
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 # =============================================================================
 # Test Step Functions
@@ -217,7 +217,7 @@ class TestStepConfirmation:
 
     def test_step_confirmation_streaming(self, shared_db):
         """Test step confirmation with streaming execution."""
-        from agno.run.workflow import StepPausedEvent, StepStartedEvent, WorkflowStartedEvent
+        from egpt.run.workflow import StepPausedEvent, StepStartedEvent, WorkflowStartedEvent
 
         workflow = Workflow(
             name="Streaming Confirmation Test",
@@ -250,7 +250,7 @@ class TestStepConfirmation:
 
     def test_step_confirmation_streaming_continue(self, shared_db):
         """Test step confirmation with streaming execution and continue."""
-        from agno.run.workflow import StepCompletedEvent, StepStartedEvent
+        from egpt.run.workflow import StepCompletedEvent, StepStartedEvent
 
         workflow = Workflow(
             name="Streaming Confirmation Continue Test",
@@ -394,7 +394,7 @@ class TestStepUserInput:
 
     def test_step_user_input_streaming(self, shared_db):
         """Test step user input with streaming execution."""
-        from agno.run.workflow import StepCompletedEvent, StepPausedEvent, StepStartedEvent
+        from egpt.run.workflow import StepCompletedEvent, StepPausedEvent, StepStartedEvent
 
         workflow = Workflow(
             name="Streaming User Input Test",
@@ -588,7 +588,7 @@ class TestRouterUserSelection:
 
     def test_router_user_selection_streaming(self, shared_db):
         """Test Router user selection with streaming execution."""
-        from agno.run.workflow import RouterPausedEvent, StepCompletedEvent, StepStartedEvent
+        from egpt.run.workflow import RouterPausedEvent, StepCompletedEvent, StepStartedEvent
 
         workflow = Workflow(
             name="Streaming Router Selection Test",
@@ -780,7 +780,7 @@ class TestErrorHandlingHITL:
 
     def test_error_pause_streaming(self, shared_db):
         """Test error pause with streaming execution."""
-        from agno.run.workflow import StepCompletedEvent, StepErrorEvent, StepStartedEvent
+        from egpt.run.workflow import StepCompletedEvent, StepErrorEvent, StepStartedEvent
 
         workflow = Workflow(
             name="Streaming Error Pause Test",

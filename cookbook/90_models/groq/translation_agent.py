@@ -8,10 +8,10 @@ Cookbook example for `groq/translation_agent.py`.
 import base64
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.models.groq import GroqTools
-from agno.utils.media import save_base64_data
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.models.groq import GroqTools
+from egpt.utils.media import save_base64_data
 
 # ---------------------------------------------------------------------------
 # Create Agent

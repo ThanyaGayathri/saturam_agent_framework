@@ -1,6 +1,6 @@
-from agno.agent.agent import Agent
-from agno.media import Image
-from agno.models.mistral import MistralChat
+from egpt.agent.agent import Agent
+from egpt.media import Image
+from egpt.models.mistral import MistralChat
 
 
 def test_image_input():

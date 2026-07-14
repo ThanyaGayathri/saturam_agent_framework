@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with CometAPI."""
 
-from agno.agent import Agent
-from agno.models.cometapi import CometAPI
+from egpt.agent import Agent
+from egpt.models.cometapi import CometAPI
 
 # ---------------------------------------------------------------------------
 # Create Agent

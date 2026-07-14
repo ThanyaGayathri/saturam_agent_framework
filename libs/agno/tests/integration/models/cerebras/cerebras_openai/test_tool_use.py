@@ -1,9 +1,9 @@
 import pytest
 
-from agno.agent import Agent
-from agno.models.cerebras import CerebrasOpenAI
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.cerebras import CerebrasOpenAI
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 
 def test_tool_use():

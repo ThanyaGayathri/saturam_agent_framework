@@ -37,10 +37,10 @@ Optional env:
 from os import getenv
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.context.web import ParallelMCPBackend
-from agno.context.wiki import NotionDatabaseBackend, WikiContextProvider
 from db import get_db
+from egpt.agent import Agent
+from egpt.context.web import ParallelMCPBackend
+from egpt.context.wiki import NotionDatabaseBackend, WikiContextProvider
 from settings import default_model, html_tools, sub_agent_model
 
 _TOKEN = getenv("NOTION_API_KEY")

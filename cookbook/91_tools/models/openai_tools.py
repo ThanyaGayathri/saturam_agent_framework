@@ -5,10 +5,10 @@ This example demonstrates how to use the OpenAITools to transcribe an audio file
 import base64
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.run.agent import RunOutput
-from agno.tools.openai import OpenAITools
-from agno.utils.media import download_file, save_base64_data
+from egpt.agent import Agent
+from egpt.run.agent import RunOutput
+from egpt.tools.openai import OpenAITools
+from egpt.utils.media import download_file, save_base64_data
 
 # ---------------------------------------------------------------------------
 # Create Agent

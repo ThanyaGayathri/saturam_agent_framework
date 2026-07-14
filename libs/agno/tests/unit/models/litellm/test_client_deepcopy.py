@@ -7,7 +7,7 @@ This test verifies that custom client objects are preserved when the model is de
 from copy import deepcopy
 from unittest.mock import MagicMock
 
-from agno.models.litellm import LiteLLM
+from egpt.models.litellm import LiteLLM
 
 
 def test_client_preserved_after_deepcopy():

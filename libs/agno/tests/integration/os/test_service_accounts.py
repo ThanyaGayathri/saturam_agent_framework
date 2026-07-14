@@ -10,11 +10,11 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.os import AgentOS
-from agno.os.middleware import JWTMiddleware
-from agno.os.settings import AgnoAPISettings
+from egpt.agent.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.os import AgentOS
+from egpt.os.middleware import JWTMiddleware
+from egpt.os.settings import AgnoAPISettings
 
 JWT_SECRET = "test-secret-key-for-service-account-tests"
 
@@ -171,8 +171,8 @@ class TestServiceAccountLifecycleWithJWT:
         # is already past its expiry, exactly as a real token ages out.
         import uuid
 
-        from agno.db.schemas.service_accounts import ServiceAccount
-        from agno.os.service_accounts import DEFAULT_SERVICE_ACCOUNT_SCOPES, generate_token
+        from egpt.db.schemas.service_accounts import ServiceAccount
+        from egpt.os.service_accounts import DEFAULT_SERVICE_ACCOUNT_SCOPES, generate_token
 
         plaintext, token_hash, token_prefix = generate_token()
         account = ServiceAccount(
@@ -373,8 +373,8 @@ class TestServiceAccountsOnOpenInstance:
         # correctly on an open box.
         import uuid
 
-        from agno.db.schemas.service_accounts import ServiceAccount
-        from agno.os.service_accounts import DEFAULT_SERVICE_ACCOUNT_SCOPES, generate_token
+        from egpt.db.schemas.service_accounts import ServiceAccount
+        from egpt.os.service_accounts import DEFAULT_SERVICE_ACCOUNT_SCOPES, generate_token
 
         plaintext, token_hash, token_prefix = generate_token()
         account = ServiceAccount(
@@ -575,7 +575,7 @@ class TestServiceAccountsOverWebSocket:
         # security-key mode, exactly like REST and MCP.
         minted = self._mint_with_security_key(security_key_client, name="ws-limited", scopes=["sessions:read"])
         with (
-            patch("agno.os.router.handle_workflow_via_websocket", new_callable=AsyncMock) as handler,
+            patch("egpt.os.router.handle_workflow_via_websocket", new_callable=AsyncMock) as handler,
             security_key_client.websocket_connect("/workflows/ws") as ws,
         ):
             # Assert the auth frame: on auth failure no identity frame ever arrives
@@ -593,7 +593,7 @@ class TestServiceAccountsOverWebSocket:
         # dispatcher must overwrite a client-spoofed user_id with sa:<name>.
         minted = self._mint_with_security_key(security_key_client, name="ws-forced")
         with (
-            patch("agno.os.router.handle_workflow_via_websocket", new_callable=AsyncMock) as handler,
+            patch("egpt.os.router.handle_workflow_via_websocket", new_callable=AsyncMock) as handler,
             security_key_client.websocket_connect("/workflows/ws") as ws,
         ):
             auth_frame = _ws_authenticate(ws, minted["token"])

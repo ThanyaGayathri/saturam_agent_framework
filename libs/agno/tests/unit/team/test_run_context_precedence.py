@@ -2,12 +2,12 @@ from typing import Any, Optional
 
 import pytest
 
-from agno.run import RunContext
-from agno.run.cancel import cleanup_run
-from agno.run.team import TeamRunOutput
-from agno.session.team import TeamSession
-from agno.team import _init, _response, _run, _run_options, _storage, _utils
-from agno.team.team import Team
+from egpt.run import RunContext
+from egpt.run.cancel import cleanup_run
+from egpt.run.team import TeamRunOutput
+from egpt.session.team import TeamSession
+from egpt.team import _init, _response, _run, _run_options, _storage, _utils
+from egpt.team.team import Team
 
 
 def _make_precedence_test_team() -> Team:

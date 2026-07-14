@@ -5,9 +5,9 @@ Local Rag Langchain Qdrant
 Prerequisites:.
 """
 
-from agno.agent import Agent
-from agno.models.ollama import Ollama
-from agno.vectordb.langchaindb import LangChainVectorDb
+from egpt.agent import Agent
+from egpt.models.ollama import Ollama
+from egpt.vectordb.langchaindb import LangChainVectorDb
 from langchain_community.document_loaders import WebBaseLoader
 from langchain_community.embeddings.fastembed import FastEmbedEmbeddings
 from langchain_qdrant import QdrantVectorStore

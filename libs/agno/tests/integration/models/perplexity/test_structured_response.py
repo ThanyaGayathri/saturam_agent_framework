@@ -3,8 +3,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.perplexity import Perplexity
+from egpt.agent import Agent
+from egpt.models.perplexity import Perplexity
 
 
 class MovieScript(BaseModel):

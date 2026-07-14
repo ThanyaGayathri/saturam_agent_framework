@@ -286,7 +286,7 @@ All AgentOS endpoints have default scope requirements:
 }
 ```
 
-See `/libs/agno/agno/os/scopes.py` for the default scope mappings.
+See `/libs/agno/egpt/os/scopes.py` for the default scope mappings.
 
 ## Custom Scope Mappings
 

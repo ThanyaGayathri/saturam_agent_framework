@@ -5,8 +5,8 @@ Expected Output
 Guide agent responses using the expected_output parameter.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

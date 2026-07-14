@@ -4,10 +4,10 @@ import json
 
 import pytest
 
-from agno.agent import Agent
-from agno.knowledge import Knowledge
-from agno.os.routers.agents.schema import AgentResponse
-from agno.os.routers.memory.schemas import UserMemorySchema
+from egpt.agent import Agent
+from egpt.knowledge import Knowledge
+from egpt.os.routers.agents.schema import AgentResponse
+from egpt.os.routers.memory.schemas import UserMemorySchema
 
 
 def test_user_memory_schema():
@@ -120,7 +120,7 @@ async def test_knowledge_table_none_when_no_knowledge():
 def test_run_schema_round_trips_lineage_fields():
     """All five lineage fields on RunOutput must survive serialization through
     RunSchema.from_dict — otherwise GET /runs silently drops them."""
-    from agno.os.schema import RunSchema
+    from egpt.os.schema import RunSchema
 
     run_dict = {
         "run_id": "child",
@@ -145,7 +145,7 @@ def test_run_schema_round_trips_lineage_fields():
 
 def test_run_schema_lineage_defaults_to_none_when_absent():
     """Plain non-forked runs shouldn't have spurious lineage values set."""
-    from agno.os.schema import RunSchema
+    from egpt.os.schema import RunSchema
 
     schema = RunSchema.from_dict({"run_id": "solo", "agent_id": "a1", "status": "COMPLETED"})
 
@@ -157,7 +157,7 @@ def test_run_schema_lineage_defaults_to_none_when_absent():
 
 
 def test_team_run_schema_round_trips_lineage_fields():
-    from agno.os.schema import TeamRunSchema
+    from egpt.os.schema import TeamRunSchema
 
     run_dict = {
         "run_id": "child-team",
@@ -181,7 +181,7 @@ def test_team_run_schema_round_trips_lineage_fields():
 
 
 def test_team_run_schema_lineage_defaults_to_none_when_absent():
-    from agno.os.schema import TeamRunSchema
+    from egpt.os.schema import TeamRunSchema
 
     schema = TeamRunSchema.from_dict({"run_id": "solo-team", "team_id": "t1", "status": "COMPLETED"})
 

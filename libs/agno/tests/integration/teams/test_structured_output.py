@@ -1,10 +1,10 @@
 import pytest
 from pydantic import BaseModel
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.team.team import Team
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.team.team import Team
+from egpt.tools.yfinance import YFinanceTools
 
 
 def test_output_schemas_on_members():

@@ -8,8 +8,8 @@ Tests cover:
 
 import pytest
 
-from agno.media import File
-from agno.workflow.types import StepInput
+from egpt.media import File
+from egpt.workflow.types import StepInput
 
 
 @pytest.fixture

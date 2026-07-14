@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from agno.knowledge.document import Document
-from agno.knowledge.filesystem import FileSystemKnowledge
+from egpt.knowledge.document import Document
+from egpt.knowledge.filesystem import FileSystemKnowledge
 
 # Initialization tests
 

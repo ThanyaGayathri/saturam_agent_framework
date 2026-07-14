@@ -26,9 +26,9 @@ Then call the API:
     curl http://localhost:7777/agents
 """
 
-from agno.agents.langgraph import LangGraphAgent
-from agno.db.postgres import PostgresDb
-from agno.os import AgentOS
+from egpt.agents.langgraph import LangGraphAgent
+from egpt.db.postgres import PostgresDb
+from egpt.os import AgentOS
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_openai import ChatOpenAI
 from langgraph.graph import MessagesState, StateGraph

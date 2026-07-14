@@ -5,10 +5,10 @@ Anthropic Image Input Url
 Cookbook example for `anthropic/image_input_url.py`.
 """
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.anthropic import Claude
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.anthropic import Claude
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

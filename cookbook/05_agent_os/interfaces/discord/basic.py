@@ -5,9 +5,9 @@ Basic Discord Agent
 Runs a simple Agno-powered Discord bot.
 """
 
-from agno.agent import Agent
-from agno.integrations.discord import DiscordClient
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.integrations.discord import DiscordClient
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Agent

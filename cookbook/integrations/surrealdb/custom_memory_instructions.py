@@ -2,11 +2,11 @@
 SurrealDB Custom Memory Instructions
 """
 
-from agno.db.surrealdb import SurrealDb
-from agno.memory import MemoryManager
-from agno.models.anthropic.claude import Claude
-from agno.models.message import Message
-from agno.models.openai import OpenAIChat
+from egpt.db.surrealdb import SurrealDb
+from egpt.memory import MemoryManager
+from egpt.models.anthropic.claude import Claude
+from egpt.models.message import Message
+from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

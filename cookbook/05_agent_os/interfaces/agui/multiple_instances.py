@@ -5,12 +5,12 @@ Multiple Instances
 Demonstrates multiple instances.
 """
 
-from agno.agent.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.os.interfaces.agui import AGUI
-from agno.tools.websearch import WebSearchTools
+from egpt.agent.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.os.interfaces.agui import AGUI
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

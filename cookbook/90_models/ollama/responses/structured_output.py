@@ -10,8 +10,8 @@ Requirements:
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.ollama import OllamaResponses
+from egpt.agent import Agent
+from egpt.models.ollama import OllamaResponses
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

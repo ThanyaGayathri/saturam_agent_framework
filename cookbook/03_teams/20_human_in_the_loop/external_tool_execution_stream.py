@@ -11,13 +11,13 @@ to distinguish the team's pause from member agent pauses.
 import shlex
 import subprocess
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.run.team import RunPausedEvent as TeamRunPausedEvent
-from agno.team.team import Team
-from agno.tools import tool
-from agno.utils import pprint
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run.team import RunPausedEvent as TeamRunPausedEvent
+from egpt.team.team import Team
+from egpt.tools import tool
+from egpt.utils import pprint
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.tools.workspace import Workspace
+from egpt.agent import Agent
+from egpt.tools.workspace import Workspace
 
 folder = Path(__file__).parent
 

@@ -15,14 +15,14 @@ from textwrap import dedent
 
 import pytest
 
-from agno.models.anthropic import Claude
-from agno.models.azure import AzureAIFoundry
-from agno.models.deepseek import DeepSeek
-from agno.models.google import Gemini
-from agno.models.groq import Groq
-from agno.models.ollama import Ollama
-from agno.models.openai import OpenAIChat
-from agno.team.team import Team
+from egpt.models.anthropic import Claude
+from egpt.models.azure import AzureAIFoundry
+from egpt.models.deepseek import DeepSeek
+from egpt.models.google import Gemini
+from egpt.models.groq import Groq
+from egpt.models.ollama import Ollama
+from egpt.models.openai import OpenAIChat
+from egpt.team.team import Team
 
 
 @pytest.fixture(autouse=True)

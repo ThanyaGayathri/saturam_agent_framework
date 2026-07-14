@@ -7,12 +7,12 @@ Demonstrates Agno's two-table trace design and how to inspect traces and spans.
 
 import time  # noqa
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.tools.hackernews import HackerNewsTools
-from agno.tracing import setup_tracing
-from agno.utils.pprint import pprint_run_response
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tracing import setup_tracing
+from egpt.utils.pprint import pprint_run_response
 
 
 # ---------------------------------------------------------------------------

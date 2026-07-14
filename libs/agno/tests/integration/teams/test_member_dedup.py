@@ -7,9 +7,9 @@ These tests run a real Team with actual LLM calls to verify the fix end-to-end.
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.team import Team
 
 
 def _collect_tool_call_ids(messages):

@@ -15,9 +15,9 @@ Example prompts to try:
 - "Extract all the key findings from this research paper"
 """
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Agent Instructions

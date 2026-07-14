@@ -2,10 +2,10 @@ import uuid
 
 import pytest
 
-from agno.agent import RemoteAgent
-from agno.team import RemoteTeam
-from agno.utils.http import aclose_default_clients
-from agno.workflow import RemoteWorkflow
+from egpt.agent import RemoteAgent
+from egpt.team import RemoteTeam
+from egpt.utils.http import aclose_default_clients
+from egpt.workflow import RemoteWorkflow
 
 from .test_utils import generate_jwt_token
 

@@ -7,11 +7,11 @@ Demonstrates 04 agent with reasoning tools tracing.
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.tools.reasoning import ReasoningTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.tools.reasoning import ReasoningTools
 
 # ---------------------------------------------------------------------------
 # Create Example

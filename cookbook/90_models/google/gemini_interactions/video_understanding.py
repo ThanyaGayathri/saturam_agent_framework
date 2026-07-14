@@ -8,9 +8,9 @@ Supports video from URLs and local files.
 Note: For larger videos, consider uploading via the Files API first.
 """
 
-from agno.agent import Agent
-from agno.media import Video
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.media import Video
+from egpt.models.google import GeminiInteractions
 
 # ---------------------------------------------------------------------------
 # Create Agent

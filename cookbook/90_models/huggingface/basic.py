@@ -7,8 +7,8 @@ Cookbook example for `huggingface/basic.py`.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.huggingface import HuggingFace
+from egpt.agent import Agent
+from egpt.models.huggingface import HuggingFace
 
 # ---------------------------------------------------------------------------
 # Create Agent

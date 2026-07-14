@@ -12,4 +12,4 @@ source ${CURR_DIR}/_utils.sh
 print_heading "Running tests for agno"
 
 print_heading "Running: pytest ${AGNO_DIR} with coverage"
-pytest ${AGNO_DIR}/tests/unit --cov=${AGNO_DIR}/agno --cov-report=term-missing --cov-report=html
+pytest ${AGNO_DIR}/tests/unit --cov=${AGNO_DIR}/egpt --cov-report=term-missing --cov-report=html

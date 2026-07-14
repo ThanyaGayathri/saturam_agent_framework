@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from boto3.session import Session
 
-from agno.models.aws import Claude
+from egpt.models.aws import Claude
 
 
 def _make_frozen_creds(access_key="ASIATEMP", secret_key="secret", token="token"):
@@ -28,7 +28,7 @@ class TestSessionNoSharedState:
         model = Claude(id="anthropic.claude-3-sonnet-20240229-v1:0", session=mock_session)
         assert model.client is None
 
-        with patch("agno.models.aws.claude.AnthropicBedrock") as MockBedrock:
+        with patch("egpt.models.aws.claude.AnthropicBedrock") as MockBedrock:
             mock_client = MagicMock()
             mock_client.is_closed.return_value = False
             MockBedrock.return_value = mock_client
@@ -48,7 +48,7 @@ class TestSessionNoSharedState:
         model = Claude(id="anthropic.claude-3-sonnet-20240229-v1:0", session=mock_session)
         assert model.async_client is None
 
-        with patch("agno.models.aws.claude.AsyncAnthropicBedrock") as MockAsync:
+        with patch("egpt.models.aws.claude.AsyncAnthropicBedrock") as MockAsync:
             mock_client = MagicMock()
             mock_client.is_closed.return_value = False
             MockAsync.return_value = mock_client
@@ -83,7 +83,7 @@ class TestSessionConcurrencySafe:
         model = Claude(id="anthropic.claude-3-sonnet-20240229-v1:0", session=mock_session)
         results = {}
 
-        with patch("agno.models.aws.claude.AnthropicBedrock") as MockBedrock:
+        with patch("egpt.models.aws.claude.AnthropicBedrock") as MockBedrock:
             create_count = {"n": 0}
 
             def make_client(**kwargs):

@@ -9,19 +9,19 @@ import json
 from datetime import datetime
 from typing import AsyncIterator, List, Union
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.run import RunContext
-from agno.run.workflow import WorkflowRunOutputEvent
-from agno.team import Team
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.parallel import Parallel
-from agno.workflow.step import Step, StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.run import RunContext
+from egpt.run.workflow import WorkflowRunOutputEvent
+from egpt.team import Team
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.parallel import Parallel
+from egpt.workflow.step import Step, StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

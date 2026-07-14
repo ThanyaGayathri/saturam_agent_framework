@@ -4,12 +4,12 @@ import tempfile
 
 import pytest
 
-from agno.agent import Agent
-from agno.db.json import JsonDb
-from agno.models.message import Message
-from agno.models.vertexai.claude import Claude
-from agno.run.agent import RunOutput
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.db.json import JsonDb
+from egpt.models.message import Message
+from egpt.models.vertexai.claude import Claude
+from egpt.run.agent import RunOutput
+from egpt.tools.yfinance import YFinanceTools
 
 
 def _get_thinking_agent(**kwargs):

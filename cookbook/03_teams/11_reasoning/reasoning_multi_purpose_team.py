@@ -9,23 +9,23 @@ import asyncio
 from pathlib import Path
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.tools.calculator import CalculatorTools
-from agno.tools.e2b import E2BTools
-from agno.tools.file import FileTools
-from agno.tools.github import GithubTools
-from agno.tools.knowledge import KnowledgeTools
-from agno.tools.pubmed import PubmedTools
-from agno.tools.python import PythonTools
-from agno.tools.reasoning import ReasoningTools
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
-from agno.vectordb.lancedb.lance_db import LanceDb
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.tools.calculator import CalculatorTools
+from egpt.tools.e2b import E2BTools
+from egpt.tools.file import FileTools
+from egpt.tools.github import GithubTools
+from egpt.tools.knowledge import KnowledgeTools
+from egpt.tools.pubmed import PubmedTools
+from egpt.tools.python import PythonTools
+from egpt.tools.reasoning import ReasoningTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
+from egpt.vectordb.lancedb.lance_db import LanceDb
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

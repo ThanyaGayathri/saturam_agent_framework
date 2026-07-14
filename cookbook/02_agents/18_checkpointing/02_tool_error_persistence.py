@@ -31,9 +31,9 @@ import asyncio
 import os
 import time
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
 
 DB_FILE = f"tmp/tool_error_persist_{int(time.time())}.db"
 

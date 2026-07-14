@@ -12,14 +12,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.learn.config import LearnedKnowledgeConfig, LearningMode, UserMemoryConfig, UserProfileConfig
-from agno.learn.machine import LearningMachine
-from agno.run import RunContext
-from agno.session import TeamSession
-from agno.team._init import _set_learning_machine
-from agno.team._messages import aget_system_message, get_system_message
-from agno.team.team import Team
+from egpt.agent.agent import Agent
+from egpt.learn.config import LearnedKnowledgeConfig, LearningMode, UserMemoryConfig, UserProfileConfig
+from egpt.learn.machine import LearningMachine
+from egpt.run import RunContext
+from egpt.session import TeamSession
+from egpt.team._init import _set_learning_machine
+from egpt.team._messages import aget_system_message, get_system_message
+from egpt.team.team import Team
 
 
 def _mock_knowledge():
@@ -29,7 +29,7 @@ def _mock_knowledge():
 
 
 def _create_mock_db_class():
-    from agno.db.base import BaseDb
+    from egpt.db.base import BaseDb
 
     abstract_methods = {}
     for name in dir(BaseDb):

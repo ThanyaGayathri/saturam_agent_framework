@@ -20,11 +20,11 @@ Run:
 
 import time
 
-from agno.db.sqlite import SqliteDb
-from agno.workflow import OnReject
-from agno.workflow.step import Step
-from agno.workflow.types import HumanReview, OnTimeout, StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.db.sqlite import SqliteDb
+from egpt.workflow import OnReject
+from egpt.workflow.step import Step
+from egpt.workflow.types import HumanReview, OnTimeout, StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 # ---------------------------------------------------------------------------

@@ -11,9 +11,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.registry import Registry
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput
+from egpt.registry import Registry
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput
 
 # =============================================================================
 # Sample executor functions for testing
@@ -164,7 +164,7 @@ class TestStepFromDict:
         }
 
         # Need to provide an executor since Step requires one
-        with patch("agno.workflow.step.Step.__init__", return_value=None):
+        with patch("egpt.workflow.step.Step.__init__", return_value=None):
             # Skip actual initialization for this basic test
             pass
 
@@ -183,7 +183,7 @@ class TestStepFromDict:
             "strict_input_validation": False,
         }
 
-        with patch("agno.agent.agent.get_agent_by_id") as mock_get_agent:
+        with patch("egpt.agent.agent.get_agent_by_id") as mock_get_agent:
             mock_get_agent.return_value = mock_agent
 
             mock_db = MagicMock()
@@ -209,7 +209,7 @@ class TestStepFromDict:
             "agent_id": "registry-agent",
         }
 
-        with patch("agno.agent.agent.get_agent_by_id") as mock_get_agent:
+        with patch("egpt.agent.agent.get_agent_by_id") as mock_get_agent:
             step = Step.from_dict(data, registry=registry)
 
             # DB fallback should NOT be called
@@ -230,7 +230,7 @@ class TestStepFromDict:
             "agent_id": "db-agent",
         }
 
-        with patch("agno.agent.agent.get_agent_by_id") as mock_get_agent:
+        with patch("egpt.agent.agent.get_agent_by_id") as mock_get_agent:
             mock_get_agent.return_value = mock_db_agent
             mock_db = MagicMock()
             step = Step.from_dict(data, registry=registry, db=mock_db)
@@ -254,7 +254,7 @@ class TestStepFromDict:
             "team_id": "registry-team",
         }
 
-        with patch("agno.team.team.get_team_by_id") as mock_get_team:
+        with patch("egpt.team.team.get_team_by_id") as mock_get_team:
             step = Step.from_dict(data, registry=registry)
 
             mock_get_team.assert_not_called()

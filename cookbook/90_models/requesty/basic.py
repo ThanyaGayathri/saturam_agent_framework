@@ -5,8 +5,8 @@ Requesty Basic
 Cookbook example for `requesty/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.requesty import Requesty
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.requesty import Requesty
 import asyncio
 
 # ---------------------------------------------------------------------------

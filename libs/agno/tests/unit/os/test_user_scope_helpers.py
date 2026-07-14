@@ -1,4 +1,4 @@
-"""Unit tests for the user-scope helpers in ``agno.os.middleware.user_scope``.
+"""Unit tests for the user-scope helpers in ``egpt.os.middleware.user_scope``.
 
 These replace the adapter-focused tests that lived in the deleted
 ``test_user_scoped_db.py``. The behaviours the adapter used to provide —
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.os.middleware.user_scope import (
+from egpt.os.middleware.user_scope import (
     apply_scope_to_kwargs,
     enforce_owner_on_entity,
     get_scoped_user_id,
@@ -363,7 +363,7 @@ class TestEnforceOwnerOnEntity:
         sturdiest way to assert the message content without coupling to
         logger state-bleed across files.
         """
-        from agno.os.middleware import user_scope as user_scope_mod
+        from egpt.os.middleware import user_scope as user_scope_mod
 
         calls: list[str] = []
 
@@ -379,7 +379,7 @@ class TestEnforceOwnerOnEntity:
         assert any("user-EVIL" in m and "user-123" in m for m in calls), f"expected a coercion warning, got: {calls}"
 
     def test_immutable_carrier_does_not_raise(self, monkeypatch):
-        from agno.os.middleware import user_scope as user_scope_mod
+        from egpt.os.middleware import user_scope as user_scope_mod
 
         calls: list[str] = []
 

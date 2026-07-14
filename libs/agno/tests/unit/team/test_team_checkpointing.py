@@ -19,20 +19,20 @@ import pytest
 
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
-from agno.exceptions import RunNotContinuableError, RunNotFoundError
-from agno.models.message import Message
-from agno.models.metrics import RunMetrics
-from agno.models.response import ToolExecution
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.run.team import TeamRunOutput
-from agno.session import TeamSession
-from agno.team import Team
-from agno.team import _init as team_init_mod
-from agno.team import _response as team_response_mod
-from agno.team import _run as team_run
-from agno.team import _storage as team_storage
-from agno.team import _tools as team_tools
+from egpt.exceptions import RunNotContinuableError, RunNotFoundError
+from egpt.models.message import Message
+from egpt.models.metrics import RunMetrics
+from egpt.models.response import ToolExecution
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.team import TeamRunOutput
+from egpt.session import TeamSession
+from egpt.team import Team
+from egpt.team import _init as team_init_mod
+from egpt.team import _response as team_response_mod
+from egpt.team import _run as team_run
+from egpt.team import _storage as team_storage
+from egpt.team import _tools as team_tools
 
 # ---------------------------------------------------------------------------
 # Lineage fields round-trip
@@ -443,7 +443,7 @@ class TestRegenerateSugarNormalization:
 
 class TestTeamFlushHelper:
     def test_flushes_when_messages_empty(self):
-        from agno.run.messages import RunMessages
+        from egpt.run.messages import RunMessages
 
         rr = TeamRunOutput(run_id="r1")
         rm = RunMessages()
@@ -461,7 +461,7 @@ class TestTeamFlushHelper:
         assert rr.messages is None
 
     def test_does_not_overwrite_existing(self):
-        from agno.run.messages import RunMessages
+        from egpt.run.messages import RunMessages
 
         existing = [Message(role="user", content="kept")]
         rr = TeamRunOutput(run_id="r1", messages=existing)
@@ -481,12 +481,12 @@ class TestTeamCheckpointSyncPreservesChildRunId:
     """
 
     def _model_response(self, tool_executions):
-        from agno.models.response import ModelResponse
+        from egpt.models.response import ModelResponse
 
         return ModelResponse(tool_executions=tool_executions)
 
     def _run_messages(self):
-        from agno.run.messages import RunMessages
+        from egpt.run.messages import RunMessages
 
         rm = RunMessages()
         rm.messages = [Message(role="assistant", content="delegating", tool_calls=[{"id": "tc-1"}])]
@@ -528,8 +528,8 @@ class TestTeamCheckpointScrubIsolation:
     copy without stripping media off the live team run or its live member runs."""
 
     def _team_run_with_media(self) -> TeamRunOutput:
-        from agno.media import Image
-        from agno.run.agent import RunOutput
+        from egpt.media import Image
+        from egpt.run.agent import RunOutput
 
         member = RunOutput(
             run_id="m1",
@@ -545,7 +545,7 @@ class TestTeamCheckpointScrubIsolation:
     def test_inflight_checkpoint_isolates_team_and_member_state(self, monkeypatch: pytest.MonkeyPatch):
         from types import SimpleNamespace
 
-        monkeypatch.setattr("agno.team._session.update_session_metrics", lambda *a, **k: None)
+        monkeypatch.setattr("egpt.team._session.update_session_metrics", lambda *a, **k: None)
 
         run_response = self._team_run_with_media()
         live_team_images = run_response.messages[0].images
@@ -702,7 +702,7 @@ class TestTeamContinueDispatchAutoFork:
             messages=[Message(role="user", content="Q")],
         )
         # Direct exercise of the auto-fork rule
-        from agno.run.base import RunStatus as RS
+        from egpt.run.base import RunStatus as RS
 
         should_fork = (
             not False  # fork
@@ -785,8 +785,8 @@ class TestTeamUpdateRunResponseDedup:
     already wrote, and must preserve the delegation -> member-run link."""
 
     def test_dedupes_tools_and_preserves_child_run_id(self):
-        from agno.models.response import ModelResponse
-        from agno.run.messages import RunMessages
+        from egpt.models.response import ModelResponse
+        from egpt.run.messages import RunMessages
 
         team = Team(members=[], name="t")
         # checkpoint="tool-batch": the per-batch callback already wrote the
@@ -836,7 +836,7 @@ class TestTeamForkEndpoint:
     def test_fork_session_route_registered(self):
         from unittest.mock import MagicMock
 
-        from agno.os.routers.teams.router import get_team_router
+        from egpt.os.routers.teams.router import get_team_router
 
         router = get_team_router(MagicMock())
         matches = [
@@ -873,7 +873,7 @@ class TestTeamRunningResumeCallsModel:
         _patch_team_sync_dispatch(team, monkeypatch, runs=[run])
         # The exact trigger: approval resolution finds nothing and returns silently
         # (no RuntimeError). Pre-fix this left the model-call gate unset.
-        monkeypatch.setattr("agno.run.approval.check_and_apply_approval_resolution", lambda *a, **k: None)
+        monkeypatch.setattr("egpt.run.approval.check_and_apply_approval_resolution", lambda *a, **k: None)
 
         captured: dict = {}
 

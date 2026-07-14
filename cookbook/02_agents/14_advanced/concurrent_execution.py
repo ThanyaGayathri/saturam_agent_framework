@@ -7,9 +7,9 @@ Concurrent Agent Execution with asyncio.gather.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.duckduckgo import DuckDuckGoTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.duckduckgo import DuckDuckGoTools
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

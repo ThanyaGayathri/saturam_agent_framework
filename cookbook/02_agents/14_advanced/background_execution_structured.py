@@ -15,10 +15,10 @@ Usage:
 import asyncio
 from typing import List
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.run.base import RunStatus
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run.base import RunStatus
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

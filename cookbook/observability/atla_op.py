@@ -7,10 +7,10 @@ Demonstrates adding Atla observability to an Agno agent.
 
 from os import getenv
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.websearch import WebSearchTools
 from atla_insights import configure, instrument_agno
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

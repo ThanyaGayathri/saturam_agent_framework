@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, patch
 
-from agno.models.azure import AzureFoundryClaude
+from egpt.models.azure import AzureFoundryClaude
 
 
 class TestClientCached:
@@ -11,7 +11,7 @@ class TestClientCached:
             resource="my-resource",
         )
 
-        with patch("agno.models.azure.claude.AnthropicFoundry") as MockFoundry:
+        with patch("egpt.models.azure.claude.AnthropicFoundry") as MockFoundry:
             mock_client = MagicMock()
             mock_client.is_closed.return_value = False
             MockFoundry.return_value = mock_client
@@ -29,7 +29,7 @@ class TestClientCached:
             resource="my-resource",
         )
 
-        with patch("agno.models.azure.claude.AsyncAnthropicFoundry") as MockAsyncFoundry:
+        with patch("egpt.models.azure.claude.AsyncAnthropicFoundry") as MockAsyncFoundry:
             mock_client = MagicMock()
             mock_client.is_closed.return_value = False
             MockAsyncFoundry.return_value = mock_client
@@ -53,7 +53,7 @@ class TestIsClosedRecreation:
         closed_client.is_closed.return_value = True
         model.client = closed_client
 
-        with patch("agno.models.azure.claude.AnthropicFoundry") as MockFoundry:
+        with patch("egpt.models.azure.claude.AnthropicFoundry") as MockFoundry:
             new_client = MagicMock()
             new_client.is_closed.return_value = False
             MockFoundry.return_value = new_client
@@ -88,7 +88,7 @@ class TestIsClosedRecreation:
         closed_client.is_closed.return_value = True
         model.async_client = closed_client
 
-        with patch("agno.models.azure.claude.AsyncAnthropicFoundry") as MockAsyncFoundry:
+        with patch("egpt.models.azure.claude.AsyncAnthropicFoundry") as MockAsyncFoundry:
             new_client = MagicMock()
             new_client.is_closed.return_value = False
             MockAsyncFoundry.return_value = new_client

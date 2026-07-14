@@ -7,10 +7,10 @@ Cookbook example for `cohere/image_agent_bytes.py`.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.cohere.chat import Cohere
-from agno.utils.media import download_image
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.cohere.chat import Cohere
+from egpt.utils.media import download_image
 
 # ---------------------------------------------------------------------------
 # Create Agent

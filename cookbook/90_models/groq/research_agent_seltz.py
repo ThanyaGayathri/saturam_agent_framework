@@ -3,9 +3,9 @@
 from pathlib import Path
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.groq import Groq
-from agno.tools.seltz import SeltzTools
+from egpt.agent import Agent
+from egpt.models.groq import Groq
+from egpt.tools.seltz import SeltzTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

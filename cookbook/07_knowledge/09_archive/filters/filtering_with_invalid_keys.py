@@ -1,10 +1,10 @@
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.utils.media import (
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.utils.media import (
     SampleDataFileExtension,
     download_knowledge_filters_sample_data,
 )
-from agno.vectordb.lancedb import LanceDb
+from egpt.vectordb.lancedb import LanceDb
 
 # Download all sample sales documents and get their paths
 downloaded_csv_paths = download_knowledge_filters_sample_data(

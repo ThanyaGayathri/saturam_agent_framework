@@ -1,9 +1,9 @@
 """Run `uv pip install ddgs sqlalchemy cohere` to install dependencies."""
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.cohere import Cohere
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.cohere import Cohere
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

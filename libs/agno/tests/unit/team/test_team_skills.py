@@ -10,14 +10,14 @@ Verifies that:
 
 from unittest.mock import MagicMock
 
-from agno.models.base import Function
-from agno.run.base import RunContext
-from agno.run.team import TeamRunOutput
-from agno.session import TeamSession
-from agno.skills import LocalSkills, Skills
-from agno.team._messages import get_system_message
-from agno.team._tools import _determine_tools_for_model
-from agno.team.team import Team
+from egpt.models.base import Function
+from egpt.run.base import RunContext
+from egpt.run.team import TeamRunOutput
+from egpt.session import TeamSession
+from egpt.skills import LocalSkills, Skills
+from egpt.team._messages import get_system_message
+from egpt.team._tools import _determine_tools_for_model
+from egpt.team.team import Team
 
 SAMPLE_SKILLS_DIR = "cookbook/02_agents/16_skills/sample_skills"
 

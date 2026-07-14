@@ -1,9 +1,9 @@
 """Run `uv pip install ddgs sqlalchemy anthropic` to install dependencies."""
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.vertexai.claude import Claude
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.vertexai.claude import Claude
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

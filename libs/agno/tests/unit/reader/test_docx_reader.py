@@ -5,8 +5,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from agno.knowledge.document.base import Document
-from agno.knowledge.reader.docx_reader import DocxReader
+from egpt.knowledge.document.base import Document
+from egpt.knowledge.reader.docx_reader import DocxReader
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def test_docx_reader_read_file(mock_docx):
     """Test reading a DOCX file"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("agno.knowledge.reader.docx_reader.DocxDocument", return_value=mock_docx),
+        patch("egpt.knowledge.reader.docx_reader.DocxDocument", return_value=mock_docx),
     ):
         reader = DocxReader()
         documents = reader.read(Path("test.docx"))
@@ -41,7 +41,7 @@ async def test_docx_reader_async_read_file(mock_docx):
     """Test reading a DOCX file asynchronously"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("agno.knowledge.reader.docx_reader.DocxDocument", return_value=mock_docx),
+        patch("egpt.knowledge.reader.docx_reader.DocxDocument", return_value=mock_docx),
     ):
         reader = DocxReader()
         documents = await reader.async_read(Path("test.docx"))
@@ -65,7 +65,7 @@ def test_docx_reader_with_chunking():
 
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("agno.knowledge.reader.docx_reader.DocxDocument", return_value=mock_doc),
+        patch("egpt.knowledge.reader.docx_reader.DocxDocument", return_value=mock_doc),
     ):
         reader = DocxReader()
         reader.chunk = True
@@ -84,7 +84,7 @@ def test_docx_reader_bytesio(mock_docx):
     file_obj = BytesIO(b"dummy content")
     file_obj.name = "test.docx"
 
-    with patch("agno.knowledge.reader.docx_reader.DocxDocument", return_value=mock_docx):
+    with patch("egpt.knowledge.reader.docx_reader.DocxDocument", return_value=mock_docx):
         reader = DocxReader()
         documents = reader.read(file_obj)
 
@@ -105,7 +105,7 @@ def test_docx_reader_file_error():
     """Test handling of file reading errors"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("agno.knowledge.reader.docx_reader.DocxDocument", side_effect=Exception("File error")),
+        patch("egpt.knowledge.reader.docx_reader.DocxDocument", side_effect=Exception("File error")),
     ):
         reader = DocxReader()
         documents = reader.read(Path("test.docx"))
@@ -117,7 +117,7 @@ async def test_async_docx_processing(mock_docx):
     """Test concurrent async processing"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("agno.knowledge.reader.docx_reader.DocxDocument", return_value=mock_docx),
+        patch("egpt.knowledge.reader.docx_reader.DocxDocument", return_value=mock_docx),
     ):
         reader = DocxReader()
         tasks = [reader.async_read(Path("test.docx")) for _ in range(3)]
@@ -145,7 +145,7 @@ async def test_docx_reader_async_with_chunking():
 
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("agno.knowledge.reader.docx_reader.DocxDocument", return_value=mock_doc),
+        patch("egpt.knowledge.reader.docx_reader.DocxDocument", return_value=mock_doc),
     ):
         reader = DocxReader()
         reader.chunk = True
@@ -164,7 +164,7 @@ def test_docx_reader_metadata(mock_docx):
     """Test document metadata"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("agno.knowledge.reader.docx_reader.DocxDocument", return_value=mock_docx),
+        patch("egpt.knowledge.reader.docx_reader.DocxDocument", return_value=mock_docx),
     ):
         reader = DocxReader()
         documents = reader.read(Path("test_doc.docx"))
@@ -176,7 +176,7 @@ def test_docx_reader_metadata(mock_docx):
 
 def test_docx_reader_chunk_size_propagation():
     """Test that chunk_size is propagated to default chunking strategy"""
-    from agno.knowledge.chunking.document import DocumentChunking
+    from egpt.knowledge.chunking.document import DocumentChunking
 
     reader = DocxReader(chunk_size=350)
     assert reader.chunk_size == 350
@@ -186,7 +186,7 @@ def test_docx_reader_chunk_size_propagation():
 
 def test_docx_reader_default_chunk_size():
     """Test default chunk_size is 5000"""
-    from agno.knowledge.chunking.document import DocumentChunking
+    from egpt.knowledge.chunking.document import DocumentChunking
 
     reader = DocxReader()
     assert reader.chunk_size == 5000

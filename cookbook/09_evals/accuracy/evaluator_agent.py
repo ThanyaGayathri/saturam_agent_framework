@@ -7,10 +7,10 @@ Demonstrates accuracy evaluation using a custom evaluator agent.
 
 from typing import Optional
 
-from agno.agent import Agent
-from agno.eval.accuracy import AccuracyAgentResponse, AccuracyEval, AccuracyResult
-from agno.models.openai import OpenAIChat
-from agno.tools.calculator import CalculatorTools
+from egpt.agent import Agent
+from egpt.eval.accuracy import AccuracyAgentResponse, AccuracyEval, AccuracyResult
+from egpt.models.openai import OpenAIChat
+from egpt.tools.calculator import CalculatorTools
 
 # ---------------------------------------------------------------------------
 # Create Evaluator Agent

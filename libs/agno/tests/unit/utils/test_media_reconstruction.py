@@ -1,10 +1,10 @@
 import base64
 import json
 
-from agno.media import Audio, File, Image, Video
-from agno.models.message import Message
-from agno.run.agent import RunInput, RunOutput
-from agno.utils.media import (
+from egpt.media import Audio, File, Image, Video
+from egpt.models.message import Message
+from egpt.run.agent import RunInput, RunOutput
+from egpt.utils.media import (
     reconstruct_audio_from_dict,
     reconstruct_audio_list,
     reconstruct_file_from_dict,

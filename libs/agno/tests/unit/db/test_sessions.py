@@ -1,5 +1,5 @@
-from agno.session.agent import AgentSession
-from agno.session.team import TeamSession
+from egpt.session.agent import AgentSession
+from egpt.session.team import TeamSession
 
 
 def test_agent_session_serialization_empty_runs():

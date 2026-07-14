@@ -7,8 +7,8 @@ Cookbook example for `neosantara/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.neosantara import Neosantara
+from egpt.agent import Agent
+from egpt.models.neosantara import Neosantara
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

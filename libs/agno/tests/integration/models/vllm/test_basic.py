@@ -1,10 +1,10 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.exceptions import ModelProviderError
-from agno.models.vllm import VLLM
+from egpt.agent import Agent, RunOutput
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.exceptions import ModelProviderError
+from egpt.models.vllm import VLLM
 
 # Use default model id or override via env var
 VLLM_MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"

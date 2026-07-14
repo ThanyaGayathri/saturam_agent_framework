@@ -11,8 +11,8 @@ of the autonomous loop. No background reconnect is needed.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
 
 agent = Agent(
     model=GeminiInteractions(

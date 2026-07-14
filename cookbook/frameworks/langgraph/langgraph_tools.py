@@ -5,12 +5,12 @@ Requirements:
     pip install langgraph langchain-openai
 
 Usage:
-    .venvs/demo/bin/python libs/agno/agno/test.py
+    .venvs/demo/bin/python libs/agno/egpt/test.py
 """
 
 import json
 
-from agno.agents.langgraph import LangGraphAgent
+from egpt.agents.langgraph import LangGraphAgent
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import MessagesState, StateGraph

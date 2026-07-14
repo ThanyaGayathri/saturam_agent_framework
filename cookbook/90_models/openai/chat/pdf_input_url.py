@@ -5,9 +5,9 @@ Openai Pdf Input Url
 Cookbook example for `openai/chat/pdf_input_url.py`.
 """
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -5,8 +5,8 @@ Cometapi Basic
 Cookbook example for `cometapi/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.cometapi import CometAPI
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.cometapi import CometAPI
 import asyncio
 
 # ---------------------------------------------------------------------------

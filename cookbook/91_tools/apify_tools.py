@@ -5,8 +5,8 @@ Apify Tools
 Demonstrates apify tools.
 """
 
-from agno.agent import Agent
-from agno.tools.apify import ApifyTools
+from egpt.agent import Agent
+from egpt.tools.apify import ApifyTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

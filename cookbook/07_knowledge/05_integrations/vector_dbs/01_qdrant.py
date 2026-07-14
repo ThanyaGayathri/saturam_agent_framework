@@ -16,12 +16,12 @@ Setup: ./cookbook/scripts/run_qdrant.sh
 See also: 02_local.py for local dev, 03_managed.py for Pinecone, 04_pgvector.py for PostgreSQL.
 """
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reranker.cohere import CohereReranker
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.qdrant import Qdrant, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reranker.cohere import CohereReranker
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.qdrant import Qdrant, SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

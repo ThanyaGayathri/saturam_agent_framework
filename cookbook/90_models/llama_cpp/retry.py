@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with llama.cpp."""
 
-from agno.agent import Agent
-from agno.models.llama_cpp import LlamaCpp
+from egpt.agent import Agent
+from egpt.models.llama_cpp import LlamaCpp
 
 # ---------------------------------------------------------------------------
 # Create Agent

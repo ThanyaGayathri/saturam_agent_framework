@@ -13,9 +13,9 @@ Usage:
     .venvs/demo/bin/python cookbook/frameworks/00_quickstart/claude_agent.py
 """
 
-from agno.agents.claude import ClaudeAgent
-from agno.db.sqlite import SqliteDb
-from agno.os import AgentOS
+from egpt.agents.claude import ClaudeAgent
+from egpt.db.sqlite import SqliteDb
+from egpt.os import AgentOS
 
 agent = ClaudeAgent(
     name="Claude Code Agent",

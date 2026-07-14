@@ -5,10 +5,10 @@ Custom Guardrail
 Custom Guardrail.
 """
 
-from agno.agent import Agent
-from agno.exceptions import CheckTrigger, InputCheckError
-from agno.guardrails.base import BaseGuardrail
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.exceptions import CheckTrigger, InputCheckError
+from egpt.guardrails.base import BaseGuardrail
+from egpt.models.openai import OpenAIResponses
 
 
 class TopicGuardrail(BaseGuardrail):

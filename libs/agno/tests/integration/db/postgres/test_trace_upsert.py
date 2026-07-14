@@ -17,8 +17,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from threading import Barrier
 
-from agno.db.postgres import PostgresDb
-from agno.tracing.schemas import Trace
+from egpt.db.postgres import PostgresDb
+from egpt.tracing.schemas import Trace
 
 
 def create_test_trace(trace_id: str, name: str, task_id: int) -> Trace:

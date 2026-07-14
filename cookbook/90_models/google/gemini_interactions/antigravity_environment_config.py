@@ -14,8 +14,8 @@ same sandbox (e.g. an iterative project). Use a custom EnvironmentConfig
 when you need a specific source repo, package set, or network policy.
 """
 
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
 
 # ---------------------------------------------------------------------------
 # Option 1: Reuse an existing environment by id

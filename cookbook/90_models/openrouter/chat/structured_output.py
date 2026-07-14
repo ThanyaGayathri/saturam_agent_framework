@@ -7,8 +7,8 @@ Cookbook example for `openrouter/chat/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.openrouter import OpenRouter
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.openrouter import OpenRouter
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

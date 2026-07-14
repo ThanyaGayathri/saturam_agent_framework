@@ -7,8 +7,8 @@ Cookbook example for `minimax/basic.py`.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.minimax import MiniMax
+from egpt.agent import Agent
+from egpt.models.minimax import MiniMax
 
 # ---------------------------------------------------------------------------
 # Create Agent

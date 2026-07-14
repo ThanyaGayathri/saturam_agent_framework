@@ -10,8 +10,8 @@ Dynamic models provide automatic failover when the primary model encounters:
 OpenRouter will automatically try the models defined in order until one succeeds.
 """
 
-from agno.agent import Agent
-from agno.models.openrouter import OpenRouter
+from egpt.agent import Agent
+from egpt.models.openrouter import OpenRouter
 
 # ---------------------------------------------------------------------------
 # Create Agent

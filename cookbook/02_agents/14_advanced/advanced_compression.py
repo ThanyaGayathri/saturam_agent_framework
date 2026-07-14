@@ -5,11 +5,11 @@ Advanced Compression
 This example shows how to set a context token based limit for tool call compression.
 """
 
-from agno.agent import Agent
-from agno.compression.manager import CompressionManager
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.compression.manager import CompressionManager
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.websearch import WebSearchTools
 
 compression_prompt = """
     You are a compression expert. Your goal is to compress web search results for a competitive intelligence analyst.

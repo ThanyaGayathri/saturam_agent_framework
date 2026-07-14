@@ -26,8 +26,8 @@ or upstream **401** errors.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.cloudflare import Cloudflare
+from egpt.agent import Agent
+from egpt.models.cloudflare import Cloudflare
 
 # ---------------------------------------------------------------------------
 # Create Agent

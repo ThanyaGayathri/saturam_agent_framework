@@ -5,8 +5,8 @@ Bravesearch Tools
 Demonstrates bravesearch tools.
 """
 
-from agno.agent import Agent
-from agno.tools.bravesearch import BraveSearchTools
+from egpt.agent import Agent
+from egpt.tools.bravesearch import BraveSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

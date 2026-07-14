@@ -4,10 +4,10 @@ Useful for simple demos where performance is not critical.
 
 Run `uv pip install ddgs openai` to install dependencies."""
 
-from agno.agent import Agent
-from agno.db.json import JsonDb
-from agno.models.openai import OpenAIChat
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.json import JsonDb
+from egpt.models.openai import OpenAIChat
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

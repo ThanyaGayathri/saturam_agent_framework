@@ -5,10 +5,10 @@ PII Detection
 Demonstrates PII detection guardrails for team input protection.
 """
 
-from agno.exceptions import InputCheckError
-from agno.guardrails import PIIDetectionGuardrail
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.exceptions import InputCheckError
+from egpt.guardrails import PIIDetectionGuardrail
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Team

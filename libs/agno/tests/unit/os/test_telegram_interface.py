@@ -34,22 +34,22 @@ def _install_fake_telebot():
 
 _install_fake_telebot()
 
-from agno.os.interfaces.telegram import Telegram  # noqa: E402
-from agno.os.interfaces.telegram.formatting import markdown_to_telegram_html  # noqa: E402
-from agno.os.interfaces.telegram.security import (  # noqa: E402
+from egpt.os.interfaces.telegram import Telegram  # noqa: E402
+from egpt.os.interfaces.telegram.formatting import markdown_to_telegram_html  # noqa: E402
+from egpt.os.interfaces.telegram.security import (  # noqa: E402
     _is_dev_mode as is_development_mode,
 )
-from agno.os.interfaces.telegram.security import (  # noqa: E402
+from egpt.os.interfaces.telegram.security import (  # noqa: E402
     get_webhook_secret_token,
     validate_webhook_secret_token,
 )
 
-SECURITY_MODULE = "agno.os.interfaces.telegram.security"
+SECURITY_MODULE = "egpt.os.interfaces.telegram.security"
 
 
 @pytest.fixture(autouse=True)
 def _bypass_router_security():
-    with patch("agno.os.interfaces.telegram.router.validate_webhook_secret_token", return_value=True):
+    with patch("egpt.os.interfaces.telegram.router.validate_webhook_secret_token", return_value=True):
         yield
 
 
@@ -182,7 +182,7 @@ class TestTelegramClass:
         assert "/telegram/webhook" in routes
 
 
-ROUTER_MODULE = "agno.os.interfaces.telegram.router"
+ROUTER_MODULE = "egpt.os.interfaces.telegram.router"
 
 
 def _make_app(monkeypatch, agent=None, team=None, workflow=None):
@@ -320,7 +320,7 @@ def _build_telegram_client(
 ):
     from fastapi import APIRouter
 
-    from agno.os.interfaces.telegram.router import attach_routes
+    from egpt.os.interfaces.telegram.router import attach_routes
 
     router = APIRouter(prefix="/telegram")
     kwargs: dict = dict(
@@ -1082,7 +1082,7 @@ class TestAttachRoutesValidation:
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
         from fastapi import APIRouter
 
-        from agno.os.interfaces.telegram.router import attach_routes
+        from egpt.os.interfaces.telegram.router import attach_routes
 
         with pytest.raises(ValueError, match="Either agent, team, or workflow"):
             attach_routes(router=APIRouter())
@@ -1091,7 +1091,7 @@ class TestAttachRoutesValidation:
         monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
         from fastapi import APIRouter
 
-        from agno.os.interfaces.telegram.router import attach_routes
+        from egpt.os.interfaces.telegram.router import attach_routes
 
         with pytest.raises(ValueError, match="TELEGRAM_TOKEN"):
             attach_routes(router=APIRouter(), agent=MagicMock())
@@ -2354,7 +2354,7 @@ class TestStreamingErrorHandling:
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
         monkeypatch.setenv("APP_ENV", "development")
 
-        from agno.run.agent import RunOutput
+        from egpt.run.agent import RunOutput
 
         mock_run_output = MagicMock(spec=RunOutput)
         mock_run_output.status = "ERROR"
@@ -2388,7 +2388,7 @@ class TestStreamingErrorHandling:
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
         monkeypatch.setenv("APP_ENV", "development")
 
-        from agno.run.agent import RunContentEvent, RunOutput
+        from egpt.run.agent import RunContentEvent, RunOutput
 
         mock_content_event = MagicMock(spec=RunContentEvent)
         mock_content_event.content = "Hello world"
@@ -2459,7 +2459,7 @@ class TestMultiBotTokenParam:
         monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
         monkeypatch.setenv("APP_ENV", "development")
 
-        from agno.os.interfaces.telegram.router import attach_routes
+        from egpt.os.interfaces.telegram.router import attach_routes
 
         agent = MagicMock()
 
@@ -2503,7 +2503,7 @@ class TestStreamingEnhancedEvents:
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
         monkeypatch.setenv("APP_ENV", "development")
 
-        from agno.run.agent import ReasoningStartedEvent, RunContentEvent, RunOutput
+        from egpt.run.agent import ReasoningStartedEvent, RunContentEvent, RunOutput
 
         mock_reasoning_event = MagicMock(spec=ReasoningStartedEvent)
         mock_reasoning_event.event = "ReasoningStarted"
@@ -2545,7 +2545,7 @@ class TestStreamingEnhancedEvents:
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
         monkeypatch.setenv("APP_ENV", "development")
 
-        from agno.run.agent import RunContentEvent, RunOutput, ToolCallCompletedEvent, ToolCallStartedEvent
+        from egpt.run.agent import RunContentEvent, RunOutput, ToolCallCompletedEvent, ToolCallStartedEvent
 
         mock_tool = MagicMock()
         mock_tool.tool_name = "web_search"
@@ -2597,7 +2597,7 @@ class TestStreamingEnhancedEvents:
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
         monkeypatch.setenv("APP_ENV", "development")
 
-        from agno.run.workflow import StepCompletedEvent, StepStartedEvent, WorkflowCompletedEvent
+        from egpt.run.workflow import StepCompletedEvent, StepStartedEvent, WorkflowCompletedEvent
 
         mock_step_started = MagicMock(spec=StepStartedEvent)
         mock_step_started.event = "StepStarted"
@@ -2644,7 +2644,7 @@ class TestStreamingEnhancedEvents:
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
         monkeypatch.setenv("APP_ENV", "development")
 
-        from agno.run.workflow import ParallelExecutionStartedEvent, WorkflowCompletedEvent
+        from egpt.run.workflow import ParallelExecutionStartedEvent, WorkflowCompletedEvent
 
         mock_parallel = MagicMock(spec=ParallelExecutionStartedEvent)
         mock_parallel.event = "ParallelExecutionStarted"
@@ -2679,7 +2679,7 @@ class TestStreamingEnhancedEvents:
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
         monkeypatch.setenv("APP_ENV", "development")
 
-        from agno.run.workflow import WorkflowErrorEvent
+        from egpt.run.workflow import WorkflowErrorEvent
 
         mock_error = MagicMock(spec=WorkflowErrorEvent)
         mock_error.event = "WorkflowError"

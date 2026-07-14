@@ -7,9 +7,9 @@ Image To Structured Output.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.openai import OpenAIResponses
 from pydantic import BaseModel, Field
 from rich.pretty import pprint
 

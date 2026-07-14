@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from agno.db.schemas.evals import EvalRunRecord, EvalType
+from egpt.db.schemas.evals import EvalRunRecord, EvalType
 
 
 @pytest.mark.asyncio

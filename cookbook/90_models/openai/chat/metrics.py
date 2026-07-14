@@ -5,10 +5,10 @@ Openai Metrics
 Cookbook example for `openai/chat/metrics.py`.
 """
 
-from agno.agent import Agent, RunOutput
-from agno.models.openai import OpenAIChat
-from agno.tools.yfinance import YFinanceTools
-from agno.utils.pprint import pprint_run_response
+from egpt.agent import Agent, RunOutput
+from egpt.models.openai import OpenAIChat
+from egpt.tools.yfinance import YFinanceTools
+from egpt.utils.pprint import pprint_run_response
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

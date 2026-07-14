@@ -15,8 +15,8 @@ Example prompts to try:
 - "Write a Python function to find all prime factors of a number. Think through edge cases."
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -12,12 +12,12 @@ This approach is useful when:
 Use case: Collecting user preferences before an agent generates content.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput, UserInputField
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput, UserInputField
+from egpt.workflow.workflow import Workflow
 from workflow_db import db
 
 

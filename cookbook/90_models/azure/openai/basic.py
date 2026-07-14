@@ -5,8 +5,8 @@ Azure Basic
 Cookbook example for `azure/openai/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.azure import AzureOpenAI
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.azure import AzureOpenAI
 import asyncio
 
 # ---------------------------------------------------------------------------

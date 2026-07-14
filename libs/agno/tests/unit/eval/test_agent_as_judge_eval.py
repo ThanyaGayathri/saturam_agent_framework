@@ -2,11 +2,11 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.eval.agent_as_judge import AgentAsJudgeEval, BinaryJudgeResponse, NumericJudgeResponse
-from agno.models.openai import OpenAIChat
-from agno.run.agent import RunOutput
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.eval.agent_as_judge import AgentAsJudgeEval, BinaryJudgeResponse, NumericJudgeResponse
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import RunOutput
 
 
 def _mock_evaluator_numeric(eval_instance: AgentAsJudgeEval, score: int = 8):

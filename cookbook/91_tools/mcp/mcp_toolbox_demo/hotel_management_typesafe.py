@@ -10,9 +10,9 @@ from datetime import date
 from textwrap import dedent
 from typing import List, Literal
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.mcp_toolbox import MCPToolbox
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.mcp_toolbox import MCPToolbox
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

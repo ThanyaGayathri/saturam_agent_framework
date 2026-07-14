@@ -5,9 +5,9 @@ Discord Agent With Media
 Runs a Discord bot that can analyze user-provided media.
 """
 
-from agno.agent import Agent
-from agno.integrations.discord import DiscordClient
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.integrations.discord import DiscordClient
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Create Agent

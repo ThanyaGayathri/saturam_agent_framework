@@ -1,8 +1,8 @@
 import asyncio
 from os import getenv
 
-from agno.db.migrations.manager import MigrationManager
-from agno.db.singlestore import SingleStoreDb
+from egpt.db.migrations.manager import MigrationManager
+from egpt.db.singlestore import SingleStoreDb
 
 # Create your database connection here
 USERNAME = getenv("SINGLESTORE_USERNAME")

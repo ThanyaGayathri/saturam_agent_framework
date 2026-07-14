@@ -6,10 +6,10 @@ Steps:
 3. Run: `python cookbook/92_models/mistral/memory.py` to run the agent
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.mistral.mistral import MistralChat
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.mistral.mistral import MistralChat
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

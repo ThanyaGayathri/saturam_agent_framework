@@ -5,16 +5,16 @@ from datetime import datetime
 
 import pytest
 
-from agno.db.base import SessionType
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.run.team import TeamRunOutput
-from agno.run.workflow import WorkflowRunOutput
-from agno.session.agent import AgentSession
-from agno.session.summary import SessionSummary
-from agno.session.team import TeamSession
-from agno.workflow.workflow import WorkflowSession
+from egpt.db.base import SessionType
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.team import TeamRunOutput
+from egpt.run.workflow import WorkflowRunOutput
+from egpt.session.agent import AgentSession
+from egpt.session.summary import SessionSummary
+from egpt.session.team import TeamSession
+from egpt.workflow.workflow import WorkflowSession
 
 
 @pytest.fixture(autouse=True)
@@ -331,8 +331,8 @@ def test_get_sessions_with_pagination(sqlite_db_real: SqliteDb):
 
 def test_get_sessions_with_sorting(sqlite_db_real: SqliteDb):
     """Test retrieving sessions with sorting"""
-    from agno.db.base import SessionType
-    from agno.session.agent import AgentSession
+    from egpt.db.base import SessionType
+    from egpt.session.agent import AgentSession
 
     # Create sessions with different timestamps
     base_time = int(time.time())
@@ -357,8 +357,8 @@ def test_get_sessions_with_sorting(sqlite_db_real: SqliteDb):
 
 def test_get_sessions_with_timestamp_filter(sqlite_db_real: SqliteDb):
     """Test retrieving sessions with timestamp filters"""
-    from agno.db.base import SessionType
-    from agno.session.agent import AgentSession
+    from egpt.db.base import SessionType
+    from egpt.session.agent import AgentSession
 
     base_time = int(time.time())
 
@@ -390,8 +390,8 @@ def test_get_sessions_with_timestamp_filter(sqlite_db_real: SqliteDb):
 
 def test_get_sessions_with_session_name_filter(sqlite_db_real: SqliteDb):
     """Test retrieving sessions filtered by session name"""
-    from agno.db.base import SessionType
-    from agno.session.agent import AgentSession
+    from egpt.db.base import SessionType
+    from egpt.session.agent import AgentSession
 
     # Create sessions with different names
     session1 = AgentSession(
@@ -418,7 +418,7 @@ def test_get_sessions_with_session_name_filter(sqlite_db_real: SqliteDb):
 
 def test_get_sessions_without_deserialize(sqlite_db_real: SqliteDb, sample_agent_session: AgentSession):
     """Test retrieving sessions without deserialization"""
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     # Insert session
     sqlite_db_real.upsert_session(sample_agent_session)
@@ -435,7 +435,7 @@ def test_get_sessions_without_deserialize(sqlite_db_real: SqliteDb, sample_agent
 
 def test_rename_agent_session(sqlite_db_real: SqliteDb, sample_agent_session: AgentSession):
     """Test renaming an AgentSession"""
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     # Insert session
     sqlite_db_real.upsert_session(sample_agent_session)
@@ -456,7 +456,7 @@ def test_rename_agent_session(sqlite_db_real: SqliteDb, sample_agent_session: Ag
 
 def test_rename_workflow_session(sqlite_db_real: SqliteDb, sample_workflow_session: WorkflowSession):
     """Test renaming a WorkflowSession"""
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     # Insert session
     sqlite_db_real.upsert_session(sample_workflow_session)
@@ -477,7 +477,7 @@ def test_rename_workflow_session(sqlite_db_real: SqliteDb, sample_workflow_sessi
 
 def test_rename_team_session(sqlite_db_real: SqliteDb, sample_team_session: TeamSession):
     """Test renaming a TeamSession"""
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     # Insert session
     sqlite_db_real.upsert_session(sample_team_session)
@@ -498,7 +498,7 @@ def test_rename_team_session(sqlite_db_real: SqliteDb, sample_team_session: Team
 
 def test_rename_session_without_deserialize(sqlite_db_real: SqliteDb, sample_agent_session: AgentSession):
     """Test renaming session without deserialization"""
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     # Insert session
     sqlite_db_real.upsert_session(sample_agent_session)
@@ -523,7 +523,7 @@ def test_delete_single_session(sqlite_db_real: SqliteDb, sample_agent_session: A
     sqlite_db_real.upsert_session(sample_agent_session)
 
     # Verify it exists
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     session = sqlite_db_real.get_session(session_id=sample_agent_session.session_id, session_type=SessionType.AGENT)
     assert session is not None
@@ -539,8 +539,8 @@ def test_delete_single_session(sqlite_db_real: SqliteDb, sample_agent_session: A
 
 def test_delete_multiple_sessions(sqlite_db_real: SqliteDb):
     """Test deleting multiple sessions"""
-    from agno.db.base import SessionType
-    from agno.session.agent import AgentSession
+    from egpt.db.base import SessionType
+    from egpt.session.agent import AgentSession
 
     # Create and insert multiple sessions
     sessions = []
@@ -719,8 +719,8 @@ def test_upsert_session_handles_all_team_session_fields(sqlite_db_real: SqliteDb
 
 def test_upsert_sessions(sqlite_db_real: SqliteDb):
     """Test upsert_sessions with mixed session types (Agent, Team, Workflow)"""
-    from agno.run.workflow import WorkflowRunOutput
-    from agno.session.workflow import WorkflowSession
+    from egpt.run.workflow import WorkflowRunOutput
+    from egpt.session.workflow import WorkflowSession
 
     # Create sessions
     agent_run = RunOutput(

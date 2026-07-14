@@ -7,11 +7,11 @@ Demonstrates team tools accessing uploaded media files directly.
 
 from typing import Optional, Sequence
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.google import Gemini
-from agno.team import Team
-from agno.tools import Toolkit
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.google import Gemini
+from egpt.team import Team
+from egpt.tools import Toolkit
 
 
 class DocumentProcessingTools(Toolkit):

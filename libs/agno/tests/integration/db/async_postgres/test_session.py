@@ -5,14 +5,14 @@ import time
 import pytest
 import pytest_asyncio
 
-from agno.db.base import SessionType
-from agno.db.postgres import AsyncPostgresDb
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.run.team import TeamRunOutput
-from agno.session.agent import AgentSession
-from agno.session.team import TeamSession
-from agno.session.workflow import WorkflowSession
+from egpt.db.base import SessionType
+from egpt.db.postgres import AsyncPostgresDb
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.team import TeamRunOutput
+from egpt.session.agent import AgentSession
+from egpt.session.team import TeamSession
+from egpt.session.workflow import WorkflowSession
 
 
 @pytest_asyncio.fixture(autouse=True)

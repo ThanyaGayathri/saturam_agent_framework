@@ -10,8 +10,8 @@ Generated images come back in the response steps (and as image deltas when
 streaming). Agno parses them into the response's images.
 """
 
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
 
 agent = Agent(
     model=GeminiInteractions(

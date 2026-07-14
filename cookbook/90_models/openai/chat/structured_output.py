@@ -8,8 +8,8 @@ Cookbook example for `openai/chat/structured_output.py`.
 import asyncio
 from typing import Dict, List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.openai import OpenAIChat
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

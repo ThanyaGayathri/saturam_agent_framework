@@ -9,12 +9,12 @@ strategy by subclassing MemoryOptimizationStrategy.
 from datetime import datetime
 from typing import List
 
-from agno.agent import Agent
-from agno.db.schemas import UserMemory
-from agno.db.sqlite import SqliteDb
-from agno.memory import MemoryManager, MemoryOptimizationStrategy
-from agno.models.base import Model
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.db.schemas import UserMemory
+from egpt.db.sqlite import SqliteDb
+from egpt.memory import MemoryManager, MemoryOptimizationStrategy
+from egpt.models.base import Model
+from egpt.models.openai import OpenAIChat
 
 
 # ---------------------------------------------------------------------------

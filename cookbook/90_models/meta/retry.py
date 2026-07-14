@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Meta Llama (using OpenAI-compatible endpoint)."""
 
-from agno.agent import Agent
-from agno.models.meta import LlamaOpenAI
+from egpt.agent import Agent
+from egpt.models.meta import LlamaOpenAI
 
 # ---------------------------------------------------------------------------
 # Create Agent

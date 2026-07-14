@@ -7,9 +7,9 @@ Reasoning Agent Events.
 
 import asyncio
 
-from agno.agent import RunEvent
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent import RunEvent
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

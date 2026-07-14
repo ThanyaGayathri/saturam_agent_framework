@@ -7,12 +7,12 @@ Demonstrates structured output schemas at each team step in a multi-step workflo
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.team import Team
-from agno.tools.hackernews import HackerNewsTools
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.team import Team
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 from pydantic import BaseModel, Field
 
 

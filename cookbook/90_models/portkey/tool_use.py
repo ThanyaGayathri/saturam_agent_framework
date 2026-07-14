@@ -7,9 +7,9 @@ Cookbook example for `portkey/tool_use.py`.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.portkey import Portkey
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.portkey import Portkey
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

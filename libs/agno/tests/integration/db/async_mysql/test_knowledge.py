@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from agno.db.schemas.knowledge import KnowledgeRow
+from egpt.db.schemas.knowledge import KnowledgeRow
 
 
 @pytest.mark.asyncio

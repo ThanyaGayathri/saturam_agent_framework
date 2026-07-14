@@ -8,17 +8,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.exceptions import InputCheckError, OutputCheckError
-from agno.guardrails.base import BaseGuardrail
-from agno.run import RunContext
-from agno.run.team import TeamRunInput
-from agno.team._hooks import (
+from egpt.exceptions import InputCheckError, OutputCheckError
+from egpt.guardrails.base import BaseGuardrail
+from egpt.run import RunContext
+from egpt.run.team import TeamRunInput
+from egpt.team._hooks import (
     _aexecute_post_hooks,
     _aexecute_pre_hooks,
     _execute_post_hooks,
     _execute_pre_hooks,
 )
-from agno.utils.hooks import normalize_pre_hooks
+from egpt.utils.hooks import normalize_pre_hooks
 
 
 class BlockingGuardrail(BaseGuardrail):

@@ -34,11 +34,11 @@ docker run -p 27017:27017 -d --name mongodb-container --rm -v ./tmp/mongo-data:/
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.vectordb.mongodb import MongoVectorDb
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.vectordb.mongodb import MongoVectorDb
 
 # ---------------------------------------------------------------------------
 # Setup

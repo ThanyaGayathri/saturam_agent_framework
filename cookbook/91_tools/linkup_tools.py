@@ -5,8 +5,8 @@ Linkup Tools
 Demonstrates linkup tools.
 """
 
-from agno.agent import Agent
-from agno.tools.linkup import LinkupTools
+from egpt.agent import Agent
+from egpt.tools.linkup import LinkupTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

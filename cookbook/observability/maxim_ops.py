@@ -5,11 +5,11 @@ Maxim Integration
 Demonstrates using Maxim to trace and log Agno agent and team calls.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.team.team import Team
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.team.team import Team
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 try:
     from maxim import Maxim

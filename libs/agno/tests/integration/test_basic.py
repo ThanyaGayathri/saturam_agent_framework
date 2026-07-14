@@ -1,11 +1,11 @@
 import pytest
 
-from agno.agent.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.run.agent import RunOutput
-from agno.team.team import Team
-from agno.vectordb.chroma import ChromaDb
+from egpt.agent.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import RunOutput
+from egpt.team.team import Team
+from egpt.vectordb.chroma import ChromaDb
 
 
 @pytest.fixture

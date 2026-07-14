@@ -3,9 +3,9 @@ from typing import List, Optional, TypedDict
 import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.utils.agent import validate_input
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.utils.agent import validate_input
 
 
 # TypedDict schemas

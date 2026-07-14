@@ -5,10 +5,10 @@ Session State Events
 Session State Events.
 """
 
-from agno.agent import Agent, RunCompletedEvent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.run import RunContext
+from egpt.agent import Agent, RunCompletedEvent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunContext
 
 
 def add_item(run_context: RunContext, item: str) -> str:

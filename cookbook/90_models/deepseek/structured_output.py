@@ -7,8 +7,8 @@ Cookbook example for `deepseek/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.deepseek import DeepSeek
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.deepseek import DeepSeek
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

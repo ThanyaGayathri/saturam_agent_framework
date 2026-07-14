@@ -8,9 +8,9 @@ from textwrap import dedent
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.reasoning import ReasoningTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.reasoning import ReasoningTools
 
 
 @pytest.mark.integration
@@ -58,7 +58,7 @@ def test_reasoning_content_from_reasoning_tools_streaming():
     )
 
     # Get the final RunOutput from the last RunCompletedEvent
-    from agno.run.agent import RunCompletedEvent
+    from egpt.run.agent import RunCompletedEvent
 
     completed_events = [event for event in streaming_events if isinstance(event, RunCompletedEvent)]
     assert len(completed_events) > 0, "Should have at least one RunCompletedEvent"

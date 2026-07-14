@@ -5,19 +5,19 @@ pytest.importorskip("anthropic")
 pytest.importorskip("google.genai")
 pytest.importorskip("groq")
 
-from agno.agent import Agent
-from agno.culture.manager import CultureManager
-from agno.knowledge.chunking.agentic import AgenticChunking
-from agno.memory.manager import MemoryManager
-from agno.models.anthropic import Claude
-from agno.models.cloudflare import Cloudflare
-from agno.models.google import Gemini
-from agno.models.groq import Groq
-from agno.models.minimax import MiniMax
-from agno.models.n1n import N1N
-from agno.models.openai import OpenAIChat, OpenAIResponses
-from agno.models.utils import get_model
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.culture.manager import CultureManager
+from egpt.knowledge.chunking.agentic import AgenticChunking
+from egpt.memory.manager import MemoryManager
+from egpt.models.anthropic import Claude
+from egpt.models.cloudflare import Cloudflare
+from egpt.models.google import Gemini
+from egpt.models.groq import Groq
+from egpt.models.minimax import MiniMax
+from egpt.models.n1n import N1N
+from egpt.models.openai import OpenAIChat, OpenAIResponses
+from egpt.models.utils import get_model
+from egpt.team import Team
 
 
 def test_get_model_with_string():

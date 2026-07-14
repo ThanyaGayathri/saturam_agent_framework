@@ -5,8 +5,8 @@ Vertexai Thinking
 Cookbook example for `vertexai/claude/thinking.py`.
 """
 
-from agno.agent import Agent
-from agno.models.vertexai.claude import Claude
+from egpt.agent import Agent
+from egpt.models.vertexai.claude import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

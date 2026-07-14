@@ -8,8 +8,8 @@ pytest.importorskip("litellm")
 
 from pydantic import BaseModel
 
-from agno.models.litellm import LiteLLM
-from agno.models.message import Message
+from egpt.models.litellm import LiteLLM
+from egpt.models.message import Message
 
 
 class Movie(BaseModel):

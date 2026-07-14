@@ -7,10 +7,10 @@ Demonstrates collaborative visual analysis with structured movie script output.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 from pydantic import BaseModel, Field
 from rich.pretty import pprint
 

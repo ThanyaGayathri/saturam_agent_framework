@@ -7,9 +7,9 @@ Demonstrates agent instantiation benchmarking with CrewAI.
 
 from typing import Literal
 
-from agno.eval.performance import PerformanceEval
 from crewai.agent import Agent
 from crewai.tools import tool
+from egpt.eval.performance import PerformanceEval
 
 
 # ---------------------------------------------------------------------------

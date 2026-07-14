@@ -7,14 +7,14 @@ Demonstrates router selectors that use and update workflow session state for ada
 
 from typing import List
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.models.openai.chat import OpenAIChat as OpenAIChatLegacy
-from agno.run import RunContext
-from agno.workflow.router import Router
-from agno.workflow.step import Step, StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.models.openai.chat import OpenAIChat as OpenAIChatLegacy
+from egpt.run import RunContext
+from egpt.workflow.router import Router
+from egpt.workflow.step import Step, StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 # ---------------------------------------------------------------------------

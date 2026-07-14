@@ -13,8 +13,8 @@ on any EVM-compatible blockchain.
     uv pip install agno web3
 """
 
-from agno.agent import Agent
-from agno.tools.evm import EvmTools
+from egpt.agent import Agent
+from egpt.tools.evm import EvmTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

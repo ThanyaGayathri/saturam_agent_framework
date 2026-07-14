@@ -4,11 +4,11 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.os import AgentOS
-from agno.team.team import Team
-from agno.workflow.workflow import Workflow
+from egpt.agent.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.os import AgentOS
+from egpt.team.team import Team
+from egpt.workflow.workflow import Workflow
 
 
 @pytest.fixture
@@ -56,7 +56,7 @@ def test_db_does_not_override_agent_team_workflow_db(default_db, secondary_db):
     assert workflow.db is secondary_db
 
 
-@patch("agno.os.app.setup_tracing_for_os")
+@patch("egpt.os.app.setup_tracing_for_os")
 def test_tracing_uses_default_db(mock_setup_tracing, default_db):
     """Test that tracing uses the AgentOS default db."""
     agent = Agent(name="test-agent", id="test-agent-id")

@@ -35,9 +35,9 @@ from __future__ import annotations
 
 import asyncio
 
-from agno.agent import Agent
-from agno.context.slack import SlackContextProvider
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context.slack import SlackContextProvider
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create the provider (token read from SLACK_BOT_TOKEN / SLACK_TOKEN)
@@ -70,7 +70,7 @@ async def main() -> None:
 
     # --- Write path (opt in via env) ---
     write_channel = "#agents"
-    write_prompt = f"Post the message 'Hello from agno.context' to {write_channel}."
+    write_prompt = f"Post the message 'Hello from egpt.context' to {write_channel}."
     print(f"\n> {write_prompt}\n")
     await agent.aprint_response(write_prompt)
 

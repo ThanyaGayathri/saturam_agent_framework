@@ -8,11 +8,11 @@ MCP server availability (enabled + mount path) and the effective auth mode
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent.agent import Agent
-from agno.os import AgentOS
-from agno.os.auth import get_effective_auth_mode
-from agno.os.config import AuthorizationConfig
-from agno.os.settings import AgnoAPISettings
+from egpt.agent.agent import Agent
+from egpt.os import AgentOS
+from egpt.os.auth import get_effective_auth_mode
+from egpt.os.config import AuthorizationConfig
+from egpt.os.settings import AgnoAPISettings
 
 JWT_SECRET = "test-jwt-secret"
 
@@ -101,7 +101,7 @@ class TestInfoEndpointAuthMode:
         ``auth_mode: "none"`` for these deployments, and ``agno connect`` skipped the mint
         step and produced configs without a bearer token.
         """
-        from agno.os.middleware import JWTMiddleware
+        from egpt.os.middleware import JWTMiddleware
 
         agent = Agent(name="Info Agent", id="info-agent", telemetry=False)
         os_instance = AgentOS(agents=[agent], telemetry=False)

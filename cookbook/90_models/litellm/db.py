@@ -1,9 +1,9 @@
 """Run `uv pip install ddgs openai` to install dependencies."""
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.litellm import LiteLLM
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.litellm import LiteLLM
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

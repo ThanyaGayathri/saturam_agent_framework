@@ -3,8 +3,8 @@ from typing import Dict
 
 import pytest
 
-from agno.tools.function import Function, FunctionCall
-from agno.utils.functions import get_function_call
+from egpt.tools.function import Function, FunctionCall
+from egpt.utils.functions import get_function_call
 
 
 @pytest.fixture

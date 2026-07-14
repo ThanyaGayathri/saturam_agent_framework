@@ -9,9 +9,9 @@ export ZEP_API_KEY=<your-zep-api-key>
 import asyncio
 import time
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.zep import ZepAsyncTools, ZepTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.zep import ZepAsyncTools, ZepTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

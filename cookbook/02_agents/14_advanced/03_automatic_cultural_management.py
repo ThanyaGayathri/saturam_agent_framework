@@ -5,9 +5,9 @@
 Automatically update cultural knowledge based on Agent interactions.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Step 1. Initialize the database (same one used in 01_create_cultural_knowledge.py)

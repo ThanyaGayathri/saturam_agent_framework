@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.exceptions import ModelAuthenticationError
-from agno.models.inception import Inception
+from egpt.exceptions import ModelAuthenticationError
+from egpt.models.inception import Inception
 
 
 def test_inception_initialization_with_api_key():

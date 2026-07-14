@@ -12,8 +12,8 @@ Get an API key:
 
 import asyncio
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.inception import Inception
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.inception import Inception
 
 # ---------------------------------------------------------------------------
 # Create Agent

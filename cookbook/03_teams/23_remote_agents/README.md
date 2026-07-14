@@ -74,7 +74,7 @@ When a Team delegates to a RemoteAgent member, the execution flows through these
 
 ### Step 1: Team.arun() sets async_mode=True
 
-**File:** `libs/agno/agno/team/_run.py:2119-2127`
+**File:** `libs/agno/egpt/team/_run.py:2119-2127`
 
 ```python
 _tools = _determine_tools_for_model(
@@ -92,7 +92,7 @@ The `async_mode=True` flag propagates through the tool-building chain.
 
 ### Step 2: Tool builder passes async_mode to delegate function factory
 
-**File:** `libs/agno/agno/team/_tools.py:296-306`
+**File:** `libs/agno/egpt/team/_tools.py:296-306`
 
 ```python
 delegate_task_func = _get_delegate_task_function(
@@ -108,7 +108,7 @@ delegate_task_func = _get_delegate_task_function(
 
 ### Step 3: Factory returns async or sync delegate function based on async_mode
 
-**File:** `libs/agno/agno/team/_default_tools.py:1414-1417`
+**File:** `libs/agno/egpt/team/_default_tools.py:1414-1417`
 
 ```python
 if async_mode:
@@ -121,7 +121,7 @@ delegate_func = Function.from_callable(delegate_function, name="delegate_task_to
 
 ### Step 4: Async delegate function calls member_agent.arun()
 
-**File:** `libs/agno/agno/team/_default_tools.py:812-834` (streaming) and `:873` (non-streaming)
+**File:** `libs/agno/egpt/team/_default_tools.py:812-834` (streaming) and `:873` (non-streaming)
 
 ```python
 async def adelegate_task_to_member(member_id: str, task: str):
@@ -149,7 +149,7 @@ async def adelegate_task_to_member(member_id: str, task: str):
 
 ### Step 5: RemoteAgent.arun() makes HTTP request to remote server
 
-**File:** `libs/agno/agno/agent/remote.py:259-351`
+**File:** `libs/agno/egpt/agent/remote.py:259-351`
 
 ```python
 def arun(self, input, *, stream=None, ...):

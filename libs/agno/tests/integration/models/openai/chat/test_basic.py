@@ -3,10 +3,10 @@ from typing import Optional
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.run.base import RunStatus
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.run.base import RunStatus
 
 
 @pytest.fixture(scope="module")
@@ -266,7 +266,7 @@ async def test_async_client_persistence(openai_model):
 
 
 def test_count_tokens(openai_model):
-    from agno.models.message import Message
+    from egpt.models.message import Message
 
     messages = [
         Message(role="user", content="Hello world, this is a test message for token counting"),
@@ -280,8 +280,8 @@ def test_count_tokens(openai_model):
 
 
 def test_count_tokens_with_tools(openai_model):
-    from agno.models.message import Message
-    from agno.tools.calculator import CalculatorTools
+    from egpt.models.message import Message
+    from egpt.tools.calculator import CalculatorTools
 
     messages = [
         Message(role="user", content="What is 2 + 2?"),

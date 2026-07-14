@@ -5,9 +5,9 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from agno.db.postgres import AsyncPostgresDb
-from agno.session.workflow import WorkflowSession
-from agno.workflow.workflow import Workflow
+from egpt.db.postgres import AsyncPostgresDb
+from egpt.session.workflow import WorkflowSession
+from egpt.workflow.workflow import Workflow
 
 
 @pytest.fixture

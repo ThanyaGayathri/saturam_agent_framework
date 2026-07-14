@@ -5,10 +5,10 @@ Pre Hook Input
 Example demonstrating how to use a pre_hook to perform comprehensive input validation for your Agno Agent.
 """
 
-from agno.agent import Agent
-from agno.exceptions import CheckTrigger, InputCheckError
-from agno.models.openai import OpenAIResponses
-from agno.run.agent import RunInput
+from egpt.agent import Agent
+from egpt.exceptions import CheckTrigger, InputCheckError
+from egpt.models.openai import OpenAIResponses
+from egpt.run.agent import RunInput
 from pydantic import BaseModel
 
 

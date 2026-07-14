@@ -7,12 +7,12 @@ Demonstrates tool-call reliability checks for a team workflow.
 
 from typing import Optional
 
-from agno.agent import Agent
-from agno.eval.reliability import ReliabilityEval, ReliabilityResult
-from agno.models.openai import OpenAIChat
-from agno.run.team import TeamRunOutput
-from agno.team.team import Team
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.eval.reliability import ReliabilityEval, ReliabilityResult
+from egpt.models.openai import OpenAIChat
+from egpt.run.team import TeamRunOutput
+from egpt.team.team import Team
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Team

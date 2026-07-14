@@ -22,9 +22,9 @@ from datetime import datetime, timezone
 import pytest
 from surrealdb import RecordID
 
-from agno.db.surrealdb import SurrealDb
-from agno.debug import enable_debug_mode
-from agno.tracing.schemas import Span, Trace
+from egpt.db.surrealdb import SurrealDb
+from egpt.debug import enable_debug_mode
+from egpt.tracing.schemas import Span, Trace
 
 enable_debug_mode()
 

@@ -12,11 +12,11 @@ in a browser must never 401 an instance the operator meant to be open.
 import pytest
 from starlette.testclient import TestClient
 
-from agno.agent.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.os import AgentOS
-from agno.os.config import AuthorizationConfig
-from agno.os.settings import AgnoAPISettings
+from egpt.agent.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.os import AgentOS
+from egpt.os.config import AuthorizationConfig
+from egpt.os.settings import AgnoAPISettings
 
 JWT_SECRET = "test-jwt-secret"
 
@@ -83,7 +83,7 @@ class TestOpenInstanceStaysOpen:
         the means to verify tokens is not the same as requiring them. An instance
         with no security key and no JWT stays open, db or not.
         """
-        from agno.os.middleware.jwt import AuthMiddleware
+        from egpt.os.middleware.jwt import AuthMiddleware
 
         os_instance = AgentOS(agents=[_agent()], db=sqlite_db, telemetry=False)
         app = os_instance.get_app()

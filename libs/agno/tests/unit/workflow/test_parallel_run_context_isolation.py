@@ -10,10 +10,10 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel
 
-from agno.run.base import RunContext
-from agno.workflow.parallel import Parallel
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
+from egpt.run.base import RunContext
+from egpt.workflow.parallel import Parallel
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
 
 
 class SchemaA(BaseModel):

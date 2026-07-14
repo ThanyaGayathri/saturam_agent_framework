@@ -4,11 +4,11 @@ In this example, we upload a PDF file to Anthropic directly and then use it as a
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.anthropic import Claude
-from agno.utils.media import download_file
 from anthropic import Anthropic
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.anthropic import Claude
+from egpt.utils.media import download_file
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -23,10 +23,10 @@ Usage:
 
 import sys
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.tools.scheduler import SchedulerTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.tools.scheduler import SchedulerTools
 
 # ---------------------------------------------------------------------------
 # Database
@@ -69,7 +69,7 @@ scheduler_agent = Agent(
 
 def serve():
     """Start the AgentOS server with the scheduler enabled."""
-    from agno.os import AgentOS
+    from egpt.os import AgentOS
 
     app = AgentOS(
         agents=[scheduler_agent],

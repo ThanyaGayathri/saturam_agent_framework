@@ -8,12 +8,12 @@ In addition you can pass your own lifespan to AgentOS.
 
 from contextlib import asynccontextmanager
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.anthropic import Claude
-from agno.os import AgentOS
-from agno.tools.mcp import MCPTools
-from agno.utils.log import log_info
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.anthropic import Claude
+from egpt.os import AgentOS
+from egpt.tools.mcp import MCPTools
+from egpt.utils.log import log_info
 
 # ---------------------------------------------------------------------------
 # Create Example

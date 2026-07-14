@@ -2,8 +2,8 @@
 Standalone SurrealDB Memory Operations
 """
 
-from agno.db.surrealdb import SurrealDb
-from agno.memory import MemoryManager, UserMemory
+from egpt.db.surrealdb import SurrealDb
+from egpt.memory import MemoryManager, UserMemory
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

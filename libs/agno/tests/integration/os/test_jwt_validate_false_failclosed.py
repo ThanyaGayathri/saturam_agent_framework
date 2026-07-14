@@ -11,7 +11,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from agno.os.middleware import JWTMiddleware
+from egpt.os.middleware import JWTMiddleware
 
 
 @pytest.fixture

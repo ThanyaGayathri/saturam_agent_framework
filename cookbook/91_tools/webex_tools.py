@@ -15,8 +15,8 @@ Steps:
 5. Launch Webex itself and add your bot to a space like the Welcome space. Use the bot's email address (e.g. test@webex.bot)
 """
 
-from agno.agent import Agent
-from agno.tools.webex import WebexTools
+from egpt.agent import Agent
+from egpt.tools.webex import WebexTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

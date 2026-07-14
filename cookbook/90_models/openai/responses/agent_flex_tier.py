@@ -5,8 +5,8 @@ Openai Agent Flex Tier
 Cookbook example for `openai/responses/agent_flex_tier.py`.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

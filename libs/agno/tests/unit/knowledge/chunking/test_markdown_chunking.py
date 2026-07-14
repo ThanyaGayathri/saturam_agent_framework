@@ -6,8 +6,8 @@ import pytest
 
 pytest.importorskip("unstructured")
 
-from agno.knowledge.chunking.markdown import MarkdownChunking
-from agno.knowledge.document.base import Document
+from egpt.knowledge.chunking.markdown import MarkdownChunking
+from egpt.knowledge.document.base import Document
 
 # Sample markdown content with multiple heading levels
 MARKDOWN_CONTENT = """# Main Title (H1)
@@ -282,7 +282,7 @@ Third paragraph."""
     doc = Document(id="test", name="test", content=text)
     chunker = MarkdownChunking(chunk_size=30, overlap=0)
 
-    with patch("agno.knowledge.chunking.markdown.partition_md", side_effect=Exception("test")):
+    with patch("egpt.knowledge.chunking.markdown.partition_md", side_effect=Exception("test")):
         chunks = chunker.chunk(doc)
 
     assert len(chunks) > 1
@@ -325,7 +325,7 @@ def test_overlap_with_size_based_chunking():
     chunker = MarkdownChunking(chunk_size=200, overlap=30, split_on_headings=False)
     doc = Document(name="test.md", content=long_content)
 
-    with patch("agno.knowledge.chunking.markdown.partition_md", side_effect=Exception("force fallback")):
+    with patch("egpt.knowledge.chunking.markdown.partition_md", side_effect=Exception("force fallback")):
         chunks = chunker.chunk(doc)
 
     assert len(chunks) > 1
@@ -399,7 +399,7 @@ def test_size_based_chunking_creates_multiple_chunks_when_content_exceeds_limit(
     doc = Document(name="test.md", content=long_content)
 
     # Force fallback to ensure size-based chunking behavior
-    with patch("agno.knowledge.chunking.markdown.partition_md", side_effect=Exception("force fallback")):
+    with patch("egpt.knowledge.chunking.markdown.partition_md", side_effect=Exception("force fallback")):
         chunks = chunker.chunk(doc)
 
     assert len(chunks) > 1

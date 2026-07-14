@@ -2,11 +2,11 @@ from typing import Optional
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.vllm import VLLM
-from agno.tools.exa import ExaTools
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.vllm import VLLM
+from egpt.tools.exa import ExaTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 VLLM_MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 

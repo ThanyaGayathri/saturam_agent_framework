@@ -12,13 +12,13 @@ Two ways to define user_input_schema:
 2. List of dicts - simple but less explicit
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.workflow.decorators import pause
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput, UserInputField
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.workflow.decorators import pause
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput, UserInputField
+from egpt.workflow.workflow import Workflow
 
 
 # Step 1: Analyze data (no HITL)

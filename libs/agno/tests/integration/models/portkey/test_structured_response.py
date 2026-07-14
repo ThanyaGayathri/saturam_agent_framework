@@ -3,8 +3,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.portkey import Portkey
+from egpt.agent import Agent
+from egpt.models.portkey import Portkey
 
 PORTKEY_MODEL_ID = "gpt-4o-mini"
 

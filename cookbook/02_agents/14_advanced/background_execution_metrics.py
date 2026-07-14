@@ -12,11 +12,11 @@ duration, and time-to-first-token.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.run.base import RunStatus
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.run.base import RunStatus
+from egpt.tools.yfinance import YFinanceTools
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

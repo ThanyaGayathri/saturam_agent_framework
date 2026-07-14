@@ -16,11 +16,11 @@ Example prompts to try:
 - "Write a travel guide for visiting Tokyo in cherry blossom season"
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
-from agno.team.team import Team
-from agno.tools.websearch import WebSearchTools
 from db import gemini_agents_db
+from egpt.agent import Agent
+from egpt.models.google import Gemini
+from egpt.team.team import Team
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Writer Agent: drafts content

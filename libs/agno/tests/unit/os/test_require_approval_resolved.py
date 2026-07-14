@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from agno.os.auth import require_approval_resolved, run_continuation_blocked_reason
+from egpt.os.auth import require_approval_resolved, run_continuation_blocked_reason
 
 
 def _make_request(
@@ -95,7 +95,7 @@ class TestRequireApprovalResolved:
         db.get_approvals = MagicMock(side_effect=RuntimeError("connection lost"))
         dep = require_approval_resolved(db)
         request = _make_request(path_params={"run_id": "r1"})
-        with patch("agno.utils.log.log_warning") as mock_log:
+        with patch("egpt.utils.log.log_warning") as mock_log:
             # Should not raise — gate is bypassed on error
             assert await dep(request) is None
             mock_log.assert_called_once()
@@ -175,7 +175,7 @@ class TestMcpContinueRunApprovalGate:
 
     @pytest.mark.asyncio
     async def test_raises_when_pending_required_approval(self, monkeypatch):
-        from agno.os import mcp as mcp_module
+        from egpt.os import mcp as mcp_module
 
         monkeypatch.setattr("fastmcp.server.dependencies.get_http_request", lambda: self._http_request())
         db = MagicMock()
@@ -186,7 +186,7 @@ class TestMcpContinueRunApprovalGate:
 
     @pytest.mark.asyncio
     async def test_admin_scope_may_continue(self, monkeypatch):
-        from agno.os import mcp as mcp_module
+        from egpt.os import mcp as mcp_module
 
         monkeypatch.setattr(
             "fastmcp.server.dependencies.get_http_request",
@@ -198,7 +198,7 @@ class TestMcpContinueRunApprovalGate:
 
     @pytest.mark.asyncio
     async def test_no_http_request_is_a_noop(self, monkeypatch):
-        from agno.os import mcp as mcp_module
+        from egpt.os import mcp as mcp_module
 
         def _raise():
             raise RuntimeError("no HTTP request in scope")

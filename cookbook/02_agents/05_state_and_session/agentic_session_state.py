@@ -5,9 +5,9 @@ Agentic Session State
 Agentic Session State.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
 
 db = SqliteDb(db_file="tmp/agents.db")
 # ---------------------------------------------------------------------------

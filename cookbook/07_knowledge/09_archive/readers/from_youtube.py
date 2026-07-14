@@ -7,9 +7,9 @@ Demonstrates loading knowledge from a YouTube URL using sync and async inserts.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Setup

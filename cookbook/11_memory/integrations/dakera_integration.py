@@ -25,9 +25,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import httpx
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.utils.pprint import pprint_run_response
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.utils.pprint import pprint_run_response
 
 try:
     import httpx as _httpx  # noqa: F401

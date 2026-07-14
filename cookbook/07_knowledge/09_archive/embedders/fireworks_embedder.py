@@ -7,9 +7,9 @@ Demonstrates Fireworks embeddings and knowledge insertion, including a batching 
 
 import asyncio
 
-from agno.knowledge.embedder.fireworks import FireworksEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.pgvector import PgVector
+from egpt.knowledge.embedder.fireworks import FireworksEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.pgvector import PgVector
 
 
 # ---------------------------------------------------------------------------

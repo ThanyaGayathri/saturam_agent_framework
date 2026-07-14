@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from agno.tools.google.auth.decorator import google_authenticate
+from egpt.tools.google.auth.decorator import google_authenticate
 
 
 class FakeToolkit:

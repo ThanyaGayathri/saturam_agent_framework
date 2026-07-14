@@ -11,8 +11,8 @@ Prerequisites:
 
 import asyncio
 
-from agno.client import AgentOSClient
-from agno.db.schemas.evals import EvalType
+from egpt.client import AgentOSClient
+from egpt.db.schemas.evals import EvalType
 
 # ---------------------------------------------------------------------------
 # Create Example

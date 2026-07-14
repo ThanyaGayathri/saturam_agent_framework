@@ -14,13 +14,13 @@ Compare with: 01_agentic_mode.py for automatic saving.
 See also: 01_basics/4_learned_knowledge.py for the basics.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.knowledge import Knowledge
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.learn import LearnedKnowledgeConfig, LearningMachine, LearningMode
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.pgvector import PgVector, SearchType
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.knowledge import Knowledge
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.learn import LearnedKnowledgeConfig, LearningMachine, LearningMode
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.pgvector import PgVector, SearchType
 
 # ---------------------------------------------------------------------------
 # Create Agent

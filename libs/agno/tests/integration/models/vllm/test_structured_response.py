@@ -3,8 +3,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.vllm import VLLM
+from egpt.agent import Agent
+from egpt.models.vllm import VLLM
 
 VLLM_MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 

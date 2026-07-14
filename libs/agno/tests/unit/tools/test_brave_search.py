@@ -4,12 +4,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.tools.bravesearch import BraveSearchTools
+from egpt.tools.bravesearch import BraveSearchTools
 
 
 @pytest.fixture
 def mock_brave_client():
-    with patch("agno.tools.bravesearch.Brave") as mock_brave:
+    with patch("egpt.tools.bravesearch.Brave") as mock_brave:
         # Create a mock instance that will be returned when Brave() is called
         mock_instance = MagicMock()
 
@@ -36,7 +36,7 @@ def brave_search_tools(mock_brave_client):
 
 
 def test_init_with_api_key():
-    with patch("agno.tools.bravesearch.Brave"):
+    with patch("egpt.tools.bravesearch.Brave"):
         tools = BraveSearchTools(api_key="test_key")
         assert tools.api_key == "test_key"
         assert tools.fixed_max_results is None
@@ -45,7 +45,7 @@ def test_init_with_api_key():
 
 def test_init_with_env_var():
     os.environ["BRAVE_API_KEY"] = "env_test_key"
-    with patch("agno.tools.bravesearch.Brave"):
+    with patch("egpt.tools.bravesearch.Brave"):
         tools = BraveSearchTools()
         assert tools.api_key == "env_test_key"
 
@@ -58,7 +58,7 @@ def test_init_without_api_key():
 
 
 def test_init_with_fixed_params():
-    with patch("agno.tools.bravesearch.Brave"):
+    with patch("egpt.tools.bravesearch.Brave"):
         tools = BraveSearchTools(api_key="test_key", fixed_max_results=10, fixed_language="fr")
         assert tools.fixed_max_results == 10
         assert tools.fixed_language == "fr"
@@ -66,7 +66,7 @@ def test_init_with_fixed_params():
 
 def test_toolkit_integration():
     """Test that the toolkit is properly initialized with name and tools"""
-    with patch("agno.tools.bravesearch.Brave"):
+    with patch("egpt.tools.bravesearch.Brave"):
         tools = BraveSearchTools(api_key="test_key")
         assert tools.name == "brave_search"
         assert len(tools.tools) == 1
@@ -215,7 +215,7 @@ def test_brave_search_with_none_params(brave_search_tools, mock_brave_client):
 
 
 def test_brave_search_with_fixed_params():
-    with patch("agno.tools.bravesearch.Brave") as mock_brave:
+    with patch("egpt.tools.bravesearch.Brave") as mock_brave:
         mock_instance = MagicMock()
 
         # Mock the search method
@@ -302,7 +302,7 @@ def test_brave_search_exception_handling(brave_search_tools, mock_brave_client):
         brave_search_tools.brave_search("test query")
 
 
-@patch("agno.tools.bravesearch.log_info")
+@patch("egpt.tools.bravesearch.log_info")
 def test_brave_search_logging(mock_log_info, brave_search_tools, mock_brave_client):
     """Test that logging is called correctly"""
     mock_result = MagicMock()

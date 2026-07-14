@@ -5,8 +5,8 @@ Deepinfra Basic
 Cookbook example for `deepinfra/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.deepinfra import DeepInfra  # noqa
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.deepinfra import DeepInfra  # noqa
 import asyncio
 
 # ---------------------------------------------------------------------------

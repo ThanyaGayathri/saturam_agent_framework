@@ -4,13 +4,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.team.mode import TeamMode
+from egpt.team.mode import TeamMode
 
 
 def _run_determine_tools_for_model(team):
-    from agno.run import RunContext
-    from agno.run.team import TeamRunOutput
-    from agno.session.team import TeamSession
+    from egpt.run import RunContext
+    from egpt.run.team import TeamRunOutput
+    from egpt.session.team import TeamSession
 
     model = MagicMock()
     model.supports_native_structured_outputs = False
@@ -54,7 +54,7 @@ class TestTeamModeBackwardsCompat:
 
     def test_default_mode_is_coordinate(self):
         """When no mode or booleans are set, mode should be coordinate."""
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         team = Team(name="test", members=[])
         assert team.mode == TeamMode.coordinate
@@ -62,48 +62,48 @@ class TestTeamModeBackwardsCompat:
         assert not team.delegate_to_all_members
 
     def test_mode_coordinate_explicit(self):
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         team = Team(name="test", members=[], mode=TeamMode.coordinate)
         assert team.mode == TeamMode.coordinate
 
     def test_mode_route_sets_respond_directly(self):
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         team = Team(name="test", members=[], mode=TeamMode.route)
         assert team.mode == TeamMode.route
         assert team.respond_directly is True
 
     def test_mode_broadcast_sets_delegate_to_all(self):
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         team = Team(name="test", members=[], mode=TeamMode.broadcast)
         assert team.mode == TeamMode.broadcast
         assert team.delegate_to_all_members is True
 
     def test_mode_tasks(self):
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         team = Team(name="test", members=[], mode=TeamMode.tasks)
         assert team.mode == TeamMode.tasks
 
     def test_respond_directly_infers_route(self):
         """Legacy boolean should set mode to route."""
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         team = Team(name="test", members=[], respond_directly=True)
         assert team.mode == TeamMode.route
 
     def test_delegate_to_all_infers_broadcast(self):
         """Legacy boolean should set mode to broadcast."""
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         team = Team(name="test", members=[], delegate_to_all_members=True)
         assert team.mode == TeamMode.broadcast
 
     def test_mode_route_overrides_conflicting_delegate_to_all(self):
         """Explicit mode=route should force delegate_to_all_members=False even if passed True."""
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         team = Team(name="test", members=[], mode=TeamMode.route, delegate_to_all_members=True)
         assert team.mode == TeamMode.route
@@ -112,7 +112,7 @@ class TestTeamModeBackwardsCompat:
 
     def test_mode_broadcast_overrides_conflicting_respond_directly(self):
         """Explicit mode=broadcast should force respond_directly=False even if passed True."""
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         team = Team(name="test", members=[], mode=TeamMode.broadcast, respond_directly=True)
         assert team.mode == TeamMode.broadcast
@@ -121,7 +121,7 @@ class TestTeamModeBackwardsCompat:
 
     def test_mode_coordinate_overrides_conflicting_booleans(self):
         """Explicit mode=coordinate should force both booleans False."""
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         team = Team(
             name="test", members=[], mode=TeamMode.coordinate, respond_directly=True, delegate_to_all_members=True
@@ -132,7 +132,7 @@ class TestTeamModeBackwardsCompat:
 
     def test_mode_tasks_overrides_conflicting_booleans(self):
         """Explicit mode=tasks should force both booleans False."""
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         team = Team(name="test", members=[], mode=TeamMode.tasks, respond_directly=True, delegate_to_all_members=True)
         assert team.mode == TeamMode.tasks
@@ -140,20 +140,20 @@ class TestTeamModeBackwardsCompat:
         assert team.delegate_to_all_members is False
 
     def test_max_iterations_default(self):
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         team = Team(name="test", members=[])
         assert team.max_iterations == 10
 
     def test_max_iterations_custom(self):
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         team = Team(name="test", members=[], max_iterations=25)
         assert team.max_iterations == 25
 
     def test_tasks_mode_does_not_use_delegation_tools(self, monkeypatch):
-        from agno.agent import Agent
-        from agno.team.team import Team
+        from egpt.agent import Agent
+        from egpt.team.team import Team
 
         team = Team(
             name="tasks-smoke",
@@ -167,8 +167,8 @@ class TestTeamModeBackwardsCompat:
             raise AssertionError("_get_delegate_task_function should not be used in tasks mode")
 
         monkeypatch.setattr(team, "_get_delegate_task_function", fake_get_delegate_task_function)
-        monkeypatch.setattr("agno.team.task.load_task_list", lambda session_state: MagicMock())
-        monkeypatch.setattr("agno.team._task_tools._get_task_management_tools", lambda **kwargs: [])
+        monkeypatch.setattr("egpt.team.task.load_task_list", lambda session_state: MagicMock())
+        monkeypatch.setattr("egpt.team._task_tools._get_task_management_tools", lambda **kwargs: [])
 
         _run_determine_tools_for_model(team)
 

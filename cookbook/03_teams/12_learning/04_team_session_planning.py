@@ -13,16 +13,16 @@ This is useful for teams that work on multi-step tasks like
 deployment pipelines, project planning, or onboarding flows.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.learn import (
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.learn import (
     LearningMachine,
     LearningMode,
     SessionContextConfig,
     UserProfileConfig,
 )
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 

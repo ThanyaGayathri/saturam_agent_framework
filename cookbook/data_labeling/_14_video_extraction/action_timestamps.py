@@ -10,8 +10,8 @@ data for temporal action detection.
 from typing import List
 
 import httpx
-from agno.agent import Agent, RunOutput  # noqa
-from agno.media import Video
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.media import Video
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

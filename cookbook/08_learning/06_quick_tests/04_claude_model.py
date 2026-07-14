@@ -13,10 +13,10 @@ Key things to verify:
 3. Background extraction completes successfully
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.learn import LearningMachine, LearningMode, UserProfileConfig
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.learn import LearningMachine, LearningMode, UserProfileConfig
+from egpt.models.anthropic import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent - Using Claude instead of OpenAI

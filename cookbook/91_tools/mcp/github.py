@@ -22,8 +22,8 @@ Environment variables needed:
 import asyncio
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.tools.mcp import MCPTools
+from egpt.agent import Agent
+from egpt.tools.mcp import MCPTools
 from mcp import StdioServerParameters
 
 # ---------------------------------------------------------------------------

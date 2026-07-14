@@ -5,8 +5,8 @@ Custom Api Tools
 Demonstrates custom api tools.
 """
 
-from agno.agent import Agent
-from agno.tools.api import CustomApiTools
+from egpt.agent import Agent
+from egpt.tools.api import CustomApiTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

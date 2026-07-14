@@ -7,8 +7,8 @@ steps with different teams, each with their own output_schema.
 
 from pydantic import BaseModel
 
-from agno.run import RunContext
-from agno.team._run_options import ResolvedRunOptions
+from egpt.run import RunContext
+from egpt.team._run_options import ResolvedRunOptions
 
 
 def _make_opts(**overrides) -> ResolvedRunOptions:

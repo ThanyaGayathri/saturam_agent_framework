@@ -7,10 +7,10 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import Table
 
-from agno.db.postgres.postgres import PostgresDb
-from agno.db.postgres.schemas import get_table_schema_definition as get_postgres_schema
-from agno.db.sqlite.schemas import get_table_schema_definition as get_sqlite_schema
-from agno.db.sqlite.sqlite import SqliteDb
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.db.postgres.schemas import get_table_schema_definition as get_postgres_schema
+from egpt.db.sqlite.schemas import get_table_schema_definition as get_sqlite_schema
+from egpt.db.sqlite.sqlite import SqliteDb
 
 # ==================== SQLite Schema Tests ====================
 
@@ -267,8 +267,8 @@ def test_postgres_create_span_table_with_default_fk(postgres_db_default, mock_se
     postgres_db_default.Session = Mock(return_value=mock_session)
 
     with patch.object(Table, "create"):
-        with patch("agno.db.postgres.postgres.create_schema"):
-            with patch("agno.db.postgres.postgres.is_table_available", return_value=False):
+        with patch("egpt.db.postgres.postgres.create_schema"):
+            with patch("egpt.db.postgres.postgres.is_table_available", return_value=False):
                 table = postgres_db_default._create_table("agno_spans", "spans")
 
     assert table is not None
@@ -289,8 +289,8 @@ def test_postgres_create_span_table_with_custom_fk(postgres_db_custom, mock_sess
     postgres_db_custom.Session = Mock(return_value=mock_session)
 
     with patch.object(Table, "create"):
-        with patch("agno.db.postgres.postgres.create_schema"):
-            with patch("agno.db.postgres.postgres.is_table_available", return_value=False):
+        with patch("egpt.db.postgres.postgres.create_schema"):
+            with patch("egpt.db.postgres.postgres.is_table_available", return_value=False):
                 table = postgres_db_custom._create_table("custom_spans", "spans")
 
     assert table is not None

@@ -12,11 +12,11 @@ from pathlib import Path
 
 import pytest
 
-from agno.skills.utils import is_safe_path
-from agno.tools import Toolkit
-from agno.tools.file import FileTools
-from agno.tools.file_generation import FileGenerationTools
-from agno.tools.slack import SlackTools
+from egpt.skills.utils import is_safe_path
+from egpt.tools import Toolkit
+from egpt.tools.file import FileTools
+from egpt.tools.file_generation import FileGenerationTools
+from egpt.tools.slack import SlackTools
 
 # Inputs every caller rejects: control chars, empty, dot-dot.
 ALL_REJECT = [

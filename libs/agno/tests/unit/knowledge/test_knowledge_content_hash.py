@@ -1,9 +1,9 @@
 """Tests for Knowledge._build_content_hash() method, verifying hash includes name and description."""
 
-from agno.knowledge.content import Content, FileData
-from agno.knowledge.document.base import Document
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.base import VectorDb
+from egpt.knowledge.content import Content, FileData
+from egpt.knowledge.document.base import Document
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.base import VectorDb
 
 
 class MockVectorDb(VectorDb):
@@ -588,7 +588,7 @@ def test_document_content_hash_fallback_to_content_hash():
 
 def test_github_same_path_different_repos_produces_different_hashes():
     """Two GitHub uploads with the same file path but different repos must not collide."""
-    from agno.knowledge.remote_content.github import GitHubConfig
+    from egpt.knowledge.remote_content.github import GitHubConfig
 
     knowledge = Knowledge(vector_db=MockVectorDb())
     cfg = GitHubConfig(id="gh", name="GH", branch="main")
@@ -601,7 +601,7 @@ def test_github_same_path_different_repos_produces_different_hashes():
 
 def test_github_same_repo_same_path_produces_same_hash():
     """Deduplication still works when the full source identity matches."""
-    from agno.knowledge.remote_content.github import GitHubConfig
+    from egpt.knowledge.remote_content.github import GitHubConfig
 
     knowledge = Knowledge(vector_db=MockVectorDb())
     cfg = GitHubConfig(id="gh", name="GH", branch="main")
@@ -614,7 +614,7 @@ def test_github_same_repo_same_path_produces_same_hash():
 
 def test_github_different_branches_produces_different_hashes():
     """A branch override is part of the source identity and must affect the hash."""
-    from agno.knowledge.remote_content.github import GitHubConfig
+    from egpt.knowledge.remote_content.github import GitHubConfig
 
     knowledge = Knowledge(vector_db=MockVectorDb())
     cfg = GitHubConfig(id="gh", name="GH", repo="orgA/x")
@@ -627,7 +627,7 @@ def test_github_different_branches_produces_different_hashes():
 
 def test_s3_same_key_different_buckets_produces_different_hashes():
     """Same S3 key pulled from two different buckets must not collide."""
-    from agno.knowledge.remote_content.remote_content import S3Content
+    from egpt.knowledge.remote_content.remote_content import S3Content
 
     knowledge = Knowledge(vector_db=MockVectorDb())
 
@@ -639,7 +639,7 @@ def test_s3_same_key_different_buckets_produces_different_hashes():
 
 def test_gcs_same_blob_different_buckets_produces_different_hashes():
     """Same GCS blob name pulled from two different buckets must not collide."""
-    from agno.knowledge.remote_content.remote_content import GCSContent
+    from egpt.knowledge.remote_content.remote_content import GCSContent
 
     knowledge = Knowledge(vector_db=MockVectorDb())
 
@@ -651,7 +651,7 @@ def test_gcs_same_blob_different_buckets_produces_different_hashes():
 
 def test_azure_blob_same_blob_different_configs_produces_different_hashes():
     """Same Azure blob name from two different configs (different containers) must not collide."""
-    from agno.knowledge.remote_content.remote_content import AzureBlobContent
+    from egpt.knowledge.remote_content.remote_content import AzureBlobContent
 
     knowledge = Knowledge(vector_db=MockVectorDb())
 
@@ -663,7 +663,7 @@ def test_azure_blob_same_blob_different_configs_produces_different_hashes():
 
 def test_sharepoint_same_path_different_sites_produces_different_hashes():
     """Same SharePoint file path from two different sites must not collide."""
-    from agno.knowledge.remote_content.remote_content import SharePointContent
+    from egpt.knowledge.remote_content.remote_content import SharePointContent
 
     knowledge = Knowledge(vector_db=MockVectorDb())
 

@@ -17,12 +17,12 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.os import AgentOS
-from agno.os.config import AuthorizationConfig
-from agno.os.interfaces.agui import AGUI
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.os import AgentOS
+from egpt.os.config import AuthorizationConfig
+from egpt.os.interfaces.agui import AGUI
+from egpt.team import Team
 
 JWT_SECRET = "test-secret-for-agui-authz"
 

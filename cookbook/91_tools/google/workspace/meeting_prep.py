@@ -29,13 +29,13 @@ Run:
 
 from typing import List, Literal, Optional
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.tools.google.auth import AuthConfig
-from agno.tools.google.calendar import GoogleCalendarTools
-from agno.tools.google.gmail import GmailTools
-from agno.utils.encryption import generate_encryption_key  # noqa: F401
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.google.auth import AuthConfig
+from egpt.tools.google.calendar import GoogleCalendarTools
+from egpt.tools.google.gmail import GmailTools
+from egpt.utils.encryption import generate_encryption_key  # noqa: F401
 from pydantic import BaseModel, Field
 
 # Token encryption: set GOOGLE_TOKEN_ENCRYPTION_KEY env var (recommended)

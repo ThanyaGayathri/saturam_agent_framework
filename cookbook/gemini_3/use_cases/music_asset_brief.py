@@ -12,10 +12,10 @@ Run:
 from typing import List
 
 import httpx
-from agno.agent import Agent
-from agno.media import Audio, Image
-from agno.models.google import Gemini
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.media import Audio, Image
+from egpt.models.google import Gemini
+from egpt.tools.websearch import WebSearchTools
 from pydantic import BaseModel, Field
 
 

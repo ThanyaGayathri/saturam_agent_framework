@@ -6,7 +6,7 @@ Tests that the collect_metrics_on_completion flag works correctly for OpenAI mod
 
 from typing import Optional
 
-from agno.models.openai.chat import OpenAIChat
+from egpt.models.openai.chat import OpenAIChat
 
 
 class MockCompletionUsage:

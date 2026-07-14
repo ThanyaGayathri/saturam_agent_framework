@@ -40,8 +40,8 @@ Steps to get the Google OAuth Credentials (Reference : https://developers.google
     - Pass the Path of downloaded credentials as credentials_path to Google Calendar tool
 """
 
-from agno.agent import Agent
-from agno.tools.google.calendar import GoogleCalendarTools
+from egpt.agent import Agent
+from egpt.tools.google.calendar import GoogleCalendarTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

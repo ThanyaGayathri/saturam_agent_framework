@@ -19,12 +19,12 @@ Example prompts to try:
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.knowledge import Knowledge
-from agno.knowledge.embedder.google import GeminiEmbedder
-from agno.models.google import Gemini
-from agno.vectordb.chroma import ChromaDb, SearchType
 from db import gemini_agents_db
+from egpt.agent import Agent
+from egpt.knowledge import Knowledge
+from egpt.knowledge.embedder.google import GeminiEmbedder
+from egpt.models.google import Gemini
+from egpt.vectordb.chroma import ChromaDb, SearchType
 
 WORKSPACE = Path(__file__).parent.joinpath("workspace")
 WORKSPACE.mkdir(parents=True, exist_ok=True)

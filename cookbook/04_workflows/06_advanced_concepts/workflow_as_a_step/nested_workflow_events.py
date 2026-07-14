@@ -6,19 +6,19 @@ so you can see workflow_id, workflow_name, nested_depth, and
 how inner vs outer events differ.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.anthropic import Claude
-from agno.run.workflow import (
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.anthropic import Claude
+from egpt.run.workflow import (
     BaseWorkflowRunOutputEvent,
     StepCompletedEvent,
     StepStartedEvent,
     WorkflowCompletedEvent,
     WorkflowStartedEvent,
 )
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 def create_summary(step_input: StepInput) -> StepOutput:

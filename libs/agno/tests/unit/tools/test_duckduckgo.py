@@ -5,13 +5,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.tools.duckduckgo import DuckDuckGoTools
+from egpt.tools.duckduckgo import DuckDuckGoTools
 
 
 @pytest.fixture
 def mock_ddgs():
     """Create a mock DDGS instance."""
-    with patch("agno.tools.websearch.DDGS") as mock_ddgs_cls:
+    with patch("egpt.tools.websearch.DDGS") as mock_ddgs_cls:
         mock_instance = MagicMock()
         mock_ddgs_cls.return_value.__enter__ = MagicMock(return_value=mock_instance)
         mock_ddgs_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -25,7 +25,7 @@ def mock_ddgs():
 
 def test_init_defaults():
     """Test initialization with default parameters."""
-    with patch("agno.tools.websearch.DDGS"):
+    with patch("egpt.tools.websearch.DDGS"):
         tools = DuckDuckGoTools()
         assert tools.backend == "duckduckgo"
         assert tools.proxy is None
@@ -39,35 +39,35 @@ def test_init_defaults():
 
 def test_init_with_timelimit():
     """Test initialization with timelimit parameter."""
-    with patch("agno.tools.websearch.DDGS"):
+    with patch("egpt.tools.websearch.DDGS"):
         tools = DuckDuckGoTools(timelimit="d")
         assert tools.timelimit == "d"
 
 
 def test_init_with_region():
     """Test initialization with region parameter."""
-    with patch("agno.tools.websearch.DDGS"):
+    with patch("egpt.tools.websearch.DDGS"):
         tools = DuckDuckGoTools(region="us-en")
         assert tools.region == "us-en"
 
 
 def test_init_with_backend():
     """Test initialization with custom backend parameter."""
-    with patch("agno.tools.websearch.DDGS"):
+    with patch("egpt.tools.websearch.DDGS"):
         tools = DuckDuckGoTools(backend="html")
         assert tools.backend == "html"
 
 
 def test_init_backend_defaults_to_duckduckgo():
     """Test that backend defaults to duckduckgo when not specified."""
-    with patch("agno.tools.websearch.DDGS"):
+    with patch("egpt.tools.websearch.DDGS"):
         tools = DuckDuckGoTools()
         assert tools.backend == "duckduckgo"
 
 
 def test_init_with_all_new_params():
     """Test initialization with all new parameters."""
-    with patch("agno.tools.websearch.DDGS"):
+    with patch("egpt.tools.websearch.DDGS"):
         tools = DuckDuckGoTools(
             timelimit="w",
             region="uk-en",
@@ -80,7 +80,7 @@ def test_init_with_all_new_params():
 
 def test_init_with_all_params():
     """Test initialization with all parameters."""
-    with patch("agno.tools.websearch.DDGS"):
+    with patch("egpt.tools.websearch.DDGS"):
         tools = DuckDuckGoTools(
             enable_search=True,
             enable_news=True,
@@ -110,7 +110,7 @@ def test_init_with_all_params():
 
 def test_backward_compat_aliases():
     """Test that backward compatibility aliases exist."""
-    with patch("agno.tools.websearch.DDGS"):
+    with patch("egpt.tools.websearch.DDGS"):
         tools = DuckDuckGoTools()
         assert tools.duckduckgo_search == tools.web_search
         assert tools.duckduckgo_news == tools.search_news
@@ -337,7 +337,7 @@ def test_timelimit_year(mock_ddgs):
 
 def test_invalid_timelimit_raises_error():
     """Test that invalid timelimit raises ValueError."""
-    with patch("agno.tools.websearch.DDGS"):
+    with patch("egpt.tools.websearch.DDGS"):
         with pytest.raises(ValueError) as exc_info:
             DuckDuckGoTools(timelimit="invalid")
         assert "Invalid timelimit 'invalid'" in str(exc_info.value)
@@ -345,7 +345,7 @@ def test_invalid_timelimit_raises_error():
 
 def test_invalid_timelimit_empty_string():
     """Test that empty string timelimit raises ValueError."""
-    with patch("agno.tools.websearch.DDGS"):
+    with patch("egpt.tools.websearch.DDGS"):
         with pytest.raises(ValueError) as exc_info:
             DuckDuckGoTools(timelimit="")
         assert "Invalid timelimit ''" in str(exc_info.value)
@@ -353,7 +353,7 @@ def test_invalid_timelimit_empty_string():
 
 def test_invalid_timelimit_uppercase():
     """Test that uppercase timelimit raises ValueError (case-sensitive)."""
-    with patch("agno.tools.websearch.DDGS"):
+    with patch("egpt.tools.websearch.DDGS"):
         with pytest.raises(ValueError) as exc_info:
             DuckDuckGoTools(timelimit="W")
         assert "Invalid timelimit 'W'" in str(exc_info.value)
@@ -361,7 +361,7 @@ def test_invalid_timelimit_uppercase():
 
 def test_invalid_timelimit_full_word():
     """Test that full word timelimit raises ValueError."""
-    with patch("agno.tools.websearch.DDGS"):
+    with patch("egpt.tools.websearch.DDGS"):
         with pytest.raises(ValueError) as exc_info:
             DuckDuckGoTools(timelimit="week")
         assert "Invalid timelimit 'week'" in str(exc_info.value)

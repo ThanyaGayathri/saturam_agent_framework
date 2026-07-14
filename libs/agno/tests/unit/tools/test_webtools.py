@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from agno.tools.webtools import WebTools
+from egpt.tools.webtools import WebTools
 
 
 @pytest.fixture

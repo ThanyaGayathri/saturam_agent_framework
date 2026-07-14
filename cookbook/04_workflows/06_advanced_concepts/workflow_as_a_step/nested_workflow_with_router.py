@@ -8,12 +8,12 @@ agents based on the topic, then the outer workflow polishes the output.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.workflow import Router
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.workflow import Router
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput
+from egpt.workflow.workflow import Workflow
 
 
 def topic_router(step_input: StepInput) -> List[Step]:

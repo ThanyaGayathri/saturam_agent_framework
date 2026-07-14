@@ -7,9 +7,9 @@ Demonstrates Milvus range-search parameters (`radius`, `range_filter`) in sync a
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.milvus import Milvus
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.milvus import Milvus
 
 # ---------------------------------------------------------------------------
 # Setup

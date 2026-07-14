@@ -10,9 +10,9 @@ from unittest.mock import MagicMock
 
 from pydantic import BaseModel
 
-from agno.agent._tools import parse_tools
-from agno.agent.agent import Agent
-from agno.run import RunContext
+from egpt.agent._tools import parse_tools
+from egpt.agent.agent import Agent
+from egpt.run import RunContext
 
 
 class _Output(BaseModel):

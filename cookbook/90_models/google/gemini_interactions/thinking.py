@@ -7,8 +7,8 @@ Example showing thinking/reasoning with the Gemini Interactions API.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
 
 # ---------------------------------------------------------------------------
 # Create Agent

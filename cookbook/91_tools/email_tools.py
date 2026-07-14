@@ -5,8 +5,8 @@ Email Tools
 Demonstrates email tools.
 """
 
-from agno.agent import Agent
-from agno.tools.email import EmailTools
+from egpt.agent import Agent
+from egpt.tools.email import EmailTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

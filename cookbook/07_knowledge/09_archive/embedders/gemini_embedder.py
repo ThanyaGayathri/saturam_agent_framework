@@ -7,9 +7,9 @@ Demonstrates Gemini embeddings and knowledge insertion, including a batching var
 
 import asyncio
 
-from agno.knowledge.embedder.google import GeminiEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.pgvector import PgVector
+from egpt.knowledge.embedder.google import GeminiEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.pgvector import PgVector
 
 
 # ---------------------------------------------------------------------------

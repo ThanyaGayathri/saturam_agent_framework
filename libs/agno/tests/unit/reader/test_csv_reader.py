@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from agno.knowledge.document.base import Document
-from agno.knowledge.reader.csv_reader import CSVReader
+from egpt.knowledge.document.base import Document
+from egpt.knowledge.reader.csv_reader import CSVReader
 
 # Sample CSV data
 SAMPLE_CSV = """name,age,city

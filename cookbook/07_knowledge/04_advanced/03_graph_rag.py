@@ -15,16 +15,16 @@ Requirements: pip install lightrag-agno
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
 
 try:
-    from agno.vectordb.lightrag import LightRag
+    from egpt.vectordb.lightrag import LightRag
 
     knowledge = Knowledge(
         vector_db=LightRag(

@@ -11,8 +11,8 @@ import pytest
 
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
-from agno.models.base import Model
-from agno.models.utils import (
+from egpt.models.base import Model
+from egpt.models.utils import (
     MODEL_PROVIDER_CLASSES,
     _canonical_provider_display,
     _get_model_class,
@@ -236,13 +236,13 @@ def test_resolve_model_passes_through_unhandled_values():
 # Abstract/intermediate Model subclasses that are not concrete providers and so must not appear
 # in MODEL_PROVIDER_CLASSES. Add a class here only after a deliberate decision that it is not a
 # user-selectable provider. Keyed by (defining_module, class_name).
-_NON_PROVIDER_MODEL_CLASSES = {("agno.models.openai.like", "OpenAILike")}
+_NON_PROVIDER_MODEL_CLASSES = {("egpt.models.openai.like", "OpenAILike")}
 
 
 def _models_root():
     from pathlib import Path
 
-    root = Path(__file__).resolve().parents[3] / "agno" / "models"
+    root = Path(__file__).resolve().parents[3] / "egpt" / "models"
     assert root.is_dir(), f"models root not found: {root}"
     return root
 
@@ -293,8 +293,8 @@ def _registered_defining_classes(root):
     """Resolve every MODEL_PROVIDER_CLASSES entry to the (defining_module, class) it points at.
 
     The registry references the re-exporting package and that package's exported name (e.g.
-    ``("agno.models.azure", "AzureFoundryClaude")``), while the class is defined in a submodule
-    under its own name (``agno.models.azure.claude.Claude``). Parse each package __init__ to
+    ``("egpt.models.azure", "AzureFoundryClaude")``), while the class is defined in a submodule
+    under its own name (``egpt.models.azure.claude.Claude``). Parse each package __init__ to
     follow ``from <mod> import <name> as <alias>`` re-exports back to the definition.
     """
     import ast

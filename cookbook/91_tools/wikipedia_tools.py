@@ -5,9 +5,9 @@ Wikipedia Tools
 Demonstrates wikipedia tools.
 """
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.tools.wikipedia import WikipediaTools
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.tools.wikipedia import WikipediaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

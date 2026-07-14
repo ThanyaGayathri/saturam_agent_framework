@@ -17,13 +17,13 @@ Prerequisites:
 - export OPENAI_API_KEY=<your-api-key>   (model + embeddings)
 """
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIResponses
-from agno.tools.parallel import ParallelTools
-from agno.vectordb.chroma import ChromaDb
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.parallel import ParallelTools
+from egpt.vectordb.chroma import ChromaDb
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup - local knowledge base (embedded, no server needed)

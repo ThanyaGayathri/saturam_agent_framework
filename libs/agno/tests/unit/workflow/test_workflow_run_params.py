@@ -16,13 +16,13 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from agno.agent import Agent
-from agno.metrics import MessageMetrics
-from agno.models.base import Model
-from agno.models.response import ModelResponse
-from agno.run.base import RunContext
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.metrics import MessageMetrics
+from egpt.models.base import Model
+from egpt.models.response import ModelResponse
+from egpt.run.base import RunContext
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # =============================================================================
 # Fixtures
@@ -268,7 +268,7 @@ class TestWorkflowAgentDepsPrecedence:
 
     def test_workflow_deps_replace_agent_deps(self):
         """When workflow sets deps on RunContext, agent deps are not applied."""
-        from agno.agent._run_options import ResolvedRunOptions
+        from egpt.agent._run_options import ResolvedRunOptions
 
         # Simulate agent having its own resolved deps
         agent_options = ResolvedRunOptions(
@@ -305,7 +305,7 @@ class TestWorkflowAgentDepsPrecedence:
 
     def test_no_workflow_deps_agent_deps_applied(self):
         """When workflow sets no deps, agent deps are applied as fallback."""
-        from agno.agent._run_options import ResolvedRunOptions
+        from egpt.agent._run_options import ResolvedRunOptions
 
         agent_options = ResolvedRunOptions(
             stream=False,
@@ -338,7 +338,7 @@ class TestWorkflowAgentDepsPrecedence:
     def test_explicit_agent_run_deps_override_workflow(self):
         """When dependencies= is explicitly passed to agent.run(),
         it overrides workflow deps (dependencies_provided=True)."""
-        from agno.agent._run_options import ResolvedRunOptions
+        from egpt.agent._run_options import ResolvedRunOptions
 
         agent_options = ResolvedRunOptions(
             stream=False,
@@ -380,7 +380,7 @@ class TestWorkflowAgentMetadataPrecedence:
 
     def test_workflow_metadata_preserved(self):
         """When workflow sets metadata on RunContext, agent metadata is not applied."""
-        from agno.agent._run_options import ResolvedRunOptions
+        from egpt.agent._run_options import ResolvedRunOptions
 
         agent_options = ResolvedRunOptions(
             stream=False,
@@ -408,7 +408,7 @@ class TestWorkflowAgentMetadataPrecedence:
 
     def test_no_workflow_metadata_agent_applied(self):
         """When workflow sets no metadata, agent metadata is applied."""
-        from agno.agent._run_options import ResolvedRunOptions
+        from egpt.agent._run_options import ResolvedRunOptions
 
         agent_options = ResolvedRunOptions(
             stream=False,

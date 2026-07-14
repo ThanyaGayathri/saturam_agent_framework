@@ -1,8 +1,8 @@
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.pgvector import PgVector
 
 fun_facts = """
 - Earth is the third planet from the Sun and the only known astronomical object to support life.

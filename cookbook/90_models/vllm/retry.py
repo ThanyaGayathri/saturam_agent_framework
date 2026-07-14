@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with vLLM."""
 
-from agno.agent import Agent
-from agno.models.vllm import vLLM
+from egpt.agent import Agent
+from egpt.models.vllm import vLLM
 
 # ---------------------------------------------------------------------------
 # Create Agent

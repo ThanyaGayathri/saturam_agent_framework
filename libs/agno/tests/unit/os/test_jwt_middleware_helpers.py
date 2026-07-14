@@ -2,7 +2,7 @@
 
 import pytest
 
-from agno.os.middleware import JWTMiddleware, TokenSource
+from egpt.os.middleware import JWTMiddleware, TokenSource
 
 # Test JWT secret for middleware initialization
 JWT_SECRET = "test-secret-key-for-helper-tests"
@@ -695,7 +695,7 @@ def test_authorization_true_with_jwt_source_is_accepted():
 
 
 def test_is_reserved_principal_matches_reserved_namespaces():
-    from agno.os.middleware.jwt import is_reserved_principal
+    from egpt.os.middleware.jwt import is_reserved_principal
 
     assert is_reserved_principal("sa:claude-code")
     assert is_reserved_principal("sa:")
@@ -804,7 +804,7 @@ async def test_dispatch_short_circuits_on_private_marker():
     """The private marker set by an outer AuthMiddleware instance short-circuits re-verification."""
     from unittest.mock import AsyncMock, MagicMock
 
-    from agno.os.middleware.jwt import _AUTH_COMPLETE_ATTR
+    from egpt.os.middleware.jwt import _AUTH_COMPLETE_ATTR
 
     mw = JWTMiddleware(app=None, verification_keys=[JWT_SECRET], algorithm="HS256", excluded_route_paths=[])
     request = _no_token_request()
@@ -820,7 +820,7 @@ async def test_dispatch_short_circuits_on_private_marker():
 async def test_dispatch_sets_private_marker_on_success():
     from unittest.mock import AsyncMock, MagicMock
 
-    from agno.os.middleware.jwt import _AUTH_COMPLETE_ATTR
+    from egpt.os.middleware.jwt import _AUTH_COMPLETE_ATTR
 
     secret = "marker-on-success-secret"
     mw = JWTMiddleware(app=None, verification_keys=[secret], algorithm="HS256", excluded_route_paths=[])

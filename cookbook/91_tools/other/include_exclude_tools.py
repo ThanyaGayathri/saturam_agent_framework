@@ -7,10 +7,10 @@ Demonstrates include exclude tools.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.calculator import CalculatorTools
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.calculator import CalculatorTools
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

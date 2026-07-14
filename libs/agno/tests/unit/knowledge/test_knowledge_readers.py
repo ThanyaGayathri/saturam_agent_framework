@@ -1,9 +1,9 @@
 """Tests for Knowledge.get_readers() method, specifically testing list to dict conversion."""
 
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.base import Reader
-from agno.knowledge.reader.text_reader import TextReader
-from agno.vectordb.base import VectorDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.base import Reader
+from egpt.knowledge.reader.text_reader import TextReader
+from egpt.vectordb.base import VectorDb
 
 
 class MockVectorDb(VectorDb):
@@ -87,13 +87,13 @@ class CustomReader(Reader):
 
     @classmethod
     def get_supported_chunking_strategies(cls):
-        from agno.knowledge.chunking.strategy import ChunkingStrategyType
+        from egpt.knowledge.chunking.strategy import ChunkingStrategyType
 
         return [ChunkingStrategyType.FIXED_SIZE_CHUNKER]
 
     @classmethod
     def get_supported_content_types(cls):
-        from agno.knowledge.types import ContentType
+        from egpt.knowledge.types import ContentType
 
         return [ContentType.TXT]
 

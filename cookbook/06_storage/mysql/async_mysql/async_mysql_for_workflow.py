@@ -6,12 +6,12 @@ import asyncio
 import uuid
 from typing import List
 
-from agno.agent import Agent
-from agno.db.base import SessionType
-from agno.db.mysql import AsyncMySQLDb
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.types import WorkflowExecutionInput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.base import SessionType
+from egpt.db.mysql import AsyncMySQLDb
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.types import WorkflowExecutionInput
+from egpt.workflow.workflow import Workflow
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------

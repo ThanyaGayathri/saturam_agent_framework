@@ -18,9 +18,9 @@ Example prompts to try:
 from io import BytesIO
 from pathlib import Path
 
-from agno.agent import Agent, RunOutput
-from agno.media import Image
-from agno.models.google import Gemini
+from egpt.agent import Agent, RunOutput
+from egpt.media import Image
+from egpt.models.google import Gemini
 
 WORKSPACE = Path(__file__).parent.joinpath("workspace")
 WORKSPACE.mkdir(parents=True, exist_ok=True)

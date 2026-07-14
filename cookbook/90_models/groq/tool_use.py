@@ -4,10 +4,10 @@ uv pip install openai ddgs newspaper4k lxml_html_clean agno
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.groq import Groq
-from agno.tools.newspaper4k import Newspaper4kTools
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.groq import Groq
+from egpt.tools.newspaper4k import Newspaper4kTools
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -7,10 +7,10 @@ Demonstrates this reasoning cookbook example.
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.groq import Groq
-from agno.tools.reasoning import ReasoningTools
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.groq import Groq
+from egpt.tools.reasoning import ReasoningTools
+from egpt.tools.websearch import WebSearchTools
 
 
 # ---------------------------------------------------------------------------

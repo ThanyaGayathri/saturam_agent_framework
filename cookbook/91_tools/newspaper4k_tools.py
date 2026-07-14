@@ -5,8 +5,8 @@ Newspaper4K Tools
 Demonstrates newspaper4k tools.
 """
 
-from agno.agent import Agent
-from agno.tools.newspaper4k import Newspaper4kTools
+from egpt.agent import Agent
+from egpt.tools.newspaper4k import Newspaper4kTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

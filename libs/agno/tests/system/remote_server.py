@@ -7,19 +7,19 @@ consumes via RemoteAgent, RemoteTeam, and RemoteWorkflow.
 
 import os
 
-from agno.agent import Agent
-from agno.db.postgres import AsyncPostgresDb
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.os.middleware.jwt import JWTMiddleware
-from agno.team.team import Team
-from agno.tools.calculator import CalculatorTools
-from agno.tools.websearch import WebSearchTools
-from agno.vectordb.pgvector import PgVector
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.postgres import AsyncPostgresDb
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.os.middleware.jwt import JWTMiddleware
+from egpt.team.team import Team
+from egpt.tools.calculator import CalculatorTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.vectordb.pgvector import PgVector
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # =============================================================================
 # JWT Authorization Configuration

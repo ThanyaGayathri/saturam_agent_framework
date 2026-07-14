@@ -23,15 +23,15 @@ Test:
 from datetime import UTC, datetime, timedelta
 
 import jwt as pyjwt
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.factory import RequestContext
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.os.middleware import JWTMiddleware
-from agno.workflow.factory import WorkflowFactory
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.factory import RequestContext
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.os.middleware import JWTMiddleware
+from egpt.workflow.factory import WorkflowFactory
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Config

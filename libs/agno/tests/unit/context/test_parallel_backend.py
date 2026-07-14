@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from agno.context.web.parallel import _MAX_EXTRACT_CHARS, ParallelBackend
+from egpt.context.web.parallel import _MAX_EXTRACT_CHARS, ParallelBackend
 
 
 def _tools(backend: ParallelBackend) -> dict:

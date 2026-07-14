@@ -5,9 +5,9 @@ MiniMax Tool Use
 Cookbook example for `minimax/tool_use.py`.
 """
 
-from agno.agent import Agent
-from agno.models.minimax import MiniMax
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.minimax import MiniMax
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

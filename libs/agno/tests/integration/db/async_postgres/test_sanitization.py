@@ -9,12 +9,12 @@ import time
 import pytest
 import pytest_asyncio
 
-from agno.db.postgres import AsyncPostgresDb
-from agno.db.schemas.knowledge import KnowledgeRow
-from agno.db.schemas.memory import UserMemory
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.session.agent import AgentSession
+from egpt.db.postgres import AsyncPostgresDb
+from egpt.db.schemas.knowledge import KnowledgeRow
+from egpt.db.schemas.memory import UserMemory
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.session.agent import AgentSession
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -238,7 +238,7 @@ async def test_session_upsert_sanitizes_nested_jsonb_fields(async_postgres_db_re
     assert "\x00" not in result.metadata["key"]
 
     # Verify stored values
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     retrieved = await async_postgres_db_real.get_session("test_session_null_jsonb", SessionType.AGENT)
     assert retrieved is not None
@@ -250,7 +250,7 @@ async def test_session_upsert_sanitizes_nested_jsonb_fields(async_postgres_db_re
 @pytest.mark.asyncio
 async def test_session_upsert_sanitizes_summary_field(async_postgres_db_real: AsyncPostgresDb):
     """Test that null bytes in session summary field are sanitized."""
-    from agno.session.summary import SessionSummary
+    from egpt.session.summary import SessionSummary
 
     agent_run = RunOutput(
         run_id="test_run_2",
@@ -278,7 +278,7 @@ async def test_session_upsert_sanitizes_summary_field(async_postgres_db_real: As
     assert "\x00" not in result.summary.summary
 
     # Verify stored value
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     retrieved = await async_postgres_db_real.get_session("test_session_null_summary", SessionType.AGENT)
     assert retrieved is not None
@@ -296,7 +296,7 @@ async def test_trace_upsert_sanitizes_fields(async_postgres_db_real: AsyncPostgr
     """Test that null bytes in trace fields are sanitized."""
     from datetime import datetime, timezone
 
-    from agno.tracing.schemas import Trace
+    from egpt.tracing.schemas import Trace
 
     trace = Trace(
         trace_id="test_trace_null",
@@ -334,7 +334,7 @@ async def test_span_upsert_sanitizes_fields(async_postgres_db_real: AsyncPostgre
     """Test that null bytes in span fields are sanitized."""
     from datetime import datetime, timezone
 
-    from agno.tracing.schemas import Span
+    from egpt.tracing.schemas import Span
 
     span = Span(
         span_id="test_span_null",
@@ -372,7 +372,7 @@ async def test_span_upsert_sanitizes_fields(async_postgres_db_real: AsyncPostgre
 @pytest.mark.asyncio
 async def test_eval_upsert_sanitizes_fields(async_postgres_db_real: AsyncPostgresDb):
     """Test that null bytes in eval fields are sanitized."""
-    from agno.db.schemas.evals import EvalRunRecord, EvalType
+    from egpt.db.schemas.evals import EvalRunRecord, EvalType
 
     eval_run = EvalRunRecord(
         run_id="test_eval_null",
@@ -405,7 +405,7 @@ async def test_eval_upsert_sanitizes_fields(async_postgres_db_real: AsyncPostgre
 @pytest.mark.asyncio
 async def test_cultural_knowledge_upsert_sanitizes_fields(async_postgres_db_real: AsyncPostgresDb):
     """Test that null bytes in cultural knowledge fields are sanitized."""
-    from agno.db.schemas.culture import CulturalKnowledge
+    from egpt.db.schemas.culture import CulturalKnowledge
 
     cultural_knowledge = CulturalKnowledge(
         id="test_culture_null",

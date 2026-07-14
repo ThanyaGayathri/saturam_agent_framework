@@ -7,15 +7,15 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from agno.agent import Agent
-from agno.exceptions import CheckTrigger, InputCheckError, OutputCheckError
-from agno.metrics import MessageMetrics
-from agno.models.base import Model
-from agno.models.message import Message
-from agno.models.response import ModelResponse
-from agno.run import RunStatus
-from agno.run.agent import RunEvent, RunInput, RunOutput
-from agno.session.agent import AgentSession
+from egpt.agent import Agent
+from egpt.exceptions import CheckTrigger, InputCheckError, OutputCheckError
+from egpt.metrics import MessageMetrics
+from egpt.models.base import Model
+from egpt.models.message import Message
+from egpt.models.response import ModelResponse
+from egpt.run import RunStatus
+from egpt.run.agent import RunEvent, RunInput, RunOutput
+from egpt.session.agent import AgentSession
 
 
 # Test hook functions

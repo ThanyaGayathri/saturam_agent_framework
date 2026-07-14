@@ -5,10 +5,10 @@ Google Pdf Input Url
 Cookbook example for `google/gemini/pdf_input_url.py`.
 """
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.media import File
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.media import File
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Create Agent

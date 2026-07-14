@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.exceptions import ModelAuthenticationError
-from agno.models.minimax import MiniMax
+from egpt.exceptions import ModelAuthenticationError
+from egpt.models.minimax import MiniMax
 
 
 def test_minimax_initialization_with_api_key():

@@ -1,9 +1,9 @@
 import pytest
 
-from agno.agent import Agent, RunOutput
-from agno.models.litellm import LiteLLMOpenAI
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent, RunOutput
+from egpt.models.litellm import LiteLLMOpenAI
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 
 def _assert_metrics(response: RunOutput):

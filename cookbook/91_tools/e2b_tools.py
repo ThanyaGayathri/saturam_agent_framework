@@ -32,9 +32,9 @@ Run this script with the E2B_API_KEY environment variable set to interact
 with the E2B sandbox through natural language commands.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.e2b import E2BTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.e2b import E2BTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

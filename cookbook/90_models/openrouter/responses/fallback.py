@@ -8,8 +8,8 @@ Requirements:
 - Set OPENROUTER_API_KEY environment variable
 """
 
-from agno.agent import Agent
-from agno.models.openrouter import OpenRouterResponses
+from egpt.agent import Agent
+from egpt.models.openrouter import OpenRouterResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

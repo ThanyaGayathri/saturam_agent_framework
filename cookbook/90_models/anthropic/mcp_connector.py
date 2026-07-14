@@ -5,9 +5,9 @@ Anthropic Mcp Connector
 Cookbook example for `anthropic/mcp_connector.py`.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.utils.models.claude import MCPServerConfiguration
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.utils.models.claude import MCPServerConfiguration
 
 # ---------------------------------------------------------------------------
 # Create Agent

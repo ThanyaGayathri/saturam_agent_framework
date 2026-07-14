@@ -5,10 +5,10 @@ Meta Metrics
 Cookbook example for `meta/llama/metrics.py`.
 """
 
-from agno.agent import Agent, RunOutput
-from agno.models.meta import Llama
-from agno.tools.yfinance import YFinanceTools
-from agno.utils.pprint import pprint_run_response
+from egpt.agent import Agent, RunOutput
+from egpt.models.meta import Llama
+from egpt.tools.yfinance import YFinanceTools
+from egpt.utils.pprint import pprint_run_response
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

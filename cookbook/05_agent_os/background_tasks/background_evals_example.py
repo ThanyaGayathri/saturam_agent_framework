@@ -6,11 +6,11 @@ This example demonstrates fine-grained control over which hooks run in backgroun
 - AgentAsJudgeEval evaluates output quality based on custom criteria
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import AsyncSqliteDb
-from agno.eval.agent_as_judge import AgentAsJudgeEval
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
+from egpt.agent import Agent
+from egpt.db.sqlite import AsyncSqliteDb
+from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
 
 # ---------------------------------------------------------------------------
 # Create Example

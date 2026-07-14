@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agno.db.schemas import UserMemory
-from agno.memory.manager import MemoryManager
+from egpt.db.schemas import UserMemory
+from egpt.memory.manager import MemoryManager
 
 
 @pytest.fixture
@@ -64,7 +64,7 @@ class TestMemoryManagerInit:
 
     def test_initialization_with_string_model(self):
         """String model is converted via get_model()."""
-        with patch("agno.memory.manager.get_model") as mock_get_model:
+        with patch("egpt.memory.manager.get_model") as mock_get_model:
             mock_model = MagicMock()
             mock_get_model.return_value = mock_model
             mm = MemoryManager(model="gpt-4o")
@@ -74,7 +74,7 @@ class TestMemoryManagerInit:
     def test_initialization_with_model_instance(self):
         """Model instance is passed through get_model()."""
         mock_model = MagicMock()
-        with patch("agno.memory.manager.get_model") as mock_get_model:
+        with patch("egpt.memory.manager.get_model") as mock_get_model:
             mock_get_model.return_value = mock_model
             mm = MemoryManager(model=mock_model)
             assert mm.model is mock_model
@@ -366,7 +366,7 @@ class TestClearUserMemories:
 
     def test_clear_user_memories_async_db_raises(self):
         """Raises ValueError when using async db with sync clear."""
-        from agno.db.base import AsyncBaseDb
+        from egpt.db.base import AsyncBaseDb
 
         mock_async_db = MagicMock(spec=AsyncBaseDb)
         mm = MemoryManager(db=mock_async_db)
@@ -383,7 +383,7 @@ class TestAsyncReadFromDb:
     @pytest.mark.asyncio
     async def test_aread_from_db_with_async_db(self):
         """aread_from_db works with AsyncBaseDb."""
-        from agno.db.base import AsyncBaseDb
+        from egpt.db.base import AsyncBaseDb
 
         mock_db = MagicMock(spec=AsyncBaseDb)
         mock_db.get_user_memories = AsyncMock(

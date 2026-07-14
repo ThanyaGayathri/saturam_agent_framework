@@ -24,24 +24,24 @@ from fastmcp import Client, Context  # noqa: E402
 from starlette.middleware import Middleware  # noqa: E402
 from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
 
-import agno.os.mcp as mcp_mod  # noqa: E402
-from agno.agent import Agent  # noqa: E402
-from agno.db.schemas.service_accounts import ServiceAccount  # noqa: E402
-from agno.models.base import Model  # noqa: E402
-from agno.models.message import MessageMetrics  # noqa: E402
-from agno.models.response import ModelResponse  # noqa: E402
-from agno.os import AgentOS, MCPServerConfig  # noqa: E402
-from agno.os.config import AuthorizationConfig  # noqa: E402
-from agno.os.mcp import _resolve_user_id, build_mcp_server, get_mcp_server  # noqa: E402
-from agno.os.service_accounts import ServiceAccountVerification, VerificationStatus, generate_token  # noqa: E402
-from agno.os.settings import AgnoAPISettings  # noqa: E402
-from agno.run.agent import RunOutput  # noqa: E402
-from agno.run.team import TeamRunOutput  # noqa: E402
-from agno.run.workflow import WorkflowRunOutput  # noqa: E402
-from agno.team.team import Team  # noqa: E402
-from agno.tools import tool  # noqa: E402
-from agno.workflow.step import Step  # noqa: E402
-from agno.workflow.workflow import Workflow  # noqa: E402
+import egpt.os.mcp as mcp_mod  # noqa: E402
+from egpt.agent import Agent  # noqa: E402
+from egpt.db.schemas.service_accounts import ServiceAccount  # noqa: E402
+from egpt.models.base import Model  # noqa: E402
+from egpt.models.message import MessageMetrics  # noqa: E402
+from egpt.models.response import ModelResponse  # noqa: E402
+from egpt.os import AgentOS, MCPServerConfig  # noqa: E402
+from egpt.os.config import AuthorizationConfig  # noqa: E402
+from egpt.os.mcp import _resolve_user_id, build_mcp_server, get_mcp_server  # noqa: E402
+from egpt.os.service_accounts import ServiceAccountVerification, VerificationStatus, generate_token  # noqa: E402
+from egpt.os.settings import AgnoAPISettings  # noqa: E402
+from egpt.run.agent import RunOutput  # noqa: E402
+from egpt.run.team import TeamRunOutput  # noqa: E402
+from egpt.run.workflow import WorkflowRunOutput  # noqa: E402
+from egpt.team.team import Team  # noqa: E402
+from egpt.tools import tool  # noqa: E402
+from egpt.workflow.step import Step  # noqa: E402
+from egpt.workflow.workflow import Workflow  # noqa: E402
 
 # The full set of built-in tools, keyed by their tag group. The surface is deliberately
 # 8 tools: an operator surface for LLM frontends, not a database console.
@@ -688,7 +688,7 @@ def test_authorize_without_jwt_warns_at_startup(monkeypatch):
     the user notices before discovering that every request is rejected (or, worse, allowed).
     """
     warnings: list = []
-    monkeypatch.setattr("agno.utils.log.log_warning", lambda msg, *a, **kw: warnings.append(msg))
+    monkeypatch.setattr("egpt.utils.log.log_warning", lambda msg, *a, **kw: warnings.append(msg))
 
     os = AgentOS(
         agents=[_agent()],
@@ -709,7 +709,7 @@ def test_authorize_without_jwt_warns_at_startup(monkeypatch):
 def test_authorize_with_jwt_does_not_warn(monkeypatch):
     """Sanity check: the warning is only emitted in the misconfigured case."""
     warnings: list = []
-    monkeypatch.setattr("agno.utils.log.log_warning", lambda msg, *a, **kw: warnings.append(msg))
+    monkeypatch.setattr("egpt.utils.log.log_warning", lambda msg, *a, **kw: warnings.append(msg))
 
     os = AgentOS(
         agents=[_agent()],
@@ -892,7 +892,7 @@ def test_manual_jwt_middleware_on_base_app_is_not_open():
     both recognize the manual-middleware path."""
     from fastapi import FastAPI
 
-    from agno.os.middleware.jwt import JWTMiddleware
+    from egpt.os.middleware.jwt import JWTMiddleware
 
     base = FastAPI()
     base.add_middleware(JWTMiddleware, validate=False)  # validate=False counts as a JWT key source
@@ -910,11 +910,11 @@ def test_manual_jwt_middleware_on_base_app_is_not_open():
 # ==================== Security key + service account auth (non-JWT modes) ====================
 
 # Router dependencies never run for mounted sub-apps, so in non-JWT modes /mcp gets its own
-# middleware mirroring the REST rules (agno.os.auth.get_authentication_dependency).
+# middleware mirroring the REST rules (egpt.os.auth.get_authentication_dependency).
 
 
 def _sqlite_db(tmp_path):
-    from agno.db.sqlite import SqliteDb
+    from egpt.db.sqlite import SqliteDb
 
     return SqliteDb(db_file=str(tmp_path / "mcp_auth_test.db"))
 
@@ -1064,7 +1064,7 @@ class _FakeVerifier:
     [(VerificationStatus.THROTTLED, 429), (VerificationStatus.UNAVAILABLE, 503)],
 )
 async def test_pat_verifier_statuses_map_like_rest(tmp_path, status, expected_status_code):
-    """THROTTLED -> 429 and UNAVAILABLE -> 503, matching the REST path in agno.os.auth."""
+    """THROTTLED -> 429 and UNAVAILABLE -> 503, matching the REST path in egpt.os.auth."""
     os = _auth_os(security_key="test-key", db=_sqlite_db(tmp_path))
     os._service_account_verifier = _FakeVerifier(status)
     async with _mcp_http_client(os) as client:

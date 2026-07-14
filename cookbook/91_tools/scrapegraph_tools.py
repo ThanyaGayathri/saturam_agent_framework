@@ -7,9 +7,9 @@ Prerequisites:
     export SGAI_API_KEY=<your-api-key>
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.scrapegraph import ScrapeGraphTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.scrapegraph import ScrapeGraphTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

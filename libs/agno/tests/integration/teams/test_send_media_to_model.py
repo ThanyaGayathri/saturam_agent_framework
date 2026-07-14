@@ -2,11 +2,11 @@ from typing import Optional, Sequence
 
 import pytest
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.openai import OpenAIChat
-from agno.team.team import Team
-from agno.tools import Toolkit
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.openai import OpenAIChat
+from egpt.team.team import Team
+from egpt.tools import Toolkit
 
 
 class DocumentProcessingTools(Toolkit):

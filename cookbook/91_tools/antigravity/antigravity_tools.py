@@ -16,9 +16,9 @@ calls can build on prior files and state.
     uv pip install agno google-genai
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
-from agno.tools.antigravity import AntigravityTools
+from egpt.agent import Agent
+from egpt.models.google import Gemini
+from egpt.tools.antigravity import AntigravityTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

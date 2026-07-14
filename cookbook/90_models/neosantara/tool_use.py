@@ -7,9 +7,9 @@ Cookbook example for `neosantara/tool_use.py`.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.neosantara import Neosantara
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.neosantara import Neosantara
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

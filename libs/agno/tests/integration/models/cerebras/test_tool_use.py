@@ -1,8 +1,8 @@
 import pytest
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.cerebras import Cerebras
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.cerebras import Cerebras
+from egpt.tools.websearch import WebSearchTools
 
 
 def test_tool_use():

@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agno.exceptions import ModelProviderError
-from agno.models.message import Message
-from agno.models.openai.responses import OpenAIResponses
+from egpt.exceptions import ModelProviderError
+from egpt.models.message import Message
+from egpt.models.openai.responses import OpenAIResponses
 
 
 class _FakeError:

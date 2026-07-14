@@ -7,10 +7,10 @@ Make sure to set the Vertex AI credentials. Here's the authentication guide: htt
 Run `uv pip install google-genai agno` to install the required packages.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.models.gemini import GeminiTools
-from agno.utils.media import save_base64_data
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.models.gemini import GeminiTools
+from egpt.utils.media import save_base64_data
 
 # ---------------------------------------------------------------------------
 # Create Agent

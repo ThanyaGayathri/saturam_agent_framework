@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.db.sqlite.schemas import AUTH_TOKEN_TABLE_SCHEMA, get_table_schema_definition
+from egpt.db.sqlite.schemas import AUTH_TOKEN_TABLE_SCHEMA, get_table_schema_definition
 
 # ============================================================================
 # FIXTURES
@@ -14,7 +14,7 @@ from agno.db.sqlite.schemas import AUTH_TOKEN_TABLE_SCHEMA, get_table_schema_def
 
 @pytest.fixture
 def sqlite_db():
-    from agno.db.sqlite.sqlite import SqliteDb
+    from egpt.db.sqlite.sqlite import SqliteDb
 
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -28,7 +28,7 @@ def sqlite_db():
 
 @pytest.fixture
 def async_sqlite_db():
-    from agno.db.sqlite.async_sqlite import AsyncSqliteDb
+    from egpt.db.sqlite.async_sqlite import AsyncSqliteDb
 
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
@@ -42,7 +42,7 @@ def async_sqlite_db():
 
 @pytest.fixture
 def mock_postgres_db():
-    from agno.db.postgres import PostgresDb
+    from egpt.db.postgres import PostgresDb
 
     mock_engine = MagicMock()
     mock_engine.url = "postgresql://test@localhost/test"

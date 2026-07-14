@@ -19,12 +19,12 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent.agent import Agent
-from agno.os import AgentOS
-from agno.os.config import AuthorizationConfig
-from agno.team.team import Team
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent.agent import Agent
+from egpt.os import AgentOS
+from egpt.os.config import AuthorizationConfig
+from egpt.team.team import Team
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 JWT_SECRET = "test-secret-for-isolation"
 TEST_OS_ID = "test-isolation-os"
@@ -363,7 +363,7 @@ class TestAsyncDbDispatch:
     def async_client(self, tmp_path):
         import uuid
 
-        from agno.db.sqlite.async_sqlite import AsyncSqliteDb
+        from egpt.db.sqlite.async_sqlite import AsyncSqliteDb
 
         db = AsyncSqliteDb(
             db_file=str(tmp_path / f"async_iso_{uuid.uuid4().hex[:8]}.db"),

@@ -8,12 +8,12 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.media import Image
-from agno.models.base import Model
-from agno.models.message import MessageMetrics
-from agno.models.response import ModelResponse
-from agno.run.agent import RunCompletedEvent, RunOutput
+from egpt.agent.agent import Agent
+from egpt.media import Image
+from egpt.models.base import Model
+from egpt.models.message import MessageMetrics
+from egpt.models.response import ModelResponse
+from egpt.run.agent import RunCompletedEvent, RunOutput
 
 
 class MockModelWithImage(Model):

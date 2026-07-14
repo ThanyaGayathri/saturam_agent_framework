@@ -11,9 +11,9 @@ The parent agent sees a single ``query_codebase(question)`` tool.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.context.workspace import WorkspaceContextProvider
 from db import get_db
+from egpt.agent import Agent
+from egpt.context.workspace import WorkspaceContextProvider
 from settings import default_model, sub_agent_model
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

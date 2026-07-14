@@ -4,8 +4,8 @@ import pytest
 from rich.console import Console
 from rich.text import Text
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
 
 
 def test_print_response_with_message_panel():
@@ -14,12 +14,12 @@ def test_print_response_with_message_panel():
     def get_the_weather():
         return "It is currently 70 degrees and cloudy in Tokyo"
 
-    with patch("agno.utils.print_response.agent.Live") as mock_live_class:
+    with patch("egpt.utils.print_response.agent.Live") as mock_live_class:
         mock_live = MagicMock()
         mock_live_class.return_value.__enter__ = Mock(return_value=mock_live)
         mock_live_class.return_value.__exit__ = Mock(return_value=None)
 
-        with patch("agno.utils.print_response.agent.create_panel") as mock_create_panel:
+        with patch("egpt.utils.print_response.agent.create_panel") as mock_create_panel:
             agent = Agent(
                 model=OpenAIChat(id="gpt-4o-mini"),
                 tools=[get_the_weather],
@@ -71,12 +71,12 @@ def test_print_response_with_message_panel():
 def test_panel_creation_and_structure():
     """Test that the right panels are created with the right structure"""
 
-    with patch("agno.utils.print_response.agent.Live") as mock_live_class:
+    with patch("egpt.utils.print_response.agent.Live") as mock_live_class:
         mock_live = MagicMock()
         mock_live_class.return_value.__enter__ = Mock(return_value=mock_live)
         mock_live_class.return_value.__exit__ = Mock(return_value=None)
 
-        with patch("agno.utils.print_response.agent.create_panel") as mock_create_panel:
+        with patch("egpt.utils.print_response.agent.create_panel") as mock_create_panel:
             agent = Agent(
                 model=OpenAIChat(id="gpt-4o-mini"),
                 markdown=False,
@@ -121,12 +121,12 @@ def test_panel_creation_and_structure():
 def test_print_response_content_verification():
     """Test that the actual response content makes it into the panel"""
 
-    with patch("agno.utils.print_response.agent.Live") as mock_live_class:
+    with patch("egpt.utils.print_response.agent.Live") as mock_live_class:
         mock_live = MagicMock()
         mock_live_class.return_value.__enter__ = Mock(return_value=mock_live)
         mock_live_class.return_value.__exit__ = Mock(return_value=None)
 
-        with patch("agno.utils.print_response.agent.create_panel") as mock_create_panel:
+        with patch("egpt.utils.print_response.agent.create_panel") as mock_create_panel:
             agent = Agent(
                 model=OpenAIChat(id="gpt-4o-mini"),
                 markdown=False,  # Test without markdown first
@@ -173,12 +173,12 @@ def test_print_response_content_verification():
 def test_markdown_content_type():
     """Test that markdown=True processes content differently than markdown=False"""
 
-    with patch("agno.utils.print_response.agent.Live") as mock_live_class:
+    with patch("egpt.utils.print_response.agent.Live") as mock_live_class:
         mock_live = MagicMock()
         mock_live_class.return_value.__enter__ = Mock(return_value=mock_live)
         mock_live_class.return_value.__exit__ = Mock(return_value=None)
 
-        with patch("agno.utils.print_response.agent.create_panel") as mock_create_panel:
+        with patch("egpt.utils.print_response.agent.create_panel") as mock_create_panel:
             agent = Agent(
                 model=OpenAIChat(id="gpt-4o-mini"),
                 markdown=True,
@@ -219,12 +219,12 @@ def test_markdown_content_type():
 def test_tool_calls_panel_creation():
     """Test that tool calls are handled properly"""
 
-    with patch("agno.utils.print_response.agent.Live") as mock_live_class:
+    with patch("egpt.utils.print_response.agent.Live") as mock_live_class:
         mock_live = MagicMock()
         mock_live_class.return_value.__enter__ = Mock(return_value=mock_live)
         mock_live_class.return_value.__exit__ = Mock(return_value=None)
 
-        with patch("agno.utils.print_response.agent.create_panel") as mock_create_panel:
+        with patch("egpt.utils.print_response.agent.create_panel") as mock_create_panel:
             agent = Agent(
                 model=OpenAIChat(id="gpt-4o-mini"),
                 telemetry=False,
@@ -271,8 +271,8 @@ def test_tool_calls_panel_creation():
 
 def test_live_update_calls():
     """Test that Live.update is called the right number of times"""
-    with patch("agno.utils.print_response.agent.Live") as mock_live_class:
-        with patch("agno.utils.print_response.agent.create_panel"):
+    with patch("egpt.utils.print_response.agent.Live") as mock_live_class:
+        with patch("egpt.utils.print_response.agent.create_panel"):
             agent = Agent(
                 model=OpenAIChat(id="gpt-4o-mini"),
                 telemetry=False,
@@ -303,8 +303,8 @@ def test_live_update_calls():
 def test_simple_functionality():
     """Basic test to understand what print_response actually does"""
 
-    with patch("agno.utils.print_response.agent.Live") as mock_live_class:
-        with patch("agno.utils.print_response.agent.create_panel") as mock_create_panel:
+    with patch("egpt.utils.print_response.agent.Live") as mock_live_class:
+        with patch("egpt.utils.print_response.agent.create_panel") as mock_create_panel:
             agent = Agent(
                 model=OpenAIChat(id="gpt-4o-mini"),
                 telemetry=False,
@@ -349,7 +349,7 @@ def test_error_handling():
 
     mock_console = Mock(spec=Console)
 
-    with patch("agno.utils.print_response.agent.Live") as mock_live_class:
+    with patch("egpt.utils.print_response.agent.Live") as mock_live_class:
         mock_live = Mock()
         mock_live_class.return_value = mock_live
         mock_live.__enter__ = Mock(return_value=mock_live)
@@ -380,8 +380,8 @@ def test_stream_vs_non_stream_behavior():
 
     mock_console = Mock(spec=Console)
 
-    with patch("agno.utils.print_response.agent.Live") as mock_live_class:
-        with patch("agno.utils.print_response.agent.create_panel") as mock_create_panel:
+    with patch("egpt.utils.print_response.agent.Live") as mock_live_class:
+        with patch("egpt.utils.print_response.agent.create_panel") as mock_create_panel:
             mock_live = Mock()
             mock_live_class.return_value = mock_live
             mock_live.__enter__ = Mock(return_value=mock_live)

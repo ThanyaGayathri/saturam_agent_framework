@@ -10,16 +10,16 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team import Team
 
 
 @pytest.fixture(autouse=True)
 def reset_async_client():
     """Reset global async HTTP client between tests to avoid event loop conflicts."""
-    import agno.utils.http as http_utils
+    import egpt.utils.http as http_utils
 
     # Reset before test
     http_utils._global_async_client = None

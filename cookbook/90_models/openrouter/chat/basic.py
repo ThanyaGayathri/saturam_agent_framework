@@ -5,8 +5,8 @@ Openrouter Basic
 Cookbook example for `openrouter/chat/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.openrouter import OpenRouter
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.openrouter import OpenRouter
 import asyncio
 
 # ---------------------------------------------------------------------------

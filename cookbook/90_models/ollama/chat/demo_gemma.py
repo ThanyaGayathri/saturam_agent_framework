@@ -7,9 +7,9 @@ Cookbook example for `ollama/chat/demo_gemma.py`.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.ollama import Ollama
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.ollama import Ollama
 
 # ---------------------------------------------------------------------------
 # Create Agent

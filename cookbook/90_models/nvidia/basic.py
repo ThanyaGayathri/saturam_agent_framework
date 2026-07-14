@@ -5,8 +5,8 @@ Nvidia Basic
 Cookbook example for `nvidia/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.nvidia import Nvidia
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.nvidia import Nvidia
 import asyncio
 
 # ---------------------------------------------------------------------------

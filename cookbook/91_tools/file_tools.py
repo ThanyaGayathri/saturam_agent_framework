@@ -8,9 +8,9 @@ Shows enable_ flag patterns for selective function access.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.file import DEFAULT_EXCLUDE_PATTERNS, FileTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.file import DEFAULT_EXCLUDE_PATTERNS, FileTools
 
 EXCLUSION_SANDBOX = Path("tmp/file_tools_exclusions")
 

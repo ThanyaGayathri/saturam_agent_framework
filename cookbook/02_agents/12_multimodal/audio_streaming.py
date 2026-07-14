@@ -9,8 +9,8 @@ import base64
 import wave
 from typing import Iterator
 
-from agno.agent import Agent, RunOutputEvent
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent, RunOutputEvent
+from egpt.models.openai import OpenAIChat
 
 # Audio Configuration
 SAMPLE_RATE = 24000  # Hz (24kHz)

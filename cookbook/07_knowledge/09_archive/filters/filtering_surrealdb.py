@@ -1,10 +1,10 @@
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.utils.media import (
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.utils.media import (
     SampleDataFileExtension,
     download_knowledge_filters_sample_data,
 )
-from agno.vectordb.surrealdb import SurrealDb
+from egpt.vectordb.surrealdb import SurrealDb
 from surrealdb import Surreal
 
 # SurrealDB connection parameters

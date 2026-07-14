@@ -7,8 +7,8 @@ Cookbook example for `dashscope/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.dashscope import DashScope
+from egpt.agent import Agent
+from egpt.models.dashscope import DashScope
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

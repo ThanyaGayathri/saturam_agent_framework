@@ -6,10 +6,10 @@ Demonstrates that async-only toolkit functions are correctly included
 in the team system message when add_member_tools_to_context=True.
 """
 
-from agno.agent import Agent
-from agno.team import Team
-from agno.team.mode import TeamMode
-from agno.tools import Toolkit
+from egpt.agent import Agent
+from egpt.team import Team
+from egpt.team.mode import TeamMode
+from egpt.tools import Toolkit
 
 
 # ---------------------------------------------------------------------------

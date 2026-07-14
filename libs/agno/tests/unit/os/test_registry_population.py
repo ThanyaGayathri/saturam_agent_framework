@@ -11,21 +11,21 @@ Covers:
 
 from unittest.mock import MagicMock
 
-from agno.agent.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.knowledge.knowledge import Knowledge
-from agno.memory.manager import MemoryManager
-from agno.models.base import Model
-from agno.os import AgentOS
-from agno.registry import Registry
-from agno.session.summary import SessionSummaryManager
-from agno.team.team import Team
-from agno.tools.toolkit import Toolkit
-from agno.vectordb.base import VectorDb
-from agno.workflow.condition import Condition
-from agno.workflow.router import Router
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.memory.manager import MemoryManager
+from egpt.models.base import Model
+from egpt.os import AgentOS
+from egpt.registry import Registry
+from egpt.session.summary import SessionSummaryManager
+from egpt.team.team import Team
+from egpt.tools.toolkit import Toolkit
+from egpt.vectordb.base import VectorDb
+from egpt.workflow.condition import Condition
+from egpt.workflow.router import Router
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 
 def _mock_model_class():
@@ -370,7 +370,7 @@ class TestPopulateRegistryComponentsNested:
     def test_workflow_coordinator_and_step_team_models_collected(self):
         # Regression: the model on a workflow's coordinator agent and the model
         # on a team used inside a workflow step must both be collected.
-        from agno.workflow.agent import WorkflowAgent
+        from egpt.workflow.agent import WorkflowAgent
 
         coordinator = WorkflowAgent(model=_model("coordinator-model"))
         member = Agent(name="M", id="m", model=_model("member-model"), telemetry=False)
@@ -455,7 +455,7 @@ class TestPopulateRegistryComponentsToolDedup:
         # the same function names but different config. Rehydration is keyed by
         # function name globally, so only one instance can win; we make that the
         # first one walked (deterministic), and the later clash is ignored.
-        from agno.tools.duckduckgo import DuckDuckGoTools
+        from egpt.tools.duckduckgo import DuckDuckGoTools
 
         first = DuckDuckGoTools(fixed_max_results=3)
         second = DuckDuckGoTools(fixed_max_results=99)
@@ -530,7 +530,7 @@ class TestPopulateRegistryDedupLogging:
     on startup reads like a problem to users when nothing is wrong."""
 
     def test_dedup_is_silent_even_for_user_declared_registry(self, monkeypatch):
-        import agno.registry.registry as registry_module
+        import egpt.registry.registry as registry_module
 
         logged = []
         monkeypatch.setattr(registry_module, "log_warning", lambda msg, *a, **k: logged.append(msg))

@@ -2,8 +2,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.exceptions import ModelAuthenticationError
-from agno.models.openrouter import OpenRouterResponses
+from egpt.exceptions import ModelAuthenticationError
+from egpt.models.openrouter import OpenRouterResponses
 
 
 def test_openrouter_responses_default_config():

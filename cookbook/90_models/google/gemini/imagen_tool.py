@@ -10,10 +10,10 @@ Example prompts to try:
 Run `uv pip install google-genai agno` to install the necessary dependencies.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.models.gemini import GeminiTools
-from agno.utils.media import save_base64_data
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.models.gemini import GeminiTools
+from egpt.utils.media import save_base64_data
 
 # ---------------------------------------------------------------------------
 # Create Agent

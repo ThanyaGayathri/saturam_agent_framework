@@ -1,10 +1,10 @@
-"""Unit tests for eval utils (agno.eval.utils)."""
+"""Unit tests for eval utils (egpt.eval.utils)."""
 
 import asyncio
 import threading
 
-from agno.db.schemas.evals import EvalType
-from agno.eval.utils import async_log_eval, spinner_live
+from egpt.db.schemas.evals import EvalType
+from egpt.eval.utils import async_log_eval, spinner_live
 
 
 class RecordingSyncDb:
@@ -38,7 +38,7 @@ def test_async_log_eval_write_failure_is_swallowed_and_warned(monkeypatch):
     # log_warning wraps the agno logger, which may be built with propagate=False -
     # pytest's caplog can't reliably observe it, so capture the call directly.
     warnings = []
-    monkeypatch.setattr("agno.eval.utils.log_warning", warnings.append)
+    monkeypatch.setattr("egpt.eval.utils.log_warning", warnings.append)
 
     class FailingSyncDb:
         def create_eval_run(self, record):
@@ -56,7 +56,7 @@ def test_async_log_eval_write_failure_is_swallowed_and_warned(monkeypatch):
 def test_async_log_eval_in_memory_sqlite_stays_on_loop_and_persists():
     # In-memory sqlite is thread-affine (one private database per thread): the
     # write must run on the loop thread so it lands in the caller's database.
-    from agno.db.sqlite import SqliteDb
+    from egpt.db.sqlite import SqliteDb
 
     db = SqliteDb(db_url="sqlite:///:memory:")
 
@@ -70,7 +70,7 @@ def test_async_log_eval_uri_form_in_memory_sqlite_stays_on_loop_and_persists():
     # URI-form in-memory sqlite gets the same thread-affine SingletonThreadPool as
     # ":memory:" but a different url.database - the pool class, not the URL
     # spelling, must decide the routing.
-    from agno.db.sqlite import SqliteDb
+    from egpt.db.sqlite import SqliteDb
 
     db = SqliteDb(db_url="sqlite:///file:eval_mem?mode=memory&uri=true")
 
@@ -86,7 +86,7 @@ def test_abandoned_write_warns_at_cancellation_and_on_late_failure(monkeypatch):
     # outcome hits the cancelled-future guard - both moments must warn, or eval
     # history stops persisting with zero signal.
     warnings = []
-    monkeypatch.setattr("agno.eval.utils.log_warning", warnings.append)
+    monkeypatch.setattr("egpt.eval.utils.log_warning", warnings.append)
     release = threading.Event()
 
     class SlowFailingSyncDb:

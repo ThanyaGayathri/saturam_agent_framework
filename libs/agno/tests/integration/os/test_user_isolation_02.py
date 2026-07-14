@@ -15,16 +15,16 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent.agent import Agent
-from agno.os import AgentOS
-from agno.os.config import AuthorizationConfig
-from agno.os.middleware.user_scope import (
+from egpt.agent.agent import Agent
+from egpt.os import AgentOS
+from egpt.os.config import AuthorizationConfig
+from egpt.os.middleware.user_scope import (
     INSUFFICIENT_PERMISSIONS_WS_RECONNECT,
     WORKFLOW_ID_REQUIRED_RECONNECT,
 )
-from agno.team.team import Team
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.team.team import Team
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 JWT_SECRET = "test-secret-for-pr-fixes"
 TEST_OS_ID = "test-pr-fixes-os"
@@ -137,7 +137,7 @@ class TestTraceListScoping:
     """
 
     def _insert_trace(self, db, *, trace_id: str, user_id: str):
-        from agno.tracing.schemas import Trace
+        from egpt.tracing.schemas import Trace
 
         now = datetime.now(UTC)
         trace = Trace(
@@ -213,7 +213,7 @@ class TestTraceDetailScoping:
     """
 
     def _insert_trace(self, db, *, trace_id: str, user_id: str):
-        from agno.tracing.schemas import Trace
+        from egpt.tracing.schemas import Trace
 
         now = datetime.now(UTC)
         db.upsert_trace(
@@ -237,7 +237,7 @@ class TestTraceDetailScoping:
         )
 
     def _insert_span(self, db, *, span_id: str, trace_id: str):
-        from agno.tracing.schemas import Span
+        from egpt.tracing.schemas import Span
 
         now = datetime.now(UTC)
         db.create_span(
@@ -778,8 +778,8 @@ class TestWorkflowSessionLeakViaAgentRoute:
     def seeded_client(self, shared_db, test_agent, test_workflow):
         """OS with one agent + one workflow, plus a WorkflowSession seeded
         directly into the shared db that contains a nested agent run."""
-        from agno.run.agent import RunOutput
-        from agno.session.workflow import WorkflowSession
+        from egpt.run.agent import RunOutput
+        from egpt.session.workflow import WorkflowSession
 
         agent_run = RunOutput(
             run_id="nested-agent-run",

@@ -5,10 +5,10 @@ Openai Audio Output Agent
 Cookbook example for `openai/chat/audio_output_agent.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.openai import OpenAIChat
-from agno.utils.audio import write_audio_to_file
-from agno.db.in_memory import InMemoryDb
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.openai import OpenAIChat
+from egpt.utils.audio import write_audio_to_file
+from egpt.db.in_memory import InMemoryDb
 
 # ---------------------------------------------------------------------------
 # Create Agent

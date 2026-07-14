@@ -7,10 +7,10 @@ Demonstrates skills with agentos.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.skills import LocalSkills, Skills
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.skills import LocalSkills, Skills
 
 # ---------------------------------------------------------------------------
 # Create Example

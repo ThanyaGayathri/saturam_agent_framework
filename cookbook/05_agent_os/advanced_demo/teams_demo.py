@@ -5,16 +5,16 @@ Teams Demo
 Demonstrates teams demo.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.anthropic import Claude
-from agno.models.google.gemini import Gemini
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team.team import Team
-from agno.tools.exa import ExaTools
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.anthropic import Claude
+from egpt.models.google.gemini import Gemini
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team.team import Team
+from egpt.tools.exa import ExaTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Example

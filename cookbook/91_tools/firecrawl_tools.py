@@ -7,8 +7,8 @@ Prerequisites:
     export FIRECRAWL_API_KEY=<your-api-key>
 """
 
-from agno.agent import Agent
-from agno.tools.firecrawl import FirecrawlTools
+from egpt.agent import Agent
+from egpt.tools.firecrawl import FirecrawlTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

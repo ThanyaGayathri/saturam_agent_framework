@@ -40,9 +40,9 @@ the Zoom API through natural language commands.
 
 import os
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.zoom import ZoomTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.zoom import ZoomTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -7,20 +7,20 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from fastapi import APIRouter, FastAPI
 
-from agno.agent import RunEvent
-from agno.models.response import ToolExecution
-from agno.os.interfaces.slack.event_handler import EventContext, SlackEventHandler
-from agno.os.interfaces.slack.helpers import BotNameResolver
-from agno.os.interfaces.slack.hitl import HITLHandler
-from agno.os.interfaces.slack.ids import (
+from egpt.agent import RunEvent
+from egpt.models.response import ToolExecution
+from egpt.os.interfaces.slack.event_handler import EventContext, SlackEventHandler
+from egpt.os.interfaces.slack.helpers import BotNameResolver
+from egpt.os.interfaces.slack.hitl import HITLHandler
+from egpt.os.interfaces.slack.ids import (
     ACTION_CHECK_STATUS,
     ACTION_SUBMIT,
     encode_admin_approval_button_value,
     encode_submit_button_value,
     row_block_id,
 )
-from agno.os.interfaces.slack.state import StreamState
-from agno.run.requirement import RunRequirement
+from egpt.os.interfaces.slack.state import StreamState
+from egpt.run.requirement import RunRequirement
 
 from .conftest import (
     build_app,
@@ -145,7 +145,7 @@ class TestEventHandlerHelpers:
         stream = make_stream_mock()
 
         with patch(
-            "agno.os.interfaces.slack.event_handler.open_chat_stream", new=AsyncMock(return_value=stream)
+            "egpt.os.interfaces.slack.event_handler.open_chat_stream", new=AsyncMock(return_value=stream)
         ) as mock_open:
             opened = await handler._open_chat_stream(client, ctx)
 
@@ -206,7 +206,7 @@ class TestEventHandlerHelpers:
         stream = make_stream_mock()
 
         with patch(
-            "agno.os.interfaces.slack.event_handler.upload_response_media_async", new=AsyncMock()
+            "egpt.os.interfaces.slack.event_handler.upload_response_media_async", new=AsyncMock()
         ) as mock_upload:
             await handler._finalize_stream(client, ctx, state, stream)
 
@@ -228,9 +228,9 @@ class TestNonStreamingRoutes:
         mock_slack = make_slack_mock(token="xoxb-test")
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
         ):
             app = build_app(agent_mock, reply_to_mentions_only=False)
             from fastapi.testclient import TestClient
@@ -261,9 +261,9 @@ class TestNonStreamingRoutes:
         mock_slack = make_slack_mock(token="xoxb-test")
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
         ):
             app = build_app(agent_mock, reply_to_mentions_only=False)
             from fastapi.testclient import TestClient
@@ -292,9 +292,9 @@ class TestNonStreamingRoutes:
         mock_slack = make_slack_mock(token="xoxb-test")
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
         ):
             app = build_app(agent_mock, reply_to_mentions_only=False, resolve_user_identity=True)
             from fastapi.testclient import TestClient
@@ -327,9 +327,9 @@ class TestNonStreamingRoutes:
         mock_slack = make_slack_mock(token="xoxb-test")
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
         ):
             app = build_app(agent_mock, reply_to_mentions_only=False)
             from fastapi.testclient import TestClient
@@ -362,10 +362,10 @@ class TestNonStreamingRoutes:
         mock_httpx = make_httpx_mock([b"csv-data", b"img-data", b"zip-data"])
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
-            patch("agno.os.interfaces.slack.helpers.httpx.AsyncClient", return_value=mock_httpx),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
+            patch("egpt.os.interfaces.slack.helpers.httpx.AsyncClient", return_value=mock_httpx),
         ):
             app = build_app(agent_mock)
             from fastapi.testclient import TestClient
@@ -396,10 +396,10 @@ class TestNonStreamingRoutes:
         mock_httpx = make_httpx_mock(b"zipdata")
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
-            patch("agno.os.interfaces.slack.helpers.httpx.AsyncClient", return_value=mock_httpx),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
+            patch("egpt.os.interfaces.slack.helpers.httpx.AsyncClient", return_value=mock_httpx),
         ):
             app = build_app(agent_mock)
             from fastapi.testclient import TestClient
@@ -421,9 +421,9 @@ class TestNonStreamingRoutes:
         mock_client = make_async_client_mock()
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
         ):
             app = build_app(agent_mock, reply_to_mentions_only=False)
             from fastapi.testclient import TestClient
@@ -451,8 +451,8 @@ class TestRouterWiring:
     def test_explicit_token_passed_to_slack_tools(self):
         agent_mock = make_agent_mock()
         with (
-            patch("agno.os.interfaces.slack.router.SlackTools") as mock_cls,
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools") as mock_cls,
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
         ):
             mock_cls.return_value = make_slack_mock(token="xoxb-explicit-token")
             build_app(agent_mock, token="xoxb-explicit-token")
@@ -465,8 +465,8 @@ class TestRouterWiring:
         mock_slack = make_slack_mock(token="xoxb-test")
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True) as mock_verify,
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True) as mock_verify,
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
         ):
             app = build_app(agent_mock, signing_secret="my-secret")
             from fastapi.testclient import TestClient
@@ -488,14 +488,14 @@ class TestRouterWiring:
         assert mock_verify.call_args.kwargs["signing_secret"] == "my-secret"
 
     def test_operation_id_unique_across_instances(self):
-        from agno.os.interfaces.slack.router import attach_routes
+        from egpt.os.interfaces.slack.router import attach_routes
 
         agent_a = make_agent_mock()
         agent_a.name = "Research Agent"
         agent_b = make_agent_mock()
         agent_b.name = "Analyst Agent"
 
-        with patch("agno.os.interfaces.slack.router.SlackTools"):
+        with patch("egpt.os.interfaces.slack.router.SlackTools"):
             app = FastAPI()
             router_a = APIRouter(prefix="/research")
             attach_routes(router_a, agent=agent_a)
@@ -513,8 +513,8 @@ class TestRouterWiring:
         mock_slack = make_slack_mock(token="xoxb-test")
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
         ):
             app = build_app(agent_mock, reply_to_mentions_only=False)
             from fastapi.testclient import TestClient
@@ -543,10 +543,10 @@ class TestRouterWiring:
         mock_slack = make_slack_mock(token="xoxb-test")
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
-            patch("agno.os.interfaces.slack.helpers.httpx.AsyncClient", return_value=make_httpx_mock(b"file-data")),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=make_async_client_mock()),
+            patch("egpt.os.interfaces.slack.helpers.httpx.AsyncClient", return_value=make_httpx_mock(b"file-data")),
         ):
             app = build_app(agent_mock, reply_to_mentions_only=False)
             from fastapi.testclient import TestClient
@@ -585,8 +585,8 @@ class TestRouterWiring:
         mock_slack = make_slack_mock(token="xoxb-test")
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
         ):
             app = build_app(agent_mock, reply_to_mentions_only=True)
             from fastapi.testclient import TestClient
@@ -615,8 +615,8 @@ class TestRouterWiring:
         mock_slack = make_slack_mock(token="xoxb-test")
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
         ):
             app = build_app(agent_mock)
             from fastapi.testclient import TestClient
@@ -660,9 +660,9 @@ class TestStreamingRoutes:
         mock_client = make_async_client_mock(stream_mock=mock_stream)
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
         ):
             app = build_app(agent, streaming=True, reply_to_mentions_only=False)
             from fastapi.testclient import TestClient
@@ -683,9 +683,9 @@ class TestStreamingRoutes:
         mock_client = make_async_client_mock(stream_mock=mock_stream)
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
         ):
             app = build_app(agent, streaming=True, reply_to_mentions_only=False)
             from fastapi.testclient import TestClient
@@ -707,9 +707,9 @@ class TestStreamingRoutes:
         mock_client = make_async_client_mock(stream_mock=mock_stream)
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
         ):
             app = build_app(agent, streaming=True, reply_to_mentions_only=False)
             from fastapi.testclient import TestClient
@@ -739,9 +739,9 @@ class TestStreamingRoutes:
         mock_client = make_async_client_mock(stream_mock=mock_stream)
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
         ):
             app = build_app(agent, streaming=True, reply_to_mentions_only=False, resolve_user_identity=True)
             from fastapi.testclient import TestClient
@@ -776,9 +776,9 @@ class TestStreamingRoutes:
         mock_client = make_async_client_mock(stream_mock=mock_stream)
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
         ):
             app = build_app(agent, streaming=True, reply_to_mentions_only=False)
             from fastapi.testclient import TestClient
@@ -802,9 +802,9 @@ class TestThreadStarted:
         mock_client = make_async_client_mock()
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
         ):
             app = build_app(agent, streaming=True, reply_to_mentions_only=False)
             from fastapi.testclient import TestClient
@@ -835,9 +835,9 @@ class TestThreadStarted:
         custom = [{"title": "Custom", "message": "Do X"}]
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
         ):
             app = build_app(agent, streaming=True, reply_to_mentions_only=False, suggested_prompts=custom)
             from fastapi.testclient import TestClient
@@ -863,9 +863,9 @@ class TestThreadStarted:
         mock_client = make_async_client_mock()
 
         with (
-            patch("agno.os.interfaces.slack.router.verify_slack_signature", return_value=True),
-            patch("agno.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
-            patch("agno.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
+            patch("egpt.os.interfaces.slack.router.verify_slack_signature", return_value=True),
+            patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack),
+            patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_client),
         ):
             app = build_app(agent, streaming=True, reply_to_mentions_only=False)
             from fastapi.testclient import TestClient
@@ -918,8 +918,8 @@ class TestHITLFlow:
         )
 
         with (
-            patch("agno.os.interfaces.slack.hitl.AsyncWebClient", return_value=mock_client),
-            patch("agno.os.interfaces.slack.hitl.open_chat_stream", new=AsyncMock(return_value=stream)) as mock_open,
+            patch("egpt.os.interfaces.slack.hitl.AsyncWebClient", return_value=mock_client),
+            patch("egpt.os.interfaces.slack.hitl.open_chat_stream", new=AsyncMock(return_value=stream)) as mock_open,
         ):
             await handler.handle_submit(payload)
 
@@ -973,8 +973,8 @@ class TestHITLFlow:
         )
 
         with (
-            patch("agno.os.interfaces.slack.hitl.AsyncWebClient", return_value=mock_client),
-            patch("agno.os.interfaces.slack.hitl.open_chat_stream", new=AsyncMock(return_value=stream)),
+            patch("egpt.os.interfaces.slack.hitl.AsyncWebClient", return_value=mock_client),
+            patch("egpt.os.interfaces.slack.hitl.open_chat_stream", new=AsyncMock(return_value=stream)),
         ):
             await handler.handle_submit(payload)
 
@@ -1008,7 +1008,7 @@ class TestAdminApprovalFlow:
         mock_client = make_async_client_mock()
         payload = _make_check_status_payload()
 
-        with patch("agno.os.interfaces.slack.hitl.AsyncWebClient", return_value=mock_client):
+        with patch("egpt.os.interfaces.slack.hitl.AsyncWebClient", return_value=mock_client):
             await handler.handle_check_status(payload)
 
         db.get_approval.assert_called_once_with("appr-1")
@@ -1060,8 +1060,8 @@ class TestAdminApprovalFlow:
         payload = _make_check_status_payload()
 
         with (
-            patch("agno.os.interfaces.slack.hitl.AsyncWebClient", return_value=mock_client),
-            patch("agno.os.interfaces.slack.hitl.open_chat_stream", new=AsyncMock(return_value=stream)),
+            patch("egpt.os.interfaces.slack.hitl.AsyncWebClient", return_value=mock_client),
+            patch("egpt.os.interfaces.slack.hitl.open_chat_stream", new=AsyncMock(return_value=stream)),
         ):
             await handler.handle_check_status(payload)
 
@@ -1100,7 +1100,7 @@ class TestAdminApprovalFlow:
         mock_client = make_async_client_mock()
         payload = _make_check_status_payload()
 
-        with patch("agno.os.interfaces.slack.hitl.AsyncWebClient", return_value=mock_client):
+        with patch("egpt.os.interfaces.slack.hitl.AsyncWebClient", return_value=mock_client):
             await handler.handle_check_status(payload)
 
         db.get_approval.assert_called_once_with("appr-1")
@@ -1127,7 +1127,7 @@ class TestAdminApprovalFlow:
         mock_client = make_async_client_mock()
         payload = _make_check_status_payload()
 
-        with patch("agno.os.interfaces.slack.hitl.AsyncWebClient", return_value=mock_client):
+        with patch("egpt.os.interfaces.slack.hitl.AsyncWebClient", return_value=mock_client):
             await handler.handle_check_status(payload)
 
         mock_client.chat_update.assert_awaited_once()

@@ -12,9 +12,9 @@ The factory receives parameters by name via signature inspection:
 Results are cached per user_id (or session_id) by default.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.run import RunContext
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunContext
 
 # ---------------------------------------------------------------------------
 # Tools

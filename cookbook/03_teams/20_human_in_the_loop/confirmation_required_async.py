@@ -5,10 +5,10 @@ Same as confirmation_required.py but uses async run/continue_run.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team.team import Team
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team.team import Team
+from egpt.tools import tool
 
 
 # ---------------------------------------------------------------------------

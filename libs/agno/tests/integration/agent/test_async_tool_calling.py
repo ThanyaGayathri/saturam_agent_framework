@@ -3,11 +3,11 @@ from typing import AsyncIterator
 
 import pytest
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.models.openai import OpenAIChat
-from agno.run import RunContext
-from agno.run.base import RunStatus
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.models.openai import OpenAIChat
+from egpt.run import RunContext
+from egpt.run.base import RunStatus
 
 
 # Test tools: Async functions (return values)

@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agno.db.schemas.scheduler import Schedule
-from agno.scheduler.poller import SchedulePoller
+from egpt.db.schemas.scheduler import Schedule
+from egpt.scheduler.poller import SchedulePoller
 
 
 def _make_schedule_dict(**overrides):

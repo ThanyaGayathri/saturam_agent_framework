@@ -16,9 +16,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.os.middleware.jwt import JWTMiddleware
-from agno.os.scopes import AgentOSScope
-from agno.os.utils import resolve_ws_jwt_config
+from egpt.os.middleware.jwt import JWTMiddleware
+from egpt.os.scopes import AgentOSScope
+from egpt.os.utils import resolve_ws_jwt_config
 
 
 def _make_fake_app(*, state_attrs: dict[str, Any] | None = None, middleware_entries: list | None = None):
@@ -274,7 +274,7 @@ class TestManualSetupHttpFirstPreservesWsConfig:
 
     @pytest.fixture
     def manual_setup(self):
-        from agno.os.middleware.jwt import JWTMiddleware
+        from egpt.os.middleware.jwt import JWTMiddleware
 
         # Construct the middleware exactly the way ``app.add_middleware`` would
         # instantiate it. ``app=None`` is fine because we never invoke the
@@ -321,7 +321,7 @@ class TestManualSetupHttpFirstPreservesWsConfig:
         fake_app.user_middleware = []
         request.app = fake_app
 
-        from agno.os.middleware.jwt import JWTMiddleware as _MwClass  # noqa: F401
+        from egpt.os.middleware.jwt import JWTMiddleware as _MwClass  # noqa: F401
 
         # Make the request.state writable like real Starlette state.
         class _State:

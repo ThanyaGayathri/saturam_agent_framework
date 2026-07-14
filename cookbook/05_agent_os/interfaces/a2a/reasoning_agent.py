@@ -5,10 +5,10 @@ Reasoning Agent
 Demonstrates reasoning agent.
 """
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.tools.websearch import WebSearchTools
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

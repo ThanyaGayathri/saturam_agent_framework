@@ -10,12 +10,12 @@ Or pass those parameters when initializing the DynamoDb instance.
 Run `uv pip install boto3` to install dependencies.
 """
 
-from agno.agent import Agent
-from agno.db.dynamo import DynamoDb
-from agno.eval.accuracy import AccuracyEval
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team.team import Team
+from egpt.agent import Agent
+from egpt.db.dynamo import DynamoDb
+from egpt.eval.accuracy import AccuracyEval
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Example

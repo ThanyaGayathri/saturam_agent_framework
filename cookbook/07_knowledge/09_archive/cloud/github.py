@@ -20,11 +20,11 @@ Run this cookbook:
 
 from os import getenv
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.remote_content import GitHubConfig
-from agno.models.openai import OpenAIChat
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.remote_content import GitHubConfig
+from egpt.models.openai import OpenAIChat
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Option 1: Personal Access Token authentication

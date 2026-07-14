@@ -9,7 +9,7 @@ the training set.
 
 from typing import List, Literal
 
-from agno.agent import Agent, RunOutput  # noqa
+from egpt.agent import Agent, RunOutput  # noqa
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

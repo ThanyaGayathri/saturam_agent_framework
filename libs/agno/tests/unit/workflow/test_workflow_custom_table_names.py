@@ -11,10 +11,10 @@ import sqlite3
 
 import pytest
 
-from agno.db.base import ComponentType
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.workflow import Step, StepOutput
-from agno.workflow.workflow import get_workflow_by_id
+from egpt.db.base import ComponentType
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.workflow import Step, StepOutput
+from egpt.workflow.workflow import get_workflow_by_id
 
 
 class _FakeRegistry:

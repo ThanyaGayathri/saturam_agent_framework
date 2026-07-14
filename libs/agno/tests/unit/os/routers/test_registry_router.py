@@ -12,14 +12,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
-from agno.db.base import BaseDb
-from agno.models.base import Model
-from agno.os.routers.registry import get_registry_router
-from agno.os.settings import AgnoAPISettings
-from agno.registry import Registry
-from agno.tools.function import Function
-from agno.tools.toolkit import Toolkit
-from agno.vectordb.base import VectorDb
+from egpt.db.base import BaseDb
+from egpt.models.base import Model
+from egpt.os.routers.registry import get_registry_router
+from egpt.os.settings import AgnoAPISettings
+from egpt.registry import Registry
+from egpt.tools.function import Function
+from egpt.tools.toolkit import Toolkit
+from egpt.vectordb.base import VectorDb
 
 # =============================================================================
 # Fixtures
@@ -690,7 +690,7 @@ class TestListRegistryWithManagers:
 
     def test_list_registry_with_memory_manager(self, settings):
         """Test list_registry includes memory managers with metadata."""
-        from agno.memory.manager import MemoryManager
+        from egpt.memory.manager import MemoryManager
 
         mm = MemoryManager(id="mm-1", name="My Memory", add_memories=True)
 
@@ -714,7 +714,7 @@ class TestListRegistryWithManagers:
 
     def test_list_registry_with_session_summary_manager(self, settings):
         """Test list_registry includes session summary managers with metadata."""
-        from agno.session.summary import SessionSummaryManager
+        from egpt.session.summary import SessionSummaryManager
 
         sm = SessionSummaryManager(id="sm-1", name="Concise", last_n_runs=10)
 
@@ -738,7 +738,7 @@ class TestListRegistryWithManagers:
 
     def test_two_session_summary_managers_have_distinct_ids(self, settings):
         """Test that two managers without explicit id are not collapsed (duplicate-id fix)."""
-        from agno.session.summary import SessionSummaryManager
+        from egpt.session.summary import SessionSummaryManager
 
         sm1 = SessionSummaryManager(last_n_runs=10)
         sm2 = SessionSummaryManager(conversation_limit=50)

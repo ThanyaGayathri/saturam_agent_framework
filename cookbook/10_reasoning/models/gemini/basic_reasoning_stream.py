@@ -5,9 +5,9 @@ Basic Reasoning Stream
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
-from agno.run.agent import RunEvent  # noqa
+from egpt.agent import Agent
+from egpt.models.google import Gemini
+from egpt.run.agent import RunEvent  # noqa
 
 
 # ---------------------------------------------------------------------------

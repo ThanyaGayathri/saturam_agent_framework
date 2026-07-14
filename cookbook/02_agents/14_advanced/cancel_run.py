@@ -8,10 +8,10 @@ Example demonstrating how to cancel a running agent execution.
 import threading
 import time
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.run.agent import RunEvent
-from agno.run.base import RunStatus
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.run.agent import RunEvent
+from egpt.run.base import RunStatus
 
 
 def long_running_task(agent: Agent, run_id_container: dict):

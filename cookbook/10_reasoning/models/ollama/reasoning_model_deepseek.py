@@ -5,8 +5,8 @@ Reasoning Model Deepseek
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.ollama.chat import Ollama
+from egpt.agent import Agent
+from egpt.models.ollama.chat import Ollama
 
 
 # ---------------------------------------------------------------------------

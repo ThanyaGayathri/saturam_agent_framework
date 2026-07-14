@@ -7,9 +7,9 @@ Cookbook example for `anthropic/web_search.py`.
 
 from pprint import pprint
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.models.anthropic import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -3,9 +3,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agno.knowledge.document import Document
-from agno.vectordb.pineconedb import PineconeDb
-from agno.vectordb.search import SearchType
+from egpt.knowledge.document import Document
+from egpt.vectordb.pineconedb import PineconeDb
+from egpt.vectordb.search import SearchType
 
 # Configuration for tests
 TEST_INDEX_NAME = f"test_index_{uuid.uuid4().hex[:8]}"
@@ -52,7 +52,7 @@ def mock_pinecone_index():
 @pytest.fixture
 def mock_pinecone_db(mock_pinecone_client, mock_pinecone_index, mock_embedder):
     """Create a PineconeDb instance with mocked dependencies."""
-    with patch("agno.vectordb.pineconedb.pineconedb.Pinecone", return_value=mock_pinecone_client):
+    with patch("egpt.vectordb.pineconedb.pineconedb.Pinecone", return_value=mock_pinecone_client):
         db = PineconeDb(
             name=TEST_INDEX_NAME,
             dimension=TEST_DIMENSION,
@@ -107,7 +107,7 @@ def sample_documents():
 # Synchronous Tests
 def test_initialization():
     """Test basic initialization."""
-    with patch("agno.vectordb.pineconedb.pineconedb.Pinecone"):
+    with patch("egpt.vectordb.pineconedb.pineconedb.Pinecone"):
         db = PineconeDb(
             name=TEST_INDEX_NAME,
             dimension=TEST_DIMENSION,
@@ -130,7 +130,7 @@ def test_client_property(mock_pinecone_db, mock_pinecone_client):
     mock_pinecone_db._client = None
 
     # Test client property
-    with patch("agno.vectordb.pineconedb.pineconedb.Pinecone", return_value=mock_pinecone_client):
+    with patch("egpt.vectordb.pineconedb.pineconedb.Pinecone", return_value=mock_pinecone_client):
         client = mock_pinecone_db.client
 
         assert client is not None

@@ -5,15 +5,15 @@ from typing import List
 import pytest
 import pytest_asyncio
 
-from agno.agent.agent import Agent
-from agno.db.json import JsonDb
-from agno.db.sqlite.async_sqlite import AsyncSqliteDb
-from agno.models.openai import OpenAIChat
-from agno.team.team import Team
-from agno.workflow import Condition, Loop, Parallel, Router
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.agent.agent import Agent
+from egpt.db.json import JsonDb
+from egpt.db.sqlite.async_sqlite import AsyncSqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.team.team import Team
+from egpt.workflow import Condition, Loop, Parallel, Router
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 @pytest.hookimpl(hookwrapper=True)

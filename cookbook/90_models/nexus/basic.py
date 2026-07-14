@@ -5,8 +5,8 @@ Nexus Basic
 Cookbook example for `nexus/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.nexus import Nexus
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.nexus import Nexus
 import asyncio
 
 # ---------------------------------------------------------------------------

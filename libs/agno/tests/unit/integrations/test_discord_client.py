@@ -1,4 +1,4 @@
-"""Unit tests for the Discord integration (agno.integrations.discord)."""
+"""Unit tests for the Discord integration (egpt.integrations.discord)."""
 
 import inspect
 
@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("discord")
 
-from agno.integrations.discord.client import DiscordClient  # noqa: E402
+from egpt.integrations.discord.client import DiscordClient  # noqa: E402
 
 
 def test_on_message_reads_attachments_without_blocking_the_event_loop():
@@ -27,7 +27,7 @@ def test_on_message_reads_attachments_without_blocking_the_event_loop():
 
 def test_discord_client_module_does_not_import_requests():
     """The blocking ``requests`` dependency is no longer needed in this module."""
-    import agno.integrations.discord.client as discord_client
+    import egpt.integrations.discord.client as discord_client
 
     source = inspect.getsource(discord_client)
     assert "import requests" not in source

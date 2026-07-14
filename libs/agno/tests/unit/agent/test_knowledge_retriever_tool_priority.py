@@ -10,12 +10,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.agent import Agent
-from agno.agent._tools import aget_tools, get_tools
-from agno.models.base import Function
-from agno.run.agent import RunOutput
-from agno.run.base import RunContext
-from agno.session.agent import AgentSession
+from egpt.agent import Agent
+from egpt.agent._tools import aget_tools, get_tools
+from egpt.models.base import Function
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunContext
+from egpt.session.agent import AgentSession
 
 
 class MockKnowledge:

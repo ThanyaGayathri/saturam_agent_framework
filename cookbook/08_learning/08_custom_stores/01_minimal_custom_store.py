@@ -14,10 +14,10 @@ For a database-backed example, see 02_custom_store_with_db.py
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from agno.agent import Agent
-from agno.learn import LearningMachine
-from agno.learn.stores.protocol import LearningStore
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.learn import LearningMachine
+from egpt.learn.stores.protocol import LearningStore
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Custom Store Implementation

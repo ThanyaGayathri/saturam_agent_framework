@@ -3,8 +3,8 @@ from typing import Dict, List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.openai.chat import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.openai.chat import OpenAIChat
 
 
 class MovieScript(BaseModel):

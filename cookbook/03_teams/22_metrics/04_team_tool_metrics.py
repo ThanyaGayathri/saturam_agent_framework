@@ -6,10 +6,10 @@ Demonstrates metrics for teams where members use tools.
 Shows leader metrics, member metrics, and tool execution timing.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.team import Team
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.team import Team
+from egpt.tools.yfinance import YFinanceTools
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

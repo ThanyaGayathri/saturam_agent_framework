@@ -3,9 +3,9 @@
 Strict tool use ensures that tool parameters strictly follow the input_schema.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.tools import Function
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.tools import Function
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------

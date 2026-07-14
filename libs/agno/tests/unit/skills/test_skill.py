@@ -2,7 +2,7 @@
 
 import pytest
 
-from agno.skills.skill import Skill
+from egpt.skills.skill import Skill
 
 # --- Skill Creation Tests ---
 

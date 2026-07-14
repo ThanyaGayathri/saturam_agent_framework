@@ -20,16 +20,16 @@ Usage:
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.anthropic import Claude
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.registry import Registry
-from agno.tools.calculator import CalculatorTools
-from agno.tools.duckduckgo import DuckDuckGoTools
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.studio import StudioTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.anthropic import Claude
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.registry import Registry
+from egpt.tools.calculator import CalculatorTools
+from egpt.tools.duckduckgo import DuckDuckGoTools
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.studio import StudioTools
 
 DB_DIR = Path(__file__).parent / "tmp"
 DB_DIR.mkdir(exist_ok=True)

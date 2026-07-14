@@ -4,12 +4,12 @@ from typing import Any, Optional
 
 import pytest
 
-from agno.agent import _default_tools
-from agno.agent.agent import Agent
-from agno.db.base import SessionType
-from agno.models.message import Message
-from agno.run.agent import RunOutput
-from agno.session import AgentSession
+from egpt.agent import _default_tools
+from egpt.agent.agent import Agent
+from egpt.db.base import SessionType
+from egpt.models.message import Message
+from egpt.run.agent import RunOutput
+from egpt.session import AgentSession
 
 
 class _EmptySessionsDb:

@@ -17,9 +17,9 @@ Setup:
 4. First run opens browser for OAuth consent, saves token.json for reuse
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.google.drive import GoogleDriveTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.google.drive import GoogleDriveTools
 
 # 50 MB — allow reading larger non-Workspace files (default is 10 MB)
 MAX_READ_SIZE = 50 * 1024 * 1024

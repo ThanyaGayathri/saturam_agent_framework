@@ -5,8 +5,8 @@ Google Thinking Agent
 Cookbook example for `google/gemini/thinking_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Create Agent

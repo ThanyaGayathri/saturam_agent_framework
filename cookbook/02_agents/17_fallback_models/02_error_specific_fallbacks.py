@@ -12,10 +12,10 @@ When a specific fallback list matches the error type, it takes
 priority over the general on_error list.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.models.fallback import FallbackConfig
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.models.fallback import FallbackConfig
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Agent with error-specific fallbacks

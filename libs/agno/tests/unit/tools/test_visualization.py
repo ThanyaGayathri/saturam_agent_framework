@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.tools.visualization import VisualizationTools
+from egpt.tools.visualization import VisualizationTools
 
 
 @pytest.fixture

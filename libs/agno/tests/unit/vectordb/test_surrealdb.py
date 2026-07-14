@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agno.knowledge.document import Document
-from agno.vectordb.surrealdb import SurrealDb
+from egpt.knowledge.document import Document
+from egpt.vectordb.surrealdb import SurrealDb
 
 try:
     from surrealdb import Surreal

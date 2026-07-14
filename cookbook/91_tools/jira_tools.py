@@ -5,8 +5,8 @@ Jira Tools
 Demonstrates jira tools.
 """
 
-from agno.agent import Agent
-from agno.tools.jira import JiraTools
+from egpt.agent import Agent
+from egpt.tools.jira import JiraTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

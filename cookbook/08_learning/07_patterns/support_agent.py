@@ -14,11 +14,11 @@ The agent gets faster at resolving issues by learning from successes.
 See also: 01_basics/ for individual store examples.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.knowledge import Knowledge
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.learn import (
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.knowledge import Knowledge
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.learn import (
     EntityMemoryConfig,
     LearnedKnowledgeConfig,
     LearningMachine,
@@ -26,8 +26,8 @@ from agno.learn import (
     SessionContextConfig,
     UserProfileConfig,
 )
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.pgvector import PgVector, SearchType
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.pgvector import PgVector, SearchType
 
 # ---------------------------------------------------------------------------
 # Create Agent

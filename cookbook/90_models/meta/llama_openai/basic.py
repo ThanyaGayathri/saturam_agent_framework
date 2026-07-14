@@ -5,8 +5,8 @@ Meta Basic
 Cookbook example for `meta/llama_openai/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.meta import LlamaOpenAI
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.meta import LlamaOpenAI
 import asyncio
 
 # ---------------------------------------------------------------------------

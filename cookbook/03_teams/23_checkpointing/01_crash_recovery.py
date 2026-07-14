@@ -26,11 +26,11 @@ import subprocess
 import sys
 import time
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.run.base import RunStatus
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run.base import RunStatus
+from egpt.team import Team
 
 DB_FILE = os.environ.get("CRASH_DB") or f"tmp/team_crash_recovery_{int(time.time())}.db"
 SESSION_ID = "team-crash-demo-session"

@@ -9,8 +9,8 @@ human review.
 
 from typing import Literal, Optional
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.media import File
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.media import File
 from pydantic import BaseModel
 from rich.pretty import pprint  # noqa
 

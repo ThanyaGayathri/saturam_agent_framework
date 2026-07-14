@@ -5,8 +5,8 @@ Langdb Basic
 Cookbook example for `langdb/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.langdb import LangDB
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.langdb import LangDB
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -11,9 +11,9 @@ Note: It takes a few seconds for the cache to be created and used for the second
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.vertexai.claude import Claude
-from agno.utils.media import download_file
+from egpt.agent import Agent
+from egpt.models.vertexai.claude import Claude
+from egpt.utils.media import download_file
 
 # ---------------------------------------------------------------------------
 # Create Agent

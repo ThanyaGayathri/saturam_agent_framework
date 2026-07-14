@@ -3,8 +3,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.run import RunContext
-from agno.tools.mem0 import Mem0Tools
+from egpt.run import RunContext
+from egpt.tools.mem0 import Mem0Tools
 
 MockMemory = MagicMock()
 MockMemoryClient = MagicMock()
@@ -42,8 +42,8 @@ def mock_memory_client_instance():
 
 @pytest.fixture(autouse=True)
 def patch_mem0_library(monkeypatch, mock_memory_instance, mock_memory_client_instance):
-    monkeypatch.setattr("agno.tools.mem0.Memory", MockMemory)
-    monkeypatch.setattr("agno.tools.mem0.MemoryClient", MockMemoryClient)
+    monkeypatch.setattr("egpt.tools.mem0.Memory", MockMemory)
+    monkeypatch.setattr("egpt.tools.mem0.MemoryClient", MockMemoryClient)
     MockMemory.from_config.return_value = mock_memory_instance
     MockMemoryClient.return_value = mock_memory_client_instance
 

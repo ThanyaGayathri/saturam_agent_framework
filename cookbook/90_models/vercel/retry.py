@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Vercel AI."""
 
-from agno.agent import Agent
-from agno.models.vercel import V0
+from egpt.agent import Agent
+from egpt.models.vercel import V0
 
 # ---------------------------------------------------------------------------
 # Create Agent

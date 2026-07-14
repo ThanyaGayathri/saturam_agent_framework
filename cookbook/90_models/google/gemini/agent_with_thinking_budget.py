@@ -8,8 +8,8 @@ This requires `google-genai > 1.10.0`
 - Use include_thoughts=True to get the thought summaries in the response.
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Create Agent

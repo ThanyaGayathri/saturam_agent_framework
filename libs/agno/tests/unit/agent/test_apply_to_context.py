@@ -7,8 +7,8 @@ steps with different agents, each with their own output_schema.
 
 from pydantic import BaseModel
 
-from agno.agent._run_options import ResolvedRunOptions
-from agno.run import RunContext
+from egpt.agent._run_options import ResolvedRunOptions
+from egpt.run import RunContext
 
 
 def _make_opts(**overrides) -> ResolvedRunOptions:

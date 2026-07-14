@@ -6,9 +6,9 @@ When the primary model fails (after exhausting its own retries),
 fallback models are tried in order until one succeeds.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Basic: pass a list of fallback models directly

@@ -7,9 +7,9 @@ Demonstrates agent instantiation benchmarking with AutoGen.
 
 from typing import Literal
 
-from agno.eval.performance import PerformanceEval
 from autogen_agentchat.agents import AssistantAgent
 from autogen_ext.models.openai import OpenAIChatCompletionClient
+from egpt.eval.performance import PerformanceEval
 
 
 # ---------------------------------------------------------------------------

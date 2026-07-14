@@ -7,10 +7,10 @@ By default, files are returned as in-memory artifacts only (save_files=False).
 Set save_files=True to also persist files to disk.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.tools.file_generation import FileGenerationTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.file_generation import FileGenerationTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

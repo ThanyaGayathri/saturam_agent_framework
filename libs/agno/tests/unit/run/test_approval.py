@@ -1,4 +1,4 @@
-"""Unit tests for agno.run.approval — approval record creation and resolution gating."""
+"""Unit tests for egpt.run.approval — approval record creation and resolution gating."""
 
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agno.run.approval import (
+from egpt.run.approval import (
     _apply_approval_to_tools,
     _build_approval_dict,
     _get_first_approval_tool,

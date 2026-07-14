@@ -4,13 +4,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.tools.google.auth import AuthConfig
-from agno.tools.google.base import GoogleToolkit
-from agno.tools.google.calendar import GoogleCalendarTools
-from agno.tools.google.drive import GoogleDriveTools
-from agno.tools.google.gmail import GmailTools
-from agno.tools.google.sheets import GoogleSheetsTools
-from agno.tools.google.slides import GoogleSlidesTools
+from egpt.tools.google.auth import AuthConfig
+from egpt.tools.google.base import GoogleToolkit
+from egpt.tools.google.calendar import GoogleCalendarTools
+from egpt.tools.google.drive import GoogleDriveTools
+from egpt.tools.google.gmail import GmailTools
+from egpt.tools.google.sheets import GoogleSheetsTools
+from egpt.tools.google.slides import GoogleSlidesTools
 
 DEFAULT_GOOGLE_API_TIMEOUT = 120.0
 
@@ -71,7 +71,7 @@ def test_has_required_scopes_missing():
     toolkit = _make_toolkit(scopes=["scope1", "scope2", "scope3"])
     creds = _make_creds(scopes=["scope1"])
 
-    with patch("agno.tools.google.base.log_warning"):
+    with patch("egpt.tools.google.base.log_warning"):
         assert toolkit._has_required_scopes(creds) is False
 
 
@@ -79,7 +79,7 @@ def test_has_required_scopes_logs_warning():
     toolkit = _make_toolkit(scopes=["scope1", "scope2"])
     creds = _make_creds(scopes=["scope1"])
 
-    with patch("agno.tools.google.base.log_warning") as mock_warn:
+    with patch("egpt.tools.google.base.log_warning") as mock_warn:
         toolkit._has_required_scopes(creds)
 
     mock_warn.assert_called_once()
@@ -100,7 +100,7 @@ def test_has_required_scopes_none_on_creds():
     creds = MagicMock()
     creds.scopes = None
 
-    with patch("agno.tools.google.base.log_warning"):
+    with patch("egpt.tools.google.base.log_warning"):
         assert toolkit._has_required_scopes(creds) is False
 
 
@@ -383,7 +383,7 @@ def test_services_are_independent_objects(mock_valid_creds):
 
 @pytest.fixture
 def google_tools_dir():
-    import agno.tools.google.drive as drive_mod
+    import egpt.tools.google.drive as drive_mod
 
     return Path(drive_mod.__file__).parent
 
@@ -542,7 +542,7 @@ def test_resolve_creds_skips_invalid_shared_creds():
     toolkit.creds = None
 
     with (
-        patch("agno.tools.google.base.Path") as mock_path,
+        patch("egpt.tools.google.base.Path") as mock_path,
         patch("google_auth_oauthlib.flow.InstalledAppFlow") as mock_flow,
     ):
         mock_path.return_value.exists.return_value = False
@@ -573,8 +573,8 @@ def test_resolve_creds_skips_instance_creds_missing_scopes():
     toolkit.creds = instance_creds
 
     with (
-        patch("agno.tools.google.base.log_warning"),
-        patch("agno.tools.google.base.Path") as mock_path,
+        patch("egpt.tools.google.base.log_warning"),
+        patch("egpt.tools.google.base.Path") as mock_path,
         patch("google_auth_oauthlib.flow.InstalledAppFlow") as mock_flow,
     ):
         mock_path.return_value.exists.return_value = False
@@ -597,7 +597,7 @@ def test_resolve_creds_loads_from_db():
     creds = _make_creds()
 
     with patch(
-        "agno.tools.google.auth.tokens.load_token_from_db",
+        "egpt.tools.google.auth.tokens.load_token_from_db",
         return_value=(row, creds),
     ) as mock_load:
         result = toolkit._resolve_creds()
@@ -614,7 +614,7 @@ def test_resolve_creds_returns_valid_db_creds():
     creds = _make_creds(valid=True, expired=False)
 
     with patch(
-        "agno.tools.google.auth.tokens.load_token_from_db",
+        "egpt.tools.google.auth.tokens.load_token_from_db",
         return_value=(row, creds),
     ):
         result = toolkit._resolve_creds()
@@ -630,9 +630,9 @@ def test_resolve_creds_skips_db_creds_missing_scopes():
     creds = _make_creds(valid=True, scopes=["scope1"])
 
     with (
-        patch("agno.tools.google.auth.tokens.load_token_from_db", return_value=(row, creds)),
-        patch("agno.tools.google.base.log_warning") as mock_warn,
-        patch("agno.tools.google.base.Path") as mock_path,
+        patch("egpt.tools.google.auth.tokens.load_token_from_db", return_value=(row, creds)),
+        patch("egpt.tools.google.base.log_warning") as mock_warn,
+        patch("egpt.tools.google.base.Path") as mock_path,
         patch("google_auth_oauthlib.flow.InstalledAppFlow") as mock_flow,
     ):
         mock_path.return_value.exists.return_value = False
@@ -661,10 +661,10 @@ def test_resolve_creds_refresh_failure_logs_warning():
     flow.run_local_server.return_value = None
 
     with (
-        patch("agno.tools.google.auth.tokens.load_token_from_db", return_value=(row, creds)),
-        patch("agno.tools.google.auth.tokens.save_token_to_db") as mock_save,
-        patch("agno.tools.google.base.log_warning") as mock_warn,
-        patch("agno.tools.google.base.Path") as mock_path,
+        patch("egpt.tools.google.auth.tokens.load_token_from_db", return_value=(row, creds)),
+        patch("egpt.tools.google.auth.tokens.save_token_to_db") as mock_save,
+        patch("egpt.tools.google.base.log_warning") as mock_warn,
+        patch("egpt.tools.google.base.Path") as mock_path,
         patch("google_auth_oauthlib.flow.InstalledAppFlow") as mock_flow_cls,
     ):
         mock_path.return_value.exists.return_value = False
@@ -687,8 +687,8 @@ def test_resolve_creds_refresh_saves_with_encrypt_flag():
     creds = _make_creds(valid=True, expired=True, refresh_token="refresh_token")
 
     with (
-        patch("agno.tools.google.auth.tokens.load_token_from_db", return_value=(row, creds)),
-        patch("agno.tools.google.auth.tokens.save_token_to_db") as mock_save,
+        patch("egpt.tools.google.auth.tokens.load_token_from_db", return_value=(row, creds)),
+        patch("egpt.tools.google.auth.tokens.save_token_to_db") as mock_save,
     ):
         result = toolkit._resolve_creds()
 
@@ -710,8 +710,8 @@ def test_resolve_creds_encrypt_false_forwarded():
     creds = _make_creds(valid=True, expired=True, refresh_token="refresh_token")
 
     with (
-        patch("agno.tools.google.auth.tokens.load_token_from_db", return_value=(row, creds)),
-        patch("agno.tools.google.auth.tokens.save_token_to_db") as mock_save,
+        patch("egpt.tools.google.auth.tokens.load_token_from_db", return_value=(row, creds)),
+        patch("egpt.tools.google.auth.tokens.save_token_to_db") as mock_save,
     ):
         toolkit._resolve_creds()
 
@@ -728,7 +728,7 @@ def test_resolve_creds_loads_from_file():
     file_creds = _make_creds(valid=True, scopes=["scope1"])
 
     with (
-        patch("agno.tools.google.base.Path") as mock_path,
+        patch("egpt.tools.google.base.Path") as mock_path,
         patch("google.oauth2.credentials.Credentials.from_authorized_user_file") as mock_load,
     ):
         mock_path.return_value.exists.return_value = True
@@ -750,7 +750,7 @@ def test_resolve_creds_refreshes_expired_file_creds():
     file_creds.refresh.side_effect = refresh_side_effect
 
     with (
-        patch("agno.tools.google.base.Path") as mock_path,
+        patch("egpt.tools.google.base.Path") as mock_path,
         patch("google.oauth2.credentials.Credentials.from_authorized_user_file") as mock_load,
     ):
         token_path = MagicMock()
@@ -770,7 +770,7 @@ def test_resolve_creds_falls_through_no_file():
     toolkit = _make_toolkit(scopes=["scope1"])
 
     with (
-        patch("agno.tools.google.base.Path") as mock_path,
+        patch("egpt.tools.google.base.Path") as mock_path,
         patch("google_auth_oauthlib.flow.InstalledAppFlow") as mock_flow,
     ):
         mock_path.return_value.exists.return_value = False

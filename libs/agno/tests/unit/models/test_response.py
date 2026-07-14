@@ -11,7 +11,7 @@ from dataclasses import fields
 from time import sleep, time
 from unittest.mock import patch
 
-from agno.models.response import ModelResponse, ToolExecution
+from egpt.models.response import ModelResponse, ToolExecution
 
 
 class TestModelResponseCreatedAt:
@@ -49,7 +49,7 @@ class TestModelResponseCreatedAt:
 
     def test_factory_invoked_per_instance(self):
         """Patch ``time`` in the module and confirm each construction re-reads it."""
-        with patch("agno.models.response.time") as mock_time:
+        with patch("egpt.models.response.time") as mock_time:
             mock_time.side_effect = [1000.0, 2000.0, 3000.0]
             a = ModelResponse()
             b = ModelResponse()
@@ -78,7 +78,7 @@ class TestToolExecutionCreatedAt:
         assert second.created_at - first.created_at >= 1
 
     def test_factory_invoked_per_instance(self):
-        with patch("agno.models.response.time") as mock_time:
+        with patch("egpt.models.response.time") as mock_time:
             mock_time.side_effect = [5000.0, 6000.0]
             a = ToolExecution()
             b = ToolExecution()

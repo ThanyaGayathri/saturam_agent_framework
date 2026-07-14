@@ -5,9 +5,9 @@ Mem0 Integration
 Demonstrates using Mem0 as an external memory service for an Agno agent.
 """
 
-from agno.agent import Agent, RunOutput
-from agno.models.openai import OpenAIChat
-from agno.utils.pprint import pprint_run_response
+from egpt.agent import Agent, RunOutput
+from egpt.models.openai import OpenAIChat
+from egpt.utils.pprint import pprint_run_response
 
 try:
     from mem0 import MemoryClient

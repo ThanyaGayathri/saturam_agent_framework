@@ -5,12 +5,12 @@ Early Stop Basic
 Demonstrates early termination with `StepOutput(stop=True)` across direct steps, `Steps` containers, and agent/function workflows.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.websearch import WebSearchTools
-from agno.workflow import Step, Workflow
-from agno.workflow.steps import Steps
-from agno.workflow.types import StepInput, StepOutput
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow import Step, Workflow
+from egpt.workflow.steps import Steps
+from egpt.workflow.types import StepInput, StepOutput
 
 # ---------------------------------------------------------------------------
 # Create Agents (Security Deployment)

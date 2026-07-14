@@ -10,9 +10,9 @@ Prerequisites:
 AgentQL will open up a browser instance (don't close it) and do scraping on the site.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.agentql import AgentQLTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.agentql import AgentQLTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -5,9 +5,9 @@ Multi-User Multi-Session
 Demonstrates handling multiple users and sessions with SQLite-backed agent storage.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Setup

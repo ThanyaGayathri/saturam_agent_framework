@@ -4,10 +4,10 @@ import asyncio
 
 import pytest
 
-from agno.models.metrics import RunMetrics
-from agno.run.workflow import WorkflowCompletedEvent
-from agno.workflow import Condition, Parallel, Step, StepInput, StepOutput, Workflow
-from agno.workflow.types import WorkflowMetrics
+from egpt.models.metrics import RunMetrics
+from egpt.run.workflow import WorkflowCompletedEvent
+from egpt.workflow import Condition, Parallel, Step, StepInput, StepOutput, Workflow
+from egpt.workflow.types import WorkflowMetrics
 
 
 # Helper functions

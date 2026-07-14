@@ -17,11 +17,11 @@ The RRF algorithm fuses rankings from both search methods using:
 import asyncio
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.vectordb.chroma import ChromaDb, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.vectordb.chroma import ChromaDb, SearchType
 
 # ---------------------------------------------------------------------------
 # Create Knowledge Base
@@ -82,8 +82,8 @@ instructions = dedent(
 
         Example:
         ```python
-        from agno.agent import Agent
-        from agno.tools.websearch import WebSearchTools
+        from egpt.agent import Agent
+        from egpt.tools.websearch import WebSearchTools
 
         agent = Agent(tools=[WebSearchTools()])
 

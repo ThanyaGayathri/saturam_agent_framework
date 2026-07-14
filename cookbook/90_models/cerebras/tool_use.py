@@ -7,9 +7,9 @@ Cookbook example for `cerebras/tool_use.py`.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.cerebras import Cerebras
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.cerebras import Cerebras
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -17,11 +17,11 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.os import AgentOS
-from agno.os.config import AuthorizationConfig
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.os import AgentOS
+from egpt.os.config import AuthorizationConfig
+from egpt.workflow.workflow import Workflow
 from fastapi.testclient import TestClient
 
 JWT_SECRET = "test-secret-key-long-enough-for-hs256!!"

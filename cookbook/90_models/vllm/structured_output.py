@@ -7,8 +7,8 @@ Cookbook example for `vllm/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.vllm import VLLM
+from egpt.agent import Agent
+from egpt.models.vllm import VLLM
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

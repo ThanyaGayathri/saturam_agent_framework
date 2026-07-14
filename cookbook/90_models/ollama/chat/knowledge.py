@@ -1,10 +1,10 @@
 """Run `uv pip install ddgs sqlalchemy pgvector pypdf openai ollama` to install dependencies."""
 
-from agno.agent import Agent
-from agno.knowledge.embedder.ollama import OllamaEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.ollama import Ollama
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.embedder.ollama import OllamaEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.ollama import Ollama
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Agent

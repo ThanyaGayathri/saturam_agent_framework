@@ -18,12 +18,12 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 from dataclasses import dataclass
 from typing import Dict, List
 
-from agno.agent import Agent
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os.app import AgentOS
-from agno.os.interfaces.slack import Slack
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.slack import Slack
+from egpt.tools import tool
 
 # Stand-in billing data — replace with real Stripe / internal client
 

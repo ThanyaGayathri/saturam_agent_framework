@@ -5,9 +5,9 @@ Chat History
 Chat History.
 """
 
-from agno.agent.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
+from egpt.agent.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 

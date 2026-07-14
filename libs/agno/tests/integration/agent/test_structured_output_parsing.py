@@ -3,8 +3,8 @@ from typing import List
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.openai.chat import OpenAIChat  # noqa
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.openai.chat import OpenAIChat  # noqa
 
 
 def test_structured_output_parsing_with_quotes():

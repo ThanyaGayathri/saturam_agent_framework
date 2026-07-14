@@ -3,13 +3,13 @@ from typing import Any, Optional
 
 import pytest
 
-from agno.agent import _init, _messages, _response, _run, _session, _storage, _tools
-from agno.agent.agent import Agent
-from agno.db.base import SessionType
-from agno.run import RunContext
-from agno.run.agent import RunErrorEvent, RunOutput
-from agno.run.base import RunStatus
-from agno.run.cancel import (
+from egpt.agent import _init, _messages, _response, _run, _session, _storage, _tools
+from egpt.agent.agent import Agent
+from egpt.db.base import SessionType
+from egpt.run import RunContext
+from egpt.run.agent import RunErrorEvent, RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.cancel import (
     cancel_run,
     cleanup_run,
     get_active_runs,
@@ -18,9 +18,9 @@ from agno.run.cancel import (
     register_run,
     set_cancellation_manager,
 )
-from agno.run.cancellation_management.in_memory_cancellation_manager import InMemoryRunCancellationManager
-from agno.run.messages import RunMessages
-from agno.session import AgentSession
+from egpt.run.cancellation_management.in_memory_cancellation_manager import InMemoryRunCancellationManager
+from egpt.run.messages import RunMessages
+from egpt.session import AgentSession
 
 
 @pytest.fixture(autouse=True)
@@ -1043,8 +1043,8 @@ def test_continue_run_dispatch_syncs_requirements_with_updated_tools(monkeypatch
     requirement objects causes it to break prematurely after the first tool call,
     preventing subsequent model requests.  (Fixes #7497)
     """
-    from agno.models.response import ToolExecution
-    from agno.run.requirement import RunRequirement
+    from egpt.models.response import ToolExecution
+    from egpt.run.requirement import RunRequirement
 
     agent = Agent(name="test-agent")
     _patch_sync_dispatch_dependencies(agent, monkeypatch)

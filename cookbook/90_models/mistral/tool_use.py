@@ -3,9 +3,9 @@
 import asyncio
 import json
 
-from agno.agent import Agent
-from agno.models.mistral import MistralChat
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.models.mistral import MistralChat
+from egpt.tools import tool
 
 # ---------------------------------------------------------------------------
 # Define a tool

@@ -5,11 +5,11 @@ State In Condition
 Demonstrates using workflow session state in a `Condition` evaluator and executor functions.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.workflow.condition import Condition
-from agno.workflow.step import Step, StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.workflow.condition import Condition
+from egpt.workflow.step import Step, StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
-from agno.tools.zoom import ZoomTools
+from egpt.tools.zoom import ZoomTools
 
 
 @pytest.fixture

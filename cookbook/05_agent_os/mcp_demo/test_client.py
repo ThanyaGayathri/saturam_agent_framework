@@ -17,10 +17,10 @@ resolve pauses (continue_run), stop runs (cancel_run), and browse conversations
 import asyncio
 from uuid import uuid4
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.models.openai import OpenAIResponses
-from agno.tools.mcp import MCPTools
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Example

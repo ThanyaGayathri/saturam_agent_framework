@@ -9,10 +9,10 @@ to a member agent.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.skills import LocalSkills, Skills
-from agno.team.team import Team
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.skills import LocalSkills, Skills
+from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
 # Skills — loaded from the same sample directory used by basic_skills.py

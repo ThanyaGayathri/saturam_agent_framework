@@ -9,15 +9,15 @@ from datetime import datetime
 from pathlib import Path
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.anthropic.claude import Claude
-from agno.tools.exa import ExaTools
-from agno.tools.file import FileTools
-from agno.tools.websearch import WebSearchTools
-from agno.vectordb.pgvector.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.anthropic.claude import Claude
+from egpt.tools.exa import ExaTools
+from egpt.tools.file import FileTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.vectordb.pgvector.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Example

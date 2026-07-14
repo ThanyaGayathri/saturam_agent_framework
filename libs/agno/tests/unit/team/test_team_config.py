@@ -16,11 +16,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.db.base import BaseDb, ComponentType
-from agno.registry import Registry
-from agno.session import TeamSession
-from agno.team.team import Team, get_team_by_id, get_teams
+from egpt.agent.agent import Agent
+from egpt.db.base import BaseDb, ComponentType
+from egpt.registry import Registry
+from egpt.session import TeamSession
+from egpt.team.team import Team, get_team_by_id, get_teams
 
 # =============================================================================
 # Fixtures
@@ -95,7 +95,7 @@ def team_with_members(member_agent):
 @pytest.fixture
 def team_with_model():
     """Create a team with a real model."""
-    from agno.models.openai import OpenAIChat
+    from egpt.models.openai import OpenAIChat
 
     model = OpenAIChat(id="gpt-4o-mini")
     return Team(
@@ -272,7 +272,7 @@ class TestTeamToDict:
 
     def test_to_dict_with_mode(self):
         """Test to_dict includes mode and max_iterations."""
-        from agno.team.mode import TeamMode
+        from egpt.team.mode import TeamMode
 
         team = Team(id="task-team", members=[], mode=TeamMode.tasks, max_iterations=20)
         config = team.to_dict()
@@ -282,7 +282,7 @@ class TestTeamToDict:
 
     def test_to_dict_mode_default_not_serialized(self):
         """Test that default max_iterations is not serialized."""
-        from agno.team.mode import TeamMode
+        from egpt.team.mode import TeamMode
 
         team = Team(id="coord-team", members=[], mode=TeamMode.coordinate)
         config = team.to_dict()
@@ -311,7 +311,7 @@ class TestTeamFromDict:
 
     def test_from_dict_with_model(self):
         """Test from_dict reconstructs model from config."""
-        from agno.models.openai import OpenAIResponses
+        from egpt.models.openai import OpenAIResponses
 
         config = {
             "id": "model-team",
@@ -352,7 +352,7 @@ class TestTeamFromDict:
             "db": {"type": "postgres", "db_url": "postgresql://localhost/test"},
         }
 
-        with patch("agno.db.postgres.PostgresDb.from_dict") as mock_from_dict:
+        with patch("egpt.db.postgres.PostgresDb.from_dict") as mock_from_dict:
             mock_db = MagicMock()
             mock_from_dict.return_value = mock_db
 
@@ -368,7 +368,7 @@ class TestTeamFromDict:
             "db": {"type": "sqlite", "db_file": "/tmp/test.db"},
         }
 
-        with patch("agno.db.sqlite.SqliteDb.from_dict") as mock_from_dict:
+        with patch("egpt.db.sqlite.SqliteDb.from_dict") as mock_from_dict:
             mock_db = MagicMock()
             mock_from_dict.return_value = mock_db
 
@@ -412,8 +412,8 @@ class TestTeamFromDict:
             "members": [{"type": "agent", "agent_id": "agent-1"}],
         }
 
-        # get_agent_by_id is imported inside from_dict from agno.agent
-        with patch("agno.agent.get_agent_by_id") as mock_get_agent:
+        # get_agent_by_id is imported inside from_dict from egpt.agent
+        with patch("egpt.agent.get_agent_by_id") as mock_get_agent:
             mock_agent = MagicMock()
             mock_get_agent.return_value = mock_agent
 
@@ -436,7 +436,7 @@ class TestTeamFromDict:
 
     def test_from_dict_with_mode(self):
         """Test from_dict reconstructs mode and max_iterations."""
-        from agno.team.mode import TeamMode
+        from egpt.team.mode import TeamMode
 
         config = {
             "id": "task-team",
@@ -450,7 +450,7 @@ class TestTeamFromDict:
 
     def test_from_dict_mode_roundtrip(self):
         """Test to_dict -> from_dict roundtrip preserves mode."""
-        from agno.team.mode import TeamMode
+        from egpt.team.mode import TeamMode
 
         team = Team(id="rt-team", members=[], mode=TeamMode.route, max_iterations=15)
         config = team.to_dict()
@@ -465,7 +465,7 @@ class TestTeamFromDict:
         team = Team.from_dict(config)
 
         # Mode should be inferred as coordinate (default)
-        from agno.team.mode import TeamMode
+        from egpt.team.mode import TeamMode
 
         assert team.mode == TeamMode.coordinate
         assert team.max_iterations == 10

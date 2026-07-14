@@ -2,10 +2,10 @@ import os
 
 import pytest
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.website_reader import WebsiteReader
-from agno.vectordb.lancedb import LanceDb
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.website_reader import WebsiteReader
+from egpt.vectordb.lancedb import LanceDb
 
 
 @pytest.fixture

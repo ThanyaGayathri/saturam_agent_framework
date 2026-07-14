@@ -14,9 +14,9 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from agno.agents.antigravity import AntigravityAgent
-from agno.db.sqlite import SqliteDb
-from agno.run.agent import (
+from egpt.agents.antigravity import AntigravityAgent
+from egpt.db.sqlite import SqliteDb
+from egpt.run.agent import (
     RunCompletedEvent,
     RunContentEvent,
     RunStartedEvent,
@@ -67,7 +67,7 @@ def _patch_async_client(transport):
     """Patch httpx.AsyncClient to use the given MockTransport.
 
     Adapter constructs `httpx.AsyncClient(timeout=...)` directly; we patch
-    AsyncClient at the module level inside agno.agents.antigravity.agent.
+    AsyncClient at the module level inside egpt.agents.antigravity.agent.
     """
     original_init = httpx.AsyncClient.__init__
 

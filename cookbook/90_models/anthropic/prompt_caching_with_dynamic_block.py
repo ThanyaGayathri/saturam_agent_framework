@@ -18,8 +18,8 @@ Docs: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
 
 from datetime import datetime
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude, SystemPromptBlock
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude, SystemPromptBlock
 
 
 def build_request_blocks() -> list[SystemPromptBlock]:

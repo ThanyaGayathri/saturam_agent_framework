@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with AWS Bedrock."""
 
-from agno.agent import Agent
-from agno.models.aws import AwsBedrock
+from egpt.agent import Agent
+from egpt.models.aws import AwsBedrock
 
 # ---------------------------------------------------------------------------
 # Create Agent

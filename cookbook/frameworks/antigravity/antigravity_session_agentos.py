@@ -12,9 +12,9 @@ Usage:
     .venvs/demo/bin/python cookbook/frameworks/antigravity/antigravity_session_agentos.py
 """
 
-from agno.agents.antigravity import AntigravityAgent
-from agno.db.sqlite import SqliteDb
-from agno.os import AgentOS
+from egpt.agents.antigravity import AntigravityAgent
+from egpt.db.sqlite import SqliteDb
+from egpt.os import AgentOS
 
 db = SqliteDb(db_file="tmp/antigravity_agentos.db")
 

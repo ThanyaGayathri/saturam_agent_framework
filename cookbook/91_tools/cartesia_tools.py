@@ -4,9 +4,9 @@ Get an API key from https://play.cartesia.ai/keys
 Run `uv pip install cartesia` to install the dependencies.
 """
 
-from agno.agent import Agent
-from agno.tools.cartesia import CartesiaTools
-from agno.utils.audio import write_audio_to_file
+from egpt.agent import Agent
+from egpt.tools.cartesia import CartesiaTools
+from egpt.utils.audio import write_audio_to_file
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -5,9 +5,9 @@ Moonshot Tool Use
 Cookbook example for `moonshot/tool_use.py`.
 """
 
-from agno.agent import Agent
-from agno.models.moonshot import MoonShot
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.moonshot import MoonShot
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

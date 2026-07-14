@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.db.base import AsyncBaseDb, BaseDb
-from agno.db.schemas.service_accounts import ServiceAccount
-from agno.os.service_accounts import (
+from egpt.db.base import AsyncBaseDb, BaseDb
+from egpt.db.schemas.service_accounts import ServiceAccount
+from egpt.os.service_accounts import (
     DEFAULT_SERVICE_ACCOUNT_SCOPES,
     TOKEN_DISPLAY_PREFIX_LENGTH,
     TOKEN_PREFIX,

@@ -7,9 +7,9 @@ Cookbook example for `google/gemini/audio_input_file_upload.py`.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import Audio
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.media import Audio
+from egpt.models.google import Gemini
 from google.genai.types import UploadFileConfig
 
 # ---------------------------------------------------------------------------

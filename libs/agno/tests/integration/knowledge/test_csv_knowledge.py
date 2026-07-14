@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.csv_reader import CSVReader
-from agno.vectordb.chroma import ChromaDb
-from agno.vectordb.lancedb import LanceDb
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.csv_reader import CSVReader
+from egpt.vectordb.chroma import ChromaDb
+from egpt.vectordb.lancedb import LanceDb
 
 # Sample CSV data to use in tests
 EMPLOYEE_CSV_DATA = """id,name,department,salary,years_experience

@@ -9,8 +9,8 @@ outputs, so pass `use_json_mode=True` alongside `output_schema`.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.xiaomi import MiMo
+from egpt.agent import Agent
+from egpt.models.xiaomi import MiMo
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

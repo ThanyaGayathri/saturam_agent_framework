@@ -1,4 +1,4 @@
-"""Unit tests for OpenAITools (agno.tools.openai)."""
+"""Unit tests for OpenAITools (egpt.tools.openai)."""
 
 from unittest.mock import patch
 
@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("openai")
 
-from agno.tools.openai import OpenAITools  # noqa: E402
+from egpt.tools.openai import OpenAITools  # noqa: E402
 
 
 @pytest.fixture
@@ -40,7 +40,7 @@ def test_transcribe_audio_closes_file_after_success(audio_file):
         return "hello world"
 
     tools = _build_tools()
-    with patch("agno.tools.openai.OpenAIClient") as mock_client:
+    with patch("egpt.tools.openai.OpenAIClient") as mock_client:
         mock_client.return_value.audio.transcriptions.create.side_effect = fake_create
         result = tools.transcribe_audio(audio_file)
 
@@ -61,7 +61,7 @@ def test_transcribe_audio_closes_file_when_api_raises(audio_file):
         raise RuntimeError("api down")
 
     tools = _build_tools()
-    with patch("agno.tools.openai.OpenAIClient") as mock_client:
+    with patch("egpt.tools.openai.OpenAIClient") as mock_client:
         mock_client.return_value.audio.transcriptions.create.side_effect = boom
         result = tools.transcribe_audio(audio_file)
 
@@ -85,7 +85,7 @@ def test_transcribe_audio_does_not_leak_descriptors_in_a_loop(audio_file):
         return handle
 
     tools = _build_tools()
-    with patch("agno.tools.openai.OpenAIClient") as mock_client:
+    with patch("egpt.tools.openai.OpenAIClient") as mock_client:
         mock_client.return_value.audio.transcriptions.create.return_value = "ok"
         with patch("builtins.open", side_effect=tracking_open):
             for _ in range(5):

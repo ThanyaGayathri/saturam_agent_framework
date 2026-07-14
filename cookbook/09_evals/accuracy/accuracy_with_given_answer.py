@@ -7,8 +7,8 @@ Demonstrates accuracy evaluation for a provided answer string.
 
 from typing import Optional
 
-from agno.eval.accuracy import AccuracyEval, AccuracyResult
-from agno.models.openai import OpenAIChat
+from egpt.eval.accuracy import AccuracyEval, AccuracyResult
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Evaluation

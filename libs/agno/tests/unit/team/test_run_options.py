@@ -4,8 +4,8 @@ import dataclasses
 
 import pytest
 
-from agno.team._run_options import ResolvedRunOptions, resolve_run_options
-from agno.team.team import Team
+from egpt.team._run_options import ResolvedRunOptions, resolve_run_options
+from egpt.team.team import Team
 
 
 def _make_team(**kwargs) -> Team:
@@ -280,7 +280,7 @@ class TestKnowledgeFilterMerge:
         assert opts.knowledge_filters["run_key"] == "r"
 
     def test_list_merge(self):
-        from agno.filters import EQ
+        from egpt.filters import EQ
 
         team_filters = [EQ("a", "1")]
         run_filters = [EQ("b", "2")]
@@ -340,43 +340,43 @@ class TestTeamNotMutated:
 
 class TestRenamedFunctionsImportable:
     def test_run_dispatch_importable(self):
-        from agno.team._run import run_dispatch
+        from egpt.team._run import run_dispatch
 
         assert callable(run_dispatch)
 
     def test_run_importable(self):
-        from agno.team._run import _run
+        from egpt.team._run import _run
 
         assert callable(_run)
 
     def test_run_stream_importable(self):
-        from agno.team._run import _run_stream
+        from egpt.team._run import _run_stream
 
         assert callable(_run_stream)
 
     def test_arun_dispatch_importable(self):
-        from agno.team._run import arun_dispatch
+        from egpt.team._run import arun_dispatch
 
         assert callable(arun_dispatch)
 
     def test_arun_importable(self):
-        from agno.team._run import _arun
+        from egpt.team._run import _arun
 
         assert callable(_arun)
 
     def test_arun_stream_importable(self):
-        from agno.team._run import _arun_stream
+        from egpt.team._run import _arun_stream
 
         assert callable(_arun_stream)
 
     def test_asetup_session_importable(self):
-        from agno.team._run import _asetup_session
+        from egpt.team._run import _asetup_session
 
         assert callable(_asetup_session)
 
     def test_old_names_not_present(self):
         """Old _impl-suffixed names should not exist on the module."""
-        from agno.team import _run
+        from egpt.team import _run
 
         assert not hasattr(_run, "run_impl")
         assert not hasattr(_run, "run_stream_impl")
@@ -395,7 +395,7 @@ class TestRenamedFunctionsImportable:
 class TestTeamWrappersDelegateCorrectly:
     def test_team_run_delegates_to_run_dispatch(self, monkeypatch):
         """Verify Team.run() calls _run.run_dispatch under the hood."""
-        from agno.team import _run as run_module
+        from egpt.team import _run as run_module
 
         captured = {}
 
@@ -413,7 +413,7 @@ class TestTeamWrappersDelegateCorrectly:
 
     def test_team_arun_delegates_to_arun_dispatch(self, monkeypatch):
         """Verify Team.arun() calls _run.arun_dispatch under the hood."""
-        from agno.team import _run as run_module
+        from egpt.team import _run as run_module
 
         captured = {}
 
@@ -437,16 +437,16 @@ class TestTeamWrappersDelegateCorrectly:
 
 class TestParityWithAgent:
     def test_same_fields_as_agent_run_options(self):
-        from agno.agent._run_options import ResolvedRunOptions as AgentOpts
-        from agno.team._run_options import ResolvedRunOptions as TeamOpts
+        from egpt.agent._run_options import ResolvedRunOptions as AgentOpts
+        from egpt.team._run_options import ResolvedRunOptions as TeamOpts
 
         agent_fields = {f.name for f in dataclasses.fields(AgentOpts)}
         team_fields = {f.name for f in dataclasses.fields(TeamOpts)}
         assert agent_fields == team_fields
 
     def test_same_field_types_as_agent_run_options(self):
-        from agno.agent._run_options import ResolvedRunOptions as AgentOpts
-        from agno.team._run_options import ResolvedRunOptions as TeamOpts
+        from egpt.agent._run_options import ResolvedRunOptions as AgentOpts
+        from egpt.team._run_options import ResolvedRunOptions as TeamOpts
 
         agent_types = {f.name: f.type for f in dataclasses.fields(AgentOpts)}
         team_types = {f.name: f.type for f in dataclasses.fields(TeamOpts)}

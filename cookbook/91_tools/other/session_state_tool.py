@@ -1,10 +1,10 @@
 """Example demonstrating how to manipulate the session_state in a tool."""
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.run import RunContext
-from agno.tools import tool
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.run import RunContext
+from egpt.tools import tool
+from egpt.tools.websearch import WebSearchTools
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------

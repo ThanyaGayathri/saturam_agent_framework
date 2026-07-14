@@ -5,13 +5,13 @@ Workflow With File Input
 Demonstrates passing file inputs through workflow steps for reading and summarization.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.media import File
-from agno.models.anthropic import Claude
-from agno.models.openai import OpenAIChat
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.media import File
+from egpt.models.anthropic import Claude
+from egpt.models.openai import OpenAIChat
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Agents

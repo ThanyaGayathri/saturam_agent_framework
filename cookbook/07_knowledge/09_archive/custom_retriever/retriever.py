@@ -1,9 +1,9 @@
 from typing import Optional
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.qdrant import Qdrant
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.qdrant import Qdrant
 from qdrant_client import QdrantClient
 
 # ---------------------------------------------------------

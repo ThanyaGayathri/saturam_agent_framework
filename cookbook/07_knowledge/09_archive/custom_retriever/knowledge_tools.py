@@ -6,12 +6,12 @@ Here is a tool with reasoning capabilities to allow agents to search and analyze
 3. Run: `python cookbook/07_knowledge/knowledge_tools.py` to run the agent
 """
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.tools.knowledge import KnowledgeTools
-from agno.vectordb.lancedb import LanceDb, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.tools.knowledge import KnowledgeTools
+from egpt.vectordb.lancedb import LanceDb, SearchType
 
 # Create a knowledge containing information from a URL
 agno_docs = Knowledge(

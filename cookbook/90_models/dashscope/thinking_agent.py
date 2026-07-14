@@ -5,9 +5,9 @@ Dashscope Thinking Agent
 Cookbook example for `dashscope/thinking_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.dashscope import DashScope
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.dashscope import DashScope
 
 # ---------------------------------------------------------------------------
 # Create Agent

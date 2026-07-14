@@ -2,9 +2,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agno.db.base import AsyncBaseDb, BaseDb
-from agno.memory.manager import MemoryManager, UserMemory
-from agno.memory.strategies import (
+from egpt.db.base import AsyncBaseDb, BaseDb
+from egpt.memory.manager import MemoryManager, UserMemory
+from egpt.memory.strategies import (
     MemoryOptimizationStrategy,
     MemoryOptimizationStrategyType,
 )
@@ -28,7 +28,7 @@ def mock_async_db():
 def mock_model():
     model = MagicMock()
     # Patch get_model to return our mock model instead of validating it
-    with patch("agno.memory.manager.get_model", return_value=model):
+    with patch("egpt.memory.manager.get_model", return_value=model):
         yield model
 
 
@@ -61,7 +61,7 @@ def test_optimize_memories_success(mock_db, mock_model, mock_strategy, sample_me
 
     # Mock factory to return our mock strategy
     with patch(
-        "agno.memory.strategies.MemoryOptimizationStrategyFactory.create_strategy", return_value=mock_strategy
+        "egpt.memory.strategies.MemoryOptimizationStrategyFactory.create_strategy", return_value=mock_strategy
     ) as mock_factory:
         # Mock strategy optimize method
         mock_strategy.optimize.return_value = optimized_memories
@@ -90,7 +90,7 @@ def test_optimize_memories_apply_false(mock_db, mock_model, mock_strategy, sampl
     manager.get_user_memories = MagicMock(return_value=sample_memories)
     manager.clear_user_memories = MagicMock()
 
-    with patch("agno.memory.strategies.MemoryOptimizationStrategyFactory.create_strategy", return_value=mock_strategy):
+    with patch("egpt.memory.strategies.MemoryOptimizationStrategyFactory.create_strategy", return_value=mock_strategy):
         mock_strategy.optimize.return_value = optimized_memories
 
         result = manager.optimize_memories(user_id="user-1", apply=False)
@@ -147,7 +147,7 @@ async def test_aoptimize_memories_success(
     manager.aget_user_memories = AsyncMock(return_value=sample_memories)
     manager.aclear_user_memories = AsyncMock()
 
-    with patch("agno.memory.strategies.MemoryOptimizationStrategyFactory.create_strategy", return_value=mock_strategy):
+    with patch("egpt.memory.strategies.MemoryOptimizationStrategyFactory.create_strategy", return_value=mock_strategy):
         mock_strategy.aoptimize = AsyncMock(return_value=optimized_memories)
 
         result = await manager.aoptimize_memories(
@@ -170,7 +170,7 @@ async def test_aoptimize_memories_apply_false(
     manager.aget_user_memories = AsyncMock(return_value=sample_memories)
     manager.aclear_user_memories = AsyncMock()
 
-    with patch("agno.memory.strategies.MemoryOptimizationStrategyFactory.create_strategy", return_value=mock_strategy):
+    with patch("egpt.memory.strategies.MemoryOptimizationStrategyFactory.create_strategy", return_value=mock_strategy):
         mock_strategy.aoptimize = AsyncMock(return_value=optimized_memories)
 
         result = await manager.aoptimize_memories(user_id="user-1", apply=False)
@@ -205,7 +205,7 @@ async def test_aoptimize_memories_sync_db_compatibility(
 
     # Since we mocked db as BaseDb, manager treats it as sync
 
-    with patch("agno.memory.strategies.MemoryOptimizationStrategyFactory.create_strategy", return_value=mock_strategy):
+    with patch("egpt.memory.strategies.MemoryOptimizationStrategyFactory.create_strategy", return_value=mock_strategy):
         mock_strategy.aoptimize = AsyncMock(return_value=optimized_memories)
 
         # It should use the async strategy method, but sync DB methods

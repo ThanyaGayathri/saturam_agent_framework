@@ -1,6 +1,6 @@
 """Unit tests for PerformanceResult statistics"""
 
-from agno.eval.performance import PerformanceResult
+from egpt.eval.performance import PerformanceResult
 
 # ---------------------------------------------------------------------------
 # p95 percentile for small samples

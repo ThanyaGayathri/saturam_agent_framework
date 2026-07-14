@@ -5,10 +5,10 @@ Ollama Reasoning Tools
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.ollama.chat import Ollama
-from agno.tools.reasoning import ReasoningTools
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.ollama.chat import Ollama
+from egpt.tools.reasoning import ReasoningTools
+from egpt.tools.websearch import WebSearchTools
 
 
 # ---------------------------------------------------------------------------

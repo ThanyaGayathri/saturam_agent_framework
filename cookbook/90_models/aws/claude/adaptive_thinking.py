@@ -16,8 +16,8 @@ Prerequisites:
 - Ensure you have access to Claude 4.6 models in your AWS region
 """
 
-from agno.agent import Agent
-from agno.models.aws import Claude
+from egpt.agent import Agent
+from egpt.models.aws import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent with Adaptive Thinking

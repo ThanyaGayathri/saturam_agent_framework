@@ -5,8 +5,8 @@ Xai Basic
 Cookbook example for `xai/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.xai import xAI
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.xai import xAI
 import asyncio
 
 # ---------------------------------------------------------------------------

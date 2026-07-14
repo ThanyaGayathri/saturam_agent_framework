@@ -2,10 +2,10 @@
 Image analysis with memory example using CometAPI.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.media import Image
-from agno.models.cometapi import CometAPI
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.media import Image
+from egpt.models.cometapi import CometAPI
 
 # ---------------------------------------------------------------------------
 # Create Agent

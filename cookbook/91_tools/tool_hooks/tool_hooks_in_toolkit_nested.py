@@ -5,9 +5,9 @@ import json
 from inspect import iscoroutinefunction
 from typing import Any, Callable, Dict
 
-from agno.agent import Agent
-from agno.tools import Toolkit
-from agno.utils.log import logger
+from egpt.agent import Agent
+from egpt.tools import Toolkit
+from egpt.utils.log import logger
 
 # ---------------------------------------------------------------------------
 # Create Agent

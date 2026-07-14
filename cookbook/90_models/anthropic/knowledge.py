@@ -1,10 +1,10 @@
 """Run `uv pip install ddgs sqlalchemy pgvector pypdf anthropic openai` to install dependencies."""
 
-from agno.agent import Agent
-from agno.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.anthropic import Claude
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.anthropic import Claude
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Agent

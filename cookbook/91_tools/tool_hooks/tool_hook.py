@@ -2,10 +2,10 @@
 
 from typing import Any, Callable, Dict
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.websearch import WebSearchTools
-from agno.utils.log import logger
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.websearch import WebSearchTools
+from egpt.utils.log import logger
 
 # ---------------------------------------------------------------------------
 # Create Agent
@@ -44,9 +44,9 @@ if __name__ == "__main__":
     from inspect import iscoroutinefunction
     from typing import Any, Callable, Dict
 
-    from agno.agent import Agent
-    from agno.tools.websearch import WebSearchTools
-    from agno.utils.log import logger
+    from egpt.agent import Agent
+    from egpt.tools.websearch import WebSearchTools
+    from egpt.utils.log import logger
 
     async def logger_hook(
         function_name: str, function_call: Callable, arguments: Dict[str, Any]

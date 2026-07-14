@@ -6,10 +6,10 @@ AG-UI agent that accepts multimodal input (images, audio, video, documents).
 Uses Google Gemini to analyze attached files. Set GOOGLE_API_KEY env var.
 """
 
-from agno.agent.agent import Agent
-from agno.models.google import Gemini
-from agno.os import AgentOS
-from agno.os.interfaces.agui import AGUI
+from egpt.agent.agent import Agent
+from egpt.models.google import Gemini
+from egpt.os import AgentOS
+from egpt.os.interfaces.agui import AGUI
 
 # ---------------------------------------------------------------------------
 # Create Example

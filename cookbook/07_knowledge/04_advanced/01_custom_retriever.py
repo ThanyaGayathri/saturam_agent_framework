@@ -15,8 +15,8 @@ See also: ../01_getting_started/02_agentic_rag.py for standard Knowledge-based R
 
 from typing import Dict, List, Optional, Union
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Custom Retriever

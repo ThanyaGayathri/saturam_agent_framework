@@ -28,7 +28,7 @@ def make_signed_request(client: TestClient, body: dict, signing_secret: str = SI
 
 
 def build_app(agent_mock: Mock, **kwargs) -> FastAPI:
-    from agno.os.interfaces.slack.router import attach_routes
+    from egpt.os.interfaces.slack.router import attach_routes
 
     kwargs.setdefault("streaming", False)
     app = FastAPI()
@@ -168,7 +168,7 @@ def make_streaming_agent(chunks=None):
 
 
 def content_chunk(text):
-    from agno.agent import RunEvent
+    from egpt.agent import RunEvent
 
     return Mock(
         event=RunEvent.run_content.value, content=text, tool=None, images=None, videos=None, audio=None, files=None

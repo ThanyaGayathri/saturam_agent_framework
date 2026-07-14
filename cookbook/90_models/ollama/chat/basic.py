@@ -5,8 +5,8 @@ Ollama Basic
 Cookbook example for `ollama/chat/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.ollama import Ollama
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.ollama import Ollama
 import asyncio
 
 # ---------------------------------------------------------------------------

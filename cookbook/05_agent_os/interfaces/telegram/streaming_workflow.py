@@ -20,15 +20,15 @@ Setup:
   3. Run this file, then expose via ngrok and set the Telegram webhook.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os.app import AgentOS
-from agno.os.interfaces.telegram import Telegram
-from agno.tools.duckduckgo import DuckDuckGoTools
-from agno.workflow.step import Step
-from agno.workflow.steps import Steps
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.telegram import Telegram
+from egpt.tools.duckduckgo import DuckDuckGoTools
+from egpt.workflow.step import Step
+from egpt.workflow.steps import Steps
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Example

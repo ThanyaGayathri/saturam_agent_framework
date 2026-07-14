@@ -8,9 +8,9 @@ affects model input history while full run history remains in storage.
 
 import random
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
 
 
 def get_weather_for_city(city: str) -> str:

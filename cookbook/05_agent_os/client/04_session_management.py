@@ -10,7 +10,7 @@ Prerequisites:
 
 import asyncio
 
-from agno.client import AgentOSClient
+from egpt.client import AgentOSClient
 
 # ---------------------------------------------------------------------------
 # Create Example

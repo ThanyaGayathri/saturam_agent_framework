@@ -5,8 +5,8 @@ Lmstudio Basic
 Cookbook example for `lmstudio/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.lmstudio import LMStudio
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.lmstudio import LMStudio
 
 # ---------------------------------------------------------------------------
 # Create Agent

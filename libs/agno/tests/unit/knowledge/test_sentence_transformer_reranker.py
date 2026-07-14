@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.knowledge.document import Document
+from egpt.knowledge.document import Document
 
 
 class _FakeNdArray:
@@ -37,7 +37,7 @@ def mock_cross_encoder():
     mock_module = MagicMock(CrossEncoder=mock_cross_encoder_class)
 
     with patch.dict("sys.modules", {"sentence_transformers": mock_module}):
-        with patch("agno.knowledge.reranker.sentence_transformer.CrossEncoder", mock_cross_encoder_class):
+        with patch("egpt.knowledge.reranker.sentence_transformer.CrossEncoder", mock_cross_encoder_class):
             yield mock_cross_encoder_class
 
 
@@ -46,7 +46,7 @@ class TestSentenceTransformerRerankerCaching:
 
     def test_cross_encoder_created_once_across_multiple_rerank_calls(self, mock_cross_encoder, sample_documents):
         """The CrossEncoder should be instantiated only once, even after multiple rerank calls."""
-        from agno.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
+        from egpt.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
 
         mock_instance = MagicMock()
         mock_instance.predict.return_value = _FakeNdArray([0.9, 0.1, 0.7])
@@ -62,7 +62,7 @@ class TestSentenceTransformerRerankerCaching:
 
     def test_client_property_returns_same_instance(self, mock_cross_encoder):
         """The client property should return the same CrossEncoder instance each time."""
-        from agno.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
+        from egpt.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
 
         mock_instance = MagicMock()
         mock_cross_encoder.return_value = mock_instance
@@ -77,7 +77,7 @@ class TestSentenceTransformerRerankerCaching:
 
     def test_cross_encoder_initialized_with_correct_params(self, mock_cross_encoder):
         """The CrossEncoder should be initialized with the model name and kwargs."""
-        from agno.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
+        from egpt.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
 
         mock_cross_encoder.return_value = MagicMock()
 
@@ -96,7 +96,7 @@ class TestSentenceTransformerRerankerCaching:
 
     def test_client_uses_supplied_cross_encoder(self, mock_cross_encoder):
         """A caller-provided CrossEncoder should be reused instead of creating a new one."""
-        from agno.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
+        from egpt.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
 
         mock_instance = MagicMock()
 
@@ -111,7 +111,7 @@ class TestSentenceTransformerRerankerBehavior:
 
     def test_rerank_returns_documents_sorted_by_score(self, mock_cross_encoder, sample_documents):
         """Documents should be returned sorted by reranking score in descending order."""
-        from agno.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
+        from egpt.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
 
         mock_instance = MagicMock()
         mock_instance.predict.return_value = _FakeNdArray([0.5, 0.9, 0.1])
@@ -126,7 +126,7 @@ class TestSentenceTransformerRerankerBehavior:
 
     def test_rerank_empty_documents_returns_empty(self, mock_cross_encoder):
         """Reranking an empty list should return an empty list without creating the client."""
-        from agno.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
+        from egpt.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
 
         reranker = SentenceTransformerReranker()
         result = reranker.rerank(query="test", documents=[])
@@ -136,7 +136,7 @@ class TestSentenceTransformerRerankerBehavior:
 
     def test_rerank_with_top_n(self, mock_cross_encoder, sample_documents):
         """When top_n is set, only the top N documents should be returned."""
-        from agno.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
+        from egpt.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
 
         mock_instance = MagicMock()
         mock_instance.predict.return_value = _FakeNdArray([0.5, 0.9, 0.1])
@@ -151,7 +151,7 @@ class TestSentenceTransformerRerankerBehavior:
 
     def test_rerank_handles_prediction_error_gracefully(self, mock_cross_encoder, sample_documents):
         """If predict raises an error, rerank should return the original documents."""
-        from agno.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
+        from egpt.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
 
         mock_instance = MagicMock()
         mock_instance.predict.side_effect = RuntimeError("CUDA out of memory")
@@ -164,7 +164,7 @@ class TestSentenceTransformerRerankerBehavior:
 
     def test_different_reranker_instances_have_separate_clients(self, mock_cross_encoder):
         """Different reranker instances should each have their own CrossEncoder client."""
-        from agno.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
+        from egpt.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
 
         mock_cross_encoder.return_value = MagicMock()
 

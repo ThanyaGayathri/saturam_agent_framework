@@ -13,18 +13,18 @@ Usage:
     .venvs/demo/bin/python cookbook/04_workflows/08_human_in_the_loop/dual_level_hitl/05_output_review_and_tool_confirmation.py
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.run.workflow import (
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.run.workflow import (
     StepExecutorPausedEvent,
     StepPausedEvent,
     WorkflowCompletedEvent,
 )
-from agno.tools import tool
-from agno.workflow.step import Step
-from agno.workflow.types import OnReject, StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.tools import tool
+from egpt.workflow.step import Step
+from egpt.workflow.types import OnReject, StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 from rich.console import Console
 from rich.prompt import Prompt
 

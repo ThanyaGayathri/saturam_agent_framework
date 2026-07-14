@@ -5,8 +5,8 @@ Websearch Tools
 Demonstrates websearch tools.
 """
 
-from agno.agent import Agent
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

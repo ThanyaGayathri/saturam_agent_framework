@@ -14,9 +14,9 @@ This is critical for user experience - a missing DB should degrade
 gracefully, not explode.
 """
 
-from agno.agent import Agent
-from agno.learn import LearningMachine, LearningMode, UserProfileConfig
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.learn import LearningMachine, LearningMode, UserProfileConfig
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent - Intentionally NO database

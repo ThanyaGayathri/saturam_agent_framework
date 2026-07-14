@@ -12,18 +12,18 @@ each rendering as a card in the plan block.
 Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 """
 
-from agno.agent import Agent
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os.app import AgentOS
-from agno.os.interfaces.slack import Slack
-from agno.tools.arxiv import ArxivTools
-from agno.tools.calculator import CalculatorTools
-from agno.tools.duckduckgo import DuckDuckGoTools
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.newspaper4k import Newspaper4kTools
-from agno.tools.wikipedia import WikipediaTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.slack import Slack
+from egpt.tools.arxiv import ArxivTools
+from egpt.tools.calculator import CalculatorTools
+from egpt.tools.duckduckgo import DuckDuckGoTools
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.newspaper4k import Newspaper4kTools
+from egpt.tools.wikipedia import WikipediaTools
+from egpt.tools.yfinance import YFinanceTools
 
 agent_db = SqliteDb(
     session_table="deep_research_sessions", db_file="tmp/deep_research.db"

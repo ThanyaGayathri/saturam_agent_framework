@@ -12,8 +12,8 @@ Starting from 35, the loop should:
   - Iteration 2: 45 -> 55 (>= 50, end condition met)
 """
 
-from agno.workflow import Loop, Step, Workflow
-from agno.workflow.types import StepInput, StepOutput
+from egpt.workflow import Loop, Step, Workflow
+from egpt.workflow.types import StepInput, StepOutput
 
 
 def increment_executor(step_input: StepInput) -> StepOutput:

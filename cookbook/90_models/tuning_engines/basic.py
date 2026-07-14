@@ -2,8 +2,8 @@
 
 from os import getenv
 
-from agno.agent import Agent
-from agno.models.tuning_engines import TuningEngines
+from egpt.agent import Agent
+from egpt.models.tuning_engines import TuningEngines
 
 agent = Agent(
     model=TuningEngines(

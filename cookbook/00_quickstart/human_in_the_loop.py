@@ -27,17 +27,17 @@ Example prompts to try:
 import json
 from datetime import datetime, timezone
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.knowledge.embedder.google import GeminiEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.text_reader import TextReader
-from agno.models.google import Gemini
-from agno.tools import tool
-from agno.tools.yfinance import YFinanceTools
-from agno.utils import pprint
-from agno.vectordb.chroma import ChromaDb
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.knowledge.embedder.google import GeminiEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.text_reader import TextReader
+from egpt.models.google import Gemini
+from egpt.tools import tool
+from egpt.tools.yfinance import YFinanceTools
+from egpt.utils import pprint
+from egpt.vectordb.chroma import ChromaDb
+from egpt.vectordb.search import SearchType
 from rich.console import Console
 from rich.prompt import Prompt
 

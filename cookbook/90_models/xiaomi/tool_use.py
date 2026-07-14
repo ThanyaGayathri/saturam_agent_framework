@@ -9,9 +9,9 @@ folds the result into its answer.
 Run `uv pip install ddgs` to install dependencies.
 """
 
-from agno.agent import Agent
-from agno.models.xiaomi import MiMo
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.xiaomi import MiMo
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

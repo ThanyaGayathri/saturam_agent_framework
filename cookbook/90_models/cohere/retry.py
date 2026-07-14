@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Cohere."""
 
-from agno.agent import Agent
-from agno.models.cohere import CohereChat
+from egpt.agent import Agent
+from egpt.models.cohere import CohereChat
 
 # ---------------------------------------------------------------------------
 # Create Agent

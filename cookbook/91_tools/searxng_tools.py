@@ -5,8 +5,8 @@ Searxng Tools
 Demonstrates searxng tools.
 """
 
-from agno.agent import Agent
-from agno.tools.searxng import SearxngTools
+from egpt.agent import Agent
+from egpt.tools.searxng import SearxngTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

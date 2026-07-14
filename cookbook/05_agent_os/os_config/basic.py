@@ -5,20 +5,20 @@ Basic
 Demonstrates basic.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.os.config import (
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.os.config import (
     AgentOSConfig,
     DatabaseConfig,
     Manifest,
     MemoryConfig,
     MemoryDomainConfig,
 )
-from agno.team import Team
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.team import Team
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # Setup the database
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai", id="db-0001")

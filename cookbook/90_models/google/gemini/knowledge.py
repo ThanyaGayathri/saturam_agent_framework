@@ -1,10 +1,10 @@
 """Run `uv pip install ddgs sqlalchemy pgvector pypdf openai google.genai` to install dependencies."""
 
-from agno.agent import Agent
-from agno.knowledge.embedder.google import GeminiEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.google import Gemini
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.embedder.google import GeminiEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.google import Gemini
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Agent

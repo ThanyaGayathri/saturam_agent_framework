@@ -8,10 +8,10 @@ reference prior task results.
 Run: .venvs/demo/bin/python cookbook/03_teams/02_modes/tasks/10_multi_run_session.py
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team.mode import TeamMode
-from agno.team.team import Team
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team.mode import TeamMode
+from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Members

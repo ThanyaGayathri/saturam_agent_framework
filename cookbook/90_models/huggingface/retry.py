@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Hugging Face."""
 
-from agno.agent import Agent
-from agno.models.huggingface import HuggingFace
+from egpt.agent import Agent
+from egpt.models.huggingface import HuggingFace
 
 # ---------------------------------------------------------------------------
 # Create Agent

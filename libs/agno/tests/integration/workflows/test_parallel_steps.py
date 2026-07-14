@@ -7,18 +7,18 @@ from typing import List
 import pytest
 from pydantic import BaseModel
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.workflow import (
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.workflow import (
     StepCompletedEvent,
     StepStartedEvent,
     WorkflowCompletedEvent,
     WorkflowRunOutput,
 )
-from agno.workflow import Workflow
-from agno.workflow.parallel import Parallel
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
+from egpt.workflow import Workflow
+from egpt.workflow.parallel import Parallel
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
 
 
 def find_content_in_steps(step_output, search_text):
@@ -96,7 +96,7 @@ async def test_parallel_direct_aexecute():
 
 def test_parallel_direct_execute_stream():
     """Test Parallel.execute_stream() directly without workflow."""
-    from agno.run.workflow import ParallelExecutionCompletedEvent, ParallelExecutionStartedEvent, WorkflowRunOutput
+    from egpt.run.workflow import ParallelExecutionCompletedEvent, ParallelExecutionStartedEvent, WorkflowRunOutput
 
     parallel = Parallel(step_a, step_b, name="Direct Stream Parallel")
     step_input = StepInput(input="direct stream test")
@@ -198,7 +198,7 @@ def test_parallel_context_propagation():
 
 def test_parallel_context_propagation_streaming():
     """Test context propagation in streaming parallel execution."""
-    from agno.run.workflow import WorkflowRunOutput
+    from egpt.run.workflow import WorkflowRunOutput
 
     value = token_hex(16)
     token = _test_context_var.set(value)
@@ -653,7 +653,7 @@ async def test_parallel_name_first_async():
 
 def test_parallel_name_first_streaming():
     """Test streaming Parallel with name as first positional argument."""
-    from agno.run.workflow import WorkflowRunOutput
+    from egpt.run.workflow import WorkflowRunOutput
 
     parallel = Parallel("Streaming Named Parallel", step_a, step_b)
     step_input = StepInput(input="test")
@@ -758,7 +758,7 @@ def test_parallel_loops_with_heterogeneous_agent_schemas(shared_db):
     Three images processed in parallel, each through classifier → QA. Before the fix,
     agents inside sibling loops would corrupt each other's output_schema.
     """
-    from agno.workflow import Loop
+    from egpt.workflow import Loop
 
     image_ids = ["img_001", "img_002", "img_003"]
 

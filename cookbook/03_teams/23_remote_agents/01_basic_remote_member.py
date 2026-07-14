@@ -7,7 +7,7 @@ A RemoteAgent connects to an agent running on a remote AgentOS server,
 enabling distributed agent architectures.
 
 Requirements:
-    - A running AgentOS server (e.g., `python -m agno.os --agents my_agent.py`)
+    - A running AgentOS server (e.g., `python -m egpt.os --agents my_agent.py`)
     - The remote agent must be registered on the server
 
 Key Points:
@@ -18,10 +18,10 @@ Key Points:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.agent.remote import RemoteAgent
-from agno.models.openai import OpenAIResponses
-from agno.team.team import Team
+from egpt.agent import Agent
+from egpt.agent.remote import RemoteAgent
+from egpt.models.openai import OpenAIResponses
+from egpt.team.team import Team
 
 
 async def main():

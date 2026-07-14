@@ -7,14 +7,14 @@ Demonstrates distributed RAG with hybrid retrieval and Cohere reranking.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reranker.cohere import CohereReranker
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.utils.print_response.team import aprint_response, print_response
-from agno.vectordb.lancedb import LanceDb, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reranker.cohere import CohereReranker
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.utils.print_response.team import aprint_response, print_response
+from egpt.vectordb.lancedb import LanceDb, SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

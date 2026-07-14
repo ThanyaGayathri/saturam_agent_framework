@@ -5,8 +5,8 @@ Jinareader Tools
 Demonstrates jinareader tools.
 """
 
-from agno.agent import Agent
-from agno.tools.jina import JinaReaderTools
+from egpt.agent import Agent
+from egpt.tools.jina import JinaReaderTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

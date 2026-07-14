@@ -8,8 +8,8 @@ Setup:
    - GITLAB_BASE_URL: Optional GitLab URL (defaults to https://gitlab.com)
 """
 
-from agno.agent import Agent
-from agno.tools.gitlab import GitlabTools
+from egpt.agent import Agent
+from egpt.tools.gitlab import GitlabTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -14,11 +14,11 @@ When `on_route_conflict="preserve_agentos"` (default):
 - Warnings will be logged about the conflicts
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.anthropic import Claude
-from agno.os import AgentOS
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.anthropic import Claude
+from egpt.os import AgentOS
+from egpt.tools.websearch import WebSearchTools
 from fastapi import FastAPI
 
 # ---------------------------------------------------------------------------

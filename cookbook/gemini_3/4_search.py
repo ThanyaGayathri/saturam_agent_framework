@@ -14,8 +14,8 @@ Example prompts to try:
 - "What are the top trending tech stories right now?"
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Agent Instructions

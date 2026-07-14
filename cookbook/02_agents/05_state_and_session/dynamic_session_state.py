@@ -8,12 +8,12 @@ Dynamic Session State.
 import json
 from typing import Any, Dict
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.models.openai import OpenAIResponses
-from agno.run import RunContext
-from agno.tools.toolkit import Toolkit
-from agno.utils.log import log_info, log_warning
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunContext
+from egpt.tools.toolkit import Toolkit
+from egpt.utils.log import log_info, log_warning
 
 
 class CustomerDBTools(Toolkit):

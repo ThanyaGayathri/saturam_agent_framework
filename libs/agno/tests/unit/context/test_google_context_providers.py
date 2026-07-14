@@ -4,10 +4,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.context.calendar import GoogleCalendarContextProvider
-from agno.context.gmail import GmailContextProvider
-from agno.context.mode import ContextMode
-from agno.tools.google.auth import AuthConfig
+from egpt.context.calendar import GoogleCalendarContextProvider
+from egpt.context.gmail import GmailContextProvider
+from egpt.context.mode import ContextMode
+from egpt.tools.google.auth import AuthConfig
 
 DEFAULT_GOOGLE_API_TIMEOUT = 120.0
 

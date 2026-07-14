@@ -26,9 +26,9 @@ Docs: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
 
 from datetime import datetime
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude, SystemPromptBlock
-from agno.tools.duckduckgo import DuckDuckGoTools
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude, SystemPromptBlock
+from egpt.tools.duckduckgo import DuckDuckGoTools
 
 blocks = [
     # Static instructions, cached for 1 hour (2x cost but survives much longer)

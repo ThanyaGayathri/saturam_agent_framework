@@ -16,10 +16,10 @@ environment variables set.
 import sys
 from os import getenv
 
-from agno.agent import Agent
-from agno.models.azure import AzureOpenAI
-from agno.models.openai import OpenAIChat
-from agno.tools.models.azure_openai import AzureOpenAITools
+from egpt.agent import Agent
+from egpt.models.azure import AzureOpenAI
+from egpt.models.openai import OpenAIChat
+from egpt.tools.models.azure_openai import AzureOpenAITools
 
 # ---------------------------------------------------------------------------
 # Create Agent

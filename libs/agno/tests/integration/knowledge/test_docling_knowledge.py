@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.docling_reader import DoclingReader
-from agno.vectordb.chroma import ChromaDb
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.docling_reader import DoclingReader
+from egpt.vectordb.chroma import ChromaDb
 
 # Audio/video tests require openai-whisper (pip install openai-whisper) and system ffmpeg
 try:
@@ -190,7 +190,7 @@ async def test_docling_knowledge_base_async_with_metadata(setup_vector_db):
 
 def test_docling_knowledge_base_with_chunking(setup_vector_db):
     """Test that DoclingReader chunking works correctly with Knowledge."""
-    from agno.knowledge.chunking.document import DocumentChunking
+    from egpt.knowledge.chunking.document import DocumentChunking
 
     kb = Knowledge(vector_db=setup_vector_db)
 

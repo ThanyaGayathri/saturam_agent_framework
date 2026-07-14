@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with SambaNova."""
 
-from agno.agent import Agent
-from agno.models.sambanova import SambaNova
+from egpt.agent import Agent
+from egpt.models.sambanova import SambaNova
 
 # ---------------------------------------------------------------------------
 # Create Agent

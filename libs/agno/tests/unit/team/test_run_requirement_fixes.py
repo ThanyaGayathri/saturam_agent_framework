@@ -2,9 +2,9 @@
 
 import pytest
 
-from agno.models.response import ToolExecution
-from agno.run.requirement import RunRequirement
-from agno.tools.function import UserInputField
+from egpt.models.response import ToolExecution
+from egpt.run.requirement import RunRequirement
+from egpt.tools.function import UserInputField
 
 # ---------------------------------------------------------------------------
 # Helpers

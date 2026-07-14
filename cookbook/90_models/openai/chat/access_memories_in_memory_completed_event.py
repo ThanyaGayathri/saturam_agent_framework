@@ -6,10 +6,10 @@ Steps:
 3. Run: `python cookbook/11_models/openai/chat/access_memories_in_memory_completed_event.py`
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.run.agent import RunEvent
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import RunEvent
 
 # ---------------------------------------------------------------------------
 # Create Agent

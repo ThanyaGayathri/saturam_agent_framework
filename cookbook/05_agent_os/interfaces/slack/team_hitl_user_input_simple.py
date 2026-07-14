@@ -13,13 +13,13 @@ Try in Slack:
 Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os.app import AgentOS
-from agno.os.interfaces.slack import Slack
-from agno.team import Team
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.slack import Slack
+from egpt.team import Team
+from egpt.tools import tool
 
 db = SqliteDb(
     db_file="tmp/team_hitl_user_input_simple.db",

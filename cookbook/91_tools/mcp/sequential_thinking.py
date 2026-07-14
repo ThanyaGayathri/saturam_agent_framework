@@ -14,9 +14,9 @@ Prerequisites:
 import asyncio
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.tools.mcp import MCPTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.tools.mcp import MCPTools
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

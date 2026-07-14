@@ -10,12 +10,12 @@ Requirement:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.mistral import MistralEmbedder
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.mistral import MistralChat
-from agno.vectordb.cassandra import Cassandra
+from egpt.agent import Agent
+from egpt.knowledge.embedder.mistral import MistralEmbedder
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.mistral import MistralChat
+from egpt.vectordb.cassandra import Cassandra
 
 try:
     from cassandra.cluster import Cluster  # type: ignore

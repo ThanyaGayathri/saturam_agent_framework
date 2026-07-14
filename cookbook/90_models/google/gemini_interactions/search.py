@@ -7,8 +7,8 @@ Example using the built-in Google Search tool with the Interactions API.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
 
 # ---------------------------------------------------------------------------
 # Create Agent

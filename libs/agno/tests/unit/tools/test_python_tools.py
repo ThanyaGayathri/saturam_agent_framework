@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.tools.python import PythonTools
+from egpt.tools.python import PythonTools
 
 
 @pytest.fixture

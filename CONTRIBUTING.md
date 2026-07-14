@@ -75,12 +75,12 @@ Make sure all tests pass before submitting your pull request. If you add new fea
 ## Adding a new Vector Database
 
 1. Setup your local environment by following the [Development setup](#development-setup).
-2. Create a new directory under `libs/agno/agno/vectordb` for the new vector database.
+2. Create a new directory under `libs/agno/egpt/vectordb` for the new vector database.
 3. Create a Class for your VectorDb that implements the `VectorDb` interface
-   - Your Class will be in the `libs/agno/agno/vectordb/<your_db>/<your_db>.py` file.
-   - The `VectorDb` interface is defined in `libs/agno/agno/vectordb/base.py`
-   - Import your `VectorDb` Class in `libs/agno/agno/vectordb/<your_db>/__init__.py`.
-   - Checkout the [`libs/agno/agno/vectordb/pgvector/pgvector`](https://github.com/agno-agi/agno/blob/main/libs/agno/agno/vectordb/pgvector/pgvector.py) file for an example.
+   - Your Class will be in the `libs/agno/egpt/vectordb/<your_db>/<your_db>.py` file.
+   - The `VectorDb` interface is defined in `libs/agno/egpt/vectordb/base.py`
+   - Import your `VectorDb` Class in `libs/agno/egpt/vectordb/<your_db>/__init__.py`.
+   - Checkout the [`libs/agno/egpt/vectordb/pgvector/pgvector`](https://github.com/agno-agi/agno/blob/main/libs/agno/agno/vectordb/pgvector/pgvector.py) file for an example.
 4. Add a recipe for using your `VectorDb` under `cookbook/07_knowledge/vector_db/<your_db>`.
    - Checkout [`cookbook/07_knowledge/vector_db/pgvector/pgvector_db`](https://github.com/agno-agi/agno/blob/main/cookbook/07_knowledge/vector_db/pgvector/pgvector_db.py) for an example.
 5. Important: Format and validate your code by running `./scripts/format.sh` and `./scripts/validate.sh`.
@@ -89,16 +89,16 @@ Make sure all tests pass before submitting your pull request. If you add new fea
 ## Adding a new Model Provider
 
 1. Setup your local environment by following the [Development setup](#development-setup).
-2. Create a new directory under `libs/agno/agno/models` for the new Model provider.
+2. Create a new directory under `libs/agno/egpt/models` for the new Model provider.
 3. If the Model provider supports the OpenAI API spec:
-   - Create a Class for your LLM provider that inherits the `OpenAILike` Class from `libs/agno/agno/models/openai/like.py`.
-   - Your Class will be in the `libs/agno/agno/models/<your_model>/<your_model>.py` file.
-   - Import your Class in the `libs/agno/agno/models/<your_model>/__init__.py` file.
+   - Create a Class for your LLM provider that inherits the `OpenAILike` Class from `libs/agno/egpt/models/openai/like.py`.
+   - Your Class will be in the `libs/agno/egpt/models/<your_model>/<your_model>.py` file.
+   - Import your Class in the `libs/agno/egpt/models/<your_model>/__init__.py` file.
    - Checkout the [`agno/models/together/together.py`](https://github.com/agno-agi/agno/blob/main/libs/agno/agno/models/together/together.py) file for an example.
 4. If the Model provider does not support the OpenAI API spec:
    - Reach out to us on [Discord](https://discord.gg/4MtYHHrgA8) or open an issue to discuss the best way to integrate your LLM provider.
    - Checkout [`agno/models/anthropic/claude.py`](https://github.com/agno-agi/agno/blob/main/libs/agno/agno/models/anthropic/claude.py) or [`agno/models/cohere/chat.py`](https://github.com/agno-agi/agno/blob/main/libs/agno/agno/models/cohere/chat.py) for inspiration.
-5. Register your model provider in `libs/agno/agno/models/utils.py`:
+5. Register your model provider in `libs/agno/egpt/models/utils.py`:
    - Add exactly one row to the `_PROVIDERS` table, keyed by a stable provider key, with the value
      `(module, class_name, default_name, default_provider)`. `default_name` and `default_provider`
      are your class's default `name` and (lowercased) `provider` attributes. This single table is
@@ -127,9 +127,9 @@ Make sure all tests pass before submitting your pull request. If you add new fea
 ## Adding a new Tool.
 
 1. Setup your local environment by following the [Development setup](#development-setup).
-2. Create a new directory under `libs/agno/agno/tools` for the new Tool.
-3. Create a Class for your Tool that inherits the `Toolkit` Class from `libs/agno/agno/tools/toolkit/toolkit.py`.
-   - Your Class will be in `libs/agno/agno/tools/<your_tool>.py`.
+2. Create a new directory under `libs/agno/egpt/tools` for the new Tool.
+3. Create a Class for your Tool that inherits the `Toolkit` Class from `libs/agno/egpt/tools/toolkit/toolkit.py`.
+   - Your Class will be in `libs/agno/egpt/tools/<your_tool>.py`.
    - Make sure to register all functions in your class via a flag.
    - Checkout the [`agno/tools/youtube.py`](https://github.com/agno-agi/agno/blob/main/libs/agno/agno/tools/youtube.py) file for an example.
    - If your tool requires an API key, checkout the [`agno/tools/serpapi_tools.py`](https://github.com/agno-agi/agno/blob/main/libs/agno/agno/tools/serpapi_tools.py) as well.

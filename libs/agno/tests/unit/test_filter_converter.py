@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy import Column, MetaData, String, Table, create_engine, select
 from sqlalchemy.types import DateTime, Integer
 
-from agno.db.filter_converter import TRACE_COLUMNS, filter_expr_to_sqlalchemy
+from egpt.db.filter_converter import TRACE_COLUMNS, filter_expr_to_sqlalchemy
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with IBM WatsonX."""
 
-from agno.agent import Agent
-from agno.models.ibm import WatsonX
+from egpt.agent import Agent
+from egpt.models.ibm import WatsonX
 
 # ---------------------------------------------------------------------------
 # Create Agent

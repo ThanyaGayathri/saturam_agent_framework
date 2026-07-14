@@ -7,9 +7,9 @@ Demonstrates agent os.
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.os import AgentOS
-from agno.tools.mcp_toolbox import MCPToolbox
+from egpt.agent import Agent
+from egpt.os import AgentOS
+from egpt.tools.mcp_toolbox import MCPToolbox
 
 # ---------------------------------------------------------------------------
 # Create Agent

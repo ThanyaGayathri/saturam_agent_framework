@@ -7,8 +7,8 @@ Demonstrates python tools.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.tools.python import PythonTools
+from egpt.agent import Agent
+from egpt.tools.python import PythonTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

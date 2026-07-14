@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import BaseModel
 
-from agno.agent.factory import AgentFactory
-from agno.factory import (
+from egpt.agent.factory import AgentFactory
+from egpt.factory import (
     FactoryContextRequired,
     FactoryError,
     FactoryPermissionError,
@@ -15,8 +15,8 @@ from agno.factory import (
     RequestContext,
     TrustedContext,
 )
-from agno.team.factory import TeamFactory
-from agno.workflow.factory import WorkflowFactory
+from egpt.team.factory import TeamFactory
+from egpt.workflow.factory import WorkflowFactory
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -218,13 +218,13 @@ class TestRequestContext:
 
 class TestGetAgentByIdWithFactories:
     def test_factory_invoked_with_context(self):
-        from agno.os.utils import get_agent_by_id
+        from egpt.os.utils import get_agent_by_id
 
         mock_agent = MagicMock(spec_set=["id", "db", "knowledge", "tools", "team_id", "workflow_id"])
         mock_agent.id = "produced"
 
         # Need to make isinstance(result, Agent) pass — use a real-ish mock
-        from agno.agent.agent import Agent
+        from egpt.agent.agent import Agent
 
         def build(ctx):
             agent = MagicMock(spec=Agent)
@@ -239,14 +239,14 @@ class TestGetAgentByIdWithFactories:
         assert result.id == "my-factory"
 
     def test_factory_without_context_raises(self):
-        from agno.os.utils import get_agent_by_id
+        from egpt.os.utils import get_agent_by_id
 
         factory = AgentFactory(db=_mock_db, id="my-factory", factory=lambda ctx: None)
         with pytest.raises(FactoryContextRequired):
             get_agent_by_id("my-factory", agents=[factory])
 
     def test_factory_wrong_return_type_raises(self):
-        from agno.os.utils import get_agent_by_id
+        from egpt.os.utils import get_agent_by_id
 
         factory = AgentFactory(db=_mock_db, id="my-factory", factory=lambda ctx: "not-an-agent")
         ctx = _make_ctx()

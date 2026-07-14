@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from agno.db.postgres.postgres import PostgresDb
-from agno.db.schemas.knowledge import KnowledgeRow
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.db.schemas.knowledge import KnowledgeRow
 
 
 @pytest.fixture(autouse=True)

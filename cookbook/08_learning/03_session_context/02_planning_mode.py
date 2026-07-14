@@ -14,10 +14,10 @@ Compare with: 01_summary_mode.py for summary-only (faster).
 See also: 01_basics/3b_session_context_planning.py for the basics.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.learn import LearningMachine, SessionContextConfig
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.learn import LearningMachine, SessionContextConfig
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

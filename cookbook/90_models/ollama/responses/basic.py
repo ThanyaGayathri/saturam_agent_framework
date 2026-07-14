@@ -10,8 +10,8 @@ Requirements:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.ollama import OllamaResponses
+from egpt.agent import Agent
+from egpt.models.ollama import OllamaResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

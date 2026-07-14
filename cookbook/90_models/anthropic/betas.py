@@ -5,8 +5,8 @@ You can use them with the `betas` parameter of the Agno Claude model class.
 """
 
 import anthropic
-from agno.agent import Agent
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

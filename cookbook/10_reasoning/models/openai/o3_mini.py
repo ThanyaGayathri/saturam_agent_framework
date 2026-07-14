@@ -5,8 +5,8 @@ O3 Mini
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
 
 
 # ---------------------------------------------------------------------------

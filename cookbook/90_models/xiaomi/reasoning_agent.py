@@ -7,8 +7,8 @@ model emit `reasoning_content`, which `show_full_reasoning=True` streams alongsi
 the answer so you can watch it work through the problem.
 """
 
-from agno.agent import Agent
-from agno.models.xiaomi import MiMo
+from egpt.agent import Agent
+from egpt.models.xiaomi import MiMo
 
 # ---------------------------------------------------------------------------
 # Create Agent

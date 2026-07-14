@@ -8,9 +8,9 @@ Requirements:
     pip install cel-python
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.workflow import CEL_AVAILABLE, Condition, Step, Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.workflow import CEL_AVAILABLE, Condition, Step, Workflow
 
 # ---------------------------------------------------------------------------
 # Setup

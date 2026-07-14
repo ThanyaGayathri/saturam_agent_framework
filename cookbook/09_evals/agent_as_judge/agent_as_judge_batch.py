@@ -5,8 +5,8 @@ Batch Agent-as-Judge Evaluation
 Demonstrates evaluating multiple cases in one run.
 """
 
-from agno.db.sqlite import SqliteDb
-from agno.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.db.sqlite import SqliteDb
+from egpt.eval.agent_as_judge import AgentAsJudgeEval
 
 # ---------------------------------------------------------------------------
 # Create Database

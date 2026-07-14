@@ -8,10 +8,10 @@ Uses AsyncPostgresDb for non-blocking database access.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.postgres import AsyncPostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.db.postgres import AsyncPostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 
 db = AsyncPostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 

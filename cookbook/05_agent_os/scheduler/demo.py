@@ -9,11 +9,11 @@ Run with:
     .venvs/demo/bin/python cookbook/05_agent_os/scheduler/demo.py
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.scheduler import ScheduleManager
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.scheduler import ScheduleManager
 
 # --- Setup ---
 

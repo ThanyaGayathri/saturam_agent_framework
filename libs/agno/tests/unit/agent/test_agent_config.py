@@ -16,9 +16,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.agent.agent import Agent, get_agent_by_id, get_agents
-from agno.db.base import BaseDb, ComponentType
-from agno.registry import Registry
+from egpt.agent.agent import Agent, get_agent_by_id, get_agents
+from egpt.db.base import BaseDb, ComponentType
+from egpt.registry import Registry
 
 # =============================================================================
 # Fixtures
@@ -66,7 +66,7 @@ def basic_agent():
 def agent_with_model():
     """Create an agent with a real model for testing to_dict."""
     # Use a real model class with mocked internals for serialization testing
-    from agno.models.openai import OpenAIChat
+    from egpt.models.openai import OpenAIChat
 
     model = OpenAIChat(id="gpt-4o-mini")
     agent = Agent(
@@ -243,7 +243,7 @@ class TestAgentFromDict:
 
     def test_from_dict_with_model(self):
         """Test from_dict reconstructs model from config."""
-        from agno.models.openai import OpenAIResponses
+        from egpt.models.openai import OpenAIResponses
 
         config = {
             "id": "model-agent",
@@ -288,7 +288,7 @@ class TestAgentFromDict:
             "db": {"type": "postgres", "db_url": "postgresql://localhost/test"},
         }
 
-        with patch("agno.db.postgres.PostgresDb.from_dict") as mock_from_dict:
+        with patch("egpt.db.postgres.PostgresDb.from_dict") as mock_from_dict:
             mock_db = MagicMock()
             mock_from_dict.return_value = mock_db
 
@@ -304,7 +304,7 @@ class TestAgentFromDict:
             "db": {"type": "sqlite", "db_file": "/tmp/test.db"},
         }
 
-        with patch("agno.db.sqlite.SqliteDb.from_dict") as mock_from_dict:
+        with patch("egpt.db.sqlite.SqliteDb.from_dict") as mock_from_dict:
             mock_db = MagicMock()
             mock_from_dict.return_value = mock_db
 
@@ -379,7 +379,7 @@ class TestAgentKnowledgeRoundtrip:
     """Tests for knowledge being stored as a registry reference and resolved on load."""
 
     def _make_knowledge(self, name="Docs KB"):
-        from agno.knowledge.knowledge import Knowledge
+        from egpt.knowledge.knowledge import Knowledge
 
         # contents_db is required for the OS to treat it as a real instance,
         # but for serialization we only need a name. vector_db is mocked.

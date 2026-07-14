@@ -29,9 +29,9 @@ Run:
 
 from os import getenv
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.google.sheets import GoogleSheetsTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.google.sheets import GoogleSheetsTools
 
 agent = Agent(
     name="Action Tracker",

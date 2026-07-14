@@ -1,9 +1,9 @@
 from pathlib import Path
 
 import httpx
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.openai import OpenAIChat
 
 agent = Agent(
     model=OpenAIChat(id="gpt-4o"),

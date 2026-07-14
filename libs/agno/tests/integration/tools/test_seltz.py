@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("seltz")
 
-from agno.tools.seltz import SeltzTools
+from egpt.tools.seltz import SeltzTools
 
 pytestmark = pytest.mark.skipif(
     not os.environ.get("SELTZ_API_KEY"),

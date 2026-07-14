@@ -2,9 +2,9 @@ from typing import Optional
 
 import pytest
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.deepinfra import DeepInfra
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.deepinfra import DeepInfra
+from egpt.tools.yfinance import YFinanceTools
 
 
 def test_tool_use():

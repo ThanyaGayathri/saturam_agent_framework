@@ -7,10 +7,10 @@ Cookbook example for `anthropic/pdf_input_local.py`.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.anthropic import Claude
-from agno.utils.media import download_file
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.anthropic import Claude
+from egpt.utils.media import download_file
 
 # ---------------------------------------------------------------------------
 # Create Agent

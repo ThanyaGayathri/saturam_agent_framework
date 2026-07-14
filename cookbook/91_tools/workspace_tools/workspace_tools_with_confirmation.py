@@ -13,11 +13,11 @@ Run this in a terminal so you can answer y/n at the prompts.
 import tempfile
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.tools.workspace import Workspace
-from agno.utils import pprint
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.workspace import Workspace
+from egpt.utils import pprint
 from rich.console import Console
 from rich.prompt import Prompt
 

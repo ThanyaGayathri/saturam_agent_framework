@@ -7,8 +7,8 @@ Cookbook example for `ibm/watsonx/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.ibm import WatsonX
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.ibm import WatsonX
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

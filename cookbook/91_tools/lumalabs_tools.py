@@ -5,9 +5,9 @@ Lumalabs Tools
 Demonstrates lumalabs tools.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.lumalab import LumaLabTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.lumalab import LumaLabTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

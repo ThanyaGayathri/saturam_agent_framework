@@ -3,8 +3,8 @@ from typing import Dict, List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.azure import AzureAIFoundry
+from egpt.agent import Agent
+from egpt.models.azure import AzureAIFoundry
 
 
 class MovieScript(BaseModel):

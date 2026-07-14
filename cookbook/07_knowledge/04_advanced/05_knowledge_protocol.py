@@ -15,10 +15,10 @@ Optionally implement retrieve()/aretrieve() for the search_knowledge feature.
 
 from typing import Callable, List
 
-from agno.agent import Agent
-from agno.knowledge.document import Document
-from agno.knowledge.protocol import KnowledgeProtocol
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.knowledge.document import Document
+from egpt.knowledge.protocol import KnowledgeProtocol
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Custom Knowledge Implementation

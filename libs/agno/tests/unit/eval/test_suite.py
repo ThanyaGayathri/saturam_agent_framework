@@ -1,4 +1,4 @@
-"""Unit tests for the eval suite runner (agno.eval.suite)."""
+"""Unit tests for the eval suite runner (egpt.eval.suite)."""
 
 import asyncio
 import json
@@ -6,11 +6,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from agno.eval import suite
-from agno.eval.suite import Case, JudgeMode, SuiteResult, acli, arun_cases, cli, run_cases
-from agno.models.response import ToolExecution
-from agno.run.agent import RunErrorEvent, RunOutput, ToolCallCompletedEvent, ToolCallStartedEvent
-from agno.run.base import RunStatus
+from egpt.eval import suite
+from egpt.eval.suite import Case, JudgeMode, SuiteResult, acli, arun_cases, cli, run_cases
+from egpt.models.response import ToolExecution
+from egpt.run.agent import RunErrorEvent, RunOutput, ToolCallCompletedEvent, ToolCallStartedEvent
+from egpt.run.base import RunStatus
 
 
 def _output(**kwargs):
@@ -172,7 +172,7 @@ def test_case_with_either_check_constructs():
 def test_judge_mode_is_a_binary_numeric_enum():
     # JudgeMode is the public, importable type; it defaults to BINARY and is a str-enum whose values
     # are AgentAsJudgeEval's scoring_strategy vocabulary.
-    from agno.eval import JudgeMode as ExportedJudgeMode
+    from egpt.eval import JudgeMode as ExportedJudgeMode
 
     assert ExportedJudgeMode is JudgeMode
     assert (JudgeMode.BINARY, JudgeMode.NUMERIC) == ("binary", "numeric")
@@ -206,8 +206,8 @@ def test_numeric_threshold_out_of_range_is_rejected_at_construction():
 
 def test_exactly_one_of_agent_or_team_required():
     # A case takes exactly one of agent/team: neither leaves nothing to run, both is ambiguous.
-    from agno.agent import Agent
-    from agno.team.team import Team
+    from egpt.agent import Agent
+    from egpt.team.team import Team
 
     with pytest.raises(ValueError, match="provide one of 'agent' or 'team'"):
         Case(name="neither", input="q", criteria="c")
@@ -218,8 +218,8 @@ def test_exactly_one_of_agent_or_team_required():
 def test_agent_and_team_both_construct():
     # Agent and Team are both supported via their own fields; a Team routes reliability
     # through team_response=.
-    from agno.agent import Agent
-    from agno.team.team import Team
+    from egpt.agent import Agent
+    from egpt.team.team import Team
 
     Case(name="agent", agent=Agent(id="a"), input="q", criteria="c")
     Case(name="team", team=Team(members=[Agent(id="m")]), input="q", criteria="c")
@@ -373,7 +373,7 @@ def test_team_label_follows_every_error_route(monkeypatch):
     # The 'team:' label must follow team= on EVERY failure route (not just the cancelled one
     # the test above covers): a pre-stream raise, a mid-stream error event, a run that yields
     # nothing, and a non-completed final status. None may regress to 'agent:'.
-    from agno.run.team import RunErrorEvent as TeamRunErrorEvent
+    from egpt.run.team import RunErrorEvent as TeamRunErrorEvent
 
     _install_fake_evals(monkeypatch)
     routes = {
@@ -437,7 +437,7 @@ def test_non_completed_status_is_not_graded(monkeypatch):
 def test_team_run_error_event_is_recorded(monkeypatch):
     # Team runs yield a distinct RunErrorEvent class with no shared base -
     # the runner must match both so the team fast-follow keeps error capture.
-    from agno.run.team import RunErrorEvent as TeamRunErrorEvent
+    from egpt.run.team import RunErrorEvent as TeamRunErrorEvent
 
     _install_fake_evals(monkeypatch)
     agent = StubAgent(events=[TeamRunErrorEvent(content="team member failed")], emit_output=False)
@@ -451,7 +451,7 @@ def test_team_run_error_event_is_recorded(monkeypatch):
 def test_workflow_run_error_event_is_recorded(monkeypatch):
     # The workflow error event carries its message in .error (not .content) and
     # shares no base with the agent's - the workflow fast-follow must not lose it.
-    from agno.run.workflow import WorkflowErrorEvent
+    from egpt.run.workflow import WorkflowErrorEvent
 
     _install_fake_evals(monkeypatch)
     agent = StubAgent(events=[WorkflowErrorEvent(error="step failed")], emit_output=False)
@@ -821,7 +821,7 @@ def test_team_output_routes_reliability_to_team_response_and_flattens_tools(monk
     # A team's members' tool calls live in member_responses; ReliabilityEval merges them only
     # via team_response= (agent_response= sees just the leader's delegation). The runner routes
     # by the captured output type, and the evidence surfaces the member's real tool.
-    from agno.run.team import TeamRunOutput
+    from egpt.run.team import TeamRunOutput
 
     _, reliability_instances = _install_fake_evals(monkeypatch)
     member = _output(content="42", tools=[ToolExecution(tool_name="multiply")])
@@ -1193,7 +1193,7 @@ def test_cli_verbose_renders_response_post_hoc(monkeypatch):
     _install_fake_evals(monkeypatch)
     output = _output(content="verbose output")
     rendered = []
-    monkeypatch.setattr("agno.utils.pprint.pprint_run_response", lambda response, **kwargs: rendered.append(response))
+    monkeypatch.setattr("egpt.utils.pprint.pprint_run_response", lambda response, **kwargs: rendered.append(response))
 
     exit_code = cli([_make_case(agent=StubAgent(output=output))], argv=["-v"])
 

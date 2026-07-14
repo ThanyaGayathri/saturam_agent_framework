@@ -1,11 +1,11 @@
 from typing import Any
 from unittest.mock import MagicMock
 
-from agno.agent._tools import parse_tools
-from agno.agent.agent import Agent
-from agno.tools import tool
-from agno.tools.function import Function
-from agno.tools.toolkit import Toolkit
+from egpt.agent._tools import parse_tools
+from egpt.agent.agent import Agent
+from egpt.tools import tool
+from egpt.tools.function import Function
+from egpt.tools.toolkit import Toolkit
 
 
 def _mock_model():

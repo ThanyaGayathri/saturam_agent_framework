@@ -18,9 +18,9 @@ Setup:
 
 from typing import List, Optional
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.google.drive import GoogleDriveTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.google.drive import GoogleDriveTools
 from pydantic import BaseModel, Field
 
 

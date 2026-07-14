@@ -4,11 +4,11 @@ from datetime import datetime
 
 import pytest
 
-from agno.db.sqlite import SqliteDb
-from agno.memory import MemoryManager, UserMemory
-from agno.memory.strategies.types import MemoryOptimizationStrategyType
-from agno.models.message import Message
-from agno.models.openai import OpenAIChat
+from egpt.db.sqlite import SqliteDb
+from egpt.memory import MemoryManager, UserMemory
+from egpt.memory.strategies.types import MemoryOptimizationStrategyType
+from egpt.models.message import Message
+from egpt.models.openai import OpenAIChat
 
 
 @pytest.fixture

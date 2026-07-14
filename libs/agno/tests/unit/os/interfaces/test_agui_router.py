@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("ag_ui", reason="ag_ui not installed")
 
-from agno.os.interfaces.agui.router import run_entity
+from egpt.os.interfaces.agui.router import run_entity
 
 
 class FakeRunInput:

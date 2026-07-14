@@ -5,8 +5,8 @@ Llama Cpp Basic
 Cookbook example for `llama_cpp/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.llama_cpp import LlamaCpp
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.llama_cpp import LlamaCpp
 
 # ---------------------------------------------------------------------------
 # Create Agent

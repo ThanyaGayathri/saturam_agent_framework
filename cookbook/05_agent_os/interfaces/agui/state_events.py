@@ -6,10 +6,10 @@ Demonstrates AG-UI state synchronization with enable_agentic_state.
 The LLM uses the generic update_session_state tool to modify recipe state.
 """
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.os.interfaces.agui import AGUI
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.os.interfaces.agui import AGUI
 
 agent = Agent(
     name="RecipeAssistant",

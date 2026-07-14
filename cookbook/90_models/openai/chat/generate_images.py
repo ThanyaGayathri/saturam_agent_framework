@@ -5,9 +5,9 @@ Openai Generate Images
 Cookbook example for `openai/chat/generate_images.py`.
 """
 
-from agno.agent import Agent, RunOutput
-from agno.models.openai import OpenAIChat
-from agno.tools.dalle import DalleTools
+from egpt.agent import Agent, RunOutput
+from egpt.models.openai import OpenAIChat
+from egpt.tools.dalle import DalleTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -8,14 +8,14 @@ Demonstrates starting a workflow run in one thread and cancelling it from anothe
 import threading
 import time
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.agent import RunEvent
-from agno.run.base import RunStatus
-from agno.run.workflow import WorkflowRunEvent
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import RunEvent
+from egpt.run.base import RunStatus
+from egpt.run.workflow import WorkflowRunEvent
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 
 # ---------------------------------------------------------------------------

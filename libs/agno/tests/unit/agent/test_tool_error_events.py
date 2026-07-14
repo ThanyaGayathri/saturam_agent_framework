@@ -1,12 +1,12 @@
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.models.response import ModelResponse, ModelResponseEvent, ToolExecution
-from agno.run.agent import RunEvent, RunOutput, ToolCallErrorEvent
-from agno.run.messages import RunMessages
-from agno.run.team import TeamRunEvent, TeamRunOutput
-from agno.run.team import ToolCallErrorEvent as TeamToolCallErrorEvent
-from agno.session import TeamSession
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.models.response import ModelResponse, ModelResponseEvent, ToolExecution
+from egpt.run.agent import RunEvent, RunOutput, ToolCallErrorEvent
+from egpt.run.messages import RunMessages
+from egpt.run.team import TeamRunEvent, TeamRunOutput
+from egpt.run.team import ToolCallErrorEvent as TeamToolCallErrorEvent
+from egpt.session import TeamSession
+from egpt.team import Team
 
 
 def test_agent_yields_tool_call_error_event(mocker):
@@ -38,7 +38,7 @@ def test_agent_yields_tool_call_error_event(mocker):
     run_response = RunOutput(run_id="run_1", agent_id="agent_1", agent_name="Agent")
     run_messages = RunMessages()
 
-    from agno.agent._tools import run_tool
+    from egpt.agent._tools import run_tool
 
     events = list(
         run_tool(agent, run_response=run_response, run_messages=run_messages, tool=tool_execution, stream_events=True)

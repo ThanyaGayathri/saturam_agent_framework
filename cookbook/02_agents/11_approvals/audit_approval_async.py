@@ -8,11 +8,11 @@ Async audit approval: @approval(type="audit") + @tool(requires_confirmation=True
 import asyncio
 import os
 
-from agno.agent import Agent
-from agno.approval import approval
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.approval import approval
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.tools import tool
 
 DB_FILE = "tmp/approvals_test.db"
 

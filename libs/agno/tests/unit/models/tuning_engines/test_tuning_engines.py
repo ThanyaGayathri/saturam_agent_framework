@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.exceptions import ModelAuthenticationError
-from agno.models.tuning_engines import TuningEngines
+from egpt.exceptions import ModelAuthenticationError
+from egpt.models.tuning_engines import TuningEngines
 
 
 def test_tuning_engines_initialization_with_api_key():

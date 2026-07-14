@@ -7,11 +7,11 @@ Both run in order: the logging hook fires, then the PII guardrail checks
 for sensitive data. If PII is detected the run is rejected with RunStatus.error.
 """
 
-from agno.agent import Agent
-from agno.guardrails import PIIDetectionGuardrail
-from agno.models.openai import OpenAIResponses
-from agno.run import RunStatus
-from agno.run.agent import RunInput
+from egpt.agent import Agent
+from egpt.guardrails import PIIDetectionGuardrail
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunStatus
+from egpt.run.agent import RunInput
 
 
 # ---------------------------------------------------------------------------

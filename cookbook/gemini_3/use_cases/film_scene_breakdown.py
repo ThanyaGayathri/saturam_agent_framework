@@ -10,10 +10,10 @@ Run:
 """
 
 import httpx
-from agno.agent import Agent
-from agno.media import File, Video
-from agno.models.google import Gemini
-from agno.team.team import Team
+from egpt.agent import Agent
+from egpt.media import File, Video
+from egpt.models.google import Gemini
+from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
 # Video Analyst: watches and describes the clip

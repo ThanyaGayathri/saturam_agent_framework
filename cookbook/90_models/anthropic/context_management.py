@@ -11,9 +11,9 @@ You can read more in Anthropic docs: https://docs.claude.com/en/docs/build-with-
 3. Run the cookbook
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

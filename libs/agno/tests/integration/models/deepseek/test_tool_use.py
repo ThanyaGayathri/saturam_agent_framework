@@ -2,10 +2,10 @@ from typing import Optional
 
 import pytest
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.deepseek import DeepSeek
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.deepseek import DeepSeek
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 
 def test_tool_use():

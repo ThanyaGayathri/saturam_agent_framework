@@ -8,12 +8,12 @@ Human-in-the-Loop: Adding User Confirmation to Tool Calls.
 import json
 
 import httpx
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.tools import tool
-from agno.tools.wikipedia import WikipediaTools
-from agno.utils import pprint
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.tools import tool
+from egpt.tools.wikipedia import WikipediaTools
+from egpt.utils import pprint
 from rich.console import Console
 from rich.prompt import Prompt
 

@@ -1,9 +1,9 @@
 import json
 
-from agno.media import Image
-from agno.models.message import Message
-from agno.run.agent import RunInput
-from agno.run.team import TeamRunInput
+from egpt.media import Image
+from egpt.models.message import Message
+from egpt.run.agent import RunInput
+from egpt.run.team import TeamRunInput
 
 
 def test_media_in_dict_input():

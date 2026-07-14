@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Perplexity."""
 
-from agno.agent import Agent
-from agno.models.perplexity import Perplexity
+from egpt.agent import Agent
+from egpt.models.perplexity import Perplexity
 
 # ---------------------------------------------------------------------------
 # Create Agent

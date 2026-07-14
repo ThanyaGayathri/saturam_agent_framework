@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel
 
-from agno.utils.json_schema import (
+from egpt.utils.json_schema import (
     get_json_schema,
     get_json_schema_for_arg,
     get_json_type_for_py_type,

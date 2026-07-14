@@ -4,7 +4,7 @@ from typing import List
 
 import pytest
 
-from agno.run.workflow import (
+from egpt.run.workflow import (
     ConditionExecutionCompletedEvent,
     ConditionExecutionStartedEvent,
     LoopExecutionCompletedEvent,
@@ -23,8 +23,8 @@ from agno.run.workflow import (
     WorkflowCompletedEvent,
     WorkflowStartedEvent,
 )
-from agno.workflow import Condition, Loop, Parallel, Router, Step, Steps, Workflow
-from agno.workflow.types import StepInput, StepOutput
+from egpt.workflow import Condition, Loop, Parallel, Router, Step, Steps, Workflow
+from egpt.workflow.types import StepInput, StepOutput
 
 
 # Helper functions for testing

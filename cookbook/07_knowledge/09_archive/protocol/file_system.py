@@ -12,13 +12,13 @@ three tools to the agent:
 Run: `python cookbook/07_knowledge/protocol/file_system.py`
 """
 
-from agno.agent import Agent
-from agno.knowledge.filesystem import FileSystemKnowledge
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.knowledge.filesystem import FileSystemKnowledge
+from egpt.models.openai import OpenAIChat
 
 # Create a filesystem knowledge base pointing to the agno library source
 fs_knowledge = FileSystemKnowledge(
-    base_dir="libs/agno/agno",
+    base_dir="libs/agno/egpt",
     include_patterns=["*.py"],
     exclude_patterns=[".git", "__pycache__", ".venv"],
 )

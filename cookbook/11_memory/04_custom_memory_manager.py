@@ -6,10 +6,10 @@ This example shows how to configure a MemoryManager separately from the Agent
 and apply custom memory capture instructions.
 """
 
-from agno.agent.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.memory import MemoryManager
-from agno.models.openai import OpenAIChat
+from egpt.agent.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.memory import MemoryManager
+from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

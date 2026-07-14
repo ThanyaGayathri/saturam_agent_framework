@@ -8,9 +8,9 @@ Demonstrates this reasoning cookbook example.
 import asyncio
 import os
 
-from agno.agent import Agent
-from agno.models.azure import AzureAIFoundry
-from agno.run.agent import RunEvent  # noqa
+from egpt.agent import Agent
+from egpt.models.azure import AzureAIFoundry
+from egpt.run.agent import RunEvent  # noqa
 
 
 # ---------------------------------------------------------------------------

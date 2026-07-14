@@ -2,7 +2,7 @@
 
 import pytest
 
-from agno.db.schemas.memory import UserMemory
+from egpt.db.schemas.memory import UserMemory
 
 
 @pytest.mark.asyncio

@@ -17,16 +17,16 @@ Prerequisites:
 - If authorization is enabled on remote servers and all endpoints are protected, not all of the functions work correctly on the gateway. Specifically /config, /workflows, /workflows/{workflow_id}, /agents, /teams, /agent/{agent_id}, /team/{team_id} need to be unprotected for the gateway to work correctly.
 """
 
-from agno.agent import Agent, RemoteAgent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team import RemoteTeam
-from agno.workflow import RemoteWorkflow, Workflow
-from agno.workflow.agent import WorkflowAgent
-from agno.workflow.condition import Condition
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput
+from egpt.agent import Agent, RemoteAgent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team import RemoteTeam
+from egpt.workflow import RemoteWorkflow, Workflow
+from egpt.workflow.agent import WorkflowAgent
+from egpt.workflow.condition import Condition
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput
 
 # ---------------------------------------------------------------------------
 # Create Example

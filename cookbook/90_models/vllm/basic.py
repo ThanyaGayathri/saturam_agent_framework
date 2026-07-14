@@ -7,8 +7,8 @@ Cookbook example for `vllm/basic.py`.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.vllm import VLLM
+from egpt.agent import Agent
+from egpt.models.vllm import VLLM
 
 # ---------------------------------------------------------------------------
 # Create Agent

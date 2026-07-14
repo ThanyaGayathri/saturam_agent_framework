@@ -3,10 +3,10 @@ from typing import Optional
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.run.base import RunStatus
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run.base import RunStatus
 
 
 @pytest.fixture(scope="module")
@@ -261,7 +261,7 @@ async def test_async_client_persistence(openai_responses_model):
 
 
 def test_count_tokens(openai_responses_model):
-    from agno.models.message import Message
+    from egpt.models.message import Message
 
     messages = [
         Message(role="user", content="Hello world, this is a test message for token counting"),
@@ -275,8 +275,8 @@ def test_count_tokens(openai_responses_model):
 
 
 def test_count_tokens_with_tools(openai_responses_model):
-    from agno.models.message import Message
-    from agno.tools.calculator import CalculatorTools
+    from egpt.models.message import Message
+    from egpt.tools.calculator import CalculatorTools
 
     messages = [
         Message(role="user", content="What is 2 + 2?"),
@@ -294,7 +294,7 @@ def test_count_tokens_with_tools(openai_responses_model):
 @pytest.mark.asyncio
 async def test_acount_tokens(openai_responses_model):
     """Test async token counting uses the async client."""
-    from agno.models.message import Message
+    from egpt.models.message import Message
 
     messages = [
         Message(role="user", content="Hello world, this is a test message for token counting"),
@@ -311,8 +311,8 @@ async def test_acount_tokens(openai_responses_model):
 @pytest.mark.asyncio
 async def test_acount_tokens_with_tools(openai_responses_model):
     """Test async token counting with tools uses the async client."""
-    from agno.models.message import Message
-    from agno.tools.calculator import CalculatorTools
+    from egpt.models.message import Message
+    from egpt.tools.calculator import CalculatorTools
 
     messages = [
         Message(role="user", content="What is 2 + 2?"),
@@ -331,8 +331,8 @@ async def test_acount_tokens_with_tools(openai_responses_model):
 
 def test_format_tool_params_with_function_objects(openai_responses_model):
     """Test that _format_tool_params correctly handles Function objects."""
-    from agno.models.message import Message
-    from agno.tools.function import Function
+    from egpt.models.message import Message
+    from egpt.tools.function import Function
 
     messages = [Message(role="user", content="Test")]
 
@@ -360,8 +360,8 @@ def test_format_tool_params_with_function_objects(openai_responses_model):
 
 def test_format_tool_params_handles_list_types_in_function(openai_responses_model):
     """Test that _format_tool_params converts list types to single types in Function objects."""
-    from agno.models.message import Message
-    from agno.tools.function import Function
+    from egpt.models.message import Message
+    from egpt.tools.function import Function
 
     messages = [Message(role="user", content="Test")]
 

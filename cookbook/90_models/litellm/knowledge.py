@@ -5,10 +5,10 @@ Litellm Knowledge
 Cookbook example for `litellm/knowledge.py`.
 """
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.litellm import LiteLLM
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.litellm import LiteLLM
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Agent

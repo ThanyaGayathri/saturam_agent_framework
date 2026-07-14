@@ -5,8 +5,8 @@ from typing import AsyncIterator, Iterator
 
 import pytest
 
-from agno.run.workflow import StepOutputEvent, WorkflowCompletedEvent, WorkflowRunOutput
-from agno.workflow import StepInput, StepOutput, Workflow
+from egpt.run.workflow import StepOutputEvent, WorkflowCompletedEvent, WorkflowRunOutput
+from egpt.workflow import StepInput, StepOutput, Workflow
 
 
 def test_basic_sequence(shared_db):

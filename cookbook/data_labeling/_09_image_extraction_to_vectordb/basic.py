@@ -15,11 +15,11 @@ Writes to tmp/lancedb/ under the repo root.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.knowledge.document import Document
-from agno.knowledge.embedder.google import GeminiEmbedder
-from agno.media import Image
-from agno.vectordb.lancedb import LanceDb, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.document import Document
+from egpt.knowledge.embedder.google import GeminiEmbedder
+from egpt.media import Image
+from egpt.vectordb.lancedb import LanceDb, SearchType
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

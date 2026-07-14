@@ -8,11 +8,11 @@ Example demonstrating how to use OpenAI moderation guardrails with Agno Agent.
 import asyncio
 import json
 
-from agno.agent import Agent
-from agno.exceptions import InputCheckError
-from agno.guardrails import OpenAIModerationGuardrail
-from agno.media import Image
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.exceptions import InputCheckError
+from egpt.guardrails import OpenAIModerationGuardrail
+from egpt.media import Image
+from egpt.models.openai import OpenAIResponses
 
 
 # ---------------------------------------------------------------------------

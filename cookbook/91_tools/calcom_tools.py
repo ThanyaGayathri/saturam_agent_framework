@@ -7,9 +7,9 @@ Demonstrates calcom tools.
 
 from datetime import datetime
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.calcom import CalComTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.calcom import CalComTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

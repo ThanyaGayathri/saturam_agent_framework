@@ -2,9 +2,9 @@
 
 from unittest.mock import patch
 
-from agno.eval.reliability import ReliabilityEval
-from agno.models.message import Message
-from agno.run.agent import RunOutput
+from egpt.eval.reliability import ReliabilityEval
+from egpt.models.message import Message
+from egpt.run.agent import RunOutput
 
 
 def _make_tool_call(name: str, arguments: str = "{}") -> dict:
@@ -20,7 +20,7 @@ def _make_response(*tool_calls: dict) -> RunOutput:
 
 def _run_eval(**kwargs) -> "ReliabilityEval":
     """Helper to run a ReliabilityEval with telemetry mocked out."""
-    with patch("agno.api.evals.create_eval_run_telemetry"):
+    with patch("egpt.api.evals.create_eval_run_telemetry"):
         result = ReliabilityEval(**kwargs).run(print_results=False)
     return result
 

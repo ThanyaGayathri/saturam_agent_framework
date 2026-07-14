@@ -19,7 +19,7 @@ Prerequisites:
 
 import asyncio
 
-from agno.client.a2a import A2AClient
+from egpt.client.a2a import A2AClient
 
 # ---------------------------------------------------------------------------
 # Create Example

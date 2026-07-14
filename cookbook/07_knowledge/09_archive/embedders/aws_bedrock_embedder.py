@@ -10,11 +10,11 @@ Requirements:
 - boto3 installed: pip install boto3
 """
 
-from agno.knowledge.chunking.fixed import FixedSizeChunking
-from agno.knowledge.embedder.aws_bedrock import AwsBedrockEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.pdf_reader import PDFReader
-from agno.vectordb.pgvector import PgVector
+from egpt.knowledge.chunking.fixed import FixedSizeChunking
+from egpt.knowledge.embedder.aws_bedrock import AwsBedrockEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.pdf_reader import PDFReader
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Setup

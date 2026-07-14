@@ -5,15 +5,15 @@ Team With Agentic Knowledge Filters
 Demonstrates AI-driven dynamic knowledge filtering for team retrieval.
 """
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.utils.media import (
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.utils.media import (
     SampleDataFileExtension,
     download_knowledge_filters_sample_data,
 )
-from agno.vectordb.lancedb import LanceDb
+from egpt.vectordb.lancedb import LanceDb
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -5,8 +5,8 @@ Reasoning With Model
 Use a separate reasoning model with configurable step limits.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

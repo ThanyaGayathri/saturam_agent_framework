@@ -16,7 +16,7 @@ import importlib
 
 import pytest
 
-from agno.models.message import Message
+from egpt.models.message import Message
 
 _has_boto3 = importlib.util.find_spec("boto3") is not None
 _skip_boto3 = pytest.mark.skipif(not _has_boto3, reason="boto3 not installed")
@@ -64,7 +64,7 @@ class TestAnthropicFormatMessages:
     """Tests for the shared Anthropic format_messages utility."""
 
     def _format(self, messages, append=False, content="continue"):
-        from agno.utils.models.claude import format_messages
+        from egpt.utils.models.claude import format_messages
 
         formatted, _ = format_messages(
             messages,
@@ -123,7 +123,7 @@ class TestBedrockFormatMessages:
     """Tests for AwsBedrock._format_messages trailing message."""
 
     def _format(self, messages, append=False, content="continue"):
-        from agno.models.aws.bedrock import AwsBedrock
+        from egpt.models.aws.bedrock import AwsBedrock
 
         model = AwsBedrock(
             id="us.anthropic.claude-sonnet-4-6",
@@ -164,7 +164,7 @@ class TestLiteLLMFormatMessages:
     """Tests for LiteLLM._format_messages trailing message."""
 
     def _format(self, messages, append=False, content="continue"):
-        from agno.models.litellm.chat import LiteLLM
+        from egpt.models.litellm.chat import LiteLLM
 
         model = LiteLLM(
             id="anthropic/claude-sonnet-4-6",
@@ -202,7 +202,7 @@ class TestSupportsPrefillHelper:
     """Tests for the shared supports_prefill() helper."""
 
     def test_anthropic_direct_prefill_supported(self):
-        from agno.utils.models.claude import supports_prefill
+        from egpt.utils.models.claude import supports_prefill
 
         assert supports_prefill("claude-sonnet-4-5-20250929") is True
         assert supports_prefill("claude-sonnet-4-0") is True
@@ -210,40 +210,40 @@ class TestSupportsPrefillHelper:
         assert supports_prefill("claude-3-5-sonnet-20241022") is True
 
     def test_anthropic_direct_prefill_not_supported(self):
-        from agno.utils.models.claude import supports_prefill
+        from egpt.utils.models.claude import supports_prefill
 
         assert supports_prefill("claude-sonnet-4-6") is False
         assert supports_prefill("claude-opus-4-6") is False
         assert supports_prefill("claude-sonnet-5-0") is False
 
     def test_aliases_supported(self):
-        from agno.utils.models.claude import supports_prefill
+        from egpt.utils.models.claude import supports_prefill
 
         assert supports_prefill("claude-sonnet-4") is True
         assert supports_prefill("claude-opus-4") is True
         assert supports_prefill("claude-haiku-4") is True
 
     def test_bedrock_ids(self):
-        from agno.utils.models.claude import supports_prefill
+        from egpt.utils.models.claude import supports_prefill
 
         assert supports_prefill("us.anthropic.claude-sonnet-4-5-20250929-v1:0") is True
         assert supports_prefill("us.anthropic.claude-sonnet-4-6") is False
         assert supports_prefill("global.anthropic.claude-sonnet-4-6-v1:0") is False
 
     def test_vertex_ids(self):
-        from agno.utils.models.claude import supports_prefill
+        from egpt.utils.models.claude import supports_prefill
 
         assert supports_prefill("claude-sonnet-4@20250514") is True
         assert supports_prefill("claude-sonnet-4-6@20260401") is False
 
     def test_litellm_ids(self):
-        from agno.utils.models.claude import supports_prefill
+        from egpt.utils.models.claude import supports_prefill
 
         assert supports_prefill("anthropic/claude-sonnet-4-5") is True
         assert supports_prefill("anthropic/claude-sonnet-4-6") is False
 
     def test_non_claude_models(self):
-        from agno.utils.models.claude import supports_prefill
+        from egpt.utils.models.claude import supports_prefill
 
         assert supports_prefill("gpt-4o") is True
         assert supports_prefill("gemini-2.0-flash") is True
@@ -253,32 +253,32 @@ class TestAutoDetection:
     """Tests for automatic append_trailing_user_message detection."""
 
     def test_sonnet_46_auto_enabled(self):
-        from agno.models.anthropic import Claude
+        from egpt.models.anthropic import Claude
 
         assert Claude(id="claude-sonnet-4-6").append_trailing_user_message is True
 
     def test_opus_46_auto_enabled(self):
-        from agno.models.anthropic import Claude
+        from egpt.models.anthropic import Claude
 
         assert Claude(id="claude-opus-4-6").append_trailing_user_message is True
 
     def test_sonnet_45_auto_disabled(self):
-        from agno.models.anthropic import Claude
+        from egpt.models.anthropic import Claude
 
         assert Claude(id="claude-sonnet-4-5-20250929").append_trailing_user_message is False
 
     def test_sonnet_4_alias_auto_disabled(self):
-        from agno.models.anthropic import Claude
+        from egpt.models.anthropic import Claude
 
         assert Claude(id="claude-sonnet-4").append_trailing_user_message is False
 
     def test_user_override_respected(self):
-        from agno.models.anthropic import Claude
+        from egpt.models.anthropic import Claude
 
         assert Claude(id="claude-sonnet-4-6", append_trailing_user_message=False).append_trailing_user_message is False
 
     def test_future_model_auto_enabled(self):
-        from agno.models.anthropic import Claude
+        from egpt.models.anthropic import Claude
 
         assert Claude(id="claude-sonnet-5-0").append_trailing_user_message is True
 
@@ -287,17 +287,17 @@ class TestAutoDetectionVertexAI:
     """Tests for VertexAI Claude auto-detection."""
 
     def test_vertex_sonnet_45_auto_disabled(self):
-        from agno.models.vertexai.claude import Claude
+        from egpt.models.vertexai.claude import Claude
 
         assert Claude(id="claude-sonnet-4-5@20250929").append_trailing_user_message is False
 
     def test_vertex_sonnet_46_auto_enabled(self):
-        from agno.models.vertexai.claude import Claude
+        from egpt.models.vertexai.claude import Claude
 
         assert Claude(id="claude-sonnet-4-6@20260401").append_trailing_user_message is True
 
     def test_vertex_alias_auto_disabled(self):
-        from agno.models.vertexai.claude import Claude
+        from egpt.models.vertexai.claude import Claude
 
         assert Claude(id="claude-sonnet-4@20250514").append_trailing_user_message is False
 
@@ -306,17 +306,17 @@ class TestAutoDetectionAwsClaude:
     """Tests for AWS Bedrock Claude (anthropic SDK) auto-detection."""
 
     def test_aws_sonnet_45_auto_disabled(self):
-        from agno.models.aws.claude import Claude
+        from egpt.models.aws.claude import Claude
 
         assert Claude(id="us.anthropic.claude-sonnet-4-5-20250929-v1:0").append_trailing_user_message is False
 
     def test_aws_sonnet_46_auto_enabled(self):
-        from agno.models.aws.claude import Claude
+        from egpt.models.aws.claude import Claude
 
         assert Claude(id="us.anthropic.claude-sonnet-4-6").append_trailing_user_message is True
 
     def test_aws_global_prefix_auto_enabled(self):
-        from agno.models.aws.claude import Claude
+        from egpt.models.aws.claude import Claude
 
         assert Claude(id="global.anthropic.claude-sonnet-4-6-v1:0").append_trailing_user_message is True
 
@@ -326,16 +326,16 @@ class TestAutoDetectionLiteLLM:
     """Tests for LiteLLM auto-detection."""
 
     def test_litellm_sonnet_45_auto_disabled(self):
-        from agno.models.litellm.chat import LiteLLM
+        from egpt.models.litellm.chat import LiteLLM
 
         assert LiteLLM(id="anthropic/claude-sonnet-4-5").append_trailing_user_message is False
 
     def test_litellm_sonnet_46_auto_enabled(self):
-        from agno.models.litellm.chat import LiteLLM
+        from egpt.models.litellm.chat import LiteLLM
 
         assert LiteLLM(id="anthropic/claude-sonnet-4-6").append_trailing_user_message is True
 
     def test_litellm_non_claude_auto_disabled(self):
-        from agno.models.litellm.chat import LiteLLM
+        from egpt.models.litellm.chat import LiteLLM
 
         assert LiteLLM(id="openai/gpt-4o").append_trailing_user_message is False

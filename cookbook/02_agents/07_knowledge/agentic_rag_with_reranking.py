@@ -5,12 +5,12 @@ Agentic Rag With Reranking
 1. Run: `uv pip install openai agno cohere lancedb sqlalchemy` to install the dependencies.
 """
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reranker.cohere import CohereReranker
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.lancedb import LanceDb, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reranker.cohere import CohereReranker
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.lancedb import LanceDb, SearchType
 
 knowledge = Knowledge(
     # Use LanceDB as the vector database and store embeddings in the `agno_docs` table

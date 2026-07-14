@@ -45,13 +45,13 @@ import asyncio
 import os
 import time
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.couchbase import CouchbaseSearch
 from couchbase.auth import PasswordAuthenticator
 from couchbase.management.search import SearchIndex
 from couchbase.options import ClusterOptions, KnownConfigProfiles
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.couchbase import CouchbaseSearch
 
 # ---------------------------------------------------------------------------
 # Setup

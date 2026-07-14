@@ -1,5 +1,5 @@
 """
-Unit tests for agno.os.utils functions.
+Unit tests for egpt.os.utils functions.
 
 Tests the stringify_input_content and get_run_input utility functions.
 """
@@ -8,8 +8,8 @@ import json
 
 import pytest
 
-from agno.models.message import Message
-from agno.os.utils import get_run_input, stringify_input_content
+from egpt.models.message import Message
+from egpt.os.utils import get_run_input, stringify_input_content
 
 
 def test_stringify_string_input():

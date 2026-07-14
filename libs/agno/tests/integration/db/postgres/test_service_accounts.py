@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from agno.db.schemas.service_accounts import ServiceAccount
+from egpt.db.schemas.service_accounts import ServiceAccount
 
 
 def _account(account_id: str, name: str, token_hash: str, **overrides):

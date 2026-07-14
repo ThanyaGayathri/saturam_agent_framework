@@ -5,16 +5,16 @@ from unittest.mock import Mock, patch
 import numpy as np
 import pytest
 
-from agno.agent import Agent
-from agno.media import Image, Video
-from agno.tools.function import ToolResult
-from agno.tools.opencv import OpenCVTools
+from egpt.agent import Agent
+from egpt.media import Image, Video
+from egpt.tools.function import ToolResult
+from egpt.tools.opencv import OpenCVTools
 
 
 @pytest.fixture
 def mock_cv2():
     """Create a mock OpenCV module."""
-    with patch("agno.tools.opencv.cv2") as mock_cv2:
+    with patch("egpt.tools.opencv.cv2") as mock_cv2:
         mock_cv2.CAP_AVFOUNDATION = 1200
         mock_cv2.CAP_DSHOW = 700
         mock_cv2.CAP_V4L2 = 200
@@ -201,7 +201,7 @@ class TestVideoCapture:
     @patch("os.path.getsize")
     @patch("os.unlink")
     @patch("builtins.open", create=True)
-    @patch("agno.tools.opencv.time")
+    @patch("egpt.tools.opencv.time")
     def test_capture_video_no_preview_success(
         self,
         mock_time_module,
@@ -231,7 +231,7 @@ class TestVideoCapture:
         mock_open.return_value.__enter__.return_value = mock_file
 
         # Mock getattr for VideoWriter_fourcc
-        with patch("agno.tools.opencv.getattr") as mock_getattr, patch("agno.tools.opencv.Path") as mock_path_class:
+        with patch("egpt.tools.opencv.getattr") as mock_getattr, patch("egpt.tools.opencv.Path") as mock_path_class:
             mock_getattr.return_value.return_value = 123456
 
             # Mock Path behavior
@@ -262,7 +262,7 @@ class TestVideoCapture:
     @patch("os.path.getsize")
     @patch("os.unlink")
     @patch("builtins.open", create=True)
-    @patch("agno.tools.opencv.time")
+    @patch("egpt.tools.opencv.time")
     def test_capture_video_with_preview_success(
         self,
         mock_time_module,
@@ -293,7 +293,7 @@ class TestVideoCapture:
         mock_open.return_value.__enter__.return_value = mock_file
 
         # Mock getattr for VideoWriter_fourcc
-        with patch("agno.tools.opencv.getattr") as mock_getattr, patch("agno.tools.opencv.Path") as mock_path_class:
+        with patch("egpt.tools.opencv.getattr") as mock_getattr, patch("egpt.tools.opencv.Path") as mock_path_class:
             mock_getattr.return_value.return_value = 123456
 
             # Mock Path behavior
@@ -342,8 +342,8 @@ class TestVideoCapture:
             patch("os.path.getsize", return_value=1000),
             patch("os.unlink"),
             patch("builtins.open", create=True) as mock_open,
-            patch("agno.tools.opencv.time") as mock_time,
-            patch("agno.tools.opencv.getattr") as mock_getattr,
+            patch("egpt.tools.opencv.time") as mock_time,
+            patch("egpt.tools.opencv.getattr") as mock_getattr,
         ):
             mock_time.time.side_effect = [0, 2, 2]
 
@@ -386,8 +386,8 @@ class TestVideoCapture:
             patch("os.path.getsize", return_value=1000),
             patch("os.unlink"),
             patch("builtins.open", create=True) as mock_open,
-            patch("agno.tools.opencv.time") as mock_time,
-            patch("agno.tools.opencv.getattr") as mock_getattr,
+            patch("egpt.tools.opencv.time") as mock_time,
+            patch("egpt.tools.opencv.getattr") as mock_getattr,
         ):
             mock_time.time.side_effect = [0, 2, 2]
 
@@ -417,7 +417,7 @@ class TestVideoCapture:
         """Test video capture when all codecs fail."""
         mock_cv2.VideoWriter.return_value.isOpened.return_value = False
 
-        with patch("agno.tools.opencv.getattr") as mock_getattr:
+        with patch("egpt.tools.opencv.getattr") as mock_getattr:
             mock_getattr.return_value.return_value = 123456
             result = opencv_tools_no_preview.capture_video(mock_agent, duration=1)
 
@@ -430,7 +430,7 @@ class TestVideoCapture:
         """Test video capture when frame reading fails."""
         mock_cv2.VideoCapture.return_value.read.return_value = (False, None)
 
-        with patch("tempfile.NamedTemporaryFile"), patch("agno.tools.opencv.getattr") as mock_getattr:
+        with patch("tempfile.NamedTemporaryFile"), patch("egpt.tools.opencv.getattr") as mock_getattr:
             mock_getattr.return_value.return_value = 123456
             result = opencv_tools_no_preview.capture_video(mock_agent, duration=1)
 
@@ -451,8 +451,8 @@ class TestVideoCapture:
         mock_exists.return_value = False  # File doesn't exist
 
         with (
-            patch("agno.tools.opencv.time") as mock_time,
-            patch("agno.tools.opencv.getattr") as mock_getattr,
+            patch("egpt.tools.opencv.time") as mock_time,
+            patch("egpt.tools.opencv.getattr") as mock_getattr,
         ):
             mock_time.time.side_effect = [0, 2]
             mock_getattr.return_value.return_value = 123456
@@ -507,8 +507,8 @@ class TestResourceCleanup:
             patch("os.path.getsize", return_value=1000),
             patch("os.unlink"),
             patch("builtins.open", create=True) as mock_open,
-            patch("agno.tools.opencv.time") as mock_time,
-            patch("agno.tools.opencv.getattr") as mock_getattr,
+            patch("egpt.tools.opencv.time") as mock_time,
+            patch("egpt.tools.opencv.getattr") as mock_getattr,
         ):
             mock_time.time.side_effect = [0, 2, 2]
 
@@ -562,8 +562,8 @@ class TestEdgeCases:
             patch("os.path.getsize", return_value=1000),
             patch("os.unlink"),
             patch("builtins.open", create=True) as mock_open,
-            patch("agno.tools.opencv.time") as mock_time,
-            patch("agno.tools.opencv.getattr") as mock_getattr,
+            patch("egpt.tools.opencv.time") as mock_time,
+            patch("egpt.tools.opencv.getattr") as mock_getattr,
         ):
             mock_time.time.side_effect = [0, 11, 11]
 

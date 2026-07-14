@@ -7,13 +7,13 @@ Prerequisites:
 pip install -U fastapi uvicorn sqlalchemy pgvector psycopg openai ddgs yfinance
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.tools.mcp import MCPTools
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.tools.mcp import MCPTools
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Example

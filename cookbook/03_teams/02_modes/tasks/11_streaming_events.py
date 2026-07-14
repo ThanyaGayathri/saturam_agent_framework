@@ -11,10 +11,10 @@ This example shows how to:
 4. Process content deltas as they arrive
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.run.agent import RunContentEvent as AgentRunContentEvent
-from agno.run.team import (
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.run.agent import RunContentEvent as AgentRunContentEvent
+from egpt.run.team import (
     RunContentEvent,
     TaskIterationCompletedEvent,
     TaskIterationStartedEvent,
@@ -23,8 +23,8 @@ from agno.run.team import (
     ToolCallCompletedEvent,
     ToolCallStartedEvent,
 )
-from agno.team.mode import TeamMode
-from agno.team.team import Team
+from egpt.team.mode import TeamMode
+from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Members

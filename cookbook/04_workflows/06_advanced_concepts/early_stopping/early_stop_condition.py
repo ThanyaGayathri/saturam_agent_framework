@@ -5,11 +5,11 @@ Early Stop Condition
 Demonstrates stopping an entire workflow from inside a `Condition` branch.
 """
 
-from agno.agent import Agent
-from agno.tools.websearch import WebSearchTools
-from agno.workflow import Step, Workflow
-from agno.workflow.condition import Condition
-from agno.workflow.types import StepInput, StepOutput
+from egpt.agent import Agent
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow import Step, Workflow
+from egpt.workflow.condition import Condition
+from egpt.workflow.types import StepInput, StepOutput
 
 # ---------------------------------------------------------------------------
 # Create Agents

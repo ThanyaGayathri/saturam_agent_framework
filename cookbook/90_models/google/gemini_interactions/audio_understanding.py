@@ -6,9 +6,9 @@ Example showing audio understanding with the Interactions API.
 Supports audio from URLs, local files, and raw bytes.
 """
 
-from agno.agent import Agent
-from agno.media import Audio
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.media import Audio
+from egpt.models.google import GeminiInteractions
 
 # ---------------------------------------------------------------------------
 # Create Agent

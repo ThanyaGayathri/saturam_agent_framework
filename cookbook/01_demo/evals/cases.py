@@ -19,8 +19,8 @@ from agents.code_search import code_search
 from agents.git_wiki import git_wiki
 from agents.local_wiki import local_wiki
 from agents.notion_wiki import notion_wiki
-from agno.agent import Agent
 from db import get_db
+from egpt.agent import Agent
 
 eval_db = get_db()
 

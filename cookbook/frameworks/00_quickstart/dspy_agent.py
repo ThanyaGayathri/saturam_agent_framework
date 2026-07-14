@@ -11,9 +11,9 @@ Usage:
 """
 
 import dspy
-from agno.agents.dspy import DSPyAgent
-from agno.db.sqlite import SqliteDb
-from agno.os import AgentOS
+from egpt.agents.dspy import DSPyAgent
+from egpt.db.sqlite import SqliteDb
+from egpt.os import AgentOS
 
 dspy.configure(lm=dspy.LM("openai/gpt-5.4"))
 

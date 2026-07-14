@@ -1,9 +1,9 @@
 from pathlib import Path
 
 import httpx
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.openai import OpenAIResponses
 
 agent = Agent(
     model=OpenAIResponses(id="gpt-4o"),

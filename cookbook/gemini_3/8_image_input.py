@@ -16,9 +16,9 @@ Example prompts to try:
 - "What architectural style is this building?"
 """
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Agent Instructions

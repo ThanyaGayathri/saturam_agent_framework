@@ -1,8 +1,8 @@
 """Run `uv pip install ddgs` to install dependencies."""
 
-from agno.agent import Agent
-from agno.models.langdb import LangDB
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.langdb import LangDB
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

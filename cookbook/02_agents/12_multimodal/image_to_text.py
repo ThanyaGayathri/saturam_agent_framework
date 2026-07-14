@@ -7,9 +7,9 @@ Image to Text Example.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

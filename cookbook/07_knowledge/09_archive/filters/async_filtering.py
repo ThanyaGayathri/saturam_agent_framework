@@ -1,16 +1,16 @@
 import asyncio
 import os
 
-from agno.agent import Agent
-from agno.db.postgres import AsyncPostgresDb
-from agno.db.sqlite import AsyncSqliteDb
-from agno.filters import IN
-from agno.knowledge.knowledge import Knowledge
-from agno.utils.media import (
+from egpt.agent import Agent
+from egpt.db.postgres import AsyncPostgresDb
+from egpt.db.sqlite import AsyncSqliteDb
+from egpt.filters import IN
+from egpt.knowledge.knowledge import Knowledge
+from egpt.utils.media import (
     SampleDataFileExtension,
     download_knowledge_filters_sample_data,
 )
-from agno.vectordb.pgvector import PgVector
+from egpt.vectordb.pgvector import PgVector
 
 # Download all sample CVs and get their paths
 downloaded_cv_paths = download_knowledge_filters_sample_data(

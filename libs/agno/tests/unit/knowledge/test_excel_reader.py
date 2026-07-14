@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.knowledge.reader.excel_reader import ExcelReader
-from agno.knowledge.reader.reader_factory import ReaderFactory
+from egpt.knowledge.reader.excel_reader import ExcelReader
+from egpt.knowledge.reader.reader_factory import ReaderFactory
 
 
 def test_reader_factory_routes_xlsx_to_excel_reader():

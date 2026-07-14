@@ -1,8 +1,8 @@
 """Run `uv pip install ddgs` to install dependencies."""
 
-from agno.agent import Agent  # noqa
-from agno.models.deepinfra import DeepInfra  # noqa
-from agno.tools.websearch import WebSearchTools  # noqa
+from egpt.agent import Agent  # noqa
+from egpt.models.deepinfra import DeepInfra  # noqa
+from egpt.tools.websearch import WebSearchTools  # noqa
 import asyncio
 
 # ---------------------------------------------------------------------------

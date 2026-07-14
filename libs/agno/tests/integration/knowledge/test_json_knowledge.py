@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from agno.agent import Agent
-from agno.db.json.json_db import JsonDb
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.chroma import ChromaDb
+from egpt.agent import Agent
+from egpt.db.json.json_db import JsonDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.chroma import ChromaDb
 
 
 @pytest.fixture

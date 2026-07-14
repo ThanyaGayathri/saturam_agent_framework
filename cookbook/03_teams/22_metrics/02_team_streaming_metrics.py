@@ -6,10 +6,10 @@ Demonstrates how to capture metrics from team streaming responses.
 Use yield_run_output=True to receive a TeamRunOutput at the end of the stream.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.team import TeamRunOutput
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.team import TeamRunOutput
+from egpt.team import Team
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

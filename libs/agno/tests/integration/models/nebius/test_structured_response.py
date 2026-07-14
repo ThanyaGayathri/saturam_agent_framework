@@ -3,8 +3,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.nebius import Nebius
+from egpt.agent import Agent
+from egpt.models.nebius import Nebius
 
 NEBIUS_MODEL_ID = "Qwen/Qwen3-4B-fast"
 

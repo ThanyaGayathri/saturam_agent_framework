@@ -15,21 +15,21 @@ Usage:
 
 from typing import TYPE_CHECKING, Optional
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.run import RunContext
-from agno.team.team import Team
-from agno.tools.mcp import MCPTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.run import RunContext
+from egpt.team.team import Team
+from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Example
 # ---------------------------------------------------------------------------
 
 if TYPE_CHECKING:
-    from agno.agent import Agent as AgentType
-    from agno.team.team import Team as TeamType
+    from egpt.agent import Agent as AgentType
+    from egpt.team.team import Team as TeamType
 
 
 # We will use this tool to generate headers dinamically for our MCP tools.

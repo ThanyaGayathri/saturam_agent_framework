@@ -12,7 +12,7 @@ _RAW_SENDER = "sender_phone"
 
 
 def _build_app(agent_mock: Mock) -> FastAPI:
-    from agno.os.interfaces.whatsapp.router import attach_routes
+    from egpt.os.interfaces.whatsapp.router import attach_routes
 
     app = FastAPI()
     router = APIRouter()
@@ -42,7 +42,7 @@ def _make_agent_mock(db=None):
 
 
 def _make_mock_db():
-    from agno.db.base import BaseDb
+    from egpt.db.base import BaseDb
 
     db = Mock(spec=BaseDb)
     # Track upserted sessions so get_sessions can return them
@@ -128,7 +128,7 @@ async def _wait_for_mock_call(mock, timeout: float = 5.0):
 def test_webhook_verification():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -148,7 +148,7 @@ def test_webhook_verification():
 def test_webhook_verification_invalid_token():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -170,7 +170,7 @@ def test_webhook_verification_invalid_token():
 def test_webhook_signature_invalid():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=False),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=False),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -187,9 +187,9 @@ def test_webhook_signature_invalid():
 async def test_text_message_processing():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -209,15 +209,15 @@ async def test_text_message_processing():
 
 @pytest.mark.asyncio
 async def test_image_message_processing():
-    from agno.media import Image
+    from egpt.media import Image
 
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch(
-            "agno.os.interfaces.whatsapp.router.download_event_media_async",
+            "egpt.os.interfaces.whatsapp.router.download_event_media_async",
             new_callable=AsyncMock,
             return_value=({"images": [Image(content=b"\x89PNG")]}, []),
         ),
@@ -242,7 +242,7 @@ async def test_image_message_processing():
 def test_non_whatsapp_object_ignored():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -261,9 +261,9 @@ def test_non_whatsapp_object_ignored():
 async def test_button_reply_processing():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -287,9 +287,9 @@ async def test_button_reply_processing():
 async def test_list_reply_processing():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -315,9 +315,9 @@ async def test_list_reply_processing():
 async def test_list_reply_without_description():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -339,7 +339,7 @@ async def test_list_reply_without_description():
 def test_empty_messages_no_crash():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -357,15 +357,15 @@ def test_empty_messages_no_crash():
 
 @pytest.mark.asyncio
 async def test_video_message_processing():
-    from agno.media import Video
+    from egpt.media import Video
 
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch(
-            "agno.os.interfaces.whatsapp.router.download_event_media_async",
+            "egpt.os.interfaces.whatsapp.router.download_event_media_async",
             new_callable=AsyncMock,
             return_value=({"videos": [Video(content=b"\x00\x00\x00\x1cftypisom")]}, []),
         ),
@@ -389,15 +389,15 @@ async def test_video_message_processing():
 
 @pytest.mark.asyncio
 async def test_audio_message_processing():
-    from agno.media import Audio
+    from egpt.media import Audio
 
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch(
-            "agno.os.interfaces.whatsapp.router.download_event_media_async",
+            "egpt.os.interfaces.whatsapp.router.download_event_media_async",
             new_callable=AsyncMock,
             return_value=({"audio": [Audio(content=b"\xff\xfb\x90\x00", mime_type="audio/mpeg")]}, []),
         ),
@@ -421,15 +421,15 @@ async def test_audio_message_processing():
 
 @pytest.mark.asyncio
 async def test_document_message_processing():
-    from agno.media import File
+    from egpt.media import File
 
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch(
-            "agno.os.interfaces.whatsapp.router.download_event_media_async",
+            "egpt.os.interfaces.whatsapp.router.download_event_media_async",
             new_callable=AsyncMock,
             return_value=({"files": [File(content=b"%PDF-1.4")]}, []),
         ),
@@ -467,14 +467,14 @@ async def test_unknown_message_type_agent_not_called():
         return result
 
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
-        from agno.os.interfaces.whatsapp.helpers import extract_message_content
+        from egpt.os.interfaces.whatsapp.helpers import extract_message_content
 
         original_extract = extract_message_content
-        with patch("agno.os.interfaces.whatsapp.router.extract_message_content", side_effect=_extract_and_signal):
+        with patch("egpt.os.interfaces.whatsapp.router.extract_message_content", side_effect=_extract_and_signal):
             app = _build_app(agent_mock)
             client = TestClient(app)
             body = _make_whatsapp_webhook("sticker", sticker={"id": "sticker_123"})
@@ -498,14 +498,14 @@ async def test_unknown_interactive_type_agent_not_called():
         return result
 
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
-        from agno.os.interfaces.whatsapp.helpers import extract_message_content
+        from egpt.os.interfaces.whatsapp.helpers import extract_message_content
 
         original_extract = extract_message_content
-        with patch("agno.os.interfaces.whatsapp.router.extract_message_content", side_effect=_extract_and_signal):
+        with patch("egpt.os.interfaces.whatsapp.router.extract_message_content", side_effect=_extract_and_signal):
             app = _build_app(agent_mock)
             client = TestClient(app)
             body = _make_whatsapp_webhook(
@@ -538,9 +538,9 @@ async def test_agent_error_response_sends_error_message():
         )
     )
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock) as mock_send_text,
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock) as mock_send_text,
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -563,9 +563,9 @@ async def test_agent_exception_sends_fallback_error():
     agent_mock = AsyncMock()
     agent_mock.arun = AsyncMock(side_effect=RuntimeError("Agent crashed"))
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock) as mock_send_text,
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock) as mock_send_text,
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -586,7 +586,7 @@ def test_webhook_verification_missing_verify_token_env():
     agent_mock = _make_agent_mock()
     env_without_token = {k: v for k, v in WHATSAPP_ENV.items() if k != "WHATSAPP_VERIFY_TOKEN"}
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
         patch.dict("os.environ", env_without_token, clear=True),
     ):
         app = _build_app(agent_mock)
@@ -601,7 +601,7 @@ def test_webhook_verification_missing_verify_token_env():
 def test_webhook_verification_missing_challenge():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -617,7 +617,7 @@ def test_webhook_verification_missing_challenge():
 
 
 def test_attach_routes_no_entity_raises():
-    from agno.os.interfaces.whatsapp.router import attach_routes
+    from egpt.os.interfaces.whatsapp.router import attach_routes
 
     router = APIRouter()
     with pytest.raises(ValueError, match="Either agent, team, or workflow"):
@@ -630,7 +630,7 @@ def test_attach_routes_no_entity_raises():
 def test_status_endpoint():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -645,13 +645,13 @@ def test_status_endpoint():
 
 @pytest.mark.asyncio
 async def test_send_user_number_to_context():
-    from agno.os.interfaces.whatsapp.router import attach_routes
+    from egpt.os.interfaces.whatsapp.router import attach_routes
 
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = FastAPI()
@@ -695,10 +695,10 @@ async def test_image_response_short_caption_no_extra_text():
         )
     )
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock) as mock_send_text,
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.upload_and_send_media_async", new_callable=AsyncMock) as mock_upload,
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock) as mock_send_text,
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.upload_and_send_media_async", new_callable=AsyncMock) as mock_upload,
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -733,10 +733,10 @@ async def test_image_response_long_caption_sends_full_text():
         )
     )
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock) as mock_send_text,
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.upload_and_send_media_async", new_callable=AsyncMock) as mock_upload,
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock) as mock_send_text,
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.upload_and_send_media_async", new_callable=AsyncMock) as mock_upload,
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -761,9 +761,9 @@ async def test_image_response_long_caption_sends_full_text():
 async def test_same_phone_same_session_id():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -793,9 +793,9 @@ async def test_same_phone_same_session_id():
 async def test_different_phones_different_session_ids():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -823,9 +823,9 @@ async def test_different_phones_different_session_ids():
 async def test_user_id_is_raw_phone_by_default():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -848,9 +848,9 @@ async def test_new_command_starts_fresh_session():
     mock_db = _make_mock_db()
     agent_mock = _make_agent_mock(db=mock_db)
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock) as mock_send_text,
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock) as mock_send_text,
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -904,9 +904,9 @@ async def test_new_command_case_insensitive():
     mock_db = _make_mock_db()
     agent_mock = _make_agent_mock(db=mock_db)
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock) as mock_send_text,
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock) as mock_send_text,
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -929,9 +929,9 @@ async def test_new_command_case_insensitive():
 async def test_new_with_extra_text_not_intercepted():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_app(agent_mock)
@@ -951,7 +951,7 @@ _TEST_KEY = os.urandom(32)
 
 
 def _build_encrypted_app(agent_mock: Mock, **extra_kwargs) -> FastAPI:
-    from agno.os.interfaces.whatsapp.router import attach_routes
+    from egpt.os.interfaces.whatsapp.router import attach_routes
 
     app = FastAPI()
     router = APIRouter()
@@ -962,13 +962,13 @@ def _build_encrypted_app(agent_mock: Mock, **extra_kwargs) -> FastAPI:
 
 @pytest.mark.asyncio
 async def test_encrypted_phone_mode():
-    from agno.os.interfaces.whatsapp.router import decrypt_phone
+    from egpt.os.interfaces.whatsapp.router import decrypt_phone
 
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_encrypted_app(agent_mock)
@@ -992,9 +992,9 @@ async def test_encrypted_phone_mode():
 async def test_encrypted_mode_deterministic():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_encrypted_app(agent_mock)
@@ -1019,9 +1019,9 @@ async def test_encrypted_mode_deterministic():
 async def test_encrypted_mode_keeps_raw_phone_in_context():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch.dict("os.environ", WHATSAPP_ENV),
     ):
         app = _build_encrypted_app(agent_mock, send_user_number_to_context=True)
@@ -1044,11 +1044,11 @@ async def test_encrypted_mode_keeps_raw_phone_in_context():
 async def test_media_download_failure_prepends_skip_notice():
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch(
-            "agno.os.interfaces.whatsapp.router.download_event_media_async",
+            "egpt.os.interfaces.whatsapp.router.download_event_media_async",
             new_callable=AsyncMock,
             return_value=({}, ["image (download failed: 404)"]),
         ),
@@ -1070,15 +1070,15 @@ async def test_media_download_failure_prepends_skip_notice():
 
 @pytest.mark.asyncio
 async def test_media_download_success_no_skip_notice():
-    from agno.media import Image
+    from egpt.media import Image
 
     agent_mock = _make_agent_mock()
     with (
-        patch("agno.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
-        patch("agno.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
-        patch("agno.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.validate_webhook_signature", return_value=True),
+        patch("egpt.os.interfaces.whatsapp.helpers._send_text", new_callable=AsyncMock),
+        patch("egpt.os.interfaces.whatsapp.router.typing_indicator_async", new_callable=AsyncMock),
         patch(
-            "agno.os.interfaces.whatsapp.router.download_event_media_async",
+            "egpt.os.interfaces.whatsapp.router.download_event_media_async",
             new_callable=AsyncMock,
             return_value=({"images": [Image(content=b"\x89PNG")]}, []),
         ),

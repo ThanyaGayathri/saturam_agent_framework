@@ -1,5 +1,5 @@
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.pgvector import PgVector, SearchType
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.pgvector import PgVector, SearchType
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 

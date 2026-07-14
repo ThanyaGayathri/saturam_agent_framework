@@ -2,8 +2,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.openai.chat import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.openai.chat import OpenAIChat
 
 
 @pytest.fixture(scope="session")
@@ -14,7 +14,7 @@ def shared_model():
 @pytest.fixture
 def web_agent(shared_model):
     """Create a web agent for testing."""
-    from agno.tools.websearch import WebSearchTools
+    from egpt.tools.websearch import WebSearchTools
 
     return Agent(
         name="Web Agent",
@@ -27,7 +27,7 @@ def web_agent(shared_model):
 @pytest.fixture
 def finance_agent(shared_model):
     """Create a finance agent for testing."""
-    from agno.tools.yfinance import YFinanceTools
+    from egpt.tools.yfinance import YFinanceTools
 
     return Agent(
         name="Finance Agent",

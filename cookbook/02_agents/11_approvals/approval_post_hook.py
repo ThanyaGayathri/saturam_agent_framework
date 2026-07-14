@@ -12,12 +12,12 @@ approval and WHEN, not just whether the tool was allowed to run.
 import os
 import time
 
-from agno.agent import Agent
-from agno.approval import approval
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.run.agent import RunOutput
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.approval import approval
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run.agent import RunOutput
+from egpt.tools import tool
 
 DB_FILE = "tmp/approval_post_hook.db"
 

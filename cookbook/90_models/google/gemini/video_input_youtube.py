@@ -5,9 +5,9 @@ Google Video Input Youtube
 Cookbook example for `google/gemini/video_input_youtube.py`.
 """
 
-from agno.agent import Agent
-from agno.media import Video
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.media import Video
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Create Agent

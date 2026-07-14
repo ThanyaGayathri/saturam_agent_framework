@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from agno.db.surrealdb.models import desurrealize_dates, surrealize_dates
+from egpt.db.surrealdb.models import desurrealize_dates, surrealize_dates
 
 
 def test_surrealize_int_timestamp_converts_to_correct_utc():

@@ -5,8 +5,8 @@ Youtube Tools
 Demonstrates youtube tools.
 """
 
-from agno.agent import Agent
-from agno.tools.youtube import YouTubeTools
+from egpt.agent import Agent
+from egpt.tools.youtube import YouTubeTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

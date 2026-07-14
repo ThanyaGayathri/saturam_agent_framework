@@ -6,10 +6,10 @@ This example shows how to create user memories from direct text and from a
 message list using MemoryManager.
 """
 
-from agno.db.postgres import PostgresDb
-from agno.memory import MemoryManager, UserMemory
-from agno.models.message import Message
-from agno.models.openai import OpenAIChat
+from egpt.db.postgres import PostgresDb
+from egpt.memory import MemoryManager, UserMemory
+from egpt.models.message import Message
+from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

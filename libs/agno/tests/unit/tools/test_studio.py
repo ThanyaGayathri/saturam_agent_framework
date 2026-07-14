@@ -10,15 +10,15 @@ from typing import Any, Dict
 
 import pytest
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.registry import Registry
-from agno.tools.calculator import CalculatorTools
-from agno.tools.duckduckgo import DuckDuckGoTools
-from agno.tools.function import Function
-from agno.tools.studio import StudioTool, StudioTools
-from agno.tools.toolkit import Toolkit
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.registry import Registry
+from egpt.tools.calculator import CalculatorTools
+from egpt.tools.duckduckgo import DuckDuckGoTools
+from egpt.tools.function import Function
+from egpt.tools.studio import StudioTool, StudioTools
+from egpt.tools.toolkit import Toolkit
 
 # ----------------------------------------------------------------------
 # Fixtures
@@ -332,7 +332,7 @@ class TestToolNameResolution:
     @pytest.fixture
     def mcp_registry(self, db):
         pytest.importorskip("mcp")
-        from agno.tools.mcp import MCPTools
+        from egpt.tools.mcp import MCPTools
 
         docs = MCPTools(url="https://docs.example.com/mcp")
         search = MCPTools(url="https://search.example.com/mcp")

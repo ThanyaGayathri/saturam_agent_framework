@@ -5,8 +5,8 @@ Perplexity Web Search
 Cookbook example for `perplexity/web_search.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.perplexity import Perplexity
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.perplexity import Perplexity
 
 # ---------------------------------------------------------------------------
 # Create Agent

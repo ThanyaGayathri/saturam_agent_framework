@@ -6,7 +6,7 @@ import pytest
 
 sqlalchemy = pytest.importorskip("sqlalchemy")
 
-from agno.db.migrations.versions import v2_5_0  # noqa: E402
+from egpt.db.migrations.versions import v2_5_0  # noqa: E402
 
 
 def _make_sync_db(class_name: str):

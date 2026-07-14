@@ -2,9 +2,9 @@
 uv pip install requests
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.desi_vocal import DesiVocalTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.desi_vocal import DesiVocalTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

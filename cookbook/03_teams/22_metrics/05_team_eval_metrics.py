@@ -10,10 +10,10 @@ Those eval tokens show up under "eval_model" in run_output.metrics.details,
 separate from the team's own model tokens.
 """
 
-from agno.agent import Agent
-from agno.eval.agent_as_judge import AgentAsJudgeEval
-from agno.models.openai import OpenAIChat
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.models.openai import OpenAIChat
+from egpt.team import Team
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@ Demonstrates agent instantiation benchmarking with PydanticAI.
 
 from typing import Literal
 
-from agno.eval.performance import PerformanceEval
+from egpt.eval.performance import PerformanceEval
 from pydantic_ai import Agent
 
 

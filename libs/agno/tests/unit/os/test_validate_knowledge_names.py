@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.os.app import AgentOS
+from egpt.os.app import AgentOS
 
 
 def _make_knowledge(name, db_id="db1", table_name="knowledge"):

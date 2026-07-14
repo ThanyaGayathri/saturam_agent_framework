@@ -39,11 +39,11 @@ from __future__ import annotations
 
 import asyncio
 
-from agno.agent import Agent
-from agno.context.calendar import GoogleCalendarContextProvider
-from agno.context.gdrive import GoogleDriveContextProvider
-from agno.context.gmail import GmailContextProvider
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context.calendar import GoogleCalendarContextProvider
+from egpt.context.gdrive import GoogleDriveContextProvider
+from egpt.context.gmail import GmailContextProvider
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Providers

@@ -8,8 +8,8 @@ Dependencies In Context.
 import json
 
 import httpx
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 
 def get_top_hackernews_stories(num_stories: int = 5) -> str:

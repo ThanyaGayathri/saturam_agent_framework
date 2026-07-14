@@ -7,8 +7,8 @@ You can obtain an API key from https://serper.dev/
  - or pass api_key to the SerperTools class
 """
 
-from agno.agent import Agent
-from agno.tools.serper import SerperTools
+from egpt.agent import Agent
+from egpt.tools.serper import SerperTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

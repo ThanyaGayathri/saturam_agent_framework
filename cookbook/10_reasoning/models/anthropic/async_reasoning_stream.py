@@ -7,9 +7,9 @@ Demonstrates this reasoning cookbook example.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.run.agent import RunEvent  # noqa
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.run.agent import RunEvent  # noqa
 
 
 # ---------------------------------------------------------------------------

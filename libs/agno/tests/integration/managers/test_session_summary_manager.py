@@ -5,13 +5,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.run.agent import Message, RunOutput
-from agno.run.team import TeamRunOutput
-from agno.session.agent import AgentSession
-from agno.session.summary import SessionSummary, SessionSummaryManager, SessionSummaryResponse
-from agno.session.team import TeamSession
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import Message, RunOutput
+from egpt.run.team import TeamRunOutput
+from egpt.session.agent import AgentSession
+from egpt.session.summary import SessionSummary, SessionSummaryManager, SessionSummaryResponse
+from egpt.session.team import TeamSession
 
 
 @pytest.fixture
@@ -74,7 +74,7 @@ def mock_agent_session():
 @pytest.fixture
 def agent_session_with_db():
     """Create an agent session with sample runs and messages."""
-    from agno.run.base import RunStatus
+    from egpt.run.base import RunStatus
 
     # Create sample messages
     messages1 = [
@@ -175,7 +175,7 @@ def test_get_system_message_with_json_object_format(session_summary_manager, moc
     conversation = mock_agent_session.get_messages()
     response_format = {"type": "json_object"}
 
-    with patch("agno.utils.prompts.get_json_output_prompt") as mock_json_prompt:
+    with patch("egpt.utils.prompts.get_json_output_prompt") as mock_json_prompt:
         mock_json_prompt.return_value = "\nPlease respond with valid JSON."
 
         system_message = session_summary_manager.get_system_message(conversation, response_format)
@@ -226,7 +226,7 @@ def test_process_summary_response_string_content(session_summary_manager):
     model = Mock()
     model.supports_native_structured_outputs = False
 
-    with patch("agno.utils.string.parse_response_model_str") as mock_parse:
+    with patch("egpt.utils.string.parse_response_model_str") as mock_parse:
         mock_parse.return_value = SessionSummaryResponse(
             summary="Python programming help", topics=["Python", "programming"]
         )
@@ -249,7 +249,7 @@ def test_process_summary_response_parse_failure(session_summary_manager):
     model = Mock()
     model.supports_native_structured_outputs = False
 
-    with patch("agno.utils.string.parse_response_model_str") as mock_parse:
+    with patch("egpt.utils.string.parse_response_model_str") as mock_parse:
         mock_parse.return_value = None
 
         result = session_summary_manager._process_summary_response(mock_response, model)
@@ -469,7 +469,7 @@ def test_summaries_updated_flag_failure_case(session_summary_manager, mock_agent
 
     # Mock parse_response_model_str to return None (parsing failure)
     with (
-        patch("agno.utils.string.parse_response_model_str") as mock_parse,
+        patch("egpt.utils.string.parse_response_model_str") as mock_parse,
         patch.object(session_summary_manager.model, "response", return_value=mock_response),
     ):
         mock_parse.return_value = None
@@ -497,7 +497,7 @@ async def test_async_summaries_updated_flag_failure_case(session_summary_manager
 
     # Mock parse_response_model_str to return None (parsing failure)
     with (
-        patch("agno.utils.string.parse_response_model_str") as mock_parse,
+        patch("egpt.utils.string.parse_response_model_str") as mock_parse,
         patch.object(session_summary_manager.model, "aresponse", return_value=mock_response),
     ):
         mock_parse.return_value = None
@@ -532,7 +532,7 @@ def test_summaries_updated_flag_none_response(session_summary_manager, mock_agen
 @pytest.fixture
 def multi_run_agent_session():
     """Create an agent session with multiple runs for testing last_n_runs and conversation_limit."""
-    from agno.run.base import RunStatus
+    from egpt.run.base import RunStatus
 
     runs = []
     for i in range(5):
@@ -694,7 +694,7 @@ async def test_acreate_session_summary_with_last_n_runs(model, multi_run_agent_s
 @pytest.fixture
 def multi_run_team_session():
     """Create a team session with multiple runs for testing last_n_runs and conversation_limit."""
-    from agno.run.base import RunStatus
+    from egpt.run.base import RunStatus
 
     runs = []
     for i in range(5):

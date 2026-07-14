@@ -5,8 +5,8 @@ Openbb Tools
 Demonstrates openbb tools.
 """
 
-from agno.agent import Agent
-from agno.tools.openbb import OpenBBTools
+from egpt.agent import Agent
+from egpt.tools.openbb import OpenBBTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

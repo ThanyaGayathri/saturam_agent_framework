@@ -6,11 +6,11 @@ Demonstrates AG-UI state synchronization with a Team using enable_agentic_state.
 The team coordinates multiple agents while maintaining shared session state.
 """
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.os.interfaces.agui import AGUI
-from agno.team.team import Team
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.os.interfaces.agui import AGUI
+from egpt.team.team import Team
 
 recipe_creator = Agent(
     name="recipe_creator",

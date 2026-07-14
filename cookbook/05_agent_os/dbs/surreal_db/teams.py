@@ -5,13 +5,13 @@ Teams
 Demonstrates teams.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.team.team import Team
-from agno.tools.reasoning import ReasoningTools
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
 from db import db
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.team.team import Team
+from egpt.tools.reasoning import ReasoningTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Example

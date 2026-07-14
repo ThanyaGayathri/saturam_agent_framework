@@ -10,10 +10,10 @@ from sqlalchemy import BigInteger, Column, MetaData, String, Table, text
 from sqlalchemy.engine import create_engine
 from sqlalchemy.types import JSON
 
-from agno.agent.agent import Agent
-from agno.db.migrations.manager import MigrationManager
-from agno.db.sqlite import SqliteDb
-from agno.os import AgentOS
+from egpt.agent.agent import Agent
+from egpt.db.migrations.manager import MigrationManager
+from egpt.db.sqlite import SqliteDb
+from egpt.os import AgentOS
 
 LATEST_SCHEMA_VERSION = MigrationManager.available_versions[-1][1].public
 

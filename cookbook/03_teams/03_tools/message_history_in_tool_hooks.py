@@ -8,11 +8,11 @@ via run_context.messages.
 
 from typing import Any, Callable, Dict
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.base import RunContext
-from agno.team import Team
-from agno.tools import FunctionCall, tool
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.base import RunContext
+from egpt.team import Team
+from egpt.tools import FunctionCall, tool
 
 # ---------------------------------------------------------------------------
 # Create Members

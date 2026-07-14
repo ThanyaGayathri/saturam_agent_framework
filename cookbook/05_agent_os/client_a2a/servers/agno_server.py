@@ -12,10 +12,10 @@ Usage:
 The server will start at http://localhost:7003
 """
 
-from agno.agent.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
+from egpt.agent.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
 
 # ---------------------------------------------------------------------------
 # Create Example

@@ -8,7 +8,7 @@ Anthropic's trend is universal structured output support.
 
 import pytest
 
-from agno.models.anthropic.claude import Claude
+from egpt.models.anthropic.claude import Claude
 
 
 class TestSupportsStructuredOutputs:

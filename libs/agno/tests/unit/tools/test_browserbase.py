@@ -10,7 +10,7 @@ from playwright.async_api import BrowserContext as AsyncBrowserContext
 from playwright.async_api import Page as AsyncPage
 from playwright.sync_api import Browser, BrowserContext, Page
 
-from agno.tools.browserbase import BrowserbaseTools
+from egpt.tools.browserbase import BrowserbaseTools
 
 TEST_API_KEY = os.environ.get("BROWSERBASE_API_KEY", "test_api_key")
 TEST_PROJECT_ID = os.environ.get("BROWSERBASE_PROJECT_ID", "test_project_id")
@@ -20,7 +20,7 @@ TEST_BASE_URL = os.environ.get("BROWSERBASE_BASE_URL")
 @pytest.fixture
 def mock_browserbase():
     """Create a mock Browserbase client."""
-    with patch("agno.tools.browserbase.Browserbase") as mock_browserbase_cls:
+    with patch("egpt.tools.browserbase.Browserbase") as mock_browserbase_cls:
         mock_client = Mock()
         mock_sessions = Mock()
         mock_client.sessions = mock_sessions
@@ -71,7 +71,7 @@ def browserbase_tools(mock_browserbase):
 
 def test_init_with_env_vars():
     """Test initialization with environment variables."""
-    with patch("agno.tools.browserbase.Browserbase"):
+    with patch("egpt.tools.browserbase.Browserbase"):
         with patch.dict(
             "os.environ", {"BROWSERBASE_API_KEY": TEST_API_KEY, "BROWSERBASE_PROJECT_ID": TEST_PROJECT_ID}, clear=True
         ):  # Clear=True to ensure no other env vars leak in
@@ -83,7 +83,7 @@ def test_init_with_env_vars():
 
 def test_init_with_params():
     """Test initialization with parameters."""
-    with patch("agno.tools.browserbase.Browserbase"), patch.dict("os.environ", {}, clear=True):
+    with patch("egpt.tools.browserbase.Browserbase"), patch.dict("os.environ", {}, clear=True):
         tools = BrowserbaseTools(api_key="param_api_key", project_id="param_project_id", base_url=TEST_BASE_URL)
         assert tools.api_key == "param_api_key"
         assert tools.project_id == "param_project_id"
@@ -101,7 +101,7 @@ def test_init_with_missing_project_id():
     """Test initialization with missing project ID raises ValueError."""
     with (
         patch.dict("os.environ", {"BROWSERBASE_API_KEY": TEST_API_KEY}, clear=True),
-        patch("agno.tools.browserbase.Browserbase"),
+        patch("egpt.tools.browserbase.Browserbase"),
     ):
         with pytest.raises(ValueError, match="BROWSERBASE_PROJECT_ID is required"):
             BrowserbaseTools()
@@ -225,7 +225,7 @@ def test_get_page_content(browserbase_tools, mock_playwright):
 def test_get_page_content_raw_html(mock_browserbase, mock_playwright):
     """Test get_page_content method with parse_html=False returns raw HTML."""
     with (
-        patch("agno.tools.browserbase.Browserbase"),
+        patch("egpt.tools.browserbase.Browserbase"),
         patch.dict("os.environ", {"BROWSERBASE_API_KEY": TEST_API_KEY, "BROWSERBASE_PROJECT_ID": TEST_PROJECT_ID}),
     ):
         tools = BrowserbaseTools(parse_html=False)
@@ -352,7 +352,7 @@ def async_browserbase_tools(mock_browserbase):
 
 def test_async_tools_registered():
     """Test that both sync and async tools are registered automatically."""
-    with patch("agno.tools.browserbase.Browserbase"):
+    with patch("egpt.tools.browserbase.Browserbase"):
         with patch.dict(
             "os.environ", {"BROWSERBASE_API_KEY": TEST_API_KEY, "BROWSERBASE_PROJECT_ID": TEST_PROJECT_ID}, clear=True
         ):
@@ -474,7 +474,7 @@ async def test_aget_page_content(async_browserbase_tools, mock_async_playwright)
 async def test_aget_page_content_raw_html(mock_browserbase, mock_async_playwright):
     """Test aget_page_content method with parse_html=False returns raw HTML."""
     with (
-        patch("agno.tools.browserbase.Browserbase"),
+        patch("egpt.tools.browserbase.Browserbase"),
         patch.dict("os.environ", {"BROWSERBASE_API_KEY": TEST_API_KEY, "BROWSERBASE_PROJECT_ID": TEST_PROJECT_ID}),
     ):
         tools = BrowserbaseTools(parse_html=False)

@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent import Agent
-from agno.models.response import ToolExecution
-from agno.os.app import AgentOS
-from agno.os.interfaces.a2a import A2A
-from agno.run.agent import (
+from egpt.agent import Agent
+from egpt.models.response import ToolExecution
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.a2a import A2A
+from egpt.run.agent import (
     MemoryUpdateCompletedEvent,
     MemoryUpdateStartedEvent,
     ReasoningCompletedEvent,
@@ -25,19 +25,19 @@ from agno.run.agent import (
     ToolCallCompletedEvent,
     ToolCallStartedEvent,
 )
-from agno.run.workflow import (
+from egpt.run.workflow import (
     StepCompletedEvent as WorkflowStepCompletedEvent,
 )
-from agno.run.workflow import (
+from egpt.run.workflow import (
     StepStartedEvent as WorkflowStepStartedEvent,
 )
-from agno.run.workflow import (
+from egpt.run.workflow import (
     WorkflowCompletedEvent,
     WorkflowRunOutput,
     WorkflowStartedEvent,
 )
-from agno.team import Team
-from agno.workflow import Workflow
+from egpt.team import Team
+from egpt.workflow import Workflow
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +49,7 @@ def _a2a_resolve_shared_instance(monkeypatch):
     these tests set on the shared instance. Force ``create_fresh=False`` so the patched
     instance is what runs; request isolation itself is covered by unit tests.
     """
-    import agno.os.interfaces.a2a.router as a2a_router
+    import egpt.os.interfaces.a2a.router as a2a_router
 
     def _force_shared(real):
         def wrapper(*args, **kwargs):
@@ -902,7 +902,7 @@ def test_a2a_streaming_with_media_artifacts(test_agent: Agent, test_client: Test
     """Test that media outputs from RunCompletedEvent are mapped to A2A Artifacts."""
 
     async def mock_event_stream() -> AsyncIterator[RunOutputEvent]:
-        from agno.media import Audio, Image, Video
+        from egpt.media import Audio, Image, Video
 
         yield RunStartedEvent(
             session_id="context-789",

@@ -5,9 +5,9 @@ Simple Response Performance Evaluation
 Demonstrates baseline response performance for a single prompt.
 """
 
-from agno.agent import Agent
-from agno.eval.performance import PerformanceEval
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.eval.performance import PerformanceEval
+from egpt.models.openai import OpenAIChat
 
 
 # ---------------------------------------------------------------------------

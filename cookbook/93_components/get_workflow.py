@@ -5,8 +5,8 @@ Load Workflow from Database
 Demonstrates loading a workflow from the database by ID and running it.
 """
 
-from agno.db.postgres import PostgresDb
-from agno.workflow.workflow import get_workflow_by_id, get_workflows  # noqa: F401
+from egpt.db.postgres import PostgresDb
+from egpt.workflow.workflow import get_workflow_by_id, get_workflows  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Create Database Client

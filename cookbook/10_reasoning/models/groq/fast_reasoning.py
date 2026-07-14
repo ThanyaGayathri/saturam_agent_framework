@@ -7,8 +7,8 @@ Demonstrates this reasoning cookbook example.
 
 import time
 
-from agno.agent import Agent
-from agno.models.groq import Groq
+from egpt.agent import Agent
+from egpt.models.groq import Groq
 from rich.console import Console
 
 

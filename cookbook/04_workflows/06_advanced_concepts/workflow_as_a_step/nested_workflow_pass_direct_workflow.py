@@ -13,11 +13,11 @@ Both approaches are equivalent:
     steps=[inner_workflow]
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 def summarize(step_input: StepInput) -> StepOutput:

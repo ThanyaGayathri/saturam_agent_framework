@@ -5,8 +5,8 @@ Tool Choice
 Tool Choice Control.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 
 def get_weather(city: str) -> str:

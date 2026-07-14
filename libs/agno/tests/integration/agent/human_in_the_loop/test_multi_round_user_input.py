@@ -4,10 +4,10 @@ These tests verify that active_requirements is correctly populated across
 multiple continue_run() calls when new tools are paused in each round.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.decorator import tool
-from agno.tools.user_control_flow import UserControlFlowTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.decorator import tool
+from egpt.tools.user_control_flow import UserControlFlowTools
 
 
 def test_multi_round_user_input_with_decorator(shared_db):

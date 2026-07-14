@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from agno.db.schemas import UserMemory
+from egpt.db.schemas import UserMemory
 
 
 def test_user_memory_from_dict_handles_epoch_ints():

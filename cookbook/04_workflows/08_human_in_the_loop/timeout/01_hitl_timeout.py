@@ -17,12 +17,12 @@ StepRequirement for UI countdown display.
 
 import time
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.workflow.step import Step
-from agno.workflow.types import HumanReview, OnTimeout
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.workflow.step import Step
+from egpt.workflow.types import HumanReview, OnTimeout
+from egpt.workflow.workflow import Workflow
 
 draft_agent = Agent(
     name="Drafter",

@@ -21,13 +21,13 @@ Example prompt:
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.knowledge import Knowledge
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.models.openai import OpenAIResponses
-from agno.tools.coding import CodingTools
-from agno.vectordb.chroma import ChromaDb, SearchType
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.knowledge import Knowledge
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.coding import CodingTools
+from egpt.vectordb.chroma import ChromaDb, SearchType
 
 # ---------------------------------------------------------------------------
 # Workspace

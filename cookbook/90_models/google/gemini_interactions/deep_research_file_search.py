@@ -22,8 +22,8 @@ import tempfile
 import time
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
 from google import genai
 
 # ---------------------------------------------------------------------------

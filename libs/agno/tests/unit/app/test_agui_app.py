@@ -15,11 +15,11 @@ from ag_ui.core.types import (
     VideoInputContent,
 )
 
-from agno.os.interfaces.agui.input import extract_context, extract_media, extract_user_input
-from agno.os.interfaces.agui.router import run_entity
-from agno.os.interfaces.agui.state import StreamState
-from agno.os.interfaces.agui.stream import async_stream_agno_response_as_agui_events
-from agno.run.agent import RunContentEvent, RunEvent, ToolCallCompletedEvent, ToolCallStartedEvent
+from egpt.os.interfaces.agui.input import extract_context, extract_media, extract_user_input
+from egpt.os.interfaces.agui.router import run_entity
+from egpt.os.interfaces.agui.state import StreamState
+from egpt.os.interfaces.agui.stream import async_stream_agno_response_as_agui_events
+from egpt.run.agent import RunContentEvent, RunEvent, ToolCallCompletedEvent, ToolCallStartedEvent
 
 
 def test_event_buffer_initial_state():
@@ -155,7 +155,7 @@ def test_event_buffer_edge_cases():
 @pytest.mark.asyncio
 async def test_stream_basic():
     """Test the async_stream_agno_response_as_agui_events function emits all expected events in a basic case."""
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     async def mock_stream():
         text_response = RunContentEvent()
@@ -182,7 +182,7 @@ async def test_stream_basic():
 @pytest.mark.asyncio
 async def test_stream_with_tool_call_blocking():
     """Test that events are properly buffered during tool calls"""
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_with_tool_calls():
         # Start with a text response
@@ -239,8 +239,8 @@ async def test_stream_with_tool_call_blocking():
 @pytest.mark.asyncio
 async def test_concurrent_tool_calls_no_infinite_loop():
     """Tests multiple concurrent tool calls without infinite loop"""
-    from agno.models.response import ToolExecution
-    from agno.run.agent import RunEvent
+    from egpt.models.response import ToolExecution
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_with_three_concurrent_tools():
         # Initial text response
@@ -344,8 +344,8 @@ async def test_text_message_end_before_tool_call_start():
     AG-UI protocol violations that cause errors like:
     "Cannot send event type 'TOOL_CALL_START' after 'TEXT_MESSAGE_START': Send 'TEXT_MESSAGE_END' first."
     """
-    from agno.models.response import ToolExecution
-    from agno.run.agent import RunEvent
+    from egpt.models.response import ToolExecution
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_with_text_then_tool():
         # Start with text content (this starts a TEXT_MESSAGE)
@@ -418,7 +418,7 @@ async def test_missing_text_message_content_events():
     Tests that TEXT_MESSAGE_CONTENT events are properly emitted when the agent
     generates text content, ensuring the frontend UI shows the response content.
     """
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_with_content():
         # Text response with actual content
@@ -469,8 +469,8 @@ async def test_duplicate_tool_call_result_events():
 
     Tests that tool call results are only emitted once per tool call completion.
     """
-    from agno.models.response import ToolExecution
-    from agno.run.agent import RunEvent
+    from egpt.models.response import ToolExecution
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_with_tool_completion():
         # Start a tool call
@@ -515,7 +515,7 @@ async def test_duplicate_tool_call_result_events():
 @pytest.mark.asyncio
 async def test_empty_content_chunks_handling():
     """Test that empty content chunks don't create unnecessary events"""
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_with_empty_content():
         # Empty content chunk
@@ -555,7 +555,7 @@ async def test_empty_content_chunks_handling():
 @pytest.mark.asyncio
 async def test_stream_ends_without_completion_event():
     """Test synthetic completion when stream ends naturally without completion event"""
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_ending_abruptly():
         # Text response
@@ -580,7 +580,7 @@ async def test_stream_ends_without_completion_event():
 @pytest.mark.asyncio
 async def test_reasoning_events_handling():
     """Test that reasoning events emit proper REASONING_* AG-UI events"""
-    from agno.run.agent import (
+    from egpt.run.agent import (
         ReasoningCompletedEvent,
         ReasoningContentDeltaEvent,
         ReasoningStartedEvent,
@@ -630,7 +630,7 @@ async def test_reasoning_events_handling():
 @pytest.mark.asyncio
 async def test_reasoning_content_delta_streaming():
     """Test that reasoning_content_delta events produce REASONING_MESSAGE_CONTENT events"""
-    from agno.run.agent import ReasoningContentDeltaEvent, RunEvent
+    from egpt.run.agent import ReasoningContentDeltaEvent, RunEvent
 
     async def mock_stream_with_reasoning_deltas():
         # Start reasoning
@@ -693,7 +693,7 @@ async def test_reasoning_content_delta_streaming():
 @pytest.mark.asyncio
 async def test_reasoning_auto_start():
     """Test that reasoning_content_delta without prior reasoning_started auto-creates reasoning phase"""
-    from agno.run.agent import ReasoningContentDeltaEvent, RunEvent
+    from egpt.run.agent import ReasoningContentDeltaEvent, RunEvent
 
     async def mock_stream_delta_without_start():
         # Delta without prior reasoning_started
@@ -738,7 +738,7 @@ async def test_reasoning_auto_start():
 @pytest.mark.asyncio
 async def test_raw_event_catch_all():
     """Test that unmapped agno events are emitted as RawEvent"""
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_with_unmapped_event():
         # An unmapped event (e.g., memory_update_started)
@@ -782,7 +782,7 @@ async def test_raw_event_catch_all():
 @pytest.mark.asyncio
 async def test_content_event_no_spurious_raw():
     """Test that run_content events with empty content do NOT produce spurious RawEvents"""
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_empty_content():
         # Content event with empty string (common during streaming)
@@ -818,8 +818,8 @@ async def test_content_event_no_spurious_raw():
 @pytest.mark.asyncio
 async def test_reasoning_step_events_no_duplication():
     """Test that ReasoningStepEvent formatting avoids accumulated content duplication"""
-    from agno.reasoning.step import ReasoningStep
-    from agno.run.agent import (
+    from egpt.reasoning.step import ReasoningStep
+    from egpt.run.agent import (
         ReasoningCompletedEvent,
         ReasoningStartedEvent,
         ReasoningStepEvent,
@@ -867,7 +867,7 @@ async def test_reasoning_step_events_no_duplication():
 @pytest.mark.asyncio
 async def test_orphaned_reasoning_cleanup():
     """Test that reasoning sessions are closed when stream ends without ReasoningCompletedEvent"""
-    from agno.run.agent import (
+    from egpt.run.agent import (
         ReasoningContentDeltaEvent,
         ReasoningStartedEvent,
     )
@@ -899,8 +899,8 @@ async def test_orphaned_reasoning_cleanup():
 @pytest.mark.asyncio
 async def test_tool_call_without_result():
     """Test tool calls that complete without results (edge case)"""
-    from agno.models.response import ToolExecution
-    from agno.run.agent import RunEvent
+    from egpt.models.response import ToolExecution
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_tool_no_result():
         # Start tool call
@@ -943,8 +943,8 @@ async def test_tool_call_without_result():
 @pytest.mark.asyncio
 async def test_mixed_content_and_tools_complex():
     """Complex test with interleaved content and tool calls (comprehensive scenario)"""
-    from agno.models.response import ToolExecution
-    from agno.run.agent import RunEvent
+    from egpt.models.response import ToolExecution
+    from egpt.run.agent import RunEvent
 
     async def mock_complex_interleaved_stream():
         # Initial content
@@ -1046,8 +1046,8 @@ async def test_mixed_content_and_tools_complex():
 @pytest.mark.asyncio
 async def test_large_scale_concurrent_tools():
     """Stress test with many concurrent tool calls to verify scalability"""
-    from agno.models.response import ToolExecution
-    from agno.run.agent import RunEvent
+    from egpt.models.response import ToolExecution
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_with_many_tools():
         # Create 10 concurrent tool calls to stress test the system
@@ -1101,8 +1101,8 @@ async def test_large_scale_concurrent_tools():
 @pytest.mark.asyncio
 async def test_event_ordering_invariants():
     """Test critical event ordering invariants that must never be violated"""
-    from agno.models.response import ToolExecution
-    from agno.run.agent import RunEvent
+    from egpt.models.response import ToolExecution
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_for_ordering():
         # Text content
@@ -1178,7 +1178,7 @@ async def test_event_ordering_invariants():
 @pytest.mark.asyncio
 async def test_completion_event_race_condition():
     """Test the specific race condition that was causing protocol violations"""
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_with_race_condition():
         # Multiple content chunks
@@ -1230,8 +1230,8 @@ async def test_completion_event_race_condition():
 @pytest.mark.asyncio
 async def test_message_id_separation_after_tool_calls():
     """Test for text messages after tool calls should have different message_ids."""
-    from agno.models.response import ToolExecution
-    from agno.run.agent import RunEvent
+    from egpt.models.response import ToolExecution
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_with_separated_messages():
         # First text message
@@ -1312,8 +1312,8 @@ async def test_multiple_tool_calls_message_id_separation():
     """
     Test that multiple tool calls properly separate messages with unique message_ids.
     """
-    from agno.models.response import ToolExecution
-    from agno.run.agent import RunEvent
+    from egpt.models.response import ToolExecution
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_with_multiple_tools():
         # Initial text
@@ -1404,7 +1404,7 @@ async def test_message_id_consistency_within_message():
     """
     Test that all events within a single message (start, content chunks, end) use the same message_id.
     """
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     async def mock_stream_with_chunked_content():
         # Multiple content chunks for first message
@@ -1467,8 +1467,8 @@ async def test_message_id_regression_prevention():
     Ensures that text messages separated by tool calls maintain unique message_ids,
     preventing improper message grouping in AG-UI frontends.
     """
-    from agno.models.response import ToolExecution
-    from agno.run.agent import RunEvent
+    from egpt.models.response import ToolExecution
+    from egpt.run.agent import RunEvent
 
     async def mock_complex_message_tool_sequence():
         # Text before tool call
@@ -1559,7 +1559,7 @@ async def test_message_id_regression_prevention():
 
 def test_validate_state_with_valid_dict():
     """Test validate_state with valid dict."""
-    from agno.os.interfaces.agui.input import validate_state
+    from egpt.os.interfaces.agui.input import validate_state
 
     result = validate_state({"user_name": "Alice", "counter": 5}, "test_thread")
     assert result == {"user_name": "Alice", "counter": 5}
@@ -1567,7 +1567,7 @@ def test_validate_state_with_valid_dict():
 
 def test_validate_state_with_none():
     """Test validate_state with None state."""
-    from agno.os.interfaces.agui.input import validate_state
+    from egpt.os.interfaces.agui.input import validate_state
 
     result = validate_state(None, "test_thread")
     assert result is None
@@ -1575,7 +1575,7 @@ def test_validate_state_with_none():
 
 def test_validate_state_with_invalid_type():
     """Test validate_state with non-dict type returns None."""
-    from agno.os.interfaces.agui.input import validate_state
+    from egpt.os.interfaces.agui.input import validate_state
 
     # String state should be rejected
     result = validate_state("invalid_string", "test_thread")
@@ -1592,7 +1592,7 @@ def test_validate_state_with_basemodel():
     """Test validate_state with Pydantic BaseModel."""
     from pydantic import BaseModel
 
-    from agno.os.interfaces.agui.input import validate_state
+    from egpt.os.interfaces.agui.input import validate_state
 
     class TestModel(BaseModel):
         name: str
@@ -1607,7 +1607,7 @@ def test_validate_state_with_dataclass():
     """Test validate_state with dataclass."""
     from dataclasses import dataclass
 
-    from agno.os.interfaces.agui.input import validate_state
+    from egpt.os.interfaces.agui.input import validate_state
 
     @dataclass
     class TestDataclass:
@@ -1621,7 +1621,7 @@ def test_validate_state_with_dataclass():
 
 def test_validate_state_with_to_dict_method():
     """Test validate_state with object having to_dict method."""
-    from agno.os.interfaces.agui.input import validate_state
+    from egpt.os.interfaces.agui.input import validate_state
 
     class TestClass:
         def __init__(self, name: str, count: int):
@@ -1638,7 +1638,7 @@ def test_validate_state_with_to_dict_method():
 
 def test_validate_state_with_invalid_to_dict():
     """Test validate_state with to_dict method returning non-dict."""
-    from agno.os.interfaces.agui.input import validate_state
+    from egpt.os.interfaces.agui.input import validate_state
 
     class TestClass:
         def to_dict(self):
@@ -1685,7 +1685,7 @@ def test_event_buffer_compute_delta_no_snapshot():
 @pytest.mark.asyncio
 async def test_final_state_snapshot_at_completion():
     """Test that a StateSnapshotEvent is emitted before RUN_FINISHED when state is provided."""
-    from agno.run.agent import RunCompletedEvent, RunEvent
+    from egpt.run.agent import RunCompletedEvent, RunEvent
 
     final_state = {"score": 42, "done": True}
 
@@ -1724,7 +1724,7 @@ async def test_final_state_snapshot_at_completion():
 @pytest.mark.asyncio
 async def test_state_delta_after_tool_call():
     """Test that a StateDeltaEvent is emitted when state changes during a tool call."""
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     # Shared mutable state dict (same reference the agent would use)
     run_state = {"counter": 0, "status": "idle"}
@@ -1785,7 +1785,7 @@ async def test_state_delta_after_tool_call():
 @pytest.mark.asyncio
 async def test_no_state_events_when_no_state():
     """Test backward compatibility: no state events when run_state is None."""
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     async def mock_stream():
         text_response = RunContentEvent()
@@ -1810,7 +1810,7 @@ async def test_no_state_events_when_no_state():
 @pytest.mark.asyncio
 async def test_no_delta_when_state_unchanged():
     """Test that no StateDeltaEvent is emitted when a tool call does not mutate state."""
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     run_state = {"counter": 0}
 

@@ -9,9 +9,9 @@ in history from the previous turn.
 Run: .venvs/demo/bin/python cookbook/90_models/anthropic/server_tools_multi_turn.py
 """
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.models.anthropic import Claude
 
 agent = Agent(
     model=Claude(

@@ -7,8 +7,8 @@ Demonstrates this reasoning cookbook example.
 
 import os
 
-from agno.agent import Agent
-from agno.models.azure import AzureAIFoundry
+from egpt.agent import Agent
+from egpt.models.azure import AzureAIFoundry
 
 
 # ---------------------------------------------------------------------------

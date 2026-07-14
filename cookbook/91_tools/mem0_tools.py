@@ -10,9 +10,9 @@ export MEM0_PROJECT_ID=<your-mem0-project-id> (Optional)
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.mem0 import Mem0Tools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.mem0 import Mem0Tools
 
 # ---------------------------------------------------------------------------
 # Create Agent

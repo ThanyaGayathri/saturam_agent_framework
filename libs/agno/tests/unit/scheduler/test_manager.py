@@ -8,7 +8,7 @@ import pytest
 pytest.importorskip("croniter", reason="croniter not installed")
 pytest.importorskip("pytz", reason="pytz not installed")
 
-from agno.scheduler.manager import ScheduleManager  # noqa: E402
+from egpt.scheduler.manager import ScheduleManager  # noqa: E402
 
 # =============================================================================
 # Fixtures

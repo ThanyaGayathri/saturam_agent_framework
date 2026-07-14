@@ -1,6 +1,6 @@
-from agno.agent.agent import Agent
-from agno.media import Image
-from agno.models.azure import AzureOpenAI
+from egpt.agent.agent import Agent
+from egpt.media import Image
+from egpt.models.azure import AzureOpenAI
 
 
 def test_image_input():

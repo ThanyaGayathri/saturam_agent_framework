@@ -8,8 +8,8 @@ Prerequisites:
   You can obtain the API key by creating an account at https://financialdatasets.ai
 """
 
-from agno.agent import Agent
-from agno.tools.financial_datasets import FinancialDatasetsTools
+from egpt.agent import Agent
+from egpt.tools.financial_datasets import FinancialDatasetsTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

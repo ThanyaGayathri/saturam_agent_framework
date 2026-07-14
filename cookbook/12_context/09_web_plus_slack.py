@@ -32,10 +32,10 @@ from __future__ import annotations
 
 import asyncio
 
-from agno.agent import Agent
-from agno.context.slack import SlackContextProvider
-from agno.context.web import ParallelBackend, WebContextProvider
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context.slack import SlackContextProvider
+from egpt.context.web import ParallelBackend, WebContextProvider
+from egpt.models.openai import OpenAIResponses
 
 # Sub-agents do the tool work — cheaper model. Outer agent synthesizes.
 provider_model = OpenAIResponses(id="gpt-5.4-mini")

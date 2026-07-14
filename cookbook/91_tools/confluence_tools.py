@@ -5,8 +5,8 @@ Confluence Tools
 Demonstrates confluence tools.
 """
 
-from agno.agent import Agent
-from agno.tools.confluence import ConfluenceTools
+from egpt.agent import Agent
+from egpt.tools.confluence import ConfluenceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

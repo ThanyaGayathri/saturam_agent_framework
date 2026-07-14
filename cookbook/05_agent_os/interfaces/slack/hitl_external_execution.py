@@ -17,13 +17,13 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 
 from typing import Dict
 
-from agno.agent import Agent
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os.app import AgentOS
-from agno.os.interfaces.slack import Slack
-from agno.tools import tool
-from agno.tools.duckduckgo import DuckDuckGoTools
+from egpt.agent import Agent
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.slack import Slack
+from egpt.tools import tool
+from egpt.tools.duckduckgo import DuckDuckGoTools
 
 # Stand-in runbook store — replace with Confluence / Notion client
 

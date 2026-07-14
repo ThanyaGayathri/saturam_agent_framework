@@ -5,11 +5,11 @@ Research Team
 Demonstrates research team.
 """
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os.app import AgentOS
-from agno.team.team import Team
-from agno.tools.websearch import WebSearchTools
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os.app import AgentOS
+from egpt.team.team import Team
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

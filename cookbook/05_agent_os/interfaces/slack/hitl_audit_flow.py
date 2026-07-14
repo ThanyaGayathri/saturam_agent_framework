@@ -11,14 +11,14 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 from typing import Literal
 from uuid import uuid4
 
-from agno.agent import Agent
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os.app import AgentOS
-from agno.os.interfaces.slack import Slack
-from agno.tools import tool
-from agno.tools.user_feedback import UserFeedbackTools
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.slack import Slack
+from egpt.tools import tool
+from egpt.tools.user_feedback import UserFeedbackTools
+from egpt.tools.websearch import WebSearchTools
 
 _SERVICES = {
     "api-gateway": {"region": "eu-west", "replicas": 12, "runbook": "rb/api-gateway"},

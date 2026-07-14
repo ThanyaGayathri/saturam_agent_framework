@@ -7,8 +7,8 @@ Cookbook example for `openai/responses/deep_research_agent.py`.
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

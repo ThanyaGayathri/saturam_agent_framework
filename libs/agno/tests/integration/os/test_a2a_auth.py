@@ -13,11 +13,11 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.os import AgentOS
-from agno.os.config import AuthorizationConfig
-from agno.os.interfaces.a2a import A2A
+from egpt.agent.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.os import AgentOS
+from egpt.os.config import AuthorizationConfig
+from egpt.os.interfaces.a2a import A2A
 
 JWT_SECRET = "test-secret-for-a2a-auth"
 TEST_OS_ID = "a2a-auth-os"
@@ -75,6 +75,6 @@ class TestInterfaceSelfAuthMarkers:
         assert A2A.authenticates_own_requests is False
 
     def test_base_interface_defaults_to_not_self_authenticating(self):
-        from agno.os.interfaces.base import BaseInterface
+        from egpt.os.interfaces.base import BaseInterface
 
         assert BaseInterface.authenticates_own_requests is False

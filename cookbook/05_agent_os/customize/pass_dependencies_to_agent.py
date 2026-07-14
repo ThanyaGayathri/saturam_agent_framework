@@ -1,8 +1,8 @@
 """Example for AgentOS to show how to pass dependencies to an agent."""
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.os import AgentOS
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.os import AgentOS
 
 # ---------------------------------------------------------------------------
 # Create Example

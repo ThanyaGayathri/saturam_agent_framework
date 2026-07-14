@@ -9,9 +9,9 @@ import base64
 import wave
 from typing import Iterator
 
-from agno.agent import Agent, RunOutputEvent  # noqa
-from agno.db.in_memory import InMemoryDb
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent, RunOutputEvent  # noqa
+from egpt.db.in_memory import InMemoryDb
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Agent

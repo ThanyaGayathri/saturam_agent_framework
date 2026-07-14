@@ -8,13 +8,13 @@ Demonstrates AgentOS knowledge integration with both sync and async database set
 import asyncio
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.db.postgres import AsyncPostgresDb, PostgresDb
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.vectordb.pgvector import PgVector, SearchType
+from egpt.agent import Agent
+from egpt.db.postgres import AsyncPostgresDb, PostgresDb
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.vectordb.pgvector import PgVector, SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

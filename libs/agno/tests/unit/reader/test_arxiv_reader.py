@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 import arxiv
 import pytest
 
-from agno.knowledge.reader.arxiv_reader import ArxivReader
+from egpt.knowledge.reader.arxiv_reader import ArxivReader
 
 
 @pytest.fixture
@@ -222,7 +222,7 @@ async def test_async_read_with_special_characters():
 
 def test_arxiv_reader_chunk_size_propagation():
     """Test that chunk_size is propagated to default chunking strategy"""
-    from agno.knowledge.chunking.fixed import FixedSizeChunking
+    from egpt.knowledge.chunking.fixed import FixedSizeChunking
 
     reader = ArxivReader(chunk_size=300)
     assert reader.chunk_size == 300
@@ -232,7 +232,7 @@ def test_arxiv_reader_chunk_size_propagation():
 
 def test_arxiv_reader_default_chunk_size():
     """Test default chunk_size is 5000"""
-    from agno.knowledge.chunking.fixed import FixedSizeChunking
+    from egpt.knowledge.chunking.fixed import FixedSizeChunking
 
     reader = ArxivReader()
     assert reader.chunk_size == 5000
@@ -242,7 +242,7 @@ def test_arxiv_reader_default_chunk_size():
 
 def test_arxiv_reader_explicit_strategy_preserved():
     """Test that explicit chunking_strategy is not overridden"""
-    from agno.knowledge.chunking.semantic import SemanticChunking
+    from egpt.knowledge.chunking.semantic import SemanticChunking
 
     custom_strategy = SemanticChunking(chunk_size=400)
     reader = ArxivReader(chunk_size=300, chunking_strategy=custom_strategy)

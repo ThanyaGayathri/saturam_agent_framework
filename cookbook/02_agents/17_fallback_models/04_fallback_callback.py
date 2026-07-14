@@ -10,10 +10,10 @@ The callback fires *after* the fallback model succeeds (including
 after the full stream completes for streaming calls).
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.models.fallback import FallbackConfig
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.models.fallback import FallbackConfig
+from egpt.models.openai import OpenAIChat
 
 
 # ---------------------------------------------------------------------------

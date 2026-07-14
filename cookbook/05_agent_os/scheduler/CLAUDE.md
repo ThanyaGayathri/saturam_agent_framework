@@ -63,14 +63,14 @@ After each test, update `cookbook/05_agent_os/scheduler/TEST_LOG.md` with:
 
 | Component | Location |
 |-----------|----------|
-| Scheduler core | `libs/agno/agno/scheduler/` |
-| Cron utilities | `libs/agno/agno/scheduler/cron.py` |
-| Schedule executor | `libs/agno/agno/scheduler/executor.py` |
-| Schedule poller | `libs/agno/agno/scheduler/poller.py` |
-| DB schemas | `libs/agno/agno/db/schemas/scheduler.py` |
-| API router | `libs/agno/agno/os/routers/schedules/` |
-| API schemas | `libs/agno/agno/os/routers/schedules/schema.py` |
-| AgentOS integration | `libs/agno/agno/os/app.py` |
+| Scheduler core | `libs/agno/egpt/scheduler/` |
+| Cron utilities | `libs/agno/egpt/scheduler/cron.py` |
+| Schedule executor | `libs/agno/egpt/scheduler/executor.py` |
+| Schedule poller | `libs/agno/egpt/scheduler/poller.py` |
+| DB schemas | `libs/agno/egpt/db/schemas/scheduler.py` |
+| API router | `libs/agno/egpt/os/routers/schedules/` |
+| API schemas | `libs/agno/egpt/os/routers/schedules/schema.py` |
+| AgentOS integration | `libs/agno/egpt/os/app.py` |
 
 ---
 

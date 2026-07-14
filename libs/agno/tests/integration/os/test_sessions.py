@@ -6,17 +6,17 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.message import Message
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.os.utils import get_session_name
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.run.team import TeamRunOutput
-from agno.session.agent import AgentSession
-from agno.session.team import TeamSession
+from egpt.agent.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.message import Message
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.os.utils import get_session_name
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.team import TeamRunOutput
+from egpt.session.agent import AgentSession
+from egpt.session.team import TeamSession
 
 
 @pytest.fixture
@@ -802,7 +802,7 @@ def test_create_empty_session_auto_generates_id(shared_db, test_agent: Agent):
 
 def test_create_empty_team_session(shared_db, test_agent: Agent):
     """Test creating an empty team session."""
-    from agno.team.team import Team
+    from egpt.team.team import Team
 
     # Create a team
     test_team = Team(
@@ -837,7 +837,7 @@ def test_create_empty_team_session(shared_db, test_agent: Agent):
 
 def test_create_empty_workflow_session(shared_db, test_agent: Agent):
     """Test creating an empty workflow session."""
-    from agno.workflow.workflow import Workflow
+    from egpt.workflow.workflow import Workflow
 
     # Create a workflow
     def simple_workflow(session_state):

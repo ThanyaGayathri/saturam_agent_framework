@@ -19,13 +19,13 @@ Bring up local services with:
     ./cookbook/scripts/run_pgvector.sh     # Postgres on :5532
 """
 
-from agno.agent import Agent
-from agno.db.clickhouse import ClickhouseDb
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.tools.hackernews import HackerNewsTools
-from agno.tracing.setup import setup_tracing
+from egpt.agent import Agent
+from egpt.db.clickhouse import ClickhouseDb
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tracing.setup import setup_tracing
 
 # ---------------------------------------------------------------------------
 # Databases

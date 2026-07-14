@@ -1,7 +1,7 @@
-from agno.agent.agent import Agent
-from agno.media import Image
-from agno.models.openai.chat import OpenAIChat
-from agno.team.team import Team
+from egpt.agent.agent import Agent
+from egpt.media import Image
+from egpt.models.openai.chat import OpenAIChat
+from egpt.team.team import Team
 
 
 def test_team_image_input(shared_db, image_path):

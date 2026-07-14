@@ -5,8 +5,8 @@ Anthropic Thinking
 Cookbook example for `anthropic/thinking.py`.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

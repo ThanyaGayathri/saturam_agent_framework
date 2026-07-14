@@ -16,8 +16,8 @@ Prerequisites:
 - Authenticate with: gcloud auth application-default login
 """
 
-from agno.agent import Agent
-from agno.models.vertexai import Claude
+from egpt.agent import Agent
+from egpt.models.vertexai import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent with Adaptive Thinking

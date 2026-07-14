@@ -12,7 +12,7 @@ Usage:
     .venvs/demo/bin/python cookbook/frameworks/antigravity/antigravity_sources.py
 """
 
-from agno.agents.antigravity import AntigravityAgent
+from egpt.agents.antigravity import AntigravityAgent
 
 agent = AntigravityAgent(
     name="Antigravity with Sources",

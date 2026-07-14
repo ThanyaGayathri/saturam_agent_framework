@@ -5,9 +5,9 @@ Cohere Image Agent
 Cookbook example for `cohere/image_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.cohere import Cohere
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.cohere import Cohere
 
 # ---------------------------------------------------------------------------
 # Create Agent

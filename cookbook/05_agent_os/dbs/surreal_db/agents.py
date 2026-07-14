@@ -7,10 +7,10 @@ Demonstrates agents.
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.tools.mcp import MCPTools
 from db import db
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -54,8 +54,8 @@ agno_assist = Agent(
     2. **Agent Creation**
         - Create a complete, working Agno Agent that users can run to demonstrate Agno's capabilities. For example:
         ```python
-        from agno.agent import Agent
-        from agno.tools.websearch import WebSearchTools
+        from egpt.agent import Agent
+        from egpt.tools.websearch import WebSearchTools
 
         agent = Agent(tools=[WebSearchTools()])
 

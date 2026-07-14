@@ -1,4 +1,4 @@
-from agno.team.remote import RemoteTeam
+from egpt.team.remote import RemoteTeam
 
 
 def test_remote_team_exposes_knowledge_filter_attributes() -> None:

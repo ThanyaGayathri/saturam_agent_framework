@@ -11,14 +11,14 @@ Tests cover:
 
 import pytest
 
-from agno.filters import from_dict
-from agno.os.routers.traces.schemas import (
+from egpt.filters import from_dict
+from egpt.os.routers.traces.schemas import (
     TRACE_FILTER_SCHEMA,
     FilterFieldSchema,
     FilterSchemaResponse,
     TraceSearchRequest,
 )
-from agno.os.routers.traces.traces import _apply_user_scope_to_filter
+from egpt.os.routers.traces.traces import _apply_user_scope_to_filter
 
 
 class TestTraceSearchRequestModel:

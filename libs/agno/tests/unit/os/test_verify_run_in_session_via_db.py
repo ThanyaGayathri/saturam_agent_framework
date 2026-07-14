@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi import HTTPException
 
-from agno.db.base import AsyncBaseDb, BaseDb
-from agno.os.middleware.user_scope import verify_run_in_session_via_db
+from egpt.db.base import AsyncBaseDb, BaseDb
+from egpt.os.middleware.user_scope import verify_run_in_session_via_db
 
 
 def _make_session(run_id: str | None):

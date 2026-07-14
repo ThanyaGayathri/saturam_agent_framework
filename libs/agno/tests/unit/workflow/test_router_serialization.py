@@ -13,10 +13,10 @@ from typing import List
 
 import pytest
 
-from agno.registry import Registry
-from agno.workflow.router import Router
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput
+from egpt.registry import Registry
+from egpt.workflow.router import Router
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput
 
 # =============================================================================
 # Sample executor and selector functions for testing
@@ -466,7 +466,7 @@ class TestRouterNestedContainerSerialization:
 
     def test_roundtrip_with_nested_parallel(self, registry_with_functions):
         """Test roundtrip with nested Parallel container inside Router."""
-        from agno.workflow.parallel import Parallel
+        from egpt.workflow.parallel import Parallel
 
         step_1 = Step(name="step-1", executor=router_executor_1)
         step_2 = Step(name="step-2", executor=router_executor_2)
@@ -484,7 +484,7 @@ class TestRouterNestedContainerSerialization:
 
     def test_roundtrip_with_nested_loop(self, registry_with_functions):
         """Test roundtrip with nested Loop container inside Router."""
-        from agno.workflow.loop import Loop
+        from egpt.workflow.loop import Loop
 
         step = Step(name="loop-step", executor=router_executor_1)
         loop = Loop(name="loop-choice", steps=[step], max_iterations=3)
@@ -501,7 +501,7 @@ class TestRouterNestedContainerSerialization:
 
     def test_roundtrip_with_nested_steps_container(self, registry_with_functions):
         """Test roundtrip with nested Steps container inside Router."""
-        from agno.workflow.steps import Steps
+        from egpt.workflow.steps import Steps
 
         step_1 = Step(name="step-1", executor=router_executor_1)
         step_2 = Step(name="step-2", executor=router_executor_2)

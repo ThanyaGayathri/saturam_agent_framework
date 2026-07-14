@@ -7,8 +7,8 @@ Cookbook example for `deepinfra/json_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.deepinfra import DeepInfra  # noqa
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.deepinfra import DeepInfra  # noqa
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

@@ -4,12 +4,12 @@ import asyncio
 import pytest
 import pytest_asyncio
 
-from agno.agent.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai.chat import OpenAIChat
-from agno.vectordb.lancedb.lance_db import LanceDb
-from agno.vectordb.search import SearchType
+from egpt.agent.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai.chat import OpenAIChat
+from egpt.vectordb.lancedb.lance_db import LanceDb
+from egpt.vectordb.search import SearchType
 
 
 # Add a session-scoped event loop fixture

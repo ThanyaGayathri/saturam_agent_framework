@@ -14,13 +14,13 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 
 from typing import Any, Dict
 
-from agno.agent import Agent
-from agno.approval import approval
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os.app import AgentOS
-from agno.os.interfaces.slack import Slack
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.approval import approval
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.slack import Slack
+from egpt.tools import tool
 
 # Mock schema registry
 

@@ -5,8 +5,8 @@ Cohere Basic
 Cookbook example for `cohere/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.cohere import Cohere
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.cohere import Cohere
 import asyncio
 
 # ---------------------------------------------------------------------------

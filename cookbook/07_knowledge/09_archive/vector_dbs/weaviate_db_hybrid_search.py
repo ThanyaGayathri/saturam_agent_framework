@@ -6,10 +6,10 @@ Demonstrates Weaviate hybrid retrieval with interactive querying.
 """
 
 import typer
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.search import SearchType
-from agno.vectordb.weaviate import Distance, VectorIndex, Weaviate
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.search import SearchType
+from egpt.vectordb.weaviate import Distance, VectorIndex, Weaviate
 from rich.prompt import Prompt
 
 # ---------------------------------------------------------------------------

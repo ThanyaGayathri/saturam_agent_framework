@@ -12,8 +12,8 @@ model to produce the final polished answer.
 For structured JSON output, use ``parser_model`` instead (see parser_model.py).
 """
 
-from agno.agent import Agent, RunOutput
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent, RunOutput
+from egpt.models.openai import OpenAIResponses
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

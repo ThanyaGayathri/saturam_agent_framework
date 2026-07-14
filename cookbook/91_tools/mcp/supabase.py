@@ -16,11 +16,11 @@ import asyncio
 import os
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.mcp import MCPTools
-from agno.tools.reasoning import ReasoningTools
-from agno.utils.log import log_error, log_exception, log_info
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.mcp import MCPTools
+from egpt.tools.reasoning import ReasoningTools
+from egpt.utils.log import log_error, log_exception, log_info
 
 # ---------------------------------------------------------------------------
 # Create Agent

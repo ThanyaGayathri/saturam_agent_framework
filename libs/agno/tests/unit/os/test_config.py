@@ -9,13 +9,13 @@ import yaml
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.os.config import AgentOSConfig, ChatConfig, Manifest
-from agno.os.schema import AgentSummaryResponse, ConfigResponse, TeamSummaryResponse
-from agno.os.utils import load_yaml_config
-from agno.team.team import Team
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.os.config import AgentOSConfig, ChatConfig, Manifest
+from egpt.os.schema import AgentSummaryResponse, ConfigResponse, TeamSummaryResponse
+from egpt.os.utils import load_yaml_config
+from egpt.team.team import Team
 
 
 class TestManifest:

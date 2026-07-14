@@ -7,8 +7,8 @@ Cookbook example for `azure/ai_foundry/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.azure import AzureAIFoundry
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.azure import AzureAIFoundry
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

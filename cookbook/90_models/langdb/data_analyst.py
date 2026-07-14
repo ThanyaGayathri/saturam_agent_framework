@@ -2,9 +2,9 @@
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.langdb import LangDB
-from agno.tools.duckdb import DuckDbTools
+from egpt.agent import Agent
+from egpt.models.langdb import LangDB
+from egpt.tools.duckdb import DuckDbTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

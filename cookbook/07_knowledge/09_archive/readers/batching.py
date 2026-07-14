@@ -7,10 +7,10 @@ Demonstrates knowledge insertion with batch embeddings using sync and async APIs
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.lancedb import LanceDb
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.lancedb import LanceDb
 
 
 # ---------------------------------------------------------------------------

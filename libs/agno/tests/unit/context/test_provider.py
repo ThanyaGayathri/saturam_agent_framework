@@ -12,9 +12,9 @@ import json
 
 import pytest
 
-from agno.context import Answer, ContextMode, ContextProvider, Status
-from agno.context.provider import _sanitize_id
-from agno.run import RunContext
+from egpt.context import Answer, ContextMode, ContextProvider, Status
+from egpt.context.provider import _sanitize_id
+from egpt.run import RunContext
 
 
 async def _collect_tool_output(tool, **kwargs) -> str:
@@ -218,7 +218,7 @@ async def test_query_tool_omits_both_when_answer_is_empty():
 @pytest.mark.asyncio
 async def test_query_tool_includes_results_when_populated():
     """When a provider does populate Document results, they're serialized."""
-    from agno.context.provider import Document
+    from egpt.context.provider import Document
 
     class _WithDocs(_EchoProvider):
         async def aquery(self, question: str, *, run_context: RunContext | None = None) -> Answer:
@@ -386,7 +386,7 @@ async def test_base_asetup_is_idempotent():
 @pytest.mark.asyncio
 async def test_query_tool_yields_events_from_sub_agent():
     """Events from the sub-agent must be yielded, not just the final answer."""
-    from agno.run.agent import RunOutput, ToolCallStartedEvent
+    from egpt.run.agent import RunOutput, ToolCallStartedEvent
 
     class _StreamingProvider(_EchoProvider):
         async def _aget_query_agent(self, run_context):
@@ -424,7 +424,7 @@ async def test_query_tool_yields_events_from_sub_agent():
 @pytest.mark.asyncio
 async def test_query_tool_sets_parent_run_id_on_events():
     """Each yielded event must have parent_run_id set to the parent's run_id."""
-    from agno.run.agent import RunOutput, ToolCallStartedEvent
+    from egpt.run.agent import RunOutput, ToolCallStartedEvent
 
     class _StreamingProvider(_EchoProvider):
         async def _aget_query_agent(self, run_context):
@@ -456,7 +456,7 @@ async def test_query_tool_sets_parent_run_id_on_events():
 @pytest.mark.asyncio
 async def test_query_tool_preserves_existing_parent_run_id():
     """If event already has parent_run_id, don't overwrite it (nested sub-agents)."""
-    from agno.run.agent import RunOutput, ToolCallStartedEvent
+    from egpt.run.agent import RunOutput, ToolCallStartedEvent
 
     class _StreamingProvider(_EchoProvider):
         async def _aget_query_agent(self, run_context):
@@ -499,7 +499,7 @@ async def test_streaming_path_and_aquery_path_both_work():
 @pytest.mark.asyncio
 async def test_streaming_path_handles_no_run_context():
     """Streaming works even when run_context is None (parent_run_id will be None)."""
-    from agno.run.agent import RunOutput, ToolCallStartedEvent
+    from egpt.run.agent import RunOutput, ToolCallStartedEvent
 
     class _StreamingProvider(_EchoProvider):
         async def _aget_query_agent(self, run_context):
@@ -533,7 +533,7 @@ async def test_stream_sub_agent_events_flag_is_passed_to_sub_agent():
             class _FakeAgent:
                 async def arun(self, message, **kwargs):
                     captured_kwargs.update(kwargs)
-                    from agno.run.agent import RunOutput
+                    from egpt.run.agent import RunOutput
 
                     yield RunOutput(content="done")
 
@@ -559,7 +559,7 @@ async def test_stream_sub_agent_events_can_be_disabled():
             class _FakeAgent:
                 async def arun(self, message, **kwargs):
                     captured_kwargs.update(kwargs)
-                    from agno.run.agent import RunOutput
+                    from egpt.run.agent import RunOutput
 
                     yield RunOutput(content="done")
 
@@ -582,7 +582,7 @@ async def test_stream_sub_agent_events_can_be_disabled():
 @pytest.mark.asyncio
 async def test_update_tool_yields_events_from_sub_agent():
     """Events from the write sub-agent must be yielded, not just the final answer."""
-    from agno.run.agent import RunOutput, ToolCallStartedEvent
+    from egpt.run.agent import RunOutput, ToolCallStartedEvent
 
     class _StreamingWriteProvider(_EchoProvider):
         async def _aget_update_agent(self, run_context):
@@ -620,7 +620,7 @@ async def test_update_tool_yields_events_from_sub_agent():
 @pytest.mark.asyncio
 async def test_update_tool_sets_parent_run_id_on_events():
     """Each yielded event must have parent_run_id set to the parent's run_id."""
-    from agno.run.agent import RunOutput, ToolCallStartedEvent
+    from egpt.run.agent import RunOutput, ToolCallStartedEvent
 
     class _StreamingWriteProvider(_EchoProvider):
         async def _aget_update_agent(self, run_context):

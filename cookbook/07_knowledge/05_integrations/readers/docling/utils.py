@@ -34,11 +34,11 @@ See also: 01_documents.py for PDF/DOCX, 02_data.py for CSV/JSON and 03_web.py fo
 
 import warnings
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.lancedb import LanceDb, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.lancedb import LanceDb, SearchType
 
 # Suppress Whisper FP16 warnings when running on CPU
 warnings.filterwarnings("ignore", message="FP16 is not supported on CPU")

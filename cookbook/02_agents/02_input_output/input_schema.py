@@ -7,9 +7,9 @@ Input Schema.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.hackernews import HackerNewsTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.hackernews import HackerNewsTools
 from pydantic import BaseModel, Field
 
 

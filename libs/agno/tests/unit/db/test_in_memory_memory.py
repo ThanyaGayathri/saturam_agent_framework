@@ -2,7 +2,7 @@
 
 import pytest
 
-from agno.db.in_memory.in_memory_db import InMemoryDb
+from egpt.db.in_memory.in_memory_db import InMemoryDb
 
 
 @pytest.fixture

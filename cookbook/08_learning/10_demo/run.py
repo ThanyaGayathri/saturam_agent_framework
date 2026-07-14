@@ -21,7 +21,7 @@ Interactive API docs are at http://localhost:7777/docs.
 """
 
 from agents import ops_assistant
-from agno.os import AgentOS
+from egpt.os import AgentOS
 
 agent_os = AgentOS(
     description="Learning demo: one agent with every learning store enabled",

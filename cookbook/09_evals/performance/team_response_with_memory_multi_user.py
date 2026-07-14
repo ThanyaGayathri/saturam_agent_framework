@@ -9,11 +9,11 @@ import asyncio
 import random
 import uuid
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.eval.performance import PerformanceEval
-from agno.models.openai import OpenAIChat
-from agno.team.team import Team
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.eval.performance import PerformanceEval
+from egpt.models.openai import OpenAIChat
+from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Sample Inputs

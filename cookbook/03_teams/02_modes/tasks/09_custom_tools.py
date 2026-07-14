@@ -7,11 +7,11 @@ Shows how agents with specialized tools can be orchestrated via tasks.
 Run: .venvs/demo/bin/python cookbook/03_teams/02_modes/tasks/09_custom_tools.py
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team.mode import TeamMode
-from agno.team.team import Team
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team.mode import TeamMode
+from egpt.team.team import Team
+from egpt.tools import tool
 
 # ---------------------------------------------------------------------------
 # Tools

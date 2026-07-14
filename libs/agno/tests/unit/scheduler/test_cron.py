@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("croniter", reason="croniter not installed")
 pytest.importorskip("pytz", reason="pytz not installed")
 
-from agno.scheduler.cron import compute_next_run, validate_cron_expr, validate_timezone  # noqa: E402
+from egpt.scheduler.cron import compute_next_run, validate_cron_expr, validate_timezone  # noqa: E402
 
 
 class TestValidateCronExpr:

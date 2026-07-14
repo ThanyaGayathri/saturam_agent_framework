@@ -5,8 +5,8 @@ Litellm Openai Basic
 Cookbook example for `litellm_openai/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.litellm import LiteLLMOpenAI
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.litellm import LiteLLMOpenAI
 
 # ---------------------------------------------------------------------------
 # Create Agent

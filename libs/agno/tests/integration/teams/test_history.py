@@ -2,9 +2,9 @@ from uuid import uuid4
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.team import Team
 
 
 @pytest.fixture

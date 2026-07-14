@@ -5,15 +5,15 @@ AgentOS Registry App
 Demonstrates configuring AgentOS with a Registry and serving the app.
 """
 
-from agno.agent.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.anthropic import Claude
-from agno.models.azure import AzureOpenAI
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.registry import Registry
-from agno.tools.calculator import CalculatorTools
-from agno.tools.duckduckgo import DuckDuckGoTools
+from egpt.agent.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.anthropic import Claude
+from egpt.models.azure import AzureOpenAI
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.registry import Registry
+from egpt.tools.calculator import CalculatorTools
+from egpt.tools.duckduckgo import DuckDuckGoTools
 
 # ---------------------------------------------------------------------------
 # Setup

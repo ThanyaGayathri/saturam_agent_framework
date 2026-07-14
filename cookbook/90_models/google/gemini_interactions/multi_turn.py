@@ -12,9 +12,9 @@ turn's response is persisted on the assistant message and read back on
 the next turn.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.google import GeminiInteractions
 
 # ---------------------------------------------------------------------------
 # Create Agent

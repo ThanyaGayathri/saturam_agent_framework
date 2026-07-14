@@ -18,9 +18,9 @@ if you want to be explicit, swap to the returned `env_<id>` after the
 first turn to make the reuse intent unambiguous.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.google import GeminiInteractions
 
 agent = Agent(
     model=GeminiInteractions(

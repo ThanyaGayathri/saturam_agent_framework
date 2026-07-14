@@ -32,7 +32,7 @@ Usage:
 
 from pathlib import Path
 
-from agno.agents.antigravity import AntigravityAgent
+from egpt.agents.antigravity import AntigravityAgent
 
 AGENT_DIR = Path(__file__).parent / "example_agent"
 

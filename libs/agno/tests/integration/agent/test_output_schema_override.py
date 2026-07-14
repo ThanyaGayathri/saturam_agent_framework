@@ -1,8 +1,8 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent, RunOutput
+from egpt.models.openai import OpenAIChat
 
 
 class PersonSchema(BaseModel):

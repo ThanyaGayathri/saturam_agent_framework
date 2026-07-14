@@ -5,8 +5,8 @@ Retries
 Example demonstrating how to set up retries with an Agent.
 """
 
-from agno.agent import Agent
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

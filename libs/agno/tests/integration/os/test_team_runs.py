@@ -3,9 +3,9 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-from agno.os.utils import flatten_routes
-from agno.run import RunContext
-from agno.team.team import Team
+from egpt.os.utils import flatten_routes
+from egpt.run import RunContext
+from egpt.team.team import Team
 
 
 def test_create_team_run(test_os_client, test_team: Team):

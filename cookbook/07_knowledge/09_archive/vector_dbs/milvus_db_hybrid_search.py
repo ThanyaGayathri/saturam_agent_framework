@@ -7,9 +7,9 @@ Demonstrates Milvus hybrid search with sync and async flows.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.milvus import Milvus, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.milvus import Milvus, SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

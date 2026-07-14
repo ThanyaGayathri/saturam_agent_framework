@@ -7,10 +7,10 @@ Demonstrates passing dependencies at runtime and accessing them inside team tool
 
 from datetime import datetime
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.run import RunContext
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunContext
+from egpt.team import Team
 
 
 # ---------------------------------------------------------------------------

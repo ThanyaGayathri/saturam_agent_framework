@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agno.tools.workspace import Workspace
+from egpt.tools.workspace import Workspace
 
 # All registered tool names (the descriptive names the LLM sees, after alias translation).
 ALL_METHODS = [

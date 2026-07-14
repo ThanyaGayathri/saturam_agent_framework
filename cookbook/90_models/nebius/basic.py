@@ -7,8 +7,8 @@ Cookbook example for `nebius/basic.py`.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.nebius import Nebius
+from egpt.agent import Agent
+from egpt.models.nebius import Nebius
 
 # ---------------------------------------------------------------------------
 # Create Agent

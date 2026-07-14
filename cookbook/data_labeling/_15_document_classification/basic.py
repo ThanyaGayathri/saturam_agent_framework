@@ -8,8 +8,8 @@ step before a more specific extraction pipeline runs.
 
 from typing import Literal
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.media import File
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.media import File
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

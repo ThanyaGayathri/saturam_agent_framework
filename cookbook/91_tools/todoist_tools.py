@@ -12,9 +12,9 @@ Usage:
 - Or provide them when creating the TodoistTools instance
 """
 
-from agno.agent import Agent
-from agno.models.google.gemini import Gemini
-from agno.tools.todoist import TodoistTools
+from egpt.agent import Agent
+from egpt.models.google.gemini import Gemini
+from egpt.tools.todoist import TodoistTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

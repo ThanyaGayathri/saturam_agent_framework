@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agno.agent.agent import Agent
+from egpt.agent.agent import Agent
 
 
 def test_agent_telemetry():
@@ -13,7 +13,7 @@ def test_agent_telemetry():
     assert agent.telemetry
 
     # Mock the telemetry logging method in the _telemetry module (called by _run.py)
-    with patch("agno.agent._telemetry.log_agent_telemetry") as mock_log:
+    with patch("egpt.agent._telemetry.log_agent_telemetry") as mock_log:
         agent.model = MagicMock()
         agent.run("This is a test run")
 
@@ -37,7 +37,7 @@ async def test_agent_telemetry_async():
     assert agent.telemetry
 
     # Mock the async telemetry logging method in the _telemetry module (called by _run.py)
-    with patch("agno.agent._telemetry.alog_agent_telemetry") as mock_alog:
+    with patch("egpt.agent._telemetry.alog_agent_telemetry") as mock_alog:
         mock_model = AsyncMock()
         mock_model.get_instructions_for_model = MagicMock(return_value=None)
         mock_model.get_system_message_for_model = MagicMock(return_value=None)

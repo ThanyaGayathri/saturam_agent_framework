@@ -6,10 +6,10 @@ When an agent uses a CultureManager, the culture model's
 calls are tracked under the "culture_model" detail key.
 """
 
-from agno.agent import Agent
-from agno.culture.manager import CultureManager
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.culture.manager import CultureManager
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

@@ -7,9 +7,9 @@ Cookbook example for `litellm/tool_use.py`.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.litellm import LiteLLM
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.litellm import LiteLLM
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

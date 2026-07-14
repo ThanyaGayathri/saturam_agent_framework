@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with LM Studio."""
 
-from agno.agent import Agent
-from agno.models.lmstudio import LMStudio
+from egpt.agent import Agent
+from egpt.models.lmstudio import LMStudio
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from agno.tools import Toolkit, tool
-from agno.tools.function import Function
+from egpt.tools import Toolkit, tool
+from egpt.tools.function import Function
 
 
 def example_func(a: int, b: int) -> int:
@@ -404,7 +404,7 @@ class TestToolDecoratorOnClassMethods:
 
     def test_tool_decorator_with_run_context(self):
         """Test that run_context parameter is handled correctly."""
-        from agno.run import RunContext
+        from egpt.run import RunContext
 
         class MyToolkit(Toolkit):
             def __init__(self):

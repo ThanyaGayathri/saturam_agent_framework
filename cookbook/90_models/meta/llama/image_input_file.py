@@ -7,10 +7,10 @@ Cookbook example for `meta/llama/image_input_file.py`.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.meta import Llama
-from agno.utils.media import download_image
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.meta import Llama
+from egpt.utils.media import download_image
 
 # ---------------------------------------------------------------------------
 # Create Agent

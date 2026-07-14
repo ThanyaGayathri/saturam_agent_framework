@@ -3,13 +3,13 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.message import Message
-from agno.run.agent import RunOutput
-from agno.run.base import RunContext
-from agno.tools import FunctionCall
-from agno.tools.decorator import tool
-from agno.utils.log import logger
+from egpt.agent import Agent
+from egpt.models.message import Message
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunContext
+from egpt.tools import FunctionCall
+from egpt.tools.decorator import tool
+from egpt.utils.log import logger
 
 # --- Hooks Definition ---
 

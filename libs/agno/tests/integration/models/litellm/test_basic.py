@@ -1,9 +1,9 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput
-from agno.db.sqlite import SqliteDb
-from agno.models.litellm import LiteLLM
+from egpt.agent import Agent, RunOutput
+from egpt.db.sqlite import SqliteDb
+from egpt.models.litellm import LiteLLM
 
 
 def _assert_metrics(response: RunOutput):
@@ -175,7 +175,7 @@ def test_history():
 
 
 def test_count_tokens():
-    from agno.models.message import Message
+    from egpt.models.message import Message
 
     model = LiteLLM(id="gpt-4o")
     messages = [
@@ -190,8 +190,8 @@ def test_count_tokens():
 
 
 def test_count_tokens_with_tools():
-    from agno.models.message import Message
-    from agno.tools.calculator import CalculatorTools
+    from egpt.models.message import Message
+    from egpt.tools.calculator import CalculatorTools
 
     model = LiteLLM(id="gpt-4o")
     messages = [

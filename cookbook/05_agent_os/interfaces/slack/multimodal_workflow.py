@@ -21,13 +21,13 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history,
              files:read, files:write
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os.app import AgentOS
-from agno.os.interfaces.slack import Slack
-from agno.tools.dalle import DalleTools
-from agno.tools.websearch import WebSearchTools
-from agno.workflow import Parallel, Step, Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.slack import Slack
+from egpt.tools.dalle import DalleTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow import Parallel, Step, Workflow
 
 # ---------------------------------------------------------------------------
 # Step Agents

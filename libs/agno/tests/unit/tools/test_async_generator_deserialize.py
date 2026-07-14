@@ -24,7 +24,7 @@ from typing import Literal
 import pytest
 from pydantic import BaseModel
 
-from agno.tools.function import Function, FunctionCall
+from egpt.tools.function import Function, FunctionCall
 
 
 class SearchParams(BaseModel):

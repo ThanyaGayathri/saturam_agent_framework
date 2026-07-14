@@ -7,11 +7,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.run.base import RunContext
-from agno.tools import Toolkit
-from agno.tools.function import Function
-from agno.utils.callables import (
+from egpt.agent.agent import Agent
+from egpt.run.base import RunContext
+from egpt.tools import Toolkit
+from egpt.tools.function import Function
+from egpt.utils.callables import (
     aclear_callable_cache,
     ainvoke_callable_factory,
     aresolve_callable_tools,
@@ -642,14 +642,14 @@ class TestClearCallableCache:
 
 class TestAddToolGuard:
     def test_add_tool_raises_with_callable_factory(self):
-        from agno.agent._init import add_tool
+        from egpt.agent._init import add_tool
 
         agent = Agent(name="test", tools=lambda: [_dummy_tool])
         with pytest.raises(RuntimeError, match="Cannot add_tool.*when tools is a callable factory"):
             add_tool(agent, _another_tool)
 
     def test_add_tool_works_with_list(self):
-        from agno.agent._init import add_tool
+        from egpt.agent._init import add_tool
 
         agent = Agent(name="test", tools=[_dummy_tool])
         add_tool(agent, _another_tool)
@@ -663,7 +663,7 @@ class TestAddToolGuard:
 
 class TestSetTools:
     def test_set_tools_with_callable(self):
-        from agno.agent._init import set_tools
+        from egpt.agent._init import set_tools
 
         agent = Agent(name="test", tools=[_dummy_tool])
 
@@ -674,7 +674,7 @@ class TestSetTools:
         assert callable(agent.tools)
 
     def test_set_tools_clears_cache(self):
-        from agno.agent._init import set_tools
+        from egpt.agent._init import set_tools
 
         agent = Agent(name="test")
         agent._callable_tools_cache["old_key"] = [_dummy_tool]
@@ -686,7 +686,7 @@ class TestSetTools:
         assert len(agent._callable_tools_cache) == 0
 
     def test_set_tools_with_list(self):
-        from agno.agent._init import set_tools
+        from egpt.agent._init import set_tools
 
         agent = Agent(name="test")
         set_tools(agent, [_dummy_tool, _another_tool])
@@ -751,7 +751,7 @@ class TestAgentDeepCopyCallable:
             def emit(self, record: logging.LogRecord) -> None:
                 records.append(record)
 
-        agno_logger = logging.getLogger("agno")
+        agno_logger = logging.getLogger("egpt")
         handler = _Recorder(level=logging.WARNING)
         agno_logger.addHandler(handler)
         try:

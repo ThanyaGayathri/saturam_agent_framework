@@ -5,9 +5,9 @@ Inception Tool Use
 Cookbook example for `inception/tool_use.py`.
 """
 
-from agno.agent import Agent
-from agno.models.inception import Inception
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.inception import Inception
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

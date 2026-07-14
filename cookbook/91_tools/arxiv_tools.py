@@ -8,8 +8,8 @@ ArxivTools is a small tool (<6 functions) so it uses enable_ flags.
 Run: `uv pip install arxiv` to install the dependencies
 """
 
-from agno.agent import Agent
-from agno.tools.arxiv import ArxivTools
+from egpt.agent import Agent
+from egpt.tools.arxiv import ArxivTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

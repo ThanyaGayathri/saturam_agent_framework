@@ -25,9 +25,9 @@ Environment Variables:
 import asyncio
 from os import getenv
 
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.remote_content import GitHubConfig
-from agno.vectordb.pgvector import PgVector
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.remote_content import GitHubConfig
+from egpt.vectordb.pgvector import PgVector
 
 github_config = GitHubConfig(
     id="dynamic-repo",

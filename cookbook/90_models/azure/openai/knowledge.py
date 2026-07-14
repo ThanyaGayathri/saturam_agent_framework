@@ -2,11 +2,11 @@
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.azure import AzureOpenAI
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.azure import AzureOpenAI
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Agent

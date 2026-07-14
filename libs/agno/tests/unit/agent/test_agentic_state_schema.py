@@ -7,10 +7,10 @@ how to call it with session_state_updates parameter.
 
 import pytest
 
-from agno.agent import Agent
-from agno.agent._tools import aget_tools, get_tools, parse_tools
-from agno.run import RunContext
-from agno.run.agent import RunOutput
+from egpt.agent import Agent
+from egpt.agent._tools import aget_tools, get_tools, parse_tools
+from egpt.run import RunContext
+from egpt.run.agent import RunOutput
 
 
 class TestAgenticStateToolSchema:

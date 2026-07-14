@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from agno.agent.agent import Agent
-from agno.media import Image
-from agno.models.meta import Llama
+from egpt.agent.agent import Agent
+from egpt.media import Image
+from egpt.models.meta import Llama
 
 image_path = Path(__file__).parent.parent.parent.joinpath("sample_image.jpg")
 

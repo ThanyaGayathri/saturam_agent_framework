@@ -13,9 +13,9 @@ from io import BytesIO
 from pathlib import Path
 from typing import List
 
-from agno.agent import Agent, RunOutput
-from agno.models.google import Gemini
-from agno.team.team import Team
+from egpt.agent import Agent, RunOutput
+from egpt.models.google import Gemini
+from egpt.team.team import Team
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

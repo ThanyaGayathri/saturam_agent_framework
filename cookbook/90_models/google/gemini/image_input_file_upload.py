@@ -7,10 +7,10 @@ Cookbook example for `google/gemini/image_input_file_upload.py`.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.google import Gemini
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.google import Gemini
+from egpt.tools.websearch import WebSearchTools
 from google.generativeai import upload_file
 from google.generativeai.types import file_types
 

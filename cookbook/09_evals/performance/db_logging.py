@@ -5,10 +5,10 @@ Performance Evaluation with Database Logging
 Demonstrates storing performance evaluation results in PostgreSQL.
 """
 
-from agno.agent import Agent
-from agno.db.postgres.postgres import PostgresDb
-from agno.eval.performance import PerformanceEval
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.eval.performance import PerformanceEval
+from egpt.models.openai import OpenAIChat
 
 
 # ---------------------------------------------------------------------------

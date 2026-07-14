@@ -27,7 +27,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from agno.os.settings import AgnoAPISettings
+from egpt.os.settings import AgnoAPISettings
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -79,7 +79,7 @@ def memory_db():
 def _build_memory_app(memory_db, *, isolation: bool | None):
     """Build an app, optionally wired with the JWT-state middleware. When
     ``isolation`` is None, no JWT middleware is attached (legacy unauth path)."""
-    from agno.os.routers.memory.memory import get_memory_router
+    from egpt.os.routers.memory.memory import get_memory_router
 
     app = FastAPI()
     app.include_router(get_memory_router({"default": [memory_db]}, AgnoAPISettings()))
@@ -161,7 +161,7 @@ def trace_db():
 
 
 def _build_trace_app(trace_db, *, isolation: bool | None):
-    from agno.os.routers.traces.traces import get_traces_router
+    from egpt.os.routers.traces.traces import get_traces_router
 
     app = FastAPI()
     app.include_router(get_traces_router({"default": [trace_db]}, AgnoAPISettings()))
@@ -215,8 +215,8 @@ class TestTraceRouterUserIdThreading:
         from types import SimpleNamespace
         from unittest.mock import AsyncMock
 
-        from agno.os.routers.traces.traces import get_traces_router
-        from agno.remote.base import RemoteDb
+        from egpt.os.routers.traces.traces import get_traces_router
+        from egpt.remote.base import RemoteDb
 
         remote = MagicMock(spec=RemoteDb)
         # The remote returns user-a's trace; the scoped caller is jwt_alice.
@@ -255,7 +255,7 @@ def approvals_db():
 
 
 def _build_approvals_app(approvals_db, *, isolation: bool | None):
-    from agno.os.routers.approvals.router import get_approval_router
+    from egpt.os.routers.approvals.router import get_approval_router
 
     app = FastAPI()
     app.include_router(get_approval_router(approvals_db, AgnoAPISettings()))
@@ -367,7 +367,7 @@ class TestApprovalsAdminOnlyResolve:
         from fastapi import FastAPI
         from starlette.middleware.base import BaseHTTPMiddleware
 
-        from agno.os.routers.approvals.router import get_approval_router
+        from egpt.os.routers.approvals.router import get_approval_router
 
         class _AdminMiddleware(BaseHTTPMiddleware):
             async def dispatch(self, request, call_next):

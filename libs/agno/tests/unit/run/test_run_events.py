@@ -3,8 +3,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
-from agno.run.base import BaseRunOutputEvent
-from agno.run.workflow import BaseWorkflowRunOutputEvent
+from egpt.run.base import BaseRunOutputEvent
+from egpt.run.workflow import BaseWorkflowRunOutputEvent
 
 
 class RunEnum(Enum):
@@ -89,7 +89,7 @@ def test_workflow_run_events():
 
 def test_agent_session_state_in_run_output():
     """Test that RunOutput includes session_state field."""
-    from agno.run.agent import RunOutput
+    from egpt.run.agent import RunOutput
 
     run_output = RunOutput(run_id="test_123", session_state={"key": "value", "counter": 10})
 
@@ -107,9 +107,9 @@ def test_agent_session_state_in_run_output():
 
 def test_run_completed_event_includes_files():
     """Test that RunCompletedEvent includes files in stream serialization."""
-    from agno.media import File
-    from agno.run.agent import RunOutput
-    from agno.utils.events import create_run_completed_event
+    from egpt.media import File
+    from egpt.run.agent import RunOutput
+    from egpt.utils.events import create_run_completed_event
 
     run_output = RunOutput(
         run_id="test_123",
@@ -151,8 +151,8 @@ def test_run_content_event_includes_image():
     fields (images/videos/audio/response_audio), was never re-added, so it was
     silently dropped from to_dict()/to_json() (e.g. in AgentOS SSE streaming).
     """
-    from agno.media import Image
-    from agno.run.agent import RunContentEvent
+    from egpt.media import Image
+    from egpt.run.agent import RunContentEvent
 
     event = RunContentEvent(
         content="hello",
@@ -174,8 +174,8 @@ def test_run_content_event_includes_image():
 
 def test_agent_session_state_in_completed_event():
     """Test that RunCompletedEvent includes session_state field."""
-    from agno.run.agent import RunOutput
-    from agno.utils.events import create_run_completed_event
+    from egpt.run.agent import RunOutput
+    from egpt.utils.events import create_run_completed_event
 
     run_output = RunOutput(
         run_id="test_123",
@@ -197,7 +197,7 @@ def test_agent_session_state_in_completed_event():
 
 def test_team_session_state_in_run_output():
     """Test that TeamRunOutput includes session_state field."""
-    from agno.run.team import TeamRunOutput
+    from egpt.run.team import TeamRunOutput
 
     team_output = TeamRunOutput(run_id="team_123", team_id="team_456", session_state={"phase": "planning", "tasks": 3})
 
@@ -215,8 +215,8 @@ def test_team_session_state_in_run_output():
 
 def test_team_session_state_in_completed_event():
     """Test that TeamRunCompletedEvent includes session_state field."""
-    from agno.run.team import TeamRunOutput
-    from agno.utils.events import create_team_run_completed_event
+    from egpt.run.team import TeamRunOutput
+    from egpt.utils.events import create_team_run_completed_event
 
     team_output = TeamRunOutput(
         run_id="team_123", team_id="team_456", team_name="TestTeam", session_state={"status": "active", "progress": 75}
@@ -235,8 +235,8 @@ def test_team_session_state_in_completed_event():
 
 def test_session_state_mutability():
     """Test that session_state dict is passed by reference."""
-    from agno.run.agent import RunOutput
-    from agno.utils.events import create_run_completed_event
+    from egpt.run.agent import RunOutput
+    from egpt.utils.events import create_run_completed_event
 
     session_state = {"value": 1}
     run_output = RunOutput(run_id="test_123", session_state=session_state)
@@ -255,9 +255,9 @@ def test_session_state_mutability():
 
 def test_api_schema_session_state():
     """Test that API schemas include session_state."""
-    from agno.os.schema import RunSchema, TeamRunSchema
-    from agno.run.agent import RunOutput
-    from agno.run.team import TeamRunOutput
+    from egpt.os.schema import RunSchema, TeamRunSchema
+    from egpt.run.agent import RunOutput
+    from egpt.run.team import TeamRunOutput
 
     # Test RunSchema
     run_output = RunOutput(run_id="test_123", session_state={"api_data": "value"})
@@ -286,8 +286,8 @@ def test_custom_event_subclass_serialization():
     """Test that CustomEvent subclass properties are preserved during serialization."""
     from typing import Any, Dict
 
-    from agno.run.agent import CustomEvent, RunOutput, run_output_event_from_dict
-    from agno.session.agent import AgentSession
+    from egpt.run.agent import CustomEvent, RunOutput, run_output_event_from_dict
+    from egpt.session.agent import AgentSession
 
     @dataclass
     class MimeEvent(CustomEvent):
@@ -349,8 +349,8 @@ def test_team_custom_event_subclass_serialization():
     """Test that Team CustomEvent subclass properties are preserved during serialization."""
     from typing import Any, Dict
 
-    from agno.run.team import CustomEvent as TeamCustomEvent
-    from agno.run.team import TeamRunOutput, team_run_output_event_from_dict
+    from egpt.run.team import CustomEvent as TeamCustomEvent
+    from egpt.run.team import TeamRunOutput, team_run_output_event_from_dict
 
     @dataclass
     class TeamMimeEvent(TeamCustomEvent):
@@ -391,8 +391,8 @@ def test_workflow_custom_event_subclass_serialization():
     """Test that Workflow CustomEvent subclass properties are preserved during serialization."""
     from typing import Any, Dict
 
-    from agno.run.workflow import CustomEvent as WorkflowCustomEvent
-    from agno.run.workflow import workflow_run_output_event_from_dict
+    from egpt.run.workflow import CustomEvent as WorkflowCustomEvent
+    from egpt.run.workflow import workflow_run_output_event_from_dict
 
     @dataclass
     class WorkflowMimeEvent(WorkflowCustomEvent):
@@ -419,9 +419,9 @@ def test_workflow_custom_event_subclass_serialization():
 
 def test_requirements_in_run_paused_event():
     """Test that RunPausedEvent includes requirements field and serializes/deserializes properly."""
-    from agno.models.response import ToolExecution
-    from agno.run.agent import RunPausedEvent
-    from agno.run.requirement import RunRequirement
+    from egpt.models.response import ToolExecution
+    from egpt.run.agent import RunPausedEvent
+    from egpt.run.requirement import RunRequirement
 
     # Create a ToolExecution that requires confirmation
     tool_execution = ToolExecution(

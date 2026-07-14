@@ -17,14 +17,14 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.os import AgentOS
-from agno.os.config import AuthorizationConfig
-from agno.run.agent import RunOutput
-from agno.session.agent import AgentSession
-from agno.team import Team
-from agno.workflow import Step, Workflow
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.os import AgentOS
+from egpt.os.config import AuthorizationConfig
+from egpt.run.agent import RunOutput
+from egpt.session.agent import AgentSession
+from egpt.team import Team
+from egpt.workflow import Step, Workflow
 
 JWT_SECRET = "test-secret-for-a2a-authz"
 AGENT_ID = "authz-agent"
@@ -58,7 +58,7 @@ def _message_body():
 @pytest.fixture(autouse=True)
 def _resolve_shared_instance(monkeypatch):
     """Force ``create_fresh=False`` so ``.arun`` patches on the shared instance are what run."""
-    import agno.os.interfaces.a2a.router as a2a_router
+    import egpt.os.interfaces.a2a.router as a2a_router
 
     def _force_shared(real):
         def wrapper(*args, **kwargs):
@@ -119,7 +119,7 @@ def multi_entity_authz_client():
 @pytest.fixture
 def custom_prefix_authz_client(agent):
     """A2A mounted under a NON-default prefix, behind authorization=True."""
-    from agno.os.interfaces.a2a import A2A
+    from egpt.os.interfaces.a2a import A2A
 
     agent_os = AgentOS(
         id="a2a-custom-prefix-os",
@@ -255,7 +255,7 @@ def test_every_a2a_route_has_a_scope_mapping():
     """Regression guard for the root cause of B1: the unmapped-route default is *allow*,
     so any A2A route added without a scope-map entry would silently ship ungated.
     """
-    from agno.os.scopes import get_default_scope_mappings, get_required_scopes_for_route
+    from egpt.os.scopes import get_default_scope_mappings, get_required_scopes_for_route
 
     agent = Agent(id=AGENT_ID, name="Authz Agent", db=InMemoryDb())
     team = Team(id="authz-team", name="Authz Team", members=[agent], db=InMemoryDb())
@@ -310,7 +310,7 @@ class TestA2ARootPrefix:
 
     @pytest.fixture
     def root_prefix_authz_client(self, agent):
-        from agno.os.interfaces.a2a import A2A
+        from egpt.os.interfaces.a2a import A2A
 
         agent_os = AgentOS(
             id="a2a-root-prefix-os",

@@ -5,10 +5,10 @@ Openai Reasoning Tools
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.reasoning import ReasoningTools
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.reasoning import ReasoningTools
+from egpt.tools.websearch import WebSearchTools
 
 
 # ---------------------------------------------------------------------------

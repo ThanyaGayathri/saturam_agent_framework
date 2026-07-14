@@ -5,9 +5,9 @@ Ollama Demo Qwen
 Cookbook example for `ollama/chat/demo_qwen.py`.
 """
 
-from agno.agent import Agent
-from agno.models.ollama import Ollama
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.ollama import Ollama
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

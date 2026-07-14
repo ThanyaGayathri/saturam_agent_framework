@@ -8,8 +8,8 @@ Supported reasoning models through LiteLLM:
 - deepseek/deepseek-reasoner (DeepSeek R1)
 """
 
-from agno.agent import Agent
-from agno.models.litellm import LiteLLM
+from egpt.agent import Agent
+from egpt.models.litellm import LiteLLM
 
 # ---------------------------------------------------------------------------
 # Create Agent

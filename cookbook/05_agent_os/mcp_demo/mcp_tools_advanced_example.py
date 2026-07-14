@@ -6,11 +6,11 @@ AgentOS handles the lifespan of the MCPTools internally.
 
 from os import getenv
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.anthropic import Claude
-from agno.os import AgentOS
-from agno.tools.mcp import MCPTools  # noqa: F401
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.anthropic import Claude
+from egpt.os import AgentOS
+from egpt.tools.mcp import MCPTools  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -32,7 +32,7 @@ brave_mcp_tools = MCPTools(
 
 # You can also use MultiMCPTools to connect to multiple MCP servers at once:
 #
-# from agno.tools.mcp import MultiMCPTools
+# from egpt.tools.mcp import MultiMCPTools
 # mcp_tools = MultiMCPTools(
 #     commands=["npx -y @modelcontextprotocol/server-brave-search"],
 #     urls=["https://docs.agno.com/mcp"],

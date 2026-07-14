@@ -15,8 +15,8 @@ Example prompts to try:
 - "What are the differences between these two product pages?"
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Agent Instructions

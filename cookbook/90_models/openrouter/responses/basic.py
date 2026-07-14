@@ -9,8 +9,8 @@ Requirements:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.openrouter import OpenRouterResponses
+from egpt.agent import Agent
+from egpt.models.openrouter import OpenRouterResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

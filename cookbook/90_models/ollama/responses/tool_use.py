@@ -7,9 +7,9 @@ Requirements:
 - Run: ollama pull llama3.1:8b
 """
 
-from agno.agent import Agent
-from agno.models.ollama import OllamaResponses
-from agno.tools.duckduckgo import DuckDuckGoTools
+from egpt.agent import Agent
+from egpt.models.ollama import OllamaResponses
+from egpt.tools.duckduckgo import DuckDuckGoTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

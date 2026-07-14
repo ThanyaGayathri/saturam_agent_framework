@@ -7,10 +7,10 @@ Demonstrates permission-aware tool hooks that gate member delegation.
 
 from typing import Any, Callable
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.run import RunContext
-from agno.team import Team, TeamMode
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunContext
+from egpt.team import Team, TeamMode
 
 # ---------------------------------------------------------------------------
 # Setup

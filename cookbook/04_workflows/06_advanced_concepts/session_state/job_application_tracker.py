@@ -9,12 +9,12 @@ persist job applications in workflow session state across runs.
 from datetime import datetime
 from typing import Optional
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.run import RunContext
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunContext
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

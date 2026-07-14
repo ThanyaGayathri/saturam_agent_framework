@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Nebius."""
 
-from agno.agent import Agent
-from agno.models.nebius import Nebius
+from egpt.agent import Agent
+from egpt.models.nebius import Nebius
 
 # ---------------------------------------------------------------------------
 # Create Agent

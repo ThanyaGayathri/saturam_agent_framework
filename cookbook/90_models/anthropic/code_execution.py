@@ -5,8 +5,8 @@ Anthropic Code Execution
 Cookbook example for `anthropic/code_execution.py`.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

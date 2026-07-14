@@ -21,9 +21,9 @@ Setup:
 
 from typing import List, Literal, Optional
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.google.gmail import GmailTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.google.gmail import GmailTools
 from pydantic import BaseModel, Field
 
 

@@ -5,10 +5,10 @@ Google Image Input
 Cookbook example for `google/gemini/image_input.py`.
 """
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.google import Gemini
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.google import Gemini
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

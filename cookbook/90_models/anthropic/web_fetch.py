@@ -5,8 +5,8 @@ Anthropic Web Fetch
 Cookbook example for `anthropic/web_fetch.py`.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

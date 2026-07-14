@@ -5,12 +5,12 @@ Rag Custom Embeddings
 This cookbook is an implementation of Agentic RAG using Sentence Transformer Reranker with multilingual data.
 """
 
-from agno.agent import Agent
-from agno.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.pgvector import PgVector
 
 search_results = [
     "Organic skincare for sensitive skin with aloe vera and chamomile.",

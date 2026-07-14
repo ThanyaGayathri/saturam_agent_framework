@@ -11,13 +11,13 @@ Pattern:
 3. Condition HITL: Choose output format
 """
 
-from agno.db.sqlite import SqliteDb
-from agno.workflow import OnReject
-from agno.workflow.condition import Condition
-from agno.workflow.loop import Loop
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.db.sqlite import SqliteDb
+from egpt.workflow import OnReject
+from egpt.workflow.condition import Condition
+from egpt.workflow.loop import Loop
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 # ============================================================

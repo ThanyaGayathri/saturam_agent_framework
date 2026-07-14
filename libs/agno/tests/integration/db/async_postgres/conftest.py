@@ -5,7 +5,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from agno.db.postgres import AsyncPostgresDb
+from egpt.db.postgres import AsyncPostgresDb
 
 
 @pytest.fixture

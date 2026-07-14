@@ -6,12 +6,12 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.knowledge.chunking.document import DocumentChunking
-from agno.knowledge.chunking.recursive import RecursiveChunking
-from agno.knowledge.document.base import Document
+from egpt.knowledge.chunking.document import DocumentChunking
+from egpt.knowledge.chunking.recursive import RecursiveChunking
+from egpt.knowledge.document.base import Document
 
 pytest.importorskip("unstructured")
-from agno.knowledge.chunking.markdown import MarkdownChunking
+from egpt.knowledge.chunking.markdown import MarkdownChunking
 
 
 class TestDocumentChunkingParagraphSplit:
@@ -62,7 +62,7 @@ Third paragraph."""
         doc = Document(id="test", name="test", content=text)
         chunker = MarkdownChunking(chunk_size=30, overlap=0)
 
-        with patch("agno.knowledge.chunking.markdown.partition_md", side_effect=Exception("test")):
+        with patch("egpt.knowledge.chunking.markdown.partition_md", side_effect=Exception("test")):
             chunks = chunker.chunk(doc)
 
         assert len(chunks) > 1

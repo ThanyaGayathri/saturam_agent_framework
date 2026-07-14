@@ -11,8 +11,8 @@ Use `trailing_user_message_content` to customise the appended text (defaults to 
 Note: Claude 4.6+ models auto-detect and enable this flag automatically.
 """
 
-from agno.agent import Agent
-from agno.models.aws import Claude
+from egpt.agent import Agent
+from egpt.models.aws import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

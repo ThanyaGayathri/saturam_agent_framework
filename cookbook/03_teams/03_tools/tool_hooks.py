@@ -9,11 +9,11 @@ import time
 from typing import Any, Callable
 from uuid import uuid4
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.tools.websearch import WebSearchTools
-from agno.utils.log import logger
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.tools.websearch import WebSearchTools
+from egpt.utils.log import logger
 
 
 # ---------------------------------------------------------------------------

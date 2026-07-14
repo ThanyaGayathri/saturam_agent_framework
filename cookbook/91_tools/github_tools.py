@@ -26,8 +26,8 @@ GitHub Authentication Setup Guide
    export GITHUB_BASE_URL="https://YOUR-ENTERPRISE-HOSTNAME/api/v3"
 """
 
-from agno.agent import Agent
-from agno.tools.github import GithubTools
+from egpt.agent import Agent
+from egpt.tools.github import GithubTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -17,10 +17,10 @@ This is useful if your app is interfacing with the MCP servers in behalf of your
 import asyncio
 from os import getenv
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.mcp import MCPTools, StreamableHTTPClientParams
-from agno.utils.log import log_exception
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.mcp import MCPTools, StreamableHTTPClientParams
+from egpt.utils.log import log_exception
 
 # ---------------------------------------------------------------------------
 # Create Agent

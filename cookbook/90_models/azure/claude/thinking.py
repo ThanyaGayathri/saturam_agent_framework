@@ -5,8 +5,8 @@ Azure AI Foundry Claude Thinking
 Cookbook example for `azure/claude/thinking.py`.
 """
 
-from agno.agent import Agent
-from agno.models.azure.claude import Claude
+from egpt.agent import Agent
+from egpt.models.azure.claude import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

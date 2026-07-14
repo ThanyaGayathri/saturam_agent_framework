@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from agno.tools.zep import ZepAsyncTools, ZepTools
+from egpt.tools.zep import ZepAsyncTools, ZepTools
 
 # Test data
 MOCK_API_KEY = "test_api_key"
@@ -12,7 +12,7 @@ MOCK_USER_ID = "test-user"
 
 @pytest.fixture
 def mock_zep():
-    with patch("agno.tools.zep.Zep") as mock:
+    with patch("egpt.tools.zep.Zep") as mock:
         yield mock
 
 
@@ -161,7 +161,7 @@ def test_search_zep_memory_not_initialized():
 # Async Tests
 @pytest.fixture
 def mock_async_zep():
-    with patch("agno.tools.zep.AsyncZep") as mock:
+    with patch("egpt.tools.zep.AsyncZep") as mock:
         yield mock
 
 

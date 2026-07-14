@@ -5,7 +5,7 @@ Smolagents Instantiation Performance Evaluation
 Demonstrates agent instantiation benchmarking with Smolagents.
 """
 
-from agno.eval.performance import PerformanceEval
+from egpt.eval.performance import PerformanceEval
 from smolagents import InferenceClientModel, Tool, ToolCallingAgent
 
 

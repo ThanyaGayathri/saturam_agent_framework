@@ -7,12 +7,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.agent import _init, _response, _run, _storage
-from agno.agent.agent import Agent
-from agno.run import RunContext
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.run.cancel import (
+from egpt.agent import _init, _response, _run, _storage
+from egpt.agent.agent import Agent
+from egpt.run import RunContext
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.cancel import (
     cancel_run,
     cleanup_run,
     get_active_runs,
@@ -21,8 +21,8 @@ from agno.run.cancel import (
     register_run,
     set_cancellation_manager,
 )
-from agno.run.cancellation_management.in_memory_cancellation_manager import InMemoryRunCancellationManager
-from agno.session import AgentSession
+from egpt.run.cancellation_management.in_memory_cancellation_manager import InMemoryRunCancellationManager
+from egpt.session import AgentSession
 
 
 @pytest.fixture(autouse=True)
@@ -158,7 +158,7 @@ class TestBackgroundLifecycle:
 
         monkeypatch.setattr(_storage, "aread_or_create_session", fake_aread_or_create_session)
         monkeypatch.setattr(_storage, "update_metadata", lambda agent, session=None: None)
-        monkeypatch.setattr("agno.agent._session.asave_session", fake_asave_session)
+        monkeypatch.setattr("egpt.agent._session.asave_session", fake_asave_session)
         monkeypatch.setattr(_run, "_arun", fake_arun)
 
         run_response = RunOutput(
@@ -205,7 +205,7 @@ class TestBackgroundLifecycle:
 
         monkeypatch.setattr(_storage, "aread_or_create_session", fake_aread_or_create_session)
         monkeypatch.setattr(_storage, "update_metadata", lambda agent, session=None: None)
-        monkeypatch.setattr("agno.agent._session.asave_session", fake_asave_session)
+        monkeypatch.setattr("egpt.agent._session.asave_session", fake_asave_session)
         monkeypatch.setattr(_run, "_arun", fake_arun)
 
         run_response = RunOutput(run_id="bg-run-2", session_id="test-session")
@@ -247,7 +247,7 @@ class TestBackgroundLifecycle:
 
         monkeypatch.setattr(_storage, "aread_or_create_session", fake_aread_or_create_session)
         monkeypatch.setattr(_storage, "update_metadata", lambda agent, session=None: None)
-        monkeypatch.setattr("agno.agent._session.asave_session", fake_asave_session)
+        monkeypatch.setattr("egpt.agent._session.asave_session", fake_asave_session)
         monkeypatch.setattr(_run, "_arun", fake_arun_that_fails)
 
         run_response = RunOutput(run_id="bg-run-err", session_id="test-session")

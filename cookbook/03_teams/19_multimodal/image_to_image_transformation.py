@@ -5,10 +5,10 @@ Image To Image Transformation
 Demonstrates collaborative style planning and image transformation.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.tools.fal import FalTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.tools.fal import FalTools
 
 # ---------------------------------------------------------------------------
 # Create Members

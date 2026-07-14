@@ -4,10 +4,10 @@ import pytest
 import requests
 from PIL import Image as PILImage
 
-from agno.agent.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.media import Audio, File, Image, Video
-from agno.models.google import Gemini
+from egpt.agent.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.media import Audio, File, Image, Video
+from egpt.models.google import Gemini
 
 
 def test_image_input(image_path):

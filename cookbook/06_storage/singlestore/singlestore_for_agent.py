@@ -4,9 +4,9 @@ Run `uv pip install ddgs sqlalchemy openai` to install dependencies."""
 
 from os import getenv
 
-from agno.agent import Agent
-from agno.db.singlestore.singlestore import SingleStoreDb
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.singlestore.singlestore import SingleStoreDb
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

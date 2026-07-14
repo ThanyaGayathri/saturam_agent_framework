@@ -10,13 +10,13 @@ Requires:
   ANTHROPIC_API_KEY
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.anthropic import Claude
-from agno.os.app import AgentOS
-from agno.os.interfaces.whatsapp import Whatsapp
-from agno.team import Team
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.anthropic import Claude
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.whatsapp import Whatsapp
+from egpt.team import Team
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agents

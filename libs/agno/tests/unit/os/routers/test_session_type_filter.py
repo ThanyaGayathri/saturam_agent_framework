@@ -7,17 +7,17 @@ import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
-from agno.db.in_memory.in_memory_db import InMemoryDb
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.run.team import TeamRunOutput
-from agno.session.agent import AgentSession
-from agno.session.team import TeamSession
-from agno.session.workflow import WorkflowSession
+from egpt.db.in_memory.in_memory_db import InMemoryDb
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.team import TeamRunOutput
+from egpt.session.agent import AgentSession
+from egpt.session.team import TeamSession
+from egpt.session.workflow import WorkflowSession
 
 
 def _build_client(db):
-    from agno.os.routers.session.session import attach_routes
+    from egpt.os.routers.session.session import attach_routes
 
     app = FastAPI()
     router = APIRouter()
@@ -321,7 +321,7 @@ class TestSessionSchema:
     """SessionSchema correctly includes session_type and component IDs."""
 
     def test_session_type_inferred_from_agent_id(self):
-        from agno.os.schema import SessionSchema
+        from egpt.os.schema import SessionSchema
 
         schema = SessionSchema.from_dict(
             {"session_id": "s1", "agent_id": "a1", "session_data": {"session_name": "Test"}, "created_at": 0}
@@ -330,7 +330,7 @@ class TestSessionSchema:
         assert schema.agent_id == "a1"
 
     def test_session_type_inferred_from_team_id(self):
-        from agno.os.schema import SessionSchema
+        from egpt.os.schema import SessionSchema
 
         schema = SessionSchema.from_dict(
             {"session_id": "s2", "team_id": "t1", "session_data": {"session_name": "Test"}, "created_at": 0}
@@ -339,7 +339,7 @@ class TestSessionSchema:
         assert schema.team_id == "t1"
 
     def test_session_type_inferred_from_workflow_id(self):
-        from agno.os.schema import SessionSchema
+        from egpt.os.schema import SessionSchema
 
         schema = SessionSchema.from_dict(
             {"session_id": "s3", "workflow_id": "w1", "session_data": {"session_name": "Test"}, "created_at": 0}
@@ -920,40 +920,40 @@ class TestDetectSessionType:
     """Unit tests for detect_session_type function."""
 
     def test_stored_session_type_takes_priority(self):
-        from agno.db.utils import detect_session_type
+        from egpt.db.utils import detect_session_type
 
         # Stored session_type is authoritative — it wins over component IDs
         record = {"agent_id": "a1", "session_type": "team"}
         assert detect_session_type(record) == "team"
 
     def test_team_id_over_workflow_id(self):
-        from agno.db.utils import detect_session_type
+        from egpt.db.utils import detect_session_type
 
         record = {"team_id": "t1", "workflow_id": "w1"}
         assert detect_session_type(record) == "team"
 
     def test_workflow_id_detection(self):
-        from agno.db.utils import detect_session_type
+        from egpt.db.utils import detect_session_type
 
         record = {"workflow_id": "w1"}
         assert detect_session_type(record) == "workflow"
 
     def test_falls_back_to_stored_session_type(self):
-        from agno.db.utils import detect_session_type
+        from egpt.db.utils import detect_session_type
 
         record = {"session_type": "team"}
         assert detect_session_type(record) == "team"
 
     def test_falls_back_to_agent_when_nothing_set(self):
-        from agno.db.utils import detect_session_type
+        from egpt.db.utils import detect_session_type
 
         # This is the "fallback to AGENT" concern
         record = {}
         assert detect_session_type(record) == "agent"
 
     def test_session_type_enum_value_extracted(self):
-        from agno.db.base import SessionType
-        from agno.db.utils import detect_session_type
+        from egpt.db.base import SessionType
+        from egpt.db.utils import detect_session_type
 
         record = {"session_type": SessionType.WORKFLOW}
         assert detect_session_type(record) == "workflow"
@@ -965,8 +965,8 @@ class TestResolveSessionType:
     def test_returns_provided_type_without_db_fetch(self):
         import asyncio
 
-        from agno.db.base import SessionType
-        from agno.db.utils import resolve_session_type
+        from egpt.db.base import SessionType
+        from egpt.db.utils import resolve_session_type
 
         db = InMemoryDb()
         result = asyncio.run(resolve_session_type(db, "any-id", SessionType.TEAM))
@@ -975,8 +975,8 @@ class TestResolveSessionType:
     def test_auto_detects_from_db(self):
         import asyncio
 
-        from agno.db.base import SessionType
-        from agno.db.utils import resolve_session_type
+        from egpt.db.base import SessionType
+        from egpt.db.utils import resolve_session_type
 
         db = InMemoryDb()
         now = int(time.time())
@@ -1000,7 +1000,7 @@ class TestResolveSessionType:
     def test_returns_none_for_missing_session(self):
         import asyncio
 
-        from agno.db.utils import resolve_session_type
+        from egpt.db.utils import resolve_session_type
 
         db = InMemoryDb()
         resolved_type, raw = asyncio.run(resolve_session_type(db, "nonexistent", None))

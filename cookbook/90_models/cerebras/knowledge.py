@@ -1,9 +1,9 @@
 """Run `uv pip install ddgs sqlalchemy pgvector pypdf cerebras_cloud_sdk` to install dependencies."""
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.cerebras import Cerebras
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.cerebras import Cerebras
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Agent

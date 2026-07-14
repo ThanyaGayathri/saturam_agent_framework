@@ -8,7 +8,7 @@ Instructions for AI coding agents working on this codebase.
 
 ```
 .
-├── libs/agno/agno/          # Core framework code
+├── libs/agno/egpt/          # Core framework code
 ├── cookbook/                # Examples, patterns and test cases (organized by topic)
 ├── scripts/                 # Development and build scripts
 ├── specs/                   # Design documents (symlinked, private)
@@ -126,16 +126,16 @@ Format:
 
 | What | Where |
 |------|-------|
-| Core agent code | `libs/agno/agno/agent/` |
-| Teams | `libs/agno/agno/team/` |
-| Workflows | `libs/agno/agno/workflow/` |
-| Tools | `libs/agno/agno/tools/` |
-| Models | `libs/agno/agno/models/` |
-| Knowledge/RAG | `libs/agno/agno/knowledge/` |
-| Memory | `libs/agno/agno/memory/` |
-| Learning | `libs/agno/agno/learn/` |
-| Database adapters | `libs/agno/agno/db/` |
-| Vector databases | `libs/agno/agno/vectordb/` |
+| Core agent code | `libs/agno/egpt/agent/` |
+| Teams | `libs/agno/egpt/team/` |
+| Workflows | `libs/agno/egpt/workflow/` |
+| Tools | `libs/agno/egpt/tools/` |
+| Models | `libs/agno/egpt/models/` |
+| Knowledge/RAG | `libs/agno/egpt/knowledge/` |
+| Memory | `libs/agno/egpt/memory/` |
+| Learning | `libs/agno/egpt/learn/` |
+| Database adapters | `libs/agno/egpt/db/` |
+| Vector databases | `libs/agno/egpt/vectordb/` |
 | Tests | `libs/agno/tests/` |
 
 ---

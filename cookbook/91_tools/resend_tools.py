@@ -5,8 +5,8 @@ Resend Tools
 Demonstrates resend tools.
 """
 
-from agno.agent import Agent
-from agno.tools.resend import ResendTools
+from egpt.agent import Agent
+from egpt.tools.resend import ResendTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -102,7 +102,7 @@ class AgentOSAPI:
     """Sync client for the AgentOS endpoints the CLI needs.
 
     The CLI is a short-lived terminal process making a handful of sequential calls, so a
-    sync client is the right shape; programs embedding Agno should use agno.client instead.
+    sync client is the right shape; programs embedding Agno should use egpt.client instead.
     """
 
     def __init__(self, base_url: str, admin_token: Optional[str] = None, timeout: float = DEFAULT_TIMEOUT):

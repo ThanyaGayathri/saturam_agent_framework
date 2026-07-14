@@ -5,8 +5,8 @@ Exa Tools
 Demonstrates exa tools.
 """
 
-from agno.agent import Agent
-from agno.tools.exa import ExaTools
+from egpt.agent import Agent
+from egpt.tools.exa import ExaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

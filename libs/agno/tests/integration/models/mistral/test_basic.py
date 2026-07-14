@@ -1,10 +1,10 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.db.sqlite import SqliteDb
-from agno.models.groq.groq import Groq
-from agno.models.mistral import MistralChat
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.db.sqlite import SqliteDb
+from egpt.models.groq.groq import Groq
+from egpt.models.mistral import MistralChat
 
 
 def _assert_metrics(response: RunOutput):

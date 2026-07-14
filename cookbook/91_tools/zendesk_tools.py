@@ -5,8 +5,8 @@ Zendesk Tools
 Demonstrates zendesk tools.
 """
 
-from agno.agent import Agent
-from agno.tools.zendesk import ZendeskTools
+from egpt.agent import Agent
+from egpt.tools.zendesk import ZendeskTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

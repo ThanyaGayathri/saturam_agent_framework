@@ -2,9 +2,9 @@
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.vercel import V0
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.vercel import V0
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

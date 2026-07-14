@@ -5,8 +5,8 @@ Linear Tools
 Demonstrates linear tools.
 """
 
-from agno.agent import Agent
-from agno.tools.linear import LinearTools
+from egpt.agent import Agent
+from egpt.tools.linear import LinearTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

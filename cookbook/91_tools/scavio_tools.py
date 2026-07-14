@@ -10,8 +10,8 @@ Setup:
     export SCAVIO_API_KEY=***  # get a key at https://dashboard.scavio.dev
 """
 
-from agno.agent import Agent
-from agno.tools.scavio import ScavioTools
+from egpt.agent import Agent
+from egpt.tools.scavio import ScavioTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

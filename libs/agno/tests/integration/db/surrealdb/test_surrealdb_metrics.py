@@ -19,10 +19,10 @@
 
 import pytest
 
-from agno.db.schemas.evals import EvalRunRecord, EvalType
-from agno.db.surrealdb import SurrealDb
-from agno.debug import enable_debug_mode
-from agno.session.agent import AgentSession
+from egpt.db.schemas.evals import EvalRunRecord, EvalType
+from egpt.db.surrealdb import SurrealDb
+from egpt.debug import enable_debug_mode
+from egpt.session.agent import AgentSession
 
 enable_debug_mode()
 

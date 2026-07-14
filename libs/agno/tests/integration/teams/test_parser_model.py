@@ -6,8 +6,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.models.openai import OpenAIChat
-from agno.team import Team
+from egpt.models.openai import OpenAIChat
+from egpt.team import Team
 
 
 class ParkGuide(BaseModel):

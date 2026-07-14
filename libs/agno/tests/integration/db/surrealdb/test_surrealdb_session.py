@@ -22,11 +22,11 @@ from datetime import datetime
 import pytest
 from surrealdb import RecordID
 
-from agno.db.base import SessionType
-from agno.db.surrealdb import SurrealDb
-from agno.debug import enable_debug_mode
-from agno.session.agent import AgentSession
-from agno.session.team import TeamSession
+from egpt.db.base import SessionType
+from egpt.db.surrealdb import SurrealDb
+from egpt.debug import enable_debug_mode
+from egpt.session.agent import AgentSession
+from egpt.session.team import TeamSession
 
 enable_debug_mode()
 

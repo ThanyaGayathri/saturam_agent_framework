@@ -5,8 +5,8 @@ Together Reasoning Agent
 Cookbook example for `together/reasoning_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.models.together import Together
+from egpt.agent import Agent
+from egpt.models.together import Together
 
 # ---------------------------------------------------------------------------
 # Create Agent

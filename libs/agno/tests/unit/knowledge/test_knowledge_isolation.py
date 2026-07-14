@@ -7,9 +7,9 @@ from typing import Any, Dict, List
 
 import pytest
 
-from agno.knowledge.document import Document
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.base import VectorDb
+from egpt.knowledge.document import Document
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.base import VectorDb
 
 
 class MockVectorDb(VectorDb):
@@ -154,7 +154,7 @@ class TestKnowledgeIsolation:
 
     def test_search_with_isolation_list_filters_injects_linked_to(self):
         """Test that linked_to filter is auto-injected for list-based FilterExpr filters."""
-        from agno.filters import EQ
+        from egpt.filters import EQ
 
         mock_db = MockVectorDb()
         knowledge = Knowledge(
@@ -178,7 +178,7 @@ class TestKnowledgeIsolation:
     @pytest.mark.asyncio
     async def test_async_search_with_isolation_list_filters_injects_linked_to(self):
         """Test that async search auto-injects linked_to for list-based FilterExpr filters."""
-        from agno.filters import EQ
+        from egpt.filters import EQ
 
         mock_db = MockVectorDb()
         knowledge = Knowledge(

@@ -7,10 +7,10 @@ Image To Audio.
 
 from pathlib import Path
 
-from agno.agent import Agent, RunOutput
-from agno.media import Image
-from agno.models.openai import OpenAIChat
-from agno.utils.audio import write_audio_to_file
+from egpt.agent import Agent, RunOutput
+from egpt.media import Image
+from egpt.models.openai import OpenAIChat
+from egpt.utils.audio import write_audio_to_file
 from rich import print
 from rich.text import Text
 

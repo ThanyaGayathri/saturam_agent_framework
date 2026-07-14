@@ -13,7 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agno.os.schema import SortOrder
+from egpt.os.schema import SortOrder
 
 # ---------------------------------------------------------------------------
 # Helpers – create mock DB / Knowledge with only the methods each router needs
@@ -22,7 +22,7 @@ from agno.os.schema import SortOrder
 
 def _make_async_db():
     """Create an AsyncBaseDb mock that passes isinstance checks."""
-    from agno.db.base import AsyncBaseDb
+    from egpt.db.base import AsyncBaseDb
 
     mock = MagicMock(spec=AsyncBaseDb)
     mock.id = "test-db"
@@ -38,7 +38,7 @@ def _make_async_db():
 
 def _make_knowledge():
     """Create a Knowledge mock that passes isinstance checks."""
-    from agno.knowledge.knowledge import Knowledge
+    from egpt.knowledge.knowledge import Knowledge
 
     mock = MagicMock(spec=Knowledge)
     mock.name = "test-kb"
@@ -51,8 +51,8 @@ def _make_knowledge():
 
 
 def _build_app_with_session_router(db):
-    from agno.os.routers.session import get_session_router
-    from agno.os.settings import AgnoAPISettings
+    from egpt.os.routers.session import get_session_router
+    from egpt.os.settings import AgnoAPISettings
 
     app = FastAPI()
     router = get_session_router(dbs={"test-db": [db]}, settings=AgnoAPISettings())
@@ -61,8 +61,8 @@ def _build_app_with_session_router(db):
 
 
 def _build_app_with_memory_router(db):
-    from agno.os.routers.memory import get_memory_router
-    from agno.os.settings import AgnoAPISettings
+    from egpt.os.routers.memory import get_memory_router
+    from egpt.os.settings import AgnoAPISettings
 
     app = FastAPI()
     router = get_memory_router(dbs={"test-db": [db]}, settings=AgnoAPISettings())
@@ -71,8 +71,8 @@ def _build_app_with_memory_router(db):
 
 
 def _build_app_with_eval_router(db):
-    from agno.os.routers.evals import get_eval_router
-    from agno.os.settings import AgnoAPISettings
+    from egpt.os.routers.evals import get_eval_router
+    from egpt.os.settings import AgnoAPISettings
 
     app = FastAPI()
     router = get_eval_router(dbs={"test-db": [db]}, settings=AgnoAPISettings())
@@ -81,8 +81,8 @@ def _build_app_with_eval_router(db):
 
 
 def _build_app_with_knowledge_router(knowledge):
-    from agno.os.routers.knowledge import get_knowledge_router
-    from agno.os.settings import AgnoAPISettings
+    from egpt.os.routers.knowledge import get_knowledge_router
+    from egpt.os.settings import AgnoAPISettings
 
     app = FastAPI()
     router = get_knowledge_router(knowledge_instances=[knowledge], settings=AgnoAPISettings())

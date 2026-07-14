@@ -11,8 +11,8 @@ Note: while thinking mode is active, temperature, top_p, presence_penalty and
 frequency_penalty are ignored by the API.
 """
 
-from agno.agent import Agent
-from agno.models.deepseek import DeepSeek
+from egpt.agent import Agent
+from egpt.models.deepseek import DeepSeek
 
 # ---------------------------------------------------------------------------
 # Create Agent

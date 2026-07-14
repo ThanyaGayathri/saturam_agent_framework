@@ -13,15 +13,15 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from agno.context.mode import ContextMode
-from agno.context.wiki import (
+from egpt.context.mode import ContextMode
+from egpt.context.wiki import (
     FileSystemBackend,
     GitBackend,
     WikiBackendError,
     WikiContextProvider,
 )
-from agno.context.wiki.backend import _count_changed_files, _normalise_remote, _remotes_equivalent
-from agno.context.wiki.git_ops import (
+from egpt.context.wiki.backend import _count_changed_files, _normalise_remote, _remotes_equivalent
+from egpt.context.wiki.git_ops import (
     GitError,
     GitResult,
     Scrubber,
@@ -396,7 +396,7 @@ def test_git_backend_custom_local_path_is_resolved(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_git_backend_scrubs_token_from_subprocess_errors(monkeypatch, tmp_path: Path):
     """Force a GitError and assert the scrubber stripped the token from stderr."""
-    import agno.context.wiki.backend as backend_module
+    import egpt.context.wiki.backend as backend_module
 
     b = GitBackend(
         repo_url="https://github.com/owner/repo.git",
@@ -431,7 +431,7 @@ async def test_git_backend_scrubs_token_from_subprocess_errors(monkeypatch, tmp_
 
 @pytest.mark.asyncio
 async def test_git_backend_existing_clone_wrong_remote_raises_by_default(monkeypatch, tmp_path: Path):
-    import agno.context.wiki.backend as backend_module
+    import egpt.context.wiki.backend as backend_module
 
     b = GitBackend(
         repo_url="https://github.com/owner/repo.git",
@@ -456,7 +456,7 @@ async def test_git_backend_existing_clone_wrong_remote_raises_by_default(monkeyp
 
 @pytest.mark.asyncio
 async def test_git_backend_existing_clone_force_clone_wipes_and_reclones(monkeypatch, tmp_path: Path):
-    import agno.context.wiki.backend as backend_module
+    import egpt.context.wiki.backend as backend_module
 
     b = GitBackend(
         repo_url="https://github.com/owner/repo.git",
@@ -491,7 +491,7 @@ async def test_git_backend_existing_clone_force_clone_wipes_and_reclones(monkeyp
 
 @pytest.mark.asyncio
 async def test_git_backend_commit_after_write_returns_none_when_nothing_staged(monkeypatch, tmp_path: Path):
-    import agno.context.wiki.backend as backend_module
+    import egpt.context.wiki.backend as backend_module
 
     b = GitBackend(
         repo_url="https://github.com/owner/repo.git",
@@ -522,7 +522,7 @@ async def test_git_backend_commit_after_write_returns_none_when_nothing_staged(m
 @pytest.mark.asyncio
 async def test_git_backend_idle_push_failure_is_swallowed(monkeypatch, tmp_path: Path):
     """When nothing is staged, a failing idle push must not propagate."""
-    import agno.context.wiki.backend as backend_module
+    import egpt.context.wiki.backend as backend_module
 
     b = GitBackend(
         repo_url="https://github.com/owner/repo.git",
@@ -535,7 +535,7 @@ async def test_git_backend_idle_push_failure_is_swallowed(monkeypatch, tmp_path:
         if args[:3] == ["diff", "--cached", "--quiet"]:
             return GitResult(returncode=0, stdout="", stderr="")
         if args[:1] == ["push"]:
-            from agno.context.wiki.git_ops import GitError
+            from egpt.context.wiki.git_ops import GitError
 
             raise GitError(args=args, returncode=128, stderr="403")
         return GitResult(returncode=0, stdout="", stderr="")
@@ -548,7 +548,7 @@ async def test_git_backend_idle_push_failure_is_swallowed(monkeypatch, tmp_path:
 
 @pytest.mark.asyncio
 async def test_git_backend_commit_after_write_uses_fallback_message_without_model(monkeypatch, tmp_path: Path):
-    import agno.context.wiki.backend as backend_module
+    import egpt.context.wiki.backend as backend_module
 
     b = GitBackend(
         repo_url="https://github.com/owner/repo.git",
@@ -597,7 +597,7 @@ async def test_git_backend_commit_after_write_uses_fallback_message_without_mode
 async def test_git_run_sets_terminal_prompt_zero(monkeypatch, tmp_path: Path):
     """Ensure the wrapper always sets GIT_TERMINAL_PROMPT=0 so a busted
     PAT fails fast instead of hanging on stdin."""
-    import agno.context.wiki.git_ops as git_ops
+    import egpt.context.wiki.git_ops as git_ops
 
     captured_env: dict[str, str] = {}
 
@@ -631,7 +631,7 @@ async def test_git_run_sets_terminal_prompt_zero(monkeypatch, tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_provider_query_tool_serialises_answer(tmp_path: Path):
-    from agno.run.agent import RunOutput
+    from egpt.run.agent import RunOutput
 
     p = WikiContextProvider(backend=FileSystemBackend(path=tmp_path))
 
@@ -656,9 +656,9 @@ async def test_provider_query_tool_serialises_answer(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_web_backend_tools_attached_to_write_sub_agent(tmp_path: Path):
     """When `web` is wired, the write sub-agent gets web tools too."""
-    from agno.context.backend import ContextBackend
-    from agno.context.provider import Status as _Status
-    from agno.tools import tool
+    from egpt.context.backend import ContextBackend
+    from egpt.context.provider import Status as _Status
+    from egpt.tools import tool
 
     @tool(name="web_search")
     async def _web_search(query: str) -> str:
@@ -691,9 +691,9 @@ async def test_web_backend_tools_attached_to_write_sub_agent(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_web_backend_not_attached_to_read_sub_agent(tmp_path: Path):
     """The read sub-agent stays scoped to the wiki even with web wired."""
-    from agno.context.backend import ContextBackend
-    from agno.context.provider import Status as _Status
-    from agno.tools import tool
+    from egpt.context.backend import ContextBackend
+    from egpt.context.provider import Status as _Status
+    from egpt.tools import tool
 
     @tool(name="web_search")
     async def _web_search(query: str) -> str:
@@ -718,8 +718,8 @@ async def test_web_backend_not_attached_to_read_sub_agent(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_web_backend_asetup_aclose_forwarded(tmp_path: Path):
     """Lifecycle hooks must reach the web backend (matters for MCP sessions)."""
-    from agno.context.backend import ContextBackend
-    from agno.context.provider import Status as _Status
+    from egpt.context.backend import ContextBackend
+    from egpt.context.provider import Status as _Status
 
     calls = {"asetup": 0, "aclose": 0}
 
@@ -752,7 +752,7 @@ async def test_web_backend_asetup_aclose_forwarded(tmp_path: Path):
 
 def test_web_none_keeps_default_write_instructions(tmp_path: Path):
     """No web backend = no ingestion stanza in the write sub-agent's prompt."""
-    from agno.context.wiki.provider import WIKI_WEB_INGEST_INSTRUCTIONS
+    from egpt.context.wiki.provider import WIKI_WEB_INGEST_INSTRUCTIONS
 
     p = WikiContextProvider(backend=FileSystemBackend(path=tmp_path))
     composed = p._compose_write_instructions()
@@ -760,9 +760,9 @@ def test_web_none_keeps_default_write_instructions(tmp_path: Path):
 
 
 def test_web_set_appends_ingestion_stanza(tmp_path: Path):
-    from agno.context.backend import ContextBackend
-    from agno.context.provider import Status as _Status
-    from agno.context.wiki.provider import WIKI_WEB_INGEST_INSTRUCTIONS
+    from egpt.context.backend import ContextBackend
+    from egpt.context.provider import Status as _Status
+    from egpt.context.wiki.provider import WIKI_WEB_INGEST_INSTRUCTIONS
 
     class _StubWeb(ContextBackend):
         def status(self) -> _Status:
@@ -780,8 +780,8 @@ def test_web_set_appends_ingestion_stanza(tmp_path: Path):
 
 
 def test_instructions_default_mode_advertises_web_when_wired(tmp_path: Path):
-    from agno.context.backend import ContextBackend
-    from agno.context.provider import Status as _Status
+    from egpt.context.backend import ContextBackend
+    from egpt.context.provider import Status as _Status
 
     class _StubWeb(ContextBackend):
         def status(self) -> _Status:
@@ -803,7 +803,7 @@ def test_instructions_default_mode_advertises_web_when_wired(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_provider_threads_run_context_into_sub_agents(tmp_path: Path):
     """user_id / session_id / metadata / dependencies must propagate."""
-    from agno.run import RunContext
+    from egpt.run import RunContext
 
     p = WikiContextProvider(backend=FileSystemBackend(path=tmp_path))
     p._read_agent = type("M", (), {"arun": AsyncMock()})()

@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.media import Audio, File, Image
-from agno.utils.openai import (
+from egpt.media import Audio, File, Image
+from egpt.utils.openai import (
     _format_file_for_message,
     audio_to_message,
     images_to_message,

@@ -5,10 +5,10 @@ Memory Manager
 Use a MemoryManager to give agents persistent memory across sessions.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.memory.manager import MemoryManager
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.memory.manager import MemoryManager
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -7,12 +7,12 @@ Demonstrates loading topics from Wikipedia and Arxiv using sync and async operat
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.arxiv_reader import ArxivReader
-from agno.knowledge.reader.wikipedia_reader import WikipediaReader
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.arxiv_reader import ArxivReader
+from egpt.knowledge.reader.wikipedia_reader import WikipediaReader
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Setup

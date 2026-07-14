@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Ollama."""
 
-from agno.agent import Agent
-from agno.models.ollama import Ollama
+from egpt.agent import Agent
+from egpt.models.ollama import Ollama
 
 # ---------------------------------------------------------------------------
 # Create Agent

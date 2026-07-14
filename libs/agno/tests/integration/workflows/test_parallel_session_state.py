@@ -5,11 +5,11 @@ from copy import deepcopy
 
 import pytest
 
-from agno.run.base import RunContext, RunStatus
-from agno.utils.merge_dict import merge_parallel_session_states
-from agno.workflow.parallel import Parallel
-from agno.workflow.step import Step, StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.run.base import RunContext, RunStatus
+from egpt.utils.merge_dict import merge_parallel_session_states
+from egpt.workflow.parallel import Parallel
+from egpt.workflow.step import Step, StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 def test_basic_parallel_modifications(shared_db):

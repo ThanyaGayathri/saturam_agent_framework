@@ -4,8 +4,8 @@ from datetime import datetime
 
 import pytest
 
-from agno.db.postgres.postgres import PostgresDb
-from agno.db.schemas.memory import UserMemory
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.db.schemas.memory import UserMemory
 
 
 @pytest.fixture(autouse=True)

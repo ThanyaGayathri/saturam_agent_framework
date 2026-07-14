@@ -7,9 +7,9 @@ for selective visualization function access.
 Run: `uv pip install matplotlib` to install the dependencies
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.visualization import VisualizationTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.visualization import VisualizationTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

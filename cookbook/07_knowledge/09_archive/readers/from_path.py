@@ -7,10 +7,10 @@ Demonstrates loading knowledge from a local file path using sync and async inser
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.postgres.postgres import PostgresDb
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Setup

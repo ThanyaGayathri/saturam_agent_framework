@@ -5,8 +5,8 @@ Ollama Demo Deepseek R1
 Cookbook example for `ollama/chat/demo_deepseek_r1.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.ollama import Ollama
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.ollama import Ollama
 
 # ---------------------------------------------------------------------------
 # Create Agent

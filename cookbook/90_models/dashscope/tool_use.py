@@ -7,9 +7,9 @@ Cookbook example for `dashscope/tool_use.py`.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.dashscope import DashScope
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.dashscope import DashScope
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

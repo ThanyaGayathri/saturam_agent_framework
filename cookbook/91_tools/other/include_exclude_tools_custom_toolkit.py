@@ -8,10 +8,10 @@ Demonstrates include exclude tools custom toolkit.
 import asyncio
 import json
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools import Toolkit
-from agno.utils.log import logger
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools import Toolkit
+from egpt.utils.log import logger
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from google.oauth2.credentials import Credentials
 
-from agno.tools.google.sheets import GoogleSheetsTools
+from egpt.tools.google.sheets import GoogleSheetsTools
 
 
 @pytest.fixture

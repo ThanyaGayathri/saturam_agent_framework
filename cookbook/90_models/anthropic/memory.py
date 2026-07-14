@@ -6,9 +6,9 @@ Steps:
 3. Run: `python cookbook/92_models/anthropic/memory.py` to run the agent
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.anthropic import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

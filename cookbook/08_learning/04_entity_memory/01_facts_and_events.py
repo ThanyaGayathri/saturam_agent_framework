@@ -13,10 +13,10 @@ Compare with: 04_always_extraction.py for automatic extraction.
 See also: 01_basics/5a_entity_memory_always.py for the basics.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.learn import EntityMemoryConfig, LearningMachine, LearningMode
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.learn import EntityMemoryConfig, LearningMachine, LearningMode
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

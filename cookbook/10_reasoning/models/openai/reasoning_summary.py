@@ -5,9 +5,9 @@ Reasoning Summary
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.websearch import WebSearchTools
 
 
 # ---------------------------------------------------------------------------

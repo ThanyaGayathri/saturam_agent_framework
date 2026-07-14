@@ -7,9 +7,9 @@ Cookbook example for `lmstudio/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.lmstudio import LMStudio
-from agno.run.agent import RunOutput
+from egpt.agent import Agent
+from egpt.models.lmstudio import LMStudio
+from egpt.run.agent import RunOutput
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

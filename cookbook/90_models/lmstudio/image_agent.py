@@ -6,9 +6,9 @@ Cookbook example for `lmstudio/image_agent.py`.
 """
 
 import httpx
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.lmstudio import LMStudio
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.lmstudio import LMStudio
 
 # ---------------------------------------------------------------------------
 # Create Agent

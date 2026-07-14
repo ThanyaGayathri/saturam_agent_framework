@@ -9,8 +9,8 @@ export REDSHIFT_HOST="your-workgroup.123456789.us-east-1.redshift-serverless.ama
 export REDSHIFT_DATABASE="dev"
 """
 
-from agno.agent import Agent
-from agno.tools.redshift import RedshiftTools
+from egpt.agent import Agent
+from egpt.tools.redshift import RedshiftTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

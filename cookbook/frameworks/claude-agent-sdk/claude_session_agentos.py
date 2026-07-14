@@ -12,9 +12,9 @@ Usage:
     python cookbook/frameworks/claude-agent-sdk/claude_session_agentos.py
 """
 
-from agno.agents.claude import ClaudeAgent
-from agno.db.postgres import PostgresDb
-from agno.os import AgentOS
+from egpt.agents.claude import ClaudeAgent
+from egpt.db.postgres import PostgresDb
+from egpt.os import AgentOS
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 pg_db = PostgresDb(db_url=db_url)

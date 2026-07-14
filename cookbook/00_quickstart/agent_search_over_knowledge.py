@@ -14,13 +14,13 @@ Example prompts to try:
 - "What is the AgentOS?"
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.knowledge.embedder.google import GeminiEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.google import Gemini
-from agno.vectordb.chroma import ChromaDb
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.knowledge.embedder.google import GeminiEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.google import Gemini
+from egpt.vectordb.chroma import ChromaDb
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -5,8 +5,8 @@ Fireworks Basic
 Cookbook example for `fireworks/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.fireworks import Fireworks
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.fireworks import Fireworks
 import asyncio
 
 # ---------------------------------------------------------------------------

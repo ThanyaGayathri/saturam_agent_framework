@@ -15,8 +15,8 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 
-from agno.db.mysql import AsyncMySQLDb
-from agno.tracing.schemas import Trace
+from egpt.db.mysql import AsyncMySQLDb
+from egpt.tracing.schemas import Trace
 
 
 def create_test_trace(trace_id: str, name: str, task_id: int) -> Trace:

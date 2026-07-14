@@ -18,10 +18,10 @@ uv run cookbook/db/surrealdb/surrealdb_for_agent.py
 ```
 """
 
-from agno.agent import Agent
-from agno.db.surrealdb import SurrealDb
-from agno.models.anthropic import Claude
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.surrealdb import SurrealDb
+from egpt.models.anthropic import Claude
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -2,10 +2,10 @@ import pytest
 
 pytest.importorskip("anthropic")
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.models.openai import OpenAIChat, OpenAIResponses
-from agno.team.team import Team
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.models.openai import OpenAIChat, OpenAIResponses
+from egpt.team.team import Team
 
 
 def test_model_inheritance():

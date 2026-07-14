@@ -7,9 +7,9 @@ Demonstrates this reasoning cookbook example.
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.cerebras import Cerebras
-from agno.tools.reasoning import ReasoningTools
+from egpt.agent import Agent
+from egpt.models.cerebras import Cerebras
+from egpt.tools.reasoning import ReasoningTools
 
 
 # ---------------------------------------------------------------------------

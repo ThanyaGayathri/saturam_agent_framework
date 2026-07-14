@@ -6,8 +6,8 @@ which is the recommended approach for class methods that need to stop the agent
 after execution.
 """
 
-from agno.agent import Agent
-from agno.tools import Toolkit
+from egpt.agent import Agent
+from egpt.tools import Toolkit
 
 # ---------------------------------------------------------------------------
 # Create Agent

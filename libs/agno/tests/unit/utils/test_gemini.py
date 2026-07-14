@@ -1,4 +1,4 @@
-from agno.utils.gemini import (
+from egpt.utils.gemini import (
     convert_schema,
     format_function_definitions,
     inject_agno_client_header,
@@ -696,7 +696,7 @@ def test_convert_schema_property_without_type_has_title():
 
 def test_inject_header_into_empty_params():
     """Adds http_options.headers with x-goog-api-client when none exist."""
-    from agno import __version__ as agno_version
+    from egpt import __version__ as agno_version
 
     result = inject_agno_client_header({})
     assert result["http_options"]["headers"]["x-goog-api-client"] == f"agno/{agno_version}"
@@ -704,7 +704,7 @@ def test_inject_header_into_empty_params():
 
 def test_inject_header_preserves_existing_headers():
     """Existing custom headers should be preserved alongside the new one."""
-    from agno import __version__ as agno_version
+    from egpt import __version__ as agno_version
 
     params = {"http_options": {"headers": {"custom-header": "value"}}}
     result = inject_agno_client_header(params)
@@ -714,7 +714,7 @@ def test_inject_header_preserves_existing_headers():
 
 def test_inject_header_preserves_other_http_options():
     """Other http_options keys (e.g., timeout) should be preserved."""
-    from agno import __version__ as agno_version
+    from egpt import __version__ as agno_version
 
     params = {"http_options": {"timeout": 30000}}
     result = inject_agno_client_header(params)
@@ -733,7 +733,7 @@ def test_inject_header_preserves_other_client_params():
 
 def test_inject_header_overrides_existing_x_goog_api_client():
     """If an x-goog-api-client header is already set, it should be overwritten."""
-    from agno import __version__ as agno_version
+    from egpt import __version__ as agno_version
 
     params = {"http_options": {"headers": {"x-goog-api-client": "stale/0.0.0"}}}
     result = inject_agno_client_header(params)

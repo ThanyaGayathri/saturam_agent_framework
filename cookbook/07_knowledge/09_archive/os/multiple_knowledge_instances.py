@@ -13,12 +13,12 @@ Key Concepts:
 - The /knowledge/config endpoint returns all registered instances
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.vectordb.pgvector import PgVector
 
 # Database connections
 contents_db = PostgresDb(

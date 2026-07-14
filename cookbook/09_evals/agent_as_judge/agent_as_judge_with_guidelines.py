@@ -7,10 +7,10 @@ Demonstrates agent-as-judge scoring with additional guidelines.
 
 from typing import Optional
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.eval.agent_as_judge import AgentAsJudgeEval, AgentAsJudgeResult
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.eval.agent_as_judge import AgentAsJudgeEval, AgentAsJudgeResult
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Database

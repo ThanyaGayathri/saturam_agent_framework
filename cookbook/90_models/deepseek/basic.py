@@ -5,8 +5,8 @@ Deepseek Basic
 Cookbook example for `deepseek/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.deepseek import DeepSeek
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.deepseek import DeepSeek
 import asyncio
 
 # ---------------------------------------------------------------------------

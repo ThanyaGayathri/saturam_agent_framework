@@ -5,18 +5,18 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.agent._hooks import (
+from egpt.agent._hooks import (
     aexecute_post_hooks,
     aexecute_pre_hooks,
     execute_post_hooks,
     execute_pre_hooks,
 )
-from agno.exceptions import InputCheckError, OutputCheckError
-from agno.guardrails.base import BaseGuardrail
-from agno.run import RunContext
-from agno.run.agent import RunInput
-from agno.run.team import TeamRunInput
-from agno.utils.hooks import is_guardrail_hook, normalize_pre_hooks
+from egpt.exceptions import InputCheckError, OutputCheckError
+from egpt.guardrails.base import BaseGuardrail
+from egpt.run import RunContext
+from egpt.run.agent import RunInput
+from egpt.run.team import TeamRunInput
+from egpt.utils.hooks import is_guardrail_hook, normalize_pre_hooks
 
 
 class BlockingGuardrail(BaseGuardrail):
@@ -514,7 +514,7 @@ class TestCrashingGuardrailBackground:
 
 class TestPIIGuardrailTypeSafety:
     def test_mask_pii_masks_and_assigns_string(self):
-        from agno.guardrails.pii import PIIDetectionGuardrail
+        from egpt.guardrails.pii import PIIDetectionGuardrail
 
         guardrail = PIIDetectionGuardrail(mask_pii=True, enable_email_check=True)
         run_input = RunInput(input_content="Contact me at user@example.com")
@@ -524,7 +524,7 @@ class TestPIIGuardrailTypeSafety:
 
     @pytest.mark.asyncio
     async def test_async_mask_pii_masks_and_assigns_string(self):
-        from agno.guardrails.pii import PIIDetectionGuardrail
+        from egpt.guardrails.pii import PIIDetectionGuardrail
 
         guardrail = PIIDetectionGuardrail(mask_pii=True, enable_email_check=True)
         run_input = RunInput(input_content="My SSN is 123-45-6789")
@@ -532,7 +532,7 @@ class TestPIIGuardrailTypeSafety:
         assert "123-45-6789" not in run_input.input_content
 
     def test_detect_pii_raises_without_masking(self):
-        from agno.guardrails.pii import PIIDetectionGuardrail
+        from egpt.guardrails.pii import PIIDetectionGuardrail
 
         guardrail = PIIDetectionGuardrail(mask_pii=False, enable_email_check=True)
         run_input = RunInput(input_content="Contact user@example.com")

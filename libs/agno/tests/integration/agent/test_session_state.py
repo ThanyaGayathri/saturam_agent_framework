@@ -2,10 +2,10 @@ import uuid
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.db.base import SessionType
-from agno.models.openai.chat import OpenAIChat
-from agno.run import RunContext
+from egpt.agent.agent import Agent
+from egpt.db.base import SessionType
+from egpt.models.openai.chat import OpenAIChat
+from egpt.run import RunContext
 
 
 def test_session_state_precedence_all_three_layers(shared_db):

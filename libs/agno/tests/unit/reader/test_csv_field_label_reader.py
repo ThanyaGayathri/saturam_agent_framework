@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agno.knowledge.reader.field_labeled_csv_reader import FieldLabeledCSVReader
+from egpt.knowledge.reader.field_labeled_csv_reader import FieldLabeledCSVReader
 
 # Sample CSV data
 SAMPLE_CSV = """name,age,city
@@ -452,7 +452,7 @@ def test_get_supported_content_types():
     """Test supported content types - CSV only (Excel uses ExcelReader)."""
     content_types = FieldLabeledCSVReader.get_supported_content_types()
 
-    from agno.knowledge.types import ContentType
+    from egpt.knowledge.types import ContentType
 
     expected_types = [ContentType.CSV]
     assert content_types == expected_types
@@ -532,7 +532,7 @@ def test_get_supported_chunking_strategies():
 
 def test_reader_factory_integration():
     """Test that the reader is properly integrated with ReaderFactory."""
-    from agno.knowledge.reader.reader_factory import ReaderFactory
+    from egpt.knowledge.reader.reader_factory import ReaderFactory
 
     # Test that the reader can be created through the factory
     reader = ReaderFactory.create_reader("field_labeled_csv")

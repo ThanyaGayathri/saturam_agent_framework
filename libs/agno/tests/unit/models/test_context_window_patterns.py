@@ -2,7 +2,7 @@
 
 import pytest
 
-from agno.exceptions import ContextWindowExceededError, ModelProviderError
+from egpt.exceptions import ContextWindowExceededError, ModelProviderError
 
 # =============================================================================
 # Anthropic context window patterns

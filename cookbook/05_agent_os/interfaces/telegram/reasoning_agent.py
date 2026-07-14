@@ -14,13 +14,13 @@ Key concepts:
 Setup: Set TELEGRAM_TOKEN env var from @BotFather.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os.app import AgentOS
-from agno.os.interfaces.telegram import Telegram
-from agno.tools.duckduckgo import DuckDuckGoTools
-from agno.tools.reasoning import ReasoningTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.telegram import Telegram
+from egpt.tools.duckduckgo import DuckDuckGoTools
+from egpt.tools.reasoning import ReasoningTools
 
 # ---------------------------------------------------------------------------
 # Create Example

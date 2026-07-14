@@ -1,11 +1,11 @@
 """Example showing how to use AgentOS with Redis as database"""
 
-from agno.agent import Agent
-from agno.db.redis import RedisDb
-from agno.eval.accuracy import AccuracyEval
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team.team import Team
+from egpt.agent import Agent
+from egpt.db.redis import RedisDb
+from egpt.eval.accuracy import AccuracyEval
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Example

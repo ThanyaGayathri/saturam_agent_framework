@@ -29,11 +29,11 @@ Then call the API:
         -F "stream=true" --no-buffer
 """
 
-from agno.agent import Agent
-from agno.agents.claude import ClaudeAgent
-from agno.db.sqlite import SqliteDb
-from agno.os import AgentOS
-from agno.tools.workspace import Workspace
+from egpt.agent import Agent
+from egpt.agents.claude import ClaudeAgent
+from egpt.db.sqlite import SqliteDb
+from egpt.os import AgentOS
+from egpt.tools.workspace import Workspace
 
 # ---------------------------------------------------------------------------
 # Claude Code agent (via the Claude Agent SDK)

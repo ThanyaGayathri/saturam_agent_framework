@@ -11,17 +11,17 @@ all settings round-trip through save/load via to_dict / from_dict.
 - Router: User selects which routes to execute
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.registry import Registry
-from agno.workflow import OnReject
-from agno.workflow.condition import Condition
-from agno.workflow.loop import Loop
-from agno.workflow.router import Router
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow, get_workflow_by_id
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.registry import Registry
+from egpt.workflow import OnReject
+from egpt.workflow.condition import Condition
+from egpt.workflow.loop import Loop
+from egpt.workflow.router import Router
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow, get_workflow_by_id
 
 # ---------------------------------------------------------------------------
 # Setup

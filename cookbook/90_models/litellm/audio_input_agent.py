@@ -6,9 +6,9 @@ Cookbook example for `litellm/audio_input_agent.py`.
 """
 
 import requests
-from agno.agent import Agent
-from agno.media import Audio
-from agno.models.litellm import LiteLLM
+from egpt.agent import Agent
+from egpt.media import Audio
+from egpt.models.litellm import LiteLLM
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -9,8 +9,8 @@ Requires: SEARCHAPI_API_KEY environment variable.
 Get your key at https://www.searchapi.io/
 """
 
-from agno.agent import Agent
-from agno.tools.searchapi import SearchApiTools
+from egpt.agent import Agent
+from egpt.tools.searchapi import SearchApiTools
 
 # ---------------------------------------------------------------------------
 # Create Agents

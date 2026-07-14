@@ -22,9 +22,9 @@ import asyncio
 from os import environ
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.mcp import MCPTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.mcp import MCPTools
 from mcp import StdioServerParameters
 
 # ---------------------------------------------------------------------------

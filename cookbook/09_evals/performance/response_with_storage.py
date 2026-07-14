@@ -5,10 +5,10 @@ Storage-Backed Response Performance Evaluation
 Demonstrates measuring performance when storage-backed history is enabled.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.eval.performance import PerformanceEval
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.eval.performance import PerformanceEval
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Database

@@ -6,8 +6,8 @@ properly filter by user_id when provided, preventing cross-user access.
 
 import pytest
 
-from agno.db.base import SessionType
-from agno.db.in_memory.in_memory_db import InMemoryDb
+from egpt.db.base import SessionType
+from egpt.db.in_memory.in_memory_db import InMemoryDb
 
 
 @pytest.fixture

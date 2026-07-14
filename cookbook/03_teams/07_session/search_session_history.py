@@ -18,9 +18,9 @@ the preview (default 3).
 import asyncio
 import os
 
-from agno.db.sqlite import AsyncSqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.db.sqlite import AsyncSqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 
 # ---------------------------------------------------------------------------
 # Setup -- fresh DB each run

@@ -17,13 +17,13 @@ Requires: pip install pgvector psycopg[binary]
 See also: 01_qdrant.py for recommended default, 02_local.py for local dev.
 """
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reranker.cohere import CohereReranker
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.pgvector import PgVector
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reranker.cohere import CohereReranker
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.pgvector import PgVector
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

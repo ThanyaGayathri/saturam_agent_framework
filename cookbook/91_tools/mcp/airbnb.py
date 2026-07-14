@@ -7,9 +7,9 @@ Run: `uv pip install google-genai mcp agno` to install the dependencies
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.openai.chat import OpenAIChat
-from agno.tools.mcp import MCPTools
+from egpt.agent import Agent
+from egpt.models.openai.chat import OpenAIChat
+from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

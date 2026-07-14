@@ -22,10 +22,10 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.context.wiki import FileSystemBackend, WikiContextProvider
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
+from egpt.agent import Agent
+from egpt.context.wiki import FileSystemBackend, WikiContextProvider
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
 
 # Wiki 1: Architecture docs
 ARCH_PATH = Path(__file__).resolve().parent / "demo-arch-wiki"

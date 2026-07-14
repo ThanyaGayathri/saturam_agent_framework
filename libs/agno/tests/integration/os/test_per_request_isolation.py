@@ -14,12 +14,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os.app import AgentOS
-from agno.team import Team
-from agno.workflow import Workflow
-from agno.workflow.step import Step
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os.app import AgentOS
+from egpt.team import Team
+from egpt.workflow import Workflow
+from egpt.workflow.step import Step
 
 
 @pytest.fixture
@@ -440,8 +440,8 @@ class TestWorkflowDeepCopyIntegration:
 
     def test_workflow_with_nested_steps_isolation(self):
         """Workflow with nested steps should have all agents isolated."""
-        from agno.workflow.loop import Loop
-        from agno.workflow.parallel import Parallel
+        from egpt.workflow.loop import Loop
+        from egpt.workflow.parallel import Parallel
 
         agent1 = Agent(
             name="agent-1",
@@ -543,7 +543,7 @@ class TestCustomExecutorStepIsolation:
 
     def test_function_executor_step_preserved(self):
         """Function executors should be preserved (same reference) in copies."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         def my_custom_executor(step_input: StepInput) -> StepOutput:
             return StepOutput(content="Custom result")
@@ -561,7 +561,7 @@ class TestCustomExecutorStepIsolation:
 
     def test_mixed_agent_and_function_steps(self):
         """Workflow with both agent and function steps should copy correctly."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         def preprocessing_step(step_input: StepInput) -> StepOutput:
             return StepOutput(content=f"Preprocessed: {step_input.input}")
@@ -604,7 +604,7 @@ class TestCustomExecutorStepIsolation:
 
     def test_function_step_with_closure_state(self):
         """Function executors with closure state - functions are shared."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         # Create a function with closure state
         external_counter = {"count": 0}
@@ -629,7 +629,7 @@ class TestCustomExecutorStepIsolation:
 
     def test_workflow_callable_steps_preserved(self):
         """Workflow with callable steps (Workflows 1.0 style) should preserve function."""
-        from agno.workflow.types import WorkflowExecutionInput
+        from egpt.workflow.types import WorkflowExecutionInput
 
         def my_workflow_function(workflow: Workflow, execution_input: WorkflowExecutionInput):
             return f"Executed with: {execution_input.input}"
@@ -647,8 +647,8 @@ class TestCustomExecutorStepIsolation:
 
     def test_function_executor_in_parallel(self):
         """Function executors in Parallel steps should be preserved."""
-        from agno.workflow.parallel import Parallel
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.parallel import Parallel
+        from egpt.workflow.types import StepInput, StepOutput
 
         def func_a(step_input: StepInput) -> StepOutput:
             return StepOutput(content="Result A")
@@ -676,8 +676,8 @@ class TestCustomExecutorStepIsolation:
 
     def test_function_executor_in_loop(self):
         """Function executors in Loop steps should be preserved."""
-        from agno.workflow.loop import Loop
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.loop import Loop
+        from egpt.workflow.types import StepInput, StepOutput
 
         iteration_tracker = {"iterations": 0}
 
@@ -710,8 +710,8 @@ class TestCustomExecutorStepIsolation:
 
     def test_function_executor_in_condition(self):
         """Function executors in Condition steps should be preserved."""
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import StepInput, StepOutput
 
         def evaluator(step_input: StepInput) -> bool:
             return step_input.input == "proceed"
@@ -739,8 +739,8 @@ class TestCustomExecutorStepIsolation:
 
     def test_function_executor_in_router(self):
         """Function executors in Router steps should be preserved."""
-        from agno.workflow.router import Router
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.router import Router
+        from egpt.workflow.types import StepInput, StepOutput
 
         def route_a(step_input: StepInput) -> StepOutput:
             return StepOutput(content="Route A")
@@ -777,8 +777,8 @@ class TestCustomExecutorStepIsolation:
 
     def test_mixed_function_agent_team_in_parallel(self):
         """Parallel with function, agent, and team steps should copy correctly."""
-        from agno.workflow.parallel import Parallel
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.parallel import Parallel
+        from egpt.workflow.types import StepInput, StepOutput
 
         def func_step(step_input: StepInput) -> StepOutput:
             return StepOutput(content="Function result")
@@ -835,10 +835,10 @@ class TestCustomExecutorStepIsolation:
 
     def test_deeply_nested_function_executors(self):
         """Deeply nested function executors should all be preserved."""
-        from agno.workflow.condition import Condition
-        from agno.workflow.loop import Loop
-        from agno.workflow.parallel import Parallel
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.loop import Loop
+        from egpt.workflow.parallel import Parallel
+        from egpt.workflow.types import StepInput, StepOutput
 
         def level1_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="Level 1")
@@ -891,7 +891,7 @@ class TestCustomExecutorStepIsolation:
 
     def test_step_attributes_preserved_with_function_executor(self):
         """Step configuration attributes should be preserved for function executor steps."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         def my_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="Result")
@@ -939,7 +939,7 @@ class TestCustomExecutorWithInternalAgentTeam:
         This documents the LIMITATION: functions with closure-captured agents
         will share that agent across workflow copies.
         """
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         # Agent captured in closure
         closure_agent = Agent(
@@ -973,7 +973,7 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_function_with_closure_team_shares_reference(self):
         """Function capturing team in closure - team is NOT copied (shared reference)."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         member = Agent(
             name="team-member",
@@ -1068,7 +1068,7 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_function_with_step_input_agent_pattern(self):
         """Pattern: Pass agent via step_input.additional_data for isolation."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         def dynamic_agent_step(step_input: StepInput) -> StepOutput:
             # Get agent from additional_data - this allows for dynamic injection
@@ -1088,7 +1088,7 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_hybrid_pattern_function_then_agent(self):
         """Hybrid pattern: Function preprocessor followed by agent step."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         def preprocessor(step_input: StepInput) -> StepOutput:
             # Preprocessing logic - no agent needed here
@@ -1122,7 +1122,7 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_hybrid_pattern_agent_then_function(self):
         """Hybrid pattern: Agent step followed by function postprocessor."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         agent = Agent(
             name="generator-agent",
@@ -1155,8 +1155,8 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_parallel_mixed_agent_and_function_isolation(self):
         """Parallel execution with both agent steps and function steps."""
-        from agno.workflow.parallel import Parallel
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.parallel import Parallel
+        from egpt.workflow.types import StepInput, StepOutput
 
         agent1 = Agent(
             name="parallel-agent-1",
@@ -1208,8 +1208,8 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_loop_with_agent_and_function_steps(self):
         """Loop containing both agent and function steps."""
-        from agno.workflow.loop import Loop
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.loop import Loop
+        from egpt.workflow.types import StepInput, StepOutput
 
         loop_agent = Agent(
             name="loop-agent",
@@ -1256,8 +1256,8 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_condition_with_agent_and_function_evaluator(self):
         """Condition with function evaluator and agent step inside."""
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import StepInput
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import StepInput
 
         def should_execute(step_input: StepInput) -> bool:
             return "yes" in str(step_input.input).lower()
@@ -1294,8 +1294,8 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_router_with_agent_choices_and_function_selector(self):
         """Router with function selector and agent steps as choices."""
-        from agno.workflow.router import Router
-        from agno.workflow.types import StepInput
+        from egpt.workflow.router import Router
+        from egpt.workflow.types import StepInput
 
         route_agent_a = Agent(
             name="route-a-agent",
@@ -1349,11 +1349,11 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_complex_workflow_with_all_step_types(self):
         """Complex workflow combining all step types with agents and functions."""
-        from agno.workflow.condition import Condition
-        from agno.workflow.loop import Loop
-        from agno.workflow.parallel import Parallel
-        from agno.workflow.router import Router
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.loop import Loop
+        from egpt.workflow.parallel import Parallel
+        from egpt.workflow.router import Router
+        from egpt.workflow.types import StepInput, StepOutput
 
         # Agents
         preprocess_agent = Agent(
@@ -1469,7 +1469,7 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_step_id_unique_per_copy(self):
         """Each workflow copy should get NEW unique step_ids for per-request isolation."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         def my_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="Result")
@@ -1522,9 +1522,9 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_step_id_unique_in_nested_steps(self):
         """Nested steps should also get unique step_ids per copy."""
-        from agno.workflow.loop import Loop
-        from agno.workflow.parallel import Parallel
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.loop import Loop
+        from egpt.workflow.parallel import Parallel
+        from egpt.workflow.types import StepInput, StepOutput
 
         def my_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="Result")
@@ -1592,8 +1592,8 @@ class TestCustomExecutorWithInternalAgentTeam:
     def test_step_id_stable_across_continue(self):
         """A run's step_id must stay stable across its own pause/continue, even though the OS
         deep-copies the workflow afresh for the continue request (clients correlate by step_id)."""
-        from agno.db.in_memory import InMemoryDb
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.db.in_memory import InMemoryDb
+        from egpt.workflow.types import StepInput, StepOutput
 
         def my_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="Result")
@@ -1627,7 +1627,7 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_function_executor_calling_agent_run(self):
         """Function executor that calls agent.run() internally - agent is shared via closure."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         # Agent captured in closure and used via run()
         inner_agent = Agent(
@@ -1669,7 +1669,7 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_function_executor_calling_team_run(self):
         """Function executor that calls team.run() internally - team is shared via closure."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         member = Agent(
             name="team-member",
@@ -1713,7 +1713,7 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_function_executor_with_agent_run_mocked(self):
         """Test function executor calling agent.arun() with mocked response."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         inner_agent = Agent(
             name="mocked-agent",
@@ -1764,7 +1764,7 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_safe_pattern_agent_factory_in_function(self):
         """SAFE PATTERN: Create new agent instance inside function to avoid sharing."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         execution_log: List[Dict[str, Any]] = []
 
@@ -1810,7 +1810,7 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_safe_pattern_agent_deep_copy_in_function(self):
         """SAFE PATTERN: deep_copy the template agent inside function."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         # Template agent (not used directly, only as template)
         template_agent = Agent(
@@ -1859,7 +1859,7 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_safe_pattern_team_deep_copy_in_function(self):
         """SAFE PATTERN: deep_copy the template team inside function."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         member = Agent(
             name="member",
@@ -1909,7 +1909,7 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_integration_workflow_with_agent_run_in_agentos(self):
         """Integration test: Workflow with function that calls agent inside AgentOS."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         # Shared agent via closure (demonstrating the problem)
         shared_agent = Agent(
@@ -1964,7 +1964,7 @@ class TestCustomExecutorWithInternalAgentTeam:
 
     def test_integration_safe_workflow_with_agent_factory(self):
         """Integration test: Safe workflow pattern with agent factory inside AgentOS."""
-        from agno.workflow.types import StepInput, StepOutput
+        from egpt.workflow.types import StepInput, StepOutput
 
         agent_instances_created: List[str] = []
 
@@ -2021,7 +2021,7 @@ class TestToolsDeepCopy:
 
     def test_regular_tools_are_deep_copied(self):
         """Regular (non-MCP) tools should be deep copied, not shared."""
-        from agno.tools.toolkit import Toolkit
+        from egpt.tools.toolkit import Toolkit
 
         class CustomTool(Toolkit):
             """A simple custom toolkit for testing."""
@@ -2121,7 +2121,7 @@ class TestToolsDeepCopy:
 
     def test_mixed_tools_handled_correctly(self):
         """Mix of MCP and regular tools should be handled correctly."""
-        from agno.tools.toolkit import Toolkit
+        from egpt.tools.toolkit import Toolkit
 
         class RegularTool(Toolkit):
             def __init__(self):
@@ -2214,7 +2214,7 @@ class TestToolsDeepCopy:
 
     def test_tools_with_state_isolation(self):
         """Tool state should be isolated between copies."""
-        from agno.tools.toolkit import Toolkit
+        from egpt.tools.toolkit import Toolkit
 
         class StatefulTool(Toolkit):
             def __init__(self):
@@ -2385,7 +2385,7 @@ class TestModelDeepCopy:
 
     def test_session_summary_manager_is_shared(self):
         """Session summary manager should be shared (not copied) between instances."""
-        from agno.session.summary import SessionSummaryManager
+        from egpt.session.summary import SessionSummaryManager
 
         model = OpenAIChat(id="gpt-4o-mini")
         session_summary_manager = SessionSummaryManager(model=model)
@@ -2646,7 +2646,7 @@ class TestDeepCopyErrorHandling:
 
     def test_concurrent_deep_copy_safety(self):
         """Multiple concurrent deep_copy calls should be safe."""
-        from agno.tools.toolkit import Toolkit
+        from egpt.tools.toolkit import Toolkit
 
         class CounterTool(Toolkit):
             def __init__(self):
@@ -2728,7 +2728,7 @@ class TestComprehensiveDeepCopyIntegration:
 
     def test_team_with_agents_having_tools_and_knowledge(self):
         """Team with member agents that have tools and knowledge."""
-        from agno.tools.toolkit import Toolkit
+        from egpt.tools.toolkit import Toolkit
 
         class MockKnowledge:
             def __init__(self, name: str):
@@ -2792,7 +2792,7 @@ class TestComprehensiveDeepCopyIntegration:
 
     def test_workflow_with_full_agent_configuration(self):
         """Workflow with step agents having full configuration."""
-        from agno.tools.toolkit import Toolkit
+        from egpt.tools.toolkit import Toolkit
 
         class MockDb:
             def __init__(self):

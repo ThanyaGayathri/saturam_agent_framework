@@ -1,6 +1,6 @@
 """Unit tests for AWS Bedrock streaming response parsing, specifically tool call handling."""
 
-from agno.models.aws import AwsBedrock
+from egpt.models.aws import AwsBedrock
 
 
 def test_parse_streaming_tool_call_with_single_chunk():

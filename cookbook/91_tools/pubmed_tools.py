@@ -5,8 +5,8 @@ Pubmed Tools
 Demonstrates pubmed tools.
 """
 
-from agno.agent import Agent
-from agno.tools.pubmed import PubmedTools
+from egpt.agent import Agent
+from egpt.tools.pubmed import PubmedTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

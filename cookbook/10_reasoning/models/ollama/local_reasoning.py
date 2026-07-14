@@ -5,8 +5,8 @@ Local Reasoning
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.ollama import Ollama
+from egpt.agent import Agent
+from egpt.models.ollama import Ollama
 from rich.console import Console
 
 

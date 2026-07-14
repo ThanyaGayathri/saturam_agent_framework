@@ -3,8 +3,8 @@
 Run `uv pip install ddgs sqlalchemy openai` to install dependencies.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
 
 # ---------------------------------------------------------------------------
 # Setup

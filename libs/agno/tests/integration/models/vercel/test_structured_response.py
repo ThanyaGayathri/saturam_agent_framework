@@ -3,8 +3,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.vercel import V0
+from egpt.agent import Agent
+from egpt.models.vercel import V0
 
 
 class MovieScript(BaseModel):

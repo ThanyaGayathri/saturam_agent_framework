@@ -6,11 +6,11 @@ Human-in-the-Loop: Presenting structured questions with predefined options.
 Uses UserFeedbackTools to pause the agent and collect user selections.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.tools.user_feedback import UserFeedbackTools
-from agno.utils import pprint
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.user_feedback import UserFeedbackTools
+from egpt.utils import pprint
 
 # ---------------------------------------------------------------------------
 # Create Agent

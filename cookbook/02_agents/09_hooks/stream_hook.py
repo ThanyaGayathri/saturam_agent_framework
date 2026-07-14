@@ -7,11 +7,11 @@ Example demonstrating sending a notification to the user after an agent generate
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.run import RunContext
-from agno.run.agent import RunOutput
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunContext
+from egpt.run.agent import RunOutput
+from egpt.tools.yfinance import YFinanceTools
 
 
 def send_notification(run_output: RunOutput, run_context: RunContext) -> None:

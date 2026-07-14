@@ -3,8 +3,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.xai import xAI
+from egpt.agent import Agent
+from egpt.models.xai import xAI
 
 
 class MovieScript(BaseModel):

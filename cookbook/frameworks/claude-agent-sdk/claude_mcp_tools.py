@@ -11,7 +11,7 @@ Usage:
     .venvs/demo/bin/python cookbook/frameworks/claude-agent-sdk/claude_mcp_tools.py
 """
 
-from agno.agents.claude import ClaudeAgent
+from egpt.agents.claude import ClaudeAgent
 
 # ----- Define custom tools via MCP server -----
 # The Claude Agent SDK uses MCP servers for custom tools.

@@ -18,9 +18,9 @@ Usage:
     python unsplash_tools.py
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.unsplash import UnsplashTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.unsplash import UnsplashTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

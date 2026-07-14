@@ -2,9 +2,9 @@
 Google Drive Agent that can search, list, read, upload, and download files using Google Drive.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.google.drive import GoogleDriveTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.google.drive import GoogleDriveTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

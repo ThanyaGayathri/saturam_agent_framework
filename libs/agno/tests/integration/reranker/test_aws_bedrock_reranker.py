@@ -20,8 +20,8 @@ import os
 
 import pytest
 
-from agno.knowledge.document import Document
-from agno.knowledge.reranker.aws_bedrock import (
+from egpt.knowledge.document import Document
+from egpt.knowledge.reranker.aws_bedrock import (
     AMAZON_RERANK_V1,
     COHERE_RERANK_V3_5,
     AmazonReranker,

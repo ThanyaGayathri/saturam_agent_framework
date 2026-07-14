@@ -2,7 +2,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 
-from agno.utils.string import generate_id_from_name, parse_response_model_str, sanitize_postgres_string, url_safe_string
+from egpt.utils.string import generate_id_from_name, parse_response_model_str, sanitize_postgres_string, url_safe_string
 
 
 def test_url_safe_string_spaces():
@@ -251,7 +251,7 @@ def test_parse_nested_json():
 def test_parse_concatenated_reasoning_steps():
     """Test concatenated JSON objects."""
 
-    from agno.reasoning.step import ReasoningSteps
+    from egpt.reasoning.step import ReasoningSteps
 
     content = (
         '{"reasoning_steps":[{"title":"Step A","confidence":1.0}]}'
@@ -269,7 +269,7 @@ def test_parse_concatenated_reasoning_steps():
 def test_parse_json_with_prefix_suffix_noise():
     """Test JSON with trailing characters."""
 
-    from agno.reasoning.step import ReasoningSteps
+    from egpt.reasoning.step import ReasoningSteps
 
     content = 'Here is my reasoning: {"reasoning_steps":[{"title":"Only Step","confidence":0.8}]} -- end of reasoning'
 

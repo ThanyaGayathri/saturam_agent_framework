@@ -9,9 +9,9 @@ text/markdown MIME type.
 from pathlib import Path
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.anthropic import Claude
 
 # ---------------------------------------------------------------------------
 # Create a sample markdown file

@@ -8,10 +8,10 @@ Metrics accumulate across multiple team runs within the same session.
 Run: ./cookbook/scripts/run_pgvector.sh
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.team import Team
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

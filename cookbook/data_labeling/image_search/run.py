@@ -14,8 +14,8 @@ Then open http://localhost:7777/ui.
 
 import os
 
-from agno.os import AgentOS
 from db import get_knowledge
+from egpt.os import AgentOS
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse

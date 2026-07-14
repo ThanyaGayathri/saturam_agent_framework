@@ -7,9 +7,9 @@ This example demonstrates:
 - Using the ScheduleManager directly for setup
 """
 
-from agno.db.sqlite import SqliteDb
-from agno.scheduler import ScheduleManager
-from agno.scheduler.cli import SchedulerConsole
+from egpt.db.sqlite import SqliteDb
+from egpt.scheduler import ScheduleManager
+from egpt.scheduler.cli import SchedulerConsole
 
 # --- Setup ---
 

@@ -13,12 +13,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.run import RunContext
-from agno.session import TeamSession
-from agno.team._messages import get_system_message
-from agno.team._run import _aresolve_run_dependencies, _resolve_run_dependencies
-from agno.team._run_options import resolve_run_options
-from agno.team.team import Team
+from egpt.run import RunContext
+from egpt.session import TeamSession
+from egpt.team._messages import get_system_message
+from egpt.team._run import _aresolve_run_dependencies, _resolve_run_dependencies
+from egpt.team._run_options import resolve_run_options
+from egpt.team.team import Team
 
 
 def _make_team(**kwargs) -> Team:

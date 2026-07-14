@@ -5,7 +5,7 @@ from typing import AsyncIterator
 
 import pytest
 
-from agno.run.workflow import (
+from egpt.run.workflow import (
     StepCompletedEvent,
     StepsExecutionCompletedEvent,
     StepsExecutionStartedEvent,
@@ -13,7 +13,7 @@ from agno.run.workflow import (
     WorkflowCompletedEvent,
     WorkflowRunOutput,
 )
-from agno.workflow import Step, StepInput, StepOutput, Steps, Workflow
+from egpt.workflow import Step, StepInput, StepOutput, Steps, Workflow
 
 
 def find_content_in_steps(step_output, search_text):
@@ -140,7 +140,7 @@ async def test_steps_direct_aexecute_with_callable_class():
 
 def test_steps_direct_execute_stream():
     """Test Steps.execute_stream() directly without workflow."""
-    from agno.run.workflow import WorkflowRunOutput
+    from egpt.run.workflow import WorkflowRunOutput
 
     step1 = Step(name="step1", executor=step1_function)
     step2 = Step(name="step2", executor=step2_function)

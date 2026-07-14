@@ -31,11 +31,11 @@ import os
 
 import httpx
 import jwt
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.os.middleware.jwt import JWTMiddleware
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.os.middleware.jwt import JWTMiddleware
 from workos import WorkOSClient
 from workos.organization_membership._resource import RoleSingle
 from workos.user_management import PasswordPlaintext

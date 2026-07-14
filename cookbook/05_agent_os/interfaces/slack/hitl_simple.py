@@ -12,12 +12,12 @@ Try in Slack:
 import json
 
 import httpx
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.os.interfaces.slack import Slack
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.os.interfaces.slack import Slack
+from egpt.tools import tool
 
 
 @tool(requires_confirmation=True)

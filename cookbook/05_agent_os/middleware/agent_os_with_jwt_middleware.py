@@ -11,11 +11,11 @@ For both header and cookie support, use token_source=TokenSource.BOTH
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.os.middleware import JWTMiddleware
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.os.middleware import JWTMiddleware
 
 # ---------------------------------------------------------------------------
 # Create Example

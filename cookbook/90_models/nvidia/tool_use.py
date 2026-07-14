@@ -2,9 +2,9 @@
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.nvidia import Nvidia
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.nvidia import Nvidia
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

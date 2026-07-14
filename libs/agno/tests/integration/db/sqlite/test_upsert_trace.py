@@ -17,8 +17,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from threading import Barrier
 
-from agno.db.sqlite import SqliteDb
-from agno.tracing.schemas import Trace
+from egpt.db.sqlite import SqliteDb
+from egpt.tracing.schemas import Trace
 
 
 def create_test_trace(trace_id: str, name: str, task_id: int) -> Trace:

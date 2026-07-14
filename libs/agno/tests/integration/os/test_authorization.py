@@ -15,12 +15,12 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent.agent import Agent
-from agno.os import AgentOS
-from agno.os.config import AuthorizationConfig
-from agno.os.middleware import JWTMiddleware, TokenSource
-from agno.team.team import Team
-from agno.workflow.workflow import Workflow
+from egpt.agent.agent import Agent
+from egpt.os import AgentOS
+from egpt.os.config import AuthorizationConfig
+from egpt.os.middleware import JWTMiddleware, TokenSource
+from egpt.team.team import Team
+from egpt.workflow.workflow import Workflow
 
 # Test JWT secret
 JWT_SECRET = "test-secret-key-for-rbac-tests"
@@ -784,7 +784,7 @@ def test_legacy_system_scope_still_grants_config_access(test_agent):
 
 def test_registry_scope_required_for_registry_endpoint(test_agent, shared_db):
     """GET /registry is gated by registry:read (no longer by system/config scopes)."""
-    from agno.registry import Registry
+    from egpt.registry import Registry
 
     registry = Registry()
     agent_os = AgentOS(

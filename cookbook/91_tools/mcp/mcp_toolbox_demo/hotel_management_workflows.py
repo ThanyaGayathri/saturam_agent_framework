@@ -3,12 +3,12 @@
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.tools.mcp_toolbox import MCPToolbox
-from agno.workflow.condition import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.tools.mcp_toolbox import MCPToolbox
+from egpt.workflow.condition import Step
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Agent

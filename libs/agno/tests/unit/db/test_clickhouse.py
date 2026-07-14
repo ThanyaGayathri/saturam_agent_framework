@@ -21,7 +21,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.db.clickhouse import ClickhouseDb
+from egpt.db.clickhouse import ClickhouseDb
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -112,7 +112,7 @@ class TestRoundTrip:
 
     def test_round_trip_through_db_from_dict(self):
         """The generic loader must reconstruct a ClickhouseDb (with credentials)."""
-        from agno.db.utils import db_from_dict
+        from egpt.db.utils import db_from_dict
 
         original = ClickhouseDb(
             host="h", port=8443, username="u", password="p", database="d", secure=True, create_schema=False
@@ -246,12 +246,12 @@ class TestFilterExprConverter:
 
     @pytest.fixture
     def cols(self):
-        from agno.db.filter_converter import TRACE_COLUMNS
+        from egpt.db.filter_converter import TRACE_COLUMNS
 
         return TRACE_COLUMNS
 
     def test_eq_emits_parameterized_sql(self, cols):
-        from agno.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
 
         params: dict = {}
         sql = filter_expr_to_clickhouse({"op": "EQ", "key": "trace_id", "value": "abc"}, params, cols)
@@ -261,7 +261,7 @@ class TestFilterExprConverter:
         assert "abc" in params.values()
 
     def test_and_or_not_compose(self, cols):
-        from agno.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
 
         params: dict = {}
         sql = filter_expr_to_clickhouse(
@@ -288,7 +288,7 @@ class TestFilterExprConverter:
         assert len(params) == 3
 
     def test_in_uses_list_placeholder(self, cols):
-        from agno.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
 
         params: dict = {}
         sql = filter_expr_to_clickhouse({"op": "IN", "key": "status", "values": ["OK", "ERROR"]}, params, cols)
@@ -296,20 +296,20 @@ class TestFilterExprConverter:
         assert ["OK", "ERROR"] in params.values()
 
     def test_unknown_column_raises(self, cols):
-        from agno.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
 
         with pytest.raises(ValueError, match="Invalid filter field"):
             filter_expr_to_clickhouse({"op": "EQ", "key": "not_a_column", "value": "x"}, {}, cols)
 
     def test_column_alias_is_prefixed(self, cols):
-        from agno.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
 
         params: dict = {}
         sql = filter_expr_to_clickhouse({"op": "EQ", "key": "agent_id", "value": "a1"}, params, cols, column_alias="t")
         assert sql.startswith("t.agent_id ")
 
     def test_max_depth_enforced(self, cols):
-        from agno.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
 
         # Build a 12-deep AND chain (limit is 10).
         node = {"op": "EQ", "key": "trace_id", "value": "x"}
@@ -323,7 +323,7 @@ class TestFilterExprConverter:
         tz-aware datetimes so ClickHouse's DateTime64('UTC') accepts them."""
         from datetime import datetime, timezone
 
-        from agno.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
 
         params: dict = {}
         filter_expr_to_clickhouse(
@@ -339,7 +339,7 @@ class TestFilterExprConverter:
     def test_in_filter_with_datetime_column_coerces_each_value(self, cols):
         from datetime import datetime
 
-        from agno.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
 
         params: dict = {}
         filter_expr_to_clickhouse(
@@ -364,7 +364,7 @@ class TestTraceWritePath:
     """
 
     def test_upsert_trace_calls_insert_with_expected_args(self):
-        from agno.tracing.schemas import Trace
+        from egpt.tracing.schemas import Trace
 
         client = _mock_client()
         # Make the table-existence probe say "exists".

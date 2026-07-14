@@ -2,11 +2,11 @@ from typing import Optional
 
 import pytest
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.ibm import WatsonX
-from agno.tools.exa import ExaTools
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.ibm import WatsonX
+from egpt.tools.exa import ExaTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 
 def test_tool_use():
