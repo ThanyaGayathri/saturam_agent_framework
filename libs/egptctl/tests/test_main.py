@@ -1,5 +1,6 @@
 """Root `egpt` app: branded home screen, version flag, and command routing."""
 
+from rich.text import Text
 from typer.testing import CliRunner
 
 from egptctl import __version__
@@ -27,6 +28,7 @@ def test_version_flag():
 def test_commands_are_registered():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    assert "Usage: egpt" in result.output
+    output = Text.from_ansi(result.output).plain
+    assert "Usage: egpt" in output
     for command in ("connect", "create", "status", "tokens", "up", "down", "restart"):
-        assert command in result.output
+        assert command in output
