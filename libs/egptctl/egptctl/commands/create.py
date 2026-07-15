@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 
 import typer
 
+from egptctl import CLI_NAME
 from egptctl.commands._common import handle_cli_error, validate_project_name
 from egptctl.console import emit_json, print_info, print_success
 from egptctl.errors import CLIError
@@ -72,8 +73,8 @@ def create(
     print_info("Next steps:")
     print_info("  cd " + name)
     print_info("  cp example.env .env  # then fill in your secrets")
-    print_info("  egpt up              # start it with docker compose")
-    print_info("  egpt connect         # make it available in your coding agents")
+    print_info("  " + CLI_NAME + " up              # start it with docker compose")
+    print_info("  " + CLI_NAME + " connect         # make it available in your coding agents")
 
 
 def _create(name: str, template: str, template_url: Optional[str]) -> Dict[str, Any]:

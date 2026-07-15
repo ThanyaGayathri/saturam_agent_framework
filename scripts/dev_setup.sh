@@ -62,8 +62,7 @@ echo -e "    ${DIM}Creating Python 3.12 venv...${NC}"
 echo -e "    ${DIM}> uv venv ${VENV_DIR} --python 3.12${NC}"
 uv venv "${VENV_DIR}" --python 3.12 --quiet
 
-# One resolve for both editables: the local egptctl satisfies agno's
-# egptctl dependency, so nothing is pulled from PyPI for it.
+# Install the separately distributed CLI and core library together for development.
 echo ""
 echo -e "    ${DIM}Installing egptctl[dev] and agno[dev] in editable mode...${NC}"
 echo -e "    ${DIM}> uv pip install -e libs/egptctl[dev] -e libs/agno[dev]${NC}"

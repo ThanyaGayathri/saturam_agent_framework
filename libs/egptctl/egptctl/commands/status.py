@@ -4,6 +4,7 @@ from typing import Optional
 
 import typer
 
+from egptctl import CLI_NAME
 from egptctl.clients import build_adapters
 from egptctl.commands._common import handle_cli_error
 from egptctl.console import emit_json, print_info, print_success
@@ -51,4 +52,4 @@ def status(
         elif c["configured"]:
             print_info("  " + str(c["client"]) + ": configured (" + str(c["location"]) + ")")
         else:
-            print_info("  " + str(c["client"]) + ": detected, not connected (run: egpt connect)")
+            print_info("  " + str(c["client"]) + ": detected, not connected (run: " + CLI_NAME + " connect)")

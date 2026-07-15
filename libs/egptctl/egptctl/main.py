@@ -4,7 +4,7 @@ import typer
 from rich.table import Table
 from rich.text import Text
 
-from egptctl import __version__
+from egptctl import CLI_NAME, __version__
 from egptctl.commands.connect import connect
 from egptctl.commands.create import create
 from egptctl.commands.lifecycle import down, restart, up
@@ -13,7 +13,7 @@ from egptctl.commands.tokens import tokens_app
 from egptctl.console import console, print_info
 
 app = typer.Typer(
-    name="egpt",
+    name=CLI_NAME,
     help="The CLI for AgentOS, built for humans and coding agents.",
     no_args_is_help=False,
     add_completion=False,
@@ -43,21 +43,21 @@ _GROUPS: List[Tuple[str, List[Tuple[str, str]]]] = [
     (
         "Get started",
         [
-            ("egpt create <name>", "Create a new AgentOS"),
-            ("egpt connect", "Connect your AI apps to your AgentOS using MCP"),
+            (CLI_NAME + " create <name>", "Create a new AgentOS"),
+            (CLI_NAME + " connect", "Connect your AI apps to your AgentOS using MCP"),
         ],
     ),
     (
         "Operate",
         [
-            ("egpt up / down / restart", "Run your AgentOS"),
-            ("egpt status", "Show the AgentOS and which agents are connected"),
+            (CLI_NAME + " up / down / restart", "Run your AgentOS"),
+            (CLI_NAME + " status", "Show the AgentOS and which agents are connected"),
         ],
     ),
     (
         "Tokens",
         [
-            ("egpt tokens", "Mint, list, and revoke service-account tokens"),
+            (CLI_NAME + " tokens", "Mint, list, and revoke service-account tokens"),
         ],
     ),
 ]
@@ -82,13 +82,13 @@ def render_home() -> None:
             grid.add_row("  " + cmd, desc)
     console.print(grid)
     console.print()
-    console.print(Text(f"Run egpt COMMAND --help  for details · v{__version__}", style="dim"))
+    console.print(Text(f"Run {CLI_NAME} COMMAND --help  for details · v{__version__}", style="dim"))
     console.print()
 
 
 def _version_callback(value: bool) -> None:
     if value:
-        print_info("egptctl " + __version__)
+        print_info(CLI_NAME + " " + __version__)
         raise typer.Exit()
 
 

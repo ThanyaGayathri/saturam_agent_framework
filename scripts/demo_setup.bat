@@ -22,6 +22,7 @@ set "CURR_DIR=%CURR_DIR:~0,-1%"
 for %%I in ("%CURR_DIR%\..") do set "REPO_ROOT=%%~fI"
 
 set "AGNO_DIR=%REPO_ROOT%\libs\agno"
+set "EGPTCTL_DIR=%REPO_ROOT%\libs\egptctl"
 set "VENV_DIR=%REPO_ROOT%\.venvs\demo"
 
 :: Colors for the Banner (Orange is hard in batch, using Yellow)
@@ -32,13 +33,7 @@ set "BOLD=%ESC%[1m"
 set "RESET=%ESC%[0m"
 
 echo.
-echo %ORANGE%     █████╗  ██████╗ ███╗   ██╗ ██████╗%RESET%
-echo %ORANGE%    ██╔══██╗██╔════╝ ████╗  ██║██╔═══██╗%RESET%
-echo %ORANGE%    ███████║██║  ███╗██╔██╗ ██║██║   ██║%RESET%
-echo %ORANGE%    ██╔══██║██║   ██║██║╚██╗██║██║   ██║%RESET%
-echo %ORANGE%    ██║  ██║╚██████╔╝██║ ╚████║╚██████╔╝%RESET%
-echo %ORANGE%    ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝%RESET%
-echo     Demo Environment Setup
+echo %ORANGE%     Demo Environment Setup%RESET%
 echo.
 
 :: Preflight Checks
@@ -65,12 +60,12 @@ uv venv "%VENV_DIR%" --python 3.12 --quiet
 if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
 
 echo.
-echo     %GRAY%Installing agno[demo]...%RESET%
-echo     %GRAY%^> set VIRTUAL_ENV=%VENV_DIR% ^& uv pip install -e "%AGNO_DIR%[demo]"%RESET%
+echo     %GRAY%Installing egptctl and agno[demo]...%RESET%
+echo     %GRAY%^> set VIRTUAL_ENV=%VENV_DIR% ^& uv pip install -e "%EGPTCTL_DIR%" -e "%AGNO_DIR%[demo]"%RESET%
 
 :: In batch, we can set the variable just for this command by chaining or wrapping
 set "VIRTUAL_ENV=%VENV_DIR%"
-uv pip install -e "%AGNO_DIR%[demo]" --quiet
+uv pip install -e "%EGPTCTL_DIR%" -e "%AGNO_DIR%[demo]" --quiet
 if %ERRORLEVEL% NEQ 0 (
     :: Clear VENV variable before exiting on error
     set "VIRTUAL_ENV="

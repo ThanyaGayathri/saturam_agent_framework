@@ -98,7 +98,7 @@ class TestInfoEndpointAuthMode:
 
         Some deployments configure JWT auth by calling ``app.add_middleware(JWTMiddleware, ...)``
         instead of using ``AgentOS(authorization=True)``. Before the fix, ``/info`` reported
-        ``auth_mode: "none"`` for these deployments, and ``agno connect`` skipped the mint
+        ``auth_mode: "none"`` for these deployments, and ``egpt connect`` skipped the mint
         step and produced configs without a bearer token.
         """
         from egpt.os.middleware import JWTMiddleware

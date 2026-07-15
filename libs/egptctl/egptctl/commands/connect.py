@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 import typer
 
+from egptctl import CLI_NAME
 from egptctl.clients import CLIENT_ALIASES, build_adapters
 from egptctl.clients.base import ClientAdapter
 from egptctl.commands._common import (
@@ -594,7 +595,9 @@ def _report(
     accounts = sorted({r["account"]["name"] for r in results if r.get("account")})
     if accounts:
         print_info("")
-        print_info("Revoke any time with: egpt tokens revoke <name>  (accounts: " + ", ".join(accounts) + ")")
+        print_info(
+            "Revoke any time with: " + CLI_NAME + " tokens revoke <name>  (accounts: " + ", ".join(accounts) + ")"
+        )
     if open_mcp_warning:
         print_info("")
         print_warning(open_mcp_warning)

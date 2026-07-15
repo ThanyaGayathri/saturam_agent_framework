@@ -6,6 +6,7 @@ from typing import List, Optional
 
 import typer
 
+from egptctl import CLI_NAME
 from egptctl.commands._common import (
     handle_cli_error,
     parse_expires,
@@ -78,7 +79,7 @@ def create(
                     allow_privileged_scopes=privileged,
                 )
             except ConflictError as e:
-                e.hint = "Revoke it first (egpt tokens revoke " + name + ") or pick a different name."
+                e.hint = "Revoke it first (" + CLI_NAME + " tokens revoke " + name + ") or pick a different name."
                 raise
     except CLIError as e:
         raise handle_cli_error(e, json_output)

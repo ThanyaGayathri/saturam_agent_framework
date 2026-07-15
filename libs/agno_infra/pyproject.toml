@@ -55,11 +55,6 @@ docker = ["docker"]
 aws = ["boto3"]
 
 
-[project.scripts]
-ag = "egpt.cli.entrypoint:agno_cli"
-agno = "egpt.cli.entrypoint:agno_cli"
-
-
 [project.urls]
 homepage = "https://agno.com"
 documentation = "https://docs.agno.com"

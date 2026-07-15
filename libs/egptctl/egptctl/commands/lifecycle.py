@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 import typer
 
+from egptctl import CLI_NAME
 from egptctl.commands._common import handle_cli_error
 from egptctl.console import emit_json, print_info, print_success
 from egptctl.errors import CLIError
@@ -44,7 +45,7 @@ def find_compose_file(explicit: Optional[str] = None, cwd: Optional[Path] = None
                 return candidate
     raise CLIError(
         "No compose file found in " + str(base) + " or " + str(base / "infra") + ".",
-        hint="Run from an AgentOS project (egpt create <name>) or pass --file.",
+        hint="Run from an AgentOS project (" + CLI_NAME + " create <name>) or pass --file.",
     )
 
 

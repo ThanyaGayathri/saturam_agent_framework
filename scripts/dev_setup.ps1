@@ -16,6 +16,7 @@ $ErrorActionPreference = "Stop"
 $CurrDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $CurrDir
 $AgnoDir = Join-Path $RepoRoot "libs\agno"
+$EgptctlDir = Join-Path $RepoRoot "libs\egptctl"
 $AgnoInfraDir = Join-Path $RepoRoot "libs\agno_infra"
 $VenvDir = Join-Path $RepoRoot ".venv"
 
@@ -56,15 +57,10 @@ Print-Info "uv venv $VenvDir --python 3.12"
 uv venv $VenvDir --python 3.12
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Print-Heading "Installing agno"
-Print-Info "VIRTUAL_ENV=$VenvDir uv pip install -r $AgnoDir\requirements.txt"
 $env:VIRTUAL_ENV = $VenvDir
-uv pip install -r "$AgnoDir\requirements.txt"
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-Print-Heading "Installing agno in editable mode with dev dependencies"
-Print-Info "VIRTUAL_ENV=$VenvDir uv pip install -U -e $AgnoDir[dev]"
-uv pip install -U -e "${AgnoDir}[dev]"
+Print-Heading "Installing egptctl and agno in editable mode with dev dependencies"
+Print-Info "VIRTUAL_ENV=$VenvDir uv pip install -U -e ${EgptctlDir}[dev] -e ${AgnoDir}[dev]"
+uv pip install -U -e "${EgptctlDir}[dev]" -e "${AgnoDir}[dev]"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Print-Heading "Installing agno-infra"

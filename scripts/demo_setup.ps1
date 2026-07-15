@@ -12,6 +12,7 @@ $ErrorActionPreference = "Stop"
 $CurrDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $CurrDir
 $AgnoDir = Join-Path $RepoRoot "libs\agno"
+$EgptctlDir = Join-Path $RepoRoot "libs\egptctl"
 $VenvDir = Join-Path $RepoRoot ".venvs\demo"
 
 $ESC = [char]27
@@ -53,14 +54,14 @@ uv venv $VenvDir --python 3.12 --quiet
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""
-Write-Host "    Installing agno[demo]..." -ForegroundColor Gray
-Write-Host "    > uv pip install -e ${AgnoDir}[demo]" -ForegroundColor Gray
+Write-Host "    Installing egptctl and agno[demo]..." -ForegroundColor Gray
+Write-Host "    > uv pip install -e $EgptctlDir -e ${AgnoDir}[demo]" -ForegroundColor Gray
 
 # Set VIRTUAL_ENV for the install command
 $OldVenv = $env:VIRTUAL_ENV
 $env:VIRTUAL_ENV = $VenvDir
 try {
-    uv pip install -e "${AgnoDir}[demo]" --quiet
+    uv pip install -e "$EgptctlDir" -e "${AgnoDir}[demo]" --quiet
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 } finally {
     $env:VIRTUAL_ENV = $OldVenv

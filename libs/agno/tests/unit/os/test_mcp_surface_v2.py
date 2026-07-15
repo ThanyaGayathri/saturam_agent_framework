@@ -496,7 +496,7 @@ async def test_scope_gate_covers_session_and_config_tools(monkeypatch):
 
 
 async def test_scope_gate_default_scopes_cover_the_golden_path(monkeypatch):
-    """The default mint scopes must be able to discover and run: the agno connect flow."""
+    """The default mint scopes must be able to discover and run: the egpt connect flow."""
     from egpt.os.service_accounts import DEFAULT_SERVICE_ACCOUNT_SCOPES
 
     _patch_request(monkeypatch, _pat_request(DEFAULT_SERVICE_ACCOUNT_SCOPES))

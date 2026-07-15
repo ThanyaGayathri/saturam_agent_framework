@@ -1,8 +1,8 @@
 """Thin HTTP client for the AgentOS REST API.
 
 This module talks plain HTTP to a running AgentOS. It deliberately does not import the
-agno framework: the CLI must stay installable and fast under `uvx` with nothing but
-httpx, rich, and typer.
+egpt framework: the CLI must stay installable and fast under
+`uvx --from egptctl egpt` with nothing but httpx, rich, and typer.
 """
 
 from dataclasses import dataclass, field

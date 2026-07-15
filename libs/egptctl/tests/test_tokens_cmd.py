@@ -4,6 +4,7 @@ import json
 
 from typer.testing import CliRunner
 
+from egptctl import CLI_NAME
 from egptctl.main import app
 
 runner = CliRunner()
@@ -42,7 +43,7 @@ def test_create_conflict_errors_with_tokens_hint(monkeypatch, fake_os):
     payload = json.loads(result.output)
     assert "already exists" in payload["error"]
     # The hint must reference flags this command actually has.
-    assert "egpt tokens revoke ci-runner" in payload["hint"]
+    assert CLI_NAME + " tokens revoke ci-runner" in payload["hint"]
     assert "--rotate" not in payload["hint"]
 
 
