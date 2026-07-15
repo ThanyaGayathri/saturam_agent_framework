@@ -24,10 +24,10 @@ classifiers = [
 ]
 
 dependencies = [
-  # Floor at the latest *published* agnoctl: resolvers install the newest
+  # Floor at the latest *published* egptctl: resolvers install the newest
   # anyway, and a floor referencing an unpublished version breaks every
   # from-source install in the merge-to-publish window of a release.
-  "agnoctl>=0.1.0a5",
+  "egptctl>=0.1.0a7",
   "docstring-parser",
   # Prevent the request-smuggling CVE in h11 < 0.16
   "h11>=0.16.0",
@@ -431,9 +431,6 @@ demo = [
     "langchain-openai",
     "dspy",
 ]
-
-[project.scripts]
-agno = "agnoctl.main:app"
 
 [project.urls]
 Homepage = "https://agno.com"

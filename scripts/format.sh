@@ -4,7 +4,7 @@
 #
 #    Agno Format
 #
-#    ruff format + import sort for agno, agnoctl, agno_infra and cookbook.
+#    ruff format + import sort for agno, egptctl, agno_infra and cookbook.
 #
 #    Usage: ./scripts/format.sh
 #
@@ -62,9 +62,9 @@ target "agno"
 run_step "ruff format" ruff format "${REPO_ROOT}/libs/agno"
 run_step "import sort" ruff check --select I --fix "${REPO_ROOT}/libs/agno"
 
-target "agnoctl"
-run_step "ruff format" ruff format "${REPO_ROOT}/libs/agnoctl"
-run_step "import sort" ruff check --select I --fix "${REPO_ROOT}/libs/agnoctl"
+target "egptctl"
+run_step "ruff format" ruff format "${REPO_ROOT}/libs/egptctl"
+run_step "import sort" ruff check --select I --fix "${REPO_ROOT}/libs/egptctl"
 
 target "agno_infra"
 run_step "ruff format" ruff format "${REPO_ROOT}/libs/agno_infra"

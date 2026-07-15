@@ -238,10 +238,10 @@ esac
 
 # Install agno with model and integration test dependencies
 print_heading "Installing agno with ${MODEL_NAME} dependencies"
-print_info "pip install -e ../agnoctl -e .[${MODEL_NAME},integration-tests]"
-# The workspace agnoctl satisfies agno's agnoctl pin, so a just-bumped,
+print_info "pip install -e ../egptctl -e .[${MODEL_NAME},integration-tests]"
+# The workspace egptctl satisfies agno's egptctl pin, so a just-bumped,
 # not-yet-published version cannot break the resolve around a release.
-pip install -e "../agnoctl" -e ".[${MODEL_NAME},integration-tests]"
+pip install -e "../egptctl" -e ".[${MODEL_NAME},integration-tests]"
 
 # Run the tests
 print_heading "Running ${MODEL_NAME} tests"
