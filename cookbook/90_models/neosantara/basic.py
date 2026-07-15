@@ -7,8 +7,8 @@ Cookbook example for `neosantara/basic.py`.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.neosantara import Neosantara
+from egpt.agent import Agent
+from egpt.models.neosantara import Neosantara
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -10,8 +10,8 @@ so only new messages are sent each turn instead of the full history.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
 
 # ---------------------------------------------------------------------------
 # Create Agent

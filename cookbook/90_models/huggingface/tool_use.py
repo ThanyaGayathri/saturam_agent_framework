@@ -5,9 +5,9 @@ Huggingface Tool Use
 Cookbook example for `huggingface/tool_use.py`.
 """
 
-from agno.agent import Agent
-from agno.models.huggingface import HuggingFace
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.huggingface import HuggingFace
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

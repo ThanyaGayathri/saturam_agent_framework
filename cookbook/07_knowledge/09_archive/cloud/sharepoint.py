@@ -38,9 +38,9 @@ Run this cookbook:
 
 from os import getenv
 
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.remote_content import SharePointConfig
-from agno.vectordb.pgvector import PgVector
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.remote_content import SharePointConfig
+from egpt.vectordb.pgvector import PgVector
 
 # Configure SharePoint content source
 # All credentials should come from environment variables

@@ -18,13 +18,13 @@ See also: 02_hybrid_search.py for search type options.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reranker.cohere import CohereReranker
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.qdrant import Qdrant
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reranker.cohere import CohereReranker
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.qdrant import Qdrant
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

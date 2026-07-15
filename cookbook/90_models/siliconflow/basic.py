@@ -5,8 +5,8 @@ Siliconflow Basic
 Cookbook example for `siliconflow/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.siliconflow import Siliconflow
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.siliconflow import Siliconflow
 import asyncio
 
 # ---------------------------------------------------------------------------

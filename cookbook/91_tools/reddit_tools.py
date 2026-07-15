@@ -24,8 +24,8 @@ Steps to get Reddit credentials:
 
 """
 
-from agno.agent import Agent
-from agno.tools.reddit import RedditTools
+from egpt.agent import Agent
+from egpt.tools.reddit import RedditTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

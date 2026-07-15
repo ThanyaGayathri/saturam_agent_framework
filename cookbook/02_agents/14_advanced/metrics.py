@@ -5,10 +5,10 @@ Metrics
 Metrics.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.yfinance import YFinanceTools
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

@@ -5,10 +5,10 @@ Session Summary
 This example shows how to use the session summary to store the conversation summary.
 """
 
-from agno.agent.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.session.summary import SessionSummaryManager  # noqa: F401
+from egpt.agent.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.session.summary import SessionSummaryManager  # noqa: F401
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 

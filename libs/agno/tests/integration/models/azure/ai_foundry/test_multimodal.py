@@ -1,6 +1,6 @@
-from agno.agent.agent import Agent
-from agno.media import Image
-from agno.models.azure import AzureAIFoundry
+from egpt.agent.agent import Agent
+from egpt.media import Image
+from egpt.models.azure import AzureAIFoundry
 
 
 def test_image_input():

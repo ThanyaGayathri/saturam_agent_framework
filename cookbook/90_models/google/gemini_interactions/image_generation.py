@@ -9,8 +9,8 @@ Note: Image generation requires a model that supports image output,
 such as gemini-3.1-flash-image-preview.
 """
 
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
 
 # ---------------------------------------------------------------------------
 # Create Agent

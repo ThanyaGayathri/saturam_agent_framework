@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 
-from agno.tools.coding import CodingTools
+from egpt.tools.coding import CodingTools
 
 # --- read_file tests ---
 

@@ -9,10 +9,10 @@ ChromaDB has a maximum batch size of 5461 documents per operation due to
 SQLite's max variable number limit set to 32766 divided by 6 variables per record.
 """
 
-from agno.knowledge.chunking.fixed import FixedSizeChunking
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.text_reader import TextReader
-from agno.vectordb.chroma import ChromaDb
+from egpt.knowledge.chunking.fixed import FixedSizeChunking
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.text_reader import TextReader
+from egpt.vectordb.chroma import ChromaDb
 
 # ---------------------------------------------------------------------------
 # Configuration

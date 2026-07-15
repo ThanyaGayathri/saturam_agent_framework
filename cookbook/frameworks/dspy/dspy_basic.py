@@ -9,7 +9,7 @@ Usage:
 """
 
 import dspy
-from agno.agents.dspy import DSPyAgent
+from egpt.agents.dspy import DSPyAgent
 
 # ----- Configure DSPy LM (must be set on the main thread) -----
 lm = dspy.LM("openai/gpt-5.4")

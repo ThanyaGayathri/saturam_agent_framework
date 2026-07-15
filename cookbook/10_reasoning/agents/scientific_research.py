@@ -5,9 +5,9 @@ Scientific Abstract Critique
 Demonstrates built-in and DeepSeek-backed reasoning for methodology critique.
 """
 
-from agno.agent import Agent
-from agno.models.deepseek import DeepSeek
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.deepseek import DeepSeek
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Agents

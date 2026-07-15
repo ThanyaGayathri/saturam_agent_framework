@@ -5,10 +5,10 @@ Binary Agent-as-Judge Evaluation
 Demonstrates pass/fail response quality evaluation.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.eval.agent_as_judge import AgentAsJudgeEval
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Database

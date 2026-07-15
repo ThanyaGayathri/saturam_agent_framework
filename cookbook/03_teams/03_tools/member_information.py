@@ -5,9 +5,9 @@ Member Information
 Demonstrates enabling the `get_member_information_tool` capability on a Team.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Members

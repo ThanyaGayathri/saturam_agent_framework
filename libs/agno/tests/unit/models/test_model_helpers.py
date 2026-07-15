@@ -17,12 +17,12 @@ import pytest
 
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
-from agno.exceptions import AgentRunException
-from agno.models.base import _handle_agent_exception
-from agno.models.message import Message
-from agno.models.openai.chat import OpenAIChat
-from agno.models.openai.like import OpenAILike
-from agno.models.response import ModelResponse
+from egpt.exceptions import AgentRunException
+from egpt.models.base import _handle_agent_exception
+from egpt.models.message import Message
+from egpt.models.openai.chat import OpenAIChat
+from egpt.models.openai.like import OpenAILike
+from egpt.models.response import ModelResponse
 
 
 @pytest.fixture

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agno.scheduler.executor import ScheduleExecutor, _to_form_value
+from egpt.scheduler.executor import ScheduleExecutor, _to_form_value
 
 
 class TestToFormValue:
@@ -33,7 +33,7 @@ class TestToFormValue:
 
 class TestExecutorInit:
     def test_requires_httpx(self):
-        with patch("agno.scheduler.executor.httpx", None):
+        with patch("egpt.scheduler.executor.httpx", None):
             with pytest.raises(ImportError, match="httpx"):
                 ScheduleExecutor(base_url="http://localhost:8000", internal_service_token="tok")
 
@@ -296,7 +296,7 @@ class TestExecutorExecute:
         mock_resp.status_code = 200
         mock_resp.text = "OK"
 
-        with patch("agno.scheduler.executor.httpx") as mock_httpx:
+        with patch("egpt.scheduler.executor.httpx") as mock_httpx:
             mock_client = AsyncMock()
             mock_client.request = AsyncMock(return_value=mock_resp)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)

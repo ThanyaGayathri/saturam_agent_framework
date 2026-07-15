@@ -6,9 +6,9 @@ This example shows how to search user memories using different retrieval
 methods such as last_n, first_n, and agentic retrieval.
 """
 
-from agno.db.postgres import PostgresDb
-from agno.memory import MemoryManager, UserMemory
-from agno.models.openai import OpenAIChat
+from egpt.db.postgres import PostgresDb
+from egpt.memory import MemoryManager, UserMemory
+from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

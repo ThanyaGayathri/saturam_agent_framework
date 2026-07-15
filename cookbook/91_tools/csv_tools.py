@@ -11,8 +11,8 @@ Run: `uv pip install pandas` to install the dependencies
 from pathlib import Path
 
 import httpx
-from agno.agent import Agent
-from agno.tools.csv_toolkit import CsvTools
+from egpt.agent import Agent
+from egpt.tools.csv_toolkit import CsvTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -5,9 +5,9 @@ Openai Reasoning O3 Mini
 Cookbook example for `openai/responses/reasoning_o3_mini.py`.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

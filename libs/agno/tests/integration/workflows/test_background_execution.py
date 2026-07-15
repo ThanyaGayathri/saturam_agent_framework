@@ -7,7 +7,7 @@ import asyncio
 
 import pytest
 
-from agno.run.base import RunStatus
+from egpt.run.base import RunStatus
 
 
 @pytest.mark.asyncio

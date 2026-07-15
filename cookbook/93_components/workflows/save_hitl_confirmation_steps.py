@@ -8,13 +8,13 @@ saving it to the database, and loading it back. The HITL config
 through to_dict / from_dict automatically.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.registry import Registry
-from agno.workflow import OnReject
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow, get_workflow_by_id
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.registry import Registry
+from egpt.workflow import OnReject
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow, get_workflow_by_id
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -5,12 +5,12 @@ State Sharing
 Demonstrates sharing session state and member interactions across team members.
 """
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.team import Team, TeamMode
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team, TeamMode
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Members

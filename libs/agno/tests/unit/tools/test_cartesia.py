@@ -7,13 +7,13 @@ from unittest.mock import MagicMock, patch  # Removed unused mock_open
 
 import pytest
 
-from agno.agent import Agent  # Added for TTS test
-from agno.media import Audio
-from agno.tools.cartesia import CartesiaTools
-from agno.tools.function import ToolResult  # Added for updated tests
+from egpt.agent import Agent  # Added for TTS test
+from egpt.media import Audio
+from egpt.tools.cartesia import CartesiaTools
+from egpt.tools.function import ToolResult  # Added for updated tests
 
 # Import the specific logger instance used by the tool
-# from agno.utils.log import logger as agno_logger_instance # Removed unused import
+# from egpt.utils.log import logger as agno_logger_instance # Removed unused import
 
 
 @pytest.fixture
@@ -54,7 +54,7 @@ def cartesia_tools(mock_cartesia_client):
     """Create CartesiaTools instance with mocked API client."""
     # Patch the Cartesia class during instantiation
     with (
-        patch("agno.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class,
+        patch("egpt.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class,
         patch.dict("os.environ", {"CARTESIA_API_KEY": "test_key"}),
     ):
         # Make the patched class return our mock client instance
@@ -72,7 +72,7 @@ def mock_agent():
 
 def test_init_with_api_key(mock_cartesia_client):
     """Test initialization with API key."""
-    with patch("agno.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class:
+    with patch("egpt.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class:
         mock_cartesia_class.return_value = mock_cartesia_client
         tools = CartesiaTools(api_key="test_key")
         mock_cartesia_class.assert_called_once_with(api_key="test_key")
@@ -85,7 +85,7 @@ def test_init_with_api_key(mock_cartesia_client):
 def test_init_with_env_var(mock_cartesia_client):
     """Test initialization with environment variable."""
     with (
-        patch("agno.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class,
+        patch("egpt.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class,
         patch.dict("os.environ", {"CARTESIA_API_KEY": "env_key"}),
         patch("os.getenv", return_value="env_key"),
     ):
@@ -100,7 +100,7 @@ def test_init_with_env_var(mock_cartesia_client):
 def test_init_override_defaults(mock_cartesia_client):
     """Test initialization overriding default model/voice IDs."""
     with (
-        patch("agno.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class,
+        patch("egpt.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class,
         patch.dict("os.environ", {"CARTESIA_API_KEY": "test_key"}),
     ):
         mock_cartesia_class.return_value = mock_cartesia_client
@@ -113,14 +113,14 @@ def test_init_override_defaults(mock_cartesia_client):
 def test_init_missing_api_key():
     """Test initialization with missing API key."""
     # Patch getenv where it's imported in the tools module
-    with patch("agno.tools.cartesia.getenv", return_value=None), pytest.raises(ValueError):
+    with patch("egpt.tools.cartesia.getenv", return_value=None), pytest.raises(ValueError):
         CartesiaTools()
 
 
 def test_feature_registration(mock_cartesia_client):
     """Test that features are correctly registered based on flags."""
     with (
-        patch("agno.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class,
+        patch("egpt.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class,
         patch.dict("os.environ", {"CARTESIA_API_KEY": "dummy"}),
     ):
         mock_cartesia_class.return_value = mock_cartesia_client

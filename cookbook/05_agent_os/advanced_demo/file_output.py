@@ -5,11 +5,11 @@ File Output
 Demonstrates file output.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.tools.file_generation import FileGenerationTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.tools.file_generation import FileGenerationTools
 
 # ---------------------------------------------------------------------------
 # Create Example

@@ -46,8 +46,8 @@ from agent_with_storage import agent_with_storage
 from agent_with_structured_output import agent_with_structured_output
 from agent_with_tools import agent_with_tools
 from agent_with_typed_input_output import agent_with_typed_input_output
-from agno.os import AgentOS
 from custom_tool_for_self_learning import self_learning_agent
+from egpt.os import AgentOS
 from human_in_the_loop import human_in_the_loop_agent
 from multi_agent_team import multi_agent_team
 from sequential_workflow import sequential_workflow

@@ -5,10 +5,10 @@ Decimal Comparison Reasoning
 Demonstrates regular, built-in, and DeepSeek-backed reasoning for 9.11 vs 9.9.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.models.deepseek import DeepSeek
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.models.deepseek import DeepSeek
+from egpt.models.openai import OpenAIChat
 from rich.console import Console
 
 # ---------------------------------------------------------------------------

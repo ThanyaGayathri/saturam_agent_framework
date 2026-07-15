@@ -5,9 +5,9 @@ Tool Call Limit
 This cookbook shows how to use tool call limit to control the number of tool calls an agent can make.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

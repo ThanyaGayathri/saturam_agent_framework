@@ -1,8 +1,8 @@
 """Run `pip install ddgs` to install dependencies."""
 
-from agno.agent import Agent
-from agno.models.azure import AzureOpenAI
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.azure import AzureOpenAI
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

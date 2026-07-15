@@ -1,8 +1,8 @@
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.models.openai import OpenAIChat
-from agno.run.team import IntermediateRunContentEvent, RunContentEvent
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.models.openai import OpenAIChat
+from egpt.run.team import IntermediateRunContentEvent, RunContentEvent
+from egpt.team import Team
 
 agent = Agent(
     model=Claude(id="claude-sonnet-4-5-20250929"),

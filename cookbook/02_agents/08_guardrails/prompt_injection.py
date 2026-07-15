@@ -5,10 +5,10 @@ Prompt Injection
 Example demonstrating how to use checks with Agno Agent to implement guardrails.
 """
 
-from agno.agent import Agent
-from agno.exceptions import InputCheckError
-from agno.guardrails import PromptInjectionGuardrail
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.exceptions import InputCheckError
+from egpt.guardrails import PromptInjectionGuardrail
+from egpt.models.openai import OpenAIResponses
 
 
 # ---------------------------------------------------------------------------

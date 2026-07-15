@@ -5,10 +5,10 @@ Xai Reasoning Agent
 Cookbook example for `xai/reasoning_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.models.xai import xAI
-from agno.tools.reasoning import ReasoningTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.xai import xAI
+from egpt.tools.reasoning import ReasoningTools
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

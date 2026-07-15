@@ -10,9 +10,9 @@ Prerequisites:
 - No API keys required
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.trafilatura import TrafilaturaTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.trafilatura import TrafilaturaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

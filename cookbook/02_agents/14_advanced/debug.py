@@ -5,8 +5,8 @@ Debug
 Debug.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 # You can set the debug mode on the agent for all runs to have more verbose output
 # ---------------------------------------------------------------------------

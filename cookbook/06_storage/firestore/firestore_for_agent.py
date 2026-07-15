@@ -8,9 +8,9 @@ Steps:
 4. Run: `python cookbook/storage/firestore_storage.py` to run the agent
 """
 
-from agno.agent import Agent
-from agno.db.firestore import FirestoreDb
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.firestore import FirestoreDb
+from egpt.tools.websearch import WebSearchTools
 
 PROJECT_ID = "agno-os-test"  # Use your project ID here
 

@@ -5,9 +5,9 @@ Validates that team followups are returned as a flat List[str].
 
 import pytest
 
-from agno.models.openai.chat import OpenAIChat
-from agno.run.team import TeamRunOutput
-from agno.team import Team, TeamRunEvent
+from egpt.models.openai.chat import OpenAIChat
+from egpt.run.team import TeamRunOutput
+from egpt.team import Team, TeamRunEvent
 
 PROMPT = "What is the capital of France?"
 

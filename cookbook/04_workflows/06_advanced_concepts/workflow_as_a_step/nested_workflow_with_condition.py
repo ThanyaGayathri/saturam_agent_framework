@@ -6,12 +6,12 @@ in an outer workflow. The inner workflow decides whether content needs
 fact-checking before passing results to the outer workflow's writer.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.workflow import Condition
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.workflow import Condition
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 def needs_fact_check(step_input: StepInput) -> bool:

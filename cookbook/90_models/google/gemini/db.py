@@ -1,9 +1,9 @@
 """Run `uv pip install ddgs sqlalchemy google.genai` to install dependencies."""
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.google import Gemini
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.google import Gemini
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

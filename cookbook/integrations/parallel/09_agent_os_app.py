@@ -14,11 +14,11 @@ Prerequisites:
 - export PARALLEL_API_KEY=<your-api-key>
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.tools.parallel import ParallelTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.tools.parallel import ParallelTools
 
 # ---------------------------------------------------------------------------
 # Create the Agent and AgentOS app

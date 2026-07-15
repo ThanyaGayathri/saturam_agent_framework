@@ -5,11 +5,11 @@ Memory Tools
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.tools.memory import MemoryTools
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.tools.memory import MemoryTools
+from egpt.tools.websearch import WebSearchTools
 
 
 # ---------------------------------------------------------------------------

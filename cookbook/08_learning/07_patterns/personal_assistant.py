@@ -13,16 +13,16 @@ The assistant becomes increasingly personalized without being asked.
 See also: 01_basics/ for individual store examples.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.learn import (
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.learn import (
     EntityMemoryConfig,
     LearningMachine,
     LearningMode,
     SessionContextConfig,
     UserProfileConfig,
 )
-from agno.models.openai import OpenAIResponses
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

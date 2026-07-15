@@ -12,10 +12,10 @@ No explicit tool calls - entities are discovered and saved behind the scenes.
 Compare with: 5b_entity_memory_agentic.py for explicit tool-based management.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.learn import EntityMemoryConfig, LearningMachine, LearningMode
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.learn import EntityMemoryConfig, LearningMachine, LearningMode
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

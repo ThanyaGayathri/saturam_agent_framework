@@ -8,16 +8,16 @@ Demonstrates class-based step executors with sync and async workflow execution.
 import asyncio
 from typing import AsyncIterator, Union
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.run.workflow import WorkflowRunOutputEvent
-from agno.team import Team
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.step import Step, StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.run.workflow import WorkflowRunOutputEvent
+from egpt.team import Team
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.step import Step, StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Agents

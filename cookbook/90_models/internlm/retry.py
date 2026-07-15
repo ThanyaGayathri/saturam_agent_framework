@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with InternLM."""
 
-from agno.agent import Agent
-from agno.models.internlm import InternLM
+from egpt.agent import Agent
+from egpt.models.internlm import InternLM
 
 # ---------------------------------------------------------------------------
 # Create Agent

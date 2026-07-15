@@ -5,8 +5,8 @@
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.groq import Groq
+from egpt.agent import Agent
+from egpt.models.groq import Groq
 
 
 # ---------------------------------------------------------------------------

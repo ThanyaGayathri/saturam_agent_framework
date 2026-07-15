@@ -5,8 +5,8 @@ Azure Demo Mistral
 Cookbook example for `azure/ai_foundry/demo_mistral.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.azure import AzureAIFoundry
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.azure import AzureAIFoundry
 
 # ---------------------------------------------------------------------------
 # Create Agent

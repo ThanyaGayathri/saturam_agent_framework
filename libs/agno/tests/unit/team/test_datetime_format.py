@@ -3,9 +3,9 @@
 import re
 from unittest.mock import MagicMock
 
-from agno.session import TeamSession
-from agno.team._messages import get_system_message
-from agno.team.team import Team
+from egpt.session import TeamSession
+from egpt.team._messages import get_system_message
+from egpt.team.team import Team
 
 # =============================================================================
 # Config tests

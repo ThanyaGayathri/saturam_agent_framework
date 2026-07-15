@@ -1,10 +1,10 @@
 """Run `uv pip install requests` to install dependencies."""
 
-from agno.agent import Agent
-from agno.models.response import FileType
-from agno.tools.models_labs import ModelsLabTools
-from agno.utils.media import download_audio
-from agno.utils.pprint import pprint_run_response
+from egpt.agent import Agent
+from egpt.models.response import FileType
+from egpt.tools.models_labs import ModelsLabTools
+from egpt.utils.media import download_audio
+from egpt.utils.pprint import pprint_run_response
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -5,8 +5,8 @@ Aimlapi Basic
 Cookbook example for `aimlapi/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.aimlapi import AIMLAPI
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.aimlapi import AIMLAPI
 import asyncio
 
 # ---------------------------------------------------------------------------

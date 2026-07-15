@@ -11,10 +11,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from agno.os.routers.traces.schemas import TraceDetail
-from agno.os.routers.traces.traces import get_traces_router
-from agno.os.settings import AgnoAPISettings
-from agno.remote.base import RemoteDb
+from egpt.os.routers.traces.schemas import TraceDetail
+from egpt.os.routers.traces.traces import get_traces_router
+from egpt.os.settings import AgnoAPISettings
+from egpt.remote.base import RemoteDb
 
 
 def _build(remote_trace_user_id: str, *, scoped: bool):

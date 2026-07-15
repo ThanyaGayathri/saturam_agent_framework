@@ -15,11 +15,11 @@ Usage:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.run.base import RunStatus
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run.base import RunStatus
+from egpt.team import Team
 
 # ---------------------------------------------------------------------------
 # Setup

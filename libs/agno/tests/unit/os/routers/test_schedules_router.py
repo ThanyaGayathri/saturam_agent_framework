@@ -7,8 +7,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agno.os.routers.schedules import get_schedule_router
-from agno.os.settings import AgnoAPISettings
+from egpt.os.routers.schedules import get_schedule_router
+from egpt.os.settings import AgnoAPISettings
 
 # =============================================================================
 # Fixtures
@@ -105,11 +105,11 @@ class TestListSchedules:
 
 
 class TestCreateSchedule:
-    @patch("agno.scheduler.cron._require_pytz")
-    @patch("agno.scheduler.cron._require_croniter")
-    @patch("agno.scheduler.cron.validate_cron_expr", return_value=True)
-    @patch("agno.scheduler.cron.validate_timezone", return_value=True)
-    @patch("agno.scheduler.cron.compute_next_run", return_value=int(time.time()) + 60)
+    @patch("egpt.scheduler.cron._require_pytz")
+    @patch("egpt.scheduler.cron._require_croniter")
+    @patch("egpt.scheduler.cron.validate_cron_expr", return_value=True)
+    @patch("egpt.scheduler.cron.validate_timezone", return_value=True)
+    @patch("egpt.scheduler.cron.compute_next_run", return_value=int(time.time()) + 60)
     def test_create_success(self, mock_compute, mock_tz, mock_cron, mock_req_cron, mock_req_pytz, client, mock_db):
         mock_db.get_schedule_by_name = MagicMock(return_value=None)
         created = _make_schedule_dict(name="new-sched")
@@ -127,9 +127,9 @@ class TestCreateSchedule:
         assert resp.json()["name"] == "new-sched"
         mock_db.create_schedule.assert_called_once()
 
-    @patch("agno.scheduler.cron._require_pytz")
-    @patch("agno.scheduler.cron._require_croniter")
-    @patch("agno.scheduler.cron.validate_cron_expr", return_value=False)
+    @patch("egpt.scheduler.cron._require_pytz")
+    @patch("egpt.scheduler.cron._require_croniter")
+    @patch("egpt.scheduler.cron.validate_cron_expr", return_value=False)
     def test_create_invalid_cron(self, mock_cron, mock_req_cron, mock_req_pytz, client, mock_db):
         resp = client.post(
             "/schedules",
@@ -141,11 +141,11 @@ class TestCreateSchedule:
         )
         assert resp.status_code == 422
 
-    @patch("agno.scheduler.cron._require_pytz")
-    @patch("agno.scheduler.cron._require_croniter")
-    @patch("agno.scheduler.cron.validate_cron_expr", return_value=True)
-    @patch("agno.scheduler.cron.validate_timezone", return_value=True)
-    @patch("agno.scheduler.cron.compute_next_run", return_value=int(time.time()) + 60)
+    @patch("egpt.scheduler.cron._require_pytz")
+    @patch("egpt.scheduler.cron._require_croniter")
+    @patch("egpt.scheduler.cron.validate_cron_expr", return_value=True)
+    @patch("egpt.scheduler.cron.validate_timezone", return_value=True)
+    @patch("egpt.scheduler.cron.compute_next_run", return_value=int(time.time()) + 60)
     def test_create_duplicate_name(
         self, mock_compute, mock_tz, mock_cron, mock_req_cron, mock_req_pytz, client, mock_db
     ):
@@ -235,9 +235,9 @@ class TestDeleteSchedule:
 
 
 class TestEnableSchedule:
-    @patch("agno.scheduler.cron._require_pytz")
-    @patch("agno.scheduler.cron._require_croniter")
-    @patch("agno.scheduler.cron.compute_next_run", return_value=int(time.time()) + 60)
+    @patch("egpt.scheduler.cron._require_pytz")
+    @patch("egpt.scheduler.cron._require_croniter")
+    @patch("egpt.scheduler.cron.compute_next_run", return_value=int(time.time()) + 60)
     def test_enable_success(self, mock_compute, mock_req_cron, mock_req_pytz, client, mock_db):
         existing = _make_schedule_dict(enabled=False)
         enabled = _make_schedule_dict(enabled=True)

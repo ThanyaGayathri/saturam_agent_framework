@@ -1,5 +1,5 @@
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
 
 
 def test_agent_with_custom_knowledge_retriever():

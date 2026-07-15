@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Mistral."""
 
-from agno.agent import Agent
-from agno.models.mistral import MistralChat
+from egpt.agent import Agent
+from egpt.models.mistral import MistralChat
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -5,9 +5,9 @@ Aimlapi Image Agent
 Cookbook example for `aimlapi/image_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.aimlapi import AIMLAPI
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.aimlapi import AIMLAPI
 
 # ---------------------------------------------------------------------------
 # Create Agent

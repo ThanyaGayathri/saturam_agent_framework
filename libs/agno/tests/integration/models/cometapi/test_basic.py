@@ -3,9 +3,9 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput
-from agno.db.sqlite import SqliteDb
-from agno.models.cometapi import CometAPI
+from egpt.agent import Agent, RunOutput
+from egpt.db.sqlite import SqliteDb
+from egpt.models.cometapi import CometAPI
 
 
 def _assert_metrics(response: RunOutput):
@@ -107,7 +107,7 @@ def test_structured_output():
 
 def test_with_memory():
     """Test agent with memory storage."""
-    from agno.db.sqlite import SqliteDb
+    from egpt.db.sqlite import SqliteDb
 
     db = SqliteDb(db_file="tmp/cometapi_agent_sessions.db")
     agent = Agent(
@@ -130,7 +130,7 @@ def test_with_memory():
 
 def test_tool_usage():
     """Test agent with Calculator tools."""
-    from agno.tools.calculator import CalculatorTools
+    from egpt.tools.calculator import CalculatorTools
 
     agent = Agent(
         model=CometAPI(id="gpt-5-mini"),
@@ -180,7 +180,7 @@ def test_custom_base_url():
 
 def test_tool_usage_stream():
     """Test agent with Calculator tools in streaming mode."""
-    from agno.tools.calculator import CalculatorTools
+    from egpt.tools.calculator import CalculatorTools
 
     agent = Agent(
         model=CometAPI(id="gpt-5-mini"),
@@ -202,7 +202,7 @@ def test_tool_usage_stream():
 @pytest.mark.asyncio
 async def test_async_tool_usage():
     """Test CometAPI with async tool usage."""
-    from agno.tools.calculator import CalculatorTools
+    from egpt.tools.calculator import CalculatorTools
 
     agent = Agent(
         model=CometAPI(id="gpt-5-mini"),
@@ -225,7 +225,7 @@ async def test_async_tool_usage():
 @pytest.mark.asyncio
 async def test_async_tool_usage_stream():
     """Test CometAPI with async tool usage and streaming."""
-    from agno.tools.calculator import CalculatorTools
+    from egpt.tools.calculator import CalculatorTools
 
     agent = Agent(
         model=CometAPI(id="gpt-5-mini"),
@@ -254,7 +254,7 @@ async def test_async_tool_usage_stream():
 
 def test_image_analysis():
     """Test CometAPI with image analysis capability."""
-    from agno.media import Image
+    from egpt.media import Image
 
     # Use a vision-capable model from CometAPI
     agent = Agent(
@@ -286,7 +286,7 @@ def test_image_analysis():
 
 def test_image_analysis_with_memory():
     """Test CometAPI image analysis with memory storage."""
-    from agno.media import Image
+    from egpt.media import Image
 
     # Create a temporary database for testing
     db = SqliteDb(db_file="test_cometapi_image.db")

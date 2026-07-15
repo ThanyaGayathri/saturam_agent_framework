@@ -5,8 +5,8 @@ Browserbase Tools
 Demonstrates browserbase tools.
 """
 
-from agno.agent import Agent
-from agno.tools.browserbase import BrowserbaseTools
+from egpt.agent import Agent
+from egpt.tools.browserbase import BrowserbaseTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

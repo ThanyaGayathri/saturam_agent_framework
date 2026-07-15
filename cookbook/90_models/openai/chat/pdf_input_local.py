@@ -7,10 +7,10 @@ Cookbook example for `openai/chat/pdf_input_local.py`.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.openai import OpenAIChat
-from agno.utils.media import download_file
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.openai import OpenAIChat
+from egpt.utils.media import download_file
 
 # ---------------------------------------------------------------------------
 # Create Agent

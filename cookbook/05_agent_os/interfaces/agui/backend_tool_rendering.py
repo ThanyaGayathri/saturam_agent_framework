@@ -9,9 +9,9 @@ Dojo expects get_weather(location: str) with detailed return:
 - Rendered as a styled weather card in the frontend
 """
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools import tool
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools import tool
 
 
 @tool

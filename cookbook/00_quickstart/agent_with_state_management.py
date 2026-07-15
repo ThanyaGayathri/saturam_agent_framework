@@ -19,11 +19,11 @@ Example prompts to try:
 - "How are my watched stocks doing today?"
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.google import Gemini
-from agno.run import RunContext
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.google import Gemini
+from egpt.run import RunContext
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Storage Configuration

@@ -13,10 +13,10 @@ from typing import List
 
 import pytest
 
-from agno.registry import Registry
-from agno.workflow.loop import Loop
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
+from egpt.registry import Registry
+from egpt.workflow.loop import Loop
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
 
 # =============================================================================
 # Sample executor and end_condition functions for testing
@@ -461,7 +461,7 @@ class TestLoopNestedContainerSerialization:
 
     def test_roundtrip_with_nested_parallel(self, registry_with_functions):
         """Test roundtrip with nested Parallel container inside Loop."""
-        from agno.workflow.parallel import Parallel
+        from egpt.workflow.parallel import Parallel
 
         step_1 = Step(name="step-1", executor=loop_executor_1)
         step_2 = Step(name="step-2", executor=loop_executor_2)
@@ -479,7 +479,7 @@ class TestLoopNestedContainerSerialization:
 
     def test_roundtrip_with_nested_steps_container(self, registry_with_functions):
         """Test roundtrip with nested Steps container inside Loop."""
-        from agno.workflow.steps import Steps
+        from egpt.workflow.steps import Steps
 
         step_1 = Step(name="step-1", executor=loop_executor_1)
         step_2 = Step(name="step-2", executor=loop_executor_2)

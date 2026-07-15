@@ -2,8 +2,8 @@
 
 import pytest
 
-from agno.run.base import RunStatus
-from agno.run.workflow import (
+from egpt.run.base import RunStatus
+from egpt.run.workflow import (
     ConditionExecutionCompletedEvent,
     ConditionExecutionStartedEvent,
     StepCompletedEvent,
@@ -11,9 +11,9 @@ from agno.run.workflow import (
     WorkflowCompletedEvent,
     WorkflowRunOutput,
 )
-from agno.workflow import Condition, Parallel, Workflow
-from agno.workflow.cel import CEL_AVAILABLE
-from agno.workflow.types import OnError, StepInput, StepOutput
+from egpt.workflow import Condition, Parallel, Workflow
+from egpt.workflow.cel import CEL_AVAILABLE
+from egpt.workflow.types import OnError, StepInput, StepOutput
 
 
 # Helper functions
@@ -107,7 +107,7 @@ async def test_condition_direct_aexecute():
 
 def test_condition_direct_execute_stream():
     """Test Condition.execute_stream() directly."""
-    from agno.run.workflow import WorkflowRunOutput
+    from egpt.run.workflow import WorkflowRunOutput
 
     condition = Condition(name="Direct Stream Condition", evaluator=is_tech_topic, steps=[research_step])
     step_input = StepInput(input="AI trends")
@@ -623,7 +623,7 @@ async def test_condition_else_steps_aexecute():
 
 def test_condition_else_steps_streaming():
     """Test else_steps with streaming."""
-    from agno.run.workflow import WorkflowRunOutput
+    from egpt.run.workflow import WorkflowRunOutput
 
     condition = Condition(
         name="Stream Tech Check",
@@ -923,7 +923,7 @@ def test_cel_condition_previous_step_outputs():
         steps=[fact_check_step],
     )
 
-    from agno.workflow.types import StepOutput as SO
+    from egpt.workflow.types import StepOutput as SO
 
     # Should trigger - step1 contains "important"
     step_input = StepInput(
@@ -1078,7 +1078,7 @@ async def test_condition_on_error_fail_async():
 
 def test_condition_on_error_skip_streaming():
     """Test streaming condition with on_error='skip'."""
-    from agno.run.workflow import WorkflowRunOutput
+    from egpt.run.workflow import WorkflowRunOutput
 
     condition = Condition(
         name="ConditionalStep",
@@ -1112,7 +1112,7 @@ def test_condition_on_error_skip_streaming():
 @pytest.mark.asyncio
 async def test_condition_on_error_skip_async_streaming():
     """Test async streaming condition with on_error='skip'."""
-    from agno.run.workflow import WorkflowRunOutput
+    from egpt.run.workflow import WorkflowRunOutput
 
     condition = Condition(
         name="ConditionalStep",
@@ -1162,7 +1162,7 @@ def test_condition_on_error_applies_to_all_execution_methods():
         condition_fail.execute(step_input)
 
     # Streaming execute
-    from agno.run.workflow import WorkflowRunOutput
+    from egpt.run.workflow import WorkflowRunOutput
 
     mock_response = WorkflowRunOutput(
         run_id="test-run",
@@ -1263,7 +1263,7 @@ async def test_condition_on_error_pause_async():
 @pytest.mark.asyncio
 async def test_condition_on_error_fail_async_streaming():
     """Test async streaming condition with on_error='fail' re-raises exception."""
-    from agno.run.workflow import WorkflowRunOutput
+    from egpt.run.workflow import WorkflowRunOutput
 
     condition = Condition(
         name="ConditionalStep",
@@ -1289,7 +1289,7 @@ async def test_condition_on_error_fail_async_streaming():
 @pytest.mark.asyncio
 async def test_condition_on_error_pause_async_streaming():
     """Test async streaming condition with on_error='pause' re-raises exception."""
-    from agno.run.workflow import WorkflowRunOutput
+    from egpt.run.workflow import WorkflowRunOutput
 
     condition = Condition(
         name="ConditionalStep",

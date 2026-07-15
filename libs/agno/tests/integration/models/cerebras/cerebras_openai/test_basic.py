@@ -1,9 +1,9 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput
-from agno.db.sqlite import SqliteDb
-from agno.models.cerebras import CerebrasOpenAI
+from egpt.agent import Agent, RunOutput
+from egpt.db.sqlite import SqliteDb
+from egpt.models.cerebras import CerebrasOpenAI
 
 
 def _assert_metrics(response: RunOutput):

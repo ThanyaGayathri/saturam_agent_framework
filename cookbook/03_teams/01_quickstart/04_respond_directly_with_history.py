@@ -5,10 +5,10 @@ Respond Directly With History
 Demonstrates direct member responses with team history persisted in SQLite.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.team import Team, TeamMode
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team, TeamMode
 
 
 # ---------------------------------------------------------------------------

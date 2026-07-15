@@ -10,9 +10,9 @@ Imports agents from individual files and mounts them at Dojo-compatible paths.
 
 from agent_with_media import media_agent
 from agentic_chat import agentic_chat_agent
-from agno.os import AgentOS
-from agno.os.interfaces.agui import AGUI
 from backend_tool_rendering import backend_tool_agent
+from egpt.os import AgentOS
+from egpt.os.interfaces.agui import AGUI
 from human_in_the_loop import hitl_agent
 from reasoning_agent import chat_agent as reasoning_agent
 from shared_state import shared_state_agent

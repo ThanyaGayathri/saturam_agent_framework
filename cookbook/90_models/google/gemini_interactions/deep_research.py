@@ -17,8 +17,8 @@ deep_research_collaborative_planning.py.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -5,9 +5,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agno.client import AgentOSClient
-from agno.db.base import SessionType
-from agno.os.mcp import _resolve_user_id
+from egpt.client import AgentOSClient
+from egpt.db.base import SessionType
+from egpt.os.mcp import _resolve_user_id
 
 # ---------------------------------------------------------------------------
 # SDK Client tests — verify user_id is serialized into HTTP request params
@@ -125,7 +125,7 @@ async def test_rename_session_includes_user_id_in_params():
 
 @pytest.fixture
 def mock_db():
-    from agno.session.agent import AgentSession
+    from egpt.session.agent import AgentSession
 
     db = MagicMock()
     db.delete_session = MagicMock()
@@ -148,8 +148,8 @@ def mock_db():
 def test_app(mock_db, monkeypatch):
     monkeypatch.delenv("OS_SECURITY_KEY", raising=False)
 
-    from agno.os.routers.session.session import get_session_router
-    from agno.os.settings import AgnoAPISettings
+    from egpt.os.routers.session.session import get_session_router
+    from egpt.os.settings import AgnoAPISettings
 
     settings = AgnoAPISettings()
     dbs = {"default": [mock_db]}
@@ -167,8 +167,8 @@ def test_app_with_jwt(mock_db, monkeypatch):
 
     from starlette.middleware.base import BaseHTTPMiddleware
 
-    from agno.os.routers.session.session import get_session_router
-    from agno.os.settings import AgnoAPISettings
+    from egpt.os.routers.session.session import get_session_router
+    from egpt.os.settings import AgnoAPISettings
 
     settings = AgnoAPISettings()
     dbs = {"default": [mock_db]}

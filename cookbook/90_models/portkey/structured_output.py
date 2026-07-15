@@ -7,8 +7,8 @@ Cookbook example for `portkey/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.portkey import Portkey
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.portkey import Portkey
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

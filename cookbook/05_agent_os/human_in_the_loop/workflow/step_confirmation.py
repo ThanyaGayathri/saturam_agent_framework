@@ -5,11 +5,11 @@ This example demonstrates pausing a workflow before a step executes so the
 human can approve or reject that step from AgentOS.
 """
 
-from agno.os import AgentOS
-from agno.workflow import OnReject
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.os import AgentOS
+from egpt.workflow import OnReject
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 from workflow_db import db
 
 

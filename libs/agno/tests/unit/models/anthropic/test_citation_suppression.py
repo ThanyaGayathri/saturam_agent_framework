@@ -11,10 +11,10 @@ from unittest.mock import MagicMock
 
 from pydantic import BaseModel
 
-from agno.media import File
-from agno.models.anthropic.claude import Claude
-from agno.models.message import Message
-from agno.utils.models.claude import format_messages
+from egpt.media import File
+from egpt.models.anthropic.claude import Claude
+from egpt.models.message import Message
+from egpt.utils.models.claude import format_messages
 
 
 class _Schema(BaseModel):

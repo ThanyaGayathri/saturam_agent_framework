@@ -8,11 +8,11 @@ Demonstrates sending traces from different agents to different Phoenix projects.
 import asyncio
 import os
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.models.openai import OpenAIChat
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.models.openai import OpenAIChat
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 from openinference.instrumentation import dangerously_using_project
 from phoenix.otel import register
 from pydantic import BaseModel

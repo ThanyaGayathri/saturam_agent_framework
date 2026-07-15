@@ -2,9 +2,9 @@
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.vllm import VLLM
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.vllm import VLLM
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

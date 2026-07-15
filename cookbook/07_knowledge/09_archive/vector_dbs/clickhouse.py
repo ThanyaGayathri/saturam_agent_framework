@@ -7,11 +7,11 @@ Demonstrates ClickHouse-backed knowledge with sync, async, and async-batching fl
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.vectordb.clickhouse import Clickhouse
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.vectordb.clickhouse import Clickhouse
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -12,7 +12,7 @@ LONG_TEXT = "word " * 2000
 def test_arxiv_reader_chunks_when_chunk_true():
     """chunk=True -> ArxivReader chunks each summary into multiple documents."""
     pytest.importorskip("arxiv")
-    from agno.knowledge.reader.arxiv_reader import ArxivReader
+    from egpt.knowledge.reader.arxiv_reader import ArxivReader
 
     result = SimpleNamespace(
         title="A Paper",
@@ -31,7 +31,7 @@ def test_arxiv_reader_chunks_when_chunk_true():
 def test_arxiv_reader_keeps_whole_document_when_chunk_false():
     """chunk=False -> ArxivReader returns each summary as a single whole document."""
     pytest.importorskip("arxiv")
-    from agno.knowledge.reader.arxiv_reader import ArxivReader
+    from egpt.knowledge.reader.arxiv_reader import ArxivReader
 
     result = SimpleNamespace(
         title="A Paper",
@@ -50,10 +50,10 @@ def test_arxiv_reader_keeps_whole_document_when_chunk_false():
 def test_wikipedia_reader_chunks_when_chunk_true():
     """chunk=True -> WikipediaReader chunks the summary into multiple documents."""
     pytest.importorskip("wikipedia")
-    from agno.knowledge.reader.wikipedia_reader import WikipediaReader
+    from egpt.knowledge.reader.wikipedia_reader import WikipediaReader
 
     reader = WikipediaReader(chunk=True)
-    with patch("agno.knowledge.reader.wikipedia_reader.wikipedia") as wiki:
+    with patch("egpt.knowledge.reader.wikipedia_reader.wikipedia") as wiki:
         wiki.summary.return_value = LONG_TEXT
         docs = reader.read("Python")
 
@@ -63,10 +63,10 @@ def test_wikipedia_reader_chunks_when_chunk_true():
 def test_wikipedia_reader_keeps_whole_document_when_chunk_false():
     """chunk=False -> WikipediaReader returns the summary as a single whole document."""
     pytest.importorskip("wikipedia")
-    from agno.knowledge.reader.wikipedia_reader import WikipediaReader
+    from egpt.knowledge.reader.wikipedia_reader import WikipediaReader
 
     reader = WikipediaReader(chunk=False)
-    with patch("agno.knowledge.reader.wikipedia_reader.wikipedia") as wiki:
+    with patch("egpt.knowledge.reader.wikipedia_reader.wikipedia") as wiki:
         wiki.summary.return_value = LONG_TEXT
         docs = reader.read("Python")
 
@@ -77,10 +77,10 @@ def test_wikipedia_reader_keeps_whole_document_when_chunk_false():
 async def test_wikipedia_reader_async_respects_chunk_false():
     """Async path: chunk=False -> WikipediaReader returns a single whole document."""
     pytest.importorskip("wikipedia")
-    from agno.knowledge.reader.wikipedia_reader import WikipediaReader
+    from egpt.knowledge.reader.wikipedia_reader import WikipediaReader
 
     reader = WikipediaReader(chunk=False)
-    with patch("agno.knowledge.reader.wikipedia_reader.wikipedia") as wiki:
+    with patch("egpt.knowledge.reader.wikipedia_reader.wikipedia") as wiki:
         wiki.summary.return_value = LONG_TEXT
         docs = await reader.async_read("Python")
 
@@ -89,11 +89,11 @@ async def test_wikipedia_reader_async_respects_chunk_false():
 
 def test_s3_reader_propagates_chunk_flag_to_inner_reader():
     """S3Reader must forward chunk/chunk_size/chunking_strategy to its inner reader."""
-    pytest.importorskip("agno.knowledge.reader.s3_reader", exc_type=ImportError)
+    pytest.importorskip("egpt.knowledge.reader.s3_reader", exc_type=ImportError)
 
-    from agno.knowledge.chunking.fixed import FixedSizeChunking
-    from agno.knowledge.reader.s3_reader import S3Reader
-    from agno.knowledge.reader.text_reader import TextReader
+    from egpt.knowledge.chunking.fixed import FixedSizeChunking
+    from egpt.knowledge.reader.s3_reader import S3Reader
+    from egpt.knowledge.reader.text_reader import TextReader
 
     strategy = FixedSizeChunking(chunk_size=123)
     reader = S3Reader(chunk=False, chunk_size=123, chunking_strategy=strategy)

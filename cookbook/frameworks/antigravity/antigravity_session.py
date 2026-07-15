@@ -13,8 +13,8 @@ Usage:
     .venvs/demo/bin/python cookbook/frameworks/antigravity/antigravity_session.py
 """
 
-from agno.agents.antigravity import AntigravityAgent
-from agno.db.sqlite import SqliteDb
+from egpt.agents.antigravity import AntigravityAgent
+from egpt.db.sqlite import SqliteDb
 
 db = SqliteDb(db_file="tmp/antigravity.db")
 

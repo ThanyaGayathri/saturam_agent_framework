@@ -7,8 +7,8 @@ Example showing how to use a custom logger with Agno.
 
 import logging
 
-from agno.agent import Agent
-from agno.utils.log import configure_agno_logging, log_info
+from egpt.agent import Agent
+from egpt.utils.log import configure_agno_logging, log_info
 
 
 def get_custom_logger():
@@ -29,7 +29,7 @@ custom_logger = get_custom_logger()
 # Configure Agno to use our custom logger. It will be used for all logging.
 configure_agno_logging(custom_default_logger=custom_logger)
 
-# Every use of the logging function in agno.utils.log will now use our custom logger.
+# Every use of the logging function in egpt.utils.log will now use our custom logger.
 log_info("This is using our custom logger!")
 
 # Now let's setup an Agent and run it.

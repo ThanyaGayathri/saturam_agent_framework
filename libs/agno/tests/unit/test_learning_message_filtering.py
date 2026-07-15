@@ -1,5 +1,5 @@
-from agno.models.message import Message
-from agno.utils.message import get_conversation_text
+from egpt.models.message import Message
+from egpt.utils.message import get_conversation_text
 
 # ---------------------------------------------------------------------------
 # get_conversation_text — shared text conversion for learning stores

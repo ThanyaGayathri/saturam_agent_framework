@@ -10,14 +10,14 @@ Regression test for: https://github.com/agno-agi/agno/issues/7039
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from agno.run.base import RunContext
-from agno.run.team import TeamRunOutput
-from agno.session import TeamSession
-from agno.team._messages import _get_tool_names
-from agno.team._tools import _determine_tools_for_model
-from agno.team.team import Team
-from agno.tools import Toolkit, tool
-from agno.tools.function import Function
+from egpt.run.base import RunContext
+from egpt.run.team import TeamRunOutput
+from egpt.session import TeamSession
+from egpt.team._messages import _get_tool_names
+from egpt.team._tools import _determine_tools_for_model
+from egpt.team.team import Team
+from egpt.tools import Toolkit, tool
+from egpt.tools.function import Function
 
 # ---------------------------------------------------------------------------
 # Helpers

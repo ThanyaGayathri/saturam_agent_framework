@@ -7,10 +7,10 @@ Session State Advanced.
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.run import RunContext
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunContext
 
 
 # Define tools to manage our shopping list

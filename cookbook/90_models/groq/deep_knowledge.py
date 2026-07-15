@@ -18,12 +18,12 @@ from typing import List, Optional
 
 import inquirer
 import typer
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.groq import Groq
-from agno.vectordb.lancedb import LanceDb, SearchType
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.groq import Groq
+from egpt.vectordb.lancedb import LanceDb, SearchType
 from rich import print
 
 # ---------------------------------------------------------------------------

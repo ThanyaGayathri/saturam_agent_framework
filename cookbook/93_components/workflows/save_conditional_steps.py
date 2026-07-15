@@ -6,15 +6,15 @@ Demonstrates creating a workflow with conditional steps, saving it to the
 database, and loading it back with a Registry.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.registry import Registry
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.condition import Condition
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput
-from agno.workflow.workflow import Workflow, get_workflow_by_id
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.registry import Registry
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.condition import Condition
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput
+from egpt.workflow.workflow import Workflow, get_workflow_by_id
 
 # ---------------------------------------------------------------------------
 # Setup

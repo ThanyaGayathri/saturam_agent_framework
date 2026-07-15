@@ -5,9 +5,9 @@ Hackernews Tools
 Demonstrates hackernews tools.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.tools.hackernews import HackerNewsTools
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.tools.hackernews import HackerNewsTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

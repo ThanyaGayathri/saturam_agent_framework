@@ -23,8 +23,8 @@ For more information, see:
 - https://docs.parallel.ai/integrations/google-vertex
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.models.google import Gemini
 
 # Create an agent with Parallel web search grounding
 agent = Agent(

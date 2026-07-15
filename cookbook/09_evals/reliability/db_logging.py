@@ -7,12 +7,12 @@ Demonstrates storing reliability evaluation results in PostgreSQL.
 
 from typing import Optional
 
-from agno.agent import Agent
-from agno.db.postgres.postgres import PostgresDb
-from agno.eval.reliability import ReliabilityEval, ReliabilityResult
-from agno.models.openai import OpenAIChat
-from agno.run.agent import RunOutput
-from agno.tools.calculator import CalculatorTools
+from egpt.agent import Agent
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.eval.reliability import ReliabilityEval, ReliabilityResult
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import RunOutput
+from egpt.tools.calculator import CalculatorTools
 
 # ---------------------------------------------------------------------------
 # Create Database

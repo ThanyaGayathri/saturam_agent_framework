@@ -5,9 +5,9 @@ Few Shot Learning
 This example demonstrates how to use additional_input with an Agent.
 """
 
-from agno.agent import Agent
-from agno.models.message import Message
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.message import Message
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

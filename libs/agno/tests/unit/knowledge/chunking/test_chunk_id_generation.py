@@ -1,9 +1,9 @@
 import hashlib
 
-from agno.knowledge.chunking.document import DocumentChunking
-from agno.knowledge.chunking.fixed import FixedSizeChunking
-from agno.knowledge.chunking.row import RowChunking
-from agno.knowledge.document.base import Document
+from egpt.knowledge.chunking.document import DocumentChunking
+from egpt.knowledge.chunking.fixed import FixedSizeChunking
+from egpt.knowledge.chunking.row import RowChunking
+from egpt.knowledge.document.base import Document
 
 
 def _expected_hash_id(content: str, chunk_number: int) -> str:

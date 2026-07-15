@@ -5,8 +5,8 @@ Shell Tools
 Demonstrates shell tools.
 """
 
-from agno.agent import Agent
-from agno.tools.shell import ShellTools
+from egpt.agent import Agent
+from egpt.tools.shell import ShellTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

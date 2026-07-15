@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from agno.knowledge.content import ContentAuth
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.base import VectorDb
+from egpt.knowledge.content import ContentAuth
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.base import VectorDb
 
 
 class MockVectorDb(VectorDb):

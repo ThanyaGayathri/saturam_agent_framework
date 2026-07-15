@@ -4,9 +4,9 @@ An example of using OpenAI Responses with reasoning features and ZDR mode enable
 Read more about ZDR mode here: https://openai.com/enterprise-privacy/.
 """
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

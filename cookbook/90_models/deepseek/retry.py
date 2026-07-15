@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with DeepSeek."""
 
-from agno.agent import Agent
-from agno.models.deepseek import DeepSeek
+from egpt.agent import Agent
+from egpt.models.deepseek import DeepSeek
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -14,9 +14,9 @@ runs end-to-end without prompts. For production, leave the defaults on.
 import tempfile
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.workspace import Workspace
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.workspace import Workspace
 
 # Use a clean tmp directory so the demo doesn't touch real files.
 workspace = Path(tempfile.mkdtemp(prefix="workspace_demo_"))

@@ -15,10 +15,10 @@ Usage:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.run.base import RunStatus
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run.base import RunStatus
 
 # ---------------------------------------------------------------------------
 # Config
@@ -135,7 +135,7 @@ async def example_cancel_before_start():
     print("Example 3: Cancel-before-start")
     print("=" * 60)
 
-    from agno.run.cancel import cancel_run
+    from egpt.run.cancel import cancel_run
 
     agent = Agent(
         name="PreCancelAgent",

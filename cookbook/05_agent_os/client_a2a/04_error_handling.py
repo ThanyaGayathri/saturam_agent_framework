@@ -14,8 +14,8 @@ Prerequisites:
 
 import asyncio
 
-from agno.client.a2a import A2AClient
-from agno.exceptions import RemoteServerUnavailableError
+from egpt.client.a2a import A2AClient
+from egpt.exceptions import RemoteServerUnavailableError
 from httpx import HTTPStatusError
 
 # ---------------------------------------------------------------------------

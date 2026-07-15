@@ -27,7 +27,7 @@ class TestAcontinueRunBackgroundDispatchSignature:
     def test_dispatch_exposes_typed_background_parameter(self):
         """acontinue_run_dispatch must declare `background: bool` explicitly so the
         team API surface stays in lock-step with Agent.acontinue_run_dispatch."""
-        from agno.team._run import acontinue_run_dispatch
+        from egpt.team._run import acontinue_run_dispatch
 
         sig = inspect.signature(acontinue_run_dispatch)
         assert "background" in sig.parameters, "acontinue_run_dispatch must declare `background` explicitly"
@@ -40,7 +40,7 @@ class TestAcontinueRunBackgroundDispatchSignature:
         """_acontinue_run_stream must not accept `background` — it is consumed by the
         dispatch layer. If it leaked, raw events would reach StreamingResponse and
         trigger the AttributeError from issue #8134."""
-        from agno.team._run import _acontinue_run_stream
+        from egpt.team._run import _acontinue_run_stream
 
         sig = inspect.signature(_acontinue_run_stream)
         assert "background" not in sig.parameters
@@ -48,7 +48,7 @@ class TestAcontinueRunBackgroundDispatchSignature:
     def test_team_acontinue_run_exposes_typed_background_parameter(self):
         """Team.acontinue_run mirrors Agent.acontinue_run by surfacing `background`
         as a typed parameter (not a stray **kwarg)."""
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         sig = inspect.signature(Team.acontinue_run)
         assert "background" in sig.parameters
@@ -61,7 +61,7 @@ class TestAcontinueRunBackgroundDispatchRouting:
     def test_background_stream_requires_db(self):
         """Without a configured db, background execution must raise a clear ValueError
         — mirrors arun_dispatch and the Agent acontinue_run dispatch."""
-        from agno.team._run import acontinue_run_dispatch
+        from egpt.team._run import acontinue_run_dispatch
 
         team = MagicMock()
         team.db = None  # no database configured
@@ -85,8 +85,8 @@ class TestAcontinueRunBackgroundStream:
         """_acontinue_run_background_stream must yield str objects so that
         StreamingResponse's .encode() works. Yielding raw events triggers
         'AttributeError: 'RunContinuedEvent' object has no attribute 'encode''."""
-        from agno.run.team import TeamRunOutputEvent
-        from agno.team._run import _acontinue_run_background_stream
+        from egpt.run.team import TeamRunOutputEvent
+        from egpt.team._run import _acontinue_run_background_stream
 
         team = MagicMock()
         run_context = MagicMock()
@@ -103,17 +103,17 @@ class TestAcontinueRunBackgroundStream:
             return "data: payload\n\n"
 
         with (
-            patch("agno.team._run._acontinue_run_stream", side_effect=fake_continue_stream),
+            patch("egpt.team._run._acontinue_run_stream", side_effect=fake_continue_stream),
             patch(
-                "agno.team._storage._aread_or_create_session",
+                "egpt.team._storage._aread_or_create_session",
                 new_callable=AsyncMock,
                 return_value=MagicMock(),
             ),
-            patch("agno.team._storage._update_metadata"),
-            patch("agno.team._session.asave_session", new_callable=AsyncMock),
-            patch("agno.os.managers.event_buffer") as mock_eb,
-            patch("agno.os.managers.sse_subscriber_manager") as mock_ssm,
-            patch("agno.os.utils.format_sse_event_with_index", side_effect=fake_format_sse),
+            patch("egpt.team._storage._update_metadata"),
+            patch("egpt.team._session.asave_session", new_callable=AsyncMock),
+            patch("egpt.os.managers.event_buffer") as mock_eb,
+            patch("egpt.os.managers.sse_subscriber_manager") as mock_ssm,
+            patch("egpt.os.utils.format_sse_event_with_index", side_effect=fake_format_sse),
         ):
             mock_eb.add_event.return_value = 0
             mock_ssm.publish = AsyncMock()
@@ -140,8 +140,8 @@ class TestAcontinueRunBackgroundStream:
         """When the inner _acontinue_run_stream raises, the helper must persist
         RunStatus.error and still terminate the SSE queue cleanly — matches
         _arun_background_stream behavior."""
-        from agno.run import RunStatus
-        from agno.team._run import _acontinue_run_background_stream
+        from egpt.run import RunStatus
+        from egpt.team._run import _acontinue_run_background_stream
 
         team = MagicMock()
         run_context = MagicMock()
@@ -156,17 +156,17 @@ class TestAcontinueRunBackgroundStream:
         team_session = MagicMock()
 
         with (
-            patch("agno.team._run._acontinue_run_stream", side_effect=failing_stream),
+            patch("egpt.team._run._acontinue_run_stream", side_effect=failing_stream),
             patch(
-                "agno.team._storage._aread_or_create_session",
+                "egpt.team._storage._aread_or_create_session",
                 new_callable=AsyncMock,
                 return_value=team_session,
             ),
-            patch("agno.team._storage._update_metadata"),
-            patch("agno.team._session.asave_session", new_callable=AsyncMock) as mock_save,
-            patch("agno.os.managers.event_buffer") as mock_eb,
-            patch("agno.os.managers.sse_subscriber_manager") as mock_ssm,
-            patch("agno.os.utils.format_sse_event_with_index", return_value="data: x\n\n"),
+            patch("egpt.team._storage._update_metadata"),
+            patch("egpt.team._session.asave_session", new_callable=AsyncMock) as mock_save,
+            patch("egpt.os.managers.event_buffer") as mock_eb,
+            patch("egpt.os.managers.sse_subscriber_manager") as mock_ssm,
+            patch("egpt.os.utils.format_sse_event_with_index", return_value="data: x\n\n"),
         ):
             mock_eb.add_event.return_value = 0
             mock_ssm.publish = AsyncMock()

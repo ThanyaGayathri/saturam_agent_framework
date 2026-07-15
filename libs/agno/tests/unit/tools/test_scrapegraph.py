@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("scrapegraph_py")
 
-from agno.tools.scrapegraph import ScrapeGraphTools  # noqa: E402
+from egpt.tools.scrapegraph import ScrapeGraphTools  # noqa: E402
 
 TEST_API_KEY = os.environ.get("SGAI_API_KEY", "test_api_key")
 
@@ -14,7 +14,7 @@ TEST_API_KEY = os.environ.get("SGAI_API_KEY", "test_api_key")
 @pytest.fixture
 def mock_scrapegraph():
     """Create a mock ScrapeGraphAI client."""
-    with patch("agno.tools.scrapegraph.ScrapeGraphAI") as mock_client_cls:
+    with patch("egpt.tools.scrapegraph.ScrapeGraphAI") as mock_client_cls:
         mock_client = Mock()
         mock_client_cls.return_value = mock_client
         return mock_client
@@ -41,7 +41,7 @@ def _api_result(data, status="success", error=None):
 
 def test_init_with_env_vars():
     """Test initialization with environment variables."""
-    with patch("agno.tools.scrapegraph.ScrapeGraphAI"):
+    with patch("egpt.tools.scrapegraph.ScrapeGraphAI"):
         with patch.dict("os.environ", {"SGAI_API_KEY": TEST_API_KEY}, clear=True):
             tools = ScrapeGraphTools()
             assert tools.api_key == TEST_API_KEY
@@ -52,7 +52,7 @@ def test_init_with_env_vars():
 
 def test_init_with_params():
     """Test initialization with parameters."""
-    with patch("agno.tools.scrapegraph.ScrapeGraphAI"):
+    with patch("egpt.tools.scrapegraph.ScrapeGraphAI"):
         tools = ScrapeGraphTools(
             api_key="param_api_key",
             render_heavy_js=True,
@@ -67,7 +67,7 @@ def test_init_with_params():
 
 def test_init_default_registers_only_smartscraper():
     """Test that smartscraper is the only tool enabled by default."""
-    with patch("agno.tools.scrapegraph.ScrapeGraphAI"):
+    with patch("egpt.tools.scrapegraph.ScrapeGraphAI"):
         tools = ScrapeGraphTools()
         names = [t.__name__ for t in tools.tools]
         assert names == ["smartscraper"]
@@ -75,7 +75,7 @@ def test_init_default_registers_only_smartscraper():
 
 def test_init_all_flag_registers_every_tool():
     """Test that `all=True` enables every tool."""
-    with patch("agno.tools.scrapegraph.ScrapeGraphAI"):
+    with patch("egpt.tools.scrapegraph.ScrapeGraphAI"):
         tools = ScrapeGraphTools(all=True)
         names = {t.__name__ for t in tools.tools}
         assert names == {"smartscraper", "markdownify", "searchscraper", "crawl", "scrape"}
@@ -83,7 +83,7 @@ def test_init_all_flag_registers_every_tool():
 
 def test_init_selective_flags():
     """Test that selective enable flags register only the requested tools."""
-    with patch("agno.tools.scrapegraph.ScrapeGraphAI"):
+    with patch("egpt.tools.scrapegraph.ScrapeGraphAI"):
         tools = ScrapeGraphTools(enable_smartscraper=False, enable_scrape=True)
         names = [t.__name__ for t in tools.tools]
         assert names == ["scrape"]
@@ -238,7 +238,7 @@ def test_crawl_completes_without_polling(scrapegraph_tools, mock_scrapegraph):
     mock_scrapegraph.crawl = Mock()
     mock_scrapegraph.crawl.start.return_value = _api_result(finished)
 
-    with patch("agno.tools.scrapegraph.time.sleep") as no_sleep:
+    with patch("egpt.tools.scrapegraph.time.sleep") as no_sleep:
         result = scrapegraph_tools.crawl("https://x.com", prompt="extract", schema={"type": "object"})
 
     assert not mock_scrapegraph.crawl.get.called
@@ -264,7 +264,7 @@ def test_crawl_polls_until_complete(mock_scrapegraph):
         mock_scrapegraph.crawl.start.return_value = _api_result(running)
         mock_scrapegraph.crawl.get.side_effect = [_api_result(running), _api_result(done)]
 
-        with patch("agno.tools.scrapegraph.time.sleep") as slept:
+        with patch("egpt.tools.scrapegraph.time.sleep") as slept:
             result = tools.crawl("https://x.com", prompt="p", schema={"type": "object"})
 
         assert mock_scrapegraph.crawl.get.call_count == 2
@@ -290,8 +290,8 @@ def test_crawl_times_out(mock_scrapegraph):
         # Fake monotonic so the deadline is exceeded after the first poll.
         times = iter([0.0, 1000.0])
         with (
-            patch("agno.tools.scrapegraph.time.monotonic", side_effect=lambda: next(times)),
-            patch("agno.tools.scrapegraph.time.sleep"),
+            patch("egpt.tools.scrapegraph.time.monotonic", side_effect=lambda: next(times)),
+            patch("egpt.tools.scrapegraph.time.sleep"),
         ):
             result = tools.crawl("https://x.com", prompt="p", schema={"type": "object"})
 

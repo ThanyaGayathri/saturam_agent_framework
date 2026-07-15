@@ -5,8 +5,8 @@ Load Team from Database
 Demonstrates loading a team from the database by ID and running it.
 """
 
-from agno.db.postgres import PostgresDb
-from agno.team.team import get_team_by_id, get_teams  # noqa: F401
+from egpt.db.postgres import PostgresDb
+from egpt.team.team import get_team_by_id, get_teams  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Create Database Client

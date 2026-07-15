@@ -5,8 +5,8 @@ Calculator Tools
 Demonstrates calculator tools.
 """
 
-from agno.agent import Agent
-from agno.tools.calculator import CalculatorTools
+from egpt.agent import Agent
+from egpt.tools.calculator import CalculatorTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

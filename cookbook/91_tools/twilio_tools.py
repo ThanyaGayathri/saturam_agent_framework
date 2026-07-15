@@ -5,9 +5,9 @@ Twilio Tools
 Demonstrates twilio tools.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.twilio import TwilioTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.twilio import TwilioTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

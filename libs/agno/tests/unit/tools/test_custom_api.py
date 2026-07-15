@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from agno.tools.api import CustomApiTools
+from egpt.tools.api import CustomApiTools
 
 
 @pytest.fixture

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from agno.tools.local_file_system import LocalFileSystemTools
+from egpt.tools.local_file_system import LocalFileSystemTools
 
 
 @pytest.fixture
@@ -202,7 +202,7 @@ def test_write_file_logs_debug(tools, temp_dir):
     """write_file calls log_debug during execution."""
     from unittest.mock import patch
 
-    with patch("agno.tools.local_file_system.log_debug") as mock_debug:
+    with patch("egpt.tools.local_file_system.log_debug") as mock_debug:
         tools.write_file("hello", filename="debug_test")
         mock_debug.assert_called_once()
 

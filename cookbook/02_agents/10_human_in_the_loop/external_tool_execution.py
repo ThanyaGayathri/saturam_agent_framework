@@ -7,11 +7,11 @@ Human-in-the-Loop: Execute a tool call outside of the agent.
 
 import subprocess
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.tools import tool
-from agno.utils import pprint
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.tools import tool
+from egpt.utils import pprint
 
 
 # We have to create a tool with the correct name, arguments and docstring for the agent to know what to call.

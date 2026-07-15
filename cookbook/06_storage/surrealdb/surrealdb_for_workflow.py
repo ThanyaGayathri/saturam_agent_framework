@@ -17,14 +17,14 @@ Then:
 2. Run: `python cookbook/db/surrealdb/surrealdb_for_workflow.py` to run the workflow.
 """
 
-from agno.agent import Agent
-from agno.db.surrealdb import SurrealDb
-from agno.models.anthropic import Claude
-from agno.team import Team
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.surrealdb import SurrealDb
+from egpt.models.anthropic import Claude
+from egpt.team import Team
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Setup

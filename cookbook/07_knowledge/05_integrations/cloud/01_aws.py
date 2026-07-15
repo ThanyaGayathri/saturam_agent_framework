@@ -22,9 +22,9 @@ Environment Variables:
 import asyncio
 from os import getenv
 
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.remote_content import S3Config
-from agno.vectordb.qdrant import Qdrant
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.remote_content import S3Config
+from egpt.vectordb.qdrant import Qdrant
 
 # ---------------------------------------------------------------------------
 # Setup

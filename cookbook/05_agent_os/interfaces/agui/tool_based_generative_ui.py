@@ -25,9 +25,9 @@ Valid image names (from Dojo):
 
 from typing import List
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools import tool
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools import tool
 
 VALID_IMAGE_NAMES = [
     "Osaka_Castle_Turret_Stone_Wall_Pine_Trees_Daytime.jpg",

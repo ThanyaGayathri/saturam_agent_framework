@@ -2,14 +2,14 @@ from typing import Optional
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.xai import xAI
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.xai import xAI
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 # Check if exa_py is available for tests that need ExaTools
 try:
-    from agno.tools.exa import ExaTools
+    from egpt.tools.exa import ExaTools
 
     EXA_AVAILABLE = True
 except ImportError:

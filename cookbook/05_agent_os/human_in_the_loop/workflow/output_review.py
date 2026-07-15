@@ -5,11 +5,11 @@ This example demonstrates pausing after a step runs so a human can review the
 step output before the workflow continues in AgentOS.
 """
 
-from agno.os import AgentOS
-from agno.workflow import HumanReview, OnReject
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.os import AgentOS
+from egpt.workflow import HumanReview, OnReject
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 from workflow_db import db
 
 

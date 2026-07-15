@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.tools.valyu import ValyuTools
+from egpt.tools.valyu import ValyuTools
 
 
 class MockSearchResult:
@@ -33,7 +33,7 @@ class MockSearchResponse:
 
 @pytest.fixture
 def mock_valyu():
-    with patch("agno.tools.valyu.Valyu") as mock:
+    with patch("egpt.tools.valyu.Valyu") as mock:
         yield mock
 
 

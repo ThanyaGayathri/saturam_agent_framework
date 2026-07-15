@@ -5,13 +5,13 @@ Distributed Infinity Search
 Demonstrates distributed search coordination with Infinity reranking.
 """
 
-from agno.agent import Agent
-from agno.knowledge.embedder.cohere import CohereEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reranker.infinity import InfinityReranker
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.vectordb.lancedb import LanceDb, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.cohere import CohereEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reranker.infinity import InfinityReranker
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.vectordb.lancedb import LanceDb, SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -1,10 +1,10 @@
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.utils.media import (
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.utils.media import (
     SampleDataFileExtension,
     download_knowledge_filters_sample_data,
 )
-from agno.vectordb.qdrant import Qdrant
+from egpt.vectordb.qdrant import Qdrant
 
 # Download all sample CVs and get their paths
 downloaded_cv_paths = download_knowledge_filters_sample_data(

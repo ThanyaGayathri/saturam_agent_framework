@@ -27,9 +27,9 @@ Prerequisites:
        ```
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.salesforce import SalesforceTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.salesforce import SalesforceTools
 
 # Read-only agent (default — query, search, and metadata only)
 read_only_agent = Agent(

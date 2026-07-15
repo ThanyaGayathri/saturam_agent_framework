@@ -5,8 +5,8 @@ Perplexity Basic
 Cookbook example for `perplexity/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.perplexity import Perplexity
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.perplexity import Perplexity
 import asyncio
 
 # ---------------------------------------------------------------------------

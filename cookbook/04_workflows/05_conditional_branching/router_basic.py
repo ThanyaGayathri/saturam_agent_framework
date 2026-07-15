@@ -8,13 +8,13 @@ Demonstrates topic-based routing between specialized research steps before conte
 import asyncio
 from typing import List
 
-from agno.agent.agent import Agent
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.router import Router
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput
-from agno.workflow.workflow import Workflow
+from egpt.agent.agent import Agent
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.router import Router
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Agents

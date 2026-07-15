@@ -45,8 +45,8 @@ jobs:
           source .venv/bin/activate
           ./scripts/validate.sh
 
-  validate-agno-infra:
-    name: validate agno_infra (${{ matrix.python-version }})
+  validate-egpt-infra:
+    name: validate egpt-infra (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -84,14 +84,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - package: agno
+          - package: egpt
             working-directory: libs/agno
             python-version: "3.10"
             pytest-extra-ignores: >-
               --ignore=libs/agno/tests/unit/os/test_traces_remote_ownership.py
               --ignore=libs/agno/tests/unit/os/test_jwt_middleware_helpers.py
               --ignore=libs/agno/tests/unit/os/test_ws_jwt_config.py
-          - package: agno
+          - package: egpt
             working-directory: libs/agno
             python-version: "3.12"
             pytest-extra-ignores: ""
@@ -103,11 +103,11 @@ jobs:
             working-directory: libs/agnoctl
             python-version: "3.12"
             pytest-extra-ignores: ""
-          - package: agno_infra
+          - package: egpt-infra
             working-directory: libs/agno_infra
             python-version: "3.10"
             pytest-extra-ignores: ""
-          - package: agno_infra
+          - package: egpt-infra
             working-directory: libs/agno_infra
             python-version: "3.12"
             pytest-extra-ignores: ""
@@ -127,8 +127,8 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
 
-      - name: Install agno dependencies
-        if: matrix.package == 'agno'
+      - name: Install egpt dependencies
+        if: matrix.package == 'egpt'
         run: |
           set -e
           uv venv ../../.venv --python "${{ matrix.python-version }}"
@@ -146,8 +146,8 @@ jobs:
           uv pip install -e .[dev]
           uv pip install build
 
-      - name: Install agno_infra dependencies
-        if: matrix.package == 'agno_infra'
+      - name: Install egpt-infra dependencies
+        if: matrix.package == 'egpt-infra'
         run: |
           set -e
           uv venv ../../.venv --python "${{ matrix.python-version }}"
@@ -155,8 +155,8 @@ jobs:
           uv pip install -e .[dev]
           uv pip install build
 
-      - name: Run agno tests
-        if: matrix.package == 'agno'
+      - name: Run egpt tests
+        if: matrix.package == 'egpt'
         working-directory: .
         env:
           AGNO_TELEMETRY: false
@@ -164,8 +164,8 @@ jobs:
           set -e
           source .venv/bin/activate
           python -m pytest \
-            --cov=agno \
-            --cov-report=json:coverage-agno.json \
+            --cov=egpt \
+            --cov-report=json:coverage-egpt.json \
             ./libs/agno/tests/unit \
             --ignore=libs/agno/tests/unit/models/litellm \
             --ignore=libs/agno/tests/unit/tools/test_crawl4ai.py \
@@ -179,8 +179,8 @@ jobs:
           source ../../.venv/bin/activate
           python -m pytest ./tests
 
-      - name: Run agno_infra tests
-        if: matrix.package == 'agno_infra'
+      - name: Run egpt-infra tests
+        if: matrix.package == 'egpt-infra'
         run: |
           source ../../.venv/bin/activate
           set +e
@@ -188,7 +188,7 @@ jobs:
           code=$?
           set -e
           if [ "$code" -eq 5 ]; then
-            echo "No agno_infra tests found; skipping."
+            echo "No egpt-infra tests found; skipping."
             exit 0
           fi
           exit "$code"
@@ -204,7 +204,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - validate
-      - validate-agno-infra
+      - validate-egpt-infra
       - test-and-build
     # always() is intentional: without it, this job is skipped when an upstream
     # job fails, and GitHub branch protection treats "skipped" as "passed".
@@ -217,8 +217,8 @@ jobs:
             echo "validate failed: ${{ needs.validate.result }}"
             exit 1
           fi
-          if [[ "${{ needs.validate-agno-infra.result }}" != "success" ]]; then
-            echo "validate-agno-infra failed: ${{ needs.validate-agno-infra.result }}"
+          if [[ "${{ needs.validate-egpt-infra.result }}" != "success" ]]; then
+            echo "validate-egpt-infra failed: ${{ needs.validate-egpt-infra.result }}"
             exit 1
           fi
           if [[ "${{ needs.test-and-build.result }}" != "success" ]]; then

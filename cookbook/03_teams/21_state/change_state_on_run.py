@@ -5,9 +5,9 @@ Change State On Run
 Demonstrates per-run session state overrides for different users/sessions.
 """
 
-from agno.db.in_memory import InMemoryDb
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.db.in_memory import InMemoryDb
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Team

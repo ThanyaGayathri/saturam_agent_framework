@@ -5,8 +5,8 @@ Sambanova Basic
 Cookbook example for `sambanova/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.sambanova import Sambanova
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.sambanova import Sambanova
 import asyncio
 
 # ---------------------------------------------------------------------------

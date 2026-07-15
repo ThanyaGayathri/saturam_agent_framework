@@ -7,8 +7,8 @@ Cookbook example for `perplexity/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.perplexity import Perplexity
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.perplexity import Perplexity
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

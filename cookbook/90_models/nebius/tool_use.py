@@ -7,9 +7,9 @@ Cookbook example for `nebius/tool_use.py`.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.nebius import Nebius
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.nebius import Nebius
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -5,8 +5,8 @@ Google Basic
 Cookbook example for `google/gemini/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.google import Gemini
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.google import Gemini
 import asyncio
 
 # ---------------------------------------------------------------------------

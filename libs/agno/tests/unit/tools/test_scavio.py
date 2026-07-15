@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from agno.tools.scavio import ScavioTools
+from egpt.tools.scavio import ScavioTools
 
 TEST_API_KEY = os.environ.get("SCAVIO_API_KEY", "test_api_key")
 
@@ -14,7 +14,7 @@ TEST_API_KEY = os.environ.get("SCAVIO_API_KEY", "test_api_key")
 @pytest.fixture
 def mock_scavio_client():
     """Create a mock ScavioClient instance."""
-    with patch("agno.tools.scavio.ScavioClient") as mock_client_cls:
+    with patch("egpt.tools.scavio.ScavioClient") as mock_client_cls:
         mock_client = Mock()
         mock_client_cls.return_value = mock_client
         return mock_client
@@ -40,7 +40,7 @@ def _tool_names(tools: ScavioTools) -> list:
 
 def test_init_with_env_var():
     """Test initialization reads the API key from the environment."""
-    with patch("agno.tools.scavio.ScavioClient") as mock_client_cls:
+    with patch("egpt.tools.scavio.ScavioClient") as mock_client_cls:
         with patch.dict("os.environ", {"SCAVIO_API_KEY": TEST_API_KEY}, clear=True):
             tools = ScavioTools()
             assert tools.api_key == TEST_API_KEY
@@ -50,21 +50,21 @@ def test_init_with_env_var():
 
 def test_init_with_param():
     """Test initialization with an explicit API key."""
-    with patch("agno.tools.scavio.ScavioClient"):
+    with patch("egpt.tools.scavio.ScavioClient"):
         tools = ScavioTools(api_key="param_api_key")
         assert tools.api_key == "param_api_key"
 
 
 def test_all_flag_registers_every_tool():
     """all=True should register all 32 provider tools."""
-    with patch("agno.tools.scavio.ScavioClient"):
+    with patch("egpt.tools.scavio.ScavioClient"):
         tools = ScavioTools(all=True)
         assert len(tools.tools) == 32
 
 
 def test_default_registers_every_provider():
     """By default every provider is enabled."""
-    with patch("agno.tools.scavio.ScavioClient"):
+    with patch("egpt.tools.scavio.ScavioClient"):
         names = _tool_names(ScavioTools())
         assert "google_search" in names
         assert "amazon_product" in names
@@ -77,7 +77,7 @@ def test_default_registers_every_provider():
 
 def test_enable_flags_select_subset():
     """Disabling providers removes their tools."""
-    with patch("agno.tools.scavio.ScavioClient"):
+    with patch("egpt.tools.scavio.ScavioClient"):
         tools = ScavioTools(
             enable_google=True,
             enable_amazon=False,
@@ -93,7 +93,7 @@ def test_enable_flags_select_subset():
 
 def test_tool_names_are_unique():
     """Provider-prefixed names must not collide (tiktok/instagram both have search_users)."""
-    with patch("agno.tools.scavio.ScavioClient"):
+    with patch("egpt.tools.scavio.ScavioClient"):
         names = _tool_names(ScavioTools(all=True))
         assert len(names) == len(set(names))
 

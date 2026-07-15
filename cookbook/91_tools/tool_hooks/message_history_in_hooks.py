@@ -6,10 +6,10 @@ Access the current run's message history inside tool pre/post hooks
 via run_context.messages.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.base import RunContext
-from agno.tools import FunctionCall, tool
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.base import RunContext
+from egpt.tools import FunctionCall, tool
 
 # ---------------------------------------------------------------------------
 # Create Agent

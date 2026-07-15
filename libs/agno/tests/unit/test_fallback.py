@@ -8,10 +8,10 @@ import pytest
 # Set test API key to avoid env var lookup errors
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
-from agno.agent.agent import Agent
-from agno.exceptions import ContextWindowExceededError, ModelProviderError, ModelRateLimitError
-from agno.models.base import Model
-from agno.models.fallback import (
+from egpt.agent.agent import Agent
+from egpt.exceptions import ContextWindowExceededError, ModelProviderError, ModelRateLimitError
+from egpt.models.base import Model
+from egpt.models.fallback import (
     FallbackConfig,
     acall_model_stream_with_fallback,
     acall_model_with_fallback,
@@ -19,9 +19,9 @@ from agno.models.fallback import (
     call_model_with_fallback,
     get_fallback_models,
 )
-from agno.models.message import Message
-from agno.models.openai.chat import OpenAIChat
-from agno.models.response import ModelResponse, ModelResponseEvent
+from egpt.models.message import Message
+from egpt.models.openai.chat import OpenAIChat
+from egpt.models.response import ModelResponse, ModelResponseEvent
 
 
 def _make_model(model_id="test-model", retries=0):

@@ -8,10 +8,10 @@ Run `uv pip install openai agno` to install the necessary dependencies.
 import base64
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.google import Gemini
-from agno.tools.openai import OpenAITools
-from agno.utils.media import save_base64_data
+from egpt.agent import Agent
+from egpt.models.google import Gemini
+from egpt.tools.openai import OpenAITools
+from egpt.utils.media import save_base64_data
 
 # ---------------------------------------------------------------------------
 # Create Agent

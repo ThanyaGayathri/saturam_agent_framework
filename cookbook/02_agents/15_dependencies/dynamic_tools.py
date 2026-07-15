@@ -7,9 +7,9 @@ Dynamic Tools.
 
 from datetime import datetime, timezone
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.run import RunContext
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunContext
 
 
 def get_runtime_tools(run_context: RunContext):

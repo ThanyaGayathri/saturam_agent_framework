@@ -9,8 +9,8 @@ Prerequisites:
 import asyncio
 from os import getenv
 
-from agno.agent import Agent
-from agno.tools.mcp import MultiMCPTools
+from egpt.agent import Agent
+from egpt.tools.mcp import MultiMCPTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

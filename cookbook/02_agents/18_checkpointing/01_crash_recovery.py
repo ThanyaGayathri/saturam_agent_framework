@@ -33,10 +33,10 @@ import subprocess
 import sys
 import time
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.run.base import RunStatus
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run.base import RunStatus
 
 # Shared across parent + worker via env so both hit the same DB file.
 DB_FILE = (

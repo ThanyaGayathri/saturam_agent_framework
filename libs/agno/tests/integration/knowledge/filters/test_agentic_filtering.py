@@ -5,13 +5,13 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.csv_reader import CSVReader
-from agno.models.anthropic.claude import Claude
-from agno.models.google.gemini import Gemini
-from agno.models.openai.chat import OpenAIChat
-from agno.vectordb.lancedb import LanceDb
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.csv_reader import CSVReader
+from egpt.models.anthropic.claude import Claude
+from egpt.models.google.gemini import Gemini
+from egpt.models.openai.chat import OpenAIChat
+from egpt.vectordb.lancedb import LanceDb
 
 # Sample CSV data to use in tests
 EMPLOYEE_CSV_DATA = """id,name,department,salary,years_experience

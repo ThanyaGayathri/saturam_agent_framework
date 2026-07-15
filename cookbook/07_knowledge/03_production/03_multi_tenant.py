@@ -19,12 +19,12 @@ See also: ../02_building_blocks/04_filtering.py for metadata-based filtering.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.qdrant import Qdrant
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.qdrant import Qdrant
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -7,10 +7,10 @@ and messages are preserved in the database.
 Requires: PostgreSQL running on localhost:5532 (see cookbook/scripts/run_pgvector.sh)
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.run.agent import RunEvent
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run.agent import RunEvent
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -23,8 +23,8 @@ How to pick another **Workers AI** model (see https://developers.cloudflare.com/
 ``google/...`` route and BYOK (see README), not ``workers-ai/...``.
 """
 
-from agno.agent import Agent
-from agno.models.cloudflare import DEFAULT_GATEWAY_MODEL, Cloudflare
+from egpt.agent import Agent
+from egpt.models.cloudflare import DEFAULT_GATEWAY_MODEL, Cloudflare
 
 # Second Workers AI model: paste the same string as the catalog "copy" box on the model page.
 ALT_WORKERS_MODEL = "@cf/google/gemma-4-26b-a4b-it"

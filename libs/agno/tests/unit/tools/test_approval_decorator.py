@@ -2,9 +2,9 @@
 
 import pytest
 
-from agno.approval import ApprovalType, approval
-from agno.tools import Toolkit, tool
-from agno.tools.function import Function
+from egpt.approval import ApprovalType, approval
+from egpt.tools import Toolkit, tool
+from egpt.tools.function import Function
 
 # =============================================================================
 # Test 1: @approval on top of @tool sets approval_type and requires_confirmation

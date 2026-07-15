@@ -5,7 +5,7 @@ import pytest
 
 pytest.importorskip("google.genai")
 
-from agno.models.google import Gemini
+from egpt.models.google import Gemini
 
 
 class TestGeminiSharedClient:
@@ -15,7 +15,7 @@ class TestGeminiSharedClient:
         """Verify the same client instance is returned on repeated get_client() calls."""
         model = Gemini(api_key="test-key")
 
-        with patch("agno.models.google.gemini.genai.Client") as mock_cls:
+        with patch("egpt.models.google.gemini.genai.Client") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -30,7 +30,7 @@ class TestGeminiSharedClient:
         """Verify concurrent threads receive the same client instance."""
         model = Gemini(api_key="test-key")
 
-        with patch("agno.models.google.gemini.genai.Client") as mock_cls:
+        with patch("egpt.models.google.gemini.genai.Client") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 
@@ -52,7 +52,7 @@ class TestGeminiUserInjectedClient:
         injected = MagicMock()
         model = Gemini(client=injected)
 
-        with patch("agno.models.google.gemini.genai.Client") as mock_cls:
+        with patch("egpt.models.google.gemini.genai.Client") as mock_cls:
             result = model.get_client()
 
             assert result is injected
@@ -80,7 +80,7 @@ class TestGeminiNoCleanupAfterResponse:
         """Verify client remains set on model after get_client() call."""
         model = Gemini(api_key="test-key")
 
-        with patch("agno.models.google.gemini.genai.Client") as mock_cls:
+        with patch("egpt.models.google.gemini.genai.Client") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
 

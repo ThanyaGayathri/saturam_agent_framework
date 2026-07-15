@@ -21,10 +21,10 @@ __main__ demo below by setting RUN_DEMO=1.
 import os
 from typing import List, Optional
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.google import GeminiInteractions
-from agno.os import AgentOS
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.google import GeminiInteractions
+from egpt.os import AgentOS
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

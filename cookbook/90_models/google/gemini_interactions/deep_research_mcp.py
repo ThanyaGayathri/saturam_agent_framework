@@ -11,8 +11,8 @@ Custom Function Calling tools are NOT supported by Deep Research, but remote
 MCP servers are.
 """
 
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
 
 agent = Agent(
     model=GeminiInteractions(

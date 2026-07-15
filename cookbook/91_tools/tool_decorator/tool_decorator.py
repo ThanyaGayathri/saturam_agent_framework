@@ -9,8 +9,8 @@ import json
 from typing import Iterator
 
 import httpx
-from agno.agent import Agent
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.tools import tool
 
 # ---------------------------------------------------------------------------
 # Create Agent
@@ -58,8 +58,8 @@ if __name__ == "__main__":
     import json
 
     import httpx
-    from agno.agent import Agent
-    from agno.tools import tool
+    from egpt.agent import Agent
+    from egpt.tools import tool
 
     class DemoTools:
         @tool(description="Get the top hackernews stories")

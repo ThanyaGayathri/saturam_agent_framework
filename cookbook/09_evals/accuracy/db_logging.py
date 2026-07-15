@@ -7,11 +7,11 @@ Demonstrates storing accuracy evaluation results in PostgreSQL.
 
 from typing import Optional
 
-from agno.agent import Agent
-from agno.db.postgres.postgres import PostgresDb
-from agno.eval.accuracy import AccuracyEval, AccuracyResult
-from agno.models.openai import OpenAIChat
-from agno.tools.calculator import CalculatorTools
+from egpt.agent import Agent
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.eval.accuracy import AccuracyEval, AccuracyResult
+from egpt.models.openai import OpenAIChat
+from egpt.tools.calculator import CalculatorTools
 
 # ---------------------------------------------------------------------------
 # Create Database

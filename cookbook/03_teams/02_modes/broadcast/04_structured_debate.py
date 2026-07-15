@@ -3,10 +3,10 @@
 Same task is sent to every agent in the team. Moderator synthesizes the answer.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.models.openai import OpenAIResponses
-from agno.team.team import Team, TeamMode
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.models.openai import OpenAIResponses
+from egpt.team.team import Team, TeamMode
 
 proponent = Agent(
     name="Proponent",

@@ -7,9 +7,9 @@ Demonstrates conversational memory persistence with Memori and Agno.
 
 import os
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
 from dotenv import load_dotenv
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
 from memori import Memori
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker

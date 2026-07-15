@@ -7,11 +7,11 @@ making them completely non-blocking.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.sqlite import AsyncSqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.run.agent import RunInput
+from egpt.agent import Agent
+from egpt.db.sqlite import AsyncSqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.run.agent import RunInput
 
 # ---------------------------------------------------------------------------
 # Create Example

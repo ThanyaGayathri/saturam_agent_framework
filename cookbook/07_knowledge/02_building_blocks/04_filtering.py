@@ -17,13 +17,13 @@ See also: 05_agentic_filtering.py for agent-driven filter selection.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.filters import AND, EQ, GT, IN, NOT, OR
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.qdrant import Qdrant
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.filters import AND, EQ, GT, IN, NOT, OR
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.qdrant import Qdrant
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

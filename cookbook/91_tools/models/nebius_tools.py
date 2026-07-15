@@ -8,9 +8,9 @@ import os
 from pathlib import Path
 from uuid import uuid4
 
-from agno.agent import Agent
-from agno.tools.models.nebius import NebiusTools
-from agno.utils.media import save_base64_data
+from egpt.agent import Agent
+from egpt.tools.models.nebius import NebiusTools
+from egpt.utils.media import save_base64_data
 
 # ---------------------------------------------------------------------------
 # Create Agent

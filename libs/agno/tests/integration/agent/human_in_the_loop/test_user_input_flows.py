@@ -2,9 +2,9 @@ import asyncio
 
 import pytest
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.openai import OpenAIChat
-from agno.tools.decorator import tool
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.openai import OpenAIChat
+from egpt.tools.decorator import tool
 
 
 def test_tool_call_requires_user_input():

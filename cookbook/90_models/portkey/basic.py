@@ -5,8 +5,8 @@ Portkey Basic
 Cookbook example for `portkey/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.portkey import Portkey
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.portkey import Portkey
 import asyncio
 
 # ---------------------------------------------------------------------------

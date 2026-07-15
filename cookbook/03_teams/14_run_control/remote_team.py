@@ -8,8 +8,8 @@ Demonstrates calling and streaming a team hosted on a remote AgentOS instance.
 import asyncio
 import socket
 
-from agno.exceptions import RemoteServerUnavailableError
-from agno.team import RemoteTeam
+from egpt.exceptions import RemoteServerUnavailableError
+from egpt.team import RemoteTeam
 
 # ---------------------------------------------------------------------------
 # Create Team

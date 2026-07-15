@@ -7,10 +7,10 @@ import pytest
 
 pytest.importorskip("google.genai")
 
-from agno.exceptions import ModelProviderError
-from agno.media import File
-from agno.models.google.gemini import Gemini
-from agno.models.message import Message
+from egpt.exceptions import ModelProviderError
+from egpt.media import File
+from egpt.models.google.gemini import Gemini
+from egpt.models.message import Message
 
 
 def test_gemini_get_client_with_credentials_vertexai():
@@ -18,7 +18,7 @@ def test_gemini_get_client_with_credentials_vertexai():
     mock_credentials = MagicMock()
     model = Gemini(vertexai=True, project_id="test-project", location="test-location", credentials=mock_credentials)
 
-    with patch("agno.models.google.gemini.genai.Client") as mock_client_cls:
+    with patch("egpt.models.google.gemini.genai.Client") as mock_client_cls:
         model.get_client()
 
         # Verify credentials were passed to the client
@@ -33,7 +33,7 @@ def test_gemini_get_client_without_credentials_vertexai():
     """Test that client is initialized without credentials when not provided in vertexai mode."""
     model = Gemini(vertexai=True, project_id="test-project", location="test-location")
 
-    with patch("agno.models.google.gemini.genai.Client") as mock_client_cls:
+    with patch("egpt.models.google.gemini.genai.Client") as mock_client_cls:
         model.get_client()
 
         # Verify credentials were NOT passed to the client
@@ -48,7 +48,7 @@ def test_gemini_get_client_ai_studio_mode():
     # Even if credentials are provided, they shouldn't be passed if vertexai=False
     model = Gemini(vertexai=False, api_key="test-api-key", credentials=mock_credentials)
 
-    with patch("agno.models.google.gemini.genai.Client") as mock_client_cls:
+    with patch("egpt.models.google.gemini.genai.Client") as mock_client_cls:
         model.get_client()
 
         # Verify credentials were NOT passed to the client
@@ -96,14 +96,14 @@ class TestFormatFileForMessage:
         model = Gemini(api_key="test-key")
         return model
 
-    @patch("agno.models.google.gemini.Part")
+    @patch("egpt.models.google.gemini.Part")
     def test_bytes_with_mime_type(self, mock_part):
         model = self._make_model()
         f = File(content=b"hello", mime_type="text/plain")
         model._format_file_for_message(f)
         mock_part.from_bytes.assert_called_once_with(mime_type="text/plain", data=b"hello")
 
-    @patch("agno.models.google.gemini.Part")
+    @patch("egpt.models.google.gemini.Part")
     def test_bytes_without_mime_type_guesses_from_filename(self, mock_part):
         model = self._make_model()
         f = File(content=b"data", filename="report.pdf")
@@ -111,7 +111,7 @@ class TestFormatFileForMessage:
         model._format_file_for_message(f)
         mock_part.from_bytes.assert_called_once_with(mime_type="application/pdf", data=b"data")
 
-    @patch("agno.models.google.gemini.Part")
+    @patch("egpt.models.google.gemini.Part")
     def test_bytes_without_mime_type_or_filename_falls_back(self, mock_part):
         model = self._make_model()
         f = File(content=b"data")
@@ -119,7 +119,7 @@ class TestFormatFileForMessage:
         model._format_file_for_message(f)
         mock_part.from_bytes.assert_called_once_with(mime_type="application/pdf", data=b"data")
 
-    @patch("agno.models.google.gemini.Part")
+    @patch("egpt.models.google.gemini.Part")
     def test_gcs_uri_without_mime_type(self, mock_part):
         model = self._make_model()
         f = File(url="gs://bucket/file.csv")
@@ -127,7 +127,7 @@ class TestFormatFileForMessage:
         model._format_file_for_message(f)
         mock_part.from_uri.assert_called_once_with(file_uri="gs://bucket/file.csv", mime_type="text/csv")
 
-    @patch("agno.models.google.gemini.Part")
+    @patch("egpt.models.google.gemini.Part")
     def test_https_url_with_mime_type_sends_as_uri(self, mock_part):
         model = self._make_model()
         f = File(url="https://example.com/report.pdf", mime_type="application/pdf")
@@ -136,7 +136,7 @@ class TestFormatFileForMessage:
             file_uri="https://example.com/report.pdf", mime_type="application/pdf"
         )
 
-    @patch("agno.models.google.gemini.Part")
+    @patch("egpt.models.google.gemini.Part")
     def test_https_url_without_mime_type_falls_through_to_download(self, mock_part):
         model = self._make_model()
         f = File(url="https://example.com/report.pdf")
@@ -149,7 +149,7 @@ class TestFormatFileForMessage:
         mock_part.from_uri.assert_not_called()
         mock_part.from_bytes.assert_called_once_with(mime_type="application/pdf", data=b"pdf-data")
 
-    @patch("agno.models.google.gemini.Part")
+    @patch("egpt.models.google.gemini.Part")
     def test_local_file_without_mime_type(self, mock_part):
         model = self._make_model()
         with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
@@ -161,7 +161,7 @@ class TestFormatFileForMessage:
             mock_part.from_bytes.assert_called_once_with(mime_type="text/plain", data=b"hello world")
             Path(tmp.name).unlink()
 
-    @patch("agno.models.google.gemini.Part")
+    @patch("egpt.models.google.gemini.Part")
     def test_local_file_without_mime_type_or_extension_falls_back(self, mock_part):
         model = self._make_model()
         with tempfile.NamedTemporaryFile(suffix="", delete=False) as tmp:
@@ -278,7 +278,7 @@ class TestGeminiTimeout:
         """Test that timeout is converted to milliseconds and passed via http_options."""
         model = Gemini(api_key="test-key", timeout=30.0)
 
-        with patch("agno.models.google.gemini.genai.Client") as mock_client_cls:
+        with patch("egpt.models.google.gemini.genai.Client") as mock_client_cls:
             model.get_client()
 
             _, kwargs = mock_client_cls.call_args
@@ -289,7 +289,7 @@ class TestGeminiTimeout:
         """Test that timeout is not added to http_options when timeout is None."""
         model = Gemini(api_key="test-key", timeout=None)
 
-        with patch("agno.models.google.gemini.genai.Client") as mock_client_cls:
+        with patch("egpt.models.google.gemini.genai.Client") as mock_client_cls:
             model.get_client()
 
             _, kwargs = mock_client_cls.call_args
@@ -299,7 +299,7 @@ class TestGeminiTimeout:
         """Test that fractional seconds are correctly converted to integer milliseconds."""
         model = Gemini(api_key="test-key", timeout=1.5)
 
-        with patch("agno.models.google.gemini.genai.Client") as mock_client_cls:
+        with patch("egpt.models.google.gemini.genai.Client") as mock_client_cls:
             model.get_client()
 
             _, kwargs = mock_client_cls.call_args
@@ -313,7 +313,7 @@ class TestGeminiTimeout:
             client_params={"http_options": {"timeout": 60000}},
         )
 
-        with patch("agno.models.google.gemini.genai.Client") as mock_client_cls:
+        with patch("egpt.models.google.gemini.genai.Client") as mock_client_cls:
             model.get_client()
 
             _, kwargs = mock_client_cls.call_args
@@ -329,7 +329,7 @@ class TestGeminiTimeout:
             timeout=10.0,
         )
 
-        with patch("agno.models.google.gemini.genai.Client") as mock_client_cls:
+        with patch("egpt.models.google.gemini.genai.Client") as mock_client_cls:
             model.get_client()
 
             _, kwargs = mock_client_cls.call_args
@@ -340,11 +340,11 @@ class TestGeminiTimeout:
 class TestGeminiHeaders:
     def test_api_client_header_present(self):
         """Test that the API client header is automatically added."""
-        from agno import __version__ as agno_version
+        from egpt import __version__ as agno_version
 
         model = Gemini(api_key="test-key")
 
-        with patch("agno.models.google.gemini.genai.Client") as mock_client_cls:
+        with patch("egpt.models.google.gemini.genai.Client") as mock_client_cls:
             model.get_client()
 
             _, kwargs = mock_client_cls.call_args
@@ -354,14 +354,14 @@ class TestGeminiHeaders:
 
     def test_api_client_header_with_client_params(self):
         """Test that the API client header merges with existing headers in client_params."""
-        from agno import __version__ as agno_version
+        from egpt import __version__ as agno_version
 
         model = Gemini(
             api_key="test-key",
             client_params={"http_options": {"headers": {"custom-header": "value"}}},
         )
 
-        with patch("agno.models.google.gemini.genai.Client") as mock_client_cls:
+        with patch("egpt.models.google.gemini.genai.Client") as mock_client_cls:
             model.get_client()
 
             _, kwargs = mock_client_cls.call_args
@@ -395,7 +395,7 @@ def test_parallel_search_incompatible_with_google_search():
         search=True,
     )
 
-    with patch("agno.models.google.gemini.genai.Client"):
+    with patch("egpt.models.google.gemini.genai.Client"):
         with pytest.raises(ValueError, match="cannot be combined"):
             model.get_request_params()
 
@@ -411,7 +411,7 @@ def test_parallel_search_incompatible_with_grounding():
         grounding=True,
     )
 
-    with patch("agno.models.google.gemini.genai.Client"):
+    with patch("egpt.models.google.gemini.genai.Client"):
         with pytest.raises(ValueError, match="cannot be combined"):
             model.get_request_params()
 
@@ -426,7 +426,7 @@ def test_parallel_search_config_with_api_key():
         parallel_api_key="test-parallel-key",
     )
 
-    with patch("agno.models.google.gemini.genai.Client"):
+    with patch("egpt.models.google.gemini.genai.Client"):
         request_params = model.get_request_params()
 
     assert "config" in request_params
@@ -447,7 +447,7 @@ def test_parallel_search_config_without_api_key():
         parallel_search=True,
     )
 
-    with patch("agno.models.google.gemini.genai.Client"):
+    with patch("egpt.models.google.gemini.genai.Client"):
         with patch.dict("os.environ", {}, clear=False):
             import os
 
@@ -475,7 +475,7 @@ def test_parallel_search_with_env_var():
         parallel_search=True,
     )
 
-    with patch("agno.models.google.gemini.genai.Client"):
+    with patch("egpt.models.google.gemini.genai.Client"):
         with patch.dict("os.environ", {"PARALLEL_API_KEY": "env-parallel-key"}):
             request_params = model.get_request_params()
 
@@ -498,7 +498,7 @@ def test_parallel_search_with_custom_config():
         parallel_config=custom_config,
     )
 
-    with patch("agno.models.google.gemini.genai.Client"):
+    with patch("egpt.models.google.gemini.genai.Client"):
         request_params = model.get_request_params()
 
     config = request_params["config"]
@@ -519,7 +519,7 @@ def test_parallel_search_with_other_builtin_tools():
         url_context=True,
     )
 
-    with patch("agno.models.google.gemini.genai.Client"):
+    with patch("egpt.models.google.gemini.genai.Client"):
         request_params = model.get_request_params()
 
     config = request_params["config"]
@@ -545,8 +545,8 @@ def test_parallel_search_with_external_tools_logs_warning():
         parallel_api_key="test-key",
     )
 
-    with patch("agno.models.google.gemini.genai.Client"):
-        with patch("agno.models.google.gemini.log_info") as mock_info:
+    with patch("egpt.models.google.gemini.genai.Client"):
+        with patch("egpt.models.google.gemini.log_info") as mock_info:
             model.get_request_params(tools=[{"type": "function", "function": {"name": "test_fn"}}])
             mock_info.assert_called_once_with("Built-in tools enabled. External tools will be disabled.")
 
@@ -741,7 +741,7 @@ class TestFileSearchToolWiring:
             file_search_store_names=["fileSearchStores/store-1"],
         )
 
-        with patch("agno.models.google.gemini.genai.Client"):
+        with patch("egpt.models.google.gemini.genai.Client"):
             request_params = model.get_request_params()
 
         config = request_params["config"]
@@ -759,7 +759,7 @@ class TestFileSearchToolWiring:
             file_search_metadata_filter='type="image"',
         )
 
-        with patch("agno.models.google.gemini.genai.Client"):
+        with patch("egpt.models.google.gemini.genai.Client"):
             request_params = model.get_request_params()
 
         config = request_params["config"]
@@ -770,7 +770,7 @@ class TestFileSearchToolWiring:
         """No FileSearch tool should be added when file_search_store_names is None."""
         model = Gemini(api_key="test-key")
 
-        with patch("agno.models.google.gemini.genai.Client"):
+        with patch("egpt.models.google.gemini.genai.Client"):
             request_params = model.get_request_params()
 
         config = request_params.get("config")

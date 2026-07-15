@@ -1,6 +1,6 @@
-"""Unit tests for agno.os.scopes — scope parsing, matching, and legacy aliases."""
+"""Unit tests for egpt.os.scopes — scope parsing, matching, and legacy aliases."""
 
-from agno.os.scopes import (
+from egpt.os.scopes import (
     LEGACY_RESOURCE_ALIASES,
     check_route_scopes,
     get_accessible_resource_ids,
@@ -192,7 +192,7 @@ class TestLearningsRouteScopeResolution:
     /learnings/users and /learnings/users/{user_id}) resolves to a learnings scope."""
 
     def _required(self, method, path):
-        from agno.os.middleware.jwt import JWTMiddleware
+        from egpt.os.middleware.jwt import JWTMiddleware
 
         mw = JWTMiddleware.__new__(JWTMiddleware)
         mw.scope_mappings = get_default_scope_mappings()

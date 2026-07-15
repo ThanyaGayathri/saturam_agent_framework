@@ -6,16 +6,16 @@ import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
-from agno.knowledge.content import Content
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.remote_content import (
+from egpt.knowledge.content import Content
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.remote_content import (
     AzureBlobConfig,
     GcsConfig,
     GitHubConfig,
     S3Config,
     SharePointConfig,
 )
-from agno.os.routers.knowledge.knowledge import attach_routes
+from egpt.os.routers.knowledge.knowledge import attach_routes
 
 
 @pytest.fixture
@@ -95,7 +95,7 @@ def test_app(mock_knowledge_with_remote_configs):
 
 def test_upload_s3_file_success(test_app):
     """Test successful S3 file upload."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content") as mock_process:
+    with patch("egpt.os.routers.knowledge.knowledge.process_content") as mock_process:
         response = test_app.post(
             "/knowledge/remote-content",
             data={
@@ -117,7 +117,7 @@ def test_upload_s3_file_success(test_app):
 
 def test_upload_s3_folder_success(test_app):
     """Test successful S3 folder upload (path ends with /)."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content") as mock_process:
+    with patch("egpt.os.routers.knowledge.knowledge.process_content") as mock_process:
         response = test_app.post(
             "/knowledge/remote-content",
             data={
@@ -135,7 +135,7 @@ def test_upload_s3_folder_success(test_app):
 
 def test_upload_github_file_success(test_app):
     """Test successful GitHub file upload."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content") as mock_process:
+    with patch("egpt.os.routers.knowledge.knowledge.process_content") as mock_process:
         response = test_app.post(
             "/knowledge/remote-content",
             data={
@@ -152,7 +152,7 @@ def test_upload_github_file_success(test_app):
 
 def test_upload_github_folder_success(test_app):
     """Test successful GitHub folder upload."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content") as mock_process:
+    with patch("egpt.os.routers.knowledge.knowledge.process_content") as mock_process:
         response = test_app.post(
             "/knowledge/remote-content",
             data={
@@ -175,7 +175,7 @@ def test_upload_github_with_source_params_repo_override(test_app):
     def fake_process(knowledge, content, *args, **kwargs):
         captured["remote_content"] = content.remote_content
 
-    with patch("agno.os.routers.knowledge.knowledge.process_content", side_effect=fake_process):
+    with patch("egpt.os.routers.knowledge.knowledge.process_content", side_effect=fake_process):
         response = test_app.post(
             "/knowledge/remote-content",
             data={
@@ -235,7 +235,7 @@ def test_upload_source_params_invalid_json(test_app):
 
 def test_upload_gcs_file_success(test_app):
     """Test successful GCS file upload."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content") as mock_process:
+    with patch("egpt.os.routers.knowledge.knowledge.process_content") as mock_process:
         response = test_app.post(
             "/knowledge/remote-content",
             data={
@@ -252,7 +252,7 @@ def test_upload_gcs_file_success(test_app):
 
 def test_upload_sharepoint_file_success(test_app):
     """Test successful SharePoint file upload."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content") as mock_process:
+    with patch("egpt.os.routers.knowledge.knowledge.process_content") as mock_process:
         response = test_app.post(
             "/knowledge/remote-content",
             data={
@@ -269,7 +269,7 @@ def test_upload_sharepoint_file_success(test_app):
 
 def test_upload_azure_blob_file_success(test_app):
     """Test successful Azure Blob file upload."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content") as mock_process:
+    with patch("egpt.os.routers.knowledge.knowledge.process_content") as mock_process:
         response = test_app.post(
             "/knowledge/remote-content",
             data={
@@ -288,7 +288,7 @@ def test_upload_azure_blob_file_success(test_app):
 
 def test_upload_azure_blob_folder_success(test_app):
     """Test successful Azure Blob folder upload (path ends with /)."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content") as mock_process:
+    with patch("egpt.os.routers.knowledge.knowledge.process_content") as mock_process:
         response = test_app.post(
             "/knowledge/remote-content",
             data={
@@ -344,7 +344,7 @@ def test_upload_missing_path(test_app):
 
 def test_upload_with_invalid_metadata_json(test_app):
     """Test upload with invalid JSON metadata still succeeds."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content"):
+    with patch("egpt.os.routers.knowledge.knowledge.process_content"):
         response = test_app.post(
             "/knowledge/remote-content",
             data={
@@ -364,7 +364,7 @@ def test_upload_with_reader_id(test_app, mock_knowledge_with_remote_configs):
     mock_reader = Mock()
     mock_knowledge_with_remote_configs.readers = {"pdf_reader": mock_reader}
 
-    with patch("agno.os.routers.knowledge.knowledge.process_content") as mock_process:
+    with patch("egpt.os.routers.knowledge.knowledge.process_content") as mock_process:
         response = test_app.post(
             "/knowledge/remote-content",
             data={
@@ -382,7 +382,7 @@ def test_upload_with_reader_id(test_app, mock_knowledge_with_remote_configs):
 
 def test_upload_with_chunking_params(test_app):
     """Test upload with chunking parameters."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content") as mock_process:
+    with patch("egpt.os.routers.knowledge.knowledge.process_content") as mock_process:
         response = test_app.post(
             "/knowledge/remote-content",
             data={
@@ -404,7 +404,7 @@ def test_upload_with_chunking_params(test_app):
 
 def test_upload_auto_generates_name_from_path(test_app):
     """Test that name is auto-generated from path when not provided."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content"):
+    with patch("egpt.os.routers.knowledge.knowledge.process_content"):
         response = test_app.post(
             "/knowledge/remote-content",
             data={
@@ -420,7 +420,7 @@ def test_upload_auto_generates_name_from_path(test_app):
 
 def test_folder_path_detection(test_app):
     """Test that paths ending with / are treated as folders."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content") as mock_process:
+    with patch("egpt.os.routers.knowledge.knowledge.process_content") as mock_process:
         # File path (no trailing slash)
         response1 = test_app.post(
             "/knowledge/remote-content",
@@ -489,8 +489,8 @@ def test_config_returns_remote_sources(test_app, mock_knowledge_with_remote_conf
 @pytest.mark.asyncio
 async def test_process_content_with_remote_s3(mock_knowledge_with_remote_configs):
     """Test processing content from S3."""
-    from agno.knowledge.remote_content.remote_content import S3Content
-    from agno.os.routers.knowledge.knowledge import process_content
+    from egpt.knowledge.remote_content.remote_content import S3Content
+    from egpt.os.routers.knowledge.knowledge import process_content
 
     # Create content with S3 remote source
     s3_content = S3Content(bucket_name="my-bucket", key="test.pdf", config_id="s3-docs")
@@ -505,8 +505,8 @@ async def test_process_content_with_remote_s3(mock_knowledge_with_remote_configs
 @pytest.mark.asyncio
 async def test_process_content_with_remote_github(mock_knowledge_with_remote_configs):
     """Test processing content from GitHub."""
-    from agno.knowledge.remote_content.remote_content import GitHubContent
-    from agno.os.routers.knowledge.knowledge import process_content
+    from egpt.knowledge.remote_content.remote_content import GitHubContent
+    from egpt.os.routers.knowledge.knowledge import process_content
 
     # Create content with GitHub remote source
     gh_content = GitHubContent(config_id="github-repo", file_path="docs/README.md", branch="main")
@@ -521,8 +521,8 @@ async def test_process_content_with_remote_github(mock_knowledge_with_remote_con
 @pytest.mark.asyncio
 async def test_process_content_with_remote_azure_blob(mock_knowledge_with_remote_configs):
     """Test processing content from Azure Blob Storage."""
-    from agno.knowledge.remote_content.remote_content import AzureBlobContent
-    from agno.os.routers.knowledge.knowledge import process_content
+    from egpt.knowledge.remote_content.remote_content import AzureBlobContent
+    from egpt.os.routers.knowledge.knowledge import process_content
 
     # Create content with Azure Blob remote source
     azure_content = AzureBlobContent(config_id="azure-docs", blob_name="documents/report.pdf")

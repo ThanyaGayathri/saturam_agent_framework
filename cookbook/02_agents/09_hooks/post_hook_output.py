@@ -7,10 +7,10 @@ Example demonstrating output validation using post-hooks with Agno Agent.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.exceptions import CheckTrigger, OutputCheckError
-from agno.models.openai import OpenAIResponses
-from agno.run.agent import RunOutput
+from egpt.agent import Agent
+from egpt.exceptions import CheckTrigger, OutputCheckError
+from egpt.models.openai import OpenAIResponses
+from egpt.run.agent import RunOutput
 from pydantic import BaseModel
 
 

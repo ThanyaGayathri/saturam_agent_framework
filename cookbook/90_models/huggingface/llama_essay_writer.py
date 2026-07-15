@@ -5,8 +5,8 @@ Huggingface Llama Essay Writer
 Cookbook example for `huggingface/llama_essay_writer.py`.
 """
 
-from agno.agent import Agent
-from agno.models.huggingface import HuggingFace
+from egpt.agent import Agent
+from egpt.models.huggingface import HuggingFace
 
 # ---------------------------------------------------------------------------
 # Create Agent

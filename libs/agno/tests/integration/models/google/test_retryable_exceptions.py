@@ -4,12 +4,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.google import Gemini
-from agno.models.google.gemini import RetryableModelProviderError
-from agno.models.google.utils import MALFORMED_FUNCTION_CALL_GUIDANCE
-from agno.run.agent import RunEvent
-from agno.run.base import RunStatus
+from egpt.agent import Agent
+from egpt.models.google import Gemini
+from egpt.models.google.gemini import RetryableModelProviderError
+from egpt.models.google.utils import MALFORMED_FUNCTION_CALL_GUIDANCE
+from egpt.run.agent import RunEvent
+from egpt.run.base import RunStatus
 
 
 @pytest.fixture
@@ -186,7 +186,7 @@ async def test_malformed_function_call_error_triggers_regeneration_attempt_async
         call_count["count"] += 1
         if call_count["count"] == 1:
             # Simulate malformed function call by yielding a response with that finish reason
-            from agno.models.response import ModelResponse
+            from egpt.models.response import ModelResponse
 
             malformed_response = ModelResponse()
             malformed_response.role = "assistant"

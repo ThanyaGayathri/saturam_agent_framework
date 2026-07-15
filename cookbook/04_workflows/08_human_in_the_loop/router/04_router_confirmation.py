@@ -19,11 +19,11 @@ Note: This is different from `requires_user_input=True` which lets the user
 choose which steps to execute. Here, the selector chooses, but user confirms.
 """
 
-from agno.db.sqlite import SqliteDb
-from agno.workflow.router import Router
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.db.sqlite import SqliteDb
+from egpt.workflow.router import Router
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 # ============================================================

@@ -6,11 +6,11 @@ Demonstrates using Registry to restore tools, models, and schemas when loading
 components from the database.
 """
 
-from agno.agent.agent import Agent, get_agent_by_id  # noqa: F401
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.registry import Registry
-from agno.tools.duckduckgo import DuckDuckGoTools
+from egpt.agent.agent import Agent, get_agent_by_id  # noqa: F401
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.registry import Registry
+from egpt.tools.duckduckgo import DuckDuckGoTools
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------

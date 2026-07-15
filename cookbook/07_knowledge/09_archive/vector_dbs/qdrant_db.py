@@ -7,12 +7,12 @@ Demonstrates Qdrant-backed knowledge with sync, async, and async-batching flows.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.postgres.postgres import PostgresDb
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.vectordb.qdrant import Qdrant
+from egpt.agent import Agent
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.vectordb.qdrant import Qdrant
 
 # ---------------------------------------------------------------------------
 # Setup

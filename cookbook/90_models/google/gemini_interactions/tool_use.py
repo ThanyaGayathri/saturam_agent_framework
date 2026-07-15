@@ -7,9 +7,9 @@ Example showing tool/function calling with the Gemini Interactions API.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

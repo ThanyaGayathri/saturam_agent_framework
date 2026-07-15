@@ -16,9 +16,9 @@ NOTE: Instruct the agent to prepend the table name with the project name and dat
 Describe the table schemas in instructions and use thinking tools for better responses.
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
-from agno.tools.google.bigquery import GoogleBigQueryTools
+from egpt.agent import Agent
+from egpt.models.google import Gemini
+from egpt.tools.google.bigquery import GoogleBigQueryTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

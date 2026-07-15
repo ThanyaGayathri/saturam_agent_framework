@@ -1,10 +1,10 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.db.sqlite import SqliteDb
-from agno.exceptions import ModelProviderError
-from agno.models.huggingface import HuggingFace
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.db.sqlite import SqliteDb
+from egpt.exceptions import ModelProviderError
+from egpt.models.huggingface import HuggingFace
 
 
 def _assert_metrics(response: RunOutput):

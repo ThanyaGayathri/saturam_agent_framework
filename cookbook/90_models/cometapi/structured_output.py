@@ -7,8 +7,8 @@ Cookbook example for `cometapi/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.cometapi import CometAPI
+from egpt.agent import Agent
+from egpt.models.cometapi import CometAPI
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

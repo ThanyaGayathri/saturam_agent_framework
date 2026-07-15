@@ -11,8 +11,8 @@ Set the following environment variables:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.azure.claude import Claude
+from egpt.agent import Agent
+from egpt.models.azure.claude import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

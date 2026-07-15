@@ -4,8 +4,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from agno.knowledge.chunking.agentic import DEFAULT_INSTRUCTIONS, MAX_CHUNK_SIZE, AgenticChunking
-from agno.knowledge.document.base import Document
+from egpt.knowledge.chunking.agentic import DEFAULT_INSTRUCTIONS, MAX_CHUNK_SIZE, AgenticChunking
+from egpt.knowledge.document.base import Document
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def test_custom_prompt_uses_default_instructions(mock_model):
     mock_model.response.return_value = mock_response
 
     custom_prompt = "Break at sentence boundaries"
-    with patch("agno.knowledge.chunking.agentic.get_model", return_value=mock_model):
+    with patch("egpt.knowledge.chunking.agentic.get_model", return_value=mock_model):
         chunker = AgenticChunking(model="test-model", max_chunk_size=1000, custom_prompt=custom_prompt)
 
     doc = Document(id="test", name="test", content="A" * 2000)
@@ -44,7 +44,7 @@ def test_custom_prompt_uses_default_instructions(mock_model):
 
 def test_early_return_for_small_content(mock_model):
     """Test that small content returns early without calling LLM."""
-    with patch("agno.knowledge.chunking.agentic.get_model", return_value=mock_model):
+    with patch("egpt.knowledge.chunking.agentic.get_model", return_value=mock_model):
         chunker = AgenticChunking(model="test-model")
 
     small_content = "Small content"
@@ -61,7 +61,7 @@ def test_early_return_for_small_content(mock_model):
 def test_early_return_with_custom_prompt(mock_model):
     """Test that small content returns early even with custom_prompt."""
     custom_prompt = "Split at logical boundaries"
-    with patch("agno.knowledge.chunking.agentic.get_model", return_value=mock_model):
+    with patch("egpt.knowledge.chunking.agentic.get_model", return_value=mock_model):
         chunker = AgenticChunking(model="test-model", custom_prompt=custom_prompt)
 
     small_content = "Small content"
@@ -80,7 +80,7 @@ def test_no_custom_prompt_uses_default_prompt(mock_model):
     mock_response.content = "1000"
     mock_model.response.return_value = mock_response
 
-    with patch("agno.knowledge.chunking.agentic.get_model", return_value=mock_model):
+    with patch("egpt.knowledge.chunking.agentic.get_model", return_value=mock_model):
         chunker = AgenticChunking(model="test-model", max_chunk_size=2000)
 
     doc = Document(id="test", name="test", content="A" * 3000)
@@ -106,7 +106,7 @@ def test_custom_prompt_formatting(mock_model):
 
     custom_prompt = "My custom chunking logic"
     max_chunk_size = 1000
-    with patch("agno.knowledge.chunking.agentic.get_model", return_value=mock_model):
+    with patch("egpt.knowledge.chunking.agentic.get_model", return_value=mock_model):
         chunker = AgenticChunking(model="test-model", max_chunk_size=max_chunk_size, custom_prompt=custom_prompt)
 
     content = "A" * 1500
@@ -134,7 +134,7 @@ def test_custom_prompt_respects_max_chunk_size_limit(mock_model):
     mock_model.response.return_value = mock_response
 
     custom_prompt = "Break into large chunks"
-    with patch("agno.knowledge.chunking.agentic.get_model", return_value=mock_model):
+    with patch("egpt.knowledge.chunking.agentic.get_model", return_value=mock_model):
         chunker = AgenticChunking(model="test-model", max_chunk_size=MAX_CHUNK_SIZE, custom_prompt=custom_prompt)
 
     doc = Document(id="test", name="test", content="A" * 10000)
@@ -150,7 +150,7 @@ def test_custom_prompt_model_failure_fallback(mock_model):
     mock_model.response.side_effect = Exception("Model error")
 
     custom_prompt = "Break at logical points"
-    with patch("agno.knowledge.chunking.agentic.get_model", return_value=mock_model):
+    with patch("egpt.knowledge.chunking.agentic.get_model", return_value=mock_model):
         chunker = AgenticChunking(model="test-model", max_chunk_size=1000, custom_prompt=custom_prompt)
 
     doc = Document(id="test", name="test", content="A" * 2500)
@@ -176,7 +176,7 @@ def test_default_instructions_constant():
 def test_initialization_with_custom_prompt(mock_model):
     """Test that custom_prompt is stored correctly."""
     custom_prompt = "Test prompt"
-    with patch("agno.knowledge.chunking.agentic.get_model", return_value=mock_model):
+    with patch("egpt.knowledge.chunking.agentic.get_model", return_value=mock_model):
         chunker = AgenticChunking(model="test-model", max_chunk_size=1000, custom_prompt=custom_prompt)
 
     assert chunker.custom_prompt == custom_prompt
@@ -186,7 +186,7 @@ def test_initialization_with_custom_prompt(mock_model):
 
 def test_initialization_without_custom_prompt(mock_model):
     """Test that custom_prompt defaults to None."""
-    with patch("agno.knowledge.chunking.agentic.get_model", return_value=mock_model):
+    with patch("egpt.knowledge.chunking.agentic.get_model", return_value=mock_model):
         chunker = AgenticChunking(model="test-model", max_chunk_size=1000)
 
     assert chunker.custom_prompt is None
@@ -197,7 +197,7 @@ def test_initialization_with_default_model():
     """Test that OpenAIChat model is created when no model provided."""
     mock_openai_instance = Mock()
 
-    with patch("agno.models.openai.OpenAIChat", return_value=mock_openai_instance):
+    with patch("egpt.models.openai.OpenAIChat", return_value=mock_openai_instance):
         chunker = AgenticChunking(max_chunk_size=1000, custom_prompt="Test")
 
         assert chunker.model is mock_openai_instance
@@ -207,8 +207,8 @@ def test_logging_when_custom_prompt_without_max_chunk_size(mock_model):
     """Test that logging occurs when custom_prompt is provided without max_chunk_size."""
     custom_prompt = "Test prompt"
 
-    with patch("agno.knowledge.chunking.agentic.get_model", return_value=mock_model):
-        with patch("agno.knowledge.chunking.agentic.log_debug") as mock_log_debug:
+    with patch("egpt.knowledge.chunking.agentic.get_model", return_value=mock_model):
+        with patch("egpt.knowledge.chunking.agentic.log_debug") as mock_log_debug:
             chunker = AgenticChunking(model="test-model", custom_prompt=custom_prompt)
 
             assert mock_log_debug.called
@@ -223,8 +223,8 @@ def test_no_logging_when_custom_prompt_with_max_chunk_size(mock_model):
     """Test that no logging occurs when both custom_prompt and max_chunk_size are provided."""
     custom_prompt = "Test prompt"
 
-    with patch("agno.knowledge.chunking.agentic.get_model", return_value=mock_model):
-        with patch("agno.knowledge.chunking.agentic.log_debug") as mock_log_debug:
+    with patch("egpt.knowledge.chunking.agentic.get_model", return_value=mock_model):
+        with patch("egpt.knowledge.chunking.agentic.log_debug") as mock_log_debug:
             chunker = AgenticChunking(model="test-model", max_chunk_size=3000, custom_prompt=custom_prompt)
 
             assert not mock_log_debug.called
@@ -233,8 +233,8 @@ def test_no_logging_when_custom_prompt_with_max_chunk_size(mock_model):
 
 def test_no_logging_when_no_custom_prompt(mock_model):
     """Test that no logging occurs when custom_prompt is not provided."""
-    with patch("agno.knowledge.chunking.agentic.get_model", return_value=mock_model):
-        with patch("agno.knowledge.chunking.agentic.log_debug") as mock_log_debug:
+    with patch("egpt.knowledge.chunking.agentic.get_model", return_value=mock_model):
+        with patch("egpt.knowledge.chunking.agentic.log_debug") as mock_log_debug:
             chunker = AgenticChunking(model="test-model")
 
             assert not mock_log_debug.called

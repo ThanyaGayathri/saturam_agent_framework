@@ -10,9 +10,9 @@ Usage:
     .venvs/demo/bin/python cookbook/frameworks/00_quickstart/langgraph_agent.py
 """
 
-from agno.agents.langgraph import LangGraphAgent
-from agno.db.sqlite import SqliteDb
-from agno.os import AgentOS
+from egpt.agents.langgraph import LangGraphAgent
+from egpt.db.sqlite import SqliteDb
+from egpt.os import AgentOS
 from langchain_openai import ChatOpenAI
 from langgraph.graph import MessagesState, StateGraph
 

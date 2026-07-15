@@ -5,10 +5,10 @@ Executor Events
 Demonstrates filtering internal executor events during streamed workflow runs.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Agent

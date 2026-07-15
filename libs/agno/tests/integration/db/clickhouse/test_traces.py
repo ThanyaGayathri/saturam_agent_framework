@@ -18,8 +18,8 @@ from uuid import uuid4
 
 import pytest
 
-from agno.db.clickhouse import ClickhouseDb
-from agno.tracing.schemas import Span, create_trace_from_spans
+from egpt.db.clickhouse import ClickhouseDb
+from egpt.tracing.schemas import Span, create_trace_from_spans
 
 CLICKHOUSE_HOST = "localhost"
 CLICKHOUSE_PORT = 8123

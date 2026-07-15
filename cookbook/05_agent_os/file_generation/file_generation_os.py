@@ -16,11 +16,11 @@ Generated files are returned as base64-encoded artifacts in the AgentOS response
 and saved to tmp/file_gen_out/.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os.app import AgentOS
-from agno.tools.file_generation import FileGenerationTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os.app import AgentOS
+from egpt.tools.file_generation import FileGenerationTools
 
 agent_db = SqliteDb(db_file="tmp/file_gen_os.db")
 

@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from agno.tools.searchapi import SearchApiTools
+from egpt.tools.searchapi import SearchApiTools
 
 
 @pytest.fixture(autouse=True)

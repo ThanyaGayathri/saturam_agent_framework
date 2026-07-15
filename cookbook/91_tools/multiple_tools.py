@@ -1,9 +1,9 @@
 """Run `uv pip install openai ddgs yfinance` to install dependencies."""
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

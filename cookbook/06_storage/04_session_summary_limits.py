@@ -9,10 +9,10 @@ This is useful for long-running sessions where the full conversation would
 exceed the summary model's context window.
 """
 
-from agno.agent.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.session.summary import SessionSummaryManager
+from egpt.agent.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.session.summary import SessionSummaryManager
 
 # ---------------------------------------------------------------------------
 # Setup

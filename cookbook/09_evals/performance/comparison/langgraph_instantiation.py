@@ -7,7 +7,7 @@ Demonstrates agent instantiation benchmarking with LangGraph.
 
 from typing import Literal
 
-from agno.eval.performance import PerformanceEval
+from egpt.eval.performance import PerformanceEval
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent

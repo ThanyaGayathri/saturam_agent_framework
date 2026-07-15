@@ -27,9 +27,9 @@ Note: Make sure your webcam is connected and not being used by other application
 
 import base64
 
-from agno.agent import Agent
-from agno.tools.opencv import OpenCVTools
-from agno.utils.media import save_base64_data
+from egpt.agent import Agent
+from egpt.tools.opencv import OpenCVTools
+from egpt.utils.media import save_base64_data
 
 # ---------------------------------------------------------------------------
 # Create Agent

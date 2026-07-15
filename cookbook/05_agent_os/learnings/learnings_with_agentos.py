@@ -9,11 +9,11 @@ Run with:
 Then in another terminal, run rest_api_learnings.py to hit the endpoints.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.learn import LearningMachine
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.learn import LearningMachine
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
 
 db = SqliteDb(id="learnings-os-demo", db_file="tmp/learnings_os_demo.db")
 

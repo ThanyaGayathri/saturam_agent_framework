@@ -7,9 +7,9 @@ Demonstrates this reasoning cookbook example.
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.reasoning import ReasoningTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.reasoning import ReasoningTools
 
 
 # ---------------------------------------------------------------------------

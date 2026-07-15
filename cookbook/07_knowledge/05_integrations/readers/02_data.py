@@ -14,14 +14,14 @@ See also: 01_documents.py for PDF/DOCX, 03_web.py for web sources.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.csv_reader import CSVReader
-from agno.knowledge.reader.json_reader import JSONReader
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.qdrant import Qdrant
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.csv_reader import CSVReader
+from egpt.knowledge.reader.json_reader import JSONReader
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.qdrant import Qdrant
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

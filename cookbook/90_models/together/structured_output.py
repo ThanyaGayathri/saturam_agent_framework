@@ -7,8 +7,8 @@ Cookbook example for `together/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.together import Together
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.together import Together
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

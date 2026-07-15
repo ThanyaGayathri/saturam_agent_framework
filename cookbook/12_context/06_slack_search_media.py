@@ -34,9 +34,9 @@ from __future__ import annotations
 
 import asyncio
 
-from agno.agent import Agent
-from agno.context.slack import SlackContextProvider
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.context.slack import SlackContextProvider
+from egpt.models.google import Gemini
 
 slack = SlackContextProvider(
     model=Gemini(id="gemini-3.5-flash"),

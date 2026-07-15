@@ -9,8 +9,8 @@ from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.types import Part, TextPart
 from a2a.utils import new_agent_text_message
-from agno.agent import Agent, Message, RunOutput
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent, Message, RunOutput
+from egpt.models.openai import OpenAIChat
 from typing_extensions import override
 
 # ---------------------------------------------------------------------------

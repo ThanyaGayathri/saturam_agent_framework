@@ -19,12 +19,12 @@ import time
 from pathlib import Path
 from typing import Dict
 
-from agno.agent import Agent
-from agno.exceptions import RunCancelledException
-from agno.models.openai import OpenAIResponses
-from agno.run.agent import RunEvent
-from agno.run.cancel import set_cancellation_manager
-from agno.run.cancellation_management.base import BaseRunCancellationManager
+from egpt.agent import Agent
+from egpt.exceptions import RunCancelledException
+from egpt.models.openai import OpenAIResponses
+from egpt.run.agent import RunEvent
+from egpt.run.cancel import set_cancellation_manager
+from egpt.run.cancellation_management.base import BaseRunCancellationManager
 
 # ---------------------------------------------------------------------------
 # Create Custom Cancellation Manager

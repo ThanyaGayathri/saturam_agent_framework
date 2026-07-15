@@ -9,8 +9,8 @@ immediately and Agno polls for the result automatically.
 Requires: openai>=2.0.0
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent with background mode enabled

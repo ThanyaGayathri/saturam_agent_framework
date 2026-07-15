@@ -5,8 +5,8 @@ Custom Datetime Format
 Customize the datetime format injected into the agent's system context.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

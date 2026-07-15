@@ -16,12 +16,12 @@ Prerequisites:
 3. Install google-cloud-storage: `uv pip install google-cloud-storage`
 """
 
-from agno.agent import Agent
-from agno.db.gcs_json import GcsJsonDb
-from agno.eval.accuracy import AccuracyEval
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team.team import Team
+from egpt.agent import Agent
+from egpt.db.gcs_json import GcsJsonDb
+from egpt.eval.accuracy import AccuracyEval
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Example

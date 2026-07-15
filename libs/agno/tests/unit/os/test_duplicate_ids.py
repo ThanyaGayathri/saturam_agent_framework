@@ -2,10 +2,10 @@
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.os import AgentOS
-from agno.team.team import Team
-from agno.workflow.workflow import Workflow
+from egpt.agent.agent import Agent
+from egpt.os import AgentOS
+from egpt.team.team import Team
+from egpt.workflow.workflow import Workflow
 
 
 def test_duplicate_agent_ids_with_explicit_ids_raises_error():

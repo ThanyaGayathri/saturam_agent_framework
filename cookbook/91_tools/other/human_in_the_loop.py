@@ -19,10 +19,10 @@ import json
 from typing import Iterator
 
 import httpx
-from agno.agent import Agent
-from agno.exceptions import StopAgentRun
-from agno.models.openai import OpenAIChat
-from agno.tools import FunctionCall, tool
+from egpt.agent import Agent
+from egpt.exceptions import StopAgentRun
+from egpt.models.openai import OpenAIChat
+from egpt.tools import FunctionCall, tool
 from rich.console import Console
 
 # ---------------------------------------------------------------------------

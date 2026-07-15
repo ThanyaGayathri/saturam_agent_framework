@@ -8,10 +8,10 @@ The team leader coordinates members and formats the final output to match a sche
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team.mode import TeamMode
-from agno.team.team import Team
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team.mode import TeamMode
+from egpt.team.team import Team
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

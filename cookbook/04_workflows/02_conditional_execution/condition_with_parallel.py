@@ -7,15 +7,15 @@ Demonstrates multiple conditional branches executed in parallel before final syn
 
 import asyncio
 
-from agno.agent import Agent
-from agno.tools.exa import ExaTools
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.condition import Condition
-from agno.workflow.parallel import Parallel
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.tools.exa import ExaTools
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.condition import Condition
+from egpt.workflow.parallel import Parallel
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Agents

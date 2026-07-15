@@ -9,9 +9,9 @@ This example shows how to create an agent that can:
 
 from os import getenv
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.tools.spotify import SpotifyTools
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.tools.spotify import SpotifyTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -14,12 +14,12 @@ For a full comparison of all 17+ supported providers, see:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.qdrant import Qdrant
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.qdrant import Qdrant
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -65,7 +65,7 @@ if __name__ == "__main__":
         print("=" * 60 + "\n")
 
         try:
-            from agno.knowledge.embedder.ollama import OllamaEmbedder
+            from egpt.knowledge.embedder.ollama import OllamaEmbedder
 
             knowledge_ollama = Knowledge(
                 vector_db=Qdrant(

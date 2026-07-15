@@ -11,11 +11,11 @@ Unit tests for the 7 new HITL features:
 
 from datetime import datetime, timedelta, timezone
 
-from agno.run.base import RunStatus
-from agno.run.workflow import WorkflowRunOutput
-from agno.workflow import OnReject
-from agno.workflow.step import Step
-from agno.workflow.types import (
+from egpt.run.base import RunStatus
+from egpt.run.workflow import WorkflowRunOutput
+from egpt.workflow import OnReject
+from egpt.workflow.step import Step
+from egpt.workflow.types import (
     StepInput,
     StepOutput,
     StepRequirement,
@@ -381,27 +381,27 @@ class TestCheckTimeout:
     """Tests for the check_timeout utility function."""
 
     def test_no_timeout(self):
-        from agno.workflow.utils.hitl import check_timeout
+        from egpt.workflow.utils.hitl import check_timeout
 
         req = StepRequirement(step_id="step-1")
         assert check_timeout(req) is None
 
     def test_not_timed_out(self):
-        from agno.workflow.utils.hitl import check_timeout
+        from egpt.workflow.utils.hitl import check_timeout
 
         future = datetime.now(timezone.utc) + timedelta(hours=1)
         req = StepRequirement(step_id="step-1", timeout_at=future, on_timeout="skip")
         assert check_timeout(req) is None
 
     def test_timed_out(self):
-        from agno.workflow.utils.hitl import check_timeout
+        from egpt.workflow.utils.hitl import check_timeout
 
         past = datetime.now(timezone.utc) - timedelta(seconds=1)
         req = StepRequirement(step_id="step-1", timeout_at=past, on_timeout="approve")
         assert check_timeout(req) == "approve"
 
     def test_timed_out_cancel(self):
-        from agno.workflow.utils.hitl import check_timeout
+        from egpt.workflow.utils.hitl import check_timeout
 
         past = datetime.now(timezone.utc) - timedelta(seconds=1)
         req = StepRequirement(step_id="step-1", timeout_at=past, on_timeout="cancel")
@@ -450,9 +450,9 @@ def _report_fn(step_input: StepInput) -> StepOutput:
 
 def _make_router_review_workflow(session_id: str):
     """Create a workflow with a Router that has output review."""
-    from agno.db.sqlite import SqliteDb
-    from agno.workflow.router import Router
-    from agno.workflow.workflow import Workflow
+    from egpt.db.sqlite import SqliteDb
+    from egpt.workflow.router import Router
+    from egpt.workflow.workflow import Workflow
 
     return Workflow(
         name="test_router_review",
@@ -479,7 +479,7 @@ class TestRouterOutputReviewFields:
     """Tests for Router output review dataclass fields."""
 
     def test_router_output_review_defaults(self):
-        from agno.workflow.router import Router
+        from egpt.workflow.router import Router
 
         router = Router(name="test", choices=[Step(name="a", executor=_quick_fn)])
         assert router.requires_output_review is False
@@ -487,7 +487,7 @@ class TestRouterOutputReviewFields:
         assert router.hitl_max_retries == 3
 
     def test_router_output_review_set(self):
-        from agno.workflow.router import Router
+        from egpt.workflow.router import Router
 
         router = Router(
             name="test",
@@ -503,7 +503,7 @@ class TestRouterOutputReviewFields:
         assert router.hitl_max_retries == 5
 
     def test_router_to_dict_includes_review_fields(self):
-        from agno.workflow.router import Router
+        from egpt.workflow.router import Router
 
         router = Router(
             name="test",
@@ -524,7 +524,7 @@ class TestRouterCreateOutputReviewRequirement:
     """Tests for Router.create_output_review_requirement()."""
 
     def test_creates_correct_requirement(self):
-        from agno.workflow.router import Router
+        from egpt.workflow.router import Router
 
         router = Router(
             name="my_router",
@@ -636,7 +636,7 @@ class TestRouterOutputReviewStreaming:
     """Tests for Router output review in streaming mode."""
 
     def test_streaming_emits_review_event(self):
-        from agno.run.workflow import StepOutputReviewEvent
+        from egpt.run.workflow import StepOutputReviewEvent
 
         wf = _make_router_review_workflow("stream_event")
         events = list(wf.run("test", session_id="stream_event", stream=True, stream_events=True))
@@ -672,9 +672,9 @@ class TestRouterOutputReviewStreaming:
 
 def _make_async_router_review_workflow(session_id: str):
     """Create an async-compatible workflow with a Router that has output review."""
-    from agno.db.sqlite import SqliteDb
-    from agno.workflow.router import Router
-    from agno.workflow.workflow import Workflow
+    from egpt.db.sqlite import SqliteDb
+    from egpt.workflow.router import Router
+    from egpt.workflow.workflow import Workflow
 
     return Workflow(
         name="test_async_router_review",
@@ -771,7 +771,7 @@ class TestRouterOutputReviewAsync:
         assert run.is_cancelled
 
     async def test_async_streaming_emits_review_event(self):
-        from agno.run.workflow import StepOutputReviewEvent
+        from egpt.run.workflow import StepOutputReviewEvent
 
         wf = _make_async_router_review_workflow("async_stream")
         events = []

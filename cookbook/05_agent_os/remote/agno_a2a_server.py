@@ -7,15 +7,15 @@ allowing them to be accessed by any A2A-compatible client.
 Start this server before running 04_remote_agno_a2a_agent.py
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.tools.calculator import CalculatorTools
-from agno.tools.websearch import WebSearchTools
-from agno.vectordb.chroma import ChromaDb
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.tools.calculator import CalculatorTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.vectordb.chroma import ChromaDb
 
 # ---------------------------------------------------------------------------
 # Create Example

@@ -8,15 +8,15 @@ Demonstrates routing between image and video generation pipelines using a router
 import asyncio
 from typing import List, Optional
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.models.gemini import GeminiTools
-from agno.tools.openai import OpenAITools
-from agno.workflow.router import Router
-from agno.workflow.step import Step
-from agno.workflow.steps import Steps
-from agno.workflow.types import StepInput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.models.gemini import GeminiTools
+from egpt.tools.openai import OpenAITools
+from egpt.workflow.router import Router
+from egpt.workflow.step import Step
+from egpt.workflow.steps import Steps
+from egpt.workflow.types import StepInput
+from egpt.workflow.workflow import Workflow
 from pydantic import BaseModel
 
 

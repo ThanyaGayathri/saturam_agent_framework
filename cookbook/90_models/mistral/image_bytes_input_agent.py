@@ -6,9 +6,9 @@ Cookbook example for `mistral/image_bytes_input_agent.py`.
 """
 
 import requests
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.mistral.mistral import MistralChat
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.mistral.mistral import MistralChat
 
 # ---------------------------------------------------------------------------
 # Create Agent

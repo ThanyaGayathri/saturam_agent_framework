@@ -7,9 +7,9 @@ Cookbook example for `google/gemini/image_editing.py`.
 
 from io import BytesIO
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.media import Image
-from agno.models.google import Gemini
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.media import Image
+from egpt.models.google import Gemini
 from PIL import Image as PILImage
 
 # ---------------------------------------------------------------------------

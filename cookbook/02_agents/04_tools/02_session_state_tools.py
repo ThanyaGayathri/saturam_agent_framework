@@ -8,8 +8,8 @@ Set `cache_callables=False` so the factory runs fresh every time,
 picking up any session_state changes between runs.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Tools

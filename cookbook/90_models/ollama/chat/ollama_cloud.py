@@ -1,7 +1,7 @@
 """To use Ollama Cloud, you need to set the OLLAMA_API_KEY environment variable. Host is set to https://ollama.com by default."""
 
-from agno.agent import Agent
-from agno.models.ollama import Ollama
+from egpt.agent import Agent
+from egpt.models.ollama import Ollama
 
 # ---------------------------------------------------------------------------
 # Create Agent

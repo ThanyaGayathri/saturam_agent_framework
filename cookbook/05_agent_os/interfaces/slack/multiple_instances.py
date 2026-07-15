@@ -20,12 +20,12 @@ Slack scopes (per app): app_mentions:read, assistant:write, chat:write, im:histo
 
 from os import getenv
 
-from agno.agent import Agent
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os.app import AgentOS
-from agno.os.interfaces.slack import Slack
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.slack import Slack
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Agents

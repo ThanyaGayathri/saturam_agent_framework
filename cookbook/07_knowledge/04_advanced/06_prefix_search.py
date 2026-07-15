@@ -11,10 +11,10 @@ Without prefix_match: User must type complete words to get matches.
 With prefix_match=True: Partial words match, enabling typeahead search.
 """
 
-from agno.knowledge.document import Document
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.vectordb.pgvector import PgVector
-from agno.vectordb.search import SearchType
+from egpt.knowledge.document import Document
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.vectordb.pgvector import PgVector
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup: Help Center knowledge base with prefix matching

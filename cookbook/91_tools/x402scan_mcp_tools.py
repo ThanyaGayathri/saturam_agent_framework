@@ -13,10 +13,10 @@ Fund with USDC on Base to start using paid APIs.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.team import Team
-from agno.tools.mcp import MCPTools
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.team import Team
+from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

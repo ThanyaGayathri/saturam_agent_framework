@@ -2,15 +2,15 @@ import time
 
 import pytest
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.culture.manager import CultureManager
-from agno.db.base import SessionType
-from agno.eval.accuracy import AccuracyEval
-from agno.eval.agent_as_judge import AgentAsJudgeEval
-from agno.memory.manager import MemoryManager
-from agno.metrics import ModelMetrics, RunMetrics, SessionMetrics, ToolCallMetrics
-from agno.models.openai import OpenAIChat
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.culture.manager import CultureManager
+from egpt.db.base import SessionType
+from egpt.eval.accuracy import AccuracyEval
+from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.memory.manager import MemoryManager
+from egpt.metrics import ModelMetrics, RunMetrics, SessionMetrics, ToolCallMetrics
+from egpt.models.openai import OpenAIChat
+from egpt.tools.websearch import WebSearchTools
 
 
 def add(a: int, b: int) -> str:
@@ -472,7 +472,7 @@ def test_provider_metrics_openai_with_tools():
 
 
 def test_provider_metrics_gemini():
-    from agno.models.google import Gemini
+    from egpt.models.google import Gemini
 
     agent = Agent(model=Gemini(id="gemini-2.5-flash"))
     response = agent.run("Hello")

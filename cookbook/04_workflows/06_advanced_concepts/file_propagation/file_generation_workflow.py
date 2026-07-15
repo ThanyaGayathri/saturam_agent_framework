@@ -1,9 +1,9 @@
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.tools.file_generation import FileGenerationTools
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.tools.file_generation import FileGenerationTools
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Step 1: Generate a Report

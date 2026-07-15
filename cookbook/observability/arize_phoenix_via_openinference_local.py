@@ -7,9 +7,9 @@ Demonstrates instrumenting an Agno agent and sending traces to a local Phoenix i
 
 import os
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.yfinance import YFinanceTools
 from phoenix.otel import register
 
 # ---------------------------------------------------------------------------

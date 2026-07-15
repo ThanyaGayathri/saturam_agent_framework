@@ -8,11 +8,11 @@ Demonstrates output validation and transformation post-hooks for team runs.
 import asyncio
 from datetime import datetime
 
-from agno.agent import Agent
-from agno.exceptions import CheckTrigger, OutputCheckError
-from agno.models.openai import OpenAIResponses
-from agno.run.team import TeamRunOutput
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.exceptions import CheckTrigger, OutputCheckError
+from egpt.models.openai import OpenAIResponses
+from egpt.run.team import TeamRunOutput
+from egpt.team import Team
 from pydantic import BaseModel
 
 

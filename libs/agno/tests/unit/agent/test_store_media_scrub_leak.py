@@ -12,14 +12,14 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.media import Image, Video
-from agno.models.base import Model
-from agno.models.message import MessageMetrics
-from agno.models.response import ModelResponse
-from agno.run.agent import RunOutput
-from agno.run.team import TeamRunOutput
-from agno.utils.agent import scrub_media_from_run_output
+from egpt.agent.agent import Agent
+from egpt.media import Image, Video
+from egpt.models.base import Model
+from egpt.models.message import MessageMetrics
+from egpt.models.response import ModelResponse
+from egpt.run.agent import RunOutput
+from egpt.run.team import TeamRunOutput
+from egpt.utils.agent import scrub_media_from_run_output
 
 
 class MockModelWithImage(Model):
@@ -95,7 +95,7 @@ def test_scrub_media_nulls_top_level_output_videos():
 
 def test_scrub_media_nulls_top_level_output_audio():
     """scrub_media_from_run_output must null run_response.audio."""
-    from agno.media import Audio
+    from egpt.media import Audio
 
     run_output = RunOutput(
         audio=[Audio(id="aud-1", content=b"fake-audio")],
@@ -106,7 +106,7 @@ def test_scrub_media_nulls_top_level_output_audio():
 
 def test_scrub_media_nulls_top_level_output_files():
     """scrub_media_from_run_output must null run_response.files."""
-    from agno.media import File
+    from egpt.media import File
 
     run_output = RunOutput(
         files=[File(id="file-1", content=b"fake-file")],
@@ -130,7 +130,7 @@ def test_scrub_media_nulls_team_run_output_images():
 def test_member_response_media_scrubbed_via_scrub_run_output_for_storage():
     """Simulates _scrub_member_responses path: scrub_run_output_for_storage
     must clear top-level images on a member response when store_media=False."""
-    from agno.agent._run import scrub_run_output_for_storage
+    from egpt.agent._run import scrub_run_output_for_storage
 
     member_agent = Agent(model=MockModelWithImage(), store_media=False)
 
@@ -152,7 +152,7 @@ def test_member_response_media_scrubbed_via_scrub_run_output_for_storage():
 def test_member_response_media_preserved_when_store_media_true():
     """When store_media=True, scrub_run_output_for_storage should NOT be called
     for media, so images remain."""
-    from agno.agent._run import scrub_run_output_for_storage
+    from egpt.agent._run import scrub_run_output_for_storage
 
     member_agent = Agent(model=MockModelWithImage(), store_media=True)
 

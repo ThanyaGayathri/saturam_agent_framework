@@ -8,10 +8,10 @@ Demonstrates qdrant.
 import asyncio
 from os import getenv
 
-from agno.agent import Agent
-from agno.models.google import Gemini
-from agno.tools.mcp import MCPTools
-from agno.utils.pprint import apprint_run_response
+from egpt.agent import Agent
+from egpt.models.google import Gemini
+from egpt.tools.mcp import MCPTools
+from egpt.utils.pprint import apprint_run_response
 
 # ---------------------------------------------------------------------------
 # Create Agent

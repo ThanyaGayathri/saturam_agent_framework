@@ -5,9 +5,9 @@ Cosmos MongoDB vCore
 Demonstrates Cosmos DB (MongoDB vCore compatibility) as a vector DB backend.
 """
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.mongodb import MongoVectorDb
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.mongodb import MongoVectorDb
 
 # ---------------------------------------------------------------------------
 # Setup

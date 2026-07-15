@@ -5,9 +5,9 @@ Basic
 Demonstrates basic.
 """
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
 
 # ---------------------------------------------------------------------------
 # Create Example

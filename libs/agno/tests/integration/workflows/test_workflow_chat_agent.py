@@ -4,11 +4,11 @@ import uuid
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.workflow import WorkflowCompletedEvent, WorkflowStartedEvent
-from agno.workflow import Step, StepInput, StepOutput, Workflow
-from agno.workflow.agent import WorkflowAgent
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.workflow import WorkflowCompletedEvent, WorkflowStartedEvent
+from egpt.workflow import Step, StepInput, StepOutput, Workflow
+from egpt.workflow.agent import WorkflowAgent
 
 # ============================================================================
 # HELPER FUNCTIONS

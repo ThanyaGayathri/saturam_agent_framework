@@ -13,7 +13,7 @@ Tests cover:
 
 import pytest
 
-from agno.filters import (
+from egpt.filters import (
     AND,
     CONTAINS,
     EQ,

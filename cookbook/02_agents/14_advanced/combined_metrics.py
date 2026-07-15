@@ -18,15 +18,15 @@ This example shows all detail keys and session-level metrics.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.compression.manager import CompressionManager
-from agno.culture.manager import CultureManager
-from agno.db.postgres import PostgresDb
-from agno.eval.agent_as_judge import AgentAsJudgeEval
-from agno.memory.manager import MemoryManager
-from agno.models.openai import OpenAIChat
-from agno.session.summary import SessionSummaryManager
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.compression.manager import CompressionManager
+from egpt.culture.manager import CultureManager
+from egpt.db.postgres import PostgresDb
+from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.memory.manager import MemoryManager
+from egpt.models.openai import OpenAIChat
+from egpt.session.summary import SessionSummaryManager
+from egpt.tools.yfinance import YFinanceTools
 from pydantic import BaseModel, Field
 from rich.pretty import pprint
 

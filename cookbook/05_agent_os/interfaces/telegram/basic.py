@@ -14,11 +14,11 @@ Key concepts:
 Setup: Set TELEGRAM_TOKEN env var from @BotFather.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.google import Gemini
-from agno.os.app import AgentOS
-from agno.os.interfaces.telegram import Telegram
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.google import Gemini
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.telegram import Telegram
 
 # ---------------------------------------------------------------------------
 # Create Example

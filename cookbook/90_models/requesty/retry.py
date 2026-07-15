@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Requesty."""
 
-from agno.agent import Agent
-from agno.models.requesty import Requesty
+from egpt.agent import Agent
+from egpt.models.requesty import Requesty
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -12,10 +12,10 @@ python cookbook/09_evals/suite/suite_basic.py --json-output tmp/evals.json
 
 import sys
 
-from agno.agent import Agent
-from agno.eval import Case, cli
-from agno.models.openai import OpenAIResponses
-from agno.tools.calculator import CalculatorTools
+from egpt.agent import Agent
+from egpt.eval import Case, cli
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.calculator import CalculatorTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

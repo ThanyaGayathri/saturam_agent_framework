@@ -6,9 +6,9 @@ from typing import Any, Dict, Optional
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.run.base import RunContext
-from agno.utils.callables import (
+from egpt.agent.agent import Agent
+from egpt.run.base import RunContext
+from egpt.utils.callables import (
     aresolve_callable_members,
     aresolve_callable_tools,
     clear_callable_cache,
@@ -45,7 +45,7 @@ def _another_tool(x: str) -> str:
 
 def _make_team(**kwargs):
     """Create a Team with minimal config."""
-    from agno.team.team import Team
+    from egpt.team.team import Team
 
     defaults = {
         "name": "test-team",
@@ -322,7 +322,7 @@ class TestTeamConfigFields:
 
 class TestTeamAddToolGuard:
     def test_add_tool_raises_with_callable_factory(self):
-        from agno.team._init import add_tool
+        from egpt.team._init import add_tool
 
         team = _make_team(tools=lambda: [_dummy_tool])
         with pytest.raises(RuntimeError, match="Cannot add_tool.*when tools is a callable factory"):
@@ -336,7 +336,7 @@ class TestTeamAddToolGuard:
 
 class TestTeamSetTools:
     def test_set_tools_with_callable(self):
-        from agno.team._init import set_tools
+        from egpt.team._init import set_tools
 
         team = _make_team(tools=[_dummy_tool])
 
@@ -347,7 +347,7 @@ class TestTeamSetTools:
         assert callable(team.tools)
 
     def test_set_tools_clears_cache(self):
-        from agno.team._init import set_tools
+        from egpt.team._init import set_tools
 
         team = _make_team()
         team._callable_tools_cache["old"] = [_dummy_tool]
@@ -437,12 +437,12 @@ class TestAsyncTeamCallableTools:
 
 class TestFindMemberByIdWithRunContext:
     def test_find_static_member(self):
-        from agno.team._tools import _find_member_by_id
+        from egpt.team._tools import _find_member_by_id
 
         agent = Agent(name="member-1")
         team = _make_team(members=[agent])
 
-        from agno.team._tools import get_member_id
+        from egpt.team._tools import get_member_id
 
         member_id = get_member_id(agent)
         result = _find_member_by_id(team, member_id)
@@ -450,7 +450,7 @@ class TestFindMemberByIdWithRunContext:
         assert result[1] is agent
 
     def test_find_callable_member_via_run_context(self):
-        from agno.team._tools import _find_member_by_id, get_member_id
+        from egpt.team._tools import _find_member_by_id, get_member_id
 
         agent = Agent(name="dynamic-agent")
 
@@ -467,7 +467,7 @@ class TestFindMemberByIdWithRunContext:
         assert result[1] is agent
 
     def test_find_callable_member_without_run_context_fails(self):
-        from agno.team._tools import _find_member_by_id, get_member_id
+        from egpt.team._tools import _find_member_by_id, get_member_id
 
         agent = Agent(name="dynamic-agent")
 
@@ -530,7 +530,7 @@ class TestTeamDeepCopyCallableFactories:
             def emit(self, record: logging.LogRecord) -> None:
                 records.append(record)
 
-        agno_logger = logging.getLogger("agno")
+        agno_logger = logging.getLogger("egpt")
         handler = _Recorder(level=logging.WARNING)
         agno_logger.addHandler(handler)
         try:
@@ -558,7 +558,7 @@ class TestTeamDeepCopyCallableFactories:
             def emit(self, record: logging.LogRecord) -> None:
                 records.append(record)
 
-        agno_logger = logging.getLogger("agno")
+        agno_logger = logging.getLogger("egpt")
         handler = _Recorder(level=logging.WARNING)
         agno_logger.addHandler(handler)
         try:

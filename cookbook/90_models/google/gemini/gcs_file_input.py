@@ -13,9 +13,9 @@ Requirements:
 Supported formats: PDF, JSON, HTML, CSS, XML, images (PNG, JPEG, WebP, GIF)
 """
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -7,8 +7,8 @@ from typing import Optional
 import pytest
 from starlette.datastructures import Headers, UploadFile
 
-from agno.media import File
-from agno.os.utils import (
+from egpt.media import File
+from egpt.os.utils import (
     DOCUMENT_MIME_TYPES,
     classify_upload_file,
     process_document,

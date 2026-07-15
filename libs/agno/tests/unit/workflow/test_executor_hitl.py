@@ -14,14 +14,14 @@ Tests cover:
 
 from unittest.mock import MagicMock
 
-from agno.run.workflow import (
+from egpt.run.workflow import (
     StepExecutorPausedEvent,
     WorkflowRunEvent,
     WorkflowRunOutput,
 )
-from agno.workflow.parallel import Parallel
-from agno.workflow.step import Step
-from agno.workflow.types import (
+from egpt.workflow.parallel import Parallel
+from egpt.workflow.step import Step
+from egpt.workflow.types import (
     StepOutput,
     StepRequirement,
     StepType,
@@ -332,7 +332,7 @@ class TestCreateExecutorStepRequirement:
 
     def test_creates_requirement_for_team(self):
         """Creates correct StepRequirement for team executor."""
-        from agno.team.team import Team
+        from egpt.team.team import Team
 
         mock_team = MagicMock(spec=Team)
         mock_team.id = "team-123"
@@ -474,7 +474,7 @@ class TestStepExecutorPausedEvent:
 
     def test_event_in_registry(self):
         """StepExecutorPaused event is in the event type registry."""
-        from agno.run.workflow import WORKFLOW_RUN_EVENT_TYPE_REGISTRY
+        from egpt.run.workflow import WORKFLOW_RUN_EVENT_TYPE_REGISTRY
 
         assert WorkflowRunEvent.step_executor_paused.value in WORKFLOW_RUN_EVENT_TYPE_REGISTRY
 

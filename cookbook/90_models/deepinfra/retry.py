@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with DeepInfra."""
 
-from agno.agent import Agent
-from agno.models.deepinfra import DeepInfra
+from egpt.agent import Agent
+from egpt.models.deepinfra import DeepInfra
 
 # ---------------------------------------------------------------------------
 # Create Agent

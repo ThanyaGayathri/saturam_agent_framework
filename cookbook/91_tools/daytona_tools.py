@@ -11,8 +11,8 @@ This example shows how to use Agno's Daytona integration to run Agent-generated 
     uv pip install agno anthropic daytona
 """
 
-from agno.agent import Agent
-from agno.tools.daytona import DaytonaTools
+from egpt.agent import Agent
+from egpt.tools.daytona import DaytonaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

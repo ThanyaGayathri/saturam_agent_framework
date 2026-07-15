@@ -60,8 +60,8 @@ All three examples follow the same pattern:
 
 | What | Where |
 |------|-------|
-| RunRequirement | `libs/agno/agno/run/requirement.py` |
-| Team HITL pause handlers | `libs/agno/agno/team/_hooks.py` |
-| Team continue_run dispatch | `libs/agno/agno/team/_run.py` |
-| Member pause propagation | `libs/agno/agno/team/_tools.py` |
+| RunRequirement | `libs/agno/egpt/run/requirement.py` |
+| Team HITL pause handlers | `libs/agno/egpt/team/_hooks.py` |
+| Team continue_run dispatch | `libs/agno/egpt/team/_run.py` |
+| Member pause propagation | `libs/agno/egpt/team/_tools.py` |
 | Integration tests | `libs/agno/tests/integration/teams/human_in_the_loop/` |

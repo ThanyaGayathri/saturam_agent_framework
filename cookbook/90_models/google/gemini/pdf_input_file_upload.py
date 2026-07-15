@@ -7,9 +7,9 @@ Note: If the size of the file is greater than 20MB, and a file path is provided,
 from pathlib import Path
 from time import sleep
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.google import Gemini
 from google import genai
 
 # ---------------------------------------------------------------------------

@@ -5,13 +5,13 @@ Postgres Database Backend
 Demonstrates AgentOS with PostgreSQL storage using both sync and async setups.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import AsyncPostgresDb, PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team.team import Team
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.postgres import AsyncPostgresDb, PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team.team import Team
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Setup

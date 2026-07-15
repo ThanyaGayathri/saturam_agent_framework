@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Anthropic Claude."""
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

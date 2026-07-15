@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from agno.tools.csv_toolkit import CsvTools
+from egpt.tools.csv_toolkit import CsvTools
 
 
 def test_read_csv_file_preserves_non_ascii_content(tmp_path):

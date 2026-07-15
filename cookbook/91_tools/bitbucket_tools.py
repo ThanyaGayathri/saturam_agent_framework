@@ -9,8 +9,8 @@ Setup:
    - BITBUCKET_PASSWORD: Your generated App password
 """
 
-from agno.agent import Agent
-from agno.tools.bitbucket import BitbucketTools
+from egpt.agent import Agent
+from egpt.tools.bitbucket import BitbucketTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -8,9 +8,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
-from agno.os.routers.service_accounts import get_service_accounts_router
-from agno.os.service_accounts import DEFAULT_EXPIRY_DAYS, DEFAULT_SERVICE_ACCOUNT_SCOPES, TOKEN_PREFIX
-from agno.os.settings import AgnoAPISettings
+from egpt.os.routers.service_accounts import get_service_accounts_router
+from egpt.os.service_accounts import DEFAULT_EXPIRY_DAYS, DEFAULT_SERVICE_ACCOUNT_SCOPES, TOKEN_PREFIX
+from egpt.os.settings import AgnoAPISettings
 
 # =============================================================================
 # Fixtures

@@ -6,9 +6,9 @@ Cookbook example for `openai/chat/basic_stream_metrics.py`.
 """
 
 from typing import Iterator  # noqa
-from agno.agent import Agent, RunOutputEvent  # noqa
-from agno.models.openai import OpenAIChat
-from agno.db.in_memory import InMemoryDb
+from egpt.agent import Agent, RunOutputEvent  # noqa
+from egpt.models.openai import OpenAIChat
+from egpt.db.in_memory import InMemoryDb
 
 # ---------------------------------------------------------------------------
 # Create Agent

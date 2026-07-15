@@ -7,14 +7,14 @@ Demonstrates condition branches that execute a list of multiple steps, including
 
 import asyncio
 
-from agno.agent.agent import Agent
-from agno.tools.exa import ExaTools
-from agno.tools.hackernews import HackerNewsTools
-from agno.workflow.condition import Condition
-from agno.workflow.parallel import Parallel
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput
-from agno.workflow.workflow import Workflow
+from egpt.agent.agent import Agent
+from egpt.tools.exa import ExaTools
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.workflow.condition import Condition
+from egpt.workflow.parallel import Parallel
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Agents

@@ -1,4 +1,4 @@
-from agno.utils.names import _ADJECTIVES, _NAMES, generate_human_readable_id
+from egpt.utils.names import _ADJECTIVES, _NAMES, generate_human_readable_id
 
 
 def test_word_list_sizes():

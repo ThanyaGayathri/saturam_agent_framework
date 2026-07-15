@@ -3,10 +3,10 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.exceptions import ModelAuthenticationError
-from agno.models.message import Message
-from agno.models.utils import get_model
-from agno.models.xiaomi import MiMo
+from egpt.exceptions import ModelAuthenticationError
+from egpt.models.message import Message
+from egpt.models.utils import get_model
+from egpt.models.xiaomi import MiMo
 
 
 def test_mimo_initialization_with_api_key():

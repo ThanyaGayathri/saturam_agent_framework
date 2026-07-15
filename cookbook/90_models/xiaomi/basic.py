@@ -15,8 +15,8 @@ Get an API key:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.xiaomi import MiMo
+from egpt.agent import Agent
+from egpt.models.xiaomi import MiMo
 
 # ---------------------------------------------------------------------------
 # Create Agent

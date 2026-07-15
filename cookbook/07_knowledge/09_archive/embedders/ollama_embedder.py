@@ -7,9 +7,9 @@ Demonstrates Ollama embeddings and knowledge insertion.
 
 import asyncio
 
-from agno.knowledge.embedder.ollama import OllamaEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.pgvector import PgVector
+from egpt.knowledge.embedder.ollama import OllamaEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Knowledge Base

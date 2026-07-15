@@ -15,8 +15,8 @@ Usage:
 - Geocode a location name to coordinates
 """
 
-from agno.agent import Agent
-from agno.tools.openweather import OpenWeatherTools
+from egpt.agent import Agent
+from egpt.tools.openweather import OpenWeatherTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

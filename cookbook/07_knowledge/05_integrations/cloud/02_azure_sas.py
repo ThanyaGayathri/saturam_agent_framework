@@ -21,9 +21,9 @@ Run `uv pip install azure-storage-blob` to install dependencies.
 import asyncio
 from os import getenv
 
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.remote_content import AzureBlobConfig
-from agno.vectordb.chroma import ChromaDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.remote_content import AzureBlobConfig
+from egpt.vectordb.chroma import ChromaDb
 
 # ---------------------------------------------------------------------------
 # Setup

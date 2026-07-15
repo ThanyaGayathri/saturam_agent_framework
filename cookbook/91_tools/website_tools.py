@@ -6,8 +6,8 @@ Shows enable_ flag patterns for selective function access.
 WebsiteTools is a small tool (<6 functions) so it uses enable_ flags.
 """
 
-from agno.agent import Agent
-from agno.tools.website import WebsiteTools
+from egpt.agent import Agent
+from egpt.tools.website import WebsiteTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

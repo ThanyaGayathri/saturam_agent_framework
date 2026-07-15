@@ -1,11 +1,11 @@
 """Example showing how to use AgentOS with a SQLite database"""
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.eval.accuracy import AccuracyEval
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team.team import Team
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.eval.accuracy import AccuracyEval
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -13,7 +13,7 @@ from agno.team.team import Team
 
 # Setup the SQLite database
 db = SqliteDb(
-    db_file="agno.db",
+    db_file="egpt.db",
     session_table="sessions",
     eval_table="eval_runs",
     memory_table="user_memories",

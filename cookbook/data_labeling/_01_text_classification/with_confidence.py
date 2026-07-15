@@ -8,7 +8,7 @@ to route low-confidence labels to a human queue or to a stronger model.
 
 from typing import Literal
 
-from agno.agent import Agent, RunOutput  # noqa
+from egpt.agent import Agent, RunOutput  # noqa
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

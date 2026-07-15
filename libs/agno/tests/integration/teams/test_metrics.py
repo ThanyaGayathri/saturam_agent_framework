@@ -2,13 +2,13 @@ from typing import Iterator
 
 import pytest
 
-from agno.agent import Agent
-from agno.eval.agent_as_judge import AgentAsJudgeEval
-from agno.metrics import ModelMetrics, RunMetrics, SessionMetrics, ToolCallMetrics
-from agno.models.openai import OpenAIChat
-from agno.run.team import TeamRunOutput
-from agno.team.team import Team
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.metrics import ModelMetrics, RunMetrics, SessionMetrics, ToolCallMetrics
+from egpt.models.openai import OpenAIChat
+from egpt.run.team import TeamRunOutput
+from egpt.team.team import Team
+from egpt.tools.yfinance import YFinanceTools
 
 
 def add(a: int, b: int) -> str:
@@ -422,7 +422,7 @@ def test_team_provider_metrics_openai():
 
 
 def test_team_provider_metrics_gemini():
-    from agno.models.google import Gemini
+    from egpt.models.google import Gemini
 
     member = Agent(model=Gemini(id="gemini-2.5-flash"), name="Helper")
     team = Team(model=Gemini(id="gemini-2.5-flash"), members=[member])

@@ -8,12 +8,12 @@ In this example we also pass the session state to the tool, so that the tool can
 from dataclasses import dataclass
 from typing import Optional
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.os import AgentOS
-from agno.run import RunContext
-from agno.run.agent import CustomEvent
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.os import AgentOS
+from egpt.run import RunContext
+from egpt.run.agent import CustomEvent
+from egpt.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Example

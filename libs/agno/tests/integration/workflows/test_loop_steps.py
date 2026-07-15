@@ -2,7 +2,7 @@
 
 import pytest
 
-from agno.run.workflow import (
+from egpt.run.workflow import (
     LoopExecutionCompletedEvent,
     LoopExecutionStartedEvent,
     StepCompletedEvent,
@@ -10,9 +10,9 @@ from agno.run.workflow import (
     WorkflowCompletedEvent,
     WorkflowRunOutput,
 )
-from agno.workflow import Loop, Parallel, Workflow
-from agno.workflow.cel import CEL_AVAILABLE
-from agno.workflow.types import StepInput, StepOutput
+from egpt.workflow import Loop, Parallel, Workflow
+from egpt.workflow.cel import CEL_AVAILABLE
+from egpt.workflow.types import StepInput, StepOutput
 
 
 # Helper functions
@@ -81,7 +81,7 @@ async def test_loop_direct_aexecute():
 
 def test_loop_direct_execute_stream():
     """Test Loop.execute_stream() directly without workflow."""
-    from agno.run.workflow import LoopIterationCompletedEvent, LoopIterationStartedEvent, WorkflowRunOutput
+    from egpt.run.workflow import LoopIterationCompletedEvent, LoopIterationStartedEvent, WorkflowRunOutput
 
     def simple_end_condition(outputs):
         return len(outputs) >= 1
@@ -848,7 +848,7 @@ async def test_loop_carries_forward_output_between_iterations_async():
 
 def test_loop_carries_forward_output_stream():
     """Test that streaming loop iterations carry forward output."""
-    from agno.run.workflow import WorkflowRunOutput
+    from egpt.run.workflow import WorkflowRunOutput
 
     loop = Loop(
         name="Stream Carry Forward Loop",
@@ -881,7 +881,7 @@ def test_loop_carries_forward_output_stream():
 @pytest.mark.asyncio
 async def test_loop_carries_forward_output_async_stream():
     """Test that async streaming loop iterations carry forward output."""
-    from agno.run.workflow import WorkflowRunOutput
+    from egpt.run.workflow import WorkflowRunOutput
 
     loop = Loop(
         name="Async Stream Carry Forward Loop",

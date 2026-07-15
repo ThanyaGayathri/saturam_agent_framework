@@ -3,8 +3,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.cerebras import Cerebras
+from egpt.agent import Agent
+from egpt.models.cerebras import Cerebras
 
 
 class MovieScript(BaseModel):

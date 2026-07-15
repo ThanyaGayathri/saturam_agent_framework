@@ -4,12 +4,12 @@ import tempfile
 
 import pytest
 
-from agno.agent import Agent
-from agno.db.json import JsonDb
-from agno.models.anthropic import Claude
-from agno.models.message import Message
-from agno.run.agent import RunOutput
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.db.json import JsonDb
+from egpt.models.anthropic import Claude
+from egpt.models.message import Message
+from egpt.run.agent import RunOutput
+from egpt.tools.yfinance import YFinanceTools
 
 
 def _get_thinking_agent(**kwargs):
@@ -466,7 +466,7 @@ def _get_reasoning_streaming_agent(**kwargs):
 
 def test_reasoning_model_streams_content_deltas():
     """Test that reasoning_model streams content via reasoning_content_delta events."""
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     agent = _get_reasoning_streaming_agent()
 
@@ -503,7 +503,7 @@ def test_reasoning_model_streams_content_deltas():
 @pytest.mark.asyncio
 async def test_reasoning_model_streams_content_deltas_async():
     """Test that reasoning_model streams content via reasoning_content_delta events (async)."""
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     agent = _get_reasoning_streaming_agent()
 
@@ -539,7 +539,7 @@ async def test_reasoning_model_streams_content_deltas_async():
 
 def test_reasoning_streaming_delivers_more_events_than_non_streaming():
     """Test that streaming mode delivers multiple delta events vs single batch in non-streaming."""
-    from agno.run.agent import RunEvent
+    from egpt.run.agent import RunEvent
 
     agent = _get_reasoning_streaming_agent()
 

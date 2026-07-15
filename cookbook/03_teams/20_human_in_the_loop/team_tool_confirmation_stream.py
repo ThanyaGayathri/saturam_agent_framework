@@ -10,13 +10,13 @@ isinstance(event, TeamRunPausedEvent) or event.is_paused since there's
 no member agent pause to confuse it with.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.run.team import RunPausedEvent as TeamRunPausedEvent
-from agno.team.team import Team
-from agno.tools import tool
-from agno.utils import pprint
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run.team import RunPausedEvent as TeamRunPausedEvent
+from egpt.team.team import Team
+from egpt.tools import tool
+from egpt.utils import pprint
 
 # ---------------------------------------------------------------------------
 # Setup

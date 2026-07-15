@@ -7,9 +7,9 @@ Demonstrates routing multilingual requests to specialized members with direct re
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team import Team, TeamMode
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team, TeamMode
 
 # ---------------------------------------------------------------------------
 # Create Members

@@ -5,11 +5,11 @@ from typing import List
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.team import Team
-from agno.workflow import Step, Workflow
-from agno.workflow.types import StepInput, StepOutput
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.team import Team
+from egpt.workflow import Step, Workflow
+from egpt.workflow.types import StepInput, StepOutput
 
 
 # Define structured models for testing
@@ -131,7 +131,7 @@ def test_structured_output_function_flow_streaming(shared_db):
     events = list(workflow.run(input="test structured flow", stream=True))
 
     # Find the workflow completed event
-    from agno.run.workflow import WorkflowCompletedEvent
+    from egpt.run.workflow import WorkflowCompletedEvent
 
     completed_events = [e for e in events if isinstance(e, WorkflowCompletedEvent)]
     assert len(completed_events) == 1
@@ -184,7 +184,7 @@ async def test_structured_output_function_flow_async_streaming(shared_db):
         events.append(event)
 
     # Find the workflow completed event
-    from agno.run.workflow import WorkflowCompletedEvent
+    from egpt.run.workflow import WorkflowCompletedEvent
 
     completed_events = [e for e in events if isinstance(e, WorkflowCompletedEvent)]
     assert len(completed_events) == 1
@@ -274,7 +274,7 @@ def test_structured_output_agent_flow_streaming(shared_db):
     events = list(workflow.run(input="Research AI testing methodologies", stream=True))
 
     # Find the workflow completed event
-    from agno.run.workflow import WorkflowCompletedEvent
+    from egpt.run.workflow import WorkflowCompletedEvent
 
     completed_events = [e for e in events if isinstance(e, WorkflowCompletedEvent)]
     assert len(completed_events) == 1
@@ -354,7 +354,7 @@ async def test_structured_output_agent_flow_async_streaming(shared_db):
     events = [event async for event in workflow.arun(input="Research AI testing methodologies", stream=True)]
 
     # Find the workflow completed event
-    from agno.run.workflow import WorkflowCompletedEvent
+    from egpt.run.workflow import WorkflowCompletedEvent
 
     completed_events = [e for e in events if isinstance(e, WorkflowCompletedEvent)]
     assert len(completed_events) == 1
@@ -425,7 +425,7 @@ def test_structured_output_team_flow_streaming(shared_db):
     events = list(workflow.run(input="Brief AI research", stream=True))
 
     # Find the workflow completed event
-    from agno.run.workflow import WorkflowCompletedEvent
+    from egpt.run.workflow import WorkflowCompletedEvent
 
     completed_events = [e for e in events if isinstance(e, WorkflowCompletedEvent)]
     assert len(completed_events) == 1
@@ -498,7 +498,7 @@ async def test_structured_output_team_flow_async_streaming(shared_db):
     events = [event async for event in workflow.arun(input="Brief AI research", stream=True)]
 
     # Find the workflow completed event
-    from agno.run.workflow import WorkflowCompletedEvent
+    from egpt.run.workflow import WorkflowCompletedEvent
 
     completed_events = [e for e in events if isinstance(e, WorkflowCompletedEvent)]
     assert len(completed_events) == 1
@@ -561,7 +561,7 @@ def test_mixed_structured_output_flow(shared_db):
 
 def test_structured_output_with_workflow_components(shared_db):
     """Test structured output flow with workflow components (Steps, Loop, Condition)."""
-    from agno.workflow import Condition, Loop, Steps
+    from egpt.workflow import Condition, Loop, Steps
 
     # Simple condition function
     def should_continue(step_input: StepInput) -> bool:

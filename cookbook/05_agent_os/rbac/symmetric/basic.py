@@ -13,12 +13,12 @@ import os
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.os.config import AuthorizationConfig
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.os.config import AuthorizationConfig
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

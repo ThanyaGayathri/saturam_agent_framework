@@ -2,10 +2,10 @@
 
 import pytest
 
-from agno.run.workflow import WorkflowCompletedEvent, WorkflowRunOutput
-from agno.workflow import Condition, Parallel, Step, Workflow
-from agno.workflow.steps import Steps
-from agno.workflow.types import StepInput, StepOutput
+from egpt.run.workflow import WorkflowCompletedEvent, WorkflowRunOutput
+from egpt.workflow import Condition, Parallel, Step, Workflow
+from egpt.workflow.steps import Steps
+from egpt.workflow.types import StepInput, StepOutput
 
 
 # Helper functions

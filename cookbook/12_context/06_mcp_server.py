@@ -31,10 +31,10 @@ from __future__ import annotations
 
 import asyncio
 
-from agno.agent import Agent
-from agno.context import ContextMode
-from agno.context.mcp import MCPContextProvider
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context import ContextMode
+from egpt.context.mcp import MCPContextProvider
+from egpt.models.openai import OpenAIResponses
 
 
 async def main() -> None:

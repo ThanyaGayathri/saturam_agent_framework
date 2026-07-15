@@ -6,14 +6,14 @@ log readability. Covers the knowledge-references and dependencies formatters for
 both Agent and Team, in json and yaml modes.
 """
 
-from agno.agent import Agent
-from agno.agent._default_tools import create_knowledge_search_tool
-from agno.agent._run import save_run_response_to_file
-from agno.agent._utils import convert_dependencies_to_string, convert_documents_to_string
-from agno.run.agent import RunOutput
-from agno.team._utils import _convert_dependencies_to_string, _convert_documents_to_string
-from agno.utils.message import get_text_from_message
-from agno.utils.prompts import get_json_output_prompt
+from egpt.agent import Agent
+from egpt.agent._default_tools import create_knowledge_search_tool
+from egpt.agent._run import save_run_response_to_file
+from egpt.agent._utils import convert_dependencies_to_string, convert_documents_to_string
+from egpt.run.agent import RunOutput
+from egpt.team._utils import _convert_dependencies_to_string, _convert_documents_to_string
+from egpt.utils.message import get_text_from_message
+from egpt.utils.prompts import get_json_output_prompt
 
 
 class _FormatHolder:

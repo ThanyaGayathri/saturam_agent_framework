@@ -18,9 +18,9 @@ Setup:
 4. First run opens browser for OAuth consent, saves token.json for reuse
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.google.drive import GoogleDriveTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.google.drive import GoogleDriveTools
 
 agent = Agent(
     name="Drive Organizer",

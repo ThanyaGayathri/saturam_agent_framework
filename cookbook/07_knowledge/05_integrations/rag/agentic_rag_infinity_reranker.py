@@ -8,12 +8,12 @@ Demonstrates agentic RAG with an Infinity reranker backend (relocated integratio
 import asyncio
 import importlib
 
-from agno.agent import Agent
-from agno.knowledge.embedder.cohere import CohereEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reranker.infinity import InfinityReranker
-from agno.models.anthropic import Claude
-from agno.vectordb.lancedb import LanceDb, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.cohere import CohereEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reranker.infinity import InfinityReranker
+from egpt.models.anthropic import Claude
+from egpt.vectordb.lancedb import LanceDb, SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

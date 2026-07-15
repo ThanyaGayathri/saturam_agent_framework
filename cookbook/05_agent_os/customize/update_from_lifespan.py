@@ -7,10 +7,10 @@ Demonstrates update from lifespan.
 
 from contextlib import asynccontextmanager
 
-from agno.agent.agent import Agent
-from agno.db.postgres.postgres import PostgresDb
-from agno.os import AgentOS
-from agno.tools.mcp import MCPTools
+from egpt.agent.agent import Agent
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.os import AgentOS
+from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Example

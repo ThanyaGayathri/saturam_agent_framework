@@ -5,10 +5,10 @@ Run `uv pip install openai duckduckgo-search sqlalchemy asyncmy agno` to install
 import asyncio
 import uuid
 
-from agno.agent import Agent
-from agno.db.base import SessionType
-from agno.db.mysql import AsyncMySQLDb
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.base import SessionType
+from egpt.db.mysql import AsyncMySQLDb
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -10,9 +10,9 @@ This example demonstrates how to use Agno's MCP integration together with Mem0, 
 import asyncio
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.mcp import MCPTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -9,11 +9,11 @@ The agent reads the llms.txt index, fetches all linked documentation pages,
 and stores them in a PgVector knowledge base for semantic search.
 """
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIResponses
-from agno.tools.llms_txt import LLMsTxtTools
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.llms_txt import LLMsTxtTools
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Setup Knowledge Base

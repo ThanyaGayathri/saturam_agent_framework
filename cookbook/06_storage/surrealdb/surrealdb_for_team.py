@@ -19,12 +19,12 @@ Then:
 
 from typing import List
 
-from agno.agent import Agent
-from agno.db.surrealdb import SurrealDb
-from agno.models.anthropic import Claude
-from agno.team import Team
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.surrealdb import SurrealDb
+from egpt.models.anthropic import Claude
+from egpt.team import Team
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------

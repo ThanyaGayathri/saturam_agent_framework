@@ -15,7 +15,7 @@ Prerequisites:
 
 import asyncio
 
-from agno.agent import RemoteAgent
+from egpt.agent import RemoteAgent
 
 # ---------------------------------------------------------------------------
 # Create Example

@@ -19,9 +19,9 @@ Example prompts to try:
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.google import Gemini
-from agno.utils.audio import write_wav_audio_to_file
+from egpt.agent import Agent
+from egpt.models.google import Gemini
+from egpt.utils.audio import write_wav_audio_to_file
 
 WORKSPACE = Path(__file__).parent.joinpath("workspace")
 WORKSPACE.mkdir(parents=True, exist_ok=True)

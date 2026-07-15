@@ -7,9 +7,9 @@ Basic Skills Example.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.skills import LocalSkills, Skills
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.skills import LocalSkills, Skills
 
 # ---------------------------------------------------------------------------
 # Create Agent

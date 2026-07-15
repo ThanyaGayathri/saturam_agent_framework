@@ -2,7 +2,7 @@
 
 import pytest
 
-from agno.skills.errors import SkillError, SkillParseError, SkillValidationError
+from egpt.skills.errors import SkillError, SkillParseError, SkillValidationError
 
 # --- SkillError Tests ---
 

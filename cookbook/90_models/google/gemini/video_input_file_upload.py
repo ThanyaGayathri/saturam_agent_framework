@@ -8,10 +8,10 @@ Cookbook example for `google/gemini/video_input_file_upload.py`.
 import time
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import Video
-from agno.models.google import Gemini
-from agno.utils.log import logger
+from egpt.agent import Agent
+from egpt.media import Video
+from egpt.models.google import Gemini
+from egpt.utils.log import logger
 from google.genai.types import UploadFileConfig
 
 # ---------------------------------------------------------------------------

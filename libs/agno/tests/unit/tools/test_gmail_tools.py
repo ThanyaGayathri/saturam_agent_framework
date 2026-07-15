@@ -9,7 +9,7 @@ import pytest
 from google.oauth2.credentials import Credentials
 from googleapiclient.errors import HttpError
 
-from agno.tools.google.gmail import GmailTools
+from egpt.tools.google.gmail import GmailTools
 
 
 @pytest.fixture
@@ -680,7 +680,7 @@ def test_send_email_mixed_attachment_existence(gmail_tools, mock_gmail_service):
         def exists(self):
             return self.path.endswith("exists.pdf")
 
-    with patch("agno.tools.google.gmail.Path", MockPath):
+    with patch("egpt.tools.google.gmail.Path", MockPath):
         result = gmail_tools.send_email(
             to="recipient@test.com", subject="Test", body="Test body", attachments=["exists.pdf", "missing.pdf"]
         )

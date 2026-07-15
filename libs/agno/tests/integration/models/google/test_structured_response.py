@@ -4,8 +4,8 @@ from typing import Dict, List, Union
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.google import Gemini
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.google import Gemini
 
 
 class SimpleMovieScript(BaseModel):

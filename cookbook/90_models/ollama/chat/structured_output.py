@@ -7,8 +7,8 @@ Cookbook example for `ollama/chat/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.ollama import Ollama
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.ollama import Ollama
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

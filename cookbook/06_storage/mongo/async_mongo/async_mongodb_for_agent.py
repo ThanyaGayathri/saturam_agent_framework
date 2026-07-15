@@ -19,9 +19,9 @@ or use our script:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.mongo import AsyncMongoDb
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.mongo import AsyncMongoDb
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

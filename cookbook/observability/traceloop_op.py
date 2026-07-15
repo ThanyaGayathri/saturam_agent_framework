@@ -5,8 +5,8 @@ Traceloop Integration
 Demonstrates wrapping Agno calls in Traceloop workflow spans.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
 from traceloop.sdk import Traceloop
 from traceloop.sdk.decorators import workflow
 

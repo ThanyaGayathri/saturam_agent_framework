@@ -9,10 +9,10 @@ Install dependencies:
 import asyncio
 import pathlib
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.vectordb.langchaindb import LangChainVectorDb
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.vectordb.langchaindb import LangChainVectorDb
 from langchain.text_splitter import CharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import TextLoader

@@ -30,8 +30,8 @@ Then call the API:
 """
 
 import dspy
-from agno.agents.dspy import DSPyAgent
-from agno.os import AgentOS
+from egpt.agents.dspy import DSPyAgent
+from egpt.os import AgentOS
 
 # ---------------------------------------------------------------------------
 # Configure DSPy LM (must be set on the main thread)

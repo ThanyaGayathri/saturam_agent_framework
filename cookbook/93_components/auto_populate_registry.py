@@ -12,12 +12,12 @@ an explicit registry, and then inspects the auto-populated registry. No model
 calls are made, so this runs offline without any API key.
 """
 
-from agno.agent.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.team import Team
-from agno.workflow import Step, Workflow
+from egpt.agent.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.team import Team
+from egpt.workflow import Step, Workflow
 
 
 # ---------------------------------------------------------------------------

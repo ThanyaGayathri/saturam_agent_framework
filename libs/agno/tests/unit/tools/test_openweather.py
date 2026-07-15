@@ -5,13 +5,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from agno.tools.openweather import OpenWeatherTools
+from egpt.tools.openweather import OpenWeatherTools
 
 
 @pytest.fixture
 def mock_openweather_api():
     """Create a mock OpenWeatherMap API client."""
-    with patch("agno.tools.openweather.requests.get") as mock_get:
+    with patch("egpt.tools.openweather.requests.get") as mock_get:
         yield mock_get
 
 

@@ -1,9 +1,9 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.models.aws import Claude
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.models.aws import Claude
 
 
 def _assert_metrics(response: RunOutput):

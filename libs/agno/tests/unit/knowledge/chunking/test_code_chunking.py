@@ -4,8 +4,8 @@ from typing import Sequence
 
 import pytest
 
-from agno.knowledge.chunking.code import CodeChunking
-from agno.knowledge.document.base import Document
+from egpt.knowledge.chunking.code import CodeChunking
+from egpt.knowledge.document.base import Document
 
 # Skip all tests in this module if tree-sitter is not installed
 try:

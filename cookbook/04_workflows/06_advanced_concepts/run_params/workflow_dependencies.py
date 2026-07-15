@@ -15,10 +15,10 @@ Dependency merges follow a precedence rule:
   - Workflow-level dependencies (self.dependencies) fill in the rest
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Agents

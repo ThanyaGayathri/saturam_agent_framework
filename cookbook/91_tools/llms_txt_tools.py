@@ -11,9 +11,9 @@ The llms.txt format (https://llmstxt.org) is a standardized way for websites
 to provide LLM-friendly documentation indexes.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.llms_txt import LLMsTxtTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.llms_txt import LLMsTxtTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -8,12 +8,12 @@ Tool calls happen on every turn, then the history is summarized from a different
 import os
 from random import randint
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.anthropic import Claude
-from agno.models.aws import Claude as AWSClaude
-from agno.models.google import Gemini
-from agno.models.openai import OpenAIChat, OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.anthropic import Claude
+from egpt.models.aws import Claude as AWSClaude
+from egpt.models.google import Gemini
+from egpt.models.openai import OpenAIChat, OpenAIResponses
 
 
 def get_weather(city: str) -> str:

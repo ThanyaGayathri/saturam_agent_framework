@@ -5,11 +5,11 @@ Response As Variable
 Demonstrates capturing typed team responses as variables for downstream logic.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team import Team, TeamMode
-from agno.tools.yfinance import YFinanceTools
-from agno.utils.pprint import pprint_run_response
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team, TeamMode
+from egpt.tools.yfinance import YFinanceTools
+from egpt.utils.pprint import pprint_run_response
 from pydantic import BaseModel
 
 

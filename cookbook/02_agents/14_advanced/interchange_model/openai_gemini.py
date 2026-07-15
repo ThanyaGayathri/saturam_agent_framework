@@ -1,9 +1,9 @@
 import os
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.google import Gemini
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.google import Gemini
+from egpt.models.openai import OpenAIChat
 
 
 def get_weather(city: str) -> str:

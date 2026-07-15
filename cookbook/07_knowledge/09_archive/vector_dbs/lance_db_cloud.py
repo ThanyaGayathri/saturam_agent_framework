@@ -12,8 +12,8 @@ Run from repo root with env loaded (e.g. direnv):
 import asyncio
 import os
 
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.lancedb import LanceDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.lancedb import LanceDb
 
 # ---------------------------------------------------------------------------
 # Setup

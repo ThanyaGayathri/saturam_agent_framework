@@ -24,9 +24,9 @@ from agents.code_search import code_search_provider
 from agents.git_wiki import git_wiki_provider
 from agents.local_wiki import local_wiki_provider
 from agents.notion_wiki import notion_wiki_provider
-from agno.eval import AgentAsJudgeEval, ReliabilityEval
-from agno.media import Audio, Image
-from agno.run.agent import RunOutput
+from egpt.eval import AgentAsJudgeEval, ReliabilityEval
+from egpt.media import Audio, Image
+from egpt.run.agent import RunOutput
 from rich.console import Console
 from rich.live import Live
 from rich.status import Status

@@ -6,11 +6,11 @@ This is useful for web applications that prefer to store JWT tokens in HTTP-only
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.os.middleware import JWTMiddleware, TokenSource
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.os.middleware import JWTMiddleware, TokenSource
 from fastapi import FastAPI, Response
 
 # ---------------------------------------------------------------------------

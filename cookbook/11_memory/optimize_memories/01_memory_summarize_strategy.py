@@ -6,11 +6,11 @@ This example demonstrates memory optimization using the summarize strategy,
 which combines all memories into one summary for token reduction.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.memory import MemoryManager, SummarizeStrategy
-from agno.memory.strategies.types import MemoryOptimizationStrategyType
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.memory import MemoryManager, SummarizeStrategy
+from egpt.memory.strategies.types import MemoryOptimizationStrategyType
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Setup

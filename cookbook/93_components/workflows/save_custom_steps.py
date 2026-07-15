@@ -6,12 +6,12 @@ Demonstrates creating a workflow with custom executor steps, saving it to the
 database, and loading it back with a Registry.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.registry import Registry
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow, get_workflow_by_id
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.registry import Registry
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow, get_workflow_by_id
 
 # ---------------------------------------------------------------------------
 # Setup

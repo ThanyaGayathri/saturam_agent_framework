@@ -7,9 +7,9 @@ Example showing how tools can access dependencies passed to the agent.
 
 from datetime import datetime
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.run import RunContext
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunContext
 
 
 def get_current_context() -> dict:

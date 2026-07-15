@@ -17,17 +17,17 @@ See also: 01_qdrant.py for recommended default, 04_pgvector.py for PostgreSQL.
 
 from os import getenv
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Pinecone Setup
 # ---------------------------------------------------------------------------
 
 try:
-    from agno.vectordb.pineconedb import PineconeDb
+    from egpt.vectordb.pineconedb import PineconeDb
 
     knowledge_pinecone = Knowledge(
         vector_db=PineconeDb(

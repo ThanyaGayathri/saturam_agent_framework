@@ -1,5 +1,5 @@
 [project]
-name = "agno-infra"
+name = "egpt-infra"
 version = "1.1.1"
 description = "The programming language for agentic infrastructure"
 requires-python = ">=3.7,<4"
@@ -56,8 +56,8 @@ aws = ["boto3"]
 
 
 [project.scripts]
-ag = "agno.cli.entrypoint:agno_cli"
-agno = "agno.cli.entrypoint:agno_cli"
+ag = "egpt.cli.entrypoint:agno_cli"
+agno = "egpt.cli.entrypoint:agno_cli"
 
 
 [project.urls]
@@ -70,10 +70,10 @@ build-backend = "setuptools.build_meta"
 
 
 [tool.setuptools.packages.find]
-include = ["agno*"]
+include = ["egpt*"]
 
 [tool.setuptools.package-data]
-agno = ["py.typed"]
+egpt = ["py.typed"]
 include = ["LICENSE"]
 
 [tool.pytest.ini_options]
@@ -99,7 +99,7 @@ exclude = ["tests*"]
 
 [[tool.mypy.overrides]]
 module = [
-  "agno.*",
+  "egpt.*",
   "boto3.*",
   "botocore.*",
   "docker.*",

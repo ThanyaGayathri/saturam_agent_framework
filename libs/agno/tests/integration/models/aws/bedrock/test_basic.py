@@ -1,9 +1,9 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.models.aws import AwsBedrock
+from egpt.agent import Agent, RunOutput
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.models.aws import AwsBedrock
 
 
 def _assert_metrics(response: RunOutput):
@@ -260,7 +260,7 @@ async def test_async_history():
 
 
 def test_count_tokens():
-    from agno.models.message import Message
+    from egpt.models.message import Message
 
     model = AwsBedrock(id="anthropic.claude-3-sonnet-20240229-v1:0")
     messages = [
@@ -275,8 +275,8 @@ def test_count_tokens():
 
 
 def test_count_tokens_with_tools():
-    from agno.models.message import Message
-    from agno.tools.calculator import CalculatorTools
+    from egpt.models.message import Message
+    from egpt.tools.calculator import CalculatorTools
 
     model = AwsBedrock(id="anthropic.claude-3-sonnet-20240229-v1:0")
     messages = [
@@ -295,7 +295,7 @@ def test_count_tokens_with_tools():
 @pytest.mark.asyncio
 async def test_acount_tokens():
     """Test async token counting uses the async client."""
-    from agno.models.message import Message
+    from egpt.models.message import Message
 
     model = AwsBedrock(id="anthropic.claude-3-sonnet-20240229-v1:0")
     messages = [
@@ -313,8 +313,8 @@ async def test_acount_tokens():
 @pytest.mark.asyncio
 async def test_acount_tokens_with_tools():
     """Test async token counting with tools uses the async client."""
-    from agno.models.message import Message
-    from agno.tools.calculator import CalculatorTools
+    from egpt.models.message import Message
+    from egpt.tools.calculator import CalculatorTools
 
     model = AwsBedrock(id="anthropic.claude-3-sonnet-20240229-v1:0")
     messages = [

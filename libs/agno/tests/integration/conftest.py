@@ -9,22 +9,22 @@ import pytest
 import pytest_asyncio
 from sqlalchemy import Engine, create_engine, text
 
-from agno.agent.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.db.sqlite import AsyncSqliteDb, SqliteDb
-from agno.models.message import Message
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.run.workflow import WorkflowRunOutput
-from agno.session import Session
-from agno.session.agent import AgentSession
-from agno.session.workflow import WorkflowSession
+from egpt.agent.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.db.sqlite import AsyncSqliteDb, SqliteDb
+from egpt.models.message import Message
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.workflow import WorkflowRunOutput
+from egpt.session import Session
+from egpt.session.agent import AgentSession
+from egpt.session.workflow import WorkflowSession
 
 
 @pytest.fixture(autouse=True)
 def reset_async_client():
     """Reset global async HTTP client between tests to avoid event loop conflicts."""
-    import agno.utils.http as http_utils
+    import egpt.utils.http as http_utils
 
     # Reset before test
     http_utils._global_async_client = None

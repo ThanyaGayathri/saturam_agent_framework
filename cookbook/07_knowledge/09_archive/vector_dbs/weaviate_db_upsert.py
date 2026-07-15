@@ -5,11 +5,11 @@ Weaviate Upsert
 Demonstrates repeated inserts with `skip_if_exists` in Weaviate.
 """
 
-from agno.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.utils.log import set_log_level_to_debug
-from agno.vectordb.search import SearchType
-from agno.vectordb.weaviate import Distance, VectorIndex, Weaviate
+from egpt.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.utils.log import set_log_level_to_debug
+from egpt.vectordb.search import SearchType
+from egpt.vectordb.weaviate import Distance, VectorIndex, Weaviate
 
 # ---------------------------------------------------------------------------
 # Setup

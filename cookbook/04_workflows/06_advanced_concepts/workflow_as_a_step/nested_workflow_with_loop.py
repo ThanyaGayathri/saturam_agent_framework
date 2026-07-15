@@ -8,12 +8,12 @@ until it meets a quality threshold, then the outer workflow writes.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.workflow import Loop
-from agno.workflow.step import Step
-from agno.workflow.types import StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.workflow import Loop
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 def is_detailed_enough(outputs: List[StepOutput]) -> bool:

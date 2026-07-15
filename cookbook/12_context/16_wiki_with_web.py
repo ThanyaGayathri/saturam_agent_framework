@@ -22,10 +22,10 @@ import asyncio
 import shutil
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.context.web import ExaMCPBackend
-from agno.context.wiki import FileSystemBackend, WikiContextProvider
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context.web import ExaMCPBackend
+from egpt.context.wiki import FileSystemBackend, WikiContextProvider
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Seed an empty wiki directory next to the cookbook

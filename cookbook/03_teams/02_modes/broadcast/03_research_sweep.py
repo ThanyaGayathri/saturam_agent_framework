@@ -7,12 +7,12 @@ merges findings into a comprehensive report.
 
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team.mode import TeamMode
-from agno.team.team import Team
-from agno.tools.duckduckgo import DuckDuckGoTools
-from agno.tools.hackernews import HackerNewsTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team.mode import TeamMode
+from egpt.team.team import Team
+from egpt.tools.duckduckgo import DuckDuckGoTools
+from egpt.tools.hackernews import HackerNewsTools
 
 # ---------------------------------------------------------------------------
 # Create Members

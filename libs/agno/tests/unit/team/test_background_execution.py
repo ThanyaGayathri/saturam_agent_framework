@@ -7,17 +7,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.run import RunContext
-from agno.run.base import RunStatus
-from agno.run.cancel import (
+from egpt.run import RunContext
+from egpt.run.base import RunStatus
+from egpt.run.cancel import (
     get_cancellation_manager,
     set_cancellation_manager,
 )
-from agno.run.cancellation_management.in_memory_cancellation_manager import InMemoryRunCancellationManager
-from agno.run.team import TeamRunOutput
-from agno.session.team import TeamSession
-from agno.team import _init, _response, _run, _storage
-from agno.team.team import Team
+from egpt.run.cancellation_management.in_memory_cancellation_manager import InMemoryRunCancellationManager
+from egpt.run.team import TeamRunOutput
+from egpt.session.team import TeamSession
+from egpt.team import _init, _response, _run, _storage
+from egpt.team.team import Team
 
 
 @pytest.fixture(autouse=True)
@@ -104,7 +104,7 @@ class TestTeamBackgroundLifecycle:
 
         monkeypatch.setattr(_storage, "_aread_or_create_session", fake_aread_or_create_session)
         monkeypatch.setattr(_storage, "_update_metadata", lambda team, session=None: None)
-        monkeypatch.setattr("agno.team._session.asave_session", fake_asave_session)
+        monkeypatch.setattr("egpt.team._session.asave_session", fake_asave_session)
         monkeypatch.setattr(_run, "_arun", fake_arun)
 
         run_response = TeamRunOutput(
@@ -151,7 +151,7 @@ class TestTeamBackgroundLifecycle:
 
         monkeypatch.setattr(_storage, "_aread_or_create_session", fake_aread_or_create_session)
         monkeypatch.setattr(_storage, "_update_metadata", lambda team, session=None: None)
-        monkeypatch.setattr("agno.team._session.asave_session", fake_asave_session)
+        monkeypatch.setattr("egpt.team._session.asave_session", fake_asave_session)
         monkeypatch.setattr(_run, "_arun", fake_arun)
 
         run_response = TeamRunOutput(run_id="bg-run-2", session_id="test-session")
@@ -193,7 +193,7 @@ class TestTeamBackgroundLifecycle:
 
         monkeypatch.setattr(_storage, "_aread_or_create_session", fake_aread_or_create_session)
         monkeypatch.setattr(_storage, "_update_metadata", lambda team, session=None: None)
-        monkeypatch.setattr("agno.team._session.asave_session", fake_asave_session)
+        monkeypatch.setattr("egpt.team._session.asave_session", fake_asave_session)
         monkeypatch.setattr(_run, "_arun", fake_arun_that_fails)
 
         run_response = TeamRunOutput(run_id="bg-run-err", session_id="test-session")

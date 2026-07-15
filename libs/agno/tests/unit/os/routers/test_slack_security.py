@@ -5,8 +5,8 @@ import time
 import pytest
 from fastapi import HTTPException
 
-from agno.os.interfaces.slack import security as sec_mod
-from agno.os.interfaces.slack.security import verify_slack_signature
+from egpt.os.interfaces.slack import security as sec_mod
+from egpt.os.interfaces.slack.security import verify_slack_signature
 
 
 def _sign(body: bytes, timestamp: str, secret: str) -> str:

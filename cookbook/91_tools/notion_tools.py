@@ -5,8 +5,8 @@ Notion Tools
 Demonstrates notion tools.
 """
 
-from agno.agent import Agent
-from agno.tools.notion import NotionTools
+from egpt.agent import Agent
+from egpt.tools.notion import NotionTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

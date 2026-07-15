@@ -10,14 +10,14 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from agno.agent import Agent
-from agno.exceptions import CheckTrigger, InputCheckError, OutputCheckError
-from agno.models.base import Model
-from agno.models.response import ModelResponse
-from agno.run import RunContext, RunStatus
-from agno.run.team import TeamRunInput, TeamRunOutput
-from agno.session.team import TeamSession
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.exceptions import CheckTrigger, InputCheckError, OutputCheckError
+from egpt.models.base import Model
+from egpt.models.response import ModelResponse
+from egpt.run import RunContext, RunStatus
+from egpt.run.team import TeamRunInput, TeamRunOutput
+from egpt.session.team import TeamSession
+from egpt.team import Team
 
 
 # Test hook functions
@@ -136,7 +136,7 @@ class MockTestModel(Model):
         self._mock_response.tool_calls = []
         self._mock_response.updated_session_state = None
         # Set event to assistant_response by default (matches ModelResponse default)
-        from agno.models.response import ModelResponseEvent
+        from egpt.models.response import ModelResponseEvent
 
         self._mock_response.event = ModelResponseEvent.assistant_response.value
 

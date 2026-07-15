@@ -17,10 +17,10 @@ import os
 
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
-from agno.agent._run import flush_in_flight_messages_on_error
-from agno.models.message import Message
-from agno.run.agent import RunOutput
-from agno.run.messages import RunMessages
+from egpt.agent._run import flush_in_flight_messages_on_error
+from egpt.models.message import Message
+from egpt.run.agent import RunOutput
+from egpt.run.messages import RunMessages
 
 
 class TestFlushInFlightMessagesOnError:

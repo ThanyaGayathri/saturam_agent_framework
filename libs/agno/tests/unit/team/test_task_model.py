@@ -1,6 +1,6 @@
 """Unit tests for Task, TaskList, and session_state helpers."""
 
-from agno.team.task import (
+from egpt.team.task import (
     TASK_LIST_KEY,
     Task,
     TaskList,

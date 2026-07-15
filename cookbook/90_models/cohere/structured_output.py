@@ -8,8 +8,8 @@ Cookbook example for `cohere/structured_output.py`.
 import asyncio
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.cohere import Cohere
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.cohere import Cohere
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

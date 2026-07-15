@@ -5,9 +5,9 @@ Mistral Image Compare Agent
 Cookbook example for `mistral/image_compare_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.mistral.mistral import MistralChat
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.mistral.mistral import MistralChat
 
 # ---------------------------------------------------------------------------
 # Create Agent

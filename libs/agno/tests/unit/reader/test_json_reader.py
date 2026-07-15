@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from agno.knowledge.document.base import Document
-from agno.knowledge.reader.json_reader import JSONReader
+from egpt.knowledge.document.base import Document
+from egpt.knowledge.reader.json_reader import JSONReader
 
 
 @pytest.fixture
@@ -269,7 +269,7 @@ async def test_async_large_json():
 
 def test_json_reader_chunk_size_propagation():
     """Test that chunk_size is propagated to default chunking strategy"""
-    from agno.knowledge.chunking.fixed import FixedSizeChunking
+    from egpt.knowledge.chunking.fixed import FixedSizeChunking
 
     reader = JSONReader(chunk_size=250)
     assert reader.chunk_size == 250
@@ -279,7 +279,7 @@ def test_json_reader_chunk_size_propagation():
 
 def test_json_reader_default_chunk_size():
     """Test default chunk_size is 5000"""
-    from agno.knowledge.chunking.fixed import FixedSizeChunking
+    from egpt.knowledge.chunking.fixed import FixedSizeChunking
 
     reader = JSONReader()
     assert reader.chunk_size == 5000

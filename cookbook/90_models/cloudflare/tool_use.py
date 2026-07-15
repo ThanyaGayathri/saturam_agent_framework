@@ -20,9 +20,9 @@ Install:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.cloudflare import Cloudflare
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.cloudflare import Cloudflare
+from egpt.tools.websearch import WebSearchTools
 
 agent = Agent(
     model=Cloudflare(id="@cf/zai-org/glm-4.7-flash"),

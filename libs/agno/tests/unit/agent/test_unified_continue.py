@@ -19,17 +19,17 @@ import pytest
 # Set test API key to avoid env-var lookup errors when constructing OpenAI models.
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
-from agno.agent import _init, _response, _run, _storage, _tools
-from agno.agent._run import _fork_run, _truncate_run_to_checkpoint
-from agno.agent.agent import Agent
-from agno.exceptions import RunNotContinuableError, RunNotFoundError
-from agno.models.message import Message
-from agno.models.response import ToolExecution
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.run.requirement import RunRequirement
-from agno.session import AgentSession
-from agno.utils.message import safe_truncation_index
+from egpt.agent import _init, _response, _run, _storage, _tools
+from egpt.agent._run import _fork_run, _truncate_run_to_checkpoint
+from egpt.agent.agent import Agent
+from egpt.exceptions import RunNotContinuableError, RunNotFoundError
+from egpt.models.message import Message
+from egpt.models.response import ToolExecution
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.requirement import RunRequirement
+from egpt.session import AgentSession
+from egpt.utils.message import safe_truncation_index
 
 # ---------------------------------------------------------------------------
 # Helpers (mirror the pattern from test_run_regressions.py)
@@ -250,7 +250,7 @@ class TestHitlContractPreserved:
         agent = _make_agent(monkeypatch, runs=[paused_run])
 
         # Patch the admin-approval check to simulate "no resolved approval"
-        from agno.run import approval as approval_mod
+        from egpt.run import approval as approval_mod
 
         def raising_approval(db, run_id, run_response):
             raise RuntimeError("no resolved approval")
@@ -287,7 +287,7 @@ class TestHitlContractPreserved:
         agent = _make_agent(monkeypatch, runs=[paused_run])
 
         # Patch the approval check to "succeed" (no-op) — admin approval was resolved.
-        from agno.run import approval as approval_mod
+        from egpt.run import approval as approval_mod
 
         approval_calls = {"called": False}
 
@@ -339,7 +339,7 @@ class TestHitlContractPreserved:
         agent = _make_agent(monkeypatch, runs=[run])
 
         # Approval check should NOT be invoked — no unresolved requirements
-        from agno.run import approval as approval_mod
+        from egpt.run import approval as approval_mod
 
         approval_calls = {"called": False}
 
@@ -430,7 +430,7 @@ def _patch_async_dispatch_dependencies(
     runs: Optional[list[Any]] = None,
 ) -> None:
     """Mirror of _patch_sync_dispatch_dependencies for the async dispatch path."""
-    from agno.agent import _storage as storage_mod
+    from egpt.agent import _storage as storage_mod
 
     async def fake_aread_or_create_session(agent, session_id=None, user_id=None):
         return AgentSession(session_id=session_id, user_id=user_id, runs=runs)
@@ -511,7 +511,7 @@ class TestAsyncEmptyBodyResume:
         _patch_async_dispatch_dependencies(agent, monkeypatch, runs=[paused_run])
         monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
 
-        from agno.run import approval as approval_mod
+        from egpt.run import approval as approval_mod
 
         async def raising_approval(db, run_id, run_response):
             raise RuntimeError("no resolved approval")
@@ -941,7 +941,7 @@ class TestCheckpointScrubIsolation:
     without stripping media off the live, still-running run."""
 
     def _run_with_media(self) -> RunOutput:
-        from agno.media import Image
+        from egpt.media import Image
 
         return RunOutput(
             run_id="r1",
@@ -952,7 +952,7 @@ class TestCheckpointScrubIsolation:
     def test_inflight_checkpoint_isolates_media_from_live_run(self):
         from types import SimpleNamespace
 
-        from agno.agent._run import _scrub_and_propagate_session_state
+        from egpt.agent._run import _scrub_and_propagate_session_state
 
         run = self._run_with_media()
         live_images = run.messages[0].images
@@ -972,7 +972,7 @@ class TestCheckpointScrubIsolation:
         behavior — the run is finished, so no isolating copy is taken."""
         from types import SimpleNamespace
 
-        from agno.agent._run import _scrub_and_propagate_session_state
+        from egpt.agent._run import _scrub_and_propagate_session_state
 
         run = self._run_with_media()
         agent = SimpleNamespace(store_media=False, store_tool_messages=True, store_history_messages=True)
@@ -1277,7 +1277,7 @@ class TestForkMetricsReset:
     parent's accumulated metrics or birthtime."""
 
     def test_fork_resets_metrics_to_fresh(self):
-        from agno.models.metrics import RunMetrics
+        from egpt.models.metrics import RunMetrics
 
         parent_metrics = RunMetrics()
         parent_metrics.input_tokens = 100
@@ -1713,7 +1713,7 @@ class TestForkSession:
             lambda agent, session_id=None, user_id=None: source,
         )
         saved: list = []
-        from agno.agent import _session
+        from egpt.agent import _session
 
         monkeypatch.setattr(_session, "save_session", lambda agent, session: saved.append(session))
         monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
@@ -1795,8 +1795,8 @@ class TestToolDedupeOnUpdate:
     cumulative list again."""
 
     def test_update_run_response_replaces_by_tool_call_id(self):
-        from agno.models.response import ModelResponse
-        from agno.run.agent import RunOutput
+        from egpt.models.response import ModelResponse
+        from egpt.run.agent import RunOutput
 
         # Existing tool (already written by checkpoint callback)
         existing = ToolExecution(tool_call_id="tc-1", tool_name="search", result="result-1")
@@ -1807,7 +1807,7 @@ class TestToolDedupeOnUpdate:
         new_tool = ToolExecution(tool_call_id="tc-2", tool_name="fetch", result="result-2")
         model_response = ModelResponse(tool_executions=[same_tool_updated, new_tool])
 
-        from agno.agent._response import update_run_response
+        from egpt.agent._response import update_run_response
 
         update_run_response(
             agent=Agent(name="x"),
@@ -1889,7 +1889,7 @@ class TestStreamingParity:
                 session = await fake_aread_or_create_session(agent, session_id=session_id)
                 run_response = next((r for r in (session.runs or []) if r.run_id == rid), None)
                 # Manually apply modifiers since we're bypassing the real fn body
-                from agno.agent._run import (
+                from egpt.agent._run import (
                     _apply_continue_modifiers,
                     _normalize_regenerate_params,
                     _resolve_continue_from,
@@ -1914,7 +1914,7 @@ class TestStreamingParity:
                     f = True
                 run_response = _apply_continue_modifiers(run_response, f, fc)
                 if inp:
-                    from agno.agent._run import _maybe_append_input_message
+                    from egpt.agent._run import _maybe_append_input_message
 
                     _maybe_append_input_message(run_response, inp, agent)
 
@@ -2061,7 +2061,7 @@ class TestStreamingRealBody:
 
     @pytest.mark.asyncio
     async def test_real_stream_body_applies_fork(self, monkeypatch: pytest.MonkeyPatch):
-        from agno.agent import _messages
+        from egpt.agent import _messages
 
         run = RunOutput(
             run_id="run-real",
@@ -2102,8 +2102,8 @@ class TestStreamingRealBody:
             lambda *a, **kw: type("RM", (), {"messages": []})(),
         )
 
-        import agno.agent._response as response_mod
-        from agno.agent._response import ahandle_model_response_stream as _orig  # noqa: F401
+        import egpt.agent._response as response_mod
+        from egpt.agent._response import ahandle_model_response_stream as _orig  # noqa: F401
 
         monkeypatch.setattr(response_mod, "ahandle_model_response_stream", fake_ahandle_stream)
 

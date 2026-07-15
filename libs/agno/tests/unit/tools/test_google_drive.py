@@ -6,7 +6,7 @@ import pytest
 from google.oauth2.credentials import Credentials
 from googleapiclient.errors import HttpError
 
-from agno.tools.google.drive import GoogleDriveTools
+from egpt.tools.google.drive import GoogleDriveTools
 
 
 @pytest.fixture
@@ -88,7 +88,7 @@ def test_read_file_google_doc(drive_tools):
     }
     mock_downloader = MagicMock()
     mock_downloader.next_chunk.return_value = (MagicMock(), True)
-    with patch("agno.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
         # Write content into the buffer that MediaIoBaseDownload receives
         def capture_buffer(buf, req):
             buf.write(b"Hello from Google Docs")
@@ -114,7 +114,7 @@ def test_read_file_google_sheet(drive_tools):
     }
     mock_downloader = MagicMock()
     mock_downloader.next_chunk.return_value = (MagicMock(), True)
-    with patch("agno.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
 
         def capture_buffer(buf, req):
             buf.write(b"col1,col2\na,b")
@@ -137,7 +137,7 @@ def test_read_file_regular(drive_tools):
     }
     mock_downloader = MagicMock()
     mock_downloader.next_chunk.return_value = (MagicMock(), True)
-    with patch("agno.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
 
         def capture_buffer(buf, req):
             buf.write(b"plain text content")
@@ -173,7 +173,7 @@ def test_read_file_max_read_size_allowed(drive_tools):
     }
     mock_downloader = MagicMock()
     mock_downloader.next_chunk.return_value = (MagicMock(), True)
-    with patch("agno.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
 
         def capture_buffer(buf, req):
             buf.write(b"hello")
@@ -207,7 +207,7 @@ def test_read_file_large_export_passes_through(drive_tools):
     big_content = b"x" * (11 * 1024 * 1024)
     mock_downloader = MagicMock()
     mock_downloader.next_chunk.return_value = (MagicMock(), True)
-    with patch("agno.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
 
         def capture_buffer(buf, req):
             buf.write(big_content)
@@ -259,7 +259,7 @@ def test_download_file_success(tmp_path, drive_tools):
         (MagicMock(progress=lambda: 0.5), False),
         (MagicMock(progress=lambda: 1.0), True),
     ]
-    with patch("agno.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader):
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader):
         result = json.loads(drive_tools.download_file("abc123"))
     assert result["status"] == "downloaded"
     assert result["fileId"] == "abc123"
@@ -277,7 +277,7 @@ def test_download_file_sanitizes_path_components(tmp_path, drive_tools, drive_na
     }
     mock_downloader = MagicMock()
     mock_downloader.next_chunk.side_effect = [(MagicMock(progress=lambda: 1.0), True)]
-    with patch("agno.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader):
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader):
         result = json.loads(drive_tools.download_file("abc123"))
     assert result["status"] == "downloaded"
     assert "escape.txt" in result["path"]
@@ -292,7 +292,7 @@ def test_download_file_error(tmp_path, drive_tools):
         "mimeType": "text/plain",
     }
     drive_tools.service.files.return_value.get_media.side_effect = Exception("Download error")
-    with patch("agno.tools.google.drive.MediaIoBaseDownload", return_value=MagicMock()):
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload", return_value=MagicMock()):
         result = json.loads(drive_tools.download_file("abc123"))
     assert "error" in result
 
@@ -482,7 +482,7 @@ def test_read_file_google_slides(drive_tools):
     }
     mock_downloader = MagicMock()
     mock_downloader.next_chunk.return_value = (MagicMock(), True)
-    with patch("agno.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
 
         def capture_buffer(buf, req):
             buf.write(b"Slide content here")
@@ -509,7 +509,7 @@ def test_upload_file_mime_auto_detected(tmp_path, drive_tools):
         "name": "data.csv",
         "mimeType": "text/csv",
     }
-    with patch("agno.tools.google.drive.MediaFileUpload") as mock_upload:
+    with patch("egpt.tools.google.drive.MediaFileUpload") as mock_upload:
         drive_tools.upload_file(file_path)
         assert mock_upload.call_args[1]["mimetype"] == "text/csv"
 
@@ -521,7 +521,7 @@ def test_upload_file_unknown_extension_fallback(tmp_path, drive_tools):
         "id": "unk1",
         "name": "data.xyz123",
     }
-    with patch("agno.tools.google.drive.MediaFileUpload") as mock_upload:
+    with patch("egpt.tools.google.drive.MediaFileUpload") as mock_upload:
         drive_tools.upload_file(file_path)
         assert mock_upload.call_args[1]["mimetype"] == "application/octet-stream"
 
@@ -546,7 +546,7 @@ def test_download_file_uses_download_dir(tmp_path, drive_tools):
     }
     mock_downloader = MagicMock()
     mock_downloader.next_chunk.return_value = (MagicMock(), True)
-    with patch("agno.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader):
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader):
         result = json.loads(drive_tools.download_file("abc123"))
     assert result["status"] == "downloaded"
     assert result["path"] == str(tmp_path / "report.pdf")
@@ -579,7 +579,7 @@ async def test_async_read_file(drive_tools):
     }
     mock_downloader = MagicMock()
     mock_downloader.next_chunk.return_value = (MagicMock(), True)
-    with patch("agno.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
 
         def capture_buffer(buf, req):
             buf.write(b"async content")
@@ -612,7 +612,7 @@ async def test_async_download_file(tmp_path, drive_tools):
     }
     mock_downloader = MagicMock()
     mock_downloader.next_chunk.return_value = (MagicMock(), True)
-    with patch("agno.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader):
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader):
         result = json.loads(await drive_tools.adownload_file("abc"))
     assert result["status"] == "downloaded"
     assert "file.txt" in result["path"]
@@ -706,7 +706,7 @@ def test_all_drives_log_debug_on_incomplete_search(all_drives_tools):
         "files": [],
         "incompleteSearch": True,
     }
-    with patch("agno.tools.google.drive.log_debug") as mock_debug:
+    with patch("egpt.tools.google.drive.log_debug") as mock_debug:
         all_drives_tools.search_files(query="x")
     mock_debug.assert_called_once()
     assert "incomplete" in mock_debug.call_args[0][0].lower()
@@ -722,7 +722,7 @@ def test_all_drives_log_debug_on_incomplete_search(all_drives_tools):
 def test_all_drives_no_log_debug_when_incomplete_search_false(all_drives_tools, api_response):
     """GoogleDriveTools.search_files does not log when incompleteSearch is False or absent."""
     all_drives_tools.service.files.return_value.list.return_value.execute.return_value = api_response
-    with patch("agno.tools.google.drive.log_debug") as mock_debug:
+    with patch("egpt.tools.google.drive.log_debug") as mock_debug:
         result = json.loads(all_drives_tools.search_files(query="x"))
     assert result["incompleteSearch"] is False
     mock_debug.assert_not_called()
@@ -754,7 +754,7 @@ def test_all_drives_read_file_passes_supports_all_drives(all_drives_tools):
     mock_downloader = MagicMock()
     mock_downloader.next_chunk.return_value = (MagicMock(), True)
 
-    with patch("agno.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload", return_value=mock_downloader) as mock_dl:
 
         def capture_buffer(buf, req):
             buf.write(b"content")
@@ -786,7 +786,7 @@ def test_download_bytes_method(mock_creds, mock_service):
         (MagicMock(), True),
     ]
 
-    with patch("agno.tools.google.drive.MediaIoBaseDownload") as mock_dl:
+    with patch("egpt.tools.google.drive.MediaIoBaseDownload") as mock_dl:
 
         def capture_buffer(buf, req):
             buf.write(b"chunk1chunk2")

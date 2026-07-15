@@ -5,9 +5,9 @@ Custom Evaluator Agent-as-Judge Evaluation
 Demonstrates using a custom evaluator agent for judging.
 """
 
-from agno.agent import Agent
-from agno.eval.agent_as_judge import AgentAsJudgeEval
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Agent

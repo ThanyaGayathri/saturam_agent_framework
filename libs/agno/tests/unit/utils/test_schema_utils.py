@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from agno.utils.models.schema_utils import (
+from egpt.utils.models.schema_utils import (
     _normalize_for_gemini,
     _normalize_for_openai,
     get_dict_value_type,

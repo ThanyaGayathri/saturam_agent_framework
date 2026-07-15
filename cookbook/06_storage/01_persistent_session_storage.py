@@ -5,10 +5,10 @@ Persistent Session Storage
 Demonstrates using PostgresDb for persistent session storage with a team.
 """
 
-from agno.agent.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.team.team import Team
+from egpt.agent.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
 # Setup

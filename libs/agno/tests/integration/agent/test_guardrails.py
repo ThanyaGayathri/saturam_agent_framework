@@ -1,13 +1,13 @@
 import pytest
 
-from agno.agent import Agent
-from agno.exceptions import CheckTrigger, InputCheckError
-from agno.guardrails import OpenAIModerationGuardrail, PIIDetectionGuardrail, PromptInjectionGuardrail
-from agno.media import Image
-from agno.models.openai import OpenAIChat
-from agno.run.agent import RunInput
-from agno.run.base import RunStatus
-from agno.run.team import TeamRunInput
+from egpt.agent import Agent
+from egpt.exceptions import CheckTrigger, InputCheckError
+from egpt.guardrails import OpenAIModerationGuardrail, PIIDetectionGuardrail, PromptInjectionGuardrail
+from egpt.media import Image
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import RunInput
+from egpt.run.base import RunStatus
+from egpt.run.team import TeamRunInput
 
 
 @pytest.fixture

@@ -18,14 +18,14 @@ Requires:
   OPENAI_API_KEY
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os.app import AgentOS
-from agno.os.interfaces.whatsapp import Whatsapp
-from agno.tools.dalle import DalleTools
-from agno.tools.file_generation import FileGenerationTools
-from agno.tools.websearch import WebSearchTools
-from agno.workflow import Parallel, Step, Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.whatsapp import Whatsapp
+from egpt.tools.dalle import DalleTools
+from egpt.tools.file_generation import FileGenerationTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow import Parallel, Step, Workflow
 
 analyst = Agent(
     name="Visual Analyst",

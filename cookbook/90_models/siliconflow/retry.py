@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with SiliconFlow."""
 
-from agno.agent import Agent
-from agno.models.siliconflow import SiliconFlow
+from egpt.agent import Agent
+from egpt.models.siliconflow import SiliconFlow
 
 # ---------------------------------------------------------------------------
 # Create Agent

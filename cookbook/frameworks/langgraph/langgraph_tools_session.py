@@ -11,8 +11,8 @@ Usage:
     python cookbook/frameworks/langgraph/langgraph_tools_session.py
 """
 
-from agno.agents.langgraph import LangGraphAgent
-from agno.db.postgres import PostgresDb
+from egpt.agents.langgraph import LangGraphAgent
+from egpt.db.postgres import PostgresDb
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import MessagesState, StateGraph

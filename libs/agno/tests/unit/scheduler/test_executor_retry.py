@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agno.scheduler.executor import ScheduleExecutor
+from egpt.scheduler.executor import ScheduleExecutor
 
 
 @pytest.fixture
@@ -39,7 +39,7 @@ def schedule():
 
 class TestRetrySucceedsOnSecondAttempt:
     @pytest.mark.asyncio
-    @patch("agno.scheduler.executor.asyncio.sleep", new_callable=AsyncMock)
+    @patch("egpt.scheduler.executor.asyncio.sleep", new_callable=AsyncMock)
     async def test_retries_until_success(self, mock_sleep, executor, mock_db, schedule):
         """First attempt fails, second succeeds -- verify 2 create_schedule_run calls."""
         call_count = 0
@@ -66,7 +66,7 @@ class TestRetrySucceedsOnSecondAttempt:
 
 class TestRetryAllFail:
     @pytest.mark.asyncio
-    @patch("agno.scheduler.executor.asyncio.sleep", new_callable=AsyncMock)
+    @patch("egpt.scheduler.executor.asyncio.sleep", new_callable=AsyncMock)
     async def test_all_retries_fail(self, mock_sleep, executor, mock_db, schedule):
         """All attempts fail -- verify final status is 'failed'."""
 
@@ -119,7 +119,7 @@ class TestReleaseAlwaysCalled:
         mock_resp.status_code = 200
         mock_resp.text = "OK"
 
-        with patch("agno.scheduler.executor.httpx") as mock_httpx:
+        with patch("egpt.scheduler.executor.httpx") as mock_httpx:
             mock_client = AsyncMock()
             mock_client.request = AsyncMock(return_value=mock_resp)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -132,7 +132,7 @@ class TestReleaseAlwaysCalled:
         mock_db.release_schedule.assert_called_once()
 
     @pytest.mark.asyncio
-    @patch("agno.scheduler.executor.asyncio.sleep", new_callable=AsyncMock)
+    @patch("egpt.scheduler.executor.asyncio.sleep", new_callable=AsyncMock)
     async def test_release_on_failure(self, mock_sleep, executor, mock_db, schedule):
         """release_schedule is called even when all attempts fail."""
 
@@ -151,7 +151,7 @@ class TestReleaseAlwaysCalled:
         mock_resp.status_code = 200
         mock_resp.text = "OK"
 
-        with patch("agno.scheduler.executor.httpx") as mock_httpx:
+        with patch("egpt.scheduler.executor.httpx") as mock_httpx:
             mock_client = AsyncMock()
             mock_client.request = AsyncMock(return_value=mock_resp)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -184,7 +184,7 @@ class TestComputeNextRunFailure:
         mock_resp.status_code = 200
         mock_resp.text = "OK"
 
-        with patch("agno.scheduler.executor.httpx") as mock_httpx:
+        with patch("egpt.scheduler.executor.httpx") as mock_httpx:
             mock_client = AsyncMock()
             mock_client.request = AsyncMock(return_value=mock_resp)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -224,7 +224,7 @@ class TestAsyncDbSupport:
         mock_resp.status_code = 200
         mock_resp.text = "OK"
 
-        with patch("agno.scheduler.executor.httpx") as mock_httpx:
+        with patch("egpt.scheduler.executor.httpx") as mock_httpx:
             mock_client = AsyncMock()
             mock_client.request = AsyncMock(return_value=mock_resp)
             mock_client.__aenter__ = AsyncMock(return_value=mock_client)

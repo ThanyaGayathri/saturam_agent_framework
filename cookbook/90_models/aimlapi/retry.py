@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with AIMLAPI."""
 
-from agno.agent import Agent
-from agno.models.aimlapi import AIMLAPI
+from egpt.agent import Agent
+from egpt.models.aimlapi import AIMLAPI
 
 # ---------------------------------------------------------------------------
 # Create Agent

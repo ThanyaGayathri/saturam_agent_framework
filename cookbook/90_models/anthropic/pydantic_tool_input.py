@@ -12,9 +12,9 @@ import asyncio
 import json
 from typing import List, Optional, Union
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.tools import tool
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

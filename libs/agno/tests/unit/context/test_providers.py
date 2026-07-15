@@ -13,18 +13,18 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine
 
-from agno import __version__ as AGNO_VERSION
-from agno.context.calendar import GoogleCalendarContextProvider
-from agno.context.database import DatabaseContextProvider
-from agno.context.fs import FilesystemContextProvider
-from agno.context.gdrive import GoogleDriveContextProvider
-from agno.context.gmail import GmailContextProvider
-from agno.context.google import validate_google_credentials
-from agno.context.mcp import MCPContextProvider
-from agno.context.mode import ContextMode
-from agno.context.slack import SlackContextProvider
-from agno.context.web import ExaBackend, ExaMCPBackend, ParallelMCPBackend, WebContextProvider
-from agno.context.workspace import WorkspaceContextProvider
+from egpt import __version__ as AGNO_VERSION
+from egpt.context.calendar import GoogleCalendarContextProvider
+from egpt.context.database import DatabaseContextProvider
+from egpt.context.fs import FilesystemContextProvider
+from egpt.context.gdrive import GoogleDriveContextProvider
+from egpt.context.gmail import GmailContextProvider
+from egpt.context.google import validate_google_credentials
+from egpt.context.mcp import MCPContextProvider
+from egpt.context.mode import ContextMode
+from egpt.context.slack import SlackContextProvider
+from egpt.context.web import ExaBackend, ExaMCPBackend, ParallelMCPBackend, WebContextProvider
+from egpt.context.workspace import WorkspaceContextProvider
 
 # ---------------------------------------------------------------------------
 # Filesystem
@@ -298,7 +298,7 @@ def test_web_provider_accepts_parallel_mcp_backend(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_parallel_mcp_backend_asetup_swallows_errors_and_retries(monkeypatch):
-    from agno.tools.mcp import MCPTools
+    from egpt.tools.mcp import MCPTools
 
     b = ParallelMCPBackend(api_key="test-key", timeout_seconds=1)
 
@@ -326,7 +326,7 @@ async def test_parallel_mcp_backend_aclose_noop_when_never_connected():
 
 @pytest.mark.asyncio
 async def test_parallel_mcp_backend_aclose_swallows_close_errors(monkeypatch):
-    from agno.tools.mcp import MCPTools
+    from egpt.tools.mcp import MCPTools
 
     b = ParallelMCPBackend(api_key="test-key")
     b._mcp_tools = b._build_tools()
@@ -473,7 +473,7 @@ def test_slack_user_token_enables_search_messages():
 
 
 def test_slack_read_instructions_override_both_read_agents(monkeypatch):
-    import agno.context.slack.provider as slack_provider
+    import egpt.context.slack.provider as slack_provider
 
     captured: dict[str, str] = {}
 
@@ -492,7 +492,7 @@ def test_slack_read_instructions_override_both_read_agents(monkeypatch):
 
 
 def test_slack_default_read_instructions_stay_tool_specific(monkeypatch):
-    import agno.context.slack.provider as slack_provider
+    import egpt.context.slack.provider as slack_provider
 
     captured: dict[str, str] = {}
 
@@ -515,7 +515,7 @@ def test_slack_default_read_instructions_stay_tool_specific(monkeypatch):
 @pytest.mark.asyncio
 async def test_slack_aupdate_routes_through_write_agent(monkeypatch):
     """aupdate must hit the write sub-agent, not the read one."""
-    from agno.context.provider import Answer
+    from egpt.context.provider import Answer
 
     p = SlackContextProvider(token="xoxb-x")
 
@@ -549,8 +549,8 @@ async def test_slack_aupdate_routes_through_write_agent(monkeypatch):
 async def test_slack_uses_assisted_read_with_action_token(monkeypatch):
     from unittest.mock import AsyncMock, MagicMock
 
-    from agno.context.provider import Answer
-    from agno.run import RunContext
+    from egpt.context.provider import Answer
+    from egpt.run import RunContext
 
     p = SlackContextProvider(token="xoxb-x")
 

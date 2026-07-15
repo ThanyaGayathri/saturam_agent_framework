@@ -5,12 +5,12 @@ Multiple Knowledge Bases
 Demonstrates multiple knowledge bases.
 """
 
-from agno.agent import Agent
-from agno.db.json import JsonDb
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.db.json import JsonDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Example

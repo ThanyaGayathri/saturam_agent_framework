@@ -2,9 +2,9 @@
 Gmail Agent that can read, draft and send emails using the Gmail.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.google.gmail import GmailTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.google.gmail import GmailTools
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

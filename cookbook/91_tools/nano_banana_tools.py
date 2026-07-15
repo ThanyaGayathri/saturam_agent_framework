@@ -8,8 +8,8 @@ Usage:
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.tools.nano_banana import NanoBananaTools
+from egpt.agent import Agent
+from egpt.tools.nano_banana import NanoBananaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

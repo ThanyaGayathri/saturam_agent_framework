@@ -5,8 +5,8 @@ WatsonX Default COT Fallback
 Demonstrates default chain-of-thought behavior with an IBM WatsonX model.
 """
 
-from agno.agent import Agent
-from agno.models.ibm import WatsonX
+from egpt.agent import Agent
+from egpt.models.ibm import WatsonX
 
 # ---------------------------------------------------------------------------
 # Create Agent

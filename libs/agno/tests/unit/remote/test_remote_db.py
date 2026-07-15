@@ -1,12 +1,12 @@
-from agno.os.config import (
+from egpt.os.config import (
     DatabaseConfig,
     LearningConfig,
     LearningDomainConfig,
     SessionConfig,
     SessionDomainConfig,
 )
-from agno.os.schema import ConfigResponse
-from agno.remote.base import RemoteDb
+from egpt.os.schema import ConfigResponse
+from egpt.remote.base import RemoteDb
 
 
 def test_remote_db_from_config_includes_learning_table_name() -> None:

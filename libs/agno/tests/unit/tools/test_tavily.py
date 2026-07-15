@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 from tavily import TavilyClient  # noqa
 
-from agno.tools.tavily import TavilyTools
+from egpt.tools.tavily import TavilyTools
 
 TEST_API_KEY = os.environ.get("TAVILY_API_KEY", "test_api_key")
 TEST_API_BASE_URL = os.environ.get("TAVILY_API_BASE_URL", "https://custom.tavily.com")
@@ -15,7 +15,7 @@ TEST_API_BASE_URL = os.environ.get("TAVILY_API_BASE_URL", "https://custom.tavily
 @pytest.fixture
 def mock_tavily_client():
     """Create a mock TavilyClient instance."""
-    with patch("agno.tools.tavily.TavilyClient") as mock_client_cls:
+    with patch("egpt.tools.tavily.TavilyClient") as mock_client_cls:
         mock_client = Mock()
         mock_client_cls.return_value = mock_client
         return mock_client
@@ -37,7 +37,7 @@ def tavily_tools(mock_tavily_client):
 
 def test_init_with_env_vars():
     """Test initialization with environment variables."""
-    with patch("agno.tools.tavily.TavilyClient"):
+    with patch("egpt.tools.tavily.TavilyClient"):
         with patch.dict(
             "os.environ", {"TAVILY_API_KEY": TEST_API_KEY, "TAVILY_API_BASE_URL": TEST_API_BASE_URL}, clear=True
         ):
@@ -52,7 +52,7 @@ def test_init_with_env_vars():
 
 def test_init_with_params():
     """Test initialization with parameters."""
-    with patch("agno.tools.tavily.TavilyClient"):
+    with patch("egpt.tools.tavily.TavilyClient"):
         tools = TavilyTools(
             api_key="param_api_key",
             api_base_url="https://custom.tavily.com",
@@ -73,7 +73,7 @@ def test_init_with_params():
 
 def test_init_with_all_flag():
     """Test initialization with all=True flag."""
-    with patch("agno.tools.tavily.TavilyClient"):
+    with patch("egpt.tools.tavily.TavilyClient"):
         tools = TavilyTools(all=True)
         # Check that tools list includes both search and extract
         tool_names = [tool.__name__ for tool in tools.tools]
@@ -361,7 +361,7 @@ def test_extract_whitespace_handling(tavily_tools, mock_tavily_client):
 
 def test_format_extract_markdown():
     """Test _format_extract_markdown helper method."""
-    with patch("agno.tools.tavily.TavilyClient"):
+    with patch("egpt.tools.tavily.TavilyClient"):
         tools = TavilyTools()
 
         # Test with successful extraction
@@ -375,7 +375,7 @@ def test_format_extract_markdown():
 
 def test_format_extract_text():
     """Test _format_extract_text helper method."""
-    with patch("agno.tools.tavily.TavilyClient"):
+    with patch("egpt.tools.tavily.TavilyClient"):
         tools = TavilyTools()
 
         # Test with successful extraction

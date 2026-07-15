@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.knowledge.chunking.semantic import SemanticChunking
-from agno.knowledge.document.base import Document
-from agno.knowledge.embedder.base import Embedder
+from egpt.knowledge.chunking.semantic import SemanticChunking
+from egpt.knowledge.document.base import Document
+from egpt.knowledge.embedder.base import Embedder
 
 
 @dataclass
@@ -35,7 +35,7 @@ def fake_chonkie_capturing():
         def chunk(self, text: str):
             return [SimpleNamespace(text=text)]
 
-    with patch("agno.knowledge.chunking.semantic.SemanticChunker", FakeSemanticChunker):
+    with patch("egpt.knowledge.chunking.semantic.SemanticChunker", FakeSemanticChunker):
         yield captured
 
 

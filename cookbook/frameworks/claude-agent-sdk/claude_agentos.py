@@ -30,8 +30,8 @@ Then call the API:
         -F "stream=false"
 """
 
-from agno.agents.claude import ClaudeAgent
-from agno.os import AgentOS
+from egpt.agents.claude import ClaudeAgent
+from egpt.os import AgentOS
 
 # ---------------------------------------------------------------------------
 # Create the Claude Agent SDK agent

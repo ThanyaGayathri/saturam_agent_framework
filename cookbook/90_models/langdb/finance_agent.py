@@ -1,8 +1,8 @@
 """Run `uv pip install yfinance` to install dependencies."""
 
-from agno.agent import Agent
-from agno.models.langdb import LangDB
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.langdb import LangDB
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

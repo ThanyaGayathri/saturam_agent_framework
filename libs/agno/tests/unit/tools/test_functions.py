@@ -3,10 +3,10 @@ from typing import Any, Callable, Dict, List, Optional
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from agno.models.message import Message
-from agno.run.base import RunContext
-from agno.tools.decorator import tool
-from agno.tools.function import Function, FunctionCall
+from egpt.models.message import Message
+from egpt.run.base import RunContext
+from egpt.tools.decorator import tool
+from egpt.tools.function import Function, FunctionCall
 
 
 def test_function_initialization():
@@ -219,8 +219,8 @@ def test_function_process_entrypoint_with_user_input_excludes_run_context():
 
 def test_function_process_entrypoint_with_user_input_excludes_all_framework_params():
     """Test that user_input_schema excludes all framework-injected params (agent, team, self, media)."""
-    from agno.agent.agent import Agent
-    from agno.team.team import Team
+    from egpt.agent.agent import Agent
+    from egpt.team.team import Team
 
     def test_func(agent: Agent, team: Team, run_context: RunContext, param1: str) -> str:
         """Test function.
@@ -240,8 +240,8 @@ def test_function_process_entrypoint_with_user_input_excludes_all_framework_para
 
 def test_function_process_entrypoint_with_user_input_excludes_by_type():
     """Test that user_input_schema excludes params by type, not just name (e.g. my_ctx: RunContext)."""
-    from agno.agent.agent import Agent
-    from agno.team.team import Team
+    from egpt.agent.agent import Agent
+    from egpt.team.team import Team
 
     def test_func(my_ctx: RunContext, my_agent: Agent, my_team: Team, param1: str) -> str:
         """Test function.
@@ -878,8 +878,8 @@ def test_tool_decorator_with_agent_team_params():
 def test_tool_decorator_with_agent_team_type_annotations():
     """Test @tool decorator skips validation when parameter types are Agent/Team,
     even when parameter names differ from 'agent'/'team' (issue #6344)."""
-    from agno.agent.agent import Agent
-    from agno.team.team import Team
+    from egpt.agent.agent import Agent
+    from egpt.team.team import Team
 
     @tool
     def func_with_agent_type(my_agent: Agent, query: str) -> str:

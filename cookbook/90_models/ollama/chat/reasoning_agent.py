@@ -5,8 +5,8 @@ Ollama Reasoning Agent
 Cookbook example for `ollama/chat/reasoning_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.models.ollama import Ollama
+from egpt.agent import Agent
+from egpt.models.ollama import Ollama
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -9,13 +9,13 @@ and both runs are persisted with status=cancelled.
 Requires: PostgreSQL running on localhost:5532 (see cookbook/scripts/run_pgvector.sh)
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.run.team import RunCancelledEvent as TeamRunCancelledEvent
-from agno.run.team import ToolCallStartedEvent
-from agno.team.mode import TeamMode
-from agno.team.team import Team
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run.team import RunCancelledEvent as TeamRunCancelledEvent
+from egpt.run.team import ToolCallStartedEvent
+from egpt.team.mode import TeamMode
+from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Members

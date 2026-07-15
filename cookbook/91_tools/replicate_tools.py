@@ -5,9 +5,9 @@ Replicate Tools
 Demonstrates replicate tools.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.replicate import ReplicateTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.replicate import ReplicateTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

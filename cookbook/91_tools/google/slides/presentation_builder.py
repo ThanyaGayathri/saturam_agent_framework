@@ -22,9 +22,9 @@ Setup:
 
 from typing import List, Optional
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.google.slides import GoogleSlidesTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.google.slides import GoogleSlidesTools
 from pydantic import BaseModel, Field
 
 

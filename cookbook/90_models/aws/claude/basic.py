@@ -5,8 +5,8 @@ Aws Basic
 Cookbook example for `aws/claude/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.aws import Claude
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.aws import Claude
 import asyncio
 
 # ---------------------------------------------------------------------------

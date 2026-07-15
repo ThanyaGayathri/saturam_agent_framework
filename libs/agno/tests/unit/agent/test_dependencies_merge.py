@@ -13,10 +13,10 @@ from typing import Any, AsyncIterator, Iterator
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.models.base import Model
-from agno.models.message import MessageMetrics
-from agno.models.response import ModelResponse
+from egpt.agent.agent import Agent
+from egpt.models.base import Model
+from egpt.models.message import MessageMetrics
+from egpt.models.response import ModelResponse
 
 
 class MockModel(Model):

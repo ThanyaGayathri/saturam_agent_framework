@@ -6,7 +6,7 @@ Run `agent_os_setup.py` to start the remote AgentOS instance.
 
 import asyncio
 
-from agno.team import RemoteTeam
+from egpt.team import RemoteTeam
 
 # ---------------------------------------------------------------------------
 # Create Example

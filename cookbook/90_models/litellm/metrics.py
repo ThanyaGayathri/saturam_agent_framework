@@ -5,10 +5,10 @@ Litellm Metrics
 Cookbook example for `litellm/metrics.py`.
 """
 
-from agno.agent import Agent, RunOutput
-from agno.models.litellm import LiteLLM
-from agno.tools.yfinance import YFinanceTools
-from agno.utils.pprint import pprint_run_response
+from egpt.agent import Agent, RunOutput
+from egpt.models.litellm import LiteLLM
+from egpt.tools.yfinance import YFinanceTools
+from egpt.utils.pprint import pprint_run_response
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

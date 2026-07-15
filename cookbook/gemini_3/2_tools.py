@@ -16,9 +16,9 @@ Example prompts to try:
 - "What are the top tech IPOs planned for this quarter?"
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.google import Gemini
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Agent Instructions
@@ -68,15 +68,15 @@ if __name__ == "__main__":
 Tools are Python classes that inherit from Toolkit. Agno includes many built-in:
 
 1. Web search (no API key needed)
-   from agno.tools.websearch import WebSearchTools
+   from egpt.tools.websearch import WebSearchTools
    tools=[WebSearchTools()]
 
 2. Yahoo Finance (real market data)
-   from agno.tools.yfinance import YFinanceTools
+   from egpt.tools.yfinance import YFinanceTools
    tools=[YFinanceTools(all=True)]
 
 3. Exa search (semantic search, needs EXA_API_KEY)
-   from agno.tools.exa import ExaTools
+   from egpt.tools.exa import ExaTools
    tools=[ExaTools()]
 
 4. Custom tools

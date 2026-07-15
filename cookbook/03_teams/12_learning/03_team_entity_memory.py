@@ -13,16 +13,16 @@ This is useful for teams that deal with complex multi-entity contexts
 like project management, CRM, or research coordination.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.learn import (
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.learn import (
     EntityMemoryConfig,
     LearningMachine,
     LearningMode,
     UserProfileConfig,
 )
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 

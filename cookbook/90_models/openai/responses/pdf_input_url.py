@@ -5,10 +5,10 @@ Openai Pdf Input Url
 Cookbook example for `openai/responses/pdf_input_url.py`.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.media import File
-from agno.models.openai.responses import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.media import File
+from egpt.models.openai.responses import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

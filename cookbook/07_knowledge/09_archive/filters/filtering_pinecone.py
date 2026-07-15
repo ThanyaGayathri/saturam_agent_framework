@@ -1,12 +1,12 @@
 from os import getenv
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.utils.media import (
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.utils.media import (
     SampleDataFileExtension,
     download_knowledge_filters_sample_data,
 )
-from agno.vectordb.pineconedb import PineconeDb
+from egpt.vectordb.pineconedb import PineconeDb
 
 # Download all sample CVs and get their paths
 downloaded_cv_paths = download_knowledge_filters_sample_data(

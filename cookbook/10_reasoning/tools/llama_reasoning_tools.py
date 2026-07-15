@@ -5,10 +5,10 @@ Llama Reasoning Tools
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.meta import Llama
-from agno.tools.reasoning import ReasoningTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.meta import Llama
+from egpt.tools.reasoning import ReasoningTools
+from egpt.tools.yfinance import YFinanceTools
 
 
 # ---------------------------------------------------------------------------

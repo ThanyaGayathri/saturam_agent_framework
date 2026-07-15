@@ -2,8 +2,8 @@ from typing import Dict, List, Optional, Tuple
 
 import pytest
 
-from agno.db.base import AsyncBaseDb, BaseDb
-from agno.memory import MemoryManager, UserMemory
+from egpt.db.base import AsyncBaseDb, BaseDb
+from egpt.memory import MemoryManager, UserMemory
 
 
 class DummySyncMemoryDb(BaseDb):

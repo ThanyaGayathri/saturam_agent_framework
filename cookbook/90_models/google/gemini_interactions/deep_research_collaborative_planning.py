@@ -24,9 +24,9 @@ Deep Research runs in the background; the model forces background execution
 and polls until the result is ready.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.google import GeminiInteractions
 
 # add_history_to_context + db are required so each turn carries the prior
 # assistant message (and its interaction id) for previous_interaction_id chaining.

@@ -7,7 +7,7 @@ eval primitive - and identical machinery to single-label text
 classification, just applied to (prompt, response) pairs.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
+from egpt.agent import Agent, RunOutput  # noqa
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

@@ -7,8 +7,8 @@ Cookbook example for `openai/responses/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.openai import OpenAIResponses
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

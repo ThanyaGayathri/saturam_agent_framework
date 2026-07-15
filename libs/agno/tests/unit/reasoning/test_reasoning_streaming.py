@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.models.message import Message
-from agno.reasoning.step import ReasoningStep, ReasoningSteps
-from agno.run.agent import RunEvent
+from egpt.models.message import Message
+from egpt.reasoning.step import ReasoningStep, ReasoningSteps
+from egpt.run.agent import RunEvent
 
 # ============================================================================
 # Test RunEvent enum has required events
@@ -43,8 +43,8 @@ def test_run_event_has_all_reasoning_events():
 
 def test_create_reasoning_content_delta_event():
     """Test that create_reasoning_content_delta_event function exists and works."""
-    from agno.run.agent import RunOutput
-    from agno.utils.events import create_reasoning_content_delta_event
+    from egpt.run.agent import RunOutput
+    from egpt.utils.events import create_reasoning_content_delta_event
 
     # Create a mock run response
     run_response = RunOutput(
@@ -66,7 +66,7 @@ def test_create_reasoning_content_delta_event():
 
 def test_reasoning_content_delta_event_class_exists():
     """Test that ReasoningContentDeltaEvent class exists."""
-    from agno.run.agent import ReasoningContentDeltaEvent
+    from egpt.run.agent import ReasoningContentDeltaEvent
 
     assert ReasoningContentDeltaEvent is not None
 
@@ -88,7 +88,7 @@ def test_reasoning_content_delta_event_class_exists():
 
 def test_anthropic_streaming_functions_exist():
     """Test that Anthropic streaming functions are importable."""
-    from agno.reasoning.anthropic import (
+    from egpt.reasoning.anthropic import (
         aget_anthropic_reasoning_stream,
         get_anthropic_reasoning_stream,
     )
@@ -99,7 +99,7 @@ def test_anthropic_streaming_functions_exist():
 
 def test_deepseek_streaming_functions_exist():
     """Test that DeepSeek streaming functions are importable."""
-    from agno.reasoning.deepseek import (
+    from egpt.reasoning.deepseek import (
         aget_deepseek_reasoning_stream,
         get_deepseek_reasoning_stream,
     )
@@ -117,7 +117,7 @@ def test_anthropic_stream_yields_tuples():
     """Test that Anthropic streaming function yields (delta, message) tuples."""
     import inspect
 
-    from agno.reasoning.anthropic import get_anthropic_reasoning_stream
+    from egpt.reasoning.anthropic import get_anthropic_reasoning_stream
 
     # Check it's a generator function
     sig = inspect.signature(get_anthropic_reasoning_stream)
@@ -131,7 +131,7 @@ def test_deepseek_stream_yields_tuples():
     """Test that DeepSeek streaming function yields (delta, message) tuples."""
     import inspect
 
-    from agno.reasoning.deepseek import get_deepseek_reasoning_stream
+    from egpt.reasoning.deepseek import get_deepseek_reasoning_stream
 
     # Check signature
     sig = inspect.signature(get_deepseek_reasoning_stream)
@@ -146,7 +146,7 @@ def test_deepseek_stream_yields_tuples():
 # ============================================================================
 
 
-@patch("agno.reasoning.anthropic.get_anthropic_reasoning_stream")
+@patch("egpt.reasoning.anthropic.get_anthropic_reasoning_stream")
 def test_anthropic_stream_function_called_with_stream_events(mock_stream):
     """Test that streaming version is called when stream_events=True for Anthropic."""
     # Setup mock to return iterator with deltas
@@ -175,7 +175,7 @@ def test_anthropic_stream_function_called_with_stream_events(mock_stream):
 
 
 @pytest.mark.asyncio
-@patch("agno.reasoning.anthropic.aget_anthropic_reasoning_stream")
+@patch("egpt.reasoning.anthropic.aget_anthropic_reasoning_stream")
 async def test_anthropic_async_stream_function(mock_stream):
     """Test async streaming version for Anthropic."""
     final_message = Message(
@@ -256,7 +256,7 @@ def test_reasoning_steps_creation():
 
 def test_reasoning_content_delta_in_event_registry():
     """Test that ReasoningContentDeltaEvent is in the event registry."""
-    from agno.run.agent import RUN_EVENT_TYPE_REGISTRY, ReasoningContentDeltaEvent
+    from egpt.run.agent import RUN_EVENT_TYPE_REGISTRY, ReasoningContentDeltaEvent
 
     assert RunEvent.reasoning_content_delta in RUN_EVENT_TYPE_REGISTRY
     assert RUN_EVENT_TYPE_REGISTRY[RunEvent.reasoning_content_delta] == ReasoningContentDeltaEvent
@@ -264,7 +264,7 @@ def test_reasoning_content_delta_in_event_registry():
 
 def test_all_reasoning_events_in_registry():
     """Test that all reasoning events are in the registry."""
-    from agno.run.agent import RUN_EVENT_TYPE_REGISTRY
+    from egpt.run.agent import RUN_EVENT_TYPE_REGISTRY
 
     reasoning_events = [
         RunEvent.reasoning_started,

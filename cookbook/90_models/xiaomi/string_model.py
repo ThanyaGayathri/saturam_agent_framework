@@ -6,7 +6,7 @@ Create a MiMo agent without importing the model class, using the
 `model="xiaomi:<model-id>"` string shorthand.
 """
 
-from agno.agent import Agent
+from egpt.agent import Agent
 
 # ---------------------------------------------------------------------------
 # Create Agent

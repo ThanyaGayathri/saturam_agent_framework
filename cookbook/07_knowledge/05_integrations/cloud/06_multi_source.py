@@ -38,15 +38,15 @@ Environment Variables (all optional):
 import asyncio
 from os import getenv
 
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.remote_content import (
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.remote_content import (
     AzureBlobConfig,
     GcsConfig,
     GitHubConfig,
     S3Config,
     SharePointConfig,
 )
-from agno.vectordb.pgvector import PgVector
+from egpt.vectordb.pgvector import PgVector
 
 content_sources: list = []
 

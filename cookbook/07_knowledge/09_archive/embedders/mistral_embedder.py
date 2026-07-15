@@ -7,9 +7,9 @@ Demonstrates Mistral embeddings and knowledge insertion, including a batching va
 
 import asyncio
 
-from agno.knowledge.embedder.mistral import MistralEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.pgvector import PgVector
+from egpt.knowledge.embedder.mistral import MistralEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.pgvector import PgVector
 
 
 # ---------------------------------------------------------------------------

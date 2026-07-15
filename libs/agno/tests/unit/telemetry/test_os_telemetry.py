@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
-from agno.agent.agent import Agent
-from agno.os import AgentOS
+from egpt.agent.agent import Agent
+from egpt.os import AgentOS
 
 
 def test_accuracy_evals_telemetry():
@@ -9,7 +9,7 @@ def test_accuracy_evals_telemetry():
     agent = Agent()
 
     # Mock the API call that gets made when telemetry is enabled
-    with patch("agno.api.os.log_os_telemetry") as mock_create:
+    with patch("egpt.api.os.log_os_telemetry") as mock_create:
         os = AgentOS(id="test", agents=[agent])
 
         # Assert telemetry is active by default

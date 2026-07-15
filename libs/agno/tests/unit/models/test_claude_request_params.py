@@ -7,8 +7,8 @@ import pytest
 
 pytest.importorskip("anthropic")
 
-from agno.models.anthropic.claude import Claude as AnthropicClaude
-from agno.models.vertexai.claude import Claude as VertexAIClaude
+from egpt.models.anthropic.claude import Claude as AnthropicClaude
+from egpt.models.vertexai.claude import Claude as VertexAIClaude
 
 
 def test_anthropic_output_config_in_request_params():
@@ -55,7 +55,7 @@ def test_anthropic_to_dict_includes_output_config():
 
 def test_aws_claude_output_config_in_request_params():
     pytest.importorskip("boto3")
-    from agno.models.aws.claude import Claude as AwsClaude
+    from egpt.models.aws.claude import Claude as AwsClaude
 
     model = AwsClaude(output_config={"effort": "high"})
 
@@ -66,7 +66,7 @@ def test_aws_claude_output_config_in_request_params():
 
 def test_aws_output_config_omitted_when_not_provided():
     pytest.importorskip("boto3")
-    from agno.models.aws.claude import Claude as AwsClaude
+    from egpt.models.aws.claude import Claude as AwsClaude
 
     model = AwsClaude()
 
@@ -77,7 +77,7 @@ def test_aws_output_config_omitted_when_not_provided():
 
 def test_aws_request_params_can_override_output_config():
     pytest.importorskip("boto3")
-    from agno.models.aws.claude import Claude as AwsClaude
+    from egpt.models.aws.claude import Claude as AwsClaude
 
     model = AwsClaude(
         output_config={"effort": "high"},
@@ -118,7 +118,7 @@ def test_vertexai_request_params_can_override_output_config():
 
 def test_aws_to_dict_includes_output_config():
     pytest.importorskip("boto3")
-    from agno.models.aws.claude import Claude as AwsClaude
+    from egpt.models.aws.claude import Claude as AwsClaude
 
     model = AwsClaude(output_config={"effort": "high"})
 
@@ -154,7 +154,7 @@ def _make_mock_message(role: str, container_id: str | None = None):
 def test_aws_prepare_request_kwargs_accepts_messages():
     """AWS Claude._prepare_request_kwargs must accept messages kwarg without TypeError."""
     pytest.importorskip("boto3")
-    from agno.models.aws.claude import Claude as AwsClaude
+    from egpt.models.aws.claude import Claude as AwsClaude
 
     model = AwsClaude()
     messages = [_make_mock_message("user"), _make_mock_message("assistant")]
@@ -177,7 +177,7 @@ def test_vertexai_prepare_request_kwargs_accepts_messages():
 def test_aws_prepare_request_kwargs_messages_does_not_affect_output():
     """Passing messages to AWS Claude should not change the returned kwargs."""
     pytest.importorskip("boto3")
-    from agno.models.aws.claude import Claude as AwsClaude
+    from egpt.models.aws.claude import Claude as AwsClaude
 
     model = AwsClaude()
     kwargs_without = model._prepare_request_kwargs("system prompt")
@@ -198,7 +198,7 @@ def test_vertexai_prepare_request_kwargs_messages_does_not_affect_output():
 def test_aws_prepare_request_kwargs_signature_matches_parent():
     """AWS Claude._prepare_request_kwargs signature must match parent for all kwargs."""
     pytest.importorskip("boto3")
-    from agno.models.aws.claude import Claude as AwsClaude
+    from egpt.models.aws.claude import Claude as AwsClaude
 
     model = AwsClaude()
     kwargs = model._prepare_request_kwargs(
@@ -295,7 +295,7 @@ def test_anthropic_all_sampling_params_zero():
 def test_aws_temperature_zero_included():
     """AWS Claude: temperature=0.0 must appear in request params."""
     pytest.importorskip("boto3")
-    from agno.models.aws.claude import Claude as AwsClaude
+    from egpt.models.aws.claude import Claude as AwsClaude
 
     model = AwsClaude(temperature=0.0)
     params = model.get_request_params()
@@ -306,7 +306,7 @@ def test_aws_temperature_zero_included():
 def test_aws_top_p_zero_included():
     """AWS Claude: top_p=0.0 must appear in request params."""
     pytest.importorskip("boto3")
-    from agno.models.aws.claude import Claude as AwsClaude
+    from egpt.models.aws.claude import Claude as AwsClaude
 
     model = AwsClaude(top_p=0.0)
     params = model.get_request_params()
@@ -317,7 +317,7 @@ def test_aws_top_p_zero_included():
 def test_aws_top_k_zero_included():
     """AWS Claude: top_k=0 must appear in request params."""
     pytest.importorskip("boto3")
-    from agno.models.aws.claude import Claude as AwsClaude
+    from egpt.models.aws.claude import Claude as AwsClaude
 
     model = AwsClaude(top_k=0)
     params = model.get_request_params()
@@ -328,7 +328,7 @@ def test_aws_top_k_zero_included():
 def test_aws_temperature_none_excluded():
     """AWS Claude: unset temperature must not appear in request params."""
     pytest.importorskip("boto3")
-    from agno.models.aws.claude import Claude as AwsClaude
+    from egpt.models.aws.claude import Claude as AwsClaude
 
     model = AwsClaude()
     params = model.get_request_params()

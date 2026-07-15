@@ -8,17 +8,17 @@ pytest.importorskip("ag_ui", reason="ag_ui not installed")
 
 from fastapi.testclient import TestClient
 
-from agno.agent import Agent
-from agno.os.app import AgentOS
-from agno.os.interfaces.agui import AGUI
-from agno.run.agent import (
+from egpt.agent import Agent
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.agui import AGUI
+from egpt.run.agent import (
     RunCompletedEvent,
     RunContentEvent,
     RunOutputEvent,
     ToolCallCompletedEvent,
     ToolCallStartedEvent,
 )
-from agno.team import Team
+from egpt.team import Team
 
 
 def parse_sse_events(content: str) -> List[Dict[str, Any]]:
@@ -232,7 +232,7 @@ class TestAgentStateDelta:
                 agent,
                 "arun",
             ) as mock_arun,
-            patch("agno.os.interfaces.agui.router.validate_state", side_effect=mock_validate),
+            patch("egpt.os.interfaces.agui.router.validate_state", side_effect=mock_validate),
         ):
             mock_arun.return_value = mock_stream()
             response = client.post("/agui", json=make_request_body("Increment", state={"counter": 0}))
@@ -283,7 +283,7 @@ class TestAgentStateDelta:
                 agent,
                 "arun",
             ) as mock_arun,
-            patch("agno.os.interfaces.agui.router.validate_state", side_effect=mock_validate),
+            patch("egpt.os.interfaces.agui.router.validate_state", side_effect=mock_validate),
         ):
             mock_arun.return_value = mock_stream()
             response = client.post("/agui", json=make_request_body("Noop", state={"counter": 0}))
@@ -355,7 +355,7 @@ class TestAgentStateEdgeCases:
                 agent,
                 "arun",
             ) as mock_arun,
-            patch("agno.os.interfaces.agui.router.validate_state", side_effect=mock_validate),
+            patch("egpt.os.interfaces.agui.router.validate_state", side_effect=mock_validate),
         ):
             mock_arun.return_value = mock_stream()
             response = client.post(

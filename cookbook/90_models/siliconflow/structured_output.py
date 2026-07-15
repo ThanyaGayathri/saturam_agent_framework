@@ -7,8 +7,8 @@ Cookbook example for `siliconflow/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.siliconflow import Siliconflow
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.siliconflow import Siliconflow
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

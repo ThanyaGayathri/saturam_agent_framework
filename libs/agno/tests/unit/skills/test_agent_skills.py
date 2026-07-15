@@ -6,12 +6,12 @@ from typing import List
 
 import pytest
 
-from agno.skills.agent_skills import Skills
-from agno.skills.errors import SkillValidationError
-from agno.skills.loaders.base import SkillLoader
-from agno.skills.loaders.local import LocalSkills
-from agno.skills.skill import Skill
-from agno.tools.function import Function
+from egpt.skills.agent_skills import Skills
+from egpt.skills.errors import SkillValidationError
+from egpt.skills.loaders.base import SkillLoader
+from egpt.skills.loaders.local import LocalSkills
+from egpt.skills.skill import Skill
+from egpt.tools.function import Function
 
 from .conftest import MockSkillLoader
 
@@ -437,7 +437,7 @@ def test_skill_script_path_traversal_blocked(mock_loader: MockSkillLoader) -> No
 
 def test_is_safe_path_allows_valid_paths(tmp_path: Path) -> None:
     """Test that is_safe_path allows valid paths."""
-    from agno.skills.utils import is_safe_path
+    from egpt.skills.utils import is_safe_path
 
     # Create real directories for testing
     base_dir = tmp_path / "base"
@@ -451,7 +451,7 @@ def test_is_safe_path_allows_valid_paths(tmp_path: Path) -> None:
 
 def test_is_safe_path_blocks_traversal(tmp_path: Path) -> None:
     """Test that is_safe_path blocks path traversal attempts."""
-    from agno.skills.utils import is_safe_path
+    from egpt.skills.utils import is_safe_path
 
     base_dir = tmp_path / "base"
     base_dir.mkdir()

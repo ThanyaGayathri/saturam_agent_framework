@@ -5,8 +5,8 @@ Anthropic Basic With Timeout
 Cookbook example for `anthropic/basic_with_timeout.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.anthropic import Claude
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.anthropic import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

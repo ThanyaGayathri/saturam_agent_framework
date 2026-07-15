@@ -11,12 +11,12 @@ Install dependency:
 import asyncio
 from os import getenv
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.vectordb.search import SearchType
-from agno.vectordb.weaviate import Distance, VectorIndex, Weaviate
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.vectordb.search import SearchType
+from egpt.vectordb.weaviate import Distance, VectorIndex, Weaviate
 
 
 # ---------------------------------------------------------------------------

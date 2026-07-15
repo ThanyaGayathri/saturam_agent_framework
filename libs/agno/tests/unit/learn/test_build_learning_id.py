@@ -4,11 +4,11 @@ The learning stores delegate their `_build_*_id` helpers here, so the REST creat
 can compute the same deterministic id and records reconcile with what the agent reads/writes.
 """
 
-from agno.learn.stores.entity_memory import EntityMemoryStore
-from agno.learn.stores.session_context import SessionContextStore
-from agno.learn.stores.user_memory import UserMemoryStore
-from agno.learn.stores.user_profile import UserProfileStore
-from agno.learn.utils import IDENTITY_KEYED_LEARNING_TYPES, build_learning_id
+from egpt.learn.stores.entity_memory import EntityMemoryStore
+from egpt.learn.stores.session_context import SessionContextStore
+from egpt.learn.stores.user_memory import UserMemoryStore
+from egpt.learn.stores.user_profile import UserProfileStore
+from egpt.learn.utils import IDENTITY_KEYED_LEARNING_TYPES, build_learning_id
 
 
 class TestBuildLearningId:

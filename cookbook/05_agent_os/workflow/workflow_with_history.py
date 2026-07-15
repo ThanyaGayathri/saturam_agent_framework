@@ -5,12 +5,12 @@ Workflow With History
 Demonstrates workflow with history.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.workflow.step import Step, StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.workflow.step import Step, StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Example

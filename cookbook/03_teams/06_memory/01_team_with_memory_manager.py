@@ -7,11 +7,11 @@ Demonstrates persistent team memory updates through MemoryManager.
 
 from uuid import uuid4
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.memory import MemoryManager
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.memory import MemoryManager
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

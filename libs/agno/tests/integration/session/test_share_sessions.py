@@ -2,13 +2,13 @@ import uuid
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.agent import RunOutput
-from agno.run.team import TeamRunOutput
-from agno.session.agent import AgentSession
-from agno.session.team import TeamSession
-from agno.team.team import Team
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import RunOutput
+from egpt.run.team import TeamRunOutput
+from egpt.session.agent import AgentSession
+from egpt.session.team import TeamSession
+from egpt.team.team import Team
 
 
 @pytest.fixture

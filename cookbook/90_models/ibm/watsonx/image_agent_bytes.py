@@ -7,9 +7,9 @@ Cookbook example for `ibm/watsonx/image_agent_bytes.py`.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.ibm import WatsonX
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.ibm import WatsonX
 
 # ---------------------------------------------------------------------------
 # Create Agent

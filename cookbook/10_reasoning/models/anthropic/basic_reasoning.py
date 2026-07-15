@@ -5,8 +5,8 @@ Basic Reasoning
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
 from rich.console import Console
 
 

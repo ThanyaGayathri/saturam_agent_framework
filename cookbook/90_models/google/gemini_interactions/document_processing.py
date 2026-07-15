@@ -6,9 +6,9 @@ Example showing document (PDF) processing with the Interactions API.
 Supports documents from URLs, local files, and raw bytes.
 """
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.google import GeminiInteractions
 
 # ---------------------------------------------------------------------------
 # Create Agent

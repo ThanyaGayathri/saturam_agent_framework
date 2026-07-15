@@ -11,10 +11,10 @@ Example prompts to try:
 Run `uv pip install openai agno` to install the necessary dependencies.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.openai import OpenAITools
-from agno.utils.media import save_base64_data
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.openai import OpenAITools
+from egpt.utils.media import save_base64_data
 
 # ---------------------------------------------------------------------------
 # Create Agent

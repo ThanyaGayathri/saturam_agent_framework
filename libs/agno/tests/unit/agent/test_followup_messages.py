@@ -6,8 +6,8 @@ prompt when response_format={"type": "json_object"} is used. The followup
 system prompt must satisfy this and describe the expected JSON shape.
 """
 
-from agno.agent._response import _build_followup_messages, _get_followups_response_format
-from agno.run.agent import Followups
+from egpt.agent._response import _build_followup_messages, _get_followups_response_format
+from egpt.run.agent import Followups
 
 
 class _FakeModel:

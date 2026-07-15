@@ -1,9 +1,9 @@
 import json
 
-from agno.agent import Agent, RunOutput
-from agno.db.in_memory import InMemoryDb
-from agno.models.openai.chat import OpenAIChat
-from agno.run.base import RunContext
+from egpt.agent import Agent, RunOutput
+from egpt.db.in_memory import InMemoryDb
+from egpt.models.openai.chat import OpenAIChat
+from egpt.run.base import RunContext
 
 
 def test_dependencies():

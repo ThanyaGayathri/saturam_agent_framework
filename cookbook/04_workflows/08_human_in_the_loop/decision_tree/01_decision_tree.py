@@ -13,12 +13,12 @@ Each Condition uses:
 - on_reject=OnReject.else_branch to run the alternative branch on rejection
 """
 
-from agno.db.sqlite import SqliteDb
-from agno.workflow import OnReject
-from agno.workflow.condition import Condition
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.db.sqlite import SqliteDb
+from egpt.workflow import OnReject
+from egpt.workflow.condition import Condition
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 # ============================================================

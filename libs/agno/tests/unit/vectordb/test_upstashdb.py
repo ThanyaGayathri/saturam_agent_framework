@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from agno.knowledge.document import Document
-from agno.vectordb.upstashdb import UpstashVectorDb
+from egpt.knowledge.document import Document
+from egpt.vectordb.upstashdb import UpstashVectorDb
 
 
 @pytest.fixture

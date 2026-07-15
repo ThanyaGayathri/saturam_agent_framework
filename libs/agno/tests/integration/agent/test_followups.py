@@ -9,9 +9,9 @@ Validates that:
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.models.openai.chat import OpenAIChat
-from agno.run.agent import RunEvent, RunOutput
+from egpt.agent.agent import Agent
+from egpt.models.openai.chat import OpenAIChat
+from egpt.run.agent import RunEvent, RunOutput
 
 # ---------------------------------------------------------------------------
 # Helpers

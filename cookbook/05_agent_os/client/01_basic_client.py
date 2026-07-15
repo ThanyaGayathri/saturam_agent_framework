@@ -7,9 +7,9 @@ a remote AgentOS instance and perform basic operations.
 Prerequisites:
 1. Start an AgentOS server:
    python -c "
-   from agno.agent import Agent
-   from agno.models.openai import OpenAIChat
-   from agno.os import AgentOS
+   from egpt.agent import Agent
+   from egpt.models.openai import OpenAIChat
+   from egpt.os import AgentOS
 
    agent = Agent(
        name='Assistant',
@@ -25,7 +25,7 @@ Prerequisites:
 
 import asyncio
 
-from agno.client import AgentOSClient
+from egpt.client import AgentOSClient
 
 # ---------------------------------------------------------------------------
 # Create Example

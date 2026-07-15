@@ -16,15 +16,15 @@ See also: ../02_building_blocks/01_chunking_strategies.py for built-in strategie
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.chunking.strategy import ChunkingStrategy
-from agno.knowledge.document import Document
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.pdf_reader import PDFReader
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.qdrant import Qdrant
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.knowledge.chunking.strategy import ChunkingStrategy
+from egpt.knowledge.document import Document
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.pdf_reader import PDFReader
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.qdrant import Qdrant
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Custom Chunking Strategy

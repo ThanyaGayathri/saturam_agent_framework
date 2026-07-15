@@ -9,10 +9,10 @@ import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
-from agno.db.schemas.knowledge import KnowledgeRow
-from agno.knowledge.content import Content, FileData
-from agno.knowledge.knowledge import ContentStatus, Knowledge
-from agno.os.routers.knowledge.knowledge import attach_routes
+from egpt.db.schemas.knowledge import KnowledgeRow
+from egpt.knowledge.content import Content, FileData
+from egpt.knowledge.knowledge import ContentStatus, Knowledge
+from egpt.os.routers.knowledge.knowledge import attach_routes
 
 
 @pytest.fixture
@@ -101,7 +101,7 @@ def test_app(mock_knowledge):
 def test_upload_content_success(test_app, mock_knowledge, mock_content):
     """Test successful content upload."""
     # Mock the background task processing
-    with patch("agno.os.routers.knowledge.knowledge.process_content") as mock_process:  # Fixed import path
+    with patch("egpt.os.routers.knowledge.knowledge.process_content") as mock_process:  # Fixed import path
         # Create test file
         test_file_content = b"test file content"
         test_file = BytesIO(test_file_content)
@@ -128,7 +128,7 @@ def test_upload_content_success(test_app, mock_knowledge, mock_content):
 
 def test_upload_content_with_url(test_app, mock_knowledge):
     """Test content upload with URL."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content"):
+    with patch("egpt.os.routers.knowledge.knowledge.process_content"):
         response = test_app.post(
             "/knowledge/content",
             data={
@@ -147,7 +147,7 @@ def test_upload_content_with_url(test_app, mock_knowledge):
 
 def test_upload_content_invalid_json(test_app):
     """Test content upload with invalid JSON metadata."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content"):
+    with patch("egpt.os.routers.knowledge.knowledge.process_content"):
         response = test_app.post(
             "/knowledge/content",
             data={
@@ -249,7 +249,7 @@ def test_get_content_by_id_not_found(test_app, mock_knowledge):
     mock_knowledge.contents_db.get_knowledge_content.return_value = None
 
     # Mock the Content constructor to handle None case
-    with patch("agno.knowledge.content.Content") as mock_content_class:
+    with patch("egpt.knowledge.content.Content") as mock_content_class:
         mock_content_instance = Mock()
         mock_content_instance.name = "test"
         mock_content_class.return_value = mock_content_instance
@@ -399,7 +399,7 @@ def test_get_config_with_vector_db_no_name(test_app, mock_knowledge):
 
 def test_search_knowledge_basic(test_app, mock_knowledge):
     """Test basic search without search_type specified."""
-    from agno.knowledge.document import Document
+    from egpt.knowledge.document import Document
 
     # Mock search results
     mock_documents = [
@@ -450,7 +450,7 @@ def test_search_knowledge_basic(test_app, mock_knowledge):
 
 def test_search_knowledge_with_search_type(test_app, mock_knowledge):
     """Test search with specific search_type."""
-    from agno.knowledge.document import Document
+    from egpt.knowledge.document import Document
 
     mock_documents = [
         Document(id="doc_1", content="Vector search result", name="test_doc", meta_data={}, usage={"total_tokens": 5})
@@ -474,7 +474,7 @@ def test_search_knowledge_with_search_type(test_app, mock_knowledge):
 
 def test_search_knowledge_with_db_id(test_app, mock_knowledge):
     """Test search with specific database ID."""
-    from agno.knowledge.document import Document
+    from egpt.knowledge.document import Document
 
     # Configure mock_knowledge.contents_db to have the expected ID
     mock_knowledge.contents_db.id = "test_db"
@@ -532,7 +532,7 @@ def test_search_knowledge_missing_query(test_app, mock_knowledge):
 
 def test_search_knowledge_with_all_parameters(test_app, mock_knowledge):
     """Test search with all parameters specified."""
-    from agno.knowledge.document import Document
+    from egpt.knowledge.document import Document
 
     # Configure mock_knowledge.contents_db to have the expected ID
     mock_knowledge.contents_db.id = "test_db"
@@ -581,7 +581,7 @@ def test_search_knowledge_with_all_parameters(test_app, mock_knowledge):
 
 def test_search_knowledge_timing(test_app, mock_knowledge):
     """Test that search timing is properly recorded."""
-    from agno.knowledge.document import Document
+    from egpt.knowledge.document import Document
 
     mock_documents = [Document(id="timing_doc", content="Timing test", name="timing", meta_data={}, usage={})]
 
@@ -602,7 +602,7 @@ def test_search_knowledge_document_serialization(test_app, mock_knowledge):
     """Test that Document objects are properly serialized without numpy arrays."""
     np = pytest.importorskip("numpy", reason="numpy is not part of agno[dev]; agno[tests] carries it")
 
-    from agno.knowledge.document import Document
+    from egpt.knowledge.document import Document
 
     # Create a document with complex objects that shouldn't be serialized
     mock_doc = Document(
@@ -640,7 +640,7 @@ def test_search_knowledge_document_serialization(test_app, mock_knowledge):
 
 async def test_process_content_success(mock_knowledge, mock_content):
     """Test successful content processing."""
-    from agno.os.routers.knowledge.knowledge import process_content
+    from egpt.os.routers.knowledge.knowledge import process_content
 
     reader_id = "text_reader"
 
@@ -664,7 +664,7 @@ async def test_process_content_success(mock_knowledge, mock_content):
 
 async def test_process_content_with_exception(mock_knowledge, mock_content):
     """Test content processing with exception."""
-    from agno.os.routers.knowledge.knowledge import process_content
+    from egpt.os.routers.knowledge.knowledge import process_content
 
     reader_id = "test_reader"
 
@@ -676,7 +676,7 @@ async def test_process_content_with_exception(mock_knowledge, mock_content):
 
 def test_upload_large_file(test_app):
     """Test uploading a large file."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content"):
+    with patch("egpt.os.routers.knowledge.knowledge.process_content"):
         # Create a large file content
         large_content = b"x" * (10 * 1024 * 1024)  # 10MB
         test_file = BytesIO(large_content)
@@ -694,7 +694,7 @@ def test_upload_large_file(test_app):
 
 def test_upload_without_file(test_app):
     """Test uploading content without a file."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content"):
+    with patch("egpt.os.routers.knowledge.knowledge.process_content"):
         response = test_app.post(
             "/knowledge/content",
             data={"name": "Text Content", "description": "Content without file", "metadata": '{"type": "text"}'},
@@ -707,7 +707,7 @@ def test_upload_without_file(test_app):
 
 def test_upload_with_special_characters(test_app):
     """Test uploading content with special characters in metadata."""
-    with patch("agno.os.routers.knowledge.knowledge.process_content"):
+    with patch("egpt.os.routers.knowledge.knowledge.process_content"):
         special_metadata = {"special_chars": "!@#$%^&*()", "unicode": "测试内容", "quotes": '{"nested": "value"}'}
 
         response = test_app.post(

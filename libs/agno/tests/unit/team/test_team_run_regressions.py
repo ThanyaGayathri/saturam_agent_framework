@@ -7,15 +7,15 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from agno.agent.agent import Agent
-from agno.db.postgres import AsyncPostgresDb
-from agno.run import RunContext
-from agno.run.base import RunStatus
-from agno.run.team import TeamRunOutput
-from agno.session import TeamSession
-from agno.team import _hooks
-from agno.team import _run as team_run
-from agno.team.team import Team
+from egpt.agent.agent import Agent
+from egpt.db.postgres import AsyncPostgresDb
+from egpt.run import RunContext
+from egpt.run.base import RunStatus
+from egpt.run.team import TeamRunOutput
+from egpt.session import TeamSession
+from egpt.team import _hooks
+from egpt.team import _run as team_run
+from egpt.team.team import Team
 
 
 def test_all_team_pause_handlers_accept_run_context():
@@ -36,7 +36,7 @@ def test_handle_team_run_paused_forwards_run_context_to_cleanup(monkeypatch: pyt
         captured["run_context"] = run_context
 
     monkeypatch.setattr(team_run, "_cleanup_and_store", spy_cleanup)
-    monkeypatch.setattr("agno.run.approval.create_approval_from_pause", lambda **kwargs: None)
+    monkeypatch.setattr("egpt.run.approval.create_approval_from_pause", lambda **kwargs: None)
 
     team = Team(name="test-team", members=[Agent(name="m1")])
     run_context = RunContext(run_id="r1", session_id="s1", session_state={"key": "val"})
@@ -62,7 +62,7 @@ async def test_ahandle_team_run_paused_forwards_run_context_to_cleanup(monkeypat
         return None
 
     monkeypatch.setattr(team_run, "_acleanup_and_store", spy_acleanup)
-    monkeypatch.setattr("agno.run.approval.acreate_approval_from_pause", noop_acreate_approval)
+    monkeypatch.setattr("egpt.run.approval.acreate_approval_from_pause", noop_acreate_approval)
 
     team = Team(name="test-team", members=[Agent(name="m1")])
     run_context = RunContext(run_id="r1", session_id="s1", session_state={"key": "val"})
@@ -79,8 +79,8 @@ async def test_ahandle_team_run_paused_forwards_run_context_to_cleanup(monkeypat
 
 def test_handle_team_run_paused_persists_session_state(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(team_run, "scrub_run_output_for_storage", lambda team, run_response: None)
-    monkeypatch.setattr("agno.team._session.update_session_metrics", lambda team, session, run_response: None)
-    monkeypatch.setattr("agno.run.approval.create_approval_from_pause", lambda **kwargs: None)
+    monkeypatch.setattr("egpt.team._session.update_session_metrics", lambda team, session, run_response: None)
+    monkeypatch.setattr("egpt.run.approval.create_approval_from_pause", lambda **kwargs: None)
 
     team = Team(name="test-team", members=[Agent(name="m1")])
     monkeypatch.setattr(team, "save_session", lambda session: None)
@@ -103,8 +103,8 @@ def test_handle_team_run_paused_persists_session_state(monkeypatch: pytest.Monke
 
 def test_handle_team_run_paused_without_run_context_does_not_set_state(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(team_run, "scrub_run_output_for_storage", lambda team, run_response: None)
-    monkeypatch.setattr("agno.team._session.update_session_metrics", lambda team, session, run_response: None)
-    monkeypatch.setattr("agno.run.approval.create_approval_from_pause", lambda **kwargs: None)
+    monkeypatch.setattr("egpt.team._session.update_session_metrics", lambda team, session, run_response: None)
+    monkeypatch.setattr("egpt.run.approval.create_approval_from_pause", lambda **kwargs: None)
 
     team = Team(name="test-team", members=[Agent(name="m1")])
     monkeypatch.setattr(team, "save_session", lambda session: None)
@@ -123,8 +123,8 @@ def test_handle_team_run_paused_without_run_context_does_not_set_state(monkeypat
 
 def test_handle_team_run_paused_persists_state_when_session_data_is_none(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(team_run, "scrub_run_output_for_storage", lambda team, run_response: None)
-    monkeypatch.setattr("agno.team._session.update_session_metrics", lambda team, session, run_response: None)
-    monkeypatch.setattr("agno.run.approval.create_approval_from_pause", lambda **kwargs: None)
+    monkeypatch.setattr("egpt.team._session.update_session_metrics", lambda team, session, run_response: None)
+    monkeypatch.setattr("egpt.run.approval.create_approval_from_pause", lambda **kwargs: None)
 
     team = Team(name="test-team", members=[Agent(name="m1")])
     monkeypatch.setattr(team, "save_session", lambda session: None)
@@ -148,12 +148,12 @@ def test_handle_team_run_paused_persists_state_when_session_data_is_none(monkeyp
 @pytest.mark.asyncio
 async def test_ahandle_team_run_paused_persists_state_when_session_data_is_none(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(team_run, "scrub_run_output_for_storage", lambda team, run_response: None)
-    monkeypatch.setattr("agno.team._session.update_session_metrics", lambda team, session, run_response: None)
+    monkeypatch.setattr("egpt.team._session.update_session_metrics", lambda team, session, run_response: None)
 
     async def noop_acreate_approval(**kwargs):
         return None
 
-    monkeypatch.setattr("agno.run.approval.acreate_approval_from_pause", noop_acreate_approval)
+    monkeypatch.setattr("egpt.run.approval.acreate_approval_from_pause", noop_acreate_approval)
 
     team = Team(name="test-team", members=[Agent(name="m1")])
 
@@ -181,12 +181,12 @@ async def test_ahandle_team_run_paused_persists_state_when_session_data_is_none(
 @pytest.mark.asyncio
 async def test_ahandle_team_run_paused_persists_session_state(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(team_run, "scrub_run_output_for_storage", lambda team, run_response: None)
-    monkeypatch.setattr("agno.team._session.update_session_metrics", lambda team, session, run_response: None)
+    monkeypatch.setattr("egpt.team._session.update_session_metrics", lambda team, session, run_response: None)
 
     async def noop_acreate_approval(**kwargs):
         return None
 
-    monkeypatch.setattr("agno.run.approval.acreate_approval_from_pause", noop_acreate_approval)
+    monkeypatch.setattr("egpt.run.approval.acreate_approval_from_pause", noop_acreate_approval)
 
     team = Team(name="test-team", members=[Agent(name="m1")])
 
@@ -218,7 +218,7 @@ def test_handle_team_run_paused_stream_forwards_run_context_to_cleanup(monkeypat
         captured["run_context"] = run_context
 
     monkeypatch.setattr(team_run, "_cleanup_and_store", spy_cleanup)
-    monkeypatch.setattr("agno.run.approval.create_approval_from_pause", lambda **kwargs: None)
+    monkeypatch.setattr("egpt.run.approval.create_approval_from_pause", lambda **kwargs: None)
 
     team = Team(name="test-team", members=[Agent(name="m1")])
     run_context = RunContext(run_id="r1", session_id="s1", session_state={"key": "val"})
@@ -247,7 +247,7 @@ async def test_ahandle_team_run_paused_stream_forwards_run_context_to_cleanup(mo
         return None
 
     monkeypatch.setattr(team_run, "_acleanup_and_store", spy_acleanup)
-    monkeypatch.setattr("agno.run.approval.acreate_approval_from_pause", noop_acreate_approval)
+    monkeypatch.setattr("egpt.run.approval.acreate_approval_from_pause", noop_acreate_approval)
 
     team = Team(name="test-team", members=[Agent(name="m1")])
     run_context = RunContext(run_id="r1", session_id="s1", session_state={"key": "val"})
@@ -267,8 +267,8 @@ async def test_ahandle_team_run_paused_stream_forwards_run_context_to_cleanup(mo
 
 def test_handle_team_run_paused_stream_persists_session_state(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(team_run, "scrub_run_output_for_storage", lambda team, run_response: None)
-    monkeypatch.setattr("agno.team._session.update_session_metrics", lambda team, session, run_response: None)
-    monkeypatch.setattr("agno.run.approval.create_approval_from_pause", lambda **kwargs: None)
+    monkeypatch.setattr("egpt.team._session.update_session_metrics", lambda team, session, run_response: None)
+    monkeypatch.setattr("egpt.run.approval.create_approval_from_pause", lambda **kwargs: None)
 
     team = Team(name="test-team", members=[Agent(name="m1")])
     monkeypatch.setattr(team, "save_session", lambda session: None)
@@ -294,12 +294,12 @@ def test_handle_team_run_paused_stream_persists_session_state(monkeypatch: pytes
 @pytest.mark.asyncio
 async def test_ahandle_team_run_paused_stream_persists_session_state(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(team_run, "scrub_run_output_for_storage", lambda team, run_response: None)
-    monkeypatch.setattr("agno.team._session.update_session_metrics", lambda team, session, run_response: None)
+    monkeypatch.setattr("egpt.team._session.update_session_metrics", lambda team, session, run_response: None)
 
     async def noop_acreate_approval(**kwargs):
         return None
 
-    monkeypatch.setattr("agno.run.approval.acreate_approval_from_pause", noop_acreate_approval)
+    monkeypatch.setattr("egpt.run.approval.acreate_approval_from_pause", noop_acreate_approval)
 
     team = Team(name="test-team", members=[Agent(name="m1")])
 

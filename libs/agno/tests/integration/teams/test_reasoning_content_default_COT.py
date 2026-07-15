@@ -11,8 +11,8 @@ from textwrap import dedent
 
 import pytest
 
-from agno.models.openai import OpenAIChat
-from agno.team.team import Team
+from egpt.models.openai import OpenAIChat
+from egpt.team.team import Team
 
 
 @pytest.fixture(autouse=True)

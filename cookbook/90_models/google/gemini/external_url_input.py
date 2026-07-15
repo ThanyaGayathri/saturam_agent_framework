@@ -16,9 +16,9 @@ Note: External URL support requires Gemini 3.x models (e.g., gemini-3.5-flash).
       Gemini 2.0 models do not support this feature.
 """
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Create Agent

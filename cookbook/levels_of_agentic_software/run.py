@@ -35,7 +35,7 @@ Prerequisites
 
 from pathlib import Path
 
-from agno.os import AgentOS
+from egpt.os import AgentOS
 from level_1_tools import l1_coding_agent
 from level_2_storage_knowledge import l2_coding_agent
 from level_3_memory_learning import l3_coding_agent

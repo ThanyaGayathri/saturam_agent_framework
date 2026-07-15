@@ -5,12 +5,12 @@
 Demonstrates 02 basic team tracing.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team import Team
-from agno.tools.hackernews import HackerNewsTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team import Team
+from egpt.tools.hackernews import HackerNewsTools
 
 # ---------------------------------------------------------------------------
 # Create Example

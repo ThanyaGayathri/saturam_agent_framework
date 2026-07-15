@@ -1,7 +1,7 @@
 import pytest
 
-from agno.models.openai import OpenAIChat
-from agno.team import Team
+from egpt.models.openai import OpenAIChat
+from egpt.team import Team
 
 
 @pytest.fixture

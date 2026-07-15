@@ -8,12 +8,12 @@ Demonstrates async team execution with mixed research and scraping tools.
 import asyncio
 from uuid import uuid4
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.tools.agentql import AgentQLTools
-from agno.tools.websearch import WebSearchTools
-from agno.tools.wikipedia import WikipediaTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.tools.agentql import AgentQLTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.wikipedia import WikipediaTools
 
 # ---------------------------------------------------------------------------
 # Setup

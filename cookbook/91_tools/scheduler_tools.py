@@ -13,10 +13,10 @@ Prerequisites:
     # See cookbook/05_agent_os/scheduler/scheduler_tools_agent.py for full setup
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.tools.scheduler import SchedulerTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.tools.scheduler import SchedulerTools
 
 # ---------------------------------------------------------------------------
 # Database

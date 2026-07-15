@@ -8,9 +8,9 @@ import time
 
 import pytest
 
-from agno.db.base import SessionType
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.session.agent import AgentSession
+from egpt.db.base import SessionType
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.session.agent import AgentSession
 
 
 @pytest.fixture(autouse=True)

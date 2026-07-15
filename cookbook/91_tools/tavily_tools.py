@@ -5,8 +5,8 @@ Tavily Tools
 Demonstrates tavily tools.
 """
 
-from agno.agent import Agent
-from agno.tools.tavily import TavilyTools
+from egpt.agent import Agent
+from egpt.tools.tavily import TavilyTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

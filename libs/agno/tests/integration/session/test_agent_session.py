@@ -4,12 +4,12 @@ import uuid
 from datetime import datetime
 from time import time
 
-from agno.db.base import SessionType
-from agno.models.message import Message
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.session.agent import AgentSession
-from agno.session.summary import SessionSummary
+from egpt.db.base import SessionType
+from egpt.models.message import Message
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.session.agent import AgentSession
+from egpt.session.summary import SessionSummary
 
 
 def create_session_with_runs(shared_db, session_id: str, runs: list[RunOutput]) -> AgentSession:

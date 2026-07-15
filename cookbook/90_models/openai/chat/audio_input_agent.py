@@ -6,9 +6,9 @@ Cookbook example for `openai/chat/audio_input_agent.py`.
 """
 
 import requests
-from agno.agent import Agent, RunOutput  # noqa
-from agno.media import Audio
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.media import Audio
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Agent

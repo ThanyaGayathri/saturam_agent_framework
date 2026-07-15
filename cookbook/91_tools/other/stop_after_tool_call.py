@@ -5,9 +5,9 @@ Stop After Tool Call
 Demonstrates stop after tool call.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

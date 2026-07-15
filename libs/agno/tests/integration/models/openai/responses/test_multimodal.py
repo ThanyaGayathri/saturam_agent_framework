@@ -1,7 +1,7 @@
-from agno.agent.agent import Agent
-from agno.media import File, Image
-from agno.models.openai.responses import OpenAIResponses
-from agno.tools.websearch import WebSearchTools
+from egpt.agent.agent import Agent
+from egpt.media import File, Image
+from egpt.models.openai.responses import OpenAIResponses
+from egpt.tools.websearch import WebSearchTools
 
 
 def test_image_input(image_path):

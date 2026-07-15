@@ -2,10 +2,10 @@
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.meta import Llama
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.meta import Llama
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -5,10 +5,10 @@ Chat History
 Demonstrates retrieving chat history and limiting included history messages.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 
 # ---------------------------------------------------------------------------
 # Setup

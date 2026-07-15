@@ -9,8 +9,8 @@ Environment variables:
 Run: pip install openai slack-sdk
 """
 
-from agno.agent import Agent
-from agno.tools.slack import SlackTools
+from egpt.agent import Agent
+from egpt.tools.slack import SlackTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

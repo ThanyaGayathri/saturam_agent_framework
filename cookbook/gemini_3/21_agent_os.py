@@ -23,8 +23,8 @@ import importlib
 import sys
 from pathlib import Path
 
-from agno.os import AgentOS
 from db import gemini_agents_db
+from egpt.os import AgentOS
 
 # Numbered filenames need importlib since Python can't import modules starting with digits
 sys.path.insert(0, str(Path(__file__).parent))

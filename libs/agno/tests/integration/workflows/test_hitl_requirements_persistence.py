@@ -16,12 +16,12 @@ Tests cover:
 - Async: requirements persist in async mode
 """
 
-from agno.run.base import RunStatus
-from agno.run.workflow import WorkflowRunOutput
-from agno.workflow import OnError, OnReject, Router
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.run.base import RunStatus
+from egpt.run.workflow import WorkflowRunOutput
+from egpt.workflow import OnError, OnReject, Router
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 # =============================================================================
 # Test Step Functions

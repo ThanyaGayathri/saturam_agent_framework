@@ -2,9 +2,9 @@ import uuid
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.models.openai.chat import OpenAIChat
-from agno.run import RunContext
+from egpt.agent.agent import Agent
+from egpt.models.openai.chat import OpenAIChat
+from egpt.run import RunContext
 
 
 @pytest.fixture

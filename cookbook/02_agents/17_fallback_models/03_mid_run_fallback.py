@@ -12,9 +12,9 @@ Flow:
   5. Fallback (Claude) is tried
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.models.openai import OpenAIChat
 
 
 def break_model(agent: Agent) -> str:

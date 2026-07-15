@@ -16,8 +16,8 @@ Unlike Deep Research, Antigravity runs in the foreground (no background mode);
 the model still forces `store=True` so the interaction is retrievable.
 """
 
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
 
 # ---------------------------------------------------------------------------
 # Create Agent

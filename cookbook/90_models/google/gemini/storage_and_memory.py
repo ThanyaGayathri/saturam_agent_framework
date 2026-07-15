@@ -1,11 +1,11 @@
 """Run `pip install ddgs pgvector google.genai` to install dependencies."""
 
-from agno.agent import Agent
-from agno.db.postgres.postgres import PostgresDb
-from agno.knowledge import PDFUrlKnowledgeBase
-from agno.models.google import Gemini
-from agno.tools.websearch import WebSearchTools
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.knowledge import PDFUrlKnowledgeBase
+from egpt.models.google import Gemini
+from egpt.tools.websearch import WebSearchTools
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Agent

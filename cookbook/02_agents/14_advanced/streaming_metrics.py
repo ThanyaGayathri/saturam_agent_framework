@@ -6,9 +6,9 @@ Demonstrates how to capture metrics from streaming responses.
 Use yield_run_output=True to receive a RunOutput at the end of the stream.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.agent import RunOutput
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import RunOutput
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

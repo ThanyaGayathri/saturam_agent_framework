@@ -5,8 +5,8 @@ Sql Tools
 Demonstrates sql tools.
 """
 
-from agno.agent import Agent
-from agno.tools.sql import SQLTools
+from egpt.agent import Agent
+from egpt.tools.sql import SQLTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

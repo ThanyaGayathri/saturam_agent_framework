@@ -5,12 +5,12 @@ External Tool Execution
 Demonstrates resolving external tool execution requirements in team flows.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.tools import tool
-from agno.utils import pprint
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.tools import tool
+from egpt.utils import pprint
 from rich.console import Console
 from rich.prompt import Prompt
 

@@ -7,11 +7,11 @@ via get_relevant_docs_from_knowledge().
 
 from unittest.mock import MagicMock
 
-from agno.models.base import Function
-from agno.run.base import RunContext
-from agno.run.team import TeamRunOutput
-from agno.session.team import TeamSession
-from agno.team.team import Team
+from egpt.models.base import Function
+from egpt.run.base import RunContext
+from egpt.run.team import TeamRunOutput
+from egpt.session.team import TeamSession
+from egpt.team.team import Team
 
 
 class MockKnowledge:
@@ -47,7 +47,7 @@ def _get_knowledge_tools(tools):
 
 def test_team_tools_registers_search_tool_when_both_knowledge_and_retriever_set():
     """When both knowledge and knowledge_retriever are set, a search tool is registered."""
-    from agno.team._tools import _determine_tools_for_model
+    from egpt.team._tools import _determine_tools_for_model
 
     def custom_retriever(query, team=None, num_documents=None, **kwargs):
         return [{"content": "from retriever"}]
@@ -73,7 +73,7 @@ def test_team_tools_registers_search_tool_when_both_knowledge_and_retriever_set(
 
 def test_team_tools_registers_search_tool_when_only_knowledge_set():
     """When only knowledge is set (no retriever), a search tool is still registered."""
-    from agno.team._tools import _determine_tools_for_model
+    from egpt.team._tools import _determine_tools_for_model
 
     team = Team(name="test-team", members=[])
     team.knowledge = MockKnowledge()  # type: ignore
@@ -96,7 +96,7 @@ def test_team_tools_registers_search_tool_when_only_knowledge_set():
 
 def test_team_tools_registers_search_tool_when_only_retriever_set():
     """When only knowledge_retriever is set (no knowledge), a search tool is registered."""
-    from agno.team._tools import _determine_tools_for_model
+    from egpt.team._tools import _determine_tools_for_model
 
     def custom_retriever(query, team=None, num_documents=None, **kwargs):
         return [{"content": "from retriever"}]
@@ -122,7 +122,7 @@ def test_team_tools_registers_search_tool_when_only_retriever_set():
 
 def test_team_search_tool_invokes_custom_retriever_when_both_set():
     """End-to-end: when both knowledge and retriever are set, invoking the tool calls the retriever."""
-    from agno.team._tools import _determine_tools_for_model
+    from egpt.team._tools import _determine_tools_for_model
 
     retriever_mock = MagicMock(return_value=[{"content": "from team retriever"}])
 

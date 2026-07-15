@@ -5,8 +5,8 @@ Vercel Basic
 Cookbook example for `vercel/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.vercel import V0
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.vercel import V0
 import asyncio
 
 # ---------------------------------------------------------------------------

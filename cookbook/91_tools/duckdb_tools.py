@@ -5,8 +5,8 @@ Duckdb Tools
 Demonstrates duckdb tools.
 """
 
-from agno.agent import Agent
-from agno.tools.duckdb import DuckDbTools
+from egpt.agent import Agent
+from egpt.tools.duckdb import DuckDbTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

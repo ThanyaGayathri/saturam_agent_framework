@@ -17,12 +17,12 @@ from typing import Iterator
 
 import pytest
 
-from agno.tools.function import Function, FunctionCall, FunctionExecutionResult
+from egpt.tools.function import Function, FunctionCall, FunctionExecutionResult
 
 
 def test_sync_generator_session_state_not_captured_early():
     """Verify that sync generators don't capture session_state before consumption."""
-    from agno.run import RunContext
+    from egpt.run import RunContext
 
     session_state = {"initial": "value"}
 
@@ -63,7 +63,7 @@ def test_sync_generator_session_state_not_captured_early():
 
 def test_non_generator_session_state_captured():
     """Verify that non-generator functions capture session_state normally."""
-    from agno.run import RunContext
+    from egpt.run import RunContext
 
     session_state = {"initial": "value"}
 
@@ -94,7 +94,7 @@ async def test_async_generator_session_state_not_captured_early():
     """Verify that async generators don't capture session_state before consumption."""
     from typing import AsyncIterator
 
-    from agno.run import RunContext
+    from egpt.run import RunContext
 
     session_state = {"initial": "value"}
 
@@ -138,7 +138,7 @@ async def test_async_generator_session_state_not_captured_early():
 @pytest.mark.asyncio
 async def test_async_non_generator_session_state_captured():
     """Verify that async non-generator functions capture session_state normally."""
-    from agno.run import RunContext
+    from egpt.run import RunContext
 
     session_state = {"initial": "value"}
 
@@ -194,7 +194,7 @@ def test_base_model_recaptures_session_state_after_sync_generator():
     """
     from types import GeneratorType
 
-    from agno.run import RunContext
+    from egpt.run import RunContext
 
     session_state = {"initial": "value"}
 
@@ -244,7 +244,7 @@ async def test_base_model_recaptures_session_state_after_async_generator():
     """
     from typing import AsyncIterator
 
-    from agno.run import RunContext
+    from egpt.run import RunContext
 
     session_state = {"initial": "value"}
 

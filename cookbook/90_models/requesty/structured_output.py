@@ -7,8 +7,8 @@ Cookbook example for `requesty/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.requesty import Requesty
+from egpt.agent import Agent
+from egpt.models.requesty import Requesty
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

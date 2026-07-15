@@ -8,10 +8,10 @@ Scope: additive plumbing only — no behavior change. Covers:
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.os import AgentOS
-from agno.run.agent import RunOutput
+from egpt.agent.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.os import AgentOS
+from egpt.run.agent import RunOutput
 
 # ---------------------------------------------------------------------------
 # RunOutput new fields

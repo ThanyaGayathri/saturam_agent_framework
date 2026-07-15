@@ -21,8 +21,8 @@ Example prompts to try:
 - "How do I start investing?"
 """
 
-from agno.agent import Agent, RunOutput
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent, RunOutput
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create the Agent — just set followups=True

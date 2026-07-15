@@ -7,23 +7,23 @@ defined in a separate remote server container.
 
 import os
 
-from agno.agent import Agent, RemoteAgent
-from agno.client.os import AgentOSClient
-from agno.db.postgres import AsyncPostgresDb
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.os.config import AuthorizationConfig
-from agno.os.interfaces.a2a import A2A
-from agno.os.interfaces.agui import AGUI
-from agno.os.interfaces.slack import Slack
-from agno.os.interfaces.telegram import Telegram
-from agno.remote.base import RemoteDb, RemoteKnowledge
-from agno.team import RemoteTeam, Team
-from agno.vectordb.pgvector.pgvector import PgVector
-from agno.workflow import RemoteWorkflow, Workflow
-from agno.workflow.step import Step
+from egpt.agent import Agent, RemoteAgent
+from egpt.client.os import AgentOSClient
+from egpt.db.postgres import AsyncPostgresDb
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.os.config import AuthorizationConfig
+from egpt.os.interfaces.a2a import A2A
+from egpt.os.interfaces.agui import AGUI
+from egpt.os.interfaces.slack import Slack
+from egpt.os.interfaces.telegram import Telegram
+from egpt.remote.base import RemoteDb, RemoteKnowledge
+from egpt.team import RemoteTeam, Team
+from egpt.vectordb.pgvector.pgvector import PgVector
+from egpt.workflow import RemoteWorkflow, Workflow
+from egpt.workflow.step import Step
 
 # =============================================================================
 # JWT Authorization Configuration

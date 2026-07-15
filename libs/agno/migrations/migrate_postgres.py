@@ -1,7 +1,7 @@
 import asyncio
 
-from agno.db.migrations.manager import MigrationManager
-from agno.db.postgres import AsyncPostgresDb, PostgresDb
+from egpt.db.migrations.manager import MigrationManager
+from egpt.db.postgres import AsyncPostgresDb, PostgresDb
 
 # Create your database connection here
 db = PostgresDb(

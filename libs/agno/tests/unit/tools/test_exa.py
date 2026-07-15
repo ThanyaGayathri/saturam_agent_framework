@@ -7,13 +7,13 @@ import pytest
 from exa_py import Exa
 from exa_py.api import SearchResponse
 
-from agno.tools.exa import ExaTools
+from egpt.tools.exa import ExaTools
 
 
 @pytest.fixture
 def mock_exa_client():
     """Create a mock Exa API client."""
-    with patch("agno.tools.exa.Exa") as mock_exa:
+    with patch("egpt.tools.exa.Exa") as mock_exa:
         mock_client = Mock(spec=Exa)
         mock_exa.return_value = mock_client
         return mock_client
@@ -47,7 +47,7 @@ def create_mock_search_result(
 
 def test_init_with_api_key():
     """Test initialization with provided API key."""
-    with patch("agno.tools.exa.Exa") as mock_exa:
+    with patch("egpt.tools.exa.Exa") as mock_exa:
         with patch.dict("os.environ", {"EXA_API_KEY": "test_key"}):
             ExaTools()
             mock_exa.assert_called_once_with("test_key")

@@ -2,7 +2,7 @@
 
 import time
 
-from agno.db.schemas.scheduler import Schedule, ScheduleRun
+from egpt.db.schemas.scheduler import Schedule, ScheduleRun
 
 
 class TestSchedule:

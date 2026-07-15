@@ -5,9 +5,9 @@ Reasoning Stream
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.run.agent import RunEvent  # noqa
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.run.agent import RunEvent  # noqa
 
 
 # ---------------------------------------------------------------------------

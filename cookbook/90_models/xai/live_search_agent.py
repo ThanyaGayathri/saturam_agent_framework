@@ -5,8 +5,8 @@ Xai Live Search Agent
 Cookbook example for `xai/live_search_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.models.xai.xai import xAI
+from egpt.agent import Agent
+from egpt.models.xai.xai import xAI
 
 # ---------------------------------------------------------------------------
 # Create Agent

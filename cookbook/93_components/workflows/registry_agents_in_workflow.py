@@ -19,10 +19,10 @@ The UI stores these IDs in the workflow config. If the ID changes between
 restarts, the workflow will fail to resolve the agent.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 db = PostgresDb(db_url=db_url)

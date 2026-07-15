@@ -4,12 +4,12 @@ Example AgentOS app with a custom health endpoint.
 This example demonstrates how to add a custom health endpoint to your AgentOS app.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.anthropic import Claude
-from agno.os import AgentOS
-from agno.os.routers.health import get_health_router
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.anthropic import Claude
+from egpt.os import AgentOS
+from egpt.os.routers.health import get_health_router
+from egpt.tools.websearch import WebSearchTools
 from fastapi import FastAPI
 
 # ---------------------------------------------------------------------------

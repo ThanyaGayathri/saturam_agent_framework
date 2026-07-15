@@ -1,8 +1,8 @@
 import pytest
 
-from agno.agent import Agent, RunOutput
-from agno.db.sqlite import SqliteDb
-from agno.models.vercel import V0
+from egpt.agent import Agent, RunOutput
+from egpt.db.sqlite import SqliteDb
+from egpt.models.vercel import V0
 
 
 def _assert_metrics(response: RunOutput):

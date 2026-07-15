@@ -8,12 +8,12 @@ Demonstrates tracing a multi-step Agno workflow in Langfuse.
 import base64
 import os
 
-from agno.agent import Agent
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.condition import Condition
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.condition import Condition
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput
+from egpt.workflow.workflow import Workflow
 from openinference.instrumentation.agno import AgnoInstrumentor
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import TracerProvider

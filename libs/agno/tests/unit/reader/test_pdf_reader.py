@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from agno.knowledge.reader.pdf_reader import (
+from egpt.knowledge.reader.pdf_reader import (
     PDFImageReader,
     PDFReader,
     _clean_page_numbers,
@@ -60,7 +60,7 @@ async def test_pdf_reader_async_read_file(sample_pdf_path):
 
 
 def test_pdf_reader_with_chunking(sample_pdf_path):
-    from agno.knowledge.chunking.document import DocumentChunking
+    from egpt.knowledge.chunking.document import DocumentChunking
 
     reader = PDFReader(chunking_strategy=DocumentChunking(chunk_size=50))
     reader.chunk = True
@@ -461,7 +461,7 @@ async def test_pdf_reader_async_sanitize_content_disabled(sample_pdf_path):
 
 def test_pdf_reader_chunk_size_propagation():
     """Test that chunk_size is propagated to default chunking strategy"""
-    from agno.knowledge.chunking.document import DocumentChunking
+    from egpt.knowledge.chunking.document import DocumentChunking
 
     reader = PDFReader(chunk_size=100)
     assert reader.chunk_size == 100
@@ -471,7 +471,7 @@ def test_pdf_reader_chunk_size_propagation():
 
 def test_pdf_reader_default_chunk_size():
     """Test default chunk_size is 5000"""
-    from agno.knowledge.chunking.document import DocumentChunking
+    from egpt.knowledge.chunking.document import DocumentChunking
 
     reader = PDFReader()
     assert reader.chunk_size == 5000
@@ -481,7 +481,7 @@ def test_pdf_reader_default_chunk_size():
 
 def test_pdf_reader_explicit_strategy_preserved():
     """Test that explicit chunking_strategy is not overridden"""
-    from agno.knowledge.chunking.fixed import FixedSizeChunking
+    from egpt.knowledge.chunking.fixed import FixedSizeChunking
 
     custom_strategy = FixedSizeChunking(chunk_size=200)
     reader = PDFReader(chunk_size=100, chunking_strategy=custom_strategy)

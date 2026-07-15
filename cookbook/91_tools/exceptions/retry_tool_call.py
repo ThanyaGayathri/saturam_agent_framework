@@ -5,12 +5,12 @@ Retry Tool Call
 Demonstrates retry tool call.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.exceptions import RetryAgentRun
-from agno.models.openai import OpenAIChat
-from agno.run import RunContext
-from agno.utils.log import logger
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.exceptions import RetryAgentRun
+from egpt.models.openai import OpenAIChat
+from egpt.run import RunContext
+from egpt.utils.log import logger
 
 # ---------------------------------------------------------------------------
 # Create Agent

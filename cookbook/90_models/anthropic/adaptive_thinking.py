@@ -12,8 +12,8 @@ to control thinking depth. Valid effort values:
 - "max": Absolute maximum capability (Opus 4.6 only)
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent with Adaptive Thinking

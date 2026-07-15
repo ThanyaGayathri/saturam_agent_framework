@@ -7,8 +7,8 @@ Demonstrates tool decorator on class method.
 
 from typing import Generator
 
-from agno.agent import Agent
-from agno.tools import Toolkit, tool
+from egpt.agent import Agent
+from egpt.tools import Toolkit, tool
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -3,10 +3,10 @@
 import json
 from typing import Any, Callable, Dict
 
-from agno.agent import Agent
-from agno.run import RunContext
-from agno.tools import Toolkit
-from agno.utils.log import logger
+from egpt.agent import Agent
+from egpt.run import RunContext
+from egpt.tools import Toolkit
+from egpt.utils.log import logger
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -5,9 +5,9 @@ Treaty Of Versailles Analysis
 Demonstrates built-in and DeepSeek-backed reasoning for historical analysis.
 """
 
-from agno.agent import Agent
-from agno.models.deepseek import DeepSeek
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.deepseek import DeepSeek
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Agents

@@ -35,12 +35,12 @@ Loop iteration review:
 
 import pytest
 
-from agno.run.base import RunStatus
-from agno.run.workflow import StepOutputReviewEvent
-from agno.workflow import Loop, OnReject, Router
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.run.base import RunStatus
+from egpt.run.workflow import StepOutputReviewEvent
+from egpt.workflow import Loop, OnReject, Router
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 # =============================================================================
 # Shared step executors

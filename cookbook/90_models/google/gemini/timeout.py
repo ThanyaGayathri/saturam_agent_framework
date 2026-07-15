@@ -9,8 +9,8 @@ to the underlying genai.Client.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Create Agent with timeout

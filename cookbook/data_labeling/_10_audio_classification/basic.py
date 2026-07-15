@@ -10,8 +10,8 @@ audio classification (genre, emotion, speaker, intent).
 from typing import Literal
 
 import requests
-from agno.agent import Agent, RunOutput  # noqa
-from agno.media import Audio
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.media import Audio
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

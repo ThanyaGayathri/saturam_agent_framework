@@ -7,8 +7,8 @@ model emit `reasoning_content` before its answer; `use_thinking=False` turns it
 off for a faster, cheaper response. Leaving it unset (None) uses the model default.
 """
 
-from agno.agent import Agent
-from agno.models.xiaomi import MiMo
+from egpt.agent import Agent
+from egpt.models.xiaomi import MiMo
 
 # ---------------------------------------------------------------------------
 # Thinking enabled - returns reasoning_content

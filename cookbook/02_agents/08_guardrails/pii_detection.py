@@ -7,10 +7,10 @@ Example demonstrating how to use PII detection guardrails with Agno Agent.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.exceptions import InputCheckError
-from agno.guardrails import PIIDetectionGuardrail
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.exceptions import InputCheckError
+from egpt.guardrails import PIIDetectionGuardrail
+from egpt.models.openai import OpenAIResponses
 
 
 # ---------------------------------------------------------------------------

@@ -5,8 +5,8 @@ Serpapi Tools
 Demonstrates serpapi tools.
 """
 
-from agno.agent import Agent
-from agno.tools.serpapi import SerpApiTools
+from egpt.agent import Agent
+from egpt.tools.serpapi import SerpApiTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

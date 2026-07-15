@@ -14,10 +14,10 @@ from typing import List
 
 import pytest
 
-from agno.registry import Registry
-from agno.workflow.condition import Condition
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput
+from egpt.registry import Registry
+from egpt.workflow.condition import Condition
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput
 
 # =============================================================================
 # Sample executor and evaluator functions for testing
@@ -480,7 +480,7 @@ class TestConditionNestedContainerSerialization:
 
     def test_roundtrip_with_nested_parallel(self, registry_with_functions):
         """Test roundtrip with nested Parallel container inside Condition."""
-        from agno.workflow.parallel import Parallel
+        from egpt.workflow.parallel import Parallel
 
         step_1 = Step(name="step-1", executor=condition_executor_1)
         step_2 = Step(name="step-2", executor=condition_executor_2)
@@ -498,7 +498,7 @@ class TestConditionNestedContainerSerialization:
 
     def test_roundtrip_with_nested_loop(self, registry_with_functions):
         """Test roundtrip with nested Loop container inside Condition."""
-        from agno.workflow.loop import Loop
+        from egpt.workflow.loop import Loop
 
         step = Step(name="loop-step", executor=condition_executor_1)
         loop = Loop(name="loop-container", steps=[step], max_iterations=3)
@@ -515,7 +515,7 @@ class TestConditionNestedContainerSerialization:
 
     def test_roundtrip_with_nested_steps_container(self, registry_with_functions):
         """Test roundtrip with nested Steps container inside Condition."""
-        from agno.workflow.steps import Steps
+        from egpt.workflow.steps import Steps
 
         step_1 = Step(name="step-1", executor=condition_executor_1)
         step_2 = Step(name="step-2", executor=condition_executor_2)
@@ -533,7 +533,7 @@ class TestConditionNestedContainerSerialization:
 
     def test_roundtrip_with_nested_router(self, registry_with_functions):
         """Test roundtrip with nested Router container inside Condition."""
-        from agno.workflow.router import Router
+        from egpt.workflow.router import Router
 
         # Add a selector function to the registry
         def test_selector(step_input: StepInput) -> List[Step]:

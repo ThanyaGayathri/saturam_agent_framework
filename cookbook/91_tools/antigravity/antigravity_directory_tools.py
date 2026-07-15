@@ -22,9 +22,9 @@ Usage:
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.google import Gemini
-from agno.tools.antigravity import AntigravityTools
+from egpt.agent import Agent
+from egpt.models.google import Gemini
+from egpt.tools.antigravity import AntigravityTools
 
 AGENT_DIR = (
     Path(__file__).parent.parent.parent / "frameworks" / "antigravity" / "example_agent"

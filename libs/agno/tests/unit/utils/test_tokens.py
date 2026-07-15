@@ -1,8 +1,8 @@
 import pytest
 
-from agno.media import Audio, File, Image, Video
-from agno.models.message import Message
-from agno.utils.tokens import (
+from egpt.media import Audio, File, Image, Video
+from egpt.models.message import Message
+from egpt.utils.tokens import (
     _format_type,
     count_audio_tokens,
     count_file_tokens,
@@ -278,7 +278,7 @@ def test_count_tokens_conversation_with_media():
 @pytest.mark.asyncio
 async def test_model_acount_tokens():
     """Test async token counting on Model base class."""
-    from agno.models.openai import OpenAIChat
+    from egpt.models.openai import OpenAIChat
 
     model = OpenAIChat(id="gpt-4o")
     messages = [Message(role="user", content="Hello world")]
@@ -293,8 +293,8 @@ async def test_model_acount_tokens():
 @pytest.mark.asyncio
 async def test_model_acount_tokens_with_tools():
     """Test async token counting with tools."""
-    from agno.models.openai import OpenAIChat
-    from agno.tools.function import Function
+    from egpt.models.openai import OpenAIChat
+    from egpt.tools.function import Function
 
     model = OpenAIChat(id="gpt-4o")
     messages = [Message(role="user", content="What is the weather?")]
@@ -389,7 +389,7 @@ def test_model_count_tokens_with_schema():
     """Test model.count_tokens includes schema tokens."""
     from pydantic import BaseModel
 
-    from agno.models.openai import OpenAIChat
+    from egpt.models.openai import OpenAIChat
 
     class SimpleSchema(BaseModel):
         answer: str
@@ -428,7 +428,7 @@ async def test_model_acount_tokens_with_schema():
     """Test model.acount_tokens includes schema tokens."""
     from pydantic import BaseModel
 
-    from agno.models.openai import OpenAIChat
+    from egpt.models.openai import OpenAIChat
 
     class SimpleSchema(BaseModel):
         answer: str

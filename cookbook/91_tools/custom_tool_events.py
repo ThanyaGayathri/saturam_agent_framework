@@ -4,10 +4,10 @@ import asyncio
 from dataclasses import dataclass
 from typing import Optional
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.agent import CustomEvent
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import CustomEvent
+from egpt.tools import tool
 
 # ---------------------------------------------------------------------------
 # Create Agent

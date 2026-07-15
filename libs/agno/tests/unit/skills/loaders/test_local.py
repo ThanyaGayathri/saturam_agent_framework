@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from agno.skills.errors import SkillValidationError
-from agno.skills.loaders.base import SkillLoader
-from agno.skills.loaders.local import LocalSkills
+from egpt.skills.errors import SkillValidationError
+from egpt.skills.loaders.base import SkillLoader
+from egpt.skills.loaders.local import LocalSkills
 
 # --- Initialization Tests ---
 

@@ -5,8 +5,8 @@ Deepseek Reasoning Agent
 Cookbook example for `deepseek/reasoning_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.models.deepseek import DeepSeek
+from egpt.agent import Agent
+from egpt.models.deepseek import DeepSeek
 
 # ---------------------------------------------------------------------------
 # Create Agent

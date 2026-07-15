@@ -16,11 +16,11 @@ so it's self-contained — no separate server, no port binding.
 import json
 import time
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.team import Team
 from fastapi.testclient import TestClient
 
 DB_FILE = f"tmp/team_checkpoint_endpoints_{int(time.time())}.db"

@@ -4,15 +4,15 @@ from typing import Any, Dict, List
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os.app import AgentOS
-from agno.run import RunContext
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os.app import AgentOS
+from egpt.run import RunContext
+from egpt.team import Team
 
 pytest.importorskip("ag_ui", reason="ag_ui not installed")
 
-from agno.os.interfaces.agui import AGUI
+from egpt.os.interfaces.agui import AGUI
 
 
 def parse_sse_events(content: str) -> List[Dict[str, Any]]:

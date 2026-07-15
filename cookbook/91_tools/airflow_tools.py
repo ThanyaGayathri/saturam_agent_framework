@@ -8,8 +8,8 @@ AirflowTools is a small tool (<6 functions) so it uses enable_ flags.
 Run: `uv pip install apache-airflow` to install the dependencies
 """
 
-from agno.agent import Agent
-from agno.tools.airflow import AirflowTools
+from egpt.agent import Agent
+from egpt.tools.airflow import AirflowTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

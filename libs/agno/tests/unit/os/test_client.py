@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agno.client import AgentOSClient
+from egpt.client import AgentOSClient
 
 
 def test_init_with_base_url():
@@ -51,7 +51,7 @@ async def test_get_method():
     mock_http_client = MagicMock()
     mock_http_client.request = AsyncMock(return_value=mock_response)
 
-    with patch("agno.client.os.get_default_async_client", return_value=mock_http_client):
+    with patch("egpt.client.os.get_default_async_client", return_value=mock_http_client):
         result = await client._aget("/test-endpoint")
 
         mock_http_client.request.assert_called_once()
@@ -74,7 +74,7 @@ async def test_post_method():
     mock_http_client = MagicMock()
     mock_http_client.request = AsyncMock(return_value=mock_response)
 
-    with patch("agno.client.os.get_default_async_client", return_value=mock_http_client):
+    with patch("egpt.client.os.get_default_async_client", return_value=mock_http_client):
         result = await client._apost("/test-endpoint", {"key": "value"})
 
         mock_http_client.request.assert_called_once()
@@ -96,7 +96,7 @@ async def test_patch_method():
     mock_http_client = MagicMock()
     mock_http_client.request = AsyncMock(return_value=mock_response)
 
-    with patch("agno.client.os.get_default_async_client", return_value=mock_http_client):
+    with patch("egpt.client.os.get_default_async_client", return_value=mock_http_client):
         result = await client._apatch("/test-endpoint", {"key": "value"})
 
         mock_http_client.request.assert_called_once()
@@ -117,7 +117,7 @@ async def test_delete_method():
     mock_http_client = MagicMock()
     mock_http_client.request = AsyncMock(return_value=mock_response)
 
-    with patch("agno.client.os.get_default_async_client", return_value=mock_http_client):
+    with patch("egpt.client.os.get_default_async_client", return_value=mock_http_client):
         await client._adelete("/test-endpoint")
 
         mock_http_client.request.assert_called_once()
@@ -630,7 +630,7 @@ async def test_headers_passed_through():
 @pytest.mark.asyncio
 async def test_run_agent_stream_returns_typed_events():
     """Verify run_agent_stream yields typed RunOutputEvent objects."""
-    from agno.run.agent import RunCompletedEvent, RunContentEvent, RunStartedEvent
+    from egpt.run.agent import RunCompletedEvent, RunContentEvent, RunStartedEvent
 
     client = AgentOSClient(base_url="http://localhost:7777")
 
@@ -662,7 +662,7 @@ async def test_run_agent_stream_returns_typed_events():
 @pytest.mark.asyncio
 async def test_stream_handles_invalid_json():
     """Verify invalid JSON is logged and skipped."""
-    from agno.run.agent import RunCompletedEvent, RunStartedEvent
+    from egpt.run.agent import RunCompletedEvent, RunStartedEvent
 
     client = AgentOSClient(base_url="http://localhost:7777")
 
@@ -680,7 +680,7 @@ async def test_stream_handles_invalid_json():
         mock_stream.return_value = async_generator()
 
         events = []
-        with patch("agno.utils.log.logger") as mock_logger:
+        with patch("egpt.utils.log.logger") as mock_logger:
             async for event in client.run_agent_stream("agent-123", "test"):
                 events.append(event)
 
@@ -694,7 +694,7 @@ async def test_stream_handles_invalid_json():
 @pytest.mark.asyncio
 async def test_stream_handles_unknown_event_type():
     """Verify unknown event types are logged and skipped."""
-    from agno.run.agent import RunCompletedEvent, RunStartedEvent
+    from egpt.run.agent import RunCompletedEvent, RunStartedEvent
 
     client = AgentOSClient(base_url="http://localhost:7777")
 
@@ -712,7 +712,7 @@ async def test_stream_handles_unknown_event_type():
         mock_stream.return_value = async_generator()
 
         events = []
-        with patch("agno.utils.log.logger") as mock_logger:
+        with patch("egpt.utils.log.logger") as mock_logger:
             async for event in client.run_agent_stream("agent-123", "test"):
                 events.append(event)
 
@@ -726,7 +726,7 @@ async def test_stream_handles_unknown_event_type():
 @pytest.mark.asyncio
 async def test_stream_handles_empty_lines():
     """Verify empty lines and comments are skipped."""
-    from agno.run.agent import RunCompletedEvent, RunStartedEvent
+    from egpt.run.agent import RunCompletedEvent, RunStartedEvent
 
     client = AgentOSClient(base_url="http://localhost:7777")
 
@@ -758,7 +758,7 @@ async def test_stream_handles_empty_lines():
 @pytest.mark.asyncio
 async def test_run_team_stream_returns_typed_events():
     """Verify run_team_stream yields BaseTeamRunEvent objects."""
-    from agno.run.agent import RunCompletedEvent, RunStartedEvent
+    from egpt.run.agent import RunCompletedEvent, RunStartedEvent
 
     client = AgentOSClient(base_url="http://localhost:7777")
 
@@ -787,7 +787,7 @@ async def test_run_team_stream_returns_typed_events():
 @pytest.mark.asyncio
 async def test_run_workflow_stream_returns_typed_events():
     """Verify run_workflow_stream yields WorkflowRunOutputEvent objects."""
-    from agno.run.agent import RunCompletedEvent, RunStartedEvent
+    from egpt.run.agent import RunCompletedEvent, RunStartedEvent
 
     client = AgentOSClient(base_url="http://localhost:7777")
 

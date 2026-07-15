@@ -11,14 +11,14 @@ from fastapi.testclient import TestClient
 from httpx import ASGITransport
 from pydantic import BaseModel
 
-from agno.db.base import ComponentType
-from agno.db.sqlite import SqliteDb
-from agno.os import AgentOS
-from agno.os.config import AuthorizationConfig
-from agno.workflow.factory import WorkflowFactory
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.db.base import ComponentType
+from egpt.db.sqlite import SqliteDb
+from egpt.os import AgentOS
+from egpt.os.config import AuthorizationConfig
+from egpt.workflow.factory import WorkflowFactory
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 def _factory_workflow_step(step_input: StepInput) -> StepOutput:

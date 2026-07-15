@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with DashScope."""
 
-from agno.agent import Agent
-from agno.models.dashscope import DashScope
+from egpt.agent import Agent
+from egpt.models.dashscope import DashScope
 
 # ---------------------------------------------------------------------------
 # Create Agent

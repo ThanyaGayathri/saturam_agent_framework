@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import asyncio
 
-from agno.agent import Agent
-from agno.context.web import ParallelBackend, WebContextProvider
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context.web import ParallelBackend, WebContextProvider
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create the provider

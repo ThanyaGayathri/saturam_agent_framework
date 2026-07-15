@@ -26,8 +26,8 @@ Then call the API:
     curl http://localhost:7777/agents
 """
 
-from agno.agents.langgraph import LangGraphAgent
-from agno.os import AgentOS
+from egpt.agents.langgraph import LangGraphAgent
+from egpt.os import AgentOS
 from langchain_openai import ChatOpenAI
 from langgraph.graph import MessagesState, StateGraph
 

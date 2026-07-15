@@ -9,11 +9,11 @@ Use FallbackConfig for error-specific fallback routing on Teams.
 - on_context_overflow: tried on context-window-exceeded errors.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.models.fallback import FallbackConfig
-from agno.models.openai import OpenAIChat
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.models.fallback import FallbackConfig
+from egpt.models.openai import OpenAIChat
+from egpt.team import Team
 
 researcher = Agent(
     name="Researcher",

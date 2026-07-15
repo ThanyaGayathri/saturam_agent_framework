@@ -17,9 +17,9 @@ Run: `uv pip install openai yfinance agno` to install the dependencies
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.xai import xAI
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.xai import xAI
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

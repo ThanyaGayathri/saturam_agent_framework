@@ -45,8 +45,8 @@ def _install_fake_telebot():
 
 _install_fake_telebot()
 
-ROUTER_MODULE = "agno.os.interfaces.telegram.router"
-SECURITY_MODULE = "agno.os.interfaces.telegram.security"
+ROUTER_MODULE = "egpt.os.interfaces.telegram.router"
+SECURITY_MODULE = "egpt.os.interfaces.telegram.security"
 
 
 @pytest.fixture(autouse=True)
@@ -66,7 +66,7 @@ def _build_telegram_client(
 ):
     from fastapi import APIRouter
 
-    from agno.os.interfaces.telegram.router import attach_routes
+    from egpt.os.interfaces.telegram.router import attach_routes
 
     router = APIRouter(prefix="/telegram")
     kwargs: dict = dict(
@@ -122,7 +122,7 @@ def _group_update(text="Hello", chat_id=99999, user_id=67890, msg_id=200, reply_
 
 class TestStreamState:
     def test_build_display_html_empty(self):
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -135,7 +135,7 @@ class TestStreamState:
         assert state.build_display_html() == ""
 
     def test_build_display_html_status_only(self):
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -151,7 +151,7 @@ class TestStreamState:
         assert "Reasoning..." in html
 
     def test_build_display_html_content_only(self):
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -167,7 +167,7 @@ class TestStreamState:
         assert "<blockquote" not in html
 
     def test_build_display_html_status_and_content(self):
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -185,7 +185,7 @@ class TestStreamState:
         assert "Result" in html
 
     def test_close_pending_statuses(self):
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -202,7 +202,7 @@ class TestStreamState:
         assert state.status_lines == ["Using tool", "Already done", "Reasoning"]
 
     def test_update_status_replaces_matching_line(self):
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -218,7 +218,7 @@ class TestStreamState:
         assert state.status_lines == ["Used web_search", "Reasoning..."]
 
     def test_html_escaping_in_status(self):
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -235,7 +235,7 @@ class TestStreamState:
 
     @pytest.mark.asyncio
     async def test_send_or_edit_skips_empty_html(self):
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.state import StreamState
 
         bot = AsyncMock()
         state = StreamState(
@@ -253,7 +253,7 @@ class TestStreamState:
 
     @pytest.mark.asyncio
     async def test_send_or_edit_creates_message_first_time(self):
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.state import StreamState
 
         bot = AsyncMock()
         bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
@@ -271,7 +271,7 @@ class TestStreamState:
 
     @pytest.mark.asyncio
     async def test_send_or_edit_edits_on_second_call(self):
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.state import StreamState
 
         bot = AsyncMock()
         bot.send_message = AsyncMock(return_value=MagicMock(message_id=42))
@@ -289,7 +289,7 @@ class TestStreamState:
 
     @pytest.mark.asyncio
     async def test_finalize_with_no_content_does_nothing(self):
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.state import StreamState
 
         bot = AsyncMock()
         state = StreamState(
@@ -311,7 +311,7 @@ class TestStreamState:
 
 class TestBotState:
     def _make_bot_state(self):
-        from agno.os.interfaces.telegram.state import BotState, build_session_store_config
+        from egpt.os.interfaces.telegram.state import BotState, build_session_store_config
 
         agent = AsyncMock()
         agent.db = None
@@ -330,8 +330,8 @@ class TestBotState:
 
     @pytest.mark.asyncio
     async def test_find_latest_session_returns_none_when_empty(self):
-        from agno.db.base import AsyncBaseDb
-        from agno.os.interfaces.telegram.state import build_session_store_config, find_latest_session_id
+        from egpt.db.base import AsyncBaseDb
+        from egpt.os.interfaces.telegram.state import build_session_store_config, find_latest_session_id
 
         mock_db = AsyncMock(spec=AsyncBaseDb)
         mock_db.get_sessions.return_value = ([], 0)
@@ -344,8 +344,8 @@ class TestBotState:
 
     @pytest.mark.asyncio
     async def test_find_latest_session_returns_session_id(self):
-        from agno.db.base import AsyncBaseDb
-        from agno.os.interfaces.telegram.state import build_session_store_config, find_latest_session_id
+        from egpt.db.base import AsyncBaseDb
+        from egpt.os.interfaces.telegram.state import build_session_store_config, find_latest_session_id
 
         mock_db = AsyncMock(spec=AsyncBaseDb)
         mock_db.get_sessions.return_value = ([{"session_id": "tg:12345:abc123"}], 1)
@@ -359,8 +359,8 @@ class TestBotState:
 
     @pytest.mark.asyncio
     async def test_find_latest_session_no_cache(self):
-        from agno.db.base import AsyncBaseDb
-        from agno.os.interfaces.telegram.state import build_session_store_config, find_latest_session_id
+        from egpt.db.base import AsyncBaseDb
+        from egpt.os.interfaces.telegram.state import build_session_store_config, find_latest_session_id
 
         mock_db = AsyncMock(spec=AsyncBaseDb)
         mock_db.get_sessions.return_value = ([{"session_id": "tg:12345:abc123"}], 1)
@@ -382,7 +382,7 @@ class TestBotState:
 class TestEventDispatch:
     @pytest.mark.asyncio
     async def test_normalize_strips_team_prefix(self):
-        from agno.os.interfaces.telegram.events import _strip_team_prefix
+        from egpt.os.interfaces.telegram.events import _strip_team_prefix
 
         assert _strip_team_prefix("TeamRunContent") == "RunContent"
         assert _strip_team_prefix("RunContent") == "RunContent"
@@ -390,8 +390,8 @@ class TestEventDispatch:
 
     @pytest.mark.asyncio
     async def test_all_run_events_have_handlers(self):
-        from agno.agent import RunEvent
-        from agno.os.interfaces.telegram.events import HANDLERS
+        from egpt.agent import RunEvent
+        from egpt.os.interfaces.telegram.events import HANDLERS
 
         # Key events that must have handlers
         required = [
@@ -413,8 +413,8 @@ class TestEventDispatch:
 
     @pytest.mark.asyncio
     async def test_all_workflow_events_have_handlers(self):
-        from agno.os.interfaces.telegram.events import HANDLERS
-        from agno.run.workflow import WorkflowRunEvent
+        from egpt.os.interfaces.telegram.events import HANDLERS
+        from egpt.run.workflow import WorkflowRunEvent
 
         required = [
             WorkflowRunEvent.workflow_started,
@@ -445,8 +445,8 @@ class TestEventDispatch:
 
     @pytest.mark.asyncio
     async def test_workflow_suppression(self):
-        from agno.os.interfaces.telegram.events import dispatch_stream_event
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.events import dispatch_stream_event
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -466,8 +466,8 @@ class TestEventDispatch:
     @pytest.mark.asyncio
     async def test_team_intermediate_content_suppressed(self):
         """For teams, intermediate content should be ignored (team leader consolidates)."""
-        from agno.os.interfaces.telegram.events import dispatch_stream_event
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.events import dispatch_stream_event
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -487,8 +487,8 @@ class TestEventDispatch:
     @pytest.mark.asyncio
     async def test_agent_intermediate_content_accumulated(self):
         """For non-team agents, intermediate content should be accumulated."""
-        from agno.os.interfaces.telegram.events import dispatch_stream_event
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.events import dispatch_stream_event
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -506,8 +506,8 @@ class TestEventDispatch:
 
     @pytest.mark.asyncio
     async def test_run_error_is_terminal(self):
-        from agno.os.interfaces.telegram.events import dispatch_stream_event
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.events import dispatch_stream_event
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -526,8 +526,8 @@ class TestEventDispatch:
 
     @pytest.mark.asyncio
     async def test_run_cancelled_is_terminal(self):
-        from agno.os.interfaces.telegram.events import dispatch_stream_event
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.events import dispatch_stream_event
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -544,8 +544,8 @@ class TestEventDispatch:
 
     @pytest.mark.asyncio
     async def test_workflow_error_is_terminal(self):
-        from agno.os.interfaces.telegram.events import dispatch_stream_event
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.events import dispatch_stream_event
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -562,8 +562,8 @@ class TestEventDispatch:
 
     @pytest.mark.asyncio
     async def test_unknown_event_ignored(self):
-        from agno.os.interfaces.telegram.events import dispatch_stream_event
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.events import dispatch_stream_event
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -580,8 +580,8 @@ class TestEventDispatch:
     @pytest.mark.asyncio
     async def test_tool_call_team_agent_prefix(self):
         """In team mode, tool call status should include [AgentName] prefix."""
-        from agno.os.interfaces.telegram.events import dispatch_stream_event
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.events import dispatch_stream_event
+        from egpt.os.interfaces.telegram.state import StreamState
 
         bot = AsyncMock()
         bot.send_message = AsyncMock(return_value=MagicMock(message_id=1))
@@ -604,8 +604,8 @@ class TestEventDispatch:
 
     @pytest.mark.asyncio
     async def test_memory_update_lifecycle(self):
-        from agno.os.interfaces.telegram.events import dispatch_stream_event
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.events import dispatch_stream_event
+        from egpt.os.interfaces.telegram.state import StreamState
 
         bot = AsyncMock()
         bot.send_message = AsyncMock(return_value=MagicMock(message_id=1))
@@ -627,8 +627,8 @@ class TestEventDispatch:
 
     @pytest.mark.asyncio
     async def test_step_output_sets_workflow_final_content(self):
-        from agno.os.interfaces.telegram.events import dispatch_stream_event
-        from agno.os.interfaces.telegram.state import StreamState
+        from egpt.os.interfaces.telegram.events import dispatch_stream_event
+        from egpt.os.interfaces.telegram.state import StreamState
 
         state = StreamState(
             bot=AsyncMock(),
@@ -657,7 +657,7 @@ class TestRouterStreaming:
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
         monkeypatch.setenv("APP_ENV", "development")
 
-        from agno.run.agent import RunOutput
+        from egpt.run.agent import RunOutput
 
         events = []
         for ev_name, attrs in [

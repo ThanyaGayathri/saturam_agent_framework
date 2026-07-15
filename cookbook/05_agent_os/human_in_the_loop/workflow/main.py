@@ -4,11 +4,11 @@ AgentOS Workflow HITL Examples
 Run all workflow human-in-the-loop examples from this directory in one AgentOS.
 """
 
-from agno.os import AgentOS
 from condition_user_decision import workflow as condition_user_decision_workflow
 from decision_tree import workflow as decision_tree_workflow
 from dual_level_hitl import travel_agent
 from dual_level_hitl import workflow as dual_level_hitl_workflow
+from egpt.os import AgentOS
 from loop_confirmation import workflow as loop_confirmation_workflow
 from output_review import workflow as output_review_workflow
 from router_user_selection import workflow as router_user_selection_workflow

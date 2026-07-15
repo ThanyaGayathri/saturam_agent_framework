@@ -6,9 +6,9 @@ This example shows how to use agentic memory with an Agent.
 During each run, the Agent can create, update, and delete user memories.
 """
 
-from agno.agent.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
+from egpt.agent.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

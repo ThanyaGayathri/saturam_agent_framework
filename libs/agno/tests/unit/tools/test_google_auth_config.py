@@ -2,10 +2,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.tools.google.auth import AuthConfig
-from agno.tools.google.calendar import GoogleCalendarTools
-from agno.tools.google.drive import GoogleDriveTools
-from agno.tools.google.gmail import GmailTools
+from egpt.tools.google.auth import AuthConfig
+from egpt.tools.google.calendar import GoogleCalendarTools
+from egpt.tools.google.drive import GoogleDriveTools
+from egpt.tools.google.gmail import GmailTools
 
 
 @pytest.fixture

@@ -5,9 +5,9 @@ import time
 from typing import Any, Callable, Dict
 
 import httpx
-from agno.agent import Agent
-from agno.tools import tool
-from agno.utils.log import logger
+from egpt.agent import Agent
+from egpt.tools import tool
+from egpt.utils.log import logger
 
 # ---------------------------------------------------------------------------
 # Create Agent

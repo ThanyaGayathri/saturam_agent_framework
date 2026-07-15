@@ -5,8 +5,8 @@ Openai Basic
 Cookbook example for `openai/chat/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.openai import OpenAIChat
 import asyncio
 
 # ---------------------------------------------------------------------------

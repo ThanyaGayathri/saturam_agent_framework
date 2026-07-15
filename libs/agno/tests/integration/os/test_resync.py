@@ -5,11 +5,11 @@ from contextlib import asynccontextmanager
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.os import AgentOS
-from agno.team.team import Team
-from agno.workflow.workflow import Workflow
+from egpt.agent.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.os import AgentOS
+from egpt.team.team import Team
+from egpt.workflow.workflow import Workflow
 
 
 @pytest.fixture

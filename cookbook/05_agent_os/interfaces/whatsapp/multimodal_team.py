@@ -13,13 +13,13 @@ Requires:
   OPENAI_API_KEY
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os.app import AgentOS
-from agno.os.interfaces.whatsapp import Whatsapp
-from agno.team import Team
-from agno.tools.dalle import DalleTools
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.whatsapp import Whatsapp
+from egpt.team import Team
+from egpt.tools.dalle import DalleTools
+from egpt.tools.websearch import WebSearchTools
 
 vision_analyst = Agent(
     name="Vision Analyst",

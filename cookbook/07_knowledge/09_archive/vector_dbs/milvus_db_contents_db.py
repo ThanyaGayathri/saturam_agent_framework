@@ -8,11 +8,11 @@ End-to-end validation for the Milvus adapter when paired with a contents_db.
 import asyncio
 import json
 
-from agno.db.sqlite import SqliteDb
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.milvus import Milvus
-from agno.vectordb.search import SearchType
+from egpt.db.sqlite import SqliteDb
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.milvus import Milvus
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

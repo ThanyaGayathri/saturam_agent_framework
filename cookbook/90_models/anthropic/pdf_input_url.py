@@ -5,9 +5,9 @@ Anthropic Pdf Input Url
 Cookbook example for `anthropic/pdf_input_url.py`.
 """
 
-from agno.agent import Agent
-from agno.media import File
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.media import File
+from egpt.models.anthropic import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

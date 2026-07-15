@@ -9,8 +9,8 @@ Requirements:
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.openrouter import OpenRouterResponses
+from egpt.agent import Agent
+from egpt.models.openrouter import OpenRouterResponses
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

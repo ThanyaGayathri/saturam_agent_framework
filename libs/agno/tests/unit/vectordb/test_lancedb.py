@@ -4,9 +4,9 @@ from typing import List
 
 import pytest
 
-from agno.knowledge.document import Document
-from agno.vectordb.lancedb import LanceDb
-from agno.vectordb.search import SearchType
+from egpt.knowledge.document import Document
+from egpt.vectordb.lancedb import LanceDb
+from egpt.vectordb.search import SearchType
 
 TEST_TABLE = "test_table"
 TEST_PATH = "tmp/test_lancedb"

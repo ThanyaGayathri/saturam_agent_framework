@@ -2,9 +2,9 @@
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.cohere import Cohere
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.cohere import Cohere
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

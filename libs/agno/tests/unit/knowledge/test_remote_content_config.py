@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from agno.knowledge.remote_content import (
+from egpt.knowledge.remote_content import (
     AzureBlobConfig,
     BaseStorageConfig,
     GcsConfig,

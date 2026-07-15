@@ -5,11 +5,11 @@ Confirmation Toolkit
 Human-in-the-Loop: Adding User Confirmation to Tool Calls.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.tools.websearch import WebSearchTools
-from agno.utils import pprint
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.websearch import WebSearchTools
+from egpt.utils import pprint
 from rich.console import Console
 from rich.prompt import Prompt
 

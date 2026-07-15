@@ -5,8 +5,8 @@ X Tools
 Demonstrates x tools.
 """
 
-from agno.agent import Agent
-from agno.tools.x import XTools
+from egpt.agent import Agent
+from egpt.tools.x import XTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

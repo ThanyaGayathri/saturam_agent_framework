@@ -14,8 +14,8 @@ Grab a free key at https://twelvelabs.io.
 Install dependencies: `pip install twelvelabs`
 """
 
-from agno.agent import Agent
-from agno.tools.twelvelabs import TwelveLabsTools
+from egpt.agent import Agent
+from egpt.tools.twelvelabs import TwelveLabsTools
 
 # Example 1: Enable all tools
 agent = Agent(

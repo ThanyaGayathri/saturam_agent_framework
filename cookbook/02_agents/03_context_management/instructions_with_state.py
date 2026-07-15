@@ -7,9 +7,9 @@ Example demonstrating how to use a function as instructions for an agent.
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.run import RunContext
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunContext
 
 
 # This will be our instructions function

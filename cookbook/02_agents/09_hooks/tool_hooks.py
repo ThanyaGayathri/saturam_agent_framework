@@ -11,9 +11,9 @@ the chain, and can inspect or modify args before and the result after.
 
 import time
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.websearch import WebSearchTools
 
 
 def timing_hook(function_name: str, func: callable, args: dict):

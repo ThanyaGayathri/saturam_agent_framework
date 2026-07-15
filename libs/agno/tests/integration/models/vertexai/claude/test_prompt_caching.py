@@ -12,9 +12,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from agno.agent import Agent, RunOutput
-from agno.models.vertexai.claude import Claude
-from agno.utils.media import download_file
+from egpt.agent import Agent, RunOutput
+from egpt.models.vertexai.claude import Claude
+from egpt.utils.media import download_file
 
 
 def _get_large_system_prompt() -> str:

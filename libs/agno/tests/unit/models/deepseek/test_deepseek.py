@@ -2,8 +2,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.exceptions import ModelAuthenticationError
-from agno.models.deepseek import DeepSeek
+from egpt.exceptions import ModelAuthenticationError
+from egpt.models.deepseek import DeepSeek
 
 
 def test_default_config():

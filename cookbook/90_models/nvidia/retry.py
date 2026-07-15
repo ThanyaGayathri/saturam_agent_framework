@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with NVIDIA."""
 
-from agno.agent import Agent
-from agno.models.nvidia import Nvidia
+from egpt.agent import Agent
+from egpt.models.nvidia import Nvidia
 
 # ---------------------------------------------------------------------------
 # Create Agent

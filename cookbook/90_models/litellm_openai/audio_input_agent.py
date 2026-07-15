@@ -7,9 +7,9 @@ litellm --model gpt-audio --host 127.0.0.1 --port 4000
 """
 
 import requests
-from agno.agent import Agent, RunOutput  # noqa
-from agno.media import Audio
-from agno.models.litellm import LiteLLMOpenAI
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.media import Audio
+from egpt.models.litellm import LiteLLMOpenAI
 
 # ---------------------------------------------------------------------------
 # Create Agent

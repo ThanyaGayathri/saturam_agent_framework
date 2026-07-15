@@ -2,8 +2,8 @@ import base64
 
 import pytest
 
-from agno.media import File
-from agno.utils.models.claude import _format_file_for_message
+from egpt.media import File
+from egpt.utils.models.claude import _format_file_for_message
 
 
 class TestFormatFileForMessage:

@@ -5,8 +5,8 @@ Oxylabs Tools
 Demonstrates oxylabs tools.
 """
 
-from agno.agent import Agent
-from agno.tools.oxylabs import OxylabsTools
+from egpt.agent import Agent
+from egpt.tools.oxylabs import OxylabsTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

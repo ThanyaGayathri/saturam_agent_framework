@@ -4,13 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agno.tools.crawl4ai import Crawl4aiTools
+from egpt.tools.crawl4ai import Crawl4aiTools
 
 
 @pytest.fixture
 def mock_async_crawler():
     """Create a mock AsyncWebCrawler."""
-    with patch("agno.tools.crawl4ai.AsyncWebCrawler") as mock_crawler:
+    with patch("egpt.tools.crawl4ai.AsyncWebCrawler") as mock_crawler:
         mock_instance = AsyncMock()
         mock_crawler.return_value.__aenter__.return_value = mock_instance
         yield mock_instance
@@ -19,7 +19,7 @@ def mock_async_crawler():
 @pytest.fixture
 def mock_browser_config():
     """Create a mock BrowserConfig."""
-    with patch("agno.tools.crawl4ai.BrowserConfig") as mock_config:
+    with patch("egpt.tools.crawl4ai.BrowserConfig") as mock_config:
         mock_instance = MagicMock()
         mock_config.return_value = mock_instance
         yield mock_config
@@ -28,7 +28,7 @@ def mock_browser_config():
 @pytest.fixture
 def mock_crawler_run_config():
     """Create a mock CrawlerRunConfig."""
-    with patch("agno.tools.crawl4ai.CrawlerRunConfig") as mock_config:
+    with patch("egpt.tools.crawl4ai.CrawlerRunConfig") as mock_config:
         yield mock_config
 
 
@@ -36,9 +36,9 @@ def mock_crawler_run_config():
 def crawl4ai_tools():
     """Create a Crawl4aiTools instance with default settings."""
     with (
-        patch("agno.tools.crawl4ai.AsyncWebCrawler"),
-        patch("agno.tools.crawl4ai.BrowserConfig"),
-        patch("agno.tools.crawl4ai.CrawlerRunConfig"),
+        patch("egpt.tools.crawl4ai.AsyncWebCrawler"),
+        patch("egpt.tools.crawl4ai.BrowserConfig"),
+        patch("egpt.tools.crawl4ai.CrawlerRunConfig"),
     ):
         return Crawl4aiTools()
 
@@ -47,9 +47,9 @@ def crawl4ai_tools():
 def custom_crawl4ai_tools():
     """Create a Crawl4aiTools instance with custom settings."""
     with (
-        patch("agno.tools.crawl4ai.AsyncWebCrawler"),
-        patch("agno.tools.crawl4ai.BrowserConfig"),
-        patch("agno.tools.crawl4ai.CrawlerRunConfig"),
+        patch("egpt.tools.crawl4ai.AsyncWebCrawler"),
+        patch("egpt.tools.crawl4ai.BrowserConfig"),
+        patch("egpt.tools.crawl4ai.CrawlerRunConfig"),
     ):
         return Crawl4aiTools(
             max_length=2000,
@@ -335,7 +335,7 @@ def test_browser_config_proxy_forwarding(mock_async_crawler, mock_browser_config
     )
 
 
-@patch("agno.tools.crawl4ai.log_warning")
+@patch("egpt.tools.crawl4ai.log_warning")
 def test_crawl_logging(mock_log_warning, crawl4ai_tools, mock_async_crawler):
     """Test logging during crawl operations."""
     # Setup result with only HTML (no markdown, no text)
@@ -357,7 +357,7 @@ def test_crawl_logging(mock_log_warning, crawl4ai_tools, mock_async_crawler):
     mock_log_warning.assert_called_once_with("Only HTML available, no markdown extracted")
 
 
-@patch("agno.tools.crawl4ai.asyncio.run")
+@patch("egpt.tools.crawl4ai.asyncio.run")
 def test_asyncio_run_error(mock_asyncio_run, crawl4ai_tools):
     """Test handling of asyncio.run errors."""
     mock_asyncio_run.side_effect = RuntimeError("Event loop error")

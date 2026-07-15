@@ -5,11 +5,11 @@ Session Options
 Demonstrates session naming, in-memory DB usage, and session caching options.
 """
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

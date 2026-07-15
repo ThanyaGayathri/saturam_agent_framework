@@ -5,8 +5,8 @@ N1N Basic
 Cookbook example for `n1n/basic.py`.
 """
 
-from agno.agent import Agent
-from agno.models.n1n import N1N
+from egpt.agent import Agent
+from egpt.models.n1n import N1N
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -17,9 +17,9 @@ import asyncio
 import shutil
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.context.wiki import FileSystemBackend, WikiContextProvider
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context.wiki import FileSystemBackend, WikiContextProvider
+from egpt.models.openai import OpenAIResponses
 
 WIKI_PATH = Path(__file__).resolve().parent / "demo-wiki"
 if WIKI_PATH.exists():

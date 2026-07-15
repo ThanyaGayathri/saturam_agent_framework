@@ -3,14 +3,14 @@
 import asyncio
 from typing import TYPE_CHECKING, Optional
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run import RunContext
-from agno.tools.mcp import MCPTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run import RunContext
+from egpt.tools.mcp import MCPTools
 
 if TYPE_CHECKING:
-    from agno.agent import Agent
-    from agno.team import Team
+    from egpt.agent import Agent
+    from egpt.team import Team
 # ---------------------------------------------------------------------------
 # Create Agent
 # ---------------------------------------------------------------------------

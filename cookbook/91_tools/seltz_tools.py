@@ -3,10 +3,10 @@
 Run `pip install seltz agno openai python-dotenv` to install dependencies.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.seltz import SeltzTools
 from dotenv import load_dotenv
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.seltz import SeltzTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

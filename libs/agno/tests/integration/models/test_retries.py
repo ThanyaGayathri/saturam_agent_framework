@@ -4,10 +4,10 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.agent import Agent
-from agno.exceptions import ModelProviderError
-from agno.models.openai import OpenAIChat
-from agno.run.base import RunStatus
+from egpt.agent import Agent
+from egpt.exceptions import ModelProviderError
+from egpt.models.openai import OpenAIChat
+from egpt.run.base import RunStatus
 
 
 def test_model_retry():
@@ -63,7 +63,7 @@ def test_model_retry_delay():
         return original_invoke(*args, **kwargs)
 
     with patch.object(model, "invoke", side_effect=mock_invoke):
-        with patch("agno.models.base.sleep") as mock_sleep:
+        with patch("egpt.models.base.sleep") as mock_sleep:
             _ = agent.run("Say hello")
 
     # Check that sleep was called with constant delay
@@ -96,7 +96,7 @@ def test_model_exponential_backoff():
         return original_invoke(*args, **kwargs)
 
     with patch.object(model, "invoke", side_effect=mock_invoke):
-        with patch("agno.models.base.sleep") as mock_sleep:
+        with patch("egpt.models.base.sleep") as mock_sleep:
             _ = agent.run("Say hello")
 
     # Check that sleep was called with exponentially increasing delays

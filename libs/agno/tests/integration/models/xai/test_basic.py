@@ -1,9 +1,9 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput
-from agno.db.sqlite import SqliteDb
-from agno.models.xai import xAI
+from egpt.agent import Agent, RunOutput
+from egpt.db.sqlite import SqliteDb
+from egpt.models.xai import xAI
 
 
 def _assert_metrics(response: RunOutput):

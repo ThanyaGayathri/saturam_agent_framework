@@ -5,11 +5,11 @@ Groq Agent Team
 Cookbook example for `groq/agent_team.py`.
 """
 
-from agno.agent import Agent
-from agno.models.groq import Groq
-from agno.team import Team
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.groq import Groq
+from egpt.team import Team
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

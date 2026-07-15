@@ -5,11 +5,11 @@ Agno Assist
 Demonstrates a minimal agno agent.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.anthropic import Claude
-from agno.os import AgentOS
-from agno.tools.mcp import MCPTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.anthropic import Claude
+from egpt.os import AgentOS
+from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Agent
@@ -18,7 +18,7 @@ from agno.tools.mcp import MCPTools
 agno_assist = Agent(
     name="Agno Assist",
     model=Claude(id="claude-sonnet-4-5"),
-    db=SqliteDb(db_file="agno.db"),
+    db=SqliteDb(db_file="egpt.db"),
     tools=[MCPTools(url="https://docs.agno.com/mcp")],
     add_datetime_to_context=True,
     add_history_to_context=True,

@@ -1,11 +1,11 @@
 """Example showing how to use AgentOS with JSON files as database"""
 
-from agno.agent import Agent
-from agno.db.json import JsonDb
-from agno.eval.accuracy import AccuracyEval
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team.team import Team
+from egpt.agent import Agent
+from egpt.db.json import JsonDb
+from egpt.eval.accuracy import AccuracyEval
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Example

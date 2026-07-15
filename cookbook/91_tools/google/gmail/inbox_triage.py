@@ -23,11 +23,11 @@ Setup:
 5. First run opens browser for OAuth consent, saves token.json for reuse
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.learn import LearningMachine, LearningMode, UserMemoryConfig
-from agno.models.openai import OpenAIResponses
-from agno.tools.google.gmail import GmailTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.learn import LearningMachine, LearningMode, UserMemoryConfig
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.google.gmail import GmailTools
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 

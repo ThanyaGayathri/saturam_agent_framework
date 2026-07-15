@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
 
 
 @pytest.fixture

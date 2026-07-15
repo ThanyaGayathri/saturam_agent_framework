@@ -1,8 +1,8 @@
-from agno.agent import Agent
-from agno.knowledge.chunking.row import RowChunking
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.csv_reader import CSVReader
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.chunking.row import RowChunking
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.csv_reader import CSVReader
+from egpt.vectordb.pgvector import PgVector
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 

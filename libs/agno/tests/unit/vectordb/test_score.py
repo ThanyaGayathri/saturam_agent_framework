@@ -2,8 +2,8 @@
 
 import pytest
 
-from agno.vectordb.distance import Distance
-from agno.vectordb.score import (
+from egpt.vectordb.distance import Distance
+from egpt.vectordb.score import (
     normalize_cosine,
     normalize_l2,
     normalize_max_inner_product,

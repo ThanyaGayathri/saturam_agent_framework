@@ -16,14 +16,14 @@ from dataclasses import dataclass, field
 from textwrap import dedent
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.learn import LearningMachine
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.learn import LearningMachine
+from egpt.models.openai import OpenAIResponses
 
 try:
-    from agno.db.base import AsyncBaseDb, BaseDb
-    from agno.models.base import Model
+    from egpt.db.base import AsyncBaseDb, BaseDb
+    from egpt.models.base import Model
 except ImportError:
     pass
 

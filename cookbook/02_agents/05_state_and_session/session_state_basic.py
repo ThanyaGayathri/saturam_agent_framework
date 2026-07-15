@@ -5,10 +5,10 @@ Session State Basic
 Session State Basic.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.run import RunContext
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunContext
 
 
 def add_item(run_context: RunContext, item: str) -> str:

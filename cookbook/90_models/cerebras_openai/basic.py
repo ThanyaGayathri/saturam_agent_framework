@@ -7,8 +7,8 @@ Cookbook example for `cerebras_openai/basic.py`.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.cerebras import CerebrasOpenAI
+from egpt.agent import Agent
+from egpt.models.cerebras import CerebrasOpenAI
 
 # ---------------------------------------------------------------------------
 # Create Agent

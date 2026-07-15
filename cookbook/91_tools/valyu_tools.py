@@ -7,8 +7,8 @@ Prerequisites:
 - Set environment variable: export VALYU_API_KEY with your api key or pass the api key while initializing the toolkit
 """
 
-from agno.agent import Agent
-from agno.tools.valyu import ValyuTools
+from egpt.agent import Agent
+from egpt.tools.valyu import ValyuTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

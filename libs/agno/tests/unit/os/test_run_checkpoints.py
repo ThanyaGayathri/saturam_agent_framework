@@ -1,10 +1,10 @@
 import pytest
 
-from agno.models.message import Message
-from agno.models.response import ToolExecution
-from agno.os.checkpoints import build_run_checkpoint_snapshot, list_run_checkpoints
-from agno.run import RunStatus
-from agno.run.agent import RunOutput
+from egpt.models.message import Message
+from egpt.models.response import ToolExecution
+from egpt.os.checkpoints import build_run_checkpoint_snapshot, list_run_checkpoints
+from egpt.run import RunStatus
+from egpt.run.agent import RunOutput
 
 
 def test_list_run_checkpoints_uses_message_markers_and_terminal_end():

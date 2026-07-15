@@ -5,10 +5,10 @@ Agents Sharing Memory
 This example shows two agents sharing the same user memory.
 """
 
-from agno.agent.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.tools.websearch import WebSearchTools
+from egpt.agent.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.tools.websearch import WebSearchTools
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

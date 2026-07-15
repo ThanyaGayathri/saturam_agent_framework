@@ -5,10 +5,10 @@ Website Tools Knowledge
 Demonstrates website tools knowledge.
 """
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.tools.website import WebsiteTools
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.tools.website import WebsiteTools
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Agent

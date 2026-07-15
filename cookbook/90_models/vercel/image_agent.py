@@ -5,10 +5,10 @@ Vercel Image Agent
 Cookbook example for `vercel/image_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.vercel import V0
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.vercel import V0
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

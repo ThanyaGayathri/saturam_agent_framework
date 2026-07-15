@@ -13,12 +13,12 @@ directory (text, image, audio, document).
 
 from typing import List, Optional
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.workflow import Step, Workflow
-from agno.workflow.condition import Condition
-from agno.workflow.parallel import Parallel
-from agno.workflow.types import StepInput, StepOutput
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.workflow import Step, Workflow
+from egpt.workflow.condition import Condition
+from egpt.workflow.parallel import Parallel
+from egpt.workflow.types import StepInput, StepOutput
 from pydantic import BaseModel, Field
 from rich.pretty import pprint
 

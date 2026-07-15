@@ -16,10 +16,10 @@ This is useful for:
 - UI integrations that show step-by-step progress
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.run.workflow import (
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run.workflow import (
     StepCompletedEvent,
     StepPausedEvent,
     StepStartedEvent,
@@ -27,9 +27,9 @@ from agno.run.workflow import (
     WorkflowRunOutput,
     WorkflowStartedEvent,
 )
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput, UserInputField
-from agno.workflow.workflow import Workflow
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput, UserInputField
+from egpt.workflow.workflow import Workflow
 
 
 # Step 1: Gather context (no HITL)

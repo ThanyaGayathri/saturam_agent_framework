@@ -7,17 +7,17 @@ Demonstrates AgentOS workflows using both sync and streaming custom function ste
 
 from typing import AsyncIterator, Union
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.db.postgres import PostgresDb
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team import Team
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.step import Step, StepInput, StepOutput, WorkflowRunOutputEvent
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.db.postgres import PostgresDb
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team import Team
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.step import Step, StepInput, StepOutput, WorkflowRunOutputEvent
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Setup

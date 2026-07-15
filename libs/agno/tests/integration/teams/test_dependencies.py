@@ -1,10 +1,10 @@
 import json
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.models.openai.chat import OpenAIChat
-from agno.run.base import RunContext
-from agno.team import Team, TeamRunOutput
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.models.openai.chat import OpenAIChat
+from egpt.run.base import RunContext
+from egpt.team import Team, TeamRunOutput
 
 
 def test_dependencies():

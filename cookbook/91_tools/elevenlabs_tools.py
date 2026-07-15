@@ -5,10 +5,10 @@ uv pip install elevenlabs
 import base64
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.google import Gemini
-from agno.tools.eleven_labs import ElevenLabsTools
-from agno.utils.media import save_base64_data
+from egpt.agent import Agent
+from egpt.models.google import Gemini
+from egpt.tools.eleven_labs import ElevenLabsTools
+from egpt.utils.media import save_base64_data
 
 # ---------------------------------------------------------------------------
 # Create Agent

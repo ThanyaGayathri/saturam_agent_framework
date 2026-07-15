@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from agno.tools.api import CustomApiTools
+from egpt.tools.api import CustomApiTools
 
 
 def _skip_if_upstream_down(data: dict) -> None:

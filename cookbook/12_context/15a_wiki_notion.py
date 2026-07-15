@@ -49,10 +49,10 @@ import os
 import sys
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.context.wiki import NotionDatabaseBackend, WikiContextProvider
-from agno.context.wiki.notion_ops import parse_page_file
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context.wiki import NotionDatabaseBackend, WikiContextProvider
+from egpt.context.wiki.notion_ops import parse_page_file
+from egpt.models.openai import OpenAIResponses
 
 TOKEN = os.getenv("NOTION_API_KEY")
 DATABASE_ID = os.getenv("NOTION_DATABASE_ID")

@@ -5,10 +5,10 @@ You can interact with the Agent as normally. It will reason before providing a f
 You will see its chain of thought live as it is generated.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.os import AgentOS
-from agno.run.agent import RunEvent  # noqa
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.os import AgentOS
+from egpt.run.agent import RunEvent  # noqa
 
 # ---------------------------------------------------------------------------
 # Create Example

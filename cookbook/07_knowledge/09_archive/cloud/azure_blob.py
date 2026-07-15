@@ -37,9 +37,9 @@ Run this cookbook:
 
 from os import getenv
 
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.remote_content import AzureBlobConfig
-from agno.vectordb.pgvector import PgVector
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.remote_content import AzureBlobConfig
+from egpt.vectordb.pgvector import PgVector
 
 # Configure Azure Blob Storage content source
 # All credentials should come from environment variables

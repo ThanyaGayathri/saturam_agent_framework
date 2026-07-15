@@ -7,8 +7,8 @@ Cookbook example for `litellm/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.litellm import LiteLLM
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.litellm import LiteLLM
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

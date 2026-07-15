@@ -16,13 +16,13 @@ Setup: Set TELEGRAM_TOKEN env var from @BotFather.
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.memory.manager import MemoryManager
-from agno.models.google import Gemini
-from agno.os.app import AgentOS
-from agno.os.interfaces.telegram import Telegram
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.memory.manager import MemoryManager
+from egpt.models.google import Gemini
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.telegram import Telegram
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

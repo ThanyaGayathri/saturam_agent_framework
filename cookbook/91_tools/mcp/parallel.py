@@ -19,10 +19,10 @@ import asyncio
 from datetime import timedelta
 from os import getenv
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.tools.mcp import MCPTools
-from agno.tools.mcp.params import StreamableHTTPClientParams
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.tools.mcp import MCPTools
+from egpt.tools.mcp.params import StreamableHTTPClientParams
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -7,9 +7,9 @@ Demonstrates VoyageAI embeddings and knowledge insertion, including a batching v
 
 import asyncio
 
-from agno.knowledge.embedder.voyageai import VoyageAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.pgvector import PgVector
+from egpt.knowledge.embedder.voyageai import VoyageAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.pgvector import PgVector
 
 
 # ---------------------------------------------------------------------------

@@ -5,9 +5,9 @@ Perplexity Search Tools
 Demonstrates Perplexity Search tools for web search.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.perplexity import PerplexitySearch
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.perplexity import PerplexitySearch
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -8,10 +8,10 @@ Demonstrates using GcsJsonDb as the session storage backend for an Agno agent.
 import uuid
 
 import google.auth
-from agno.agent import Agent
-from agno.db.base import SessionType
-from agno.db.gcs_json import GcsJsonDb
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.base import SessionType
+from egpt.db.gcs_json import GcsJsonDb
+from egpt.tools.websearch import WebSearchTools
 
 DEBUG_MODE = False
 

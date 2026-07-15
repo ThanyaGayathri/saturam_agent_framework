@@ -5,7 +5,7 @@ Db
 Demonstrates db.
 """
 
-from agno.db.surrealdb import SurrealDb
+from egpt.db.surrealdb import SurrealDb
 
 # ---------------------------------------------------------------------------
 # Create Example

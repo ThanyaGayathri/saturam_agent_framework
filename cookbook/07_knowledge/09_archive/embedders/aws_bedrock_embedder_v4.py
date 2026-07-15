@@ -10,9 +10,9 @@ Requirements:
 - boto3 installed: pip install boto3
 """
 
-from agno.knowledge.embedder.aws_bedrock import AwsBedrockEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.pgvector import PgVector
+from egpt.knowledge.embedder.aws_bedrock import AwsBedrockEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Setup

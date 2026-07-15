@@ -1,9 +1,9 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.models.azure import AzureOpenAI
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.models.azure import AzureOpenAI
 
 
 @pytest.fixture(scope="module")

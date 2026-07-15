@@ -14,9 +14,9 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.context.fs import FilesystemContextProvider
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context.fs import FilesystemContextProvider
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create the provider

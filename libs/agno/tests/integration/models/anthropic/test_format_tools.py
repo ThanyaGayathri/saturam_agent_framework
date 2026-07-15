@@ -2,8 +2,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
-from agno.tools.function import Function
-from agno.utils.models.claude import format_tools_for_model
+from egpt.tools.function import Function
+from egpt.utils.models.claude import format_tools_for_model
 
 
 def test_none_input():

@@ -1,9 +1,9 @@
 """Run `uv pip install ddgs sqlalchemy groq` to install dependencies."""
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.groq import Groq
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.groq import Groq
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

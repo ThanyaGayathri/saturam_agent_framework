@@ -7,11 +7,11 @@ Demonstrates loading knowledge from multiple paths and URLs using sync and async
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.vectordb.pgvector import PgVector
 
 
 # ---------------------------------------------------------------------------

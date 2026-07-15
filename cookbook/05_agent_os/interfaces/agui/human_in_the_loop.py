@@ -12,9 +12,9 @@ The frontend renders a step selector UI where user can toggle steps and confirm/
 
 from typing import List
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools import tool
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools import tool
 from pydantic import BaseModel, Field
 
 

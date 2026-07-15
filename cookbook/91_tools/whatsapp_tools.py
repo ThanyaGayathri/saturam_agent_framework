@@ -30,9 +30,9 @@ For more complex use cases, check out the WhatsApp Cloud API documentation:
 [here](https://developers.facebook.com/docs/whatsapp/cloud-api/overview)
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
-from agno.tools.whatsapp import WhatsAppTools
+from egpt.agent import Agent
+from egpt.models.google import Gemini
+from egpt.tools.whatsapp import WhatsAppTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

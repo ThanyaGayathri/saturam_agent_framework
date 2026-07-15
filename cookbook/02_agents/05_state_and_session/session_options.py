@@ -5,10 +5,10 @@ Session Options
 Simple example demonstrating store_history_messages option.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.utils.pprint import pprint_run_response
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.utils.pprint import pprint_run_response
 
 # ---------------------------------------------------------------------------
 # Create Agent

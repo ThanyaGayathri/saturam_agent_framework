@@ -7,11 +7,11 @@ Demonstrates `add_memories_to_context` with team memory capture.
 
 from pprint import pprint
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.memory import MemoryManager
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.memory import MemoryManager
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 
 # ---------------------------------------------------------------------------
 # Setup

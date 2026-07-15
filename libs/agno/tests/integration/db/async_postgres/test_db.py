@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy import text
 
-from agno.db.postgres import AsyncPostgresDb
+from egpt.db.postgres import AsyncPostgresDb
 
 
 @pytest.mark.asyncio

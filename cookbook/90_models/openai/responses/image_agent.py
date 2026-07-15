@@ -5,10 +5,10 @@ Openai Image Agent
 Cookbook example for `openai/responses/image_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.openai import OpenAIResponses
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

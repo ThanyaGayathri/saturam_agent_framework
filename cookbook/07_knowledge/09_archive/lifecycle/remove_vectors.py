@@ -7,8 +7,8 @@ Demonstrates removing vectors by metadata and by name using sync and async inser
 
 import asyncio
 
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.pgvector import PgVector
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Setup

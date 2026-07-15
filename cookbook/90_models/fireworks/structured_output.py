@@ -7,8 +7,8 @@ Cookbook example for `fireworks/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.fireworks import Fireworks
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.fireworks import Fireworks
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

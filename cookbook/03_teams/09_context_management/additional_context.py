@@ -6,9 +6,9 @@ Demonstrates adding custom `additional_context` and resolving placeholders at
 run time through Team context resolution.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 
 # ---------------------------------------------------------------------------
 # Create Members

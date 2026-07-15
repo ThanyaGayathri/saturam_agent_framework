@@ -3,10 +3,10 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from agno.knowledge.chunking.fixed import FixedSizeChunking
-from agno.knowledge.document.base import Document
-from agno.knowledge.reader.utils.url_validation import is_host_allowed
-from agno.knowledge.reader.website_reader import WebsiteReader
+from egpt.knowledge.chunking.fixed import FixedSizeChunking
+from egpt.knowledge.document.base import Document
+from egpt.knowledge.reader.utils.url_validation import is_host_allowed
+from egpt.knowledge.reader.website_reader import WebsiteReader
 
 
 @pytest.fixture
@@ -279,7 +279,7 @@ async def test_async_crawl_max_depth(mock_html_content, mock_html_content_with_a
 
 def test_website_reader_chunk_size_propagation():
     """Test that chunk_size is propagated to default chunking strategy"""
-    from agno.knowledge.chunking.fixed import FixedSizeChunking
+    from egpt.knowledge.chunking.fixed import FixedSizeChunking
 
     reader = WebsiteReader(chunk_size=700)
     assert reader.chunk_size == 700
@@ -289,7 +289,7 @@ def test_website_reader_chunk_size_propagation():
 
 def test_website_reader_default_chunk_size():
     """Test default chunk_size is 5000"""
-    from agno.knowledge.chunking.fixed import FixedSizeChunking
+    from egpt.knowledge.chunking.fixed import FixedSizeChunking
 
     reader = WebsiteReader()
     assert reader.chunk_size == 5000
@@ -348,7 +348,7 @@ def test_allowed_hosts_attaches_redirect_guard():
     mock_client.__enter__.return_value = mock_client
     mock_client.get.return_value = mock_response
 
-    with patch("agno.knowledge.reader.website_reader.httpx.Client", return_value=mock_client) as mock_client_ctor:
+    with patch("egpt.knowledge.reader.website_reader.httpx.Client", return_value=mock_client) as mock_client_ctor:
         reader.crawl("https://example.com")
 
     # Allowlist set → Client must be built with a request event-hook
@@ -372,7 +372,7 @@ def test_no_allowlist_uses_module_level_httpx_get():
     mock_response.content = b"<html><body><main>ok</main></body></html>"
     mock_response.raise_for_status = MagicMock()
 
-    with patch("agno.knowledge.reader.website_reader.httpx.get", return_value=mock_response) as mock_get:
+    with patch("egpt.knowledge.reader.website_reader.httpx.get", return_value=mock_response) as mock_get:
         reader.crawl("https://example.com")
 
     assert mock_get.called
@@ -386,7 +386,7 @@ def test_redirect_guard_refuses_cross_host_target():
     import httpx
     import pytest as _pytest
 
-    from agno.knowledge.reader.utils.url_validation import make_redirect_guard
+    from egpt.knowledge.reader.utils.url_validation import make_redirect_guard
 
     guard = make_redirect_guard(["example.com"])
     assert guard is not None
@@ -404,7 +404,7 @@ def test_redirect_guard_refuses_cross_host_target():
 def test_redirect_guard_is_none_when_no_allowlist():
     """When allowed_hosts is None, the guard factory returns None — callers can
     skip attaching the hook entirely."""
-    from agno.knowledge.reader.utils.url_validation import make_redirect_guard
+    from egpt.knowledge.reader.utils.url_validation import make_redirect_guard
 
     assert make_redirect_guard(None) is None
 
@@ -447,7 +447,7 @@ def test_crawl_real_network_failure_still_raises():
     # Simulate a real network failure on the start URL. No allowlist set, so
     # the reader goes through the module-level httpx.get path.
     with patch(
-        "agno.knowledge.reader.website_reader.httpx.get",
+        "egpt.knowledge.reader.website_reader.httpx.get",
         side_effect=httpx.ConnectError("connection refused"),
     ):
         with pytest.raises(httpx.RequestError):

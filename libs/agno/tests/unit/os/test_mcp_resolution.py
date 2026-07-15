@@ -15,11 +15,11 @@ pytest.importorskip("fastmcp")
 
 from fastmcp import Client  # noqa: E402
 
-import agno.os.mcp as mcp_mod  # noqa: E402
-from agno.agent import Agent  # noqa: E402
-from agno.db.sqlite import SqliteDb  # noqa: E402
-from agno.os import AgentOS  # noqa: E402
-from agno.os.mcp import build_mcp_server  # noqa: E402
+import egpt.os.mcp as mcp_mod  # noqa: E402
+from egpt.agent import Agent  # noqa: E402
+from egpt.db.sqlite import SqliteDb  # noqa: E402
+from egpt.os import AgentOS  # noqa: E402
+from egpt.os.mcp import build_mcp_server  # noqa: E402
 
 
 def _config_payload(result):
@@ -52,7 +52,7 @@ async def test_resolve_run_component_returns_a_fresh_copy_each_call():
 async def test_resolve_run_component_reads_the_db_registry(monkeypatch, tmp_path):
     """A component that lives in the DB registry (not the in-memory list) still resolves --
     the resolver forwards db + registry, matching the REST run routes."""
-    import agno.agent.agent as agent_mod
+    import egpt.agent.agent as agent_mod
 
     db_agent = Agent(id="db-only", name="DB Only")
     monkeypatch.setattr(agent_mod, "get_agent_by_id", lambda **kwargs: db_agent)
@@ -76,9 +76,9 @@ async def test_resolve_run_component_reports_missing_id():
 async def test_config_lists_db_registry_components(monkeypatch, tmp_path):
     """get_agentos_config surfaces DB-registry components alongside in-memory ones, so
     anything created in the DB is discoverable (and therefore runnable) over MCP."""
-    import agno.agent.agent as agent_mod
-    import agno.team.team as team_mod
-    import agno.workflow.workflow as workflow_mod
+    import egpt.agent.agent as agent_mod
+    import egpt.team.team as team_mod
+    import egpt.workflow.workflow as workflow_mod
 
     monkeypatch.setattr(agent_mod, "get_agents", lambda **kwargs: [Agent(id="db-agent", name="DB Agent")])
     monkeypatch.setattr(team_mod, "get_teams", lambda **kwargs: [])

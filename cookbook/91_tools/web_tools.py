@@ -5,8 +5,8 @@ Web Tools
 Demonstrates web tools.
 """
 
-from agno.agent import Agent
-from agno.tools.webtools import WebTools
+from egpt.agent import Agent
+from egpt.tools.webtools import WebTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

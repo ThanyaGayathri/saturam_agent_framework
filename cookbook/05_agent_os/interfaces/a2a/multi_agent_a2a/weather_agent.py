@@ -7,10 +7,10 @@ Demonstrates weather agent.
 
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.tools.openweather import OpenWeatherTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.tools.openweather import OpenWeatherTools
 
 # ---------------------------------------------------------------------------
 # Create Example

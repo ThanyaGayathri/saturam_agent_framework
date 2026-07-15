@@ -1,9 +1,9 @@
 import json
 import time
 
-from agno.models.message import Message, Metrics
-from agno.models.response import ToolExecution
-from agno.run.agent import RunOutput
+from egpt.models.message import Message, Metrics
+from egpt.models.response import ToolExecution
+from egpt.run.agent import RunOutput
 
 
 def test_timer_serialization():

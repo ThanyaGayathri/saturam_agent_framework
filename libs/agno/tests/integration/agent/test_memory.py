@@ -1,7 +1,7 @@
 import pytest
 
-from agno.agent.agent import Agent
-from agno.db.base import UserMemory
+from egpt.agent.agent import Agent
+from egpt.db.base import UserMemory
 
 
 def test_get_user_memories(shared_db):

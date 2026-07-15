@@ -5,20 +5,20 @@ Basic Workflow Team
 Demonstrates basic workflow team.
 """
 
-from agno.agent.agent import Agent
+from egpt.agent.agent import Agent
 
 # ---------------------------------------------------------------------------
 # Create Example
 # ---------------------------------------------------------------------------
 # Import the workflows
-from agno.db.sqlite import SqliteDb
-from agno.models.openai.chat import OpenAIChat
-from agno.os import AgentOS
-from agno.team.team import Team
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai.chat import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team.team import Team
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # Define agents
 hackernews_agent = Agent(

@@ -10,16 +10,16 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from fastmcp import Client  # noqa: E402
 
-import agno.os.mcp as mcp_mod  # noqa: E402
-from agno.agent import Agent  # noqa: E402
-from agno.os import AgentOS  # noqa: E402
-from agno.os.mcp import build_mcp_server  # noqa: E402
-from agno.os.services.sessions import SessionNotFoundError, get_session_runs, get_sessions_page  # noqa: E402
-from agno.run.agent import RunOutput  # noqa: E402
-from agno.run.base import RunStatus  # noqa: E402
-from agno.run.requirement import RunRequirement  # noqa: E402
-from agno.workflow.step import Step  # noqa: E402
-from agno.workflow.workflow import Workflow  # noqa: E402
+import egpt.os.mcp as mcp_mod  # noqa: E402
+from egpt.agent import Agent  # noqa: E402
+from egpt.os import AgentOS  # noqa: E402
+from egpt.os.mcp import build_mcp_server  # noqa: E402
+from egpt.os.services.sessions import SessionNotFoundError, get_session_runs, get_sessions_page  # noqa: E402
+from egpt.run.agent import RunOutput  # noqa: E402
+from egpt.run.base import RunStatus  # noqa: E402
+from egpt.run.requirement import RunRequirement  # noqa: E402
+from egpt.workflow.step import Step  # noqa: E402
+from egpt.workflow.workflow import Workflow  # noqa: E402
 
 
 def _agent() -> Agent:
@@ -133,7 +133,7 @@ async def test_continue_run_dispatches_workflow_step_requirements():
 
     async def fake_acontinue_run(*, run_id, session_id, step_requirements, stream=False):
         captured.update(run_id=run_id, step_requirements=step_requirements, stream=stream)
-        from agno.run.workflow import WorkflowRunOutput
+        from egpt.run.workflow import WorkflowRunOutput
 
         return WorkflowRunOutput(run_id=run_id, session_id=session_id, content="wf resumed")
 
@@ -178,7 +178,7 @@ async def test_cancel_run_requests_cancellation_on_the_named_component():
 async def test_continue_run_rejects_remote_component():
     """Remote components can't carry resolved requirements downstream; continue must fail
     clearly (like the REST 400) rather than crash."""
-    from agno.agent.remote import RemoteAgent
+    from egpt.agent.remote import RemoteAgent
 
     remote = RemoteAgent(base_url="http://example.invalid", agent_id="remote-agent")
     os = AgentOS(agents=[remote], enable_mcp_server=True)
@@ -235,8 +235,8 @@ async def test_get_session_runs_history_is_trimmed():
             }
         ],
     }
-    from agno.os.mcp_results import trim_session_run
-    from agno.os.schema import RunSchema
+    from egpt.os.mcp_results import trim_session_run
+    from egpt.os.schema import RunSchema
 
     trimmed = trim_session_run(RunSchema.from_dict(session["runs"][0]))
     assert trimmed["content"] == "hi there"
@@ -250,8 +250,8 @@ async def test_get_session_runs_history_is_trimmed():
 def test_trim_session_run_keeps_workflow_id():
     """Workflow runs keep the id of the workflow that produced them, exactly like
     agent and team runs keep agent_id/team_id in trimmed history."""
-    from agno.os.mcp_results import trim_session_run
-    from agno.os.schema import WorkflowRunSchema
+    from egpt.os.mcp_results import trim_session_run
+    from egpt.os.schema import WorkflowRunSchema
 
     run = WorkflowRunSchema.from_dict(
         {"run_id": "wr-1", "workflow_id": "wf-1", "content": "wf result", "status": "COMPLETED"}
@@ -270,7 +270,7 @@ async def test_run_ownership_gate_fails_closed_for_scoped_callers_on_remotes(mon
     AttributeError (BaseRemote has no aget_session) -- and NOT a pass-through: skipping
     the gate would let any scoped run-scope holder cancel other users' runs on the
     remote, which forwards without this caller's identity."""
-    from agno.agent.remote import RemoteAgent
+    from egpt.agent.remote import RemoteAgent
 
     monkeypatch.setattr(mcp_mod, "_scoped_caller_user_id", lambda: "user-1")
     verify = mcp_mod._make_run_ownership_verifier(None)  # type: ignore[arg-type]
@@ -283,7 +283,7 @@ async def test_run_ownership_gate_fails_closed_for_scoped_callers_on_remotes(mon
 async def test_run_ownership_gate_admin_passes_on_remotes(monkeypatch):
     """Admins (no scoped user id) bypass the ownership gate for remotes, exactly as
     they do for local components -- and without any network call."""
-    from agno.agent.remote import RemoteAgent
+    from egpt.agent.remote import RemoteAgent
 
     monkeypatch.setattr(mcp_mod, "_scoped_caller_user_id", lambda: None)
     verify = mcp_mod._make_run_ownership_verifier(None)  # type: ignore[arg-type]
@@ -307,8 +307,8 @@ async def test_run_ownership_gate_still_blocks_unowned_local_runs(monkeypatch):
 async def test_cancel_component_run_surfaces_remote_failure(monkeypatch):
     """A remote acancel_run swallows transport errors into False; the service must
     turn that into an error instead of reporting 'cancellation requested'."""
-    from agno.agent.remote import RemoteAgent
-    from agno.os.services import runs as run_service
+    from egpt.agent.remote import RemoteAgent
+    from egpt.os.services import runs as run_service
 
     remote = RemoteAgent(base_url="http://remote.invalid:1", agent_id="remote-agent")
 
@@ -323,7 +323,7 @@ async def test_cancel_component_run_surfaces_remote_failure(monkeypatch):
 async def test_cancel_component_run_local_false_is_cancel_before_start():
     """The local cancellation manager returns False when it stores intent for a
     not-yet-registered run (cancel-before-start). That is success, not failure."""
-    from agno.os.services import runs as run_service
+    from egpt.os.services import runs as run_service
 
     class _LocalComponent:
         async def acancel_run(self, run_id):
@@ -371,7 +371,7 @@ async def test_service_raises_session_not_found():
 
 
 async def test_service_lists_sessions_via_threadpool():
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     db = _FakeSyncDb(sessions=[{"session_id": "s1", "session_type": "agent"}])
     sessions, total = await get_sessions_page(db, session_type=SessionType.AGENT)  # type: ignore[arg-type]
@@ -497,7 +497,7 @@ async def test_scope_gate_covers_session_and_config_tools(monkeypatch):
 
 async def test_scope_gate_default_scopes_cover_the_golden_path(monkeypatch):
     """The default mint scopes must be able to discover and run: the agno connect flow."""
-    from agno.os.service_accounts import DEFAULT_SERVICE_ACCOUNT_SCOPES
+    from egpt.os.service_accounts import DEFAULT_SERVICE_ACCOUNT_SCOPES
 
     _patch_request(monkeypatch, _pat_request(DEFAULT_SERVICE_ACCOUNT_SCOPES))
     os = AgentOS(agents=[_agent()], enable_mcp_server=True)
@@ -531,7 +531,7 @@ async def test_scope_gate_skips_anonymous_and_security_key_callers(monkeypatch):
 
 async def test_empty_include_tags_registers_no_builtin_tools():
     """An explicitly empty include_tags set means no built-in tools, not all of them."""
-    from agno.os.config import MCPServerConfig
+    from egpt.os.config import MCPServerConfig
 
     os = AgentOS(agents=[_agent()], enable_mcp_server=True, mcp_config=MCPServerConfig(include_tags=set()))
     async with Client(build_mcp_server(os)) as client:
@@ -541,7 +541,7 @@ async def test_empty_include_tags_registers_no_builtin_tools():
 
 async def test_get_session_runs_run_id_returns_full_detail(monkeypatch):
     """run_id is the full-detail escape hatch: one untrimmed run, or a loud not-found."""
-    from agno.os.schema import RunSchema
+    from egpt.os.schema import RunSchema
 
     run = RunSchema.from_dict(
         {

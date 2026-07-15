@@ -3,9 +3,9 @@
 import re
 from unittest.mock import MagicMock
 
-from agno.agent._messages import get_system_message
-from agno.agent.agent import Agent
-from agno.session import AgentSession
+from egpt.agent._messages import get_system_message
+from egpt.agent.agent import Agent
+from egpt.session import AgentSession
 
 # =============================================================================
 # Config tests

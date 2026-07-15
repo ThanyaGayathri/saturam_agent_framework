@@ -1,7 +1,7 @@
 import asyncio
 
-from agno.db.migrations.manager import MigrationManager
-from agno.db.mysql import MySQLDb
+from egpt.db.migrations.manager import MigrationManager
+from egpt.db.mysql import MySQLDb
 
 # Create your database connection here
 db_url = "mysql+pymysql://ai:ai@localhost:3306/ai"

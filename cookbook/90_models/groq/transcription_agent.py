@@ -1,8 +1,8 @@
 """Run `uv pip install groq` to install dependencies."""
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.models.groq import GroqTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.models.groq import GroqTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

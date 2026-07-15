@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agno.skills.validator import (
+from egpt.skills.validator import (
     ALLOWED_FIELDS,
     MAX_COMPATIBILITY_LENGTH,
     MAX_DESCRIPTION_LENGTH,

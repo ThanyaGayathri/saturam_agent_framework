@@ -8,12 +8,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from starlette.middleware.cors import CORSMiddleware
 
-from agno.agent.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.os import AgentOS
-from agno.team.team import Team
-from agno.tools.mcp import MCPTools
-from agno.workflow.workflow import Workflow
+from egpt.agent.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.os import AgentOS
+from egpt.team.team import Team
+from egpt.tools.mcp import MCPTools
+from egpt.workflow.workflow import Workflow
 
 
 @pytest.fixture
@@ -372,7 +372,7 @@ def test_cors_origin_merging(test_agent: Agent):
     )
 
     # Mock AgentOS settings with different origins
-    with patch("agno.os.app.AgnoAPISettings") as mock_settings_class:
+    with patch("egpt.os.app.AgnoAPISettings") as mock_settings_class:
         mock_settings = Mock()
         mock_settings.docs_enabled = True
         mock_settings.cors_origin_list = ["https://agno.com", "http://localhost:3000"]
@@ -846,8 +846,8 @@ def test_custom_health_endpoint():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from agno.agent import Agent
-    from agno.os.routers.health import get_health_router
+    from egpt.agent import Agent
+    from egpt.os.routers.health import get_health_router
 
     app = FastAPI(title="Custom App")
     health_router = get_health_router(health_endpoint="/health-check")

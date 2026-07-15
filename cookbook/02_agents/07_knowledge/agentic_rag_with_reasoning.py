@@ -7,13 +7,13 @@ Demonstrates agentic RAG with reranking and explicit reasoning tools.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.cohere import CohereEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reranker.cohere import CohereReranker
-from agno.models.openai import OpenAIResponses
-from agno.tools.reasoning import ReasoningTools
-from agno.vectordb.lancedb import LanceDb, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.cohere import CohereEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reranker.cohere import CohereReranker
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.reasoning import ReasoningTools
+from egpt.vectordb.lancedb import LanceDb, SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -2,9 +2,9 @@
 SurrealDB Memory Search
 """
 
-from agno.db.surrealdb import SurrealDb
-from agno.memory import MemoryManager, UserMemory
-from agno.models.openai import OpenAIChat
+from egpt.db.surrealdb import SurrealDb
+from egpt.memory import MemoryManager, UserMemory
+from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,10 @@
-"""Unit tests for agno.db.schemas.approval — Approval dataclass and serialization."""
+"""Unit tests for egpt.db.schemas.approval — Approval dataclass and serialization."""
 
 import time
 
 import pytest
 
-from agno.db.schemas.approval import Approval
+from egpt.db.schemas.approval import Approval
 
 
 def _has_sqlalchemy() -> bool:
@@ -239,7 +239,7 @@ class TestApprovalSchemaAlignment:
         reason="sqlalchemy not installed",
     )
     def test_postgres_schema_columns_match(self):
-        from agno.db.postgres.schemas import APPROVAL_TABLE_SCHEMA
+        from egpt.db.postgres.schemas import APPROVAL_TABLE_SCHEMA
 
         schema_columns = set(APPROVAL_TABLE_SCHEMA.keys())
         # Remove internal schema keys that aren't columns
@@ -252,7 +252,7 @@ class TestApprovalSchemaAlignment:
         reason="sqlalchemy not installed",
     )
     def test_sqlite_schema_columns_match(self):
-        from agno.db.sqlite.schemas import APPROVAL_TABLE_SCHEMA
+        from egpt.db.sqlite.schemas import APPROVAL_TABLE_SCHEMA
 
         schema_columns = set(APPROVAL_TABLE_SCHEMA.keys())
         schema_columns -= {"_unique_constraints", "_indexes"}
@@ -264,8 +264,8 @@ class TestApprovalSchemaAlignment:
         reason="sqlalchemy not installed",
     )
     def test_postgres_and_sqlite_schemas_have_same_columns(self):
-        from agno.db.postgres.schemas import APPROVAL_TABLE_SCHEMA as PG_SCHEMA
-        from agno.db.sqlite.schemas import APPROVAL_TABLE_SCHEMA as SQLITE_SCHEMA
+        from egpt.db.postgres.schemas import APPROVAL_TABLE_SCHEMA as PG_SCHEMA
+        from egpt.db.sqlite.schemas import APPROVAL_TABLE_SCHEMA as SQLITE_SCHEMA
 
         pg_cols = set(PG_SCHEMA.keys()) - {"_unique_constraints", "_indexes"}
         sqlite_cols = set(SQLITE_SCHEMA.keys()) - {"_unique_constraints", "_indexes"}

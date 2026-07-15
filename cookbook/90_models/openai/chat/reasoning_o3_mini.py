@@ -5,9 +5,9 @@ Openai Reasoning O3 Mini
 Cookbook example for `openai/chat/reasoning_o3_mini.py`.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

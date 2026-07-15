@@ -7,8 +7,8 @@ Cookbook example for `aws/claude/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.aws import Claude
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.aws import Claude
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

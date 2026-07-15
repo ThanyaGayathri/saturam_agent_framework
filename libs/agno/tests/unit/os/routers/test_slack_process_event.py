@@ -2,11 +2,11 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from agno.agent import RunEvent
-from agno.os.interfaces.slack.events import process_event
-from agno.os.interfaces.slack.state import StreamState
-from agno.run.team import TeamRunEvent
-from agno.run.workflow import WorkflowRunEvent
+from egpt.agent import RunEvent
+from egpt.os.interfaces.slack.events import process_event
+from egpt.os.interfaces.slack.state import StreamState
+from egpt.run.team import TeamRunEvent
+from egpt.run.workflow import WorkflowRunEvent
 
 
 def _stream():

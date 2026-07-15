@@ -1,13 +1,13 @@
 """Unit tests for reasoning model checker functions."""
 
-from agno.reasoning.anthropic import is_anthropic_reasoning_model
-from agno.reasoning.azure_ai_foundry import is_ai_foundry_reasoning_model
-from agno.reasoning.deepseek import is_deepseek_reasoning_model
-from agno.reasoning.gemini import is_gemini_reasoning_model
-from agno.reasoning.groq import is_groq_reasoning_model
-from agno.reasoning.ollama import is_ollama_reasoning_model
-from agno.reasoning.openai import is_openai_reasoning_model
-from agno.reasoning.vertexai import is_vertexai_reasoning_model
+from egpt.reasoning.anthropic import is_anthropic_reasoning_model
+from egpt.reasoning.azure_ai_foundry import is_ai_foundry_reasoning_model
+from egpt.reasoning.deepseek import is_deepseek_reasoning_model
+from egpt.reasoning.gemini import is_gemini_reasoning_model
+from egpt.reasoning.groq import is_groq_reasoning_model
+from egpt.reasoning.ollama import is_ollama_reasoning_model
+from egpt.reasoning.openai import is_openai_reasoning_model
+from egpt.reasoning.vertexai import is_vertexai_reasoning_model
 
 
 # Mock model classes for testing
@@ -210,7 +210,7 @@ def test_azure_openai_with_reasoning_model():
 
 def test_openai_like_with_deepseek_r1():
     """Test OpenAILike model with deepseek-r1 in ID returns True."""
-    from agno.models.openai.like import OpenAILike
+    from egpt.models.openai.like import OpenAILike
 
     # Create a proper OpenAILike instance
     model = OpenAILike(
@@ -240,7 +240,7 @@ def test_openai_non_openai_model():
 
 def test_openai_like_without_deepseek_r1():
     """Test OpenAILike model without deepseek-r1 returns False."""
-    from agno.models.openai.like import OpenAILike
+    from egpt.models.openai.like import OpenAILike
 
     # Create a proper OpenAILike instance
     model = OpenAILike(

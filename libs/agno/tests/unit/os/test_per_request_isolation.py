@@ -10,21 +10,21 @@ This module tests:
 
 import pytest
 
-from agno.agent import Agent
-from agno.os.utils import (
+from egpt.agent import Agent
+from egpt.os.utils import (
     get_agent_by_id,
     get_team_by_id,
     get_workflow_by_id,
 )
-from agno.team import Team
-from agno.workflow import Workflow
-from agno.workflow.condition import Condition
-from agno.workflow.loop import Loop
-from agno.workflow.parallel import Parallel
-from agno.workflow.router import Router
-from agno.workflow.step import Step
-from agno.workflow.steps import Steps
-from agno.workflow.types import StepInput, StepOutput
+from egpt.team import Team
+from egpt.workflow import Workflow
+from egpt.workflow.condition import Condition
+from egpt.workflow.loop import Loop
+from egpt.workflow.parallel import Parallel
+from egpt.workflow.router import Router
+from egpt.workflow.step import Step
+from egpt.workflow.steps import Steps
+from egpt.workflow.types import StepInput, StepOutput
 
 # ============================================================================
 # Fixtures
@@ -1407,7 +1407,7 @@ class TestToolsDeepCopyUnit:
 
     def test_regular_toolkit_is_deep_copied(self):
         """Regular Toolkit should be deep copied."""
-        from agno.tools.toolkit import Toolkit
+        from egpt.tools.toolkit import Toolkit
 
         class SimpleTool(Toolkit):
             def __init__(self):
@@ -1514,7 +1514,7 @@ class TestToolsDeepCopyUnit:
 
     def test_multiple_tools_mixed(self):
         """Multiple tools of different types should be handled correctly."""
-        from agno.tools.toolkit import Toolkit
+        from egpt.tools.toolkit import Toolkit
 
         class RegularTool(Toolkit):
             def __init__(self):
@@ -1590,7 +1590,7 @@ class TestHeavyResourcesUnit:
 
     def test_model_is_shared(self):
         """Model should be shared."""
-        from agno.models.openai import OpenAIChat
+        from egpt.models.openai import OpenAIChat
 
         model = OpenAIChat(id="gpt-4o-mini")
         agent = Agent(name="test", id="test-id", model=model)
@@ -1600,7 +1600,7 @@ class TestHeavyResourcesUnit:
 
     def test_reasoning_model_is_shared(self):
         """Reasoning model should be shared."""
-        from agno.models.openai import OpenAIChat
+        from egpt.models.openai import OpenAIChat
 
         reasoning_model = OpenAIChat(id="gpt-4o")
         agent = Agent(name="test", id="test-id", reasoning_model=reasoning_model)
@@ -1672,7 +1672,7 @@ class TestDeepCopyErrorHandlingUnit:
 
     def test_tool_with_complex_state(self):
         """Tool with complex nested state should be copied correctly."""
-        from agno.tools.toolkit import Toolkit
+        from egpt.tools.toolkit import Toolkit
 
         class ComplexTool(Toolkit):
             def __init__(self):

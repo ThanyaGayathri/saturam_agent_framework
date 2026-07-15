@@ -7,9 +7,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agno.db.base import BaseDb
-from agno.os.routers.learnings import get_learnings_router
-from agno.os.settings import AgnoAPISettings
+from egpt.db.base import BaseDb
+from egpt.os.routers.learnings import get_learnings_router
+from egpt.os.settings import AgnoAPISettings
 
 
 def _make_learning(**overrides):

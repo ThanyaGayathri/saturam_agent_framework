@@ -10,9 +10,9 @@ Dojo expects:
 - get_weather(location: str) -> dict with city, temperature, humidity, wind_speed, conditions
 """
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools import tool
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools import tool
 
 
 @tool(external_execution=True, external_execution_silent=True)

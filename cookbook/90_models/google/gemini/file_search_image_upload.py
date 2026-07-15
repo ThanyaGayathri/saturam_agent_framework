@@ -19,8 +19,8 @@ Usage:
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Configuration — set this to your image path

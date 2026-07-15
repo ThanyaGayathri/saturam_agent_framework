@@ -5,9 +5,9 @@ N1N Tool Use
 Cookbook example for `n1n/tool_use.py`.
 """
 
-from agno.agent import Agent
-from agno.models.n1n import N1N
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.n1n import N1N
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

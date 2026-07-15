@@ -18,9 +18,9 @@ import asyncio
 from pathlib import Path
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.groq import Groq
-from agno.tools.mcp import MCPTools
+from egpt.agent import Agent
+from egpt.models.groq import Groq
+from egpt.tools.mcp import MCPTools
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 

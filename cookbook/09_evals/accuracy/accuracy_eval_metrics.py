@@ -9,9 +9,9 @@ The evaluator agent's token usage appears under "eval_model" in
 run_output.metrics.details alongside the agent's own "model" entries.
 """
 
-from agno.agent import Agent
-from agno.eval.accuracy import AccuracyEval
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.eval.accuracy import AccuracyEval
+from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

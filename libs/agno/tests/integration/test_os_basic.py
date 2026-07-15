@@ -1,11 +1,11 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from agno.agent.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.vectordb.chroma import ChromaDb
+from egpt.agent.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.vectordb.chroma import ChromaDb
 
 
 @pytest.fixture

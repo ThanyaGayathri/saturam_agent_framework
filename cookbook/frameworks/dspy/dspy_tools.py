@@ -12,7 +12,7 @@ Usage:
 """
 
 import dspy
-from agno.agents.dspy import DSPyAgent
+from egpt.agents.dspy import DSPyAgent
 
 
 # ----- Define tools as plain Python functions -----

@@ -7,9 +7,9 @@ Cookbook example for `together/image_agent_bytes.py`.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.together import Together
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.together import Together
 
 # ---------------------------------------------------------------------------
 # Create Agent

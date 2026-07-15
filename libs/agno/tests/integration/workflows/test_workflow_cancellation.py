@@ -5,19 +5,19 @@ from typing import Any, AsyncIterator, Iterator
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.agent import RunContentEvent
-from agno.run.base import RunStatus
-from agno.run.cancel import cancel_run
-from agno.run.workflow import WorkflowCancelledEvent
-from agno.workflow import Step, Workflow
-from agno.workflow.condition import Condition
-from agno.workflow.loop import Loop
-from agno.workflow.parallel import Parallel
-from agno.workflow.router import Router
-from agno.workflow.steps import Steps
-from agno.workflow.types import StepInput, StepOutput
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import RunContentEvent
+from egpt.run.base import RunStatus
+from egpt.run.cancel import cancel_run
+from egpt.run.workflow import WorkflowCancelledEvent
+from egpt.workflow import Step, Workflow
+from egpt.workflow.condition import Condition
+from egpt.workflow.loop import Loop
+from egpt.workflow.parallel import Parallel
+from egpt.workflow.router import Router
+from egpt.workflow.steps import Steps
+from egpt.workflow.types import StepInput, StepOutput
 
 # ============================================================================
 # FIXTURES
@@ -300,7 +300,7 @@ def test_cancel_workflow_before_step_2_starts(streaming_workflow_with_agents):
 @pytest.mark.asyncio
 async def test_cancel_non_existent_run():
     """Test that cancelling a non-existent run returns False."""
-    from agno.db.sqlite import SqliteDb
+    from egpt.db.sqlite import SqliteDb
 
     workflow = Workflow(
         name="Test Workflow",

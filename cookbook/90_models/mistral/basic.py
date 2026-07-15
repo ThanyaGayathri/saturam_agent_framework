@@ -5,8 +5,8 @@ Mistral Basic
 Cookbook example for `mistral/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.mistral import MistralChat
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.mistral import MistralChat
 
 # ---------------------------------------------------------------------------
 # Create Agent

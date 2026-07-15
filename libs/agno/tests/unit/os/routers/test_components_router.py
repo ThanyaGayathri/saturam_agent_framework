@@ -22,9 +22,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from agno.db.base import BaseDb, ComponentType
-from agno.os.routers.components import get_components_router
-from agno.os.settings import AgnoAPISettings
+from egpt.db.base import BaseDb, ComponentType
+from egpt.os.routers.components import get_components_router
+from egpt.os.settings import AgnoAPISettings
 
 # =============================================================================
 # Fixtures
@@ -577,12 +577,12 @@ class TestResolveDbInConfig:
     """Tests for the _resolve_db_in_config helper in the components router."""
 
     def _make_os_db(self, tmp_path):
-        from agno.db.sqlite.sqlite import SqliteDb
+        from egpt.db.sqlite.sqlite import SqliteDb
 
         return SqliteDb(db_file=str(tmp_path / "os.db"))
 
     def test_no_db_in_config_is_noop(self, tmp_path):
-        from agno.os.routers.components.components import _resolve_db_in_config
+        from egpt.os.routers.components.components import _resolve_db_in_config
 
         os_db = self._make_os_db(tmp_path)
         config = {"name": "agent"}
@@ -592,7 +592,7 @@ class TestResolveDbInConfig:
         assert out == config
 
     def test_db_none_is_removed(self, tmp_path):
-        from agno.os.routers.components.components import _resolve_db_in_config
+        from egpt.os.routers.components.components import _resolve_db_in_config
 
         os_db = self._make_os_db(tmp_path)
 
@@ -601,7 +601,7 @@ class TestResolveDbInConfig:
         assert "db" not in out
 
     def test_db_without_id_is_passed_through(self, tmp_path):
-        from agno.os.routers.components.components import _resolve_db_in_config
+        from egpt.os.routers.components.components import _resolve_db_in_config
 
         os_db = self._make_os_db(tmp_path)
         payload = {"db": {"type": "sqlite", "session_table": "custom"}}
@@ -613,7 +613,7 @@ class TestResolveDbInConfig:
     def test_matching_id_merges_table_overrides_onto_resolved_db(self, tmp_path):
         """The reported bug: table-name overrides in the payload were being
         replaced with the resolved db's defaults."""
-        from agno.os.routers.components.components import _resolve_db_in_config
+        from egpt.os.routers.components.components import _resolve_db_in_config
 
         os_db = self._make_os_db(tmp_path)
         payload = {
@@ -637,7 +637,7 @@ class TestResolveDbInConfig:
     def test_matching_id_rejects_caller_override_of_connection_fields(self, tmp_path):
         """Whitelist: a caller cannot redirect a referenced db by
         supplying type / db_url / db_file / db_schema."""
-        from agno.os.routers.components.components import _resolve_db_in_config
+        from egpt.os.routers.components.components import _resolve_db_in_config
 
         os_db = self._make_os_db(tmp_path)
         payload = {
@@ -665,7 +665,7 @@ class TestResolveDbInConfig:
 
     def test_matching_id_ignores_non_whitelisted_keys(self, tmp_path):
         """Unknown keys in the payload must not leak into the stored config."""
-        from agno.os.routers.components.components import _resolve_db_in_config
+        from egpt.os.routers.components.components import _resolve_db_in_config
 
         os_db = self._make_os_db(tmp_path)
         payload = {

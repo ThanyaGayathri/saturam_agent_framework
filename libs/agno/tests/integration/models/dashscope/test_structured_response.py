@@ -3,8 +3,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.dashscope import DashScope
+from egpt.agent import Agent
+from egpt.models.dashscope import DashScope
 
 
 class MovieScript(BaseModel):

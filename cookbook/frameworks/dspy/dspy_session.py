@@ -13,8 +13,8 @@ Usage:
 """
 
 import dspy
-from agno.agents.dspy import DSPyAgent
-from agno.db.postgres import PostgresDb
+from egpt.agents.dspy import DSPyAgent
+from egpt.db.postgres import PostgresDb
 
 # ----- Configure DSPy -----
 lm = dspy.LM("openai/gpt-5.4")

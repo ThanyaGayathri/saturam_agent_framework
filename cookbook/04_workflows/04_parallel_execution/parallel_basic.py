@@ -7,11 +7,11 @@ Demonstrates running independent research steps in parallel before sequential wr
 
 import asyncio
 
-from agno.agent import Agent
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
-from agno.workflow import Step, Workflow
-from agno.workflow.parallel import Parallel
+from egpt.agent import Agent
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow import Step, Workflow
+from egpt.workflow.parallel import Parallel
 
 # ---------------------------------------------------------------------------
 # Create Agents

@@ -5,8 +5,8 @@ Stop After Tool Call
 Demonstrates stop after tool call.
 """
 
-from agno.agent import Agent
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.tools import tool
 
 # ---------------------------------------------------------------------------
 # Create Agent

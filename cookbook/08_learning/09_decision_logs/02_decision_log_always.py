@@ -13,11 +13,11 @@ Run:
     .venvs/demo/bin/python cookbook/08_learning/09_decision_logs/02_decision_log_always.py
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.learn import DecisionLogConfig, LearningMachine, LearningMode
-from agno.models.openai import OpenAIResponses
-from agno.tools.duckduckgo import DuckDuckGoTools
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.learn import DecisionLogConfig, LearningMachine, LearningMode
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.duckduckgo import DuckDuckGoTools
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -8,11 +8,11 @@ Demonstrates Pinecone-backed knowledge with sync and async-batching flows.
 import asyncio
 from os import getenv
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.vectordb.pineconedb import PineconeDb
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.vectordb.pineconedb import PineconeDb
 
 # ---------------------------------------------------------------------------
 # Setup

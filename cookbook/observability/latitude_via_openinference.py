@@ -8,9 +8,9 @@ Demonstrates instrumenting an Agno agent with OpenInference and sending traces t
 import asyncio
 import os
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.yfinance import YFinanceTools
 from openinference.instrumentation.agno import AgnoInstrumentor
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import TracerProvider

@@ -12,9 +12,9 @@ is delivered incrementally via RunEvent.reasoning_content_delta events.
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.agent import RunEvent
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import RunEvent
 
 
 def _get_reasoning_streaming_agent(**kwargs):

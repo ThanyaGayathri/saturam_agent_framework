@@ -25,10 +25,10 @@ import asyncio
 from dataclasses import dataclass
 from typing import Literal, Optional
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.run.agent import CustomEvent
-from agno.tools import Toolkit
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.run.agent import CustomEvent
+from egpt.tools import Toolkit
 from pydantic import BaseModel, Field
 
 

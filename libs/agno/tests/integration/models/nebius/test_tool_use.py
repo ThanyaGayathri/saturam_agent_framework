@@ -2,11 +2,11 @@ from typing import Optional
 
 import pytest
 
-from agno.agent import Agent  # noqa
-from agno.models.nebius import Nebius
-from agno.tools.exa import ExaTools
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent  # noqa
+from egpt.models.nebius import Nebius
+from egpt.tools.exa import ExaTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 NEBIUS_MODEL_ID = "Qwen/Qwen3-30B-A3B"
 

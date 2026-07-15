@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import asyncio
 
-from agno.agent import Agent
-from agno.context import Answer, ContextProvider, Status
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context import Answer, ContextProvider, Status
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # The data

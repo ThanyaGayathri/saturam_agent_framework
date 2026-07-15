@@ -5,10 +5,10 @@ Aws Image Agent
 Cookbook example for `aws/claude/image_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.aws import Claude
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.aws import Claude
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

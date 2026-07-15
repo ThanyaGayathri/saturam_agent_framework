@@ -2,11 +2,11 @@ from typing import Optional
 
 import pytest
 
-from agno.agent import Agent  # noqa
-from agno.models.aws import Claude
-from agno.tools.exa import ExaTools
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent  # noqa
+from egpt.models.aws import Claude
+from egpt.tools.exa import ExaTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 
 def test_tool_use():

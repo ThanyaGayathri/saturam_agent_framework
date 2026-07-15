@@ -8,9 +8,9 @@ Last N Session Messages.
 import asyncio
 import os
 
-from agno.agent import Agent
-from agno.db.sqlite import AsyncSqliteDb
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.sqlite import AsyncSqliteDb
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

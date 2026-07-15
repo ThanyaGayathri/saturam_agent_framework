@@ -13,10 +13,10 @@ Prerequisites:
 - export PARALLEL_API_KEY=<your-api-key>
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.tools.parallel import ParallelTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.tools.parallel import ParallelTools
 
 # ---------------------------------------------------------------------------
 # Create Members

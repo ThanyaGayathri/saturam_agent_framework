@@ -7,8 +7,8 @@ Demonstrates Sofya tools: web search, URL extraction, and deep research.
 Set SOFYA_API_KEY in your environment. Get a key at https://sofya.co
 """
 
-from agno.agent import Agent
-from agno.tools.sofya import SofyaTools
+from egpt.agent import Agent
+from egpt.tools.sofya import SofyaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

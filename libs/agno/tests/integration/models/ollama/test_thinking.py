@@ -4,11 +4,11 @@ import tempfile
 
 import pytest
 
-from agno.agent import Agent
-from agno.db.json import JsonDb
-from agno.models.message import Message
-from agno.models.ollama import Ollama
-from agno.run.agent import RunOutput
+from egpt.agent import Agent
+from egpt.db.json import JsonDb
+from egpt.models.message import Message
+from egpt.models.ollama import Ollama
+from egpt.run.agent import RunOutput
 
 api_key = os.getenv("OLLAMA_API_KEY")
 

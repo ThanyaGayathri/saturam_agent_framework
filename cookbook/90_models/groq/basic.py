@@ -5,8 +5,8 @@ Groq Basic
 Cookbook example for `groq/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.groq import Groq
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.groq import Groq
 import asyncio
 
 # ---------------------------------------------------------------------------

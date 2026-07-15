@@ -7,9 +7,9 @@ Demonstrates OpenAI embeddings and knowledge insertion, including a batching var
 
 import asyncio
 
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.pgvector import PgVector
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.pgvector import PgVector
 
 
 # ---------------------------------------------------------------------------

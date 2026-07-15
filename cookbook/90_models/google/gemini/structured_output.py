@@ -7,8 +7,8 @@ Cookbook example for `google/gemini/structured_output.py`.
 
 from typing import Optional, Union
 
-from agno.agent import Agent
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.models.google import Gemini
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

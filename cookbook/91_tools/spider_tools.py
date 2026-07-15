@@ -5,8 +5,8 @@ Spider Tools
 Demonstrates spider tools.
 """
 
-from agno.agent import Agent
-from agno.tools.spider import SpiderTools
+from egpt.agent import Agent
+from egpt.tools.spider import SpiderTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

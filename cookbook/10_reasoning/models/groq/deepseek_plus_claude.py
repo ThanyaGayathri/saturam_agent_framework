@@ -5,9 +5,9 @@ Deepseek Plus Claude
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.models.groq import Groq
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.models.groq import Groq
 
 
 # ---------------------------------------------------------------------------

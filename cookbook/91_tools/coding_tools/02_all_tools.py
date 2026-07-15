@@ -5,9 +5,9 @@ Enable all tools including the exploration tools (grep, find, ls)
 by setting all=True or enabling them individually.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.coding import CodingTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.coding import CodingTools
 
 # ---------------------------------------------------------------------------
 # Create Agent with all CodingTools

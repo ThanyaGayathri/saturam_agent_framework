@@ -5,9 +5,9 @@ Groq Finance Agent
 Cookbook example for `groq/reasoning/finance_agent.py`.
 """
 
-from agno.agent import Agent
-from agno.models.groq import Groq
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.groq import Groq
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

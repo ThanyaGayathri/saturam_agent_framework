@@ -5,12 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import HTTPStatusError, Request, Response
 
-from agno.client.a2a import (
+from egpt.client.a2a import (
     A2AClient,
     StreamEvent,
     TaskResult,
 )
-from agno.exceptions import RemoteServerUnavailableError
+from egpt.exceptions import RemoteServerUnavailableError
 
 
 class TestA2AClientInit:
@@ -238,7 +238,7 @@ class TestSendMessage:
     @pytest.mark.asyncio
     async def test_send_message_success(self):
         """Test successful message send."""
-        with patch("agno.client.a2a.client.get_default_async_client") as mock_get_client:
+        with patch("egpt.client.a2a.client.get_default_async_client") as mock_get_client:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -274,7 +274,7 @@ class TestSendMessage:
     @pytest.mark.asyncio
     async def test_send_message_http_error(self):
         """Test send_message with HTTP error."""
-        with patch("agno.client.a2a.client.get_default_async_client") as mock_get_client:
+        with patch("egpt.client.a2a.client.get_default_async_client") as mock_get_client:
             mock_response = Response(404, request=Request("POST", "http://test"))
             mock_http_client = AsyncMock()
             mock_http_client.post.side_effect = HTTPStatusError(
@@ -292,7 +292,7 @@ class TestSendMessage:
     @pytest.mark.asyncio
     async def test_send_message_connection_error(self):
         """Test send_message with connection error."""
-        with patch("agno.client.a2a.client.get_default_async_client") as mock_get_client:
+        with patch("egpt.client.a2a.client.get_default_async_client") as mock_get_client:
             from httpx import ConnectError
 
             mock_http_client = AsyncMock()
@@ -310,7 +310,7 @@ class TestSendMessage:
     @pytest.mark.asyncio
     async def test_send_message_timeout(self):
         """Test send_message with timeout."""
-        with patch("agno.client.a2a.client.get_default_async_client") as mock_get_client:
+        with patch("egpt.client.a2a.client.get_default_async_client") as mock_get_client:
             from httpx import TimeoutException
 
             mock_http_client = AsyncMock()
@@ -327,7 +327,7 @@ class TestSendMessage:
     @pytest.mark.asyncio
     async def test_send_message_failed_task_returns_result(self):
         """Test send_message returns TaskResult even when task reports failed status."""
-        with patch("agno.client.a2a.client.get_default_async_client") as mock_get_client:
+        with patch("egpt.client.a2a.client.get_default_async_client") as mock_get_client:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -363,7 +363,7 @@ class TestStreamMessage:
     @pytest.mark.asyncio
     async def test_stream_message_success(self):
         """Test successful message streaming."""
-        with patch("agno.client.a2a.client.get_default_async_client") as mock_get_client:
+        with patch("egpt.client.a2a.client.get_default_async_client") as mock_get_client:
             # Create mock streaming response
             async def mock_aiter_lines():
                 lines = [

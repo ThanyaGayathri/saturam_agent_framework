@@ -3,7 +3,7 @@ from unittest.mock import Mock, mock_open, patch
 import psycopg
 import pytest
 
-from agno.tools.postgres import PostgresTools
+from egpt.tools.postgres import PostgresTools
 
 # --- Mock Data for Tests ---
 MOCK_TABLES_RESULT = [{"table_name": "employees"}, {"table_name": "departments"}, {"table_name": "projects"}]

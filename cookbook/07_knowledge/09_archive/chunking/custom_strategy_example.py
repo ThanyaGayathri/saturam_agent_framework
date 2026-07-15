@@ -1,11 +1,11 @@
 from typing import List
 
-from agno.agent import Agent
-from agno.knowledge.chunking.strategy import ChunkingStrategy
-from agno.knowledge.document.base import Document
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.pdf_reader import PDFReader
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.chunking.strategy import ChunkingStrategy
+from egpt.knowledge.document.base import Document
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.pdf_reader import PDFReader
+from egpt.vectordb.pgvector import PgVector
 
 
 class CustomSeparatorChunking(ChunkingStrategy):

@@ -5,8 +5,8 @@ Aws Basic
 Cookbook example for `aws/bedrock/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.aws import AwsBedrock
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.aws import AwsBedrock
 import asyncio
 
 # ---------------------------------------------------------------------------

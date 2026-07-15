@@ -11,7 +11,7 @@ Prerequisites:
 
 import asyncio
 
-from agno.client import AgentOSClient
+from egpt.client import AgentOSClient
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -63,7 +63,7 @@ async def run_team_streaming():
     print(f"Streaming from team: {team_id}")
     print("\nResponse: ", end="", flush=True)
 
-    from agno.run.team import RunCompletedEvent, RunContentEvent
+    from egpt.run.team import RunCompletedEvent, RunContentEvent
 
     # Stream the response
     async for event in client.run_team_stream(

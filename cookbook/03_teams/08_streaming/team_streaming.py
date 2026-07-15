@@ -7,11 +7,11 @@ Demonstrates sync and async streaming responses from a team.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.tools.yfinance import YFinanceTools
-from agno.utils.pprint import apprint_run_response
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.tools.yfinance import YFinanceTools
+from egpt.utils.pprint import apprint_run_response
 
 # ---------------------------------------------------------------------------
 # Create Members

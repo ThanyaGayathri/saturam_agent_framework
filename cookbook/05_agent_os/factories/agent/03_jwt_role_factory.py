@@ -33,12 +33,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal, Optional
 
 import jwt as pyjwt
-from agno.agent import Agent, AgentFactory
-from agno.db.postgres import PostgresDb
-from agno.factory import FactoryPermissionError, RequestContext
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.os.middleware import JWTMiddleware
+from egpt.agent import Agent, AgentFactory
+from egpt.db.postgres import PostgresDb
+from egpt.factory import FactoryPermissionError, RequestContext
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.os.middleware import JWTMiddleware
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------

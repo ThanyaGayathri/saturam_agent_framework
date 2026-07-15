@@ -1,8 +1,8 @@
 from typing import Any, Dict, List, Optional
 
-from agno.models.message import Message
-from agno.models.openai.responses import OpenAIResponses
-from agno.models.response import ModelResponse
+from egpt.models.message import Message
+from egpt.models.openai.responses import OpenAIResponses
+from egpt.models.response import ModelResponse
 
 
 class _FakeError:

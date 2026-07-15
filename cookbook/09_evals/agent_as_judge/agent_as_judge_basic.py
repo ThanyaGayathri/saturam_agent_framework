@@ -7,11 +7,11 @@ Demonstrates synchronous and asynchronous agent-as-judge evaluations.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.postgres.postgres import PostgresDb
-from agno.db.sqlite import AsyncSqliteDb
-from agno.eval.agent_as_judge import AgentAsJudgeEval, AgentAsJudgeEvaluation
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.db.sqlite import AsyncSqliteDb
+from egpt.eval.agent_as_judge import AgentAsJudgeEval, AgentAsJudgeEvaluation
+from egpt.models.openai import OpenAIChat
 
 
 def on_evaluation_failure(evaluation: AgentAsJudgeEvaluation):

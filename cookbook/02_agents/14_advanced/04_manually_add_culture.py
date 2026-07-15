@@ -5,11 +5,11 @@
 Manually add cultural knowledge to your Agents.
 """
 
-from agno.agent import Agent
-from agno.culture.manager import CultureManager
-from agno.db.schemas.culture import CulturalKnowledge
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.culture.manager import CultureManager
+from egpt.db.schemas.culture import CulturalKnowledge
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

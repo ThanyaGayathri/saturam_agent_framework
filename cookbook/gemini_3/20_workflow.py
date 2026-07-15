@@ -18,10 +18,11 @@ Example prompts to try:
 - "History and future of space exploration"
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
-from agno.tools.websearch import WebSearchTools
-from agno.workflow import (
+from db import gemini_agents_db
+from egpt.agent import Agent
+from egpt.models.google import Gemini
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow import (
     Condition,
     Parallel,
     Step,
@@ -29,7 +30,6 @@ from agno.workflow import (
     StepOutput,
     Workflow,
 )
-from db import gemini_agents_db
 
 # ---------------------------------------------------------------------------
 # Agents: each handles one stage of the pipeline

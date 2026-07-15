@@ -5,10 +5,10 @@ Few Shot Learning
 Demonstrates using additional_input examples to guide team support responses.
 """
 
-from agno.agent import Agent
-from agno.models.message import Message
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.message import Message
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 
 # ---------------------------------------------------------------------------
 # Setup

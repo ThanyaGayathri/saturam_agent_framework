@@ -19,10 +19,10 @@ Knowledge is used by:
   - AgentOS's /knowledge/* routes (reads)
 """
 
-from agno.db.postgres import PostgresDb
-from agno.knowledge.embedder.google import GeminiEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.pgvector import PgVector, SearchType
+from egpt.db.postgres import PostgresDb
+from egpt.knowledge.embedder.google import GeminiEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.pgvector import PgVector, SearchType
 from settings import (
     DB_URL,
     EMBEDDER_MODEL_ID,

@@ -1,7 +1,7 @@
 from unittest.mock import Mock
 
-from agno.utils import log as log_module
-from agno.utils.log import configure_agno_logging
+from egpt.utils import log as log_module
+from egpt.utils.log import configure_agno_logging
 
 
 def test_configure_agno_logging_sets_global_logger():
@@ -15,7 +15,7 @@ def test_configure_agno_logging_sets_global_logger():
         assert log_module.logger is mock_logger
 
         # Import our general log_info, call it and assert it used our custom logger
-        from agno.utils.log import log_info
+        from egpt.utils.log import log_info
 
         log_info("Test message")
 

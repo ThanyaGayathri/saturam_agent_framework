@@ -20,8 +20,8 @@ The agent uses update_session_state tool to modify state, which triggers
 STATE_DELTA events that the frontend uses to update the recipe UI.
 """
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 shared_state_agent = Agent(
     name="shared_state",

@@ -32,9 +32,9 @@ from __future__ import annotations
 
 import asyncio
 
-from agno.agent import Agent
-from agno.context.gdrive import GDriveContextProvider
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context.gdrive import GDriveContextProvider
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create the provider (service-account path from env)

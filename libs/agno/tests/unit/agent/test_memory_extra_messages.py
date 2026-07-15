@@ -7,9 +7,9 @@ user_message. The memory pipeline should still run in this case.
 from concurrent.futures import Future
 from unittest.mock import MagicMock
 
-from agno.agent._managers import start_memory_future
-from agno.models.message import Message
-from agno.run.messages import RunMessages
+from egpt.agent._managers import start_memory_future
+from egpt.models.message import Message
+from egpt.run.messages import RunMessages
 
 
 def _make_agent(*, update_memory: bool = True, agentic: bool = False) -> MagicMock:

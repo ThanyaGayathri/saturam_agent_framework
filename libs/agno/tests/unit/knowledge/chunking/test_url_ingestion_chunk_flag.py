@@ -4,12 +4,12 @@ from typing import List, Optional
 
 import pytest
 
-from agno.knowledge.content import Content
-from agno.knowledge.document.base import Document
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.base import Reader
-from agno.knowledge.types import ContentType
-from agno.vectordb.base import VectorDb
+from egpt.knowledge.content import Content
+from egpt.knowledge.document.base import Document
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.base import Reader
+from egpt.knowledge.types import ContentType
+from egpt.vectordb.base import VectorDb
 
 
 class CapturingVectorDb(VectorDb):
@@ -99,7 +99,7 @@ class FakeUrlReader(Reader):
 
     @classmethod
     def get_supported_chunking_strategies(cls):
-        from agno.knowledge.chunking.strategy import ChunkingStrategyType
+        from egpt.knowledge.chunking.strategy import ChunkingStrategyType
 
         return [ChunkingStrategyType.FIXED_SIZE_CHUNKER]
 

@@ -23,14 +23,14 @@ Example prompts to try:
 
 from typing import Union
 
-from agno.agent import Agent
-from agno.exceptions import InputCheckError
-from agno.guardrails import PIIDetectionGuardrail, PromptInjectionGuardrail
-from agno.guardrails.base import BaseGuardrail
-from agno.models.google import Gemini
-from agno.run.agent import RunInput
-from agno.run.team import TeamRunInput
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.exceptions import InputCheckError
+from egpt.guardrails import PIIDetectionGuardrail, PromptInjectionGuardrail
+from egpt.guardrails.base import BaseGuardrail
+from egpt.models.google import Gemini
+from egpt.run.agent import RunInput
+from egpt.run.team import TeamRunInput
+from egpt.tools.yfinance import YFinanceTools
 
 
 # ---------------------------------------------------------------------------

@@ -4,9 +4,9 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.base import RunStatus
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.base import RunStatus
 
 
 def test_agent_retry():
@@ -62,7 +62,7 @@ def test_agent_exponential_backoff():
 
     # Mock the model's response method so _run's retry logic can still work
     with patch.object(model, "response", side_effect=mock_response):
-        with patch("agno.agent._run.time.sleep") as mock_sleep:
+        with patch("egpt.agent._run.time.sleep") as mock_sleep:
             _ = agent.run("Test message")
 
     # Check that sleep was called with exponentially increasing delays

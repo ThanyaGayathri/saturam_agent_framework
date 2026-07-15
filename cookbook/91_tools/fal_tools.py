@@ -5,9 +5,9 @@ Fal Tools
 Demonstrates fal tools.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.fal import FalTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.fal import FalTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

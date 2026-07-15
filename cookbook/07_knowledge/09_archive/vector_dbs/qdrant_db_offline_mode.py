@@ -13,12 +13,12 @@ Prerequisites:
 import os
 import shutil
 
-from agno.agent import Agent
-from agno.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.ollama import Ollama
-from agno.vectordb.qdrant import Qdrant
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.ollama import Ollama
+from egpt.vectordb.qdrant import Qdrant
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Configuration

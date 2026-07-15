@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("litellm")
 
-from agno.models.litellm import LiteLLM
+from egpt.models.litellm import LiteLLM
 
 
 class MockTokenDetails:

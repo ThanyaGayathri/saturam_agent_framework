@@ -15,11 +15,11 @@ the stubs below carry those names and the ``mcp`` package is not required.
 
 from fastapi.testclient import TestClient
 
-from agno.agent.agent import Agent
-from agno.os import AgentOS
-from agno.registry import Registry
-from agno.tools.function import Function
-from agno.tools.toolkit import Toolkit
+from egpt.agent.agent import Agent
+from egpt.os import AgentOS
+from egpt.registry import Registry
+from egpt.tools.function import Function
+from egpt.tools.toolkit import Toolkit
 
 
 class MCPTools(Toolkit):

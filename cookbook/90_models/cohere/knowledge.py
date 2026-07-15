@@ -1,9 +1,9 @@
 """Run `uv pip install ddgs sqlalchemy pgvector pypdf openai cohere` to install dependencies."""
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.cohere import Cohere
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.cohere import Cohere
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Agent

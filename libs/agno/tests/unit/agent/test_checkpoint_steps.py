@@ -20,7 +20,7 @@ import pytest
 # Set test API key to avoid env-var lookup errors when constructing OpenAI models.
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
-from agno.agent._run import (
+from egpt.agent._run import (
     _sync_run_response_with_model_response,
     abuild_after_tool_results_callback,
     acheckpoint_run,
@@ -29,15 +29,15 @@ from agno.agent._run import (
     checkpoint_run,
     persist_run_in_session,
 )
-from agno.agent.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.models.message import Message
-from agno.models.openai.responses import OpenAIResponses
-from agno.models.response import ModelResponse, ToolExecution
-from agno.run import RunContext, RunStatus
-from agno.run.agent import RunOutput
-from agno.run.messages import RunMessages
-from agno.session import AgentSession
+from egpt.agent.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.models.message import Message
+from egpt.models.openai.responses import OpenAIResponses
+from egpt.models.response import ModelResponse, ToolExecution
+from egpt.run import RunContext, RunStatus
+from egpt.run.agent import RunOutput
+from egpt.run.messages import RunMessages
+from egpt.session import AgentSession
 
 # ---------------------------------------------------------------------------
 # Fixtures + helpers

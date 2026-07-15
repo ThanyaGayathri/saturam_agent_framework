@@ -4,11 +4,11 @@ Verifies fix for GitHub issue #7341: member runs stored both as standalone
 runs and inside member_responses should only appear once in get_messages output.
 """
 
-from agno.models.message import Message
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.run.team import TeamRunOutput
-from agno.session.team import TeamSession
+from egpt.models.message import Message
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.team import TeamRunOutput
+from egpt.session.team import TeamSession
 
 
 def _make_member_run(agent_id: str, run_id: str) -> RunOutput:

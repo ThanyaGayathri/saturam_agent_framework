@@ -7,11 +7,11 @@ Cookbook example for `dashscope/image_agent_bytes.py`.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.dashscope import DashScope
-from agno.tools.websearch import WebSearchTools
-from agno.utils.media import download_image
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.dashscope import DashScope
+from egpt.tools.websearch import WebSearchTools
+from egpt.utils.media import download_image
 
 # ---------------------------------------------------------------------------
 # Create Agent

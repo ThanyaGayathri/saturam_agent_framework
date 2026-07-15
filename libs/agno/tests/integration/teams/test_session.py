@@ -3,10 +3,10 @@ from typing import Any, Dict, Optional
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.models.openai.chat import OpenAIChat
-from agno.run.team import TeamRunEvent
-from agno.team.team import Team
+from egpt.agent.agent import Agent
+from egpt.models.openai.chat import OpenAIChat
+from egpt.run.team import TeamRunEvent
+from egpt.team.team import Team
 
 
 def team_factory(shared_db, session_id: Optional[str] = None, session_state: Optional[Dict[str, Any]] = None):

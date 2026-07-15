@@ -5,8 +5,8 @@ Sleep Tools
 Demonstrates sleep tools.
 """
 
-from agno.agent import Agent
-from agno.tools.sleep import SleepTools
+from egpt.agent import Agent
+from egpt.tools.sleep import SleepTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

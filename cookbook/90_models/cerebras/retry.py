@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Cerebras."""
 
-from agno.agent import Agent
-from agno.models.cerebras import Cerebras
+from egpt.agent import Agent
+from egpt.models.cerebras import Cerebras
 
 # ---------------------------------------------------------------------------
 # Create Agent

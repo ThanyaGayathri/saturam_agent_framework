@@ -2,11 +2,11 @@ from typing import Optional
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.portkey import Portkey
-from agno.tools.exa import ExaTools
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.portkey import Portkey
+from egpt.tools.exa import ExaTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 PORTKEY_MODEL_ID = "gpt-4o-mini"
 

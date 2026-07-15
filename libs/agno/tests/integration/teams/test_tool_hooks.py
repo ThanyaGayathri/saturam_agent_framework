@@ -4,13 +4,13 @@ from typing import Any, Callable, Dict
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.message import Message
-from agno.models.openai import OpenAIChat
-from agno.run.base import RunContext
-from agno.team import Team
-from agno.tools import FunctionCall
-from agno.tools.decorator import tool
+from egpt.agent import Agent
+from egpt.models.message import Message
+from egpt.models.openai import OpenAIChat
+from egpt.run.base import RunContext
+from egpt.team import Team
+from egpt.tools import FunctionCall
+from egpt.tools.decorator import tool
 
 MODEL = "gpt-4o-mini"
 

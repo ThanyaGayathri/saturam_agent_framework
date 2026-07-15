@@ -19,9 +19,9 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.context.workspace import WorkspaceContextProvider
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context.workspace import WorkspaceContextProvider
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create the provider

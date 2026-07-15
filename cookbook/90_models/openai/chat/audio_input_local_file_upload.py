@@ -7,9 +7,9 @@ Cookbook example for `openai/chat/audio_input_local_file_upload.py`.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.media import Audio
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.media import Audio
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Agent

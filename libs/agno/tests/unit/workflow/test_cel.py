@@ -2,7 +2,7 @@
 
 import pytest
 
-from agno.workflow.cel import (
+from egpt.workflow.cel import (
     CEL_AVAILABLE,
     is_cel_expression,
     validate_cel_expression,

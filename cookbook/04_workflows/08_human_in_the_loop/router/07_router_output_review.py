@@ -17,12 +17,12 @@ Run:
     .venvs/demo/bin/python cookbook/04_workflows/08_human_in_the_loop/router/07_router_output_review.py
 """
 
-from agno.db.sqlite import SqliteDb
-from agno.workflow import OnReject
-from agno.workflow.router import Router
-from agno.workflow.step import Step
-from agno.workflow.types import HumanReview, StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.db.sqlite import SqliteDb
+from egpt.workflow import OnReject
+from egpt.workflow.router import Router
+from egpt.workflow.step import Step
+from egpt.workflow.types import HumanReview, StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 # ---------------------------------------------------------------------------

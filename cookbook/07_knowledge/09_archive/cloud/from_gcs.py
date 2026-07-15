@@ -7,11 +7,11 @@ Demonstrates loading knowledge from GCS remote content using sync and async inse
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.postgres.postgres import PostgresDb
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.remote_content.remote_content import GCSContent
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.remote_content.remote_content import GCSContent
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Setup

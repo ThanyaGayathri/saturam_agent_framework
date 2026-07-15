@@ -2,10 +2,10 @@
 
 import pytest
 
-from agno.run.workflow import WorkflowCompletedEvent, WorkflowRunOutput
-from agno.workflow import Condition, Loop, Parallel, Workflow
-from agno.workflow.router import Router
-from agno.workflow.types import StepInput, StepOutput
+from egpt.run.workflow import WorkflowCompletedEvent, WorkflowRunOutput
+from egpt.workflow import Condition, Loop, Parallel, Workflow
+from egpt.workflow.router import Router
+from egpt.workflow.types import StepInput, StepOutput
 
 
 def find_content_in_steps(step_output, search_text):
@@ -288,7 +288,7 @@ def test_complex_streaming(shared_db):
 
 def test_router_with_loop(shared_db):
     """Test Router with Loop in routes."""
-    from agno.workflow.step import Step
+    from egpt.workflow.step import Step
 
     research_loop = Loop(
         name="research_loop",
@@ -325,7 +325,7 @@ def test_router_with_loop(shared_db):
 
 def test_loop_with_router(shared_db):
     """Test Loop containing Router."""
-    from agno.workflow.step import Step
+    from egpt.workflow.step import Step
 
     def route_selector(step_input: StepInput):
         """Select between analysis and summary."""
@@ -366,7 +366,7 @@ def test_loop_with_router(shared_db):
 
 def test_parallel_with_routers(shared_db):
     """Test Parallel execution of multiple Routers."""
-    from agno.workflow.step import Step
+    from egpt.workflow.step import Step
 
     def research_selector(step_input: StepInput):
         """Select research path."""
@@ -457,7 +457,7 @@ def test_router_with_condition_and_loop(shared_db):
 
 def test_nested_routers(shared_db):
     """Test nested Routers."""
-    from agno.workflow.step import Step
+    from egpt.workflow.step import Step
 
     def inner_selector(step_input: StepInput):
         """Select inner route."""

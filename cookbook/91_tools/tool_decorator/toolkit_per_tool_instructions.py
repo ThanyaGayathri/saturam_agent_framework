@@ -12,10 +12,10 @@ now work correctly.
 
 from unittest.mock import MagicMock
 
-from agno.agent import Agent
-from agno.agent._tools import parse_tools
-from agno.models.openai import OpenAIResponses
-from agno.tools import Toolkit, tool
+from egpt.agent import Agent
+from egpt.agent._tools import parse_tools
+from egpt.models.openai import OpenAIResponses
+from egpt.tools import Toolkit, tool
 
 
 # Path 1: Bare function with instructions

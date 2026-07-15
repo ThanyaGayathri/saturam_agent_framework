@@ -19,9 +19,9 @@ import uuid
 from datetime import datetime
 
 import httpx
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.utils.http import set_default_sync_client
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.utils.http import set_default_sync_client
 
 # ---------------------------------------------------------------------------
 # Create Agent

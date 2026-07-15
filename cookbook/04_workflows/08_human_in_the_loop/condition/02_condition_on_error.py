@@ -14,11 +14,11 @@ Three modes:
                    user can resolve by choosing to retry or skip.
 """
 
-from agno.db.sqlite import SqliteDb
-from agno.workflow import Condition, OnError
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.db.sqlite import SqliteDb
+from egpt.workflow import Condition, OnError
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 # ---------------------------------------------------------------------------

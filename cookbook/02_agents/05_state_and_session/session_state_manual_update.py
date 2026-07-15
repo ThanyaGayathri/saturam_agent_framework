@@ -5,10 +5,10 @@ Session State Manual Update
 Session State Manual Update.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.run import RunContext
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run import RunContext
 
 
 def add_item(run_context: RunContext, item: str) -> str:

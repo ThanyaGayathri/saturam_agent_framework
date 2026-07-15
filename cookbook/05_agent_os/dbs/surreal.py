@@ -1,12 +1,12 @@
 """Example showing how to use AgentOS with SurrealDB as database"""
 
-from agno.agent import Agent
-from agno.db.surrealdb import SurrealDb
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team.team import Team
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.db.surrealdb import SurrealDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team.team import Team
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Example

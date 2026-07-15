@@ -5,10 +5,10 @@ from uuid import UUID
 
 import pytest
 
-from agno.agent import Agent
-from agno.media import Image, Video
-from agno.tools.function import ToolResult
-from agno.tools.models.gemini import GeminiTools
+from egpt.agent import Agent
+from egpt.media import Image, Video
+from egpt.tools.function import ToolResult
+from egpt.tools.models.gemini import GeminiTools
 
 
 # Fixture for mock agent
@@ -34,8 +34,8 @@ def mock_gemini_tools(mock_client):
         return None
 
     with (
-        patch("agno.tools.models.gemini.Client", return_value=mock_client) as _,
-        patch("agno.tools.models.gemini.getenv", side_effect=mock_getenv_side_effect) as _,
+        patch("egpt.tools.models.gemini.Client", return_value=mock_client) as _,
+        patch("egpt.tools.models.gemini.getenv", side_effect=mock_getenv_side_effect) as _,
     ):
         gemini_tools = GeminiTools(api_key="fake_test_key")
         gemini_tools.client = mock_client
@@ -71,8 +71,8 @@ def test_gemini_tools_init_with_api_key_arg():
         return None
 
     with (
-        patch("agno.tools.models.gemini.Client") as mock_client_cls,
-        patch("agno.tools.models.gemini.getenv", side_effect=mock_getenv_side_effect) as _,
+        patch("egpt.tools.models.gemini.Client") as mock_client_cls,
+        patch("egpt.tools.models.gemini.getenv", side_effect=mock_getenv_side_effect) as _,
     ):
         mock_client_instance = MagicMock()
         mock_client_cls.return_value = mock_client_instance
@@ -95,8 +95,8 @@ def test_gemini_tools_init_with_env_var():
             return None
         return None
 
-    with patch("agno.tools.models.gemini.getenv", side_effect=mock_getenv_side_effect) as mock_getenv:
-        with patch("agno.tools.models.gemini.Client") as mock_client_cls:
+    with patch("egpt.tools.models.gemini.getenv", side_effect=mock_getenv_side_effect) as mock_getenv:
+        with patch("egpt.tools.models.gemini.Client") as mock_client_cls:
             mock_client_instance = MagicMock()
             mock_client_cls.return_value = mock_client_instance
 
@@ -114,7 +114,7 @@ def test_gemini_tools_init_no_api_key():
     def mock_getenv_side_effect(var_name):
         return None
 
-    with patch("agno.tools.models.gemini.getenv", side_effect=mock_getenv_side_effect) as mock_getenv:
+    with patch("egpt.tools.models.gemini.getenv", side_effect=mock_getenv_side_effect) as mock_getenv:
         with pytest.raises(ValueError, match="GOOGLE_API_KEY not set"):
             GeminiTools()
 
@@ -123,8 +123,8 @@ def test_gemini_tools_init_no_api_key():
 
 def test_gemini_tools_init_client_creation_fails():
     """Test initialization raises ValueError if Client creation fails."""
-    with patch("agno.tools.models.gemini.getenv", return_value="fake_key") as _:
-        with patch("agno.tools.models.gemini.Client") as mock_client_cls:
+    with patch("egpt.tools.models.gemini.getenv", return_value="fake_key") as _:
+        with patch("egpt.tools.models.gemini.Client") as mock_client_cls:
             mock_client_cls.side_effect = Exception("Client creation failed")
 
             with pytest.raises(ValueError, match="Failed to create Google GenAI Client"):
@@ -138,7 +138,7 @@ def test_generate_image_success(mock_gemini_tools, mock_agent, mock_successful_r
     """Test successful image generation."""
     mock_gemini_tools.client.models.generate_images.return_value = mock_successful_response
 
-    with patch("agno.tools.models.gemini.uuid4", return_value=UUID("12345678-1234-5678-1234-567812345678")):
+    with patch("egpt.tools.models.gemini.uuid4", return_value=UUID("12345678-1234-5678-1234-567812345678")):
         prompt = "A picture of a cat"
         image_model = "imagen-test-model"
         mock_gemini_tools.image_model = image_model  # Override default for test
@@ -239,7 +239,7 @@ def test_generate_video_success(mock_gemini_tools, mock_agent, mock_video_operat
     mock_gemini_tools.vertexai = True
     mock_gemini_tools.client.models.generate_videos.return_value = mock_video_operation
     prompt = "A sample video prompt"
-    with patch("agno.tools.models.gemini.uuid4", return_value=UUID("87654321-4321-8765-4321-876543214321")):
+    with patch("egpt.tools.models.gemini.uuid4", return_value=UUID("87654321-4321-8765-4321-876543214321")):
         result = mock_gemini_tools.generate_video(mock_agent, prompt)
         expected_id = "87654321-4321-8765-4321-876543214321"
 

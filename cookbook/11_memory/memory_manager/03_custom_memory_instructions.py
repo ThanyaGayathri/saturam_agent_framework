@@ -6,11 +6,11 @@ This example shows how to customize memory capture instructions and compare the
 results with a default memory manager.
 """
 
-from agno.db.postgres import PostgresDb
-from agno.memory import MemoryManager
-from agno.models.anthropic.claude import Claude
-from agno.models.message import Message
-from agno.models.openai import OpenAIChat
+from egpt.db.postgres import PostgresDb
+from egpt.memory import MemoryManager
+from egpt.models.anthropic.claude import Claude
+from egpt.models.message import Message
+from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

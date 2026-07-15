@@ -5,8 +5,8 @@ from typing import List
 
 import pytest
 
-from agno.skills.loaders.base import SkillLoader
-from agno.skills.skill import Skill
+from egpt.skills.loaders.base import SkillLoader
+from egpt.skills.skill import Skill
 
 
 @pytest.fixture

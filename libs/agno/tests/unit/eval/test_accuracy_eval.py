@@ -2,8 +2,8 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-from agno.eval.accuracy import AccuracyAgentResponse, AccuracyEval
-from agno.run.agent import RunOutput
+from egpt.eval.accuracy import AccuracyAgentResponse, AccuracyEval
+from egpt.run.agent import RunOutput
 
 
 def _mock_evaluator(eval_instance: AccuracyEval, score: int = 8):

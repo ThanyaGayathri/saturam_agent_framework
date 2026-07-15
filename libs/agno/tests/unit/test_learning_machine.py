@@ -1,9 +1,9 @@
 from unittest.mock import MagicMock
 
-from agno.agent._init import set_learning_machine
-from agno.agent.agent import Agent
-from agno.learn.config import LearnedKnowledgeConfig, LearningMode
-from agno.learn.machine import LearningMachine
+from egpt.agent._init import set_learning_machine
+from egpt.agent.agent import Agent
+from egpt.learn.config import LearnedKnowledgeConfig, LearningMode
+from egpt.learn.machine import LearningMachine
 
 
 def _mock_knowledge():

@@ -5,11 +5,11 @@ Basic
 Demonstrates basic.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os.app import AgentOS
-from agno.os.interfaces.whatsapp import Whatsapp
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.whatsapp import Whatsapp
 
 # ---------------------------------------------------------------------------
 # Create Example

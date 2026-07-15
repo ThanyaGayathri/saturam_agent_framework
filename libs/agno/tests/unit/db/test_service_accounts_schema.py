@@ -2,7 +2,7 @@
 
 import pytest
 
-from agno.db.schemas.service_accounts import (
+from egpt.db.schemas.service_accounts import (
     SERVICE_ACCOUNT_MUTABLE_COLUMNS,
     resolve_service_account_sort_column,
     validate_service_account_update,

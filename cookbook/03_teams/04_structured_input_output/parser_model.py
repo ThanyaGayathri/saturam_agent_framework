@@ -8,9 +8,9 @@ Demonstrates parser-model assisted team output parsing into rich schemas.
 import random
 from typing import List
 
-from agno.agent import Agent, RunOutput
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
+from egpt.agent import Agent, RunOutput
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
 from pydantic import BaseModel, Field
 from rich.pretty import pprint
 

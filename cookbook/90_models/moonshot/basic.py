@@ -5,8 +5,8 @@ Moonshot Basic
 Cookbook example for `moonshot/basic.py`.
 """
 
-from agno.agent import Agent
-from agno.models.moonshot import MoonShot
+from egpt.agent import Agent
+from egpt.models.moonshot import MoonShot
 
 # ---------------------------------------------------------------------------
 # Create Agent

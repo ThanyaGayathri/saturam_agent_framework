@@ -14,10 +14,10 @@ We can start Redis locally using docker:
 `python cookbook/06_storage/redis/redis_for_agent.py`
 """
 
-from agno.agent import Agent
-from agno.db.base import SessionType
-from agno.db.redis import RedisDb
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.base import SessionType
+from egpt.db.redis import RedisDb
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

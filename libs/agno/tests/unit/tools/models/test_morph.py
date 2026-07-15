@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from agno.tools.models.morph import MorphTools
+from egpt.tools.models.morph import MorphTools
 
 
 # Fixture for mock OpenAI client
@@ -15,7 +15,7 @@ def mock_openai_client():
 # Fixture for mock MorphTools with mock client
 @pytest.fixture
 def mock_morph_tools(mock_openai_client):
-    with patch("agno.tools.models.morph.OpenAI", return_value=mock_openai_client) as _:
+    with patch("egpt.tools.models.morph.OpenAI", return_value=mock_openai_client) as _:
         morph_tools = MorphTools(api_key="fake_test_key")
         morph_tools._morph_client = mock_openai_client
         return morph_tools
@@ -51,7 +51,7 @@ def test_morph_tools_init_with_api_key_arg():
     """Test initialization with API key provided as an argument."""
     api_key = "test_api_key_arg"
 
-    with patch("agno.tools.models.morph.OpenAI") as mock_openai_cls:
+    with patch("egpt.tools.models.morph.OpenAI") as mock_openai_cls:
         mock_client_instance = MagicMock()
         mock_openai_cls.return_value = mock_client_instance
 
@@ -67,7 +67,7 @@ def test_morph_tools_init_with_env_var():
     """Test initialization with API key from environment variable."""
     env_api_key = "test_api_key_env"
 
-    with patch("agno.tools.models.morph.getenv", return_value=env_api_key) as mock_getenv:
+    with patch("egpt.tools.models.morph.getenv", return_value=env_api_key) as mock_getenv:
         morph_tools = MorphTools()
 
         assert morph_tools.api_key == env_api_key
@@ -76,7 +76,7 @@ def test_morph_tools_init_with_env_var():
 
 def test_morph_tools_init_no_api_key():
     """Test initialization raises ValueError when no API key is found."""
-    with patch("agno.tools.models.morph.getenv", return_value=None) as mock_getenv:
+    with patch("egpt.tools.models.morph.getenv", return_value=None) as mock_getenv:
         with pytest.raises(ValueError, match="MORPH_API_KEY not set"):
             MorphTools()
 

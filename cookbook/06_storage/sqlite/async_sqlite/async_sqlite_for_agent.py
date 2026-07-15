@@ -4,9 +4,9 @@ Run `uv pip install openai ddgs sqlalchemy aiosqlite` to install dependencies.""
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.sqlite import AsyncSqliteDb
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.sqlite import AsyncSqliteDb
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

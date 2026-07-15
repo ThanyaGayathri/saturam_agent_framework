@@ -72,10 +72,10 @@ such as listing node labels or executing Cypher queries.
 
 import os
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.neo4j import Neo4jTools
 from dotenv import load_dotenv
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.neo4j import Neo4jTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

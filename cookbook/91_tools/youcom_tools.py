@@ -14,8 +14,8 @@ no key or sign-up required). To use it, plug that URL into Agno's MCPTools
 instead of YouTools.
 """
 
-from agno.agent import Agent
-from agno.tools.youcom import YouTools
+from egpt.agent import Agent
+from egpt.tools.youcom import YouTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

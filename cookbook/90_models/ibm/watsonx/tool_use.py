@@ -2,9 +2,9 @@
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.ibm import WatsonX
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.ibm import WatsonX
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

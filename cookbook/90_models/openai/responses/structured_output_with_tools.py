@@ -7,9 +7,9 @@ Cookbook example for `openai/responses/structured_output_with_tools.py`.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.websearch import WebSearchTools
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

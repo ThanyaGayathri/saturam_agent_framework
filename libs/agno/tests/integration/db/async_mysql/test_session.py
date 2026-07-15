@@ -2,8 +2,8 @@
 
 import pytest
 
-from agno.db.base import SessionType
-from agno.session import AgentSession, TeamSession, WorkflowSession
+from egpt.db.base import SessionType
+from egpt.session import AgentSession, TeamSession, WorkflowSession
 
 
 @pytest.mark.asyncio

@@ -8,9 +8,9 @@ web-based research grounded in that content. Pass them as Agno `Image` /
 URLs are downloaded and base64-encoded automatically).
 """
 
-from agno.agent import Agent
-from agno.media import File, Image
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.media import File, Image
+from egpt.models.google import GeminiInteractions
 
 agent = Agent(
     model=GeminiInteractions(

@@ -7,9 +7,9 @@ showing different patterns for selective function access using boolean flags.
 Run: `uv pip install yfinance` to install the dependencies
 """
 
-from agno.agent import Agent
-from agno.tools.yfinance import YFinanceTools
 from curl_cffi.requests import Session
+from egpt.agent import Agent
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

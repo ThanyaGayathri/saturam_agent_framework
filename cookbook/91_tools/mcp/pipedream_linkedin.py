@@ -12,10 +12,10 @@ This example shows how to use Pipedream MCP servers (in this case the LinkedIn o
 import asyncio
 import os
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.mcp import MCPTools
-from agno.utils.log import log_exception
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.mcp import MCPTools
+from egpt.utils.log import log_exception
 
 # ---------------------------------------------------------------------------
 # Create Agent

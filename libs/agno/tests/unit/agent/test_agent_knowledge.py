@@ -1,6 +1,6 @@
 import pytest
 
-from agno.agent import Agent
+from egpt.agent import Agent
 
 
 # Create a mock knowledge object

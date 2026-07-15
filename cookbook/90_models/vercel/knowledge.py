@@ -1,9 +1,9 @@
 """Run `uv pip install ddgs` to install dependencies."""
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.vercel import V0
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.vercel import V0
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Agent

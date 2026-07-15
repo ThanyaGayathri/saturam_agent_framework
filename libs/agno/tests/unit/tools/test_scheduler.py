@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agno.db.schemas.scheduler import Schedule, ScheduleRun
-from agno.tools.scheduler import SchedulerTools
+from egpt.db.schemas.scheduler import Schedule, ScheduleRun
+from egpt.tools.scheduler import SchedulerTools
 
 
 def _make_schedule(**overrides):
@@ -47,7 +47,7 @@ def mock_db():
 
 @pytest.fixture
 def tools(mock_db):
-    with patch("agno.tools.scheduler.ScheduleManager") as MockManager:
+    with patch("egpt.tools.scheduler.ScheduleManager") as MockManager:
         manager_instance = MagicMock()
         MockManager.return_value = manager_instance
         t = SchedulerTools(
@@ -61,7 +61,7 @@ def tools(mock_db):
 
 @pytest.fixture
 def tools_no_defaults(mock_db):
-    with patch("agno.tools.scheduler.ScheduleManager") as MockManager:
+    with patch("egpt.tools.scheduler.ScheduleManager") as MockManager:
         manager_instance = MagicMock()
         MockManager.return_value = manager_instance
         t = SchedulerTools(db=mock_db)
@@ -109,7 +109,7 @@ class TestSchedulerToolsInitialization:
         assert tools.default_payload == {"message": "Default scheduled run"}
 
     def test_custom_config(self, mock_db):
-        with patch("agno.tools.scheduler.ScheduleManager"):
+        with patch("egpt.tools.scheduler.ScheduleManager"):
             t = SchedulerTools(
                 db=mock_db,
                 default_endpoint="/teams/my-team/runs",

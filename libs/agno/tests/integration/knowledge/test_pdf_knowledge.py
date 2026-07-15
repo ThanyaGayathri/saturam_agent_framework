@@ -3,11 +3,11 @@ from pathlib import Path
 
 import pytest
 
-from agno.agent import Agent
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.chroma import ChromaDb
-from agno.vectordb.lancedb.lance_db import LanceDb
+from egpt.agent import Agent
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.chroma import ChromaDb
+from egpt.vectordb.lancedb.lance_db import LanceDb
 
 
 @pytest.fixture

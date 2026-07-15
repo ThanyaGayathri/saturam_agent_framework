@@ -20,13 +20,13 @@ Requirements:
     uv pip install agno opentelemetry-api opentelemetry-sdk openinference-instrumentation-agno
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.filters import AND, CONTAINS, EQ, GT, GTE, IN, LTE, NEQ, NOT, OR, STARTSWITH
-from agno.models.openai import OpenAIChat
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.yfinance import YFinanceTools
-from agno.tracing import setup_tracing
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.filters import AND, CONTAINS, EQ, GT, GTE, IN, LTE, NEQ, NOT, OR, STARTSWITH
+from egpt.models.openai import OpenAIChat
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.yfinance import YFinanceTools
+from egpt.tracing import setup_tracing
 
 # ---------------------------------------------------------------------------
 # Setup

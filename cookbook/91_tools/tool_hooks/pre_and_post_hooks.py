@@ -10,8 +10,8 @@ import json
 from typing import AsyncIterator, Iterator
 
 import httpx
-from agno.agent import Agent
-from agno.tools import FunctionCall, tool
+from egpt.agent import Agent
+from egpt.tools import FunctionCall, tool
 
 # ---------------------------------------------------------------------------
 # Create Agent

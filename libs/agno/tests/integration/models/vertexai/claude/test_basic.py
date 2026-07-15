@@ -3,11 +3,11 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput
-from agno.db.sqlite import SqliteDb
-from agno.models.vertexai.claude import Claude
-from agno.utils.log import log_warning
-from agno.utils.media import download_file
+from egpt.agent import Agent, RunOutput
+from egpt.db.sqlite import SqliteDb
+from egpt.models.vertexai.claude import Claude
+from egpt.utils.log import log_warning
+from egpt.utils.media import download_file
 
 
 @pytest.fixture(scope="module")

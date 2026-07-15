@@ -13,9 +13,9 @@ These tests verify that:
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.decorator import tool
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.decorator import tool
 
 INSTRUCTIONS = (
     "You are a note-taking assistant. "

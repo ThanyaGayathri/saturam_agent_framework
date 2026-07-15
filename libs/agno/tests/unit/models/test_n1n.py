@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.exceptions import ModelAuthenticationError
-from agno.models.n1n import N1N
+from egpt.exceptions import ModelAuthenticationError
+from egpt.models.n1n import N1N
 
 
 def test_n1n_initialization_with_api_key():

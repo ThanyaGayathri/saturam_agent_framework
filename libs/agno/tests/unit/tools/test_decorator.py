@@ -3,8 +3,8 @@ from typing import AsyncIterator, Generator
 
 import pytest
 
-from agno.tools.decorator import tool
-from agno.tools.function import Function
+from egpt.tools.decorator import tool
+from egpt.tools.function import Function
 
 
 def test_sync_function_decorator():

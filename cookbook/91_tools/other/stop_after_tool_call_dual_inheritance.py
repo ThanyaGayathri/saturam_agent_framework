@@ -5,8 +5,8 @@ This demonstrates that stop_after_tool_call_tools works correctly even when
 the Toolkit class uses multiple inheritance.
 """
 
-from agno.agent import Agent
-from agno.tools import Toolkit
+from egpt.agent import Agent
+from egpt.tools import Toolkit
 
 # ---------------------------------------------------------------------------
 # Create Agent

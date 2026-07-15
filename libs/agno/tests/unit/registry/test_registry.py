@@ -15,9 +15,9 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import BaseModel
 
-from agno.registry.registry import Registry
-from agno.tools.function import Function
-from agno.tools.toolkit import Toolkit
+from egpt.registry.registry import Registry
+from egpt.tools.function import Function
+from egpt.tools.toolkit import Toolkit
 
 # =============================================================================
 # Test Schemas
@@ -508,7 +508,7 @@ class TestRegistryIntegration:
 
     def test_registry_with_agent_from_dict(self, full_registry):
         """Test using registry with Agent.from_dict."""
-        from agno.agent.agent import Agent
+        from egpt.agent.agent import Agent
 
         # Create agent config with tools - include parameters to match Function requirements
         config = {
@@ -544,8 +544,8 @@ class TestRegistryIntegration:
         drops azure_endpoint/base_url and credentials. The registry holds the live instance, so
         from_dict should prefer it. See Model.to_dict / Registry.get_model.
         """
-        from agno.agent.agent import Agent
-        from agno.models.azure import AzureOpenAI
+        from egpt.agent.agent import Agent
+        from egpt.models.azure import AzureOpenAI
 
         model = AzureOpenAI(
             id="gpt-4.1-mini",
@@ -571,8 +571,8 @@ class TestRegistryIntegration:
 
     def test_from_dict_without_registry_rebuilds_bare_model(self):
         """Without a registry, the model is still rebuilt from its dict (unchanged fallback)."""
-        from agno.agent.agent import Agent
-        from agno.models.azure import AzureOpenAI
+        from egpt.agent.agent import Agent
+        from egpt.models.azure import AzureOpenAI
 
         config = {
             "id": "test-agent",
@@ -1142,7 +1142,7 @@ def _model(model_id, provider="openai"):
     m.id = model_id
     m.provider = provider
     # Make isinstance(m, Model) pass
-    from agno.models.base import Model
+    from egpt.models.base import Model
 
     m.__class__ = type("MockModel", (Model,), {})
     return m
@@ -1177,8 +1177,8 @@ class TestAddModel:
         """
         pytest.importorskip("openai")  # openai is an optional extra, not a base dependency
         os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
-        from agno.models.openai.chat import OpenAIChat
-        from agno.models.openai.responses import OpenAIResponses
+        from egpt.models.openai.chat import OpenAIChat
+        from egpt.models.openai.responses import OpenAIResponses
 
         reg = Registry()
         reg.add_model(OpenAIChat(id="gpt-5.4"))
@@ -1191,7 +1191,7 @@ class TestAddModel:
     def test_dedupes_same_class_provider_and_id(self):
         pytest.importorskip("openai")  # openai is an optional extra, not a base dependency
         os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
-        from agno.models.openai.responses import OpenAIResponses
+        from egpt.models.openai.responses import OpenAIResponses
 
         reg = Registry()
         reg.add_model(OpenAIResponses(id="gpt-5.4"))
@@ -1202,7 +1202,7 @@ class TestAddModel:
         # A re-instantiated model (catalog id reused) is benign and expected, so
         # the skip must not log at all -- duplicate-skip chatter on startup reads
         # like a problem to users when nothing is wrong.
-        import agno.registry.registry as registry_module
+        import egpt.registry.registry as registry_module
 
         logs = []
         monkeypatch.setattr(registry_module, "log_warning", lambda msg, *a, **k: logs.append(msg))
@@ -1217,7 +1217,7 @@ class TestAddModel:
         assert logs == []
 
     def test_no_log_when_same_model_instance_repeats(self, monkeypatch):
-        import agno.registry.registry as registry_module
+        import egpt.registry.registry as registry_module
 
         logs = []
         monkeypatch.setattr(registry_module, "log_warning", lambda msg, *a, **k: logs.append(msg))
@@ -1268,7 +1268,7 @@ class TestAddTool:
     def test_dropping_matching_toolkit_is_silent(self, monkeypatch):
         # Re-instantiating a default toolkit in two places is common and benign,
         # so the skip must not log at all.
-        import agno.registry.registry as registry_module
+        import egpt.registry.registry as registry_module
 
         logs = []
         monkeypatch.setattr(registry_module, "log_warning", lambda msg, *a, **k: logs.append(msg))
@@ -1301,7 +1301,7 @@ class TestAddTool:
         # they are only distinguishable by name. The derived default name keeps
         # them from collapsing into one entry.
         pytest.importorskip("mcp")
-        from agno.tools.mcp import MCPTools
+        from egpt.tools.mcp import MCPTools
 
         reg = Registry()
         docs = MCPTools(url="https://docs.example.com/mcp")
@@ -1313,7 +1313,7 @@ class TestAddTool:
     def test_dedupes_mcp_toolkits_for_same_server(self):
         # Same server re-instantiated in two places is still a duplicate.
         pytest.importorskip("mcp")
-        from agno.tools.mcp import MCPTools
+        from egpt.tools.mcp import MCPTools
 
         reg = Registry()
         first = MCPTools(url="https://docs.example.com/mcp")
@@ -1381,7 +1381,7 @@ class TestAddDbAndVectorDb:
     """Tests for Registry.add_db() and add_vector_db()."""
 
     def test_add_db_dedupes_by_id(self):
-        from agno.db.base import BaseDb
+        from egpt.db.base import BaseDb
 
         db1 = MagicMock(spec=BaseDb)
         db1.id = "db-1"
@@ -1393,8 +1393,8 @@ class TestAddDbAndVectorDb:
         assert len(reg.dbs) == 1
 
     def test_add_db_warns_when_dropping_matching_id(self, monkeypatch):
-        import agno.registry.registry as registry_module
-        from agno.db.base import BaseDb
+        import egpt.registry.registry as registry_module
+        from egpt.db.base import BaseDb
 
         warnings = []
         monkeypatch.setattr(registry_module, "log_warning", lambda msg, *a, **k: warnings.append(msg))
@@ -1410,8 +1410,8 @@ class TestAddDbAndVectorDb:
         assert warnings and "db-1" in warnings[0]
 
     def test_add_db_no_warning_when_same_instance_repeats(self, monkeypatch):
-        import agno.registry.registry as registry_module
-        from agno.db.base import BaseDb
+        import egpt.registry.registry as registry_module
+        from egpt.db.base import BaseDb
 
         warnings = []
         monkeypatch.setattr(registry_module, "log_warning", lambda msg, *a, **k: warnings.append(msg))
@@ -1424,8 +1424,8 @@ class TestAddDbAndVectorDb:
         assert len(reg.dbs) == 1 and warnings == []
 
     def test_add_vector_db_warns_when_dropping_matching_key(self, monkeypatch):
-        import agno.registry.registry as registry_module
-        from agno.vectordb.base import VectorDb
+        import egpt.registry.registry as registry_module
+        from egpt.vectordb.base import VectorDb
 
         warnings = []
         monkeypatch.setattr(registry_module, "log_warning", lambda msg, *a, **k: warnings.append(msg))
@@ -1449,7 +1449,7 @@ class TestAddDbAndVectorDb:
         assert reg.dbs == []
 
     def test_add_vector_db_dedupes_by_name(self):
-        from agno.vectordb.base import VectorDb
+        from egpt.vectordb.base import VectorDb
 
         v1 = MagicMock(spec=VectorDb)
         v1.id = None
@@ -1467,7 +1467,7 @@ class TestEntrypointLookupCollisionWarning:
     """The entrypoint lookup warns when distinct tools collide on a name."""
 
     def test_warns_on_distinct_tools_sharing_a_name(self, monkeypatch):
-        import agno.registry.registry as registry_module
+        import egpt.registry.registry as registry_module
 
         warnings = []
         monkeypatch.setattr(registry_module, "log_warning", lambda msg, *a, **k: warnings.append(msg))
@@ -1491,7 +1491,7 @@ class TestEntrypointLookupCollisionWarning:
         assert "search" in warnings[0]
 
     def test_no_warning_when_same_entrypoint_repeats(self, monkeypatch):
-        import agno.registry.registry as registry_module
+        import egpt.registry.registry as registry_module
 
         warnings = []
         monkeypatch.setattr(registry_module, "log_warning", lambda msg, *a, **k: warnings.append(msg))
@@ -1510,7 +1510,7 @@ class TestEntrypointLookupCollisionWarning:
         assert warnings == []
 
     def test_no_warning_for_unique_names(self, monkeypatch):
-        import agno.registry.registry as registry_module
+        import egpt.registry.registry as registry_module
 
         warnings = []
         monkeypatch.setattr(registry_module, "log_warning", lambda msg, *a, **k: warnings.append(msg))

@@ -8,7 +8,7 @@ Demonstrates python function as tool.
 import json
 
 import httpx
-from agno.agent import Agent
+from egpt.agent import Agent
 
 # ---------------------------------------------------------------------------
 # Create Agent

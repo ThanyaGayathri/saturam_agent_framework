@@ -2,7 +2,7 @@
 
 import pytest
 
-from agno.run.workflow import (
+from egpt.run.workflow import (
     RouterExecutionCompletedEvent,
     RouterExecutionStartedEvent,
     StepCompletedEvent,
@@ -10,12 +10,12 @@ from agno.run.workflow import (
     WorkflowCompletedEvent,
     WorkflowRunOutput,
 )
-from agno.workflow.cel import CEL_AVAILABLE
-from agno.workflow.router import Router
-from agno.workflow.step import Step
-from agno.workflow.steps import Steps
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.workflow.cel import CEL_AVAILABLE
+from egpt.workflow.router import Router
+from egpt.workflow.step import Step
+from egpt.workflow.steps import Steps
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 def find_content_in_steps(step_output, search_text):
@@ -886,7 +886,7 @@ def test_selector_unknown_string_name_warns():
 
 def test_nested_list_in_choices_becomes_steps_container():
     """Test that nested list in choices becomes a Steps container."""
-    from agno.workflow.steps import Steps
+    from egpt.workflow.steps import Steps
 
     step_a = Step(name="step_a", executor=lambda x: StepOutput(content="Output A"))
     step_b = Step(name="step_b", executor=lambda x: StepOutput(content="Output B"))

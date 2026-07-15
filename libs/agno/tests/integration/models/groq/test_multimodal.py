@@ -1,8 +1,8 @@
 import pytest
 
-from agno.agent.agent import Agent
-from agno.media import Image
-from agno.models.groq import Groq
+from egpt.agent.agent import Agent
+from egpt.media import Image
+from egpt.models.groq import Groq
 
 
 @pytest.mark.skip(reason="Error on Groq API")

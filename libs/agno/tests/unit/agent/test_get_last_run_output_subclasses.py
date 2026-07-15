@@ -1,7 +1,7 @@
 """Regression tests for get_last_run_output / aget_last_run_output on Agent
 and Team subclasses.
 
-Bug: the retrieval loop in ``agno.utils.agent`` checked
+Bug: the retrieval loop in ``egpt.utils.agent`` checked
 ``entity.__class__.__name__ == "Agent" / "Team"`` which fails for user
 subclasses like ``class CustomAgent(Agent): pass``. The fix uses
 ``isinstance()`` instead. These tests exercise the utility directly (no
@@ -10,14 +10,14 @@ LLM calls) using InMemoryDb + direct session inserts.
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.run.team import TeamRunOutput
-from agno.session.agent import AgentSession
-from agno.session.team import TeamSession
-from agno.team.team import Team
+from egpt.agent.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.team import TeamRunOutput
+from egpt.session.agent import AgentSession
+from egpt.session.team import TeamSession
+from egpt.team.team import Team
 
 
 class CustomAgent(Agent):
@@ -130,7 +130,7 @@ def test_get_last_run_output_util_cached_session_branch_subclasses():
     The public ``get_last_run_output()`` requires a ``session_id`` and never
     falls into that branch, so exercise the util directly.
     """
-    from agno.utils.agent import get_last_run_output_util
+    from egpt.utils.agent import get_last_run_output_util
 
     db = InMemoryDb()
     _seed_agent_session(db, agent_id="custom-agent", session_id="s1", run_id="r1")

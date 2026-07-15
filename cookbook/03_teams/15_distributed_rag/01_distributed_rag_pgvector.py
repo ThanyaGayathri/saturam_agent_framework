@@ -5,12 +5,12 @@ Distributed RAG With PgVector
 Demonstrates distributed team-based RAG using PostgreSQL + pgvector.
 """
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.vectordb.pgvector import PgVector, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.vectordb.pgvector import PgVector, SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

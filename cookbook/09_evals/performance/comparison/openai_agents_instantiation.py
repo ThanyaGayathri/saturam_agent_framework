@@ -7,7 +7,7 @@ Demonstrates agent instantiation benchmarking with OpenAI Agents SDK.
 
 from typing import Literal
 
-from agno.eval.performance import PerformanceEval
+from egpt.eval.performance import PerformanceEval
 
 try:
     from agents import Agent, function_tool

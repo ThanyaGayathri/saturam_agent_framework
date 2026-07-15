@@ -7,11 +7,11 @@ from copy import deepcopy
 import pytest
 from pydantic import BaseModel
 
-from agno.agent import Agent
-from agno.exceptions import ModelProviderError
-from agno.models.google import Gemini
-from agno.models.message import Message
-from agno.run.agent import RunErrorEvent
+from egpt.agent import Agent
+from egpt.exceptions import ModelProviderError
+from egpt.models.google import Gemini
+from egpt.models.message import Message
+from egpt.run.agent import RunErrorEvent
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 pytestmark = [

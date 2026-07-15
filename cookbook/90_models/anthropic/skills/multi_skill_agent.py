@@ -11,9 +11,9 @@ Prerequisites:
 
 import os
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
 from anthropic import Anthropic
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
 from file_download_helper import download_skill_files
 
 # ---------------------------------------------------------------------------

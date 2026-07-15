@@ -8,9 +8,9 @@ through a common database, user ID, and session ID.
 
 from uuid import uuid4
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai.chat import OpenAIChat
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai.chat import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Setup

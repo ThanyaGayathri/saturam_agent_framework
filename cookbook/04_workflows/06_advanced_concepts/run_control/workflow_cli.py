@@ -8,10 +8,10 @@ Demonstrates using `Workflow.cli_app()` for interactive command-line workflow ru
 import os
 import sys
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.workflow import Workflow
-from agno.workflow.step import Step
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.workflow import Workflow
+from egpt.workflow.step import Step
 
 # ---------------------------------------------------------------------------
 # Create Agent

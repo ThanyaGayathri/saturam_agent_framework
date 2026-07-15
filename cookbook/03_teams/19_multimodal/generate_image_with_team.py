@@ -7,11 +7,11 @@ Demonstrates collaborative prompt optimization and DALL-E image generation.
 
 from typing import Iterator
 
-from agno.agent import Agent, RunOutputEvent
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.tools.dalle import DalleTools
-from agno.utils.common import dataclass_to_dict
+from egpt.agent import Agent, RunOutputEvent
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.tools.dalle import DalleTools
+from egpt.utils.common import dataclass_to_dict
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

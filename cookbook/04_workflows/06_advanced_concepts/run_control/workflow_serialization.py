@@ -7,11 +7,11 @@ Demonstrates `to_dict()`, `save()`, and `load()` for workflow persistence.
 
 import json
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.workflow import Workflow
-from agno.workflow.step import Step
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.workflow import Workflow
+from egpt.workflow.step import Step
 
 # ---------------------------------------------------------------------------
 # Create Agents

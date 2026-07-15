@@ -22,8 +22,8 @@ You can find it on https://developers.brandfetch.com/dashboard/brand-search-api 
 
 import asyncio
 
-from agno.agent import Agent
-from agno.tools.brandfetch import BrandfetchTools
+from egpt.agent import Agent
+from egpt.tools.brandfetch import BrandfetchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

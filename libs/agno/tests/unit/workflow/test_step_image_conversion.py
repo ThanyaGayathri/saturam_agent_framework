@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agno.media import Image
-from agno.workflow.step import Step
+from egpt.media import Image
+from egpt.workflow.step import Step
 
 
 @pytest.fixture()

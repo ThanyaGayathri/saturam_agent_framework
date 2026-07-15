@@ -12,24 +12,24 @@ pytest.importorskip("fastmcp")
 
 from fastmcp import Client  # noqa: E402
 
-import agno.os.mcp as mcp_mod  # noqa: E402
-from agno.agent import Agent  # noqa: E402
-from agno.media import Image  # noqa: E402
-from agno.models.message import Message  # noqa: E402
-from agno.models.response import ToolExecution  # noqa: E402
-from agno.os import AgentOS, MCPServerConfig  # noqa: E402
-from agno.os.mcp import build_mcp_server  # noqa: E402
-from agno.run.agent import RunErrorEvent, RunEvent, RunOutput, ToolCallStartedEvent  # noqa: E402
-from agno.run.base import RunStatus  # noqa: E402
-from agno.run.requirement import RunRequirement  # noqa: E402
-from agno.run.workflow import (  # noqa: E402
+import egpt.os.mcp as mcp_mod  # noqa: E402
+from egpt.agent import Agent  # noqa: E402
+from egpt.media import Image  # noqa: E402
+from egpt.models.message import Message  # noqa: E402
+from egpt.models.response import ToolExecution  # noqa: E402
+from egpt.os import AgentOS, MCPServerConfig  # noqa: E402
+from egpt.os.mcp import build_mcp_server  # noqa: E402
+from egpt.run.agent import RunErrorEvent, RunEvent, RunOutput, ToolCallStartedEvent  # noqa: E402
+from egpt.run.base import RunStatus  # noqa: E402
+from egpt.run.requirement import RunRequirement  # noqa: E402
+from egpt.run.workflow import (  # noqa: E402
     StepStartedEvent,
     WorkflowCompletedEvent,
     WorkflowErrorEvent,
     WorkflowRunOutput,
 )
-from agno.workflow.step import Step  # noqa: E402
-from agno.workflow.workflow import Workflow  # noqa: E402
+from egpt.workflow.step import Step  # noqa: E402
+from egpt.workflow.workflow import Workflow  # noqa: E402
 
 _PNG_BYTES = b"\x89PNG\r\n\x1a\n_fake_image_payload"
 
@@ -349,8 +349,8 @@ async def test_workflow_progress_is_strictly_increasing():
 async def test_paused_workflow_fallback_text_counts_step_requirements():
     """The paused fallback text must count workflow step_requirements, not just
     agent/team requirements."""
-    from agno.os.mcp_results import build_run_tool_result
-    from agno.workflow.types import StepRequirement
+    from egpt.os.mcp_results import build_run_tool_result
+    from egpt.workflow.types import StepRequirement
 
     paused = WorkflowRunOutput(run_id="r", session_id="s", content=None, status=RunStatus.paused)
     paused.step_requirements = [

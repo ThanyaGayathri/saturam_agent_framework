@@ -17,8 +17,8 @@ class _FakeApiTelegramException(Exception):
 @pytest.fixture(autouse=True)
 def _mock_telebot():
     with (
-        patch("agno.tools.telegram.TeleBot") as mock_telebot,
-        patch("agno.tools.telegram.ApiTelegramException", _FakeApiTelegramException),
+        patch("egpt.tools.telegram.TeleBot") as mock_telebot,
+        patch("egpt.tools.telegram.ApiTelegramException", _FakeApiTelegramException),
     ):
         mock_telebot.return_value = MagicMock()
         yield {"TeleBot": mock_telebot}
@@ -27,7 +27,7 @@ def _mock_telebot():
 class TestTelegramToolsInit:
     def test_default_registers_send_message_only(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         assert "send_message" in tools.functions
@@ -35,28 +35,28 @@ class TestTelegramToolsInit:
 
     def test_token_from_env(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "env-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         assert tools.token == "env-token"
 
     def test_token_from_param(self, monkeypatch):
         monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345", token="param-token")
         assert tools.token == "param-token"
 
     def test_param_token_overrides_env(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "env-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345", token="param-token")
         assert tools.token == "param-token"
 
     def test_missing_token_raises(self, monkeypatch):
         monkeypatch.delenv("TELEGRAM_TOKEN", raising=False)
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         with pytest.raises(ValueError, match="TELEGRAM_TOKEN"):
             TelegramTools(chat_id="12345")
@@ -64,21 +64,21 @@ class TestTelegramToolsInit:
     def test_chat_id_optional_with_env(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
         monkeypatch.setenv("TELEGRAM_CHAT_ID", "99999")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools()
         assert tools.chat_id == "99999"
 
     def test_chat_id_from_param(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         assert tools.chat_id == "12345"
 
     def test_media_tools_disabled_by_default(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         for name in ("send_photo", "send_document", "send_video", "send_audio", "send_animation", "send_sticker"):
@@ -86,7 +86,7 @@ class TestTelegramToolsInit:
 
     def test_media_tools_enabled_explicitly(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(
             chat_id="12345",
@@ -102,7 +102,7 @@ class TestTelegramToolsInit:
 
     def test_edit_delete_disabled_by_default(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         assert "edit_message" not in tools.functions
@@ -110,7 +110,7 @@ class TestTelegramToolsInit:
 
     def test_edit_delete_enabled(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345", enable_edit_message=True, enable_delete_message=True)
         assert "edit_message" in tools.functions
@@ -118,7 +118,7 @@ class TestTelegramToolsInit:
 
     def test_all_flag_enables_everything(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345", all=True)
         expected = (
@@ -137,14 +137,14 @@ class TestTelegramToolsInit:
 
     def test_no_tools_when_all_disabled(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345", enable_send_message=False)
         assert len(tools.functions) == 0
 
     def test_selective_enable(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345", enable_send_photo=True, enable_send_document=True)
         assert "send_message" in tools.functions
@@ -154,7 +154,7 @@ class TestTelegramToolsInit:
 
     def test_creates_telebot_instance(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         assert hasattr(tools, "bot")
@@ -163,7 +163,7 @@ class TestTelegramToolsInit:
 class TestChatIdProperty:
     def test_returns_constructor_value(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="11111")
         assert tools._chat_id == "11111"
@@ -171,7 +171,7 @@ class TestChatIdProperty:
     def test_returns_env_value(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
         monkeypatch.setenv("TELEGRAM_CHAT_ID", "99999")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools()
         assert tools._chat_id == "99999"
@@ -179,7 +179,7 @@ class TestChatIdProperty:
     def test_raises_when_no_chat_id(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
         monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools()
         with pytest.raises(ValueError, match="chat_id is required"):
@@ -189,7 +189,7 @@ class TestChatIdProperty:
 class TestSendMessage:
     def test_success(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         mock_result = MagicMock()
@@ -204,7 +204,7 @@ class TestSendMessage:
 
     def test_api_error(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         tools.bot.send_message = MagicMock(side_effect=_FakeApiTelegramException("sendMessage", "Bad Request", 400))
@@ -218,7 +218,7 @@ class TestSendMessage:
 class TestSendPhoto:
     def test_success(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         mock_result = MagicMock()
@@ -235,7 +235,7 @@ class TestSendPhoto:
 class TestSendDocument:
     def test_success(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         mock_result = MagicMock()
@@ -252,7 +252,7 @@ class TestSendDocument:
 class TestSendVideo:
     def test_success(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         mock_result = MagicMock()
@@ -267,7 +267,7 @@ class TestSendVideo:
 
     def test_api_error(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         tools.bot.send_video = MagicMock(side_effect=_FakeApiTelegramException("sendVideo", "Bad Request", 400))
@@ -281,7 +281,7 @@ class TestSendVideo:
 class TestSendAudio:
     def test_success(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         mock_result = MagicMock()
@@ -296,7 +296,7 @@ class TestSendAudio:
 
     def test_api_error(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         tools.bot.send_audio = MagicMock(side_effect=_FakeApiTelegramException("sendAudio", "Bad Request", 400))
@@ -310,7 +310,7 @@ class TestSendAudio:
 class TestSendAnimation:
     def test_success(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         mock_result = MagicMock()
@@ -325,7 +325,7 @@ class TestSendAnimation:
 
     def test_api_error(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         tools.bot.send_animation = MagicMock(side_effect=_FakeApiTelegramException("sendAnimation", "Bad Request", 400))
@@ -339,7 +339,7 @@ class TestSendAnimation:
 class TestSendSticker:
     def test_success(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         mock_result = MagicMock()
@@ -354,7 +354,7 @@ class TestSendSticker:
 
     def test_api_error(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345")
         tools.bot.send_sticker = MagicMock(side_effect=_FakeApiTelegramException("sendSticker", "Bad Request", 400))
@@ -368,7 +368,7 @@ class TestSendSticker:
 class TestEditMessage:
     def test_success(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345", enable_edit_message=True)
         mock_result = MagicMock()
@@ -383,7 +383,7 @@ class TestEditMessage:
 
     def test_api_error(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345", enable_edit_message=True)
         tools.bot.edit_message_text = MagicMock(
@@ -399,7 +399,7 @@ class TestEditMessage:
 class TestDeleteMessage:
     def test_success(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345", enable_delete_message=True)
         tools.bot.delete_message = MagicMock(return_value=True)
@@ -412,7 +412,7 @@ class TestDeleteMessage:
 
     def test_api_error(self, monkeypatch):
         monkeypatch.setenv("TELEGRAM_TOKEN", "fake-token")
-        from agno.tools.telegram import TelegramTools
+        from egpt.tools.telegram import TelegramTools
 
         tools = TelegramTools(chat_id="12345", enable_delete_message=True)
         tools.bot.delete_message = MagicMock(side_effect=_FakeApiTelegramException("deleteMessage", "Bad Request", 400))

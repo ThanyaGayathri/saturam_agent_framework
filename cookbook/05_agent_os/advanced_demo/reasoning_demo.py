@@ -1,15 +1,15 @@
 """Run `uv pip install openai exa_py ddgs yfinance pypdf sqlalchemy 'fastapi[standard]' youtube-transcript-api python-docx agno` to install dependencies."""
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team import Team
-from agno.tools.knowledge import KnowledgeTools
-from agno.tools.reasoning import ReasoningTools
-from agno.tools.websearch import WebSearchTools
-from agno.vectordb.lancedb import LanceDb, SearchType
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team import Team
+from egpt.tools.knowledge import KnowledgeTools
+from egpt.tools.reasoning import ReasoningTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.vectordb.lancedb import LanceDb, SearchType
 
 # ---------------------------------------------------------------------------
 # Create Example

@@ -1,4 +1,4 @@
-from agno.knowledge.reader.markdown_reader import MarkdownReader
+from egpt.knowledge.reader.markdown_reader import MarkdownReader
 
 
 def test_markdown_reader_chunk_size_propagation():

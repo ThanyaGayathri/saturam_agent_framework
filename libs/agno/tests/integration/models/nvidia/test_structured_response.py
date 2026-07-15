@@ -3,8 +3,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.nvidia import Nvidia
+from egpt.agent import Agent
+from egpt.models.nvidia import Nvidia
 
 
 class MovieScript(BaseModel):

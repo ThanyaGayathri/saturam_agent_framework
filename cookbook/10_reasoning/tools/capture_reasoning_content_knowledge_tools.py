@@ -8,12 +8,12 @@ Demonstrates this reasoning cookbook example.
 import asyncio
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.tools.knowledge import KnowledgeTools
-from agno.vectordb.lancedb import LanceDb, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.tools.knowledge import KnowledgeTools
+from egpt.vectordb.lancedb import LanceDb, SearchType
 
 
 # ---------------------------------------------------------------------------

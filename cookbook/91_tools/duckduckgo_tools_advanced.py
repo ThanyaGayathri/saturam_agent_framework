@@ -11,9 +11,9 @@ Parameters:
     - backend: Search backend ("api", "html", "lite")
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.duckduckgo import DuckDuckGoTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.duckduckgo import DuckDuckGoTools
 
 # ---------------------------------------------------------------------------
 # Example 1: Time-limited search (results from past week)

@@ -23,11 +23,11 @@ import asyncio
 import tempfile
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.context.database import DatabaseContextProvider
-from agno.context.fs import FilesystemContextProvider
-from agno.context.web import ExaMCPBackend, WebContextProvider
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context.database import DatabaseContextProvider
+from egpt.context.fs import FilesystemContextProvider
+from egpt.context.web import ExaMCPBackend, WebContextProvider
+from egpt.models.openai import OpenAIResponses
 from sqlalchemy import create_engine, text
 
 # Every provider sub-agent in this cookbook shares the same small model.

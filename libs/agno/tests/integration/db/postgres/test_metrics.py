@@ -6,13 +6,13 @@ from typing import List
 
 import pytest
 
-from agno.db.base import SessionType
-from agno.db.postgres.postgres import PostgresDb
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.run.team import TeamRunOutput
-from agno.session.agent import AgentSession
-from agno.session.team import TeamSession
+from egpt.db.base import SessionType
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.team import TeamRunOutput
+from egpt.session.agent import AgentSession
+from egpt.session.team import TeamSession
 
 
 @pytest.fixture(autouse=True)

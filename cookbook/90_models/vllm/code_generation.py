@@ -4,8 +4,8 @@ Run vLLM model: vllm serve deepseek-ai/deepseek-coder-6.7b-instruct \
         --tool-call-parser pythonic
 """
 
-from agno.agent import Agent
-from agno.models.vllm import VLLM
+from egpt.agent import Agent
+from egpt.models.vllm import VLLM
 
 # ---------------------------------------------------------------------------
 # Create Agent

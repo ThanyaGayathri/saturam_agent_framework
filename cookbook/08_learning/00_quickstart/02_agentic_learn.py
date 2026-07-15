@@ -7,15 +7,15 @@ It decides when to save profiles and memories based on conversation context.
 Compare with learning=True (ALWAYS mode) where extraction happens automatically.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.learn import (
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.learn import (
     LearningMachine,
     LearningMode,
     UserMemoryConfig,
     UserProfileConfig,
 )
-from agno.models.openai import OpenAIResponses
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

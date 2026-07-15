@@ -6,15 +6,15 @@ from datetime import datetime
 import pytest
 from sqlalchemy import text
 
-from agno.db.base import SessionType
-from agno.db.postgres.postgres import PostgresDb
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.run.team import TeamRunOutput
-from agno.session.agent import AgentSession
-from agno.session.summary import SessionSummary
-from agno.session.team import TeamSession
-from agno.session.workflow import WorkflowSession
+from egpt.db.base import SessionType
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.team import TeamRunOutput
+from egpt.session.agent import AgentSession
+from egpt.session.summary import SessionSummary
+from egpt.session.team import TeamSession
+from egpt.session.workflow import WorkflowSession
 
 
 @pytest.fixture(autouse=True)
@@ -332,8 +332,8 @@ def test_get_sessions_with_pagination(postgres_db_real: PostgresDb):
 
 def test_get_sessions_with_sorting(postgres_db_real: PostgresDb):
     """Test retrieving sessions with sorting"""
-    from agno.db.base import SessionType
-    from agno.session.agent import AgentSession
+    from egpt.db.base import SessionType
+    from egpt.session.agent import AgentSession
 
     # Create sessions with different timestamps
     base_time = int(time.time())
@@ -360,8 +360,8 @@ def test_get_sessions_with_sorting(postgres_db_real: PostgresDb):
 
 def test_get_sessions_with_timestamp_filter(postgres_db_real: PostgresDb):
     """Test retrieving sessions with timestamp filters"""
-    from agno.db.base import SessionType
-    from agno.session.agent import AgentSession
+    from egpt.db.base import SessionType
+    from egpt.session.agent import AgentSession
 
     base_time = int(time.time())
 
@@ -393,8 +393,8 @@ def test_get_sessions_with_timestamp_filter(postgres_db_real: PostgresDb):
 
 def test_get_sessions_with_session_name_filter(postgres_db_real: PostgresDb):
     """Test retrieving sessions filtered by session name"""
-    from agno.db.base import SessionType
-    from agno.session.agent import AgentSession
+    from egpt.db.base import SessionType
+    from egpt.session.agent import AgentSession
 
     # Create sessions with different names
     session1 = AgentSession(
@@ -421,7 +421,7 @@ def test_get_sessions_with_session_name_filter(postgres_db_real: PostgresDb):
 
 def test_get_sessions_without_deserialize(postgres_db_real: PostgresDb, sample_agent_session: AgentSession):
     """Test retrieving sessions without deserialization"""
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     # Insert session
     postgres_db_real.upsert_session(sample_agent_session)
@@ -438,7 +438,7 @@ def test_get_sessions_without_deserialize(postgres_db_real: PostgresDb, sample_a
 
 def test_rename_agent_session(postgres_db_real: PostgresDb, sample_agent_session: AgentSession):
     """Test renaming an AgentSession"""
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     # Insert session
     postgres_db_real.upsert_session(sample_agent_session)
@@ -459,7 +459,7 @@ def test_rename_agent_session(postgres_db_real: PostgresDb, sample_agent_session
 
 def test_rename_team_session(postgres_db_real: PostgresDb, sample_team_session: TeamSession):
     """Test renaming a TeamSession"""
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     # Insert session
     postgres_db_real.upsert_session(sample_team_session)
@@ -480,7 +480,7 @@ def test_rename_team_session(postgres_db_real: PostgresDb, sample_team_session: 
 
 def test_rename_session_without_deserialize(postgres_db_real: PostgresDb, sample_agent_session: AgentSession):
     """Test renaming session without deserialization"""
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     # Insert session
     postgres_db_real.upsert_session(sample_agent_session)
@@ -505,7 +505,7 @@ def test_delete_single_session(postgres_db_real: PostgresDb, sample_agent_sessio
     postgres_db_real.upsert_session(sample_agent_session)
 
     # Verify it exists
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     session = postgres_db_real.get_session(session_id=sample_agent_session.session_id, session_type=SessionType.AGENT)
     assert session is not None
@@ -521,8 +521,8 @@ def test_delete_single_session(postgres_db_real: PostgresDb, sample_agent_sessio
 
 def test_delete_multiple_sessions(postgres_db_real: PostgresDb):
     """Test deleting multiple sessions"""
-    from agno.db.base import SessionType
-    from agno.session.agent import AgentSession
+    from egpt.db.base import SessionType
+    from egpt.session.agent import AgentSession
 
     # Create and insert multiple sessions
     sessions = []
@@ -774,8 +774,8 @@ def test_upsert_session_handles_all_team_session_fields(postgres_db_real: Postgr
 
 def test_upsert_sessions(postgres_db_real: PostgresDb):
     """Test upsert_sessions with mixed session types (Agent, Team, Workflow)"""
-    from agno.run.workflow import WorkflowRunOutput
-    from agno.session.workflow import WorkflowSession
+    from egpt.run.workflow import WorkflowRunOutput
+    from egpt.session.workflow import WorkflowSession
 
     # Create sessions
     agent_run = RunOutput(

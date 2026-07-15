@@ -7,14 +7,14 @@ Demonstrates a workflow that blocks prompt-injection attempts before downstream 
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.exceptions import InputCheckError
-from agno.guardrails import PromptInjectionGuardrail
-from agno.models.openai import OpenAIChat
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.exceptions import InputCheckError
+from egpt.guardrails import PromptInjectionGuardrail
+from egpt.models.openai import OpenAIChat
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Agents

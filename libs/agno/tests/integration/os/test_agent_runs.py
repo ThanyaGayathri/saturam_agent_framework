@@ -3,8 +3,8 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-from agno.agent.agent import Agent
-from agno.run import RunContext
+from egpt.agent.agent import Agent
+from egpt.run import RunContext
 
 
 def test_create_agent_run(test_os_client, test_agent: Agent):

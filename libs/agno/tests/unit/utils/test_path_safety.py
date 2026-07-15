@@ -1,4 +1,4 @@
-"""Tests for agno.utils.path_safety."""
+"""Tests for egpt.utils.path_safety."""
 
 import sys
 import tempfile
@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.exceptions import PathSecurityError
-from agno.utils.path_safety import safe_join_filename, safe_join_relative_path
+from egpt.exceptions import PathSecurityError
+from egpt.utils.path_safety import safe_join_filename, safe_join_relative_path
 
 
 def test_simple_filename_returns_resolved_path():
@@ -217,7 +217,7 @@ def test_symlinked_base_containment_enforced():
 def test_safe_join_filename_logs_debug_on_strip():
     """Test that safe_join_filename logs at debug when discarding path components."""
     with tempfile.TemporaryDirectory() as tmp:
-        with patch("agno.utils.path_safety.log_debug") as mock_log_debug:
+        with patch("egpt.utils.path_safety.log_debug") as mock_log_debug:
             safe_join_filename(tmp, "subdir/report.json")
         assert any("discarded path components" in str(call) for call in mock_log_debug.call_args_list)
 
@@ -225,7 +225,7 @@ def test_safe_join_filename_logs_debug_on_strip():
 def test_safe_join_filename_no_debug_message_for_clean_basename():
     """Test that safe_join_filename does not log the strip notice for a clean basename."""
     with tempfile.TemporaryDirectory() as tmp:
-        with patch("agno.utils.path_safety.log_debug") as mock_log_debug:
+        with patch("egpt.utils.path_safety.log_debug") as mock_log_debug:
             safe_join_filename(tmp, "report.json")
         assert not any("discarded path components" in str(call) for call in mock_log_debug.call_args_list)
 

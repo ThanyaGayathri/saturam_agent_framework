@@ -31,7 +31,7 @@ class TestOpenAIEmbedderDimensions:
     def test_dimensions_passed_for_text_embedding_3_models(self, _mock_openai_client):
         mock_client, _ = _mock_openai_client
 
-        from agno.knowledge.embedder.openai import OpenAIEmbedder
+        from egpt.knowledge.embedder.openai import OpenAIEmbedder
 
         embedder = OpenAIEmbedder(id="text-embedding-3-small", dimensions=512)
         embedder.openai_client = mock_client
@@ -44,7 +44,7 @@ class TestOpenAIEmbedderDimensions:
     def test_dimensions_passed_with_custom_base_url(self, _mock_openai_client):
         mock_client, _ = _mock_openai_client
 
-        from agno.knowledge.embedder.openai import OpenAIEmbedder
+        from egpt.knowledge.embedder.openai import OpenAIEmbedder
 
         embedder = OpenAIEmbedder(
             id="text-embedding-v4",
@@ -61,7 +61,7 @@ class TestOpenAIEmbedderDimensions:
     def test_dimensions_not_passed_for_legacy_openai_models(self, _mock_openai_client):
         mock_client, _ = _mock_openai_client
 
-        from agno.knowledge.embedder.openai import OpenAIEmbedder
+        from egpt.knowledge.embedder.openai import OpenAIEmbedder
 
         embedder = OpenAIEmbedder(id="text-embedding-ada-002", dimensions=256)
         embedder.openai_client = mock_client
@@ -75,7 +75,7 @@ class TestOpenAIEmbedderDimensions:
     async def test_async_dimensions_passed_with_custom_base_url(self, _mock_async_openai_client):
         mock_client, _ = _mock_async_openai_client
 
-        from agno.knowledge.embedder.openai import OpenAIEmbedder
+        from egpt.knowledge.embedder.openai import OpenAIEmbedder
 
         embedder = OpenAIEmbedder(
             id="text-embedding-v4",
@@ -93,7 +93,7 @@ class TestOpenAIEmbedderDimensions:
     async def test_async_dimensions_not_passed_for_legacy_models(self, _mock_async_openai_client):
         mock_client, _ = _mock_async_openai_client
 
-        from agno.knowledge.embedder.openai import OpenAIEmbedder
+        from egpt.knowledge.embedder.openai import OpenAIEmbedder
 
         embedder = OpenAIEmbedder(id="text-embedding-ada-002", dimensions=256)
         embedder.async_client = mock_client

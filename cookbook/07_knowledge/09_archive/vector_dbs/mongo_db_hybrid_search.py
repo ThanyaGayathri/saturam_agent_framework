@@ -6,10 +6,10 @@ Demonstrates MongoDB vector + keyword hybrid retrieval.
 """
 
 import typer
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.mongodb import MongoVectorDb
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.mongodb import MongoVectorDb
+from egpt.vectordb.search import SearchType
 from rich.prompt import Prompt
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 import pytest
 from sqlalchemy.engine import Engine
 
-from agno.db.sqlite.sqlite import SqliteDb
+from egpt.db.sqlite.sqlite import SqliteDb
 
 
 @pytest.fixture
@@ -82,11 +82,11 @@ class TestSqliteDbFromDictRoundTrip:
 
 
 class TestPostgresDbFromDictRoundTrip:
-    @patch("agno.db.postgres.postgres.create_engine")
+    @patch("egpt.db.postgres.postgres.create_engine")
     def test_v25_fields_survive_roundtrip(self, mock_create_engine, mock_pg_engine):
         mock_create_engine.return_value = mock_pg_engine
 
-        from agno.db.postgres.postgres import PostgresDb
+        from egpt.db.postgres.postgres import PostgresDb
 
         original = PostgresDb(
             db_url="postgresql://localhost/test",

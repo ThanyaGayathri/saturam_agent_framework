@@ -17,9 +17,9 @@ or use our script:
 ```
 """
 
-from agno.agent import Agent
-from agno.db.mongo import MongoDb
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.mongo import MongoDb
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

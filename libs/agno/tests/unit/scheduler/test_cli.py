@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.db.schemas.scheduler import Schedule, ScheduleRun
-from agno.scheduler.cli import SchedulerConsole, _status_style, _ts
+from egpt.db.schemas.scheduler import Schedule, ScheduleRun
+from egpt.scheduler.cli import SchedulerConsole, _status_style, _ts
 
 # =============================================================================
 # Helper function tests

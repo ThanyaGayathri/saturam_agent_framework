@@ -5,9 +5,9 @@ Cerebras Oss Gpt
 Cookbook example for `cerebras/oss_gpt.py`.
 """
 
-from agno.agent.agent import Agent
-from agno.models.cerebras.cerebras import Cerebras
-from agno.tools.websearch import WebSearchTools
+from egpt.agent.agent import Agent
+from egpt.models.cerebras.cerebras import Cerebras
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

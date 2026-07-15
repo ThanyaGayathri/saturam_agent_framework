@@ -3,8 +3,8 @@
 Run `uv pip install google-generativeai` to install dependencies.
 """
 
-from agno.agent import Agent
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Create Agent

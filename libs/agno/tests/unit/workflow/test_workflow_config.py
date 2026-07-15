@@ -16,9 +16,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.db.base import BaseDb, ComponentType
-from agno.registry import Registry
-from agno.workflow.workflow import Workflow, get_workflow_by_id, get_workflows
+from egpt.db.base import BaseDb, ComponentType
+from egpt.registry import Registry
+from egpt.workflow.workflow import Workflow, get_workflow_by_id, get_workflows
 
 # =============================================================================
 # Fixtures
@@ -162,7 +162,7 @@ class TestWorkflowToDict:
 
     def test_to_dict_with_steps(self):
         """Test to_dict serializes steps."""
-        from agno.workflow.workflow import Step
+        from egpt.workflow.workflow import Step
 
         mock_step = MagicMock(spec=Step)
         mock_step.to_dict.return_value = {"name": "step-1", "executor_id": "agent-1"}
@@ -223,7 +223,7 @@ class TestWorkflowFromDict:
             "db": {"type": "postgres", "db_url": "postgresql://localhost/test"},
         }
 
-        with patch("agno.db.postgres.PostgresDb.from_dict") as mock_from_dict:
+        with patch("egpt.db.postgres.PostgresDb.from_dict") as mock_from_dict:
             mock_db = MagicMock()
             mock_from_dict.return_value = mock_db
 
@@ -239,7 +239,7 @@ class TestWorkflowFromDict:
             "db": {"type": "sqlite", "db_file": "/tmp/test.db"},
         }
 
-        with patch("agno.db.sqlite.SqliteDb.from_dict") as mock_from_dict:
+        with patch("egpt.db.sqlite.SqliteDb.from_dict") as mock_from_dict:
             mock_db = MagicMock()
             mock_from_dict.return_value = mock_db
 
@@ -255,7 +255,7 @@ class TestWorkflowFromDict:
             "steps": [{"name": "step-1"}],
         }
 
-        with patch("agno.workflow.workflow.Step.from_dict") as mock_step_from_dict:
+        with patch("egpt.workflow.workflow.Step.from_dict") as mock_step_from_dict:
             mock_step = MagicMock()
             mock_step_from_dict.return_value = mock_step
 
@@ -360,8 +360,8 @@ class TestWorkflowSave:
 
     def test_save_with_steps_saves_agents(self, mock_db):
         """Test save saves agent executors in steps."""
-        from agno.agent.agent import Agent
-        from agno.workflow.workflow import Step
+        from egpt.agent.agent import Agent
+        from egpt.workflow.workflow import Step
 
         mock_db.upsert_config.return_value = {"version": 1}
 

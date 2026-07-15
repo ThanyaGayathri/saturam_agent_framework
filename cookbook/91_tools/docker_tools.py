@@ -7,7 +7,7 @@ Demonstrates docker tools.
 
 import sys
 
-from agno.agent import Agent
+from egpt.agent import Agent
 
 # ---------------------------------------------------------------------------
 # Create Agent
@@ -19,7 +19,7 @@ from agno.agent import Agent
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     try:
-        from agno.tools.docker import DockerTools
+        from egpt.tools.docker import DockerTools
 
         # Example 1: Include specific Docker functions for container management
         container_tools = DockerTools(

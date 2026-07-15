@@ -6,8 +6,8 @@ FilterExpr objects caused PydanticSerializationError on GET /agents.
 
 import json
 
-from agno.filters import AND, EQ, GT, IN, LT, NOT, OR, from_dict
-from agno.os.routers.agents.schema import AgentResponse
+from egpt.filters import AND, EQ, GT, IN, LT, NOT, OR, from_dict
+from egpt.os.routers.agents.schema import AgentResponse
 
 
 def _serialize_knowledge_filters(knowledge_filters):

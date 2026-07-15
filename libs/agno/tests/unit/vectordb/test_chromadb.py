@@ -5,11 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.knowledge.document import Document
-from agno.vectordb.chroma import ChromaDb
-from agno.vectordb.chroma.chromadb import reciprocal_rank_fusion
-from agno.vectordb.distance import Distance
-from agno.vectordb.search import SearchType
+from egpt.knowledge.document import Document
+from egpt.vectordb.chroma import ChromaDb
+from egpt.vectordb.chroma.chromadb import reciprocal_rank_fusion
+from egpt.vectordb.distance import Distance
+from egpt.vectordb.search import SearchType
 
 TEST_COLLECTION = "test_collection"
 TEST_PATH = "tmp/test_chromadb"

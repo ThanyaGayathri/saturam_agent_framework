@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with OpenRouter."""
 
-from agno.agent import Agent
-from agno.models.openrouter import OpenRouter
+from egpt.agent import Agent
+from egpt.models.openrouter import OpenRouter
 
 # ---------------------------------------------------------------------------
 # Create Agent

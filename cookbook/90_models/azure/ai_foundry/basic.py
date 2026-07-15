@@ -5,8 +5,8 @@ Azure Basic
 Cookbook example for `azure/ai_foundry/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.azure import AzureAIFoundry
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.azure import AzureAIFoundry
 import asyncio
 
 # ---------------------------------------------------------------------------

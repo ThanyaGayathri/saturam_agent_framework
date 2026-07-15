@@ -33,9 +33,9 @@ import os
 import sys
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.context.wiki import GitBackend, WikiContextProvider
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.context.wiki import GitBackend, WikiContextProvider
+from egpt.models.openai import OpenAIResponses
 
 REPO_URL = os.getenv("WIKI_REPO_URL")
 TOKEN = os.getenv("WIKI_GITHUB_TOKEN")

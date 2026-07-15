@@ -11,13 +11,13 @@ Two approaches for HITL:
 2. Decorator-based: Using @pause decorator on custom functions
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.workflow.decorators import pause
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.workflow.decorators import pause
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 

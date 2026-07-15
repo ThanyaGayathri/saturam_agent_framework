@@ -18,9 +18,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.run.agent import RunOutput
-from agno.team.team import Team
+from egpt.agent.agent import Agent
+from egpt.run.agent import RunOutput
+from egpt.team.team import Team
 
 
 class TestClosureBugFix:

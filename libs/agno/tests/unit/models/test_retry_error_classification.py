@@ -6,9 +6,9 @@ import pytest
 # Set test API key to avoid env var lookup errors
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
-from agno.exceptions import ModelProviderError, RetryableModelProviderError
-from agno.models.google.gemini import Gemini
-from agno.models.openai.chat import OpenAIChat
+from egpt.exceptions import ModelProviderError, RetryableModelProviderError
+from egpt.models.google.gemini import Gemini
+from egpt.models.openai.chat import OpenAIChat
 
 
 @pytest.fixture

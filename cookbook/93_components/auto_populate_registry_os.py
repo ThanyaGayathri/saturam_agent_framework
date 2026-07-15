@@ -16,11 +16,11 @@ A registry passed explicitly is still honoured: anything you declare is kept,
 and the discovered components are merged in (deduplicated by id/name).
 """
 
-from agno.agent.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.team import Team
+from egpt.agent.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.team import Team
 
 
 # ---------------------------------------------------------------------------

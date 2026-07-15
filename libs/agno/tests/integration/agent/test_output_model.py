@@ -1,7 +1,7 @@
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.models.openai import OpenAIChat
-from agno.run.agent import IntermediateRunContentEvent, RunContentEvent
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import IntermediateRunContentEvent, RunContentEvent
 
 
 def test_claude_with_openai_output_model():

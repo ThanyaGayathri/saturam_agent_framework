@@ -5,9 +5,9 @@ This example middleware can extract content from both streaming and non-streamin
 
 import json
 
-from agno.agent import Agent
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.os import AgentOS
+from egpt.agent import Agent
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.os import AgentOS
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.base import _StreamingResponse as StreamingResponse

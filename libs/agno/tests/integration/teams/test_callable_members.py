@@ -9,9 +9,9 @@ Key scenarios tested:
 3. System message contains resolved member information
 """
 
-from agno.agent.agent import Agent
-from agno.models.openai.chat import OpenAIChat
-from agno.team.team import Team
+from egpt.agent.agent import Agent
+from egpt.models.openai.chat import OpenAIChat
+from egpt.team.team import Team
 
 
 def test_callable_members_selected_by_session_state(shared_db):

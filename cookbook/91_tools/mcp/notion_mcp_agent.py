@@ -20,9 +20,9 @@ import asyncio
 import os
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.mcp import MCPTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.mcp import MCPTools
 from mcp import StdioServerParameters
 
 # ---------------------------------------------------------------------------

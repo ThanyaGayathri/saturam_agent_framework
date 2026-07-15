@@ -7,12 +7,12 @@ Demonstrates using `WorkflowAgent` to decide when to execute workflow steps vers
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.workflow import WorkflowAgent
-from agno.workflow.types import StepInput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.workflow import WorkflowAgent
+from egpt.workflow.types import StepInput
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Agents

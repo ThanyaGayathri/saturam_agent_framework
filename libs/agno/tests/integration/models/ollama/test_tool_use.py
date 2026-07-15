@@ -3,11 +3,11 @@ from typing import Optional
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.ollama import Ollama
-from agno.tools.exa import ExaTools
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.ollama import Ollama
+from egpt.tools.exa import ExaTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 
 def test_tool_use():

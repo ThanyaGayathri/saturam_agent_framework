@@ -19,16 +19,16 @@ tool results) from the parent agent's conversation history.
 See also: personal_assistant.py for a tools-free learning pattern.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.learn import (
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.learn import (
     LearningMachine,
     LearningMode,
     UserMemoryConfig,
     UserProfileConfig,
 )
-from agno.models.openai import OpenAIResponses
-from agno.tools.duckduckgo import DuckDuckGoTools
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.duckduckgo import DuckDuckGoTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

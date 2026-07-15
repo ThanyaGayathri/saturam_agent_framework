@@ -1,4 +1,4 @@
-from agno.agent.agent import Agent
+from egpt.agent.agent import Agent
 
 
 def test_set_id():

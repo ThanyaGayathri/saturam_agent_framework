@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Nexus."""
 
-from agno.agent import Agent
-from agno.models.nexus import Nexus
+from egpt.agent import Agent
+from egpt.models.nexus import Nexus
 
 # ---------------------------------------------------------------------------
 # Create Agent

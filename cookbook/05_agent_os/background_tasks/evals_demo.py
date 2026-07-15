@@ -1,12 +1,12 @@
 """Simple example creating a session and using the AgentOS with a SessionApp to expose it"""
 
-from agno.agent import Agent
-from agno.db.postgres.postgres import PostgresDb
-from agno.eval.accuracy import AccuracyEval
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.team.team import Team
-from agno.tools.calculator import CalculatorTools
+from egpt.agent import Agent
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.eval.accuracy import AccuracyEval
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.team.team import Team
+from egpt.tools.calculator import CalculatorTools
 
 # ---------------------------------------------------------------------------
 # Create Example

@@ -14,10 +14,10 @@ Tests cover:
 
 from unittest.mock import AsyncMock, MagicMock
 
-from agno.run.base import RunStatus
-from agno.run.workflow import WorkflowRunOutput
-from agno.workflow.step import Step
-from agno.workflow.types import (
+from egpt.run.base import RunStatus
+from egpt.run.workflow import WorkflowRunOutput
+from egpt.workflow.step import Step
+from egpt.workflow.types import (
     ErrorRequirement,
     StepInput,
     StepOutput,
@@ -800,8 +800,8 @@ class TestConditionOnReject:
 
     def test_condition_on_reject_else_default(self):
         """Test that Condition defaults to on_reject='else'."""
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import OnReject
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import OnReject
 
         condition = Condition(
             name="test_condition",
@@ -814,8 +814,8 @@ class TestConditionOnReject:
 
     def test_condition_on_reject_skip(self):
         """Test Condition with on_reject='skip'."""
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import OnReject
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import OnReject
 
         condition = Condition(
             name="test_condition",
@@ -829,8 +829,8 @@ class TestConditionOnReject:
 
     def test_condition_on_reject_cancel(self):
         """Test Condition with on_reject='cancel'."""
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import OnReject
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import OnReject
 
         condition = Condition(
             name="test_condition",
@@ -843,8 +843,8 @@ class TestConditionOnReject:
 
     def test_condition_create_step_requirement_on_reject_else(self):
         """Test that create_step_requirement includes on_reject='else'."""
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import OnReject
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import OnReject
 
         condition = Condition(
             name="test_condition",
@@ -863,8 +863,8 @@ class TestConditionOnReject:
 
     def test_condition_create_step_requirement_on_reject_skip(self):
         """Test that create_step_requirement includes on_reject='skip'."""
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import OnReject
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import OnReject
 
         condition = Condition(
             name="test_condition",
@@ -881,8 +881,8 @@ class TestConditionOnReject:
 
     def test_condition_create_step_requirement_on_reject_cancel(self):
         """Test that create_step_requirement includes on_reject='cancel'."""
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import OnReject
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import OnReject
 
         condition = Condition(
             name="test_condition",
@@ -899,7 +899,7 @@ class TestConditionOnReject:
 
     def test_condition_evaluator_defaults_to_true(self):
         """Test that Condition evaluator defaults to True."""
-        from agno.workflow.condition import Condition
+        from egpt.workflow.condition import Condition
 
         # Should not need to specify evaluator when using requires_confirmation
         condition = Condition(
@@ -912,7 +912,7 @@ class TestConditionOnReject:
 
     def test_condition_force_else_branch_with_else_steps(self):
         """Test Condition.execute with force_else_branch=True when else_steps exist."""
-        from agno.workflow.condition import Condition
+        from egpt.workflow.condition import Condition
 
         def if_step_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="IF branch executed")
@@ -935,7 +935,7 @@ class TestConditionOnReject:
 
     def test_condition_force_else_branch_without_else_steps(self):
         """Test Condition.execute with force_else_branch=True when no else_steps."""
-        from agno.workflow.condition import Condition
+        from egpt.workflow.condition import Condition
 
         def if_step_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="IF branch executed")
@@ -955,7 +955,7 @@ class TestConditionOnReject:
 
     def test_condition_normal_execution_if_branch(self):
         """Test Condition normal execution takes if branch when evaluator is True."""
-        from agno.workflow.condition import Condition
+        from egpt.workflow.condition import Condition
 
         def if_step_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="IF branch executed")
@@ -978,7 +978,7 @@ class TestConditionOnReject:
 
     def test_condition_normal_execution_else_branch(self):
         """Test Condition normal execution takes else branch when evaluator is False."""
-        from agno.workflow.condition import Condition
+        from egpt.workflow.condition import Condition
 
         def if_step_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="IF branch executed")
@@ -1001,8 +1001,8 @@ class TestConditionOnReject:
 
     def test_condition_to_dict_includes_on_reject(self):
         """Test that Condition.to_dict includes on_reject field."""
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import OnReject
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import OnReject
 
         condition = Condition(
             name="test_condition",
@@ -1018,8 +1018,8 @@ class TestConditionOnReject:
 
     def test_condition_from_dict_restores_on_reject(self):
         """Test that Condition.from_dict restores on_reject field."""
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import OnReject
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import OnReject
 
         data = {
             "type": "Condition",
@@ -1058,10 +1058,10 @@ class TestConditionOnRejectWorkflowIntegration:
 
     def test_condition_on_reject_else_executes_else_branch(self):
         """Test that rejecting a Condition with on_reject='else' executes else_steps."""
-        from agno.db.sqlite import SqliteDb
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import OnReject
-        from agno.workflow.workflow import Workflow
+        from egpt.db.sqlite import SqliteDb
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import OnReject
+        from egpt.workflow.workflow import Workflow
 
         def if_step_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="IF branch executed")
@@ -1111,10 +1111,10 @@ class TestConditionOnRejectWorkflowIntegration:
 
     def test_condition_on_reject_skip_skips_entire_condition(self):
         """Test that rejecting a Condition with on_reject='skip' skips both branches."""
-        from agno.db.sqlite import SqliteDb
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import OnReject
-        from agno.workflow.workflow import Workflow
+        from egpt.db.sqlite import SqliteDb
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import OnReject
+        from egpt.workflow.workflow import Workflow
 
         def setup_step_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="Setup complete")
@@ -1173,10 +1173,10 @@ class TestConditionOnRejectWorkflowIntegration:
 
     def test_condition_on_reject_cancel_cancels_workflow(self):
         """Test that rejecting a Condition with on_reject='cancel' cancels the workflow."""
-        from agno.db.sqlite import SqliteDb
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import OnReject
-        from agno.workflow.workflow import Workflow
+        from egpt.db.sqlite import SqliteDb
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import OnReject
+        from egpt.workflow.workflow import Workflow
 
         def if_step_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="IF branch executed")
@@ -1213,10 +1213,10 @@ class TestConditionOnRejectWorkflowIntegration:
 
     def test_condition_confirm_executes_if_branch(self):
         """Test that confirming a Condition executes the if branch."""
-        from agno.db.sqlite import SqliteDb
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import OnReject
-        from agno.workflow.workflow import Workflow
+        from egpt.db.sqlite import SqliteDb
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import OnReject
+        from egpt.workflow.workflow import Workflow
 
         def if_step_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="IF branch executed")
@@ -1258,10 +1258,10 @@ class TestConditionOnRejectWorkflowIntegration:
 
     def test_condition_on_reject_else_no_else_steps_skips(self):
         """Test on_reject='else' with no else_steps skips the condition."""
-        from agno.db.sqlite import SqliteDb
-        from agno.workflow.condition import Condition
-        from agno.workflow.types import OnReject
-        from agno.workflow.workflow import Workflow
+        from egpt.db.sqlite import SqliteDb
+        from egpt.workflow.condition import Condition
+        from egpt.workflow.types import OnReject
+        from egpt.workflow.workflow import Workflow
 
         def if_step_func(step_input: StepInput) -> StepOutput:
             return StepOutput(content="IF branch executed")
@@ -1315,8 +1315,8 @@ class TestAsyncContinueCleanup:
 
     @staticmethod
     def _make_confirmation_workflow(session_id: str):
-        from agno.db.sqlite import SqliteDb
-        from agno.workflow.workflow import Workflow
+        from egpt.db.sqlite import SqliteDb
+        from egpt.workflow.workflow import Workflow
 
         def confirm_step(step_input: StepInput) -> StepOutput:
             return StepOutput(content="confirmed step ran")
@@ -1328,7 +1328,7 @@ class TestAsyncContinueCleanup:
         )
 
     async def test_acontinue_run_awaits_acleanup_run(self, monkeypatch):
-        import agno.workflow.workflow as wf_module
+        import egpt.workflow.workflow as wf_module
 
         wf = self._make_confirmation_workflow("async_cleanup_acontinue")
         run = await wf.arun("test", session_id="async_cleanup_acontinue")
@@ -1346,7 +1346,7 @@ class TestAsyncContinueCleanup:
         acleanup_mock.assert_awaited()
 
     async def test_acontinue_run_stream_awaits_acleanup_run(self, monkeypatch):
-        import agno.workflow.workflow as wf_module
+        import egpt.workflow.workflow as wf_module
 
         wf = self._make_confirmation_workflow("async_cleanup_acontinue_stream")
         async for _ in wf.arun("test", session_id="async_cleanup_acontinue_stream", stream=True, stream_events=True):

@@ -10,7 +10,7 @@ async def test_calculate_and_get_metrics(async_mysql_db_real):
     """Test calculating and retrieving metrics"""
     # This test requires sessions to exist first
     # For now, just test that the methods don't error
-    from agno.session import AgentSession
+    from egpt.session import AgentSession
 
     # Create a test session
     session = AgentSession(

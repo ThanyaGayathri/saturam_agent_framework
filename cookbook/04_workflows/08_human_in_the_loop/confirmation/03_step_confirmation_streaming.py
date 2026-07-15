@@ -17,10 +17,10 @@ The user can either:
 - Reject with on_reject=OnReject.skip: Step is skipped and workflow continues with next step
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.run.workflow import (
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.run.workflow import (
     StepCompletedEvent,
     StepPausedEvent,
     StepStartedEvent,
@@ -28,9 +28,9 @@ from agno.run.workflow import (
     WorkflowCompletedEvent,
     WorkflowStartedEvent,
 )
-from agno.workflow import OnReject
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.workflow import OnReject
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # Create agents for each step
 fetch_agent = Agent(

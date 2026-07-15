@@ -2,10 +2,10 @@ from typing import List, Set
 
 import pytest
 
-from agno.filters import AND, EQ, GT, IN, LT, OR
-from agno.knowledge.document import Document
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.base import VectorDb
+from egpt.filters import AND, EQ, GT, IN, LT, OR
+from egpt.knowledge.document import Document
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.base import VectorDb
 
 
 class MockVectorDb(VectorDb):
@@ -217,7 +217,7 @@ async def test_avalidate_filters_without_contents_db_keeps_list_filters(knowledg
 
 
 def test_filter_merge_raises_on_type_mismatch():
-    from agno.utils.knowledge import get_agentic_or_user_search_filters
+    from egpt.utils.knowledge import get_agentic_or_user_search_filters
 
     with pytest.raises(ValueError):
         get_agentic_or_user_search_filters({"region": "us"}, [EQ("year", 2024)])

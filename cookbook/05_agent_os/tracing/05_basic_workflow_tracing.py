@@ -4,14 +4,14 @@ Requirements:
     uv pip install agno opentelemetry-api opentelemetry-sdk openinference-instrumentation-agno
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.os import AgentOS
-from agno.tools.websearch import WebSearchTools
-from agno.workflow.condition import Condition
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.os import AgentOS
+from egpt.tools.websearch import WebSearchTools
+from egpt.workflow.condition import Condition
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Example

@@ -8,9 +8,9 @@ a parameter should only accept specific predefined values.
 
 from typing import Literal
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools import Toolkit
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools import Toolkit
 
 
 class FileOperationsToolkit(Toolkit):

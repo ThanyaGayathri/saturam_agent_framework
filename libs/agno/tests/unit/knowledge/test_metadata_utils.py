@@ -1,6 +1,6 @@
-"""Unit tests for metadata utility functions in agno.knowledge.utils."""
+"""Unit tests for metadata utility functions in egpt.knowledge.utils."""
 
-from agno.knowledge.utils import (
+from egpt.knowledge.utils import (
     RESERVED_AGNO_KEY,
     get_agno_metadata,
     merge_user_metadata,

@@ -5,12 +5,12 @@ Team Metrics
 Demonstrates retrieving team, session, and member-level execution metrics.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.tools.yfinance import YFinanceTools
-from agno.utils.pprint import pprint_run_response
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.tools.yfinance import YFinanceTools
+from egpt.utils.pprint import pprint_run_response
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

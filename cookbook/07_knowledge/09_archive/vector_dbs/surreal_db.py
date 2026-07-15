@@ -8,10 +8,10 @@ Run SurrealDB before running this example:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.surrealdb import SurrealDb
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.surrealdb import SurrealDb
 from surrealdb import AsyncSurreal, Surreal
 
 # ---------------------------------------------------------------------------

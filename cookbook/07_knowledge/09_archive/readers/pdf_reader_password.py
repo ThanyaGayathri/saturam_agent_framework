@@ -1,8 +1,8 @@
-from agno.agent import Agent
-from agno.knowledge.content import ContentAuth
-from agno.knowledge.knowledge import Knowledge
-from agno.utils.media import download_file
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.content import ContentAuth
+from egpt.knowledge.knowledge import Knowledge
+from egpt.utils.media import download_file
+from egpt.vectordb.pgvector import PgVector
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 download_file(

@@ -2,9 +2,9 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.knowledge.chunking.fixed import FixedSizeChunking
-from agno.knowledge.document.base import Document
-from agno.knowledge.reader.tavily_reader import TavilyReader
+from egpt.knowledge.chunking.fixed import FixedSizeChunking
+from egpt.knowledge.document.base import Document
+from egpt.knowledge.reader.tavily_reader import TavilyReader
 
 
 @pytest.fixture
@@ -39,7 +39,7 @@ def mock_extract_multiple_response():
 
 def test_extract_basic(mock_extract_response):
     """Test basic extraction functionality"""
-    with patch("agno.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
+    with patch("egpt.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
         # Set up mock
         mock_client = MockTavilyClient.return_value
         mock_client.extract.return_value = mock_extract_response
@@ -67,7 +67,7 @@ def test_extract_basic(mock_extract_response):
 
 def test_extract_with_api_key_and_params():
     """Test extraction with API key and custom parameters"""
-    with patch("agno.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
+    with patch("egpt.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
         # Set up mock
         mock_client = MockTavilyClient.return_value
         mock_client.extract.return_value = {"results": [{"url": "https://example.com", "raw_content": "Test content"}]}
@@ -87,7 +87,7 @@ def test_extract_with_api_key_and_params():
 
 def test_extract_with_advanced_depth():
     """Test extraction with advanced depth parameter"""
-    with patch("agno.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
+    with patch("egpt.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
         # Set up mock
         mock_client = MockTavilyClient.return_value
         mock_client.extract.return_value = {"results": [{"url": "https://example.com", "raw_content": "Test content"}]}
@@ -104,7 +104,7 @@ def test_extract_with_advanced_depth():
 
 def test_extract_empty_response():
     """Test handling of empty response from extract"""
-    with patch("agno.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
+    with patch("egpt.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
         # Set up mock for empty response
         mock_client = MockTavilyClient.return_value
         mock_client.extract.return_value = {}
@@ -120,7 +120,7 @@ def test_extract_empty_response():
 
 def test_extract_no_results():
     """Test handling of response with no results"""
-    with patch("agno.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
+    with patch("egpt.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
         # Set up mock for empty results
         mock_client = MockTavilyClient.return_value
         mock_client.extract.return_value = {"results": []}
@@ -136,7 +136,7 @@ def test_extract_no_results():
 
 def test_extract_none_content():
     """Test handling of None content from extract"""
-    with patch("agno.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
+    with patch("egpt.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
         # Set up mock for None content
         mock_client = MockTavilyClient.return_value
         mock_client.extract.return_value = {
@@ -159,7 +159,7 @@ def test_extract_none_content():
 
 def test_extract_failed_extraction():
     """Test handling of failed extraction"""
-    with patch("agno.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
+    with patch("egpt.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
         # Set up mock for failed extraction
         mock_client = MockTavilyClient.return_value
         mock_client.extract.return_value = {
@@ -182,7 +182,7 @@ def test_extract_failed_extraction():
 
 def test_extract_with_chunking(mock_extract_response):
     """Test extraction with chunking enabled"""
-    with patch("agno.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
+    with patch("egpt.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
         # Set up mock
         mock_client = MockTavilyClient.return_value
         mock_client.extract.return_value = mock_extract_response
@@ -216,7 +216,7 @@ def test_extract_with_chunking(mock_extract_response):
 
 def test_extract_exception_handling():
     """Test handling of exceptions during extraction"""
-    with patch("agno.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
+    with patch("egpt.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
         # Set up mock to raise exception
         mock_client = MockTavilyClient.return_value
         mock_client.extract.side_effect = Exception("API Error")
@@ -232,7 +232,7 @@ def test_extract_exception_handling():
 
 def test_read_method(mock_extract_response):
     """Test read method calls extract"""
-    with patch("agno.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
+    with patch("egpt.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
         # Set up mock
         mock_client = MockTavilyClient.return_value
         mock_client.extract.return_value = mock_extract_response
@@ -250,7 +250,7 @@ def test_read_method(mock_extract_response):
 
 def test_extract_with_custom_name():
     """Test extraction with custom document name"""
-    with patch("agno.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
+    with patch("egpt.knowledge.reader.tavily_reader.TavilyClient") as MockTavilyClient:
         # Set up mock
         mock_client = MockTavilyClient.return_value
         mock_client.extract.return_value = {
@@ -302,7 +302,7 @@ async def test_async_extract_basic(mock_extract_response):
 @pytest.mark.asyncio
 async def test_async_read(mock_extract_response):
     """Test async_read method calls _async_extract"""
-    with patch("agno.knowledge.reader.tavily_reader.TavilyReader._async_extract") as mock_async_extract:
+    with patch("egpt.knowledge.reader.tavily_reader.TavilyReader._async_extract") as mock_async_extract:
         # Create a document to return
         document = Document(
             name="https://example.com",
@@ -324,7 +324,7 @@ async def test_async_read(mock_extract_response):
 @pytest.mark.asyncio
 async def test_async_read_with_custom_name():
     """Test async_read method with custom name"""
-    with patch("agno.knowledge.reader.tavily_reader.TavilyReader._async_extract") as mock_async_extract:
+    with patch("egpt.knowledge.reader.tavily_reader.TavilyReader._async_extract") as mock_async_extract:
         # Create a document to return
         document = Document(
             name="Custom Name",
@@ -367,7 +367,7 @@ def test_extract_depth_initialization():
 
 def test_supported_content_types():
     """Test that reader declares URL as supported content type"""
-    from agno.knowledge.types import ContentType
+    from egpt.knowledge.types import ContentType
 
     supported_types = TavilyReader.get_supported_content_types()
     assert ContentType.URL in supported_types
@@ -375,7 +375,7 @@ def test_supported_content_types():
 
 def test_supported_chunking_strategies():
     """Test that reader declares supported chunking strategies"""
-    from agno.knowledge.chunking.strategy import ChunkingStrategyType
+    from egpt.knowledge.chunking.strategy import ChunkingStrategyType
 
     supported_strategies = TavilyReader.get_supported_chunking_strategies()
 
@@ -390,7 +390,7 @@ def test_supported_chunking_strategies():
 
 def test_tavily_reader_chunk_size_propagation():
     """Test that chunk_size is propagated to default chunking strategy"""
-    from agno.knowledge.chunking.semantic import SemanticChunking
+    from egpt.knowledge.chunking.semantic import SemanticChunking
 
     reader = TavilyReader(chunk_size=150, api_key="test")
     assert reader.chunk_size == 150
@@ -400,7 +400,7 @@ def test_tavily_reader_chunk_size_propagation():
 
 def test_tavily_reader_default_chunk_size():
     """Test default chunk_size is 5000"""
-    from agno.knowledge.chunking.semantic import SemanticChunking
+    from egpt.knowledge.chunking.semantic import SemanticChunking
 
     reader = TavilyReader(api_key="test")
     assert reader.chunk_size == 5000

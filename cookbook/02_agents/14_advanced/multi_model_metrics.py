@@ -8,10 +8,10 @@ are tracked under separate detail keys in metrics.details.
 This example shows the "model" vs "memory_model" breakdown.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.memory.manager import MemoryManager
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.memory.manager import MemoryManager
+from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

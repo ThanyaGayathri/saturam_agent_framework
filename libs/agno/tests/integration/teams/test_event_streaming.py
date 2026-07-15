@@ -3,17 +3,17 @@ from textwrap import dedent
 import pytest
 from pydantic import BaseModel
 
-from agno.agent import RunEvent
-from agno.agent.agent import Agent
-from agno.db.in_memory.in_memory_db import InMemoryDb
-from agno.models.openai.chat import OpenAIChat
-from agno.run.team import TeamRunInput, TeamRunOutput
-from agno.team import Team, TeamRunEvent
-from agno.tools.calculator import CalculatorTools
-from agno.tools.decorator import tool
-from agno.tools.reasoning import ReasoningTools
-from agno.tools.websearch import WebSearchTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import RunEvent
+from egpt.agent.agent import Agent
+from egpt.db.in_memory.in_memory_db import InMemoryDb
+from egpt.models.openai.chat import OpenAIChat
+from egpt.run.team import TeamRunInput, TeamRunOutput
+from egpt.team import Team, TeamRunEvent
+from egpt.tools.calculator import CalculatorTools
+from egpt.tools.decorator import tool
+from egpt.tools.reasoning import ReasoningTools
+from egpt.tools.websearch import WebSearchTools
+from egpt.tools.yfinance import YFinanceTools
 
 
 def test_basic_events():

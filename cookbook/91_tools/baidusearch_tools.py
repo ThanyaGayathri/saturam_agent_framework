@@ -5,8 +5,8 @@ Baidusearch Tools
 Demonstrates baidusearch tools.
 """
 
-from agno.agent import Agent
-from agno.tools.baidusearch import BaiduSearchTools
+from egpt.agent import Agent
+from egpt.tools.baidusearch import BaiduSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

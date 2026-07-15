@@ -5,9 +5,9 @@ These tests verify that reasoning_details are properly extracted from Gemini
 responses and preserved across multi-turn conversations.
 """
 
-from agno.agent import Agent
-from agno.db.in_memory import InMemoryDb
-from agno.models.openrouter import OpenRouter
+from egpt.agent import Agent
+from egpt.db.in_memory import InMemoryDb
+from egpt.models.openrouter import OpenRouter
 
 
 def test_gemini_multi_turn_preserves_provider_data():
@@ -41,7 +41,7 @@ def test_gemini_multi_turn_preserves_provider_data():
 
 def test_gemini_with_tools():
     """Test Gemini works correctly with tools enabled."""
-    from agno.tools.duckduckgo import DuckDuckGoTools
+    from egpt.tools.duckduckgo import DuckDuckGoTools
 
     agent = Agent(
         model=OpenRouter(id="google/gemini-2.5-flash"),

@@ -5,10 +5,10 @@ Groq Metrics
 Cookbook example for `groq/metrics.py`.
 """
 
-from agno.agent import Agent, RunOutput
-from agno.models.groq import Groq
-from agno.tools.yfinance import YFinanceTools
-from agno.utils.pprint import pprint_run_response
+from egpt.agent import Agent, RunOutput
+from egpt.models.groq import Groq
+from egpt.tools.yfinance import YFinanceTools
+from egpt.utils.pprint import pprint_run_response
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

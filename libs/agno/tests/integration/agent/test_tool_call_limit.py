@@ -1,9 +1,9 @@
 import pytest
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.agent import RunEvent
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.agent import RunEvent
+from egpt.tools.yfinance import YFinanceTools
 
 
 def test_tool_use_tool_call_limit():

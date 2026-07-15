@@ -11,10 +11,10 @@ from pathlib import Path
 from shutil import rmtree
 
 import httpx
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIChat
-from agno.vectordb.llamaindex.llamaindexdb import LlamaIndexVectorDb
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIChat
+from egpt.vectordb.llamaindex.llamaindexdb import LlamaIndexVectorDb
 from llama_index.core import SimpleDirectoryReader, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.retrievers import VectorIndexRetriever

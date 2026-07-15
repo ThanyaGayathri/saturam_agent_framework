@@ -6,12 +6,12 @@
 import asyncio
 from typing import List
 
-from agno.agent import Agent
-from agno.db.postgres import AsyncPostgresDb
-from agno.models.openai import OpenAIChat
-from agno.team import Team
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.postgres import AsyncPostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.team import Team
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------

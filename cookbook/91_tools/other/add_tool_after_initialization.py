@@ -7,9 +7,9 @@ Demonstrates add tool after initialization.
 
 import random
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools import tool
 
 # ---------------------------------------------------------------------------
 # Create Agent

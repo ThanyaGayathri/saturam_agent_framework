@@ -5,8 +5,8 @@ Vertexai Basic With Timeout
 Cookbook example for `vertexai/claude/basic_with_timeout.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.vertexai.claude import Claude
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.vertexai.claude import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

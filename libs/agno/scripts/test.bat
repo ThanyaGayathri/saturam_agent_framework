@@ -16,7 +16,7 @@ ECHO -*- Running: pytest %AGNO_DIR% with coverage
 ECHO ------------------------------------------------------------
 
 pytest "%AGNO_DIR%\tests\unit" ^
-    --cov="agno" ^
+    --cov="egpt" ^
     --cov-report=term-missing ^
     --cov-report=html ^
     --continue-on-collection-errors ^

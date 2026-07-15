@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.excel_reader import ExcelReader
-from agno.models.openai import OpenAIChat
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.excel_reader import ExcelReader
+from egpt.models.openai import OpenAIChat
+from egpt.vectordb.pgvector import PgVector
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 

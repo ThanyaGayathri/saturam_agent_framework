@@ -5,15 +5,15 @@ from typing import List
 
 import pytest
 
-from agno.run.workflow import (
+from egpt.run.workflow import (
     StepCompletedEvent,
     StepStartedEvent,
     WorkflowCompletedEvent,
     WorkflowRunOutput,
     WorkflowStartedEvent,
 )
-from agno.workflow import Condition, Loop, Parallel, Router, Step, StepInput, StepOutput, Workflow
-from agno.workflow.types import StepType
+from egpt.workflow import Condition, Loop, Parallel, Router, Step, StepInput, StepOutput, Workflow
+from egpt.workflow.types import StepType
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -577,7 +577,7 @@ def test_nested_workflow_streaming_event_order_and_source(shared_db):
 
 def test_nested_workflow_streaming_with_loop_events(shared_db):
     """Test that Loop events inside a nested workflow get correct depth and source."""
-    from agno.run.workflow import LoopExecutionCompletedEvent, LoopExecutionStartedEvent
+    from egpt.run.workflow import LoopExecutionCompletedEvent, LoopExecutionStartedEvent
 
     inner = Workflow(
         name="Inner Workflow",
@@ -613,7 +613,7 @@ def test_nested_workflow_streaming_with_loop_events(shared_db):
 
 def test_nested_workflow_streaming_with_parallel_events(shared_db):
     """Test that Parallel events inside a nested workflow get correct depth and source."""
-    from agno.run.workflow import ParallelExecutionCompletedEvent, ParallelExecutionStartedEvent
+    from egpt.run.workflow import ParallelExecutionCompletedEvent, ParallelExecutionStartedEvent
 
     inner = Workflow(
         name="Inner Workflow",
@@ -648,7 +648,7 @@ def test_nested_workflow_streaming_with_parallel_events(shared_db):
 
 def test_nested_workflow_streaming_with_router_events(shared_db):
     """Test that Router events inside a nested workflow get correct depth and source."""
-    from agno.run.workflow import RouterExecutionCompletedEvent, RouterExecutionStartedEvent
+    from egpt.run.workflow import RouterExecutionCompletedEvent, RouterExecutionStartedEvent
 
     inner = Workflow(
         name="Inner Workflow",
@@ -784,7 +784,7 @@ def test_three_level_nested_depth_tracking(shared_db):
 
 def test_nested_depth_with_condition_events(shared_db):
     """Test that Condition events inside a nested workflow get correct depth."""
-    from agno.run.workflow import ConditionExecutionCompletedEvent, ConditionExecutionStartedEvent
+    from egpt.run.workflow import ConditionExecutionCompletedEvent, ConditionExecutionStartedEvent
 
     inner = Workflow(
         name="Inner Workflow",
@@ -1643,7 +1643,7 @@ def test_nested_workflow_receives_previous_step_output(shared_db):
 
 def test_step_validation_rejects_multiple_executors():
     """Test that Step validation rejects having both agent and workflow set."""
-    from agno.agent.agent import Agent
+    from egpt.agent.agent import Agent
 
     agent = Agent(name="Test")
     inner = Workflow(name="Inner", steps=[])
@@ -1654,7 +1654,7 @@ def test_step_validation_rejects_multiple_executors():
 
 def test_nested_workflow_max_depth_guard(shared_db):
     """Test that excessively deep nesting is detected and results in a failed step."""
-    from agno.workflow.step import _MAX_NESTED_WORKFLOW_DEPTH, _nested_workflow_depth
+    from egpt.workflow.step import _MAX_NESTED_WORKFLOW_DEPTH, _nested_workflow_depth
 
     # Simulate being at max depth already
     _nested_workflow_depth.set(_MAX_NESTED_WORKFLOW_DEPTH)

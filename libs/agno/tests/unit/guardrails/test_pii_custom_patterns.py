@@ -2,9 +2,9 @@ import re
 
 import pytest
 
-from agno.exceptions import InputCheckError
-from agno.guardrails.pii import PIIDetectionGuardrail
-from agno.run.agent import RunInput
+from egpt.exceptions import InputCheckError
+from egpt.guardrails.pii import PIIDetectionGuardrail
+from egpt.run.agent import RunInput
 
 
 def _custom_pattern_guardrail(custom_patterns, mask_pii=False):

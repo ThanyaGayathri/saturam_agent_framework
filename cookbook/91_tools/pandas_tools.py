@@ -8,8 +8,8 @@ PandasTools is a small tool (<6 functions) so it uses enable_ flags.
 Run: `uv pip install pandas` to install the dependencies
 """
 
-from agno.agent import Agent
-from agno.tools.pandas import PandasTools
+from egpt.agent import Agent
+from egpt.tools.pandas import PandasTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

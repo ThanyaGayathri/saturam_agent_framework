@@ -2,10 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.media import Image
-from agno.models.cohere.chat import Cohere
-from agno.tools.websearch import WebSearchTools
+from egpt.agent.agent import Agent
+from egpt.media import Image
+from egpt.models.cohere.chat import Cohere
+from egpt.tools.websearch import WebSearchTools
 
 
 def test_image_input():

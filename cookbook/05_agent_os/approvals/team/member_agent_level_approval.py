@@ -15,13 +15,13 @@ Flow:
 
 from typing import Optional
 
-from agno.agent import Agent
-from agno.approval import approval
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.team import Team
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.approval import approval
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.team import Team
+from egpt.tools import tool
 
 DB_FILE = "tmp/member_level_approval.db"
 

@@ -5,12 +5,12 @@ State With Agent
 Demonstrates sharing mutable workflow session state across agent tool calls.
 """
 
-from agno.agent.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai.chat import OpenAIChat
-from agno.run import RunContext
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai.chat import OpenAIChat
+from egpt.run import RunContext
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Database

@@ -6,10 +6,10 @@ Serves an Antigravity-backed agent through AgentOS, with sessions persisted
 to a local SQLite database.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.google import GeminiInteractions
-from agno.os import AgentOS
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.google import GeminiInteractions
+from egpt.os import AgentOS
 
 # ---------------------------------------------------------------------------
 # Setup

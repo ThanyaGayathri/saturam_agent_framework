@@ -3,9 +3,9 @@
 import json
 from typing import Any, Callable, Dict
 
-from agno.agent import Agent
-from agno.tools import Toolkit
-from agno.utils.log import logger
+from egpt.agent import Agent
+from egpt.tools import Toolkit
+from egpt.utils.log import logger
 
 # ---------------------------------------------------------------------------
 # Create Agent
@@ -95,9 +95,9 @@ if __name__ == "__main__":
     from inspect import iscoroutinefunction
     from typing import Any, Callable, Dict
 
-    from agno.agent import Agent
-    from agno.tools import Toolkit
-    from agno.utils.log import logger
+    from egpt.agent import Agent
+    from egpt.tools import Toolkit
+    from egpt.utils.log import logger
 
     class CustomerDBTools(Toolkit):
         def __init__(self, *args, **kwargs):

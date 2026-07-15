@@ -17,9 +17,9 @@ from unittest.mock import Mock
 
 from sqlalchemy import create_engine
 
-from agno.db.postgres.postgres import PostgresDb
-from agno.db.sqlite.sqlite import SqliteDb
-from agno.db.utils import (
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.db.utils import (
     DB_TABLE_NAME_KEYS,
     _clone_db_with_table_overrides,
     resolve_db_from_config,
@@ -27,7 +27,7 @@ from agno.db.utils import (
 
 
 class _FakeRegistry:
-    """Minimal stand-in for agno.registry.Registry used by these tests."""
+    """Minimal stand-in for egpt.registry.Registry used by these tests."""
 
     def __init__(self, db=None):
         self._db = db
@@ -242,7 +242,7 @@ class TestDbTableNameKeys:
         """
         import inspect
 
-        from agno.db.base import BaseDb
+        from egpt.db.base import BaseDb
 
         sig = inspect.signature(BaseDb.__init__)
         table_params = {name for name in sig.parameters if name.endswith("_table")}

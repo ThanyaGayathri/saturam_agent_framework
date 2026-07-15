@@ -30,15 +30,15 @@ Example prompt:
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.knowledge import Knowledge
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.learn import LearnedKnowledgeConfig, LearningMachine, LearningMode
-from agno.models.openai import OpenAIResponses
-from agno.tools.coding import CodingTools
-from agno.tools.reasoning import ReasoningTools
-from agno.vectordb.pgvector import PgVector, SearchType
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.knowledge import Knowledge
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.learn import LearnedKnowledgeConfig, LearningMachine, LearningMode
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.coding import CodingTools
+from egpt.tools.reasoning import ReasoningTools
+from egpt.vectordb.pgvector import PgVector, SearchType
 
 # ---------------------------------------------------------------------------
 # Workspace

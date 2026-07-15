@@ -6,9 +6,9 @@ Demonstrates instrumenting an Agno agent with Langtrace.
 """
 
 # Must precede other imports
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.yfinance import YFinanceTools
 from langtrace_python_sdk import langtrace  # type: ignore
 
 # ---------------------------------------------------------------------------

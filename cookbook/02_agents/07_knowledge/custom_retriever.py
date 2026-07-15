@@ -10,8 +10,8 @@ that returns documents. The agent will use it as its search_knowledge_base tool.
 
 from typing import List, Optional
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Custom Retriever Function

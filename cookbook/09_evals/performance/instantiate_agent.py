@@ -5,8 +5,8 @@ Agent Instantiation Performance Evaluation
 Demonstrates measuring agent instantiation performance.
 """
 
-from agno.agent import Agent
-from agno.eval.performance import PerformanceEval
+from egpt.agent import Agent
+from egpt.eval.performance import PerformanceEval
 
 
 # ---------------------------------------------------------------------------

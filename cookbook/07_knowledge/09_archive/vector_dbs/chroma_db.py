@@ -10,10 +10,10 @@ Install dependency:
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.chroma import ChromaDb
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.chroma import ChromaDb
 
 
 # ---------------------------------------------------------------------------

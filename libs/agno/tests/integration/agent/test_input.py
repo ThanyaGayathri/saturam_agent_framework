@@ -1,11 +1,11 @@
 from pydantic import BaseModel
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.media import Image
-from agno.models.message import Message
-from agno.models.openai import OpenAIChat
-from agno.session.summary import SessionSummaryManager
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.media import Image
+from egpt.models.message import Message
+from egpt.models.openai import OpenAIChat
+from egpt.session.summary import SessionSummaryManager
 
 
 def test_message_as_input():

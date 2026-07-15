@@ -7,12 +7,12 @@ Background hooks execute after the API response is sent, making them non-blockin
 
 import asyncio
 
-from agno.agent import Agent
-from agno.db.sqlite import AsyncSqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
-from agno.run.agent import RunOutput
-from agno.workflow import Workflow
+from egpt.agent import Agent
+from egpt.db.sqlite import AsyncSqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
+from egpt.run.agent import RunOutput
+from egpt.workflow import Workflow
 
 # ---------------------------------------------------------------------------
 # Create Example

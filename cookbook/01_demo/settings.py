@@ -7,9 +7,9 @@ Shared runtime objects. Keep model ids in one place.
 
 from pathlib import Path
 
-from agno.models.google import Gemini
-from agno.models.openai import OpenAIResponses
-from agno.tools.file_generation import FileGenerationTools
+from egpt.models.google import Gemini
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.file_generation import FileGenerationTools
 
 
 def default_model() -> OpenAIResponses:

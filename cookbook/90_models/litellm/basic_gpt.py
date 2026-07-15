@@ -5,8 +5,8 @@ Litellm Basic Gpt
 Cookbook example for `litellm/basic_gpt.py`.
 """
 
-from agno.agent import Agent
-from agno.models.litellm import LiteLLM
+from egpt.agent import Agent
+from egpt.models.litellm import LiteLLM
 
 # ---------------------------------------------------------------------------
 # Create Agent

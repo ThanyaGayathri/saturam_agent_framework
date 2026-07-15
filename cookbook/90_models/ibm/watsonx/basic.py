@@ -5,8 +5,8 @@ Ibm Basic
 Cookbook example for `ibm/watsonx/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.ibm import WatsonX
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.ibm import WatsonX
 import asyncio
 
 # ---------------------------------------------------------------------------

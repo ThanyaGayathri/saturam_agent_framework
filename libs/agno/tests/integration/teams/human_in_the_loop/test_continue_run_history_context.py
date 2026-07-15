@@ -14,10 +14,10 @@ import os
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.team.team import Team
-from agno.tools.decorator import tool
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.team.team import Team
+from egpt.tools.decorator import tool
 
 pytestmark = pytest.mark.skipif(not os.getenv("OPENAI_API_KEY"), reason="OPENAI_API_KEY not set")
 

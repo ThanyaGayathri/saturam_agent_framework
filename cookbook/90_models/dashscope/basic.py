@@ -5,8 +5,8 @@ Dashscope Basic
 Cookbook example for `dashscope/basic.py`.
 """
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.dashscope import DashScope
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.dashscope import DashScope
 import asyncio
 
 # ---------------------------------------------------------------------------

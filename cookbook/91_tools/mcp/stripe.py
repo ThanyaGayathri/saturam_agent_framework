@@ -17,9 +17,9 @@ import asyncio
 import os
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.tools.mcp import MCPTools
-from agno.utils.log import log_error, log_exception, log_info
+from egpt.agent import Agent
+from egpt.tools.mcp import MCPTools
+from egpt.utils.log import log_error, log_exception, log_info
 
 # ---------------------------------------------------------------------------
 # Create Agent

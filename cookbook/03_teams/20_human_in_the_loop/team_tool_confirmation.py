@@ -6,10 +6,10 @@ that requires confirmation, the entire team run pauses until the
 human confirms.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team.team import Team
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team.team import Team
+from egpt.tools import tool
 
 
 # ---------------------------------------------------------------------------

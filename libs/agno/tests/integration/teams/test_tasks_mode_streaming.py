@@ -10,16 +10,16 @@ Tests verify that task mode emits proper events during streaming:
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.team import (
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.team import (
     TaskIterationCompletedEvent,
     TaskIterationStartedEvent,
     TaskStateUpdatedEvent,
     TeamRunEvent,
 )
-from agno.team.mode import TeamMode
-from agno.team.team import Team
+from egpt.team.mode import TeamMode
+from egpt.team.team import Team
 
 
 @pytest.fixture

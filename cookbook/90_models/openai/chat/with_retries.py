@@ -5,8 +5,8 @@ Openai With Retries
 Cookbook example for `openai/chat/with_retries.py`.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Agent

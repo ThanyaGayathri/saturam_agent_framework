@@ -8,11 +8,11 @@ Demonstrates concurrent delegation to team members with streamed member events.
 import asyncio
 import time
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.tools.hackernews import HackerNewsTools
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.tools.hackernews import HackerNewsTools
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Members

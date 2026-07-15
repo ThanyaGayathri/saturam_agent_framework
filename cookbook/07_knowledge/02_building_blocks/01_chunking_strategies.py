@@ -18,19 +18,19 @@ See also: ../reference/chunking_decision_guide.md
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.chunking.agentic import AgenticChunking
-from agno.knowledge.chunking.document import DocumentChunking
-from agno.knowledge.chunking.fixed import FixedSizeChunking
-from agno.knowledge.chunking.markdown import MarkdownChunking
-from agno.knowledge.chunking.recursive import RecursiveChunking
-from agno.knowledge.chunking.semantic import SemanticChunking
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.pdf_reader import PDFReader
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.qdrant import Qdrant
-from agno.vectordb.search import SearchType
+from egpt.agent import Agent
+from egpt.knowledge.chunking.agentic import AgenticChunking
+from egpt.knowledge.chunking.document import DocumentChunking
+from egpt.knowledge.chunking.fixed import FixedSizeChunking
+from egpt.knowledge.chunking.markdown import MarkdownChunking
+from egpt.knowledge.chunking.recursive import RecursiveChunking
+from egpt.knowledge.chunking.semantic import SemanticChunking
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.pdf_reader import PDFReader
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.qdrant import Qdrant
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

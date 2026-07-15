@@ -5,13 +5,13 @@ from datetime import datetime
 from time import time
 from types import MappingProxyType
 
-from agno.db.base import SessionType
-from agno.models.message import Message
-from agno.run.agent import RunOutput
-from agno.run.base import RunStatus
-from agno.run.team import TeamRunOutput
-from agno.session.summary import SessionSummary
-from agno.session.team import TeamSession
+from egpt.db.base import SessionType
+from egpt.models.message import Message
+from egpt.run.agent import RunOutput
+from egpt.run.base import RunStatus
+from egpt.run.team import TeamRunOutput
+from egpt.session.summary import SessionSummary
+from egpt.session.team import TeamSession
 
 
 def create_session_with_runs(shared_db, session_id: str, runs: list[TeamRunOutput | RunOutput]) -> TeamSession:
@@ -1554,7 +1554,7 @@ def test_get_team_history_basic(shared_db):
     """Test getting team history as input/response pairs"""
     session_id = f"test_session_{uuid.uuid4()}"
 
-    from agno.run.agent import RunInput
+    from egpt.run.agent import RunInput
 
     runs = [
         TeamRunOutput(
@@ -1589,7 +1589,7 @@ def test_get_team_history_with_num_runs(shared_db):
     """Test limiting team history to N runs"""
     session_id = f"test_session_{uuid.uuid4()}"
 
-    from agno.run.agent import RunInput
+    from egpt.run.agent import RunInput
 
     runs = [
         TeamRunOutput(
@@ -1618,7 +1618,7 @@ def test_get_team_history_only_completed_runs(shared_db):
     """Test that only completed runs are included in team history"""
     session_id = f"test_session_{uuid.uuid4()}"
 
-    from agno.run.agent import RunInput
+    from egpt.run.agent import RunInput
 
     runs = [
         TeamRunOutput(
@@ -1660,7 +1660,7 @@ def test_get_team_history_skip_member_runs(shared_db):
     """Test that member runs (with parent_run_id) are excluded"""
     session_id = f"test_session_{uuid.uuid4()}"
 
-    from agno.run.agent import RunInput
+    from egpt.run.agent import RunInput
 
     runs = [
         TeamRunOutput(
@@ -1707,7 +1707,7 @@ def test_get_team_history_context_basic(shared_db):
     """Test getting formatted team history context"""
     session_id = f"test_session_{uuid.uuid4()}"
 
-    from agno.run.agent import RunInput
+    from egpt.run.agent import RunInput
 
     runs = [
         TeamRunOutput(
@@ -1748,7 +1748,7 @@ def test_get_team_history_context_with_num_runs(shared_db):
     """Test limiting team history context to N runs"""
     session_id = f"test_session_{uuid.uuid4()}"
 
-    from agno.run.agent import RunInput
+    from egpt.run.agent import RunInput
 
     runs = [
         TeamRunOutput(

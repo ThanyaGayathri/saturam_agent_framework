@@ -6,10 +6,10 @@ Audio Sentiment Analysis.
 """
 
 import requests
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.media import Audio
-from agno.models.google import Gemini
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.media import Audio
+from egpt.models.google import Gemini
 
 # ---------------------------------------------------------------------------
 # Create Agent

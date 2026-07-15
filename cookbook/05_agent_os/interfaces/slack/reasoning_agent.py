@@ -13,13 +13,13 @@ Key concepts:
 Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.anthropic import Claude
-from agno.os.app import AgentOS
-from agno.os.interfaces.slack import Slack
-from agno.tools.reasoning import ReasoningTools
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.anthropic import Claude
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.slack import Slack
+from egpt.tools.reasoning import ReasoningTools
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

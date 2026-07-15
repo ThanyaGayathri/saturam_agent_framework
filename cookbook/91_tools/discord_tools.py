@@ -7,8 +7,8 @@ Demonstrates discord tools.
 
 import os
 
-from agno.agent import Agent
-from agno.tools.discord import DiscordTools
+from egpt.agent import Agent
+from egpt.tools.discord import DiscordTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

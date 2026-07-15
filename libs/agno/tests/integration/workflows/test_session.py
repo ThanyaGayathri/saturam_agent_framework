@@ -3,11 +3,11 @@ from typing import Any, Dict, Optional
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.run import RunContext
-from agno.workflow import Step, StepInput, StepOutput, Workflow
-from agno.workflow.condition import Condition
-from agno.workflow.router import Router
+from egpt.agent.agent import Agent
+from egpt.run import RunContext
+from egpt.workflow import Step, StepInput, StepOutput, Workflow
+from egpt.workflow.condition import Condition
+from egpt.workflow.router import Router
 
 # Simple helper functions
 
@@ -469,7 +469,7 @@ async def test_workflow_with_base_model_content(shared_db):
 
     from pydantic import BaseModel
 
-    from agno.db.base import SessionType
+    from egpt.db.base import SessionType
 
     session_id = "session_base_model_content"
 

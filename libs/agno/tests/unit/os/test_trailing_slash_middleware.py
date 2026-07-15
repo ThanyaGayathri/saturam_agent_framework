@@ -6,7 +6,7 @@ from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from agno.os.middleware.trailing_slash import TrailingSlashMiddleware
+from egpt.os.middleware.trailing_slash import TrailingSlashMiddleware
 
 
 def homepage(request):

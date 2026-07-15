@@ -2,10 +2,10 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.anthropic import Claude
-from agno.models.google import Gemini
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
+from egpt.models.google import Gemini
+from egpt.models.openai import OpenAIChat
 
 
 class ParkGuide(BaseModel):

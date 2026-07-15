@@ -12,16 +12,16 @@ Tests cover:
 
 import pytest
 
-from agno.run.base import RunStatus
-from agno.run.workflow import StepPausedEvent
-from agno.workflow import OnReject
-from agno.workflow.condition import Condition
-from agno.workflow.loop import Loop
-from agno.workflow.router import Router
-from agno.workflow.step import Step
-from agno.workflow.steps import Steps
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.run.base import RunStatus
+from egpt.run.workflow import StepPausedEvent
+from egpt.workflow import OnReject
+from egpt.workflow.condition import Condition
+from egpt.workflow.loop import Loop
+from egpt.workflow.router import Router
+from egpt.workflow.step import Step
+from egpt.workflow.steps import Steps
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 # =============================================================================
 # Test Step Functions

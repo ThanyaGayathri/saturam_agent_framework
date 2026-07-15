@@ -8,10 +8,10 @@ import base64
 import tempfile
 from pathlib import Path
 
-from agno.media import File
-from agno.models.message import Message
-from agno.models.openai.responses import OpenAIResponses
-from agno.tools.function import Function
+from egpt.media import File
+from egpt.models.message import Message
+from egpt.models.openai.responses import OpenAIResponses
+from egpt.tools.function import Function
 
 # ---------------------------------------------------------------------------
 # _has_file_search_tool tests
@@ -243,7 +243,7 @@ def test_format_messages_embeds_files_no_tools():
 
 def test_format_messages_mixed_images_and_files():
     """Both images and files should coexist in the content array."""
-    from agno.media import Image
+    from egpt.media import Image
 
     model = OpenAIResponses(id="gpt-4o")
     msg = Message(role="user", content="Analyze these")

@@ -5,8 +5,8 @@ OpenAI Default Chain Of Thought
 Demonstrates fallback chain-of-thought and built-in reasoning in one script.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------
 # Create Agents

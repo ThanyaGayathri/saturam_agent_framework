@@ -8,9 +8,9 @@ Demonstrates trip planning a2a client.
 import uuid
 
 import requests
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.os import AgentOS
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.os import AgentOS
 
 # ---------------------------------------------------------------------------
 # Create Example

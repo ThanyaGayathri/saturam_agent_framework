@@ -11,8 +11,8 @@ Prerequisites:
 - Ensure proper IAM permissions for Lambda operations
 """
 
-from agno.agent import Agent
-from agno.tools.aws_lambda import AWSLambdaTools
+from egpt.agent import Agent
+from egpt.tools.aws_lambda import AWSLambdaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

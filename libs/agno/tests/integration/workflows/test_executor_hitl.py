@@ -17,15 +17,15 @@ import os
 
 import pytest
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.base import RunStatus
-from agno.run.workflow import StepExecutorPausedEvent
-from agno.team.team import Team
-from agno.tools.decorator import tool
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.base import RunStatus
+from egpt.run.workflow import StepExecutorPausedEvent
+from egpt.team.team import Team
+from egpt.tools.decorator import tool
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 pytestmark = pytest.mark.skipif(not os.getenv("OPENAI_API_KEY"), reason="OPENAI_API_KEY not set")
 

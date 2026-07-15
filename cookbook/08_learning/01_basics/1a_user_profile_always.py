@@ -12,10 +12,10 @@ Compare with: 1b_user_profile_agentic.py for explicit tool-based updates.
 See also: 2a_user_memory_always.py for unstructured observations.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.learn import LearningMachine, LearningMode, UserProfileConfig
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.learn import LearningMachine, LearningMode, UserProfileConfig
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

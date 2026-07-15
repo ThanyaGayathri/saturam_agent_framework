@@ -15,10 +15,10 @@ The agent decides when to store and retrieve information.
 Compare with: 5a_entity_memory_always.py for automatic extraction.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.learn import EntityMemoryConfig, LearningMachine, LearningMode
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.learn import EntityMemoryConfig, LearningMachine, LearningMode
+from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
 # Create Agent

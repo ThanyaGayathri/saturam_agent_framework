@@ -4,8 +4,8 @@ import dataclasses
 
 import pytest
 
-from agno.agent._run_options import ResolvedRunOptions, resolve_run_options
-from agno.agent.agent import Agent
+from egpt.agent._run_options import ResolvedRunOptions, resolve_run_options
+from egpt.agent.agent import Agent
 
 
 def _make_agent(**kwargs) -> Agent:
@@ -248,7 +248,7 @@ class TestKnowledgeFilterMerge:
         assert opts.knowledge_filters["run_key"] == "r"
 
     def test_list_merge(self):
-        from agno.filters import EQ
+        from egpt.filters import EQ
 
         agent_filters = [EQ("a", "1")]
         run_filters = [EQ("b", "2")]
@@ -302,32 +302,32 @@ class TestAgentNotMutated:
 
 class TestFunctionsImportable:
     def test_run_dispatch_importable(self):
-        from agno.agent._run import run_dispatch
+        from egpt.agent._run import run_dispatch
 
         assert callable(run_dispatch)
 
     def test_run_importable(self):
-        from agno.agent._run import _run
+        from egpt.agent._run import _run
 
         assert callable(_run)
 
     def test_run_stream_importable(self):
-        from agno.agent._run import _run_stream
+        from egpt.agent._run import _run_stream
 
         assert callable(_run_stream)
 
     def test_arun_dispatch_importable(self):
-        from agno.agent._run import arun_dispatch
+        from egpt.agent._run import arun_dispatch
 
         assert callable(arun_dispatch)
 
     def test_arun_importable(self):
-        from agno.agent._run import _arun
+        from egpt.agent._run import _arun
 
         assert callable(_arun)
 
     def test_arun_stream_importable(self):
-        from agno.agent._run import _arun_stream
+        from egpt.agent._run import _arun_stream
 
         assert callable(_arun_stream)
 
@@ -339,7 +339,7 @@ class TestFunctionsImportable:
 
 class TestAgentWrappersDelegateCorrectly:
     def test_agent_run_delegates_to_run_dispatch(self, monkeypatch):
-        from agno.agent import _run as run_module
+        from egpt.agent import _run as run_module
 
         captured = {}
 
@@ -356,7 +356,7 @@ class TestAgentWrappersDelegateCorrectly:
         assert captured["input"] == "hello"
 
     def test_agent_arun_delegates_to_arun_dispatch(self, monkeypatch):
-        from agno.agent import _run as run_module
+        from egpt.agent import _run as run_module
 
         captured = {}
 

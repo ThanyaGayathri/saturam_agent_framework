@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with xAI."""
 
-from agno.agent import Agent
-from agno.models.xai import xAI
+from egpt.agent import Agent
+from egpt.models.xai import xAI
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -5,9 +5,9 @@ Simple test script that connects to the MCP toolbox server
 import asyncio
 from textwrap import dedent
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.mcp_toolbox import MCPToolbox
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.mcp_toolbox import MCPToolbox
 
 # ---------------------------------------------------------------------------
 # Create Agent

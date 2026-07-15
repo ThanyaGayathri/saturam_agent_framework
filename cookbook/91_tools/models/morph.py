@@ -4,9 +4,9 @@ Simple example showing Morph Fast Apply with file creation and editing.
 
 from pathlib import Path
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.models.morph import MorphTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.models.morph import MorphTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

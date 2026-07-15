@@ -2,9 +2,9 @@
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.meta import Llama
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.meta import Llama
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -1,9 +1,9 @@
-from agno.agent import Agent
-from agno.os import AgentOS
-from agno.team.team import Team
-from agno.tools.mcp import MCPTools, MultiMCPTools
-from agno.workflow.step import Step
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.os import AgentOS
+from egpt.team.team import Team
+from egpt.tools.mcp import MCPTools, MultiMCPTools
+from egpt.workflow.step import Step
+from egpt.workflow.workflow import Workflow
 
 
 def test_agent_mcp_tools_are_registered():

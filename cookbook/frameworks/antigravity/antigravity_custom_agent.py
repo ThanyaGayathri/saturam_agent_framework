@@ -19,7 +19,7 @@ Usage:
     .venvs/demo/bin/python cookbook/frameworks/antigravity/antigravity_custom_agent.py
 """
 
-from agno.agents.antigravity import AntigravityAgent
+from egpt.agents.antigravity import AntigravityAgent
 
 agent = AntigravityAgent(
     name="Haiku Bot",

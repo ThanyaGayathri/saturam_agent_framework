@@ -6,9 +6,9 @@ Demonstrates tool execution timing metrics.
 Each tool call records start_time, end_time, and duration.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.yfinance import YFinanceTools
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

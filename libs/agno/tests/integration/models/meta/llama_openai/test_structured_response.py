@@ -3,8 +3,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.meta import LlamaOpenAI
+from egpt.agent import Agent
+from egpt.models.meta import LlamaOpenAI
 
 
 class MovieScript(BaseModel):

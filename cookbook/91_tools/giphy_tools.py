@@ -5,9 +5,9 @@ Giphy Tools
 Demonstrates giphy tools.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.giphy import GiphyTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.giphy import GiphyTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

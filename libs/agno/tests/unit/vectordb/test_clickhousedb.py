@@ -3,9 +3,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agno.knowledge.document import Document
-from agno.vectordb.clickhouse import Clickhouse
-from agno.vectordb.search import SearchType
+from egpt.knowledge.document import Document
+from egpt.vectordb.clickhouse import Clickhouse
+from egpt.vectordb.search import SearchType
 
 # Configuration for tests
 TEST_TABLE = f"test_clickhouse_{uuid.uuid4().hex[:8]}"

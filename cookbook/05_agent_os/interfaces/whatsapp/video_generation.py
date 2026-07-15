@@ -12,12 +12,12 @@ Requires:
   pip install fal-client
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIChat
-from agno.os.app import AgentOS
-from agno.os.interfaces.whatsapp import Whatsapp
-from agno.tools.fal import FalTools
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIChat
+from egpt.os.app import AgentOS
+from egpt.os.interfaces.whatsapp import Whatsapp
+from egpt.tools.fal import FalTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

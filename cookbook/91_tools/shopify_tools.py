@@ -21,9 +21,9 @@ Required scopes:
 - read_analytics (for analytics data)
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.shopify import ShopifyTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.shopify import ShopifyTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -7,12 +7,12 @@ Human-in-the-Loop: Allowing users to provide input externally.
 
 from typing import List
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.tools import tool
-from agno.tools.function import UserInputField
-from agno.utils import pprint
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.tools import tool
+from egpt.tools.function import UserInputField
+from egpt.utils import pprint
 
 
 # You can either specify the user_input_fields leave empty for all fields to be provided by the user

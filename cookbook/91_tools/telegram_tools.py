@@ -12,8 +12,8 @@ Prerequisites:
 - Get the chat_id by going to: https://api.telegram.org/bot<your-bot-token>/getUpdates
 """
 
-from agno.agent import Agent
-from agno.tools.telegram import TelegramTools
+from egpt.agent import Agent
+from egpt.tools.telegram import TelegramTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

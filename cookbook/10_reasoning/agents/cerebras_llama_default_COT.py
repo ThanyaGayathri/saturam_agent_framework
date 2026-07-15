@@ -5,8 +5,8 @@ Cerebras Default COT Fallback
 Demonstrates default chain-of-thought behavior with a Cerebras model.
 """
 
-from agno.agent import Agent
-from agno.models.cerebras import Cerebras
+from egpt.agent import Agent
+from egpt.models.cerebras import Cerebras
 
 # ---------------------------------------------------------------------------
 # Create Agent

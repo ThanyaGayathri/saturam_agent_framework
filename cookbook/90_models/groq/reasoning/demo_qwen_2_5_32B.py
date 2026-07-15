@@ -1,9 +1,9 @@
 """Run `uv pip install ddgs sqlalchemy pgvector pypdf openai groq` to install dependencies."""
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.groq import Groq
-from agno.vectordb.pgvector import PgVector
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.groq import Groq
+from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
 # Create Agent

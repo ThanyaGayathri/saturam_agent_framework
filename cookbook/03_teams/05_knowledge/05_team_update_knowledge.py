@@ -5,11 +5,11 @@ Team Update Knowledge
 Demonstrates enabling `update_knowledge` so teams can persist new facts.
 """
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIResponses
-from agno.team import Team
-from agno.vectordb.lancedb import LanceDb
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIResponses
+from egpt.team import Team
+from egpt.vectordb.lancedb import LanceDb
 
 # ---------------------------------------------------------------------------
 # Setup

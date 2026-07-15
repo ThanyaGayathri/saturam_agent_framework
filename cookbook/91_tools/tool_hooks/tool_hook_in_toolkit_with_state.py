@@ -3,9 +3,9 @@
 import json
 from typing import Any, Callable, Dict
 
-from agno.agent import Agent
-from agno.run import RunContext
-from agno.tools import Toolkit
+from egpt.agent import Agent
+from egpt.run import RunContext
+from egpt.tools import Toolkit
 
 # ---------------------------------------------------------------------------
 # Create Agent

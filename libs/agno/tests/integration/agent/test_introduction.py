@@ -1,8 +1,8 @@
 import uuid
 
-from agno.agent.agent import Agent
-from agno.db.base import SessionType
-from agno.models.openai.chat import OpenAIChat
+from egpt.agent.agent import Agent
+from egpt.db.base import SessionType
+from egpt.models.openai.chat import OpenAIChat
 
 
 def test_agent_with_introduction(shared_db):

@@ -1,12 +1,12 @@
 import pytest
 
-from agno.knowledge.reader.utils.url_validation import is_host_allowed
-from agno.knowledge.reader.web_search_reader import WebSearchReader
+from egpt.knowledge.reader.utils.url_validation import is_host_allowed
+from egpt.knowledge.reader.web_search_reader import WebSearchReader
 
 
 def test_web_search_reader_chunk_size_propagation():
     """Test that chunk_size is propagated to default chunking strategy"""
-    from agno.knowledge.chunking.semantic import SemanticChunking
+    from egpt.knowledge.chunking.semantic import SemanticChunking
 
     reader = WebSearchReader(chunk_size=900)
     assert reader.chunk_size == 900
@@ -16,7 +16,7 @@ def test_web_search_reader_chunk_size_propagation():
 
 def test_web_search_reader_default_chunk_size():
     """Test default chunk_size is 5000"""
-    from agno.knowledge.chunking.semantic import SemanticChunking
+    from egpt.knowledge.chunking.semantic import SemanticChunking
 
     reader = WebSearchReader()
     assert reader.chunk_size == 5000
@@ -26,7 +26,7 @@ def test_web_search_reader_default_chunk_size():
 
 def test_web_search_reader_explicit_strategy_preserved():
     """Test that explicit chunking_strategy is not overridden"""
-    from agno.knowledge.chunking.fixed import FixedSizeChunking
+    from egpt.knowledge.chunking.fixed import FixedSizeChunking
 
     custom_strategy = FixedSizeChunking(chunk_size=1000)
     reader = WebSearchReader(chunk_size=500, chunking_strategy=custom_strategy)

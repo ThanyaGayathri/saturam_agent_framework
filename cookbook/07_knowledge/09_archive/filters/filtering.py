@@ -1,11 +1,11 @@
-from agno.agent import Agent
-from agno.db.postgres.postgres import PostgresDb
-from agno.knowledge.knowledge import Knowledge
-from agno.utils.media import (
+from egpt.agent import Agent
+from egpt.db.postgres.postgres import PostgresDb
+from egpt.knowledge.knowledge import Knowledge
+from egpt.utils.media import (
     SampleDataFileExtension,
     download_knowledge_filters_sample_data,
 )
-from agno.vectordb.pgvector import PgVector
+from egpt.vectordb.pgvector import PgVector
 
 # Download all sample sales documents and get their paths
 downloaded_csv_paths = download_knowledge_filters_sample_data(

@@ -5,9 +5,9 @@ Brightdata Tools
 Demonstrates brightdata tools.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.brightdata import BrightDataTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.brightdata import BrightDataTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.utils.audio import write_audio_to_file
+from egpt.utils.audio import write_audio_to_file
 
 
 def test_write_audio_to_file_basic():
@@ -163,7 +163,7 @@ def test_write_audio_to_file_unicode_filename():
         assert written_data == test_audio_data
 
 
-@patch("agno.utils.audio.log_info")
+@patch("egpt.utils.audio.log_info")
 def test_write_audio_to_file_logging(mock_log_info):
     """Test that logging is called correctly."""
     # Create test audio data

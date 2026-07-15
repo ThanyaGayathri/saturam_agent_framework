@@ -5,10 +5,10 @@ Xai Image Agent With Memory
 Cookbook example for `xai/image_agent_with_memory.py`.
 """
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.xai import xAI
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.xai import xAI
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

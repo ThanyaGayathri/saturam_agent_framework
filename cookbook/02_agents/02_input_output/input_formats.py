@@ -5,7 +5,7 @@ Input Formats
 Input Formats.
 """
 
-from agno.agent import Agent
+from egpt.agent import Agent
 
 # ---------------------------------------------------------------------------
 # Create Agent

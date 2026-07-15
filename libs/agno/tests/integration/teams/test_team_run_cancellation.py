@@ -15,13 +15,13 @@ import uuid
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.run.base import RunStatus
-from agno.run.cancel import cancel_run, register_run
-from agno.run.team import RunCancelledEvent as TeamRunCancelledEvent
-from agno.run.team import TeamRunEvent, TeamRunOutput
-from agno.team import Team
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.run.base import RunStatus
+from egpt.run.cancel import cancel_run, register_run
+from egpt.run.team import RunCancelledEvent as TeamRunCancelledEvent
+from egpt.run.team import TeamRunEvent, TeamRunOutput
+from egpt.team import Team
 
 pytestmark = pytest.mark.skipif(not os.getenv("OPENAI_API_KEY"), reason="OPENAI_API_KEY not set")
 
@@ -54,7 +54,7 @@ def test_cancel_team_during_sync_streaming(shared_db):
     - Partial content is collected before cancellation
     - Resources are cleaned up (run removed from tracking)
     """
-    from agno.run.cancel import _cancellation_manager
+    from egpt.run.cancel import _cancellation_manager
 
     team = _make_team(shared_db)
 
@@ -225,7 +225,7 @@ async def test_cancel_team_during_async_streaming(shared_db):
     - Run status is set to cancelled
     - Resources are cleaned up
     """
-    from agno.run.cancel import _cancellation_manager
+    from egpt.run.cancel import _cancellation_manager
 
     team = _make_team(shared_db)
 

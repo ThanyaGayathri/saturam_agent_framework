@@ -5,10 +5,10 @@ Save Team to Database
 Demonstrates creating a team with member agents and saving it to the database.
 """
 
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.models.openai import OpenAIChat
+from egpt.team import Team
 
 # ---------------------------------------------------------------------------
 # Setup

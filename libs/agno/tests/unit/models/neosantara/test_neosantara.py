@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.exceptions import ModelAuthenticationError
-from agno.models.neosantara import Neosantara
+from egpt.exceptions import ModelAuthenticationError
+from egpt.models.neosantara import Neosantara
 
 
 def test_neosantara_initialization_with_api_key():

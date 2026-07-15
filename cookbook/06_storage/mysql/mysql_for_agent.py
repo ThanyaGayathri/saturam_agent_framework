@@ -2,8 +2,8 @@
 
 Run `uv pip install openai` to install dependencies."""
 
-from agno.agent import Agent
-from agno.db.mysql import MySQLDb
+from egpt.agent import Agent
+from egpt.db.mysql import MySQLDb
 
 # ---------------------------------------------------------------------------
 # Setup

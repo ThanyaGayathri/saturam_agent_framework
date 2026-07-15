@@ -13,11 +13,11 @@ python cookbook/09_evals/suite/suite_team_scoring.py --json-output tmp/evals.jso
 
 import sys
 
-from agno.agent import Agent
-from agno.eval import Case, JudgeMode, cli
-from agno.models.openai import OpenAIResponses
-from agno.team.team import Team
-from agno.tools.calculator import CalculatorTools
+from egpt.agent import Agent
+from egpt.eval import Case, JudgeMode, cli
+from egpt.models.openai import OpenAIResponses
+from egpt.team.team import Team
+from egpt.tools.calculator import CalculatorTools
 
 # ---------------------------------------------------------------------------
 # Create the Team and its members

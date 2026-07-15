@@ -21,12 +21,12 @@ After starting this app, point an MCP client at http://localhost:7777/mcp and
 call the `ask_workspace` tool.
 """
 
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
-from agno.os.config import MCPServerConfig
-from agno.tools import tool
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
+from egpt.os import AgentOS
+from egpt.os.config import MCPServerConfig
+from egpt.tools import tool
 
 # ---------------------------------------------------------------------------
 # Create Example

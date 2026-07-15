@@ -18,7 +18,7 @@ Usage:
 import tarfile
 from pathlib import Path
 
-from agno.agents.antigravity import AntigravityAgent
+from egpt.agents.antigravity import AntigravityAgent
 
 OUT_PATH = Path("tmp/antigravity_snapshot.tar")
 OUT_PATH.parent.mkdir(parents=True, exist_ok=True)

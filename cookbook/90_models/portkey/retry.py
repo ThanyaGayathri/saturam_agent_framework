@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Portkey."""
 
-from agno.agent import Agent
-from agno.models.portkey import Portkey
+from egpt.agent import Agent
+from egpt.models.portkey import Portkey
 
 # ---------------------------------------------------------------------------
 # Create Agent

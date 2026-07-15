@@ -10,10 +10,10 @@ Tests cover:
 
 import pytest
 
-from agno.registry import Registry
-from agno.workflow.parallel import Parallel
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput
+from egpt.registry import Registry
+from egpt.workflow.parallel import Parallel
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput
 
 # =============================================================================
 # Sample executor functions for testing
@@ -339,7 +339,7 @@ class TestParallelNestedContainerSerialization:
 
     def test_roundtrip_with_nested_steps_container(self, registry_with_functions):
         """Test roundtrip with nested Steps container inside Parallel."""
-        from agno.workflow.steps import Steps
+        from egpt.workflow.steps import Steps
 
         step_a = Step(name="step-a", executor=executor_a)
         step_b = Step(name="step-b", executor=executor_b)

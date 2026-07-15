@@ -5,9 +5,9 @@ Openai Websearch Builtin Tool
 Cookbook example for `openai/responses/websearch_builtin_tool.py`.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.file import FileTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.file import FileTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

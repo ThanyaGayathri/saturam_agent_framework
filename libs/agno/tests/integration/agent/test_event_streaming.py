@@ -4,13 +4,13 @@ from textwrap import dedent
 import pytest
 from pydantic import BaseModel
 
-from agno.agent.agent import Agent
-from agno.db.base import SessionType
-from agno.models.openai.chat import OpenAIChat
-from agno.run.agent import CustomEvent, RunEvent, RunInput, RunOutput
-from agno.tools.decorator import tool
-from agno.tools.reasoning import ReasoningTools
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent.agent import Agent
+from egpt.db.base import SessionType
+from egpt.models.openai.chat import OpenAIChat
+from egpt.run.agent import CustomEvent, RunEvent, RunInput, RunOutput
+from egpt.tools.decorator import tool
+from egpt.tools.reasoning import ReasoningTools
+from egpt.tools.yfinance import YFinanceTools
 
 
 def test_basic_events():

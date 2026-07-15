@@ -22,9 +22,9 @@ from datetime import datetime
 import pytest
 from surrealdb import RecordID
 
-from agno.db.schemas.knowledge import KnowledgeRow
-from agno.db.surrealdb import SurrealDb
-from agno.debug import enable_debug_mode
+from egpt.db.schemas.knowledge import KnowledgeRow
+from egpt.db.surrealdb import SurrealDb
+from egpt.debug import enable_debug_mode
 
 enable_debug_mode()
 

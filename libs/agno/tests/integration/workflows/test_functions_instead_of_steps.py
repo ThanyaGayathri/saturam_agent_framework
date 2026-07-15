@@ -4,12 +4,12 @@ from typing import Iterator, Union
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.run.agent import RunOutputEvent
-from agno.run.base import RunStatus
-from agno.run.workflow import WorkflowCompletedEvent
-from agno.workflow.types import WorkflowExecutionInput
-from agno.workflow.workflow import Workflow, WorkflowRunOutput
+from egpt.agent.agent import Agent
+from egpt.run.agent import RunOutputEvent
+from egpt.run.base import RunStatus
+from egpt.run.workflow import WorkflowCompletedEvent
+from egpt.workflow.types import WorkflowExecutionInput
+from egpt.workflow.workflow import Workflow, WorkflowRunOutput
 
 
 # Mock agents for testing

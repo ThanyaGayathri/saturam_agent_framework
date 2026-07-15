@@ -15,18 +15,18 @@ See also: 02_data.py for CSV/JSON, 03_web.py for web sources.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.excel_reader import ExcelReader
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.excel_reader import ExcelReader
 
 # Other available readers (used via auto-detection or explicit import):
-# from agno.knowledge.reader.docx_reader import DocxReader
-# from agno.knowledge.reader.pdf_reader import PDFReader
-# from agno.knowledge.reader.pptx_reader import PPTXReader
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.qdrant import Qdrant
-from agno.vectordb.search import SearchType
+# from egpt.knowledge.reader.docx_reader import DocxReader
+# from egpt.knowledge.reader.pdf_reader import PDFReader
+# from egpt.knowledge.reader.pptx_reader import PPTXReader
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.qdrant import Qdrant
+from egpt.vectordb.search import SearchType
 
 # ---------------------------------------------------------------------------
 # Setup

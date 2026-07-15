@@ -5,8 +5,8 @@ Newspaper Tools
 Demonstrates newspaper tools.
 """
 
-from agno.agent import Agent
-from agno.tools.newspaper import NewspaperTools
+from egpt.agent import Agent
+from egpt.tools.newspaper import NewspaperTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

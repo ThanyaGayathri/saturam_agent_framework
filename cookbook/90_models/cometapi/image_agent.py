@@ -2,9 +2,9 @@
 Image analysis example using CometAPI with vision models.
 """
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.cometapi import CometAPI
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.cometapi import CometAPI
 
 # ---------------------------------------------------------------------------
 # Create Agent

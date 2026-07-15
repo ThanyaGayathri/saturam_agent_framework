@@ -7,12 +7,12 @@ Demonstrates composing workflows three levels deep:
   Level 3: Each parallel branch is itself a mini-workflow
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.workflow import Parallel
-from agno.workflow.step import Step
-from agno.workflow.types import StepInput, StepOutput
-from agno.workflow.workflow import Workflow
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.workflow import Parallel
+from egpt.workflow.step import Step
+from egpt.workflow.types import StepInput, StepOutput
+from egpt.workflow.workflow import Workflow
 
 
 def merge_results(step_input: StepInput) -> StepOutput:

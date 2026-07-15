@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agno.exceptions import ModelAuthenticationError
-from agno.models.moonshot import MoonShot
+from egpt.exceptions import ModelAuthenticationError
+from egpt.models.moonshot import MoonShot
 
 
 def test_moonshot_initialization_with_api_key():

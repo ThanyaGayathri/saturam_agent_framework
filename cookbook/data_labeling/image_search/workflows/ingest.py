@@ -24,10 +24,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict
 
 import httpx
-from agno.agent import Agent
-from agno.media import Image
-from agno.workflow import Step, StepInput, StepOutput, Workflow
 from db import get_db, get_knowledge
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.workflow import Step, StepInput, StepOutput, Workflow
 from schemas import ImageDescription, to_searchable_text
 from settings import (
     EXTRACTOR_MODEL_ID,

@@ -28,7 +28,7 @@ def _install_fake_telebot():
 
 _install_fake_telebot()
 
-from agno.os.interfaces.telegram.state import StreamState  # noqa: E402
+from egpt.os.interfaces.telegram.state import StreamState  # noqa: E402
 
 
 def _make_state() -> StreamState:

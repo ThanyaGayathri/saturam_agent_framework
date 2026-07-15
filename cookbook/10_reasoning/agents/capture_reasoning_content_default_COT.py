@@ -5,8 +5,8 @@ Capture Reasoning Content
 Demonstrates how to inspect reasoning_content in streaming and non-streaming runs.
 """
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
 
 
 # ---------------------------------------------------------------------------

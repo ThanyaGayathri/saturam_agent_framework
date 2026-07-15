@@ -5,9 +5,9 @@ Retries
 Demonstrates team retry configuration for transient run errors.
 """
 
-from agno.agent import Agent
-from agno.team import Team
-from agno.tools.websearch import WebSearchTools
+from egpt.agent import Agent
+from egpt.team import Team
+from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Members

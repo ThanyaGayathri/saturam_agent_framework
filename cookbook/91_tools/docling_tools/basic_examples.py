@@ -1,5 +1,5 @@
-from agno.agent import Agent
-from agno.tools.docling import DoclingTools
+from egpt.agent import Agent
+from egpt.tools.docling import DoclingTools
 from paths import (
     audio_video_path,
     docx_path,

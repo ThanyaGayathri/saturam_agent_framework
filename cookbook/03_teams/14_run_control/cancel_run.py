@@ -8,12 +8,12 @@ Demonstrates cancelling an in-flight team run from a separate thread.
 import threading
 import time
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.run.agent import RunEvent
-from agno.run.base import RunStatus
-from agno.run.team import TeamRunEvent
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.run.agent import RunEvent
+from egpt.run.base import RunStatus
+from egpt.run.team import TeamRunEvent
+from egpt.team import Team
 
 
 # ---------------------------------------------------------------------------

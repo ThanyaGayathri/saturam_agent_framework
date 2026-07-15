@@ -6,10 +6,10 @@ This example demonstrates how to control which memory database operations are
 available to the AI model using DB tool flags.
 """
 
-from agno.agent.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.memory.manager import MemoryManager
-from agno.models.openai import OpenAIChat
+from egpt.agent.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.memory.manager import MemoryManager
+from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

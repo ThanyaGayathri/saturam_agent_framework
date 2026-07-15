@@ -3,8 +3,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.together import Together
+from egpt.agent import Agent
+from egpt.models.together import Together
 
 
 class MovieScript(BaseModel):

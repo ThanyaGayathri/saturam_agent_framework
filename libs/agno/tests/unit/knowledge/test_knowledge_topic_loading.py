@@ -3,10 +3,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agno.knowledge.content import Content
-from agno.knowledge.document import Document
-from agno.knowledge.knowledge import Knowledge
-from agno.vectordb.base import VectorDb
+from egpt.knowledge.content import Content
+from egpt.knowledge.document import Document
+from egpt.knowledge.knowledge import Knowledge
+from egpt.vectordb.base import VectorDb
 
 
 class MockVectorDb(VectorDb):

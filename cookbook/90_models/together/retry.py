@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Together."""
 
-from agno.agent import Agent
-from agno.models.together import Together
+from egpt.agent import Agent
+from egpt.models.together import Together
 
 # ---------------------------------------------------------------------------
 # Create Agent

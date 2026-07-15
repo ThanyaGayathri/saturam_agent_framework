@@ -7,10 +7,10 @@ Basic Agent Events.
 
 import asyncio
 
-from agno.agent import RunEvent
-from agno.agent.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.yfinance import YFinanceTools
+from egpt.agent import RunEvent
+from egpt.agent.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

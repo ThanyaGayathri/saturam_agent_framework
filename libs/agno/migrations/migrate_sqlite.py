@@ -1,7 +1,7 @@
 import asyncio
 
-from agno.db.migrations.manager import MigrationManager
-from agno.db.sqlite import AsyncSqliteDb, SqliteDb
+from egpt.db.migrations.manager import MigrationManager
+from egpt.db.sqlite import AsyncSqliteDb, SqliteDb
 
 # Create your database connection here
 db = SqliteDb(

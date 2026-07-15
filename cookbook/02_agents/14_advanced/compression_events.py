@@ -7,10 +7,10 @@ Test script to verify compression events are working correctly.
 
 import asyncio
 
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.run.agent import RunEvent
-from agno.tools.duckduckgo import DuckDuckGoTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.run.agent import RunEvent
+from egpt.tools.duckduckgo import DuckDuckGoTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -1,9 +1,9 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput
-from agno.db.sqlite import SqliteDb
-from agno.models.anthropic import Claude
+from egpt.agent import Agent, RunOutput
+from egpt.db.sqlite import SqliteDb
+from egpt.models.anthropic import Claude
 
 
 @pytest.fixture(scope="module")
@@ -204,7 +204,7 @@ async def test_async_client_persistence(claude_model):
 
 
 def test_count_tokens(claude_model):
-    from agno.models.message import Message
+    from egpt.models.message import Message
 
     messages = [
         Message(role="user", content="Hello world, this is a test message for token counting"),
@@ -218,8 +218,8 @@ def test_count_tokens(claude_model):
 
 
 def test_count_tokens_with_tools(claude_model):
-    from agno.models.message import Message
-    from agno.tools.calculator import CalculatorTools
+    from egpt.models.message import Message
+    from egpt.tools.calculator import CalculatorTools
 
     messages = [
         Message(role="user", content="What is 2 + 2?"),
@@ -236,7 +236,7 @@ def test_count_tokens_with_tools(claude_model):
 
 @pytest.mark.asyncio
 async def test_acount_tokens(claude_model):
-    from agno.models.message import Message
+    from egpt.models.message import Message
 
     messages = [
         Message(role="user", content="Hello world, this is a test message for token counting"),
@@ -252,8 +252,8 @@ async def test_acount_tokens(claude_model):
 
 @pytest.mark.asyncio
 async def test_acount_tokens_with_tools(claude_model):
-    from agno.models.message import Message
-    from agno.tools.calculator import CalculatorTools
+    from egpt.models.message import Message
+    from egpt.tools.calculator import CalculatorTools
 
     messages = [
         Message(role="user", content="What is 2 + 2?"),

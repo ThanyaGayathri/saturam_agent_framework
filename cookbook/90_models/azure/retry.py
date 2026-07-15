@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Azure AI Foundry."""
 
-from agno.agent import Agent
-from agno.models.azure import AzureAIFoundry
+from egpt.agent import Agent
+from egpt.models.azure import AzureAIFoundry
 
 # ---------------------------------------------------------------------------
 # Create Agent

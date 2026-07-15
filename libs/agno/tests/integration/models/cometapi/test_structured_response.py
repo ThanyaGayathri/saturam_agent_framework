@@ -3,8 +3,8 @@ from typing import List
 
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent
-from agno.models.cometapi import CometAPI
+from egpt.agent import Agent
+from egpt.models.cometapi import CometAPI
 
 
 class MovieScript(BaseModel):

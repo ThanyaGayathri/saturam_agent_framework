@@ -3,9 +3,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from agno.knowledge.document import Document
-from agno.utils.log import log_debug
-from agno.vectordb.distance import Distance
+from egpt.knowledge.document import Document
+from egpt.utils.log import log_debug
+from egpt.vectordb.distance import Distance
 
 # Ensure Milvus is available and usable in the current environment.
 # This handles some CI errors when running Milvus in GitHub Actions.
@@ -27,7 +27,7 @@ if not MILVUS_AVAILABLE:
 
 # Try to import Milvus, skip all tests if not available
 try:
-    from agno.vectordb.milvus import Milvus
+    from egpt.vectordb.milvus import Milvus
 
     MILVUS_AVAILABLE = True
 except (ImportError, TypeError) as e:
@@ -609,7 +609,7 @@ def test_search_with_reranker(milvus_db, mock_milvus_client):
 
 def test_hybrid_schema_text_field_max_length(mock_embedder):
     """`text` VARCHAR field must be 65535"""
-    from agno.vectordb.search import SearchType
+    from egpt.vectordb.search import SearchType
 
     db = Milvus(embedder=mock_embedder, collection="test_collection", search_type=SearchType.hybrid)
     schema = db._create_hybrid_schema()

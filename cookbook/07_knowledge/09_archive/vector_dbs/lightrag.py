@@ -9,10 +9,10 @@ import asyncio
 import time
 from os import getenv
 
-from agno.agent import Agent
-from agno.knowledge.knowledge import Knowledge
-from agno.knowledge.reader.wikipedia_reader import WikipediaReader
-from agno.vectordb.lightrag import LightRag
+from egpt.agent import Agent
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.wikipedia_reader import WikipediaReader
+from egpt.vectordb.lightrag import LightRag
 
 # ---------------------------------------------------------------------------
 # Setup

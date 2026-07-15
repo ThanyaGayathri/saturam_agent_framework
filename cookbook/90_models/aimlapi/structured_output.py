@@ -7,8 +7,8 @@ Cookbook example for `aimlapi/structured_output.py`.
 
 from typing import List
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.models.aimlapi import AIMLAPI
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.models.aimlapi import AIMLAPI
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

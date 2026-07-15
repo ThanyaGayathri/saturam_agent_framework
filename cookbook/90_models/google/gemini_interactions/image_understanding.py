@@ -6,9 +6,9 @@ Example showing image understanding with the Interactions API.
 Supports images from URLs, local files, and raw bytes.
 """
 
-from agno.agent import Agent
-from agno.media import Image
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.media import Image
+from egpt.models.google import GeminiInteractions
 
 # ---------------------------------------------------------------------------
 # Create Agent

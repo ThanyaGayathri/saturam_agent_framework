@@ -1,9 +1,9 @@
 import pytest
 from pydantic import BaseModel, Field
 
-from agno.agent import Agent, RunOutput  # noqa
-from agno.db.sqlite import SqliteDb
-from agno.models.portkey import Portkey
+from egpt.agent import Agent, RunOutput  # noqa
+from egpt.db.sqlite import SqliteDb
+from egpt.models.portkey import Portkey
 
 PORTKEY_MODEL_ID = "gpt-4o-mini"
 

@@ -1,6 +1,6 @@
 """Tests for framework-owned per-entry timestamps on learning schemas (memories, entity facts...)."""
 
-from agno.learn.schemas import EntityMemory, Memories, UserProfile
+from egpt.learn.schemas import EntityMemory, Memories, UserProfile
 
 
 class TestAddMemory:

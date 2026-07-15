@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agno.tools.financial_datasets import FinancialDatasetsTools
+from egpt.tools.financial_datasets import FinancialDatasetsTools
 
 
 @pytest.fixture
@@ -43,7 +43,7 @@ def test_init_with_env_key():
     assert tools.api_key == "env_key"
 
 
-@patch("agno.tools.financial_datasets.log_error")
+@patch("egpt.tools.financial_datasets.log_error")
 def test_init_without_key(mock_log_error):
     """Test initialization without API key."""
     # Clear environment variable if it exists
@@ -56,7 +56,7 @@ def test_init_without_key(mock_log_error):
 # Financial Statements Endpoint Tests
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_income_statements(mock_make_request, financial_tools):
     """Test get_income_statements method."""
     mock_make_request.return_value = {"income_statements": []}
@@ -69,7 +69,7 @@ def test_get_income_statements(mock_make_request, financial_tools):
     assert result == {"income_statements": []}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_balance_sheets(mock_make_request, financial_tools):
     """Test get_balance_sheets method."""
     mock_make_request.return_value = {"balance_sheets": []}
@@ -82,7 +82,7 @@ def test_get_balance_sheets(mock_make_request, financial_tools):
     assert result == {"balance_sheets": []}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_cash_flow_statements(mock_make_request, financial_tools):
     """Test get_cash_flow_statements method."""
     mock_make_request.return_value = {"cash_flow_statements": []}
@@ -98,7 +98,7 @@ def test_get_cash_flow_statements(mock_make_request, financial_tools):
 # Other API Endpoint Tests
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_company_info(mock_make_request, financial_tools):
     """Test get_company_info method."""
     mock_make_request.return_value = {"company": {}}
@@ -109,7 +109,7 @@ def test_get_company_info(mock_make_request, financial_tools):
     assert result == {"company": {}}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_crypto_prices(mock_make_request, financial_tools):
     """Test get_crypto_prices method."""
     mock_make_request.return_value = {"prices": []}
@@ -120,7 +120,7 @@ def test_get_crypto_prices(mock_make_request, financial_tools):
     assert result == {"prices": []}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_earnings(mock_make_request, financial_tools):
     """Test get_earnings method."""
     mock_make_request.return_value = {"earnings": []}
@@ -131,7 +131,7 @@ def test_get_earnings(mock_make_request, financial_tools):
     assert result == {"earnings": []}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_financial_metrics(mock_make_request, financial_tools):
     """Test get_financial_metrics method."""
     mock_make_request.return_value = {"metrics": {}}
@@ -142,7 +142,7 @@ def test_get_financial_metrics(mock_make_request, financial_tools):
     assert result == {"metrics": {}}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_insider_trades(mock_make_request, financial_tools):
     """Test get_insider_trades method."""
     mock_make_request.return_value = {"insider_trades": []}
@@ -153,7 +153,7 @@ def test_get_insider_trades(mock_make_request, financial_tools):
     assert result == {"insider_trades": []}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_institutional_ownership(mock_make_request, financial_tools):
     """Test get_institutional_ownership method."""
     mock_make_request.return_value = {"ownership": []}
@@ -164,7 +164,7 @@ def test_get_institutional_ownership(mock_make_request, financial_tools):
     assert result == {"ownership": []}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_news_with_ticker(mock_make_request, financial_tools):
     """Test get_news method with ticker."""
     mock_make_request.return_value = {"news": []}
@@ -175,7 +175,7 @@ def test_get_news_with_ticker(mock_make_request, financial_tools):
     assert result == {"news": []}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_news_without_ticker(mock_make_request, financial_tools):
     """Test get_news method without ticker."""
     mock_make_request.return_value = {"news": []}
@@ -186,7 +186,7 @@ def test_get_news_without_ticker(mock_make_request, financial_tools):
     assert result == {"news": []}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_stock_prices(mock_make_request, financial_tools):
     """Test get_stock_prices method."""
     mock_make_request.return_value = {"prices": []}
@@ -197,7 +197,7 @@ def test_get_stock_prices(mock_make_request, financial_tools):
     assert result == {"prices": []}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_search_tickers(mock_make_request, financial_tools):
     """Test search_tickers method."""
     mock_make_request.return_value = {"results": []}
@@ -208,7 +208,7 @@ def test_search_tickers(mock_make_request, financial_tools):
     assert result == {"results": []}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_sec_filings_with_form_type(mock_make_request, financial_tools):
     """Test get_sec_filings method with form type."""
     mock_make_request.return_value = {"filings": []}
@@ -219,7 +219,7 @@ def test_get_sec_filings_with_form_type(mock_make_request, financial_tools):
     assert result == {"filings": []}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_sec_filings_without_form_type(mock_make_request, financial_tools):
     """Test get_sec_filings method without form type."""
     mock_make_request.return_value = {"filings": []}
@@ -230,7 +230,7 @@ def test_get_sec_filings_without_form_type(mock_make_request, financial_tools):
     assert result == {"filings": []}
 
 
-@patch("agno.tools.financial_datasets.FinancialDatasetsTools._make_request")
+@patch("egpt.tools.financial_datasets.FinancialDatasetsTools._make_request")
 def test_get_segmented_financials(mock_make_request, financial_tools):
     """Test get_segmented_financials method."""
     mock_make_request.return_value = {"segmented_financials": []}

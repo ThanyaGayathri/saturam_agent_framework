@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.media import Image
-from agno.models.dashscope import DashScope
+from egpt.agent.agent import Agent
+from egpt.media import Image
+from egpt.models.dashscope import DashScope
 
 
 def test_image_input_url():

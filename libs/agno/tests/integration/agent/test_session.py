@@ -3,11 +3,11 @@ from typing import Any, Dict, Optional
 
 import pytest
 
-from agno.agent.agent import Agent
-from agno.db.base import SessionType
-from agno.models.openai.chat import OpenAIChat
-from agno.run import RunContext
-from agno.run.agent import RunEvent
+from egpt.agent.agent import Agent
+from egpt.db.base import SessionType
+from egpt.models.openai.chat import OpenAIChat
+from egpt.run import RunContext
+from egpt.run.agent import RunEvent
 
 
 def add_item(run_context: RunContext, item: str) -> str:

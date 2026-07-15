@@ -5,8 +5,8 @@ Reasoning Model Gpt 4 1
 Demonstrates this reasoning cookbook example.
 """
 
-from agno.agent import Agent
-from agno.models.azure.openai_chat import AzureOpenAI
+from egpt.agent import Agent
+from egpt.models.azure.openai_chat import AzureOpenAI
 
 
 # ---------------------------------------------------------------------------

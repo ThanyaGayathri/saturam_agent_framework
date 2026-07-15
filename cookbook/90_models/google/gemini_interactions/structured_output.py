@@ -6,8 +6,8 @@ Example showing structured output with the Interactions API.
 Uses Pydantic models to enforce JSON schema on responses.
 """
 
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
