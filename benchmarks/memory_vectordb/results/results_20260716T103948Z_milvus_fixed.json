@@ -1,0 +1,18 @@
+[
+  {
+    "backend": "milvus",
+    "n_records": 100000,
+    "num_tenants": 50,
+    "tenancy": "filter",
+    "dim": 768,
+    "k": 10,
+    "num_queries": 200,
+    "insert_seconds": 1603.71,
+    "insert_qps": 62.4,
+    "recall_at_k": 0.93,
+    "p50_ms": 31.967,
+    "p95_ms": 65.028,
+    "p99_ms": 112.41,
+    "mean_ms": 39.299
+  }
+]
