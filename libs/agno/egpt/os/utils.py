@@ -314,7 +314,7 @@ async def get_db(
     # Raise if no database is registered (an empty dict, or ids mapped to empty lists)
     all_dbs = [db for db_list in dbs.values() for db in db_list]
     if not all_dbs:
-        raise HTTPException(status_code=400, detail="No database is configured on this AgentOS")
+        raise HTTPException(status_code=400, detail="No database is configured on this EgptOS")
 
     # Return the first (and only) database
     return all_dbs[0]
@@ -1149,7 +1149,7 @@ def resolve_origins(user_origins: Optional[List[str]] = None, default_origins: O
 def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
     """Resolve JWT auth config for the WebSocket entrypoint.
 
-    AgentOS (authorization=True) eagerly populates ``app.state.jwt_validator``,
+    EgptOS (authorization=True) eagerly populates ``app.state.jwt_validator``,
     ``app.state.jwt_verify_audience``, ``app.state.jwt_audience``, and
     ``app.state.admin_scope`` from the authorization config.
 
@@ -1199,7 +1199,7 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
     for entry in user_middleware:
         if getattr(entry, "cls", None) is JWTMiddleware:
             kwargs = getattr(entry, "kwargs", {}) or {}
-            # AgentOS installs this same middleware class as the general auth layer
+            # EgptOS installs this same middleware class as the general auth layer
             # for security-key / service-account-only deployments, with no JWT key
             # source. Those entries are not JWT-intended: skip them so the WS
             # endpoint falls through to the PAT and security-key auth paths instead
@@ -1301,7 +1301,7 @@ def flatten_routes(routes: Sequence[Any]) -> List[Any]:
     inlining its routes, so recurse through those wrappers to recover the real routes.
 
     Each route keeps the path defined on its own router; a prefix passed at include time
-    (include_router(prefix=...)) is not applied. AgentOS bakes prefixes into the routers
+    (include_router(prefix=...)) is not applied. EgptOS bakes prefixes into the routers
     themselves, so its routes are unaffected.
 
     Returns:
@@ -1412,7 +1412,7 @@ def collect_mcp_tools_from_registry(registry: Optional[Registry], mcp_tools: Lis
 
     Registry tools are not attached to any agent, team or workflow, so the
     other collectors never see them. They still must be connected in the
-    AgentOS lifespan: components created from registry tools (e.g. via
+    EgptOS lifespan: components created from registry tools (e.g. via
     StudioTool) serialize a toolkit's functions at persist time, and an
     unconnected MCP toolkit has none -- its tools would be silently dropped.
     """
@@ -1673,7 +1673,7 @@ def collect_components_from_os(
     workflows: Optional[List[Any]],
     registry: Registry,
 ) -> None:
-    """Walk all agents, teams and workflows of an AgentOS and add their components to ``registry``.
+    """Walk all agents, teams and workflows of an EgptOS and add their components to ``registry``.
 
     The registry owns deduplication (see ``Registry.add_*``), so components are
     added directly during the walk. Each top-level node is walked inside its own

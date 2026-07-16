@@ -1,6 +1,6 @@
 """Agent with StudioTools -- let the agent compose new agents, teams, and workflows.
 
-The StudioTools uses the AgentOS Registry (tools, models, dbs) and the core
+The StudioTools uses the EgptOS Registry (tools, models, dbs) and the core
 component APIs (Agent, Team, Workflow, Step) to dynamically build new
 components described by the user in natural language.
 
@@ -14,7 +14,7 @@ Ask the studio agent things like:
     - "Run the news agent with message 'Top AI story today?'"
 
 Usage:
-    # Start the AgentOS server
+    # Start the EgptOS server
     .venvs/demo/bin/python cookbook/05_agent_os/studio_tool/studio_tools_agent.py
 """
 
@@ -24,7 +24,7 @@ from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.anthropic import Claude
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.registry import Registry
 from egpt.tools.calculator import CalculatorTools
 from egpt.tools.duckduckgo import DuckDuckGoTools
@@ -77,7 +77,7 @@ studio_agent = Agent(
         ),
     ],
     instructions=[
-        "You are an AgentOS studio. You help users compose new agents, teams, and workflows.",
+        "You are an EgptOS studio. You help users compose new agents, teams, and workflows.",
         "Always start by listing the available models, tools, and existing agents so the user knows what primitives are on hand.",
         "Before calling create_agent, restate the exact tool names you plan to pass and confirm they match what the user requested. If the user named a tool (e.g. 'calculator'), you MUST include that exact name in tool_names.",
         "After creating or editing a component, respond with component_type, component_id, name, db_version or draft_version, and the next action.",
@@ -89,7 +89,7 @@ studio_agent = Agent(
 )
 
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="studio-agent-os",
     agents=[greeter, reporter, studio_agent],
     registry=registry,

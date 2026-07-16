@@ -8,7 +8,7 @@ Demonstrates workflow with custom function updating session state.
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.run import RunContext
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools
@@ -215,8 +215,8 @@ content_creation_workflow = Workflow(
     },
 )
 
-# Initialize the AgentOS with the workflows
-agent_os = AgentOS(
+# Initialize the EgptOS with the workflows
+agent_os = EgptOS(
     description="Example app for basic agent with playground capabilities",
     workflows=[content_creation_workflow],
 )

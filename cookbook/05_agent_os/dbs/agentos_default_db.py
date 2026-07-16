@@ -1,5 +1,5 @@
 """
-AgentOS Demo
+EgptOS Demo
 
 Set the OS_SECURITY_KEY environment variable to your OS security key to enable authentication.
 
@@ -11,7 +11,7 @@ from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.mcp import MCPTools
 from egpt.vectordb.pgvector import PgVector
 
@@ -45,11 +45,11 @@ agno_agent = Agent(
     markdown=True,
 )
 
-# Create the AgentOS
-agent_os = AgentOS(
+# Create the EgptOS
+agent_os = EgptOS(
     id="agentos-demo",
     agents=[agno_agent],
-    db=db,  # This is the default database for AgentOS, the agno_agent will use this
+    db=db,  # This is the default database for EgptOS, the agno_agent will use this
 )
 app = agent_os.get_app()
 

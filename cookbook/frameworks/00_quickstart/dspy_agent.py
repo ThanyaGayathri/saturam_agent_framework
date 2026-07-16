@@ -1,7 +1,7 @@
 """
-DSPy Agent on AgentOS
+DSPy Agent on EgptOS
 =====================
-A DSPy chain-of-thought program, served through AgentOS.
+A DSPy chain-of-thought program, served through EgptOS.
 
 Requirements:
     pip install dspy
@@ -13,7 +13,7 @@ Usage:
 import dspy
 from egpt.agents.dspy import DSPyAgent
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 dspy.configure(lm=dspy.LM("openai/gpt-5.4"))
 
@@ -22,7 +22,7 @@ agent = DSPyAgent(
     program=dspy.ChainOfThought("question -> answer"),
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[agent],
     tracing=True,
     db=SqliteDb(db_file="tmp/agentos.db"),

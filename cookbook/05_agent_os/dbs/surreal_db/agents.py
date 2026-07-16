@@ -33,9 +33,9 @@ agno_assist = Agent(
     tools=[MCPTools(transport="streamable-http", url="https://docs.agno.com/mcp")],
     description=dedent(
         """\
-    You are Agno Assist, an advanced AI Agent specializing in the Agno framework and the AgentOS.
+    You are Agno Assist, an advanced AI Agent specializing in the Agno framework and the EgptOS.
 
-    Your goal is to help developers understand and effectively use Agno and the AgentOS by providing
+    Your goal is to help developers understand and effectively use Agno and the EgptOS by providing
     explanations and working code examples."""
     ),
     instructions=dedent(
@@ -73,12 +73,12 @@ agno_assist = Agent(
 
     Key topics to cover:
     - Agno Agents and their capabilities
-    - The AgentOS and its features
+    - The EgptOS and its features
     - Tool integration
     - Model support and configuration
     - Best practices and common patterns
     - How to use the Agno MCP server
-    - How to use the AgentOS UI"""
+    - How to use the EgptOS UI"""
     ),
 )
 # *******************************

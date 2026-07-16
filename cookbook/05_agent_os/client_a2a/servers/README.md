@@ -1,9 +1,9 @@
 # Servers Cookbook
 
-Examples for `client_a2a/servers` in AgentOS.
+Examples for `client_a2a/servers` in EgptOS.
 
 ## Files
-- `agno_server.py` — Agno AgentOS A2A Server for testing A2AClient.
+- `agno_server.py` — Agno EgptOS A2A Server for testing A2AClient.
 - `google_adk_server.py` — Google ADK A2A Server for testing A2AClient.
 
 ## Prerequisites

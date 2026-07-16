@@ -27,7 +27,7 @@ from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.factory import RequestContext
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.middleware import JWTMiddleware
 from egpt.team.factory import TeamFactory
 from egpt.team.team import Team
@@ -112,10 +112,10 @@ research_team_factory = TeamFactory(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS
+# EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="tiered-team-demo",
     description="Demo: tiered team factory with JWT",
     teams=[research_team_factory],

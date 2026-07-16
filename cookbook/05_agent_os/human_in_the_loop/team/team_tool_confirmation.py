@@ -1,6 +1,6 @@
-"""AgentOS HITL: Team-Level Tool Confirmation
+"""EgptOS HITL: Team-Level Tool Confirmation
 
-AgentOS equivalent of cookbook/03_teams/20_human_in_the_loop/team_tool_confirmation.py
+EgptOS equivalent of cookbook/03_teams/20_human_in_the_loop/team_tool_confirmation.py
 
 The confirmation-required tool is on the team itself (not a member agent).
 When the team leader decides to use the tool, the run pauses until the
@@ -13,7 +13,7 @@ Run:
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 from egpt.tools import tool
 
@@ -70,12 +70,12 @@ team = Team(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS
+# Create EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="hitl-team-tool-confirmation",
-    description="AgentOS HITL: team-level tool requiring confirmation",
+    description="EgptOS HITL: team-level tool requiring confirmation",
     teams=[team],
 )
 

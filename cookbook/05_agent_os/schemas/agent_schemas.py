@@ -2,7 +2,7 @@
 Agent Input And Output Schemas
 ==============================
 
-Demonstrates AgentOS agents that use input and output schemas.
+Demonstrates EgptOS agents that use input and output schemas.
 """
 
 from typing import List
@@ -10,7 +10,7 @@ from typing import List
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.hackernews import HackerNewsTools
 from pydantic import BaseModel, Field
 
@@ -69,9 +69,9 @@ movie_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS
+# Create EgptOS
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="agent-schemas-demo",
     agents=[hackernews_agent, movie_agent],
 )

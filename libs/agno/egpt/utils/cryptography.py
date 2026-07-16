@@ -13,7 +13,7 @@ def generate_rsa_keys():
         encryption_algorithm=serialization.NoEncryption(),
     )
 
-    # Public key PEM (used by AgentOS to verify tokens)
+    # Public key PEM (used by EgptOS to verify tokens)
     public_pem = private_key.public_key().public_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo,

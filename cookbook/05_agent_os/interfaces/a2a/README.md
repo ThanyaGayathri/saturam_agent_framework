@@ -1,6 +1,6 @@
 # A2A Cookbook
 
-Examples for `interfaces/a2a` in AgentOS.
+Examples for `interfaces/a2a` in EgptOS.
 
 ## Files
 - `agent_with_tools.py` — Agent With Tools.

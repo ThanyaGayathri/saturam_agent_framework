@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
@@ -53,6 +53,6 @@ def test_workflow(shared_db, test_agent: Agent):
 @pytest.fixture
 def test_os_client(test_agent: Agent, test_team: Team, test_workflow: Workflow):
     """Create a FastAPI test client with AgentOS."""
-    agent_os = AgentOS(agents=[test_agent], teams=[test_team], workflows=[test_workflow])
+    agent_os = EgptOS(agents=[test_agent], teams=[test_team], workflows=[test_workflow])
     app = agent_os.get_app()
     return TestClient(app)

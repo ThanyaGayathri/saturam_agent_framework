@@ -6,7 +6,7 @@
 
 **Status:** PENDING
 
-**Description:** Traces with AgentOS.
+**Description:** Traces with EgptOS.
 
 ---
 
@@ -38,7 +38,7 @@
 
 **Status:** PENDING
 
-**Description:** Traces with AgentOS.
+**Description:** Traces with EgptOS.
 
 ---
 
@@ -46,7 +46,7 @@
 
 **Status:** PENDING
 
-**Description:** Traces with AgentOS.
+**Description:** Traces with EgptOS.
 
 ---
 
@@ -54,6 +54,6 @@
 
 **Status:** PENDING
 
-**Description:** Traces with AgentOS.
+**Description:** Traces with EgptOS.
 
 ---

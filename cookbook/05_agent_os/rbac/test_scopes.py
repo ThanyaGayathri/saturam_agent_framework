@@ -1,7 +1,7 @@
 """
 Quick end-to-end test for RBAC scope enforcement.
 
-Spins up an AgentOS with JWT auth and tests that:
+Spins up an EgptOS with JWT auth and tests that:
 1. User with agents:read can list agents but NOT run them
 2. User with agents:run can run agents
 3. User with workflows:read CANNOT run workflows
@@ -19,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 import jwt
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.workflow.workflow import Workflow
 from fastapi.testclient import TestClient
@@ -57,7 +57,7 @@ def main():
         id="test-workflow", name="Test Workflow", steps=noop_workflow, db=db
     )
 
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=OS_ID,
         agents=[agent],
         workflows=[workflow],

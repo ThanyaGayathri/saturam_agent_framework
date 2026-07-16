@@ -47,21 +47,21 @@ from agent_with_structured_output import agent_with_structured_output
 from agent_with_tools import agent_with_tools
 from agent_with_typed_input_output import agent_with_typed_input_output
 from custom_tool_for_self_learning import self_learning_agent
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from human_in_the_loop import human_in_the_loop_agent
 from multi_agent_team import multi_agent_team
 from sequential_workflow import sequential_workflow
 
 # ---------------------------------------------------------------------------
-# AgentOS Config
+# EgptOS Config
 # ---------------------------------------------------------------------------
 config_path = str(Path(__file__).parent.joinpath("config.yaml"))
 
 # ---------------------------------------------------------------------------
-# Create AgentOS
+# Create EgptOS
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
-    id="Quick Start AgentOS",
+agent_os = EgptOS(
+    id="Quick Start EgptOS",
     agents=[
         agent_with_tools,
         agent_with_storage,
@@ -82,7 +82,7 @@ agent_os = AgentOS(
 app = agent_os.get_app()
 
 # ---------------------------------------------------------------------------
-# Run AgentOS
+# Run EgptOS
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     agent_os.serve(app="run:app", reload=True)

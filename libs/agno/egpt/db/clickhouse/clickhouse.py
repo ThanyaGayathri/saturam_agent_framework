@@ -648,7 +648,7 @@ class ClickhouseDb(BaseDb):
     # memories, knowledge, evals, or component configs. We split behaviour:
     #
     # * Read-side methods return empty results so this DB can be passed to
-    #   ``AgentOS(db=...)`` alongside ``setup_tracing`` without spamming
+    #   ``EgptOS(db=...)`` alongside ``setup_tracing`` without spamming
     #   ``Error loading Agents/Teams/Workflows from database`` on startup
     # * Write-side methods still raise ``NotImplementedError`` so accidental
     #   storage attempts are loud rather than silently dropped.
@@ -775,7 +775,7 @@ class ClickhouseDb(BaseDb):
     def get_learnings(self, *args, **kwargs):  # type: ignore[override]
         return []
 
-    # --- Components (called by AgentOS at startup) ---
+    # --- Components (called by EgptOS at startup) ---
     def get_component(
         self,
         component_id: str,

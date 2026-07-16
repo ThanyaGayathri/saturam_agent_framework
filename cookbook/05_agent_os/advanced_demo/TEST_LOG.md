@@ -22,7 +22,7 @@
 
 **Status:** PENDING
 
-**Description:** AgentOS Demo.
+**Description:** EgptOS Demo.
 
 ---
 
@@ -62,7 +62,7 @@
 
 **Status:** PENDING
 
-**Description:** Example showing a reasoning Agent in the AgentOS.
+**Description:** Example showing a reasoning Agent in the EgptOS.
 
 ---
 

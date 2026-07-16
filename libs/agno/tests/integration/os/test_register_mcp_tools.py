@@ -1,5 +1,5 @@
 from egpt.agent import Agent
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 from egpt.tools.mcp import MCPTools, MultiMCPTools
 from egpt.workflow.step import Step
@@ -14,7 +14,7 @@ def test_agent_mcp_tools_are_registered():
     assert agent.tools[0] is mcp_tools
 
     # Asserting the MCP tools were registered
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
     assert agent_os.mcp_tools is not None
     assert agent_os.mcp_tools[0] is mcp_tools
 
@@ -27,7 +27,7 @@ def test_multiple_agent_mcp_tools_are_registered():
     assert agent.tools is not None
     assert len(agent.tools) == 2
 
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
 
     # Asserting all MCP tools were found and registered
     assert agent_os.mcp_tools is not None
@@ -44,7 +44,7 @@ def test_team_mcp_tools_are_registered():
     assert team.tools[0] is mcp_tools
 
     # Asserting the MCP tools were registered
-    agent_os = AgentOS(teams=[team])
+    agent_os = EgptOS(teams=[team])
     assert agent_os.mcp_tools is not None
     assert agent_os.mcp_tools[0] is mcp_tools
 
@@ -58,7 +58,7 @@ def test_multiple_team_mcp_tools_are_registered():
     assert len(team.tools) == 2
 
     # Asserting the MCP tools were registered
-    agent_os = AgentOS(teams=[team])
+    agent_os = EgptOS(teams=[team])
     assert agent_os.mcp_tools is not None
     assert len(agent_os.mcp_tools) == 2
     assert mcp_tools in agent_os.mcp_tools
@@ -83,7 +83,7 @@ def test_nested_team_mcp_tools_are_registered():
     assert team.tools[0] is mcp_tools3
 
     # Asserting the MCP tools were registered
-    agent_os = AgentOS(teams=[team])
+    agent_os = EgptOS(teams=[team])
     assert agent_os.mcp_tools is not None
     assert len(agent_os.mcp_tools) == 3
     assert mcp_tools in agent_os.mcp_tools
@@ -99,7 +99,7 @@ def test_workflow_with_agent_step_mcp_tools_are_registered():
     workflow = Workflow(steps=[step])
 
     # Asserting the MCP tools were registered
-    agent_os = AgentOS(workflows=[workflow])
+    agent_os = EgptOS(workflows=[workflow])
     assert agent_os.mcp_tools is not None
     assert agent_os.mcp_tools[0] is mcp_tools
 
@@ -112,7 +112,7 @@ def test_workflow_with_team_step_mcp_tools_are_registered():
     workflow = Workflow(steps=[step])
 
     # Asserting the MCP tools were registered
-    agent_os = AgentOS(workflows=[workflow])
+    agent_os = EgptOS(workflows=[workflow])
     assert agent_os.mcp_tools is not None
     assert agent_os.mcp_tools[0] is mcp_tools
 
@@ -130,7 +130,7 @@ def test_workflow_with_nested_structures_mcp_tools_are_registered():
     workflow = Workflow(steps=[agent_step, team_step])
 
     # Asserting all MCP tools were registered
-    agent_os = AgentOS(workflows=[workflow])
+    agent_os = EgptOS(workflows=[workflow])
     assert agent_os.mcp_tools is not None
     assert len(agent_os.mcp_tools) == 2
     assert agent_mcp_tools in agent_os.mcp_tools
@@ -151,7 +151,7 @@ def test_mcp_tools_are_not_registered_multiple_times():
     workflow = Workflow(steps=[agent_step, team_step])
 
     # Asserting all MCP tools were registered
-    agent_os = AgentOS(workflows=[workflow], agents=[agent, agent2], teams=[team])
+    agent_os = EgptOS(workflows=[workflow], agents=[agent, agent2], teams=[team])
     assert agent_os.mcp_tools is not None
     assert len(agent_os.mcp_tools) == 2
     assert agent_mcp_tools in agent_os.mcp_tools
@@ -177,8 +177,8 @@ def test_subclasses_are_registered():
     assert agent.tools is not None
     assert len(agent.tools) == 2
 
-    # Assert the tools are registered in the AgentOS
-    agent_os = AgentOS(agents=[agent])
+    # Assert the tools are registered in the EgptOS
+    agent_os = EgptOS(agents=[agent])
     assert agent_os.mcp_tools is not None
     assert len(agent_os.mcp_tools) == 2
     assert mcp_subclass_instance in agent_os.mcp_tools

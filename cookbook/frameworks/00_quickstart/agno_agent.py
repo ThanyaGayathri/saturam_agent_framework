@@ -1,11 +1,11 @@
 """
-Agno Agent on AgentOS
+Agno Agent on EgptOS
 =====================
-A native Agno agent with the Workspace tool, served through AgentOS.
+A native Agno agent with the Workspace tool, served through EgptOS.
 
 The Workspace tool gives the agent read/write/search access to a local
 directory. Destructive ops (write/edit/delete/shell) require human
-confirmation by default — AgentOS renders these as approval prompts
+confirmation by default — EgptOS renders these as approval prompts
 in the run timeline.
 
 Usage:
@@ -14,7 +14,7 @@ Usage:
 
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.workspace import Workspace
 
 agent = Agent(
@@ -29,7 +29,7 @@ agent = Agent(
     ],
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[agent],
     tracing=True,
     db=SqliteDb(db_file="tmp/agentos.db"),

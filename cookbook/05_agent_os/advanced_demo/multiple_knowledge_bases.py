@@ -9,7 +9,7 @@ from egpt.agent import Agent
 from egpt.db.json import JsonDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
@@ -43,7 +43,7 @@ main_agent = Agent(
     db=contents_db,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example app for basic agent with knowledge capabilities",
     id="knowledge-demo",
     agents=[main_agent],
@@ -55,7 +55,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """ Run your AgentOS:
+    """ Run your EgptOS:
     Now you can interact with your knowledge base using the API. Examples:
     - http://localhost:8001/knowledge/{id}/documents
     - http://localhost:8001/knowledge/{id}/documents/123

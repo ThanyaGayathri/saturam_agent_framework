@@ -14,7 +14,7 @@ class CLIError(Exception):
 
 
 class APIError(CLIError):
-    """An AgentOS API call failed."""
+    """An EgptOS API call failed."""
 
     def __init__(self, message: str, status_code: Optional[int] = None, hint: Optional[str] = None):
         super().__init__(message, exit_code=1, hint=hint)
@@ -22,7 +22,7 @@ class APIError(CLIError):
 
 
 class ConflictError(APIError):
-    """The AgentOS reported a conflict (e.g. a service account with this name already exists)."""
+    """The EgptOS reported a conflict (e.g. a service account with this name already exists)."""
 
     def __init__(self, message: str, hint: Optional[str] = None):
         super().__init__(message, status_code=409, hint=hint)

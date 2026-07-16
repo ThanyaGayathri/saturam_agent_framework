@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
 from egpt.db.in_memory import InMemoryDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.middleware import JWTMiddleware, TokenSource
 
 # Test JWT secret
@@ -44,7 +44,7 @@ def jwt_test_agent():
         instructions="You are a test agent that can access JWT information and user profiles.",
     )
     # Override deep_copy to return the same instance for testing
-    # This is needed because AgentOS uses create_fresh=True which calls deep_copy,
+    # This is needed because EgptOS uses create_fresh=True which calls deep_copy,
     # and our mocks need to be on the same instance that gets used
     agent.deep_copy = lambda **kwargs: agent
     return agent
@@ -53,8 +53,8 @@ def jwt_test_agent():
 @pytest.fixture
 def jwt_test_client(jwt_test_agent):
     """Create a test client with JWT middleware configured."""
-    # Create AgentOS with the JWT test agent
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    # Create EgptOS with the JWT test agent
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     # Add JWT middleware
@@ -177,7 +177,7 @@ def test_with_expired_token_fails(jwt_test_client):
 def test_validation_disabled(jwt_test_agent):
     """Test JWT middleware with signature validation disabled still requires token."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -208,8 +208,8 @@ def test_validation_disabled(jwt_test_agent):
 def test_custom_claims_configuration(jwt_test_agent):
     """Test JWT middleware with custom claim configurations."""
 
-    # Create AgentOS with custom claim mappings
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    # Create EgptOS with custom claim mappings
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -260,7 +260,7 @@ def test_excluded_routes(jwt_test_agent):
     """Test that JWT middleware can exclude certain routes from authentication."""
 
     # Create AgentOS
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     # Add JWT middleware with excluded routes
@@ -306,8 +306,8 @@ def test_excluded_routes(jwt_test_agent):
 def test_cookie_token_source(jwt_test_agent, jwt_token):
     """Test JWT middleware with cookie as token source."""
 
-    # Create AgentOS with cookie-based JWT middleware
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    # Create EgptOS with cookie-based JWT middleware
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -353,7 +353,7 @@ def test_cookie_token_source(jwt_test_agent, jwt_token):
 def test_cookie_missing_token_fails(jwt_test_agent):
     """Test that cookie-based middleware fails when cookie is missing."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -381,7 +381,7 @@ def test_cookie_missing_token_fails(jwt_test_agent):
 def test_both_token_sources_header_first(jwt_test_agent, jwt_token):
     """Test JWT middleware with both token sources, header takes precedence."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -428,7 +428,7 @@ def test_both_token_sources_header_first(jwt_test_agent, jwt_token):
 def test_both_token_sources_cookie_fallback(jwt_test_agent, jwt_token):
     """Test JWT middleware with both token sources, falls back to cookie."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -464,7 +464,7 @@ def test_both_token_sources_cookie_fallback(jwt_test_agent, jwt_token):
 def test_both_token_sources_missing_both_fails(jwt_test_agent):
     """Test that both token sources fail when neither header nor cookie present."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -491,7 +491,7 @@ def test_both_token_sources_missing_both_fails(jwt_test_agent):
 def test_custom_cookie_name(jwt_test_agent, jwt_token):
     """Test JWT middleware with custom cookie name."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     custom_cookie_name = "custom_auth_token"
@@ -530,7 +530,7 @@ def test_custom_cookie_name(jwt_test_agent, jwt_token):
 def test_cookie_invalid_token_fails(jwt_test_agent):
     """Test that cookie-based middleware fails with invalid token."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -559,7 +559,7 @@ def test_cookie_invalid_token_fails(jwt_test_agent):
 def test_scopes_string_format(jwt_test_agent):
     """Test JWT middleware with scopes claim as space-separated string."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -601,7 +601,7 @@ def test_scopes_string_format(jwt_test_agent):
 def test_scopes_list_format(jwt_test_agent):
     """Test JWT middleware with scopes claim as list."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -643,7 +643,7 @@ def test_scopes_list_format(jwt_test_agent):
 def test_no_scopes_claim(jwt_test_agent):
     """Test JWT middleware when no scopes claim is configured."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -685,7 +685,7 @@ def test_no_scopes_claim(jwt_test_agent):
 def test_session_state_claims(jwt_test_agent):
     """Test JWT middleware with session_state_claims extraction."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -730,7 +730,7 @@ def test_session_state_claims(jwt_test_agent):
 def test_custom_token_header_key(jwt_test_agent):
     """Test JWT middleware with custom token header key instead of Authorization."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     custom_header_key = "X-Auth-Token"
@@ -783,7 +783,7 @@ def test_custom_token_header_key(jwt_test_agent):
 def test_malformed_authorization_header(jwt_test_agent):
     """Test JWT middleware with malformed Authorization headers."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -825,7 +825,7 @@ def test_malformed_authorization_header(jwt_test_agent):
 def test_missing_session_id_claim(jwt_test_agent):
     """Test JWT middleware when session_id_claim doesn't exist in token."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -874,7 +874,7 @@ def test_missing_session_id_claim(jwt_test_agent):
 def test_general_exception_during_decode(jwt_test_agent):
     """Test JWT middleware handles general exceptions during token decode."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -922,7 +922,7 @@ def test_different_algorithm_rs256(jwt_test_agent):
         encoding=serialization.Encoding.PEM, format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -962,7 +962,7 @@ def test_different_algorithm_rs256(jwt_test_agent):
 def test_request_state_token_storage(jwt_test_agent):
     """Test that JWT middleware stores token and authentication status in request.state."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     # We'll need to create a custom endpoint to inspect request.state
@@ -1020,7 +1020,7 @@ def test_request_state_token_storage(jwt_test_agent):
 def test_authorization_enabled_flag_set_true(jwt_test_agent):
     """Test that authorization_enabled is set to True in request.state when authorization=True."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     @app.get("/test-authorization-flag")
@@ -1061,7 +1061,7 @@ def test_authorization_enabled_flag_set_true(jwt_test_agent):
 def test_authorization_enabled_flag_set_false(jwt_test_agent):
     """Test that authorization_enabled is set to False in request.state when authorization=False."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     @app.get("/test-authorization-flag")
@@ -1098,7 +1098,7 @@ def test_authorization_enabled_flag_set_false(jwt_test_agent):
 def test_authorization_enabled_implicitly_by_scope_mappings(jwt_test_agent):
     """Test that authorization is implicitly enabled when scope_mappings are provided."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     @app.get("/test-authorization-flag")
@@ -1138,7 +1138,7 @@ def test_authorization_enabled_implicitly_by_scope_mappings(jwt_test_agent):
 def test_router_checks_skipped_when_authorization_disabled(jwt_test_agent):
     """Test that router-level authorization checks are skipped when authorization=False."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1171,7 +1171,7 @@ def test_router_checks_skipped_when_authorization_disabled(jwt_test_agent):
 def test_router_checks_enforced_when_authorization_enabled(jwt_test_agent):
     """Test that router-level authorization checks are enforced when authorization=True."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1206,7 +1206,7 @@ def test_router_checks_enforced_when_authorization_enabled(jwt_test_agent):
 def test_router_allows_access_with_valid_scopes(jwt_test_agent):
     """Test that router-level checks allow access with valid scopes."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1239,7 +1239,7 @@ def test_router_allows_access_with_valid_scopes(jwt_test_agent):
 def test_router_allows_specific_agent_access(jwt_test_agent):
     """Test that router-level checks allow access to specific agent with proper scopes."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1272,7 +1272,7 @@ def test_router_allows_specific_agent_access(jwt_test_agent):
 def test_router_denies_wrong_agent_access(jwt_test_agent):
     """Test that router-level checks deny access to agent user doesn't have scope for."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1306,7 +1306,7 @@ def test_router_denies_wrong_agent_access(jwt_test_agent):
 def test_router_run_agent_with_valid_scope(jwt_test_agent):
     """Test that agent run endpoint works with proper run scope."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1348,7 +1348,7 @@ def test_router_run_agent_with_valid_scope(jwt_test_agent):
 def test_router_denies_run_without_scope(jwt_test_agent):
     """Test that agent run endpoint is denied without run scope."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1385,7 +1385,7 @@ def test_router_denies_run_without_scope(jwt_test_agent):
 def test_403_detail_includes_required_scopes_from_middleware(jwt_test_agent):
     """403 from middleware scope check should name the required scope(s)."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1424,7 +1424,7 @@ def test_403_detail_includes_required_scopes_from_middleware(jwt_test_agent):
 def test_403_detail_includes_required_scopes_from_listing_endpoint(jwt_test_agent):
     """403 from list-endpoint check should name the required scope (e.g. agents:read)."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1459,7 +1459,7 @@ def test_403_detail_includes_required_scopes_from_listing_endpoint(jwt_test_agen
 def test_admin_scope_grants_all_access(jwt_test_agent):
     """Test that admin scope grants access to all resources."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1509,7 +1509,7 @@ def test_admin_scope_grants_all_access(jwt_test_agent):
 def test_wildcard_scope_grants_resource_access(jwt_test_agent):
     """Test that wildcard scope grants access to all resources of that type."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1559,7 +1559,7 @@ def test_wildcard_scope_grants_resource_access(jwt_test_agent):
 def test_validate_false_extracts_scopes(jwt_test_agent):
     """Test that validate=False still extracts scopes from token."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     @app.get("/test-scopes")
@@ -1602,7 +1602,7 @@ def test_validate_false_extracts_scopes(jwt_test_agent):
 def test_validate_false_with_authorization_checks_scopes(jwt_test_agent):
     """Test that validate=False with authorization=True still enforces scopes."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1638,7 +1638,7 @@ def test_validate_false_with_authorization_checks_scopes(jwt_test_agent):
 def test_audience_verification_with_explicit_audience_success(jwt_test_agent):
     """Test that tokens with matching explicit audience are accepted when verify_audience=True."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1681,7 +1681,7 @@ def test_audience_verification_with_explicit_audience_success(jwt_test_agent):
 def test_audience_verification_with_explicit_audience_failure(jwt_test_agent):
     """Test that tokens with non-matching explicit audience are rejected when verify_audience=True."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1720,7 +1720,7 @@ def test_audience_verification_with_agent_os_id(jwt_test_agent):
     """Test that tokens with matching agent_os_id are accepted when verify_audience=True without explicit audience."""
 
     agent_os_id = "test-agent-os-789"
-    agent_os = AgentOS(id=agent_os_id, agents=[jwt_test_agent])
+    agent_os = EgptOS(id=agent_os_id, agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1745,7 +1745,7 @@ def test_audience_verification_with_agent_os_id(jwt_test_agent):
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
-    mock_run_output = type("MockRunOutput", (), {"to_dict": lambda self: {"content": "AgentOS ID match success"}})()
+    mock_run_output = type("MockRunOutput", (), {"to_dict": lambda self: {"content": "EgptOS ID match success"}})()
 
     with patch.object(jwt_test_agent, "arun", new_callable=AsyncMock) as mock_arun:
         mock_arun.return_value = mock_run_output
@@ -1764,7 +1764,7 @@ def test_audience_verification_with_agent_os_id_failure(jwt_test_agent):
     """Test that tokens with non-matching agent_os_id are rejected when verify_audience=True without explicit audience."""
 
     agent_os_id = "test-agent-os-789"
-    agent_os = AgentOS(id=agent_os_id, agents=[jwt_test_agent])
+    agent_os = EgptOS(id=agent_os_id, agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1802,7 +1802,7 @@ def test_audience_verification_with_agent_os_id_failure(jwt_test_agent):
 def test_audience_verification_disabled(jwt_test_agent):
     """Test that audience is not checked when verify_audience=False."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1845,7 +1845,7 @@ def test_audience_verification_disabled(jwt_test_agent):
 def test_audience_verification_with_custom_audience_claim(jwt_test_agent):
     """Test that custom audience claim name works correctly."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1891,7 +1891,7 @@ def test_audience_verification_with_custom_audience_claim(jwt_test_agent):
 def test_audience_verification_with_multiple_audiences(jwt_test_agent):
     """Test that tokens with multiple audiences (list) work correctly."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1934,7 +1934,7 @@ def test_audience_verification_with_multiple_audiences(jwt_test_agent):
 def test_audience_verification_with_multiple_audiences_failure(jwt_test_agent):
     """Test that tokens with non-matching multiple audiences are rejected."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -1973,7 +1973,7 @@ def test_audience_verification_explicit_overrides_agent_os_id(jwt_test_agent):
     """Test that explicit audience parameter takes precedence over agent_os_id."""
 
     agent_os_id = "test-agent-os-789"
-    agent_os = AgentOS(id=agent_os_id, agents=[jwt_test_agent])
+    agent_os = EgptOS(id=agent_os_id, agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -2036,7 +2036,7 @@ def test_audience_verification_explicit_overrides_agent_os_id(jwt_test_agent):
 def test_audience_stored_in_request_state(jwt_test_agent):
     """Test that audience claim is stored in request.state."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     @app.get("/test-audience-state")
@@ -2075,7 +2075,7 @@ def test_audience_stored_in_request_state(jwt_test_agent):
 def test_audience_verification_missing_aud_claim(jwt_test_agent):
     """Test that tokens without aud claim are rejected with clear error when verify_audience=True."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(
@@ -2114,7 +2114,7 @@ def test_audience_verification_missing_aud_claim(jwt_test_agent):
 def test_audience_verification_missing_custom_audience_claim(jwt_test_agent):
     """Test that tokens without custom audience claim are rejected with clear error."""
 
-    agent_os = AgentOS(agents=[jwt_test_agent])
+    agent_os = EgptOS(agents=[jwt_test_agent])
     app = agent_os.get_app()
 
     app.add_middleware(

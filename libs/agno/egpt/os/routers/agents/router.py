@@ -68,7 +68,7 @@ from egpt.utils.log import log_debug, log_error, log_warning
 from egpt.utils.serialize import json_serializer
 
 if TYPE_CHECKING:
-    from egpt.os.app import AgentOS
+    from egpt.os.app import EgptOS
 
 
 def _require_capability(agent: Any, method: str, feature: str) -> None:
@@ -530,7 +530,7 @@ async def _resume_stream_generator(
 
 
 def get_agent_router(
-    os: "AgentOS",
+    os: "EgptOS",
     settings: AgnoAPISettings = AgnoAPISettings(),
     registry: Optional[Registry] = None,
 ) -> APIRouter:

@@ -1,4 +1,4 @@
-"""`egpt create`: scaffold a new AgentOS project from a starter template.
+"""`egpt create`: scaffold a new EgptOS project from a starter template.
 
 The mechanism is deliberately simple (inherited from `ag infra create`): shallow-clone
 the template repository, strip its git history, and copy example secrets into place.
@@ -50,7 +50,7 @@ def _clone(repo_url: str, target: Path) -> None:
 
 
 def create(
-    name: str = typer.Argument(..., help="Directory name for the new AgentOS project."),
+    name: str = typer.Argument(..., help="Directory name for the new EgptOS project."),
     template: str = typer.Option(
         DEFAULT_TEMPLATE, "--template", "-t", help="Starter template: " + ", ".join(sorted(TEMPLATES)) + "."
     ),
@@ -59,7 +59,7 @@ def create(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit a single JSON document for machine consumption."),
 ) -> None:
-    """Create a new AgentOS project from a starter template."""
+    """Create a new EgptOS project from a starter template."""
     try:
         payload = _create(name=name, template=template, template_url=template_url)
     except CLIError as e:

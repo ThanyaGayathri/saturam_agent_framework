@@ -1,6 +1,6 @@
-"""AgentOS HITL: User Input Required
+"""EgptOS HITL: User Input Required
 
-AgentOS equivalent of cookbook/03_teams/20_human_in_the_loop/user_input_required.py
+EgptOS equivalent of cookbook/03_teams/20_human_in_the_loop/user_input_required.py
 
 A team member's tool requires additional user input before it can execute.
 The run pauses and the API response includes the input schema. The client
@@ -13,7 +13,7 @@ Run:
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 from egpt.tools import tool
 
@@ -73,12 +73,12 @@ team = Team(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS
+# Create EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="hitl-user-input-required",
-    description="AgentOS HITL: collecting user input before tool execution",
+    description="EgptOS HITL: collecting user input before tool execution",
     agents=[travel_agent],
     teams=[team],
 )

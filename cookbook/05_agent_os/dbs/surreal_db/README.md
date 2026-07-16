@@ -1,11 +1,11 @@
 # Surreal Db Cookbook
 
-Examples for `dbs/surreal_db` in AgentOS.
+Examples for `dbs/surreal_db` in EgptOS.
 
 ## Files
 - `agents.py` — Agents.
 - `db.py` — Db.
-- `run.py` — SurrealDB + AgentOS demo.
+- `run.py` — SurrealDB + EgptOS demo.
 - `teams.py` — Teams.
 - `workflows.py` — Workflows.
 

@@ -9,7 +9,7 @@ from textwrap import dedent
 
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
@@ -31,9 +31,9 @@ airbnb_agent = Agent(
     markdown=False,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="airbnb-agent-os",
-    description="An AgentOS serving specialized Agent for Airbnb search",
+    description="An EgptOS serving specialized Agent for Airbnb search",
     agents=[
         airbnb_agent,
     ],
@@ -47,7 +47,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
     You can run the Agent via A2A protocol:
     POST http://localhost:7774/agents/{id}/v1/message:send
     For streaming responses:

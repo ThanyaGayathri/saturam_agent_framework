@@ -16,4 +16,4 @@ Runnable workflow examples under: cookbook/04_workflows/06_advanced_concepts/run
 ## Prerequisites
 - Activate the demo environment: .venvs/demo/bin/python
 - Load API keys with direnv allow (requires a local .envrc file).
-- Some examples require local AgentOS services (see file headers for server URLs).
+- Some examples require local EgptOS services (see file headers for server URLs).

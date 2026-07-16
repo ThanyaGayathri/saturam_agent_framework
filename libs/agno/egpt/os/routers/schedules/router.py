@@ -34,7 +34,7 @@ def get_schedule_router(os_db: Any, settings: Any) -> APIRouter:
     """Factory that creates and returns the schedule router.
 
     Args:
-        os_db: The AgentOS-level DB adapter (must support scheduler methods).
+        os_db: The EgptOS-level DB adapter (must support scheduler methods).
         settings: AgnoAPISettings instance.
 
     Returns:

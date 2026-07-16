@@ -1,5 +1,5 @@
 """
-Gateway AgentOS Server for System Tests.
+Gateway EgptOS Server for System Tests.
 
 This server acts as a gateway that consumes remote agents, teams, and workflows
 defined in a separate remote server container.
@@ -13,7 +13,7 @@ from egpt.db.postgres import AsyncPostgresDb
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.os.interfaces.a2a import A2A
 from egpt.os.interfaces.agui import AGUI
@@ -187,13 +187,13 @@ a2a_interface = A2A(
 )
 
 # =============================================================================
-# AgentOS Configuration
+# EgptOS Configuration
 # =============================================================================
 
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="gateway-os",
-    description="Gateway AgentOS for system testing - consumes remote agents, teams, and workflows",
+    description="Gateway EgptOS for system testing - consumes remote agents, teams, and workflows",
     agents=[
         local_agent,
         remote_assistant,

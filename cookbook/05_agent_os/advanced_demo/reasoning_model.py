@@ -1,5 +1,5 @@
 """
-Example showing a reasoning Agent in the AgentOS.
+Example showing a reasoning Agent in the EgptOS.
 
 You can interact with the Agent as normally. It will reason before providing a final answer.
 You will see its chain of thought live as it is generated.
@@ -7,7 +7,7 @@ You will see its chain of thought live as it is generated.
 
 from egpt.agent import Agent
 from egpt.models.anthropic import Claude
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.run.agent import RunEvent  # noqa
 
 # ---------------------------------------------------------------------------
@@ -24,8 +24,8 @@ agent = Agent(
     instructions="Think step by step about the problem.",
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     description="Reasoning model streaming",
     agents=[agent],
 )
@@ -37,7 +37,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can see the configuration and available apps at:
     http://localhost:7777/config

@@ -1,7 +1,7 @@
 """
-AgentOS - Google I/O Keynote Analyzer (Video Data Labeling)
+EgptOS - Google I/O Keynote Analyzer (Video Data Labeling)
 =============================================================
-Serve a Gemini 3 agent through AgentOS that watches a Google I/O keynote
+Serve a Gemini 3 agent through EgptOS that watches a Google I/O keynote
 video and returns a structured list of products announced.
 
 How to use:
@@ -13,7 +13,7 @@ How to use:
 Key concepts:
 - Gemini 3 understands video natively (no ffmpeg required)
 - output_schema returns a typed GoogleIOAnnouncements object every run
-- AgentOS exposes the agent as a FastAPI service for the UI and clients
+- EgptOS exposes the agent as a FastAPI service for the UI and clients
 """
 
 from pathlib import Path
@@ -22,7 +22,7 @@ from typing import List, Literal, Optional
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.google import Gemini
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.youtube import YouTubeTools
 from pydantic import BaseModel, Field
 
@@ -97,7 +97,7 @@ extract every product, feature, or service that is announced or demoed.
 """
 
 # ---------------------------------------------------------------------------
-# Database (used by AgentOS for sessions and run history)
+# Database (used by EgptOS for sessions and run history)
 # ---------------------------------------------------------------------------
 WORKSPACE = Path(__file__).parent.joinpath("tmp")
 WORKSPACE.mkdir(parents=True, exist_ok=True)
@@ -118,9 +118,9 @@ io_analyst = Agent(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS
+# Create EgptOS
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="google-io-analyzer-os",
     agents=[io_analyst],
 )

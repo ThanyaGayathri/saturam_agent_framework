@@ -6,7 +6,7 @@ from egpt.run.agent import RunOutput, RunOutputEvent
 
 @runtime_checkable
 class AgentProtocol(Protocol):
-    """Protocol that any agent must satisfy to be registered with AgentOS.
+    """Protocol that any agent must satisfy to be registered with EgptOS.
 
     This is the minimal contract the agent router requires. Native Agent,
     RemoteAgent, and all external framework adapters must satisfy this.

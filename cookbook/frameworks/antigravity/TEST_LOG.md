@@ -44,7 +44,7 @@
 
 **Status:** PENDING
 
-**Description:** Serve a AntigravityAgent through AgentOS; verify /agents list + streaming /runs.
+**Description:** Serve a AntigravityAgent through EgptOS; verify /agents list + streaming /runs.
 
 **Result:** Awaiting live-API verification.
 

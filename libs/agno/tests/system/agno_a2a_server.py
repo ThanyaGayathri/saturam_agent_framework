@@ -1,5 +1,5 @@
 """
-Remote AgentOS Server for System Tests.
+Remote EgptOS Server for System Tests.
 
 This server hosts the actual agents, teams, and workflows that the gateway
 consumes via RemoteAgent, RemoteTeam, and RemoteWorkflow.
@@ -12,7 +12,7 @@ from egpt.db.postgres import AsyncPostgresDb
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 from egpt.tools.calculator import CalculatorTools
 from egpt.tools.websearch import WebSearchTools
@@ -123,12 +123,12 @@ qa_workflow = Workflow(
 )
 
 # =============================================================================
-# AgentOS Configuration
+# EgptOS Configuration
 # =============================================================================
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="remote-os",
-    description="Remote AgentOS server hosting agents, teams, and workflows for system testing",
+    description="Remote EgptOS server hosting agents, teams, and workflows for system testing",
     agents=[assistant, researcher],
     teams=[research_team],
     workflows=[qa_workflow],

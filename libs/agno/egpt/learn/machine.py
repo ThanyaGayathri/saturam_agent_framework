@@ -1,3 +1,4 @@
+
 """
 Learning Machine
 ================
@@ -12,8 +13,9 @@ Coordinates multiple learning stores to give agents:
 Plus maintenance via the Curator for keeping memories healthy.
 """
 
+from egpt.utils.env import get_branded_env_bool
+
 from dataclasses import dataclass, field
-from os import getenv
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from egpt.learn.config import (
@@ -714,7 +716,7 @@ class LearningMachine:
 
     def set_log_level(self) -> None:
         """Set log level based on debug_mode or AGNO_DEBUG env var."""
-        if self.debug_mode or getenv("AGNO_DEBUG", "false").lower() == "true":
+        if self.debug_mode or get_branded_env_bool("DEBUG"):
             self.debug_mode = True
             set_log_level_to_debug()
         else:

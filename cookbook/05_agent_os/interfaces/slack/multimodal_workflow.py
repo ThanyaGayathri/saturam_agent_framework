@@ -23,7 +23,7 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history,
 
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.tools.dalle import DalleTools
 from egpt.tools.websearch import WebSearchTools
@@ -104,10 +104,10 @@ creative_workflow = Workflow(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS
+# EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     workflows=[creative_workflow],
     interfaces=[
         Slack(

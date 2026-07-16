@@ -93,7 +93,7 @@ _BASE_CASES: tuple[Case, ...] = (
     Case(
         name="code_search_lists_registered_agents",
         agent=code_search,
-        input="Which agents are registered in this AgentOS demo (cookbook/01_demo)?",
+        input="Which agents are registered in this EgptOS demo (cookbook/01_demo)?",
         criteria=(
             "Identifies the demo agents (local-wiki, code-search; git-wiki and "
             "notion-wiki when env-gated). May reference cookbook/01_demo/run.py as the source."

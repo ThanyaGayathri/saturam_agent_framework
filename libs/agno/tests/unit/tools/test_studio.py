@@ -487,7 +487,7 @@ class TestMCPToolkitPersistence:
         # Prime the lookup cache before "connect", as startup code paths may
         assert fresh_registry._entrypoint_lookup == {}
 
-        # The AgentOS lifespan connects the toolkit
+        # The EgptOS lifespan connects the toolkit
         func = self._connect(fresh_toolkit)
 
         config = db.get_config("docs-agent")["config"]

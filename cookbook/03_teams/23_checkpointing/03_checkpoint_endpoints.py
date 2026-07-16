@@ -9,7 +9,7 @@ Two GET endpoints, mirroring the agent variants:
   Returns a truncated snapshot at the chosen boundary. Use the
   ``message_index`` from the timeline as ``continue_from=K`` when resuming.
 
-This cookbook runs an AgentOS in-process via ``fastapi.testclient.TestClient``
+This cookbook runs an EgptOS in-process via ``fastapi.testclient.TestClient``
 so it's self-contained — no separate server, no port binding.
 """
 
@@ -19,7 +19,7 @@ import time
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 from fastapi.testclient import TestClient
 
@@ -50,7 +50,7 @@ def main() -> None:
         checkpoint="tool-batch",
     )
 
-    agent_os = AgentOS(description="team-checkpoint-endpoints demo", teams=[team])
+    agent_os = EgptOS(description="team-checkpoint-endpoints demo", teams=[team])
     app = agent_os.get_app()
     client = TestClient(app)
 

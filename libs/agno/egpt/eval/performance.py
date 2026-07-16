@@ -2,13 +2,13 @@ import asyncio
 import gc
 import tracemalloc
 from dataclasses import dataclass, field
-from os import getenv
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 from uuid import uuid4
 
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.db.schemas.evals import EvalType
 from egpt.eval.utils import async_log_eval, log_eval_run, spinner_live, store_result_in_file
+from egpt.utils.env import get_branded_env_bool
 from egpt.utils.log import log_debug, set_log_level_to_debug, set_log_level_to_info
 from egpt.utils.timer import Timer
 
@@ -228,7 +228,7 @@ class PerformanceEval:
     # If set, results will be saved in the given file path
     file_path_to_save_results: Optional[str] = None
     # Enable debug logs
-    debug_mode: bool = getenv("AGNO_DEBUG", "false").lower() == "true"
+    debug_mode: bool = get_branded_env_bool("DEBUG")
     # The database to store Evaluation results
     db: Optional[Union[BaseDb, AsyncBaseDb]] = None
 

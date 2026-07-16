@@ -1,11 +1,11 @@
 """
-Serving an AgentOS with an Auto-Populated Registry
+Serving an EgptOS with an Auto-Populated Registry
 ==================================================
 
 This is the same idea as ``auto_populate_registry.py``, but served as an app so
 you can see the discovered components over the API.
 
-No registry is passed to AgentOS. After the app starts, the components used by
+No registry is passed to EgptOS. After the app starts, the components used by
 the team members are available at:
 
     GET /registry?resource_type=model
@@ -19,7 +19,7 @@ and the discovered components are merged in (deduplicated by id/name).
 from egpt.agent.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 
 
@@ -57,9 +57,9 @@ content_team = Team(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS WITHOUT an explicit registry; components are discovered for you
+# Create EgptOS WITHOUT an explicit registry; components are discovered for you
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="auto-registry-os",
     teams=[content_team],
     db=db,
@@ -68,7 +68,7 @@ agent_os = AgentOS(
 app = agent_os.get_app()
 
 # ---------------------------------------------------------------------------
-# Run AgentOS App
+# Run EgptOS App
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     agent_os.serve(app="auto_populate_registry_os:app", reload=True)

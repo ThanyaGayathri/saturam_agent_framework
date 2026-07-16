@@ -1,7 +1,7 @@
 """
-Learning Demo: AgentOS Server
+Learning Demo: EgptOS Server
 =============================
-Serves the ops assistant on an AgentOS instance, which exposes the
+Serves the ops assistant on an EgptOS instance, which exposes the
 /learnings CRUD endpoints and powers the Learning pages at os.agno.com.
 
 Requires the pgvector container:
@@ -21,9 +21,9 @@ Interactive API docs are at http://localhost:7777/docs.
 """
 
 from agents import ops_assistant
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Learning demo: one agent with every learning store enabled",
     agents=[ops_assistant],
 )

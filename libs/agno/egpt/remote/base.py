@@ -385,7 +385,7 @@ class BaseRemote:
         """Initialize BaseRemote for remote execution.
 
         Supports two protocols:
-        - "agentos": Agno's proprietary AgentOS REST API (default)
+        - "agentos": Agno's proprietary EgptOS REST API (default)
         - "a2a": A2A (Agent-to-Agent) protocol for cross-framework communication
 
         For local execution, provide agent/team/workflow instances.
@@ -419,8 +419,8 @@ class BaseRemote:
     def get_os_client(self) -> "AgentOSClient":
         """Get an AgentOSClient for fetching remote configuration.
 
-        This is used internally by AgentOS to fetch configuration from remote
-        AgentOS instances when this runner represents a remote resource.
+        This is used internally by EgptOS to fetch configuration from remote
+        EgptOS instances when this runner represents a remote resource.
 
         Returns:
             AgentOSClient: Client configured for this remote resource's base URL

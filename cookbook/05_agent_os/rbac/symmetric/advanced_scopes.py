@@ -1,7 +1,7 @@
 """
-Advanced RBAC Example with AgentOS - Simplified Scopes with Audience Verification
+Advanced RBAC Example with EgptOS - Simplified Scopes with Audience Verification
 
-This example demonstrates the AgentOS RBAC system with simplified scope format:
+This example demonstrates the EgptOS RBAC system with simplified scope format:
 
 Scope Format:
 1. Global resource scopes: resource:action
@@ -28,7 +28,7 @@ import jwt
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.tools.websearch import WebSearchTools
 
@@ -71,11 +71,11 @@ admin_agent = Agent(
 )
 
 
-# Create AgentOS with specific ID for audience verification
-agent_os = AgentOS(
+# Create EgptOS with specific ID for audience verification
+agent_os = EgptOS(
     id="my-agent-os",
-    name="Production AgentOS",
-    description="RBAC Protected AgentOS with Simplified Scopes",
+    name="Production EgptOS",
+    description="RBAC Protected EgptOS with Simplified Scopes",
     agents=[web_search_agent, analyst_agent, admin_agent],
     authorization=True,  # Enable RBAC
     authorization_config=AuthorizationConfig(
@@ -121,7 +121,7 @@ if __name__ == "__main__":
        - "agents:*:run" - Run ANY agent (wildcard)
     
     AUDIENCE VERIFICATION:
-       - Tokens for other AgentOS instances will be rejected
+       - Tokens for other EgptOS instances will be rejected
     """
 
     # EXAMPLE 1: Admin user - full access

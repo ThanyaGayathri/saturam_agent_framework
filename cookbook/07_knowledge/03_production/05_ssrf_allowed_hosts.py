@@ -7,7 +7,7 @@ argument that restricts outbound requests to a hostname allowlist.
 
 This matters in production for two reasons:
 
-1. AgentOS exposes `POST /knowledge/content`, which accepts a URL and schedules
+1. EgptOS exposes `POST /knowledge/content`, which accepts a URL and schedules
    a background fetch. Without an allowlist, an attacker can target internal
    services.
 

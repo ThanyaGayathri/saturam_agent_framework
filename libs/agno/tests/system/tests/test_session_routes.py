@@ -1,5 +1,5 @@
 """
-System Tests for AgentOS Session Routes.
+System Tests for EgptOS Session Routes.
 
 Run with: pytest test_session_routes.py -v --tb=short
 """

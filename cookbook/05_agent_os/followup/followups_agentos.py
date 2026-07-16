@@ -1,7 +1,7 @@
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 
 db = PostgresDb(db_url="postgresql://ai:ai@localhost:5532/ai")
@@ -37,9 +37,9 @@ team = Team(
     db=db,
 )
 
-agno_os = AgentOS(
+agno_os = EgptOS(
     id="followups-agentos",
-    name="Followups AgentOS",
+    name="Followups EgptOS",
     agents=[agent],
     teams=[team],
     db=db,

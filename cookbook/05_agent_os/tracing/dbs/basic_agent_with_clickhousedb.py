@@ -1,4 +1,4 @@
-"""Traces with AgentOS, written to a dedicated ClickHouse traces database.
+"""Traces with EgptOS, written to a dedicated ClickHouse traces database.
 
 ClickHouse is a columnar OLAP store. It is a great fit for traces (high-volume
 append, fast aggregate scans), but a poor fit for sessions/memories (no row-
@@ -23,7 +23,7 @@ from egpt.agent import Agent
 from egpt.db.clickhouse import ClickhouseDb
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.hackernews import HackerNewsTools
 from egpt.tracing.setup import setup_tracing
 
@@ -66,7 +66,7 @@ agent = Agent(
     db=primary_db,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Tracing example: Postgres for sessions, ClickHouse for traces",
     agents=[agent],
     db=traces_db,

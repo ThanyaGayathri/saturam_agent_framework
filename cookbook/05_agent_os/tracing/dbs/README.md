@@ -1,6 +1,6 @@
 # Tracing DBs Cookbook
 
-Examples for `tracing/dbs` in AgentOS.
+Examples for `tracing/dbs` in EgptOS.
 
 ## Files
 - `basic_agent_with_postgresdb.py` — Tracing with a production-oriented relational backend.

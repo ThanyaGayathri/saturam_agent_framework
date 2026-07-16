@@ -16,7 +16,7 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.step import Step
@@ -76,8 +76,8 @@ content_workflow = Workflow(
     num_history_runs=3,
 )
 
-# Create AgentOS with Slack interface for the workflow
-agent_os = AgentOS(
+# Create EgptOS with Slack interface for the workflow
+agent_os = EgptOS(
     workflows=[content_workflow],
     interfaces=[Slack(workflow=content_workflow)],
 )

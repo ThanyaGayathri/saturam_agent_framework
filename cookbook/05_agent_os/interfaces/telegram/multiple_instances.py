@@ -9,7 +9,7 @@ optionally use a separate bot token for full isolation.
 Key concepts:
   - ``prefix="/basic"`` and ``prefix="/web-research"`` give each agent its own webhook path.
   - Pass ``token=`` per instance to use separate bot tokens, or omit to share one.
-  - Both agents share the same AgentOS server and SQLite database.
+  - Both agents share the same EgptOS server and SQLite database.
 
 Setup: Set TELEGRAM_TOKEN env var from @BotFather.
 """
@@ -17,7 +17,7 @@ Setup: Set TELEGRAM_TOKEN env var from @BotFather.
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.telegram import Telegram
 from egpt.tools.websearch import WebSearchTools
 
@@ -52,7 +52,7 @@ web_research_agent = Agent(
 #   Telegram(agent=basic_agent, prefix="/basic", token="BOT_TOKEN_1"),
 #   Telegram(agent=web_research_agent, prefix="/web-research", token="BOT_TOKEN_2"),
 # When token is omitted, TELEGRAM_TOKEN env var is used for all instances.
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[basic_agent, web_research_agent],
     interfaces=[
         Telegram(agent=basic_agent, prefix="/basic"),
@@ -67,7 +67,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can see the configuration and available apps at:
     http://localhost:7777/config

@@ -6,7 +6,7 @@
 
 **Status:** PENDING
 
-**Description:** AgentOS with MCPTools using dynamic headers.
+**Description:** EgptOS with MCPTools using dynamic headers.
 
 ---
 

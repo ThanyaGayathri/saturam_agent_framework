@@ -1,8 +1,8 @@
-"""Example for AgentOS to show how to pass dependencies to an agent."""
+"""Example for EgptOS to show how to pass dependencies to an agent."""
 
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -20,9 +20,9 @@ story_writer = Agent(
     instructions="You are a story writer. You are asked to write a story about a robot. Always name the robot {robot_name}",
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
-    description="Example AgentOS to show how to pass dependencies to an agent",
+# Setup our EgptOS app
+agent_os = EgptOS(
+    description="Example EgptOS to show how to pass dependencies to an agent",
     agents=[story_writer],
 )
 app = agent_os.get_app()
@@ -33,7 +33,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     Test passing dependencies to an agent:
     curl --location 'http://localhost:7777/agents/story-writer-agent/runs' \

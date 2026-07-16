@@ -26,7 +26,7 @@ from os import getenv
 from egpt.agent import Agent
 from egpt.db.sqlite.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.tools.websearch import WebSearchTools
 
@@ -56,10 +56,10 @@ web_research_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS — each WhatsApp interface gets its own credentials
+# EgptOS — each WhatsApp interface gets its own credentials
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[basic_agent, web_research_agent],
     interfaces=[
         Whatsapp(

@@ -8,7 +8,7 @@ Demonstrates reasoning agent.
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.anthropic.claude import Claude
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.tools.reasoning import ReasoningTools
 from egpt.tools.yfinance import YFinanceTools
@@ -33,8 +33,8 @@ reasoning_finance_agent = Agent(
 )
 
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     agents=[reasoning_finance_agent],
     interfaces=[Whatsapp(agent=reasoning_finance_agent, show_reasoning=True)],
 )

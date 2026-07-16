@@ -1,12 +1,12 @@
 """
-Basic RBAC Example with AgentOS (Asymmetric Keys)
+Basic RBAC Example with EgptOS (Asymmetric Keys)
 
 This example demonstrates how to enable RBAC (Role-Based Access Control)
 with JWT token authentication using RS256 asymmetric keys.
 
 RS256 uses:
 - Private key: Used by your auth server to SIGN tokens
-- Public key: Used by AgentOS to VERIFY token signatures
+- Public key: Used by EgptOS to VERIFY token signatures
 
 Prerequisites:
 - Set JWT_SIGNING_KEY and JWT_VERIFICATION_KEY environment variables with your public and private keys (PEM format)
@@ -21,7 +21,7 @@ import jwt
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.tools.websearch import WebSearchTools
 from egpt.utils.cryptography import generate_rsa_keys
@@ -75,10 +75,10 @@ research_agent = Agent(
     markdown=True,
 )
 
-# Create AgentOS with RS256 (default algorithm)
-agent_os = AgentOS(
+# Create EgptOS with RS256 (default algorithm)
+agent_os = EgptOS(
     id="my-agent-os",
-    description="RBAC Protected AgentOS",
+    description="RBAC Protected EgptOS",
     agents=[research_agent],
     authorization=True,
     authorization_config=AuthorizationConfig(
@@ -97,14 +97,14 @@ app = agent_os.get_app()
 
 if __name__ == "__main__":
     """
-    Run your AgentOS with RBAC enabled using RS256 asymmetric keys.
+    Run your EgptOS with RBAC enabled using RS256 asymmetric keys.
     
     Key Distribution:
     - Private key: Keep secret on your auth server (signs tokens)
-    - Public key: Share with AgentOS (verifies tokens)
+    - Public key: Share with EgptOS (verifies tokens)
     
     Audience Verification:
-    - Tokens must include `aud` claim matching the AgentOS ID
+    - Tokens must include `aud` claim matching the EgptOS ID
     - Tokens with wrong audience will be rejected
     
     Default scope mappings protect all endpoints:
@@ -122,7 +122,7 @@ if __name__ == "__main__":
     """
     if PRIVATE_KEY:
         # Create test tokens signed with the PRIVATE key
-        # Note: Include `aud` claim with AgentOS ID
+        # Note: Include `aud` claim with EgptOS ID
         user_token_payload = {
             "sub": "user_123",
             "session_id": "session_456",

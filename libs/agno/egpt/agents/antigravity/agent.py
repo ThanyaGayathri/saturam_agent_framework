@@ -23,7 +23,7 @@ class AntigravityAgent(BaseExternalAgent):
     """Adapter for Google's Gemini Agents API (Antigravity).
 
     Wraps the managed Gemini Agents API so an Antigravity-backed agent can be used
-    with AgentOS endpoints or standalone via .run() / .print_response().
+    with EgptOS endpoints or standalone via .run() / .print_response().
 
     Antigravity runs a full agent loop server-side inside a sandboxed Linux
     environment. The environment persists across turns via an environment_id,
@@ -46,9 +46,9 @@ class AntigravityAgent(BaseExternalAgent):
         agent = AntigravityAgent(name="Antigravity")
         agent.print_response("What is 2 + 2?", stream=True)
 
-        # Or deploy with AgentOS:
-        from egpt.os import AgentOS
-        AgentOS(agents=[agent])
+        # Or deploy with EgptOS:
+        from egpt.os import EgptOS
+        EgptOS(agents=[agent])
     """
 
     api_key: Optional[str] = None

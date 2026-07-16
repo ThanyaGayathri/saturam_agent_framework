@@ -11,7 +11,7 @@ markers + the terminal end of the transcript):
   Returns a derived run snapshot truncated at that boundary. Use the
   ``message_index`` from the timeline as ``continue_from=K`` when resuming.
 
-This cookbook runs an AgentOS in-process via ``fastapi.testclient.TestClient``
+This cookbook runs an EgptOS in-process via ``fastapi.testclient.TestClient``
 so the example is self-contained — no separate server, no port binding.
 """
 
@@ -20,7 +20,7 @@ import json
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from fastapi.testclient import TestClient
 
 
@@ -43,7 +43,7 @@ def main() -> None:
         tools=[get_population],
     )
 
-    agent_os = AgentOS(description="checkpoint-endpoints demo", agents=[agent])
+    agent_os = EgptOS(description="checkpoint-endpoints demo", agents=[agent])
     app = agent_os.get_app()
     client = TestClient(app)
 

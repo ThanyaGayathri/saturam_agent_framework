@@ -1,9 +1,9 @@
 """
-AgentOS Research App - Deploy Your Parallel Agent
+EgptOS Research App - Deploy Your Parallel Agent
 =================================================
 
-Wrap a Parallel-powered research agent in AgentOS to get a production API
-and the AgentOS control plane in a few lines. Run this file and open
+Wrap a Parallel-powered research agent in EgptOS to get a production API
+and the EgptOS control plane in a few lines. Run this file and open
 http://localhost:7777 to chat with the agent or call its REST API.
 
 Because this filename starts with a number, we pass the FastAPI app object to
@@ -17,11 +17,11 @@ Prerequisites:
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.parallel import ParallelTools
 
 # ---------------------------------------------------------------------------
-# Create the Agent and AgentOS app
+# Create the Agent and EgptOS app
 # ---------------------------------------------------------------------------
 db = SqliteDb(db_file="tmp/parallel_os.db")
 
@@ -39,7 +39,7 @@ research_agent = Agent(
     ],
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Parallel-powered research app",
     agents=[research_agent],
 )

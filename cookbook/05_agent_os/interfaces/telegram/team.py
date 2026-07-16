@@ -17,7 +17,7 @@ Setup: Set TELEGRAM_TOKEN env var from @BotFather.
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.telegram import Telegram
 from egpt.team import Team
 
@@ -59,7 +59,7 @@ telegram_team = Team(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     teams=[telegram_team],
     interfaces=[
         Telegram(
@@ -75,7 +75,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can see the configuration and available apps at:
     http://localhost:7777/config

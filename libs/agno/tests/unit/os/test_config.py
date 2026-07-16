@@ -1,4 +1,4 @@
-"""Tests for AgentOS config schemas, focused on the Manifest field."""
+"""Tests for EgptOS config schemas, focused on the Manifest field."""
 
 import json
 import tempfile
@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from egpt.agent.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AgentOSConfig, ChatConfig, Manifest
 from egpt.os.schema import AgentSummaryResponse, ConfigResponse, TeamSummaryResponse
 from egpt.os.utils import load_yaml_config
@@ -220,11 +220,11 @@ class TestLoadYamlConfig:
 
 
 class TestConfigEndpointSerialization:
-    """End-to-end test: spin up AgentOS, hit /config, assert manifest comes back over HTTP."""
+    """End-to-end test: spin up EgptOS, hit /config, assert manifest comes back over HTTP."""
 
     def _build_client(self, manifest):
         agent = Agent(name="Marketing Agent", id="marketing-agent", telemetry=False)
-        os_instance = AgentOS(
+        os_instance = EgptOS(
             agents=[agent],
             telemetry=False,
             config=AgentOSConfig(manifest=manifest),
@@ -253,7 +253,7 @@ class TestConfigEndpointSerialization:
 
     def test_manifest_absent_from_response_when_unset(self):
         agent = Agent(name="Marketing Agent", id="marketing-agent", telemetry=False)
-        os_instance = AgentOS(agents=[agent], telemetry=False)
+        os_instance = EgptOS(agents=[agent], telemetry=False)
         client = TestClient(os_instance.get_app())
         resp = client.get("/config")
         assert resp.status_code == 200
@@ -286,7 +286,7 @@ class TestAgentSummaryModelField:
             model=OpenAIChat(id="gpt-4o"),
             telemetry=False,
         )
-        os_instance = AgentOS(agents=[agent], telemetry=False)
+        os_instance = EgptOS(agents=[agent], telemetry=False)
         client = TestClient(os_instance.get_app())
         body = client.get("/config").json()
         assert body["agents"][0]["model"] == {"id": "gpt-4o", "provider": "OpenAI"}
@@ -322,7 +322,7 @@ class TestTeamSummaryModelField:
             model=OpenAIChat(id="gpt-4o-mini"),
             telemetry=False,
         )
-        os_instance = AgentOS(teams=[team], telemetry=False)
+        os_instance = EgptOS(teams=[team], telemetry=False)
         client = TestClient(os_instance.get_app())
         body = client.get("/config").json()
         assert body["teams"][0]["model"] == {"id": "gpt-4o-mini", "provider": "OpenAI"}

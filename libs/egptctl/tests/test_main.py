@@ -19,7 +19,7 @@ def test_bare_invocation_shows_home_screen():
     assert result.exit_code == 0
     output = plain_output(result.output)
     # The banner and every command group heading are present.
-    assert "The CLI for AgentOS" in output
+    assert "The CLI for EgptOS" in output
     for heading in ("Get started", "Operate", "Tokens"):
         assert heading in output
     assert __version__ in output

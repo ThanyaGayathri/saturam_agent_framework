@@ -11,7 +11,7 @@ from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.memory.manager import MemoryManager
 from egpt.models.google import Gemini
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.tools.websearch import WebSearchTools
 
@@ -51,8 +51,8 @@ personal_agent = Agent(
 )
 
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     agents=[personal_agent],
     interfaces=[Whatsapp(agent=personal_agent)],
 )

@@ -8,7 +8,7 @@ The LLM uses the generic update_session_state tool to modify recipe state.
 
 from egpt.agent.agent import Agent
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.interfaces.agui import AGUI
 
 agent = Agent(
@@ -42,7 +42,7 @@ When updating, preserve existing fields and only change what's needed.""",
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[agent],
     interfaces=[AGUI(agent=agent, prefix="/shared_state")],
 )

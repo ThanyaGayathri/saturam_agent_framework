@@ -1,12 +1,12 @@
 """
-Traces with AgentOS
+Traces with EgptOS
 Requirements:
     uv pip install agno opentelemetry-api opentelemetry-sdk openinference-instrumentation-agno
 """
 
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.condition import Condition
 from egpt.workflow.step import Step
@@ -95,8 +95,8 @@ basic_workflow = Workflow(
     ],
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     description="Example app for tracing Basic Workflow",
     workflows=[basic_workflow],
     tracing=True,

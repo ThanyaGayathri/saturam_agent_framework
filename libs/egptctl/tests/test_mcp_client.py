@@ -1,7 +1,7 @@
 """MCP verification client: JSON and SSE payloads, auth failures."""
 
 from egptctl.mcp_client import verify_mcp
-from tests.conftest import FakeAgentOS, install_fake
+from tests.conftest import FakeEgptOS, install_fake
 
 MCP_URL = "http://localhost:7777/mcp"
 
@@ -25,7 +25,7 @@ def test_verify_rejected_with_bad_token(monkeypatch, fake_os):
 
 
 def test_verify_parses_sse_responses(monkeypatch):
-    fake = FakeAgentOS(sse_responses=True)
+    fake = FakeEgptOS(sse_responses=True)
     install_fake(monkeypatch, fake)
     result = verify_mcp(MCP_URL, token=fake.security_key)
     assert result.ok is True
@@ -33,14 +33,14 @@ def test_verify_parses_sse_responses(monkeypatch):
 
 
 def test_verify_open_server_no_token(monkeypatch):
-    fake = FakeAgentOS(auth_mode="none")
+    fake = FakeEgptOS(auth_mode="none")
     install_fake(monkeypatch, fake)
     result = verify_mcp(MCP_URL, token=None)
     assert result.ok is True
 
 
 def test_verify_404_when_mcp_disabled(monkeypatch):
-    fake = FakeAgentOS(mcp_enabled=False)
+    fake = FakeEgptOS(mcp_enabled=False)
     install_fake(monkeypatch, fake)
     result = verify_mcp(MCP_URL, token=fake.security_key)
     assert result.ok is False

@@ -2,7 +2,7 @@
 Remote Team
 =============================
 
-Demonstrates calling and streaming a team hosted on a remote AgentOS instance.
+Demonstrates calling and streaming a team hosted on a remote EgptOS instance.
 """
 
 import asyncio
@@ -66,7 +66,7 @@ if __name__ == "__main__":
         RemoteServerUnavailableError,
     ) as exc:
         print(
-            "\nRemoteTeam server is not available. Start a remote AgentOS instance at "
+            "\nRemoteTeam server is not available. Start a remote EgptOS instance at "
             "http://localhost:7778 and rerun this cookbook."
         )
         print(f"Original error: {exc}")

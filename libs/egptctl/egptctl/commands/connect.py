@@ -1,6 +1,6 @@
-"""`egpt connect`: wire a running AgentOS into coding agents as an MCP server.
+"""`egpt connect`: wire a running EgptOS into coding agents as an MCP server.
 
-Flow: discover the AgentOS -> resolve admin credential -> mint one service account per
+Flow: discover the EgptOS -> resolve admin credential -> mint one service account per
 client -> write each client's MCP config -> read the config back and verify the entry
 the client will actually use, with a real MCP tools/list call -> report. Re-runs are
 safe: entries that already verify are skipped, broken or stale ones are rotated.
@@ -27,7 +27,7 @@ from egptctl.commands._common import (
 from egptctl.console import emit_json, print_error, print_info, print_success, print_warning
 from egptctl.discovery import MCP_ENABLE_INSTRUCTIONS, OSInfo, discover
 from egptctl.errors import CLIError, ConflictError
-from egptctl.http import AgentOSAPI, ServiceAccount
+from egptctl.http import EgptOSAPI, ServiceAccount
 from egptctl.mcp_client import verify_mcp
 
 # Exit codes: 0 = all connected, 1 = nothing connected, 2 = usage error (click's
@@ -41,7 +41,7 @@ ROTATE_HINT = "Re-run with --rotate to revoke and re-mint it, or --skip-existing
 # The hosted chat apps (Claude, ChatGPT) are not ClientAdapters: they have no local
 # config to write and nothing egptctl can verify (the connector is added later, by a
 # human, in the app's own UI). They are handled out of band as printed setup
-# instructions: opt-in via --clients, and included automatically when the AgentOS is on
+# instructions: opt-in via --clients, and included automatically when the EgptOS is on
 # a public URL the apps' clouds can actually reach.
 CHAT_APP_ALIASES = {
     "claude-ai": "claude-ai",
@@ -83,7 +83,7 @@ def _split_chat_apps(clients: Optional[str]) -> "tuple[Optional[str], List[str]]
 
 
 def _reachable_from_cloud(os_info: OSInfo) -> bool:
-    """True when the hosted chat apps can plausibly reach this AgentOS: public HTTPS.
+    """True when the hosted chat apps can plausibly reach this EgptOS: public HTTPS.
 
     Judged on the parsed hostname, not a substring scan of the URL, so tunnel domains
     like *.localhost.run count as cloud-reachable while loopback, RFC1918/link-local
@@ -108,7 +108,7 @@ def _chat_app_instructions(app: str, os_info: OSInfo) -> Dict[str, Any]:
     if not _reachable_from_cloud(os_info):
         note = (
             ui_name
-            + " adds connectors from its own cloud and cannot reach a local AgentOS at "
+            + " adds connectors from its own cloud and cannot reach a local EgptOS at "
             + os_info.base_url
             + "; deploy it behind a public HTTPS URL (or a tunnel) before adding it."
         )
@@ -118,9 +118,9 @@ def _chat_app_instructions(app: str, os_info: OSInfo) -> Dict[str, Any]:
         "error": None,
         "url": os_info.mcp_url,
         "instructions": [
-            ui_name + " reaches MCP servers from its cloud, so the AgentOS must be on a public HTTPS URL.",
+            ui_name + " reaches MCP servers from its cloud, so the EgptOS must be on a public HTTPS URL.",
             ui_name + "'s Connectors UI authenticates with OAuth, not bearer tokens, so a token-protected "
-            "AgentOS cannot be added from the UI yet; use a public or OAuth-enabled AgentOS.",
+            "EgptOS cannot be added from the UI yet; use a public or OAuth-enabled EgptOS.",
             where,
         ],
         "note": note,
@@ -144,7 +144,7 @@ def _resolve_clients(
     detected = [adapter for adapter in adapters.values() if adapter.detect()]
     if not detected and required:
         # ``required=False`` when the run has something else to report (the chat-app
-        # auto-surface on a deployed AgentOS) -- a headless deploy box with no local
+        # auto-surface on a deployed EgptOS) -- a headless deploy box with no local
         # clients is that feature's primary home, so it must not die here.
         raise CLIError(
             "No supported clients detected on this machine.",
@@ -154,7 +154,7 @@ def _resolve_clients(
 
 
 def _mint(
-    api: AgentOSAPI,
+    api: EgptOSAPI,
     account_name: str,
     scopes: Optional[List[str]],
     expires_in_days: Optional[int],
@@ -201,14 +201,14 @@ def _mint(
 
 
 def connect(
-    url: Optional[str] = typer.Option(None, "--url", help="AgentOS base URL (default: autodiscover on localhost)."),
+    url: Optional[str] = typer.Option(None, "--url", help="EgptOS base URL (default: autodiscover on localhost)."),
     clients: Optional[str] = typer.Option(
         None,
         "--clients",
         help=(
             "Comma-separated clients (claude-code,claude-desktop,codex,cursor; claude-ai and chatgpt "
             "print manual setup steps). Default: detected, plus claude-ai/chatgpt steps when the "
-            "AgentOS is on a public URL."
+            "EgptOS is on a public URL."
         ),
     ),
     name: Optional[str] = typer.Option(
@@ -234,7 +234,7 @@ def connect(
     ),
     json_output: bool = typer.Option(False, "--json", help="Emit a single JSON document for machine consumption."),
 ) -> None:
-    """Connect this machine's coding agents to a running AgentOS over MCP."""
+    """Connect this machine's coding agents to a running EgptOS over MCP."""
     try:
         _connect(
             url=url,
@@ -274,7 +274,7 @@ def _connect(
     os_info = discover(url)
     if not os_info.mcp_enabled:
         raise CLIError(
-            "Found an AgentOS at "
+            "Found an EgptOS at "
             + os_info.base_url
             + ", but its MCP server is not enabled.\n\n"
             + MCP_ENABLE_INSTRUCTIONS
@@ -282,7 +282,7 @@ def _connect(
     if not json_mode:
         version = " (agno " + os_info.version + ")" if os_info.version else ""
         source = " (from AGENTOS_URL)" if os_info.url_source == "env" else ""
-        print_info("AgentOS at " + os_info.base_url + version + source + ", MCP at " + os_info.mcp_url)
+        print_info("EgptOS at " + os_info.base_url + version + source + ", MCP at " + os_info.mcp_url)
 
     adapters = build_adapters(project=project)
     clients_remaining, wanted_apps = _split_chat_apps(clients)
@@ -306,7 +306,7 @@ def _connect(
         require_secure_url(os_info.base_url, allow_http=allow_http, what="the admin credential and minted tokens")
     admin_token = resolve_admin_token(os_info.auth_mode, json_mode) if minting else None
     if not minting and selected and not json_mode:
-        print_info("Authorization is disabled on this AgentOS; connecting without credentials.")
+        print_info("Authorization is disabled on this EgptOS; connecting without credentials.")
 
     # Truthful-outcome check: if the OS enforces auth but /mcp answers without a token,
     # the server predates MCP token enforcement and minted headers are decorative.
@@ -315,12 +315,12 @@ def _connect(
         open_probe = verify_mcp(os_info.mcp_url, token=None)
         if open_probe.ok:
             open_mcp_warning = (
-                "This AgentOS accepts unauthenticated MCP requests: its agno version predates "
+                "This EgptOS accepts unauthenticated MCP requests: its agno version predates "
                 "token enforcement on /mcp. Tokens were still minted and configured; upgrade "
                 "agno to make them meaningful."
             )
 
-    api = AgentOSAPI(os_info.base_url, admin_token=admin_token) if minting else None
+    api = EgptOSAPI(os_info.base_url, admin_token=admin_token) if minting else None
 
     results: List[Dict[str, Any]] = []
 
@@ -373,7 +373,7 @@ def _connect(
         if api is not None:
             api.close()
 
-    # Spot a deployed AgentOS: when discovery lands on a public, token-free URL (typically
+    # Spot a deployed EgptOS: when discovery lands on a public, token-free URL (typically
     # AGENTOS_URL set to the production domain), the hosted chat apps can use it too --
     # surface their setup steps without requiring --clients.
     if auto_surface_apps:
@@ -385,7 +385,7 @@ def _connect(
 
 
 def _resolve_shared_token(
-    api: AgentOSAPI,
+    api: EgptOSAPI,
     adapters: List[ClientAdapter],
     os_info: OSInfo,
     server_name: str,
@@ -431,7 +431,7 @@ def _connect_one(
     adapter: ClientAdapter,
     result: Dict[str, Any],
     os_info: OSInfo,
-    api: Optional[AgentOSAPI],
+    api: Optional[EgptOSAPI],
     server_name: str,
     name: Optional[str],
     scopes: Optional[List[str]],
@@ -461,7 +461,7 @@ def _connect_one(
                 )
                 return
         elif existing.url != os_info.mcp_url:
-            # The entry points at a different AgentOS; never touch it under --skip-existing.
+            # The entry points at a different EgptOS; never touch it under --skip-existing.
             if skip_existing:
                 result.update(
                     status="skipped",

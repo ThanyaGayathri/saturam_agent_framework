@@ -6,7 +6,7 @@ A working image search engine.
 2. Descriptions are embedded and stored in a vector DB
 3. A browser UI lets you query the library in natural language
 
-One AgentOS process, one HTML file, four endpoints.
+One EgptOS process, one HTML file, four endpoints.
 
 This is the productized version of [`_09_image_extraction_to_vectordb`](../_09_image_extraction_to_vectordb/) — that cookbook is the minimal pipeline; this one wraps it in a workflow, endpoints, and a UI.
 
@@ -56,11 +56,11 @@ The first time the page loads it will be empty. Click **Reindex** to fire the in
 | Endpoint                              | Source             | Purpose                       |
 |---------------------------------------|--------------------|-------------------------------|
 | `GET /ui`                             | explicit route     | Single-file HTML UI           |
-| `GET /knowledge/content`              | AgentOS (native)   | Gallery list (paginated)      |
-| `POST /knowledge/search`              | AgentOS (native)   | Vector search                 |
-| `POST /workflows/image-ingest/runs`   | AgentOS (native)   | Reindex (background, polled)  |
+| `GET /knowledge/content`              | EgptOS (native)   | Gallery list (paginated)      |
+| `POST /knowledge/search`              | EgptOS (native)   | Vector search                 |
+| `POST /workflows/image-ingest/runs`   | EgptOS (native)   | Reindex (background, polled)  |
 
-All four routes come from a single `AgentOS(knowledge=..., workflows=..., base_app=...)` call.
+All four routes come from a single `EgptOS(knowledge=..., workflows=..., base_app=...)` call.
 
 ## How it works
 
@@ -89,7 +89,7 @@ In [`schemas.py`](schemas.py):
 
 This is demo-grade. For production:
 
-- Auth on the AgentOS (`authorization=True` with a `JWTValidator`).
+- Auth on the EgptOS (`authorization=True` with a `JWTValidator`).
 - Presigned URLs in place of public-read S3.
 - CloudFront in front of the bucket for cold-load latency.
 - Background worker pool for ingest at real scale; the in-process Workflow is fine up to maybe a few thousand items.

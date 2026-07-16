@@ -3,7 +3,7 @@ Workspace — human-in-the-loop confirmation
 ==========================================
 
 This is the default safety story. Reads run silently; writes/edits/deletes/shell
-pause the run and surface a confirmation request. AgentOS renders these as
+pause the run and surface a confirmation request. EgptOS renders these as
 approval cards in its run timeline. In a plain console, you handle the loop
 yourself — that's what this example shows.
 

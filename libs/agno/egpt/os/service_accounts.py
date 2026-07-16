@@ -1,14 +1,14 @@
-"""Service accounts for AgentOS.
+"""Service accounts for EgptOS.
 
 Service accounts are machine identities (coding agents, chat apps, CI) authenticated by
 opaque tokens following the GitHub PAT model: the token is random, only its SHA-256 hash
-is stored (in the AgentOS database), the plaintext is returned exactly once at creation,
+is stored (in the EgptOS database), the plaintext is returned exactly once at creation,
 and revocation is native (see the caching note below for its timing).
 
 Tokens look like ``agno_pat_<base62>`` and authenticate through the same middleware as
 JWTs. A verified service account attaches to the request with ``user_id`` set to its
 principal (``sa:<name>``) and ``scopes`` set to the account's stored scopes. Unlike JWT
-claims, service account scopes are first-party ACL data owned by this AgentOS instance,
+claims, service account scopes are first-party ACL data owned by this EgptOS instance,
 so they are enforced in every deployment mode - including ``os_security_key`` mode and
 ``validate=False`` mode, where JWT scopes are not.
 
@@ -232,7 +232,7 @@ class _VerificationCache:
 
 
 class ServiceAccountVerifier:
-    """Verifies service account tokens against the AgentOS database.
+    """Verifies service account tokens against the EgptOS database.
 
     Supports both sync (BaseDb) and async (AsyncBaseDb) databases; sync lookups run in
     the threadpool so verification never blocks the event loop. Successful verifications
@@ -352,7 +352,7 @@ async def authenticate_service_account_request(
     The single verify + attach + scope-enforcement path for service accounts, shared
     by the auth middleware and the REST dependency so the surfaces cannot drift.
     Scope enforcement always runs: service account scopes are first-party ACL data
-    owned by this AgentOS instance, unlike JWT claims.
+    owned by this EgptOS instance, unlike JWT claims.
 
     Returns None on success, else (status_code, detail, required_scopes) for the
     transport to render (HTTPException on REST, JSONResponse in the middleware).

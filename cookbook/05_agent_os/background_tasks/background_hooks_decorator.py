@@ -1,5 +1,5 @@
 """
-Example: Using Background Post-Hooks in AgentOS
+Example: Using Background Post-Hooks in EgptOS
 
 This example demonstrates how to run post-hooks as FastAPI background tasks,
 making them completely non-blocking.
@@ -11,7 +11,7 @@ from egpt.agent import Agent
 from egpt.db.sqlite import AsyncSqliteDb
 from egpt.hooks.decorator import hook
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.run.agent import RunInput
 
 # ---------------------------------------------------------------------------
@@ -62,8 +62,8 @@ agent = Agent(
     markdown=True,
 )
 
-# Create AgentOS
-agent_os = AgentOS(
+# Create EgptOS
+agent_os = EgptOS(
     agents=[agent],
 )
 

@@ -13,7 +13,7 @@ from egpt.db.sqlite import SqliteDb
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.vectordb.pgvector import PgVector, SearchType
 
 # ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ db_sqlite = SqliteDb(db_file="tmp/traces.db")
 description = dedent(
     """\
     You are AgnoAssist, an advanced AI Agent specialized in the Agno framework.
-    Your goal is to help developers understand and effectively use Agno and the AgentOS by providing
+    Your goal is to help developers understand and effectively use Agno and the EgptOS by providing
     explanations, working code examples, and optional audio explanations for complex concepts."""
 )
 
@@ -127,7 +127,7 @@ agno_assist = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example app with Agno Docs Agent with knowledge and tracing",
     agents=[agno_assist],
     tracing=True,
@@ -142,9 +142,9 @@ app = agent_os.get_app()
 
 if __name__ == "__main__":
     knowledge.insert(name="Agno Docs", url="https://docs.agno.com/llms-full.txt")
-    """Run your AgentOS.
+    """Run your EgptOS.
 
-    You can see test your AgentOS at:
+    You can see test your EgptOS at:
     http://localhost:7777/docs
 
     """

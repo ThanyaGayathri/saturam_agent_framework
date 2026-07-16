@@ -1,7 +1,7 @@
 """
 Cookbook: Code-defined agents available to UI-built workflows.
 
-This sets up an AgentOS with code-defined agents. When a user builds a
+This sets up an EgptOS with code-defined agents. When a user builds a
 workflow through the UI:
 
 1. The UI fetches available agents from /registry (code-defined) and
@@ -12,7 +12,7 @@ workflow through the UI:
    from the Registry first, falling back to DB only if not found.
 
 The agents below are never saved to the database -- they live in memory
-via the Registry, which AgentOS auto-populates on startup.
+via the Registry, which EgptOS auto-populates on startup.
 
 Important: Code-defined agents MUST have explicit, stable `id` values.
 The UI stores these IDs in the workflow config. If the ID changes between
@@ -22,7 +22,7 @@ restarts, the workflow will fail to resolve the agent.
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 db = PostgresDb(db_url=db_url)
@@ -44,11 +44,11 @@ writer_agent = Agent(
     role="Write content based on research",
 )
 
-# AgentOS auto-populates its registry with these agents.
+# EgptOS auto-populates its registry with these agents.
 # The /registry?resource_type=agent endpoint exposes them to the UI.
 # Workflows built in the UI that reference these agents by ID will
 # resolve them from the registry when loaded from DB.
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Demo: code-defined agents available to UI workflow builder",
     db=db,
     agents=[research_agent, writer_agent],

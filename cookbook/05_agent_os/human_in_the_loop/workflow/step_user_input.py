@@ -1,5 +1,5 @@
 """
-Step-Level User Input HITL Example (AgentOS)
+Step-Level User Input HITL Example (EgptOS)
 
 This example demonstrates how to pause a workflow to collect user input
 using Step parameters directly (without the @pause decorator).
@@ -14,7 +14,7 @@ Use case: Collecting user preferences before an agent generates content.
 
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput, UserInputField
 from egpt.workflow.workflow import Workflow
@@ -143,7 +143,7 @@ workflow_with_executor = Workflow(
 workflow_with_executor.id = "user-input-02-step-user-input-executor"
 
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Step-level user input HITL workflows",
     workflows=[workflow, workflow_with_executor],
     db=db,

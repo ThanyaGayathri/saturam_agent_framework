@@ -1,7 +1,7 @@
 """
-LangGraph Agent on AgentOS
+LangGraph Agent on EgptOS
 ==========================
-A LangGraph chatbot, served through AgentOS.
+A LangGraph chatbot, served through EgptOS.
 
 Requirements:
     pip install langgraph langchain-openai
@@ -12,7 +12,7 @@ Usage:
 
 from egpt.agents.langgraph import LangGraphAgent
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from langchain_openai import ChatOpenAI
 from langgraph.graph import MessagesState, StateGraph
 
@@ -31,7 +31,7 @@ agent = LangGraphAgent(
     graph=compiled,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[agent],
     tracing=True,
     db=SqliteDb(db_file="tmp/agentos.db"),

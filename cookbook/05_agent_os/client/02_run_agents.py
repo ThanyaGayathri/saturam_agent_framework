@@ -1,17 +1,17 @@
 """
-Running Agents with AgentOSClient
+Running Agents with EgptOSClient
 
 This example demonstrates how to execute agent runs using
-AgentOSClient, including both streaming and non-streaming responses.
+EgptOSClient, including both streaming and non-streaming responses.
 
 Prerequisites:
-1. Start an AgentOS server with an agent
+1. Start an EgptOS server with an agent
 2. Run this script: python 02_run_agents.py
 """
 
 import asyncio
 
-from egpt.client import AgentOSClient
+from egpt.client import EgptOSClient
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -24,7 +24,7 @@ async def run_agent_non_streaming():
     print("Non-Streaming Agent Run")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     # Get available agents
     config = await client.aget_config()
     if not config.agents:
@@ -51,7 +51,7 @@ async def run_agent_streaming():
     print("Streaming Agent Run")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     # Get available agents
     config = await client.aget_config()

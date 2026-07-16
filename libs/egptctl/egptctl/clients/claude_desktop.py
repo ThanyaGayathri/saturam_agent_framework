@@ -2,20 +2,20 @@
 
 Claude Desktop reads MCP servers from claude_desktop_config.json, but that file is
 stdio-only: it launches each server as a subprocess and speaks JSON-RPC over stdio, so
-it cannot point at a remote HTTP AgentOS directly. The supported bridge is `mcp-remote`
+it cannot point at a remote HTTP EgptOS directly. The supported bridge is `mcp-remote`
 (run via npx), a small stdio<->HTTP proxy that every remote-MCP vendor documents for
-this client. We write an entry that launches it with the AgentOS URL and, when auth is
+this client. We write an entry that launches it with the EgptOS URL and, when auth is
 on, an Authorization header sourced from an env var so the token stays out of argv:
 
-    "agno": {
+    "egpt": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "<url>", "--header", "Authorization:${AGNO_AUTH_HEADER}"],
-      "env": {"AGNO_AUTH_HEADER": "Bearer <token>"}
+      "args": ["-y", "mcp-remote", "<url>", "--header", "Authorization:${EGPT_AUTH_HEADER}"],
+      "env": {"EGPT_AUTH_HEADER": "Bearer <token>"}
     }
 
 Config path is per-OS (macOS Application Support, Windows APPDATA, Linux ~/.config).
 Because the bridge runs at Claude Desktop launch time, it needs Node/npx on PATH; connect
-verifies the AgentOS endpoint itself, not that Claude can spawn npx, so a missing npx is
+verifies the EgptOS endpoint itself, not that Claude can spawn npx, so a missing npx is
 surfaced as a note rather than a failure.
 """
 
@@ -36,9 +36,10 @@ from egptctl.clients.base import (
     token_from_authorization,
     write_servers_entry,
 )
+from egptctl.env import branded_env_key
 
 # The env var the written entry reads the Authorization header from.
-AUTH_ENV_VAR = "AGNO_AUTH_HEADER"
+AUTH_ENV_VAR = branded_env_key("AUTH_HEADER")
 
 _ENV_REF = re.compile(r"\$\{(\w+)\}")
 
@@ -84,7 +85,7 @@ def _entry_from_config(entry: Any, location: str) -> Optional[ExistingEntry]:
         return ExistingEntry(
             url=url, token=token_from_authorization(header_map.get("Authorization")), location=location
         )
-    # The mcp-remote bridge: first http(s) arg is the AgentOS URL.
+    # The mcp-remote bridge: first http(s) arg is the EgptOS URL.
     args = entry.get("args")
     if not isinstance(args, list):
         return None

@@ -14,7 +14,7 @@ Flow:
 from egpt.approval import approval
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 from egpt.tools import tool
 
@@ -54,7 +54,7 @@ approval_team = Team(
     telemetry=False,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="team-level-approval-demo",
     description="Team-level approval: the team has a tool that requires admin approval before executing",
     teams=[approval_team],

@@ -1,6 +1,6 @@
-"""Thin HTTP client for the AgentOS REST API.
+"""Thin HTTP client for the EgptOS REST API.
 
-This module talks plain HTTP to a running AgentOS. It deliberately does not import the
+This module talks plain HTTP to a running EgptOS. It deliberately does not import the
 egpt framework: the CLI must stay installable and fast under
 `uvx --from egptctl egpt` with nothing but httpx, rich, and typer.
 """
@@ -14,7 +14,7 @@ from egptctl import __version__
 from egptctl.errors import APIError, ConflictError
 
 # Test hook: tests set this to an httpx.MockTransport so every client in the CLI
-# (API, discovery, MCP verification) talks to an in-memory fake AgentOS.
+# (API, discovery, MCP verification) talks to an in-memory fake EgptOS.
 _transport_override: Optional[httpx.BaseTransport] = None
 
 DEFAULT_TIMEOUT = 10.0
@@ -98,8 +98,8 @@ def _error_detail(response: httpx.Response) -> str:
     return "HTTP " + str(response.status_code)
 
 
-class AgentOSAPI:
-    """Sync client for the AgentOS endpoints the CLI needs.
+class EgptOSAPI:
+    """Sync client for the EgptOS endpoints the CLI needs.
 
     The CLI is a short-lived terminal process making a handful of sequential calls, so a
     sync client is the right shape; programs embedding Agno should use egpt.client instead.
@@ -118,7 +118,7 @@ class AgentOSAPI:
     def close(self) -> None:
         self._client.close()
 
-    def __enter__(self) -> "AgentOSAPI":
+    def __enter__(self) -> "EgptOSAPI":
         return self
 
     def __exit__(self, *exc_info: Any) -> None:
@@ -127,7 +127,7 @@ class AgentOSAPI:
     # -- Probes ------------------------------------------------------------------
 
     def health(self) -> Optional[Dict[str, Any]]:
-        """GET /health. Returns the payload, or None when unreachable or not an AgentOS."""
+        """GET /health. Returns the payload, or None when unreachable or not an EgptOS."""
         return self._get_json_or_none("/health")
 
     def info(self) -> Optional[Dict[str, Any]]:
@@ -228,7 +228,7 @@ class AgentOSAPI:
                     try:
                         accounts.append(ServiceAccount.from_dict(item))
                     except KeyError as e:
-                        raise APIError("The AgentOS returned a malformed service account (missing " + str(e) + ").")
+                        raise APIError("The EgptOS returned a malformed service account (missing " + str(e) + ").")
             yield accounts
             meta = payload.get("meta") if isinstance(payload, dict) else None
             total_pages = (meta or {}).get("total_pages") if isinstance(meta, dict) else None
@@ -265,27 +265,27 @@ class AgentOSAPI:
                 + self.base_url
                 + " returned a non-JSON response (HTTP "
                 + str(response.status_code)
-                + ") - is this really an AgentOS?"
+                + ") - is this really an EgptOS?"
             )
 
     def _parse_account(self, response: httpx.Response) -> ServiceAccount:
         payload = self._parse_json(response)
         if not isinstance(payload, dict):
-            raise APIError("The AgentOS returned an unexpected service-account payload.")
+            raise APIError("The EgptOS returned an unexpected service-account payload.")
         try:
             return ServiceAccount.from_dict(payload)
         except KeyError as e:
-            raise APIError("The AgentOS returned a malformed service account (missing " + str(e) + ").")
+            raise APIError("The EgptOS returned a malformed service account (missing " + str(e) + ").")
 
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         try:
             response = self._client.request(method, path, headers=self._headers(), **kwargs)
         except httpx.HTTPError as e:
-            raise APIError("Could not reach the AgentOS at " + self.base_url + ": " + str(e)) from e
+            raise APIError("Could not reach the EgptOS at " + self.base_url + ": " + str(e)) from e
         if response.status_code in (401, 403):
             raise APIError(
-                "The AgentOS rejected the admin credential (" + _error_detail(response) + ").",
+                "The EgptOS rejected the admin credential (" + _error_detail(response) + ").",
                 status_code=response.status_code,
-                hint="Set AGNO_ADMIN_TOKEN (or OS_SECURITY_KEY) to a credential with admin access.",
+                hint="Set EGPT_ADMIN_TOKEN (or OS_SECURITY_KEY) to a credential with admin access.",
             )
         return response

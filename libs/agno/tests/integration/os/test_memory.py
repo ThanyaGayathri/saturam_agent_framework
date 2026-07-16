@@ -1,4 +1,4 @@
-"""Integration tests for the Memory routes in AgentOS."""
+"""Integration tests for the Memory routes in EgptOS."""
 
 
 def test_create_memory(test_os_client):

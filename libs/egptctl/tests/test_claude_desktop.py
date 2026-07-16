@@ -32,8 +32,8 @@ def test_write_creates_mcp_remote_bridge(tmp_path: Path):
     assert entry["command"] == "npx"
     # URL is bridged as a positional arg; the token rides an env var, not argv.
     assert entry["args"][:3] == ["-y", "mcp-remote", URL]
-    assert entry["args"][-2:] == ["--header", "Authorization:${AGNO_AUTH_HEADER}"]
-    assert entry["env"]["AGNO_AUTH_HEADER"] == "Bearer " + TOKEN
+    assert entry["args"][-2:] == ["--header", "Authorization:${EGPT_AUTH_HEADER}"]
+    assert entry["env"]["EGPT_AUTH_HEADER"] == "Bearer " + TOKEN
     assert (adapter.config_path.stat().st_mode & 0o777) == 0o600
 
 
@@ -165,7 +165,7 @@ def test_default_config_path_per_os(tmp_path: Path):
 
 def test_connect_configures_claude_desktop_end_to_end(monkeypatch, fake_os, tmp_path: Path):
     """Mint -> bridge write -> readback token match -> verify: the full connect coupling."""
-    monkeypatch.setenv("AGNO_ADMIN_TOKEN", fake_os.security_key)
+    monkeypatch.setenv("EGPT_ADMIN_TOKEN", fake_os.security_key)
     cfg = tmp_path / "claude_desktop_config.json"
 
     def build(home=None, cwd=None, project=False):
@@ -183,6 +183,6 @@ def test_connect_configures_claude_desktop_end_to_end(monkeypatch, fake_os, tmp_
     assert payload["results"][0]["verify"]["ok"] is True
 
     entry = json.loads(cfg.read_text())["mcpServers"]["agno"]
-    assert entry["env"]["AGNO_AUTH_HEADER"].startswith("Bearer agno_pat_")
+    assert entry["env"]["EGPT_AUTH_HEADER"].startswith("Bearer agno_pat_")
     # The minted token never leaks into the JSON report.
     assert fake_os.accounts["claude-desktop"]["token"] not in result.output

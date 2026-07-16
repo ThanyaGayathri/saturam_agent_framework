@@ -10,7 +10,7 @@ Each case runs the agent once, then optionally checks the response with
 `AgentAsJudgeEval` (when `criteria` is set) and `ReliabilityEval` (when
 `expected_tool_calls` is set).
 
-Both log to SQLite through `eval_db`. Connect AgentOS at os.agno.com to see history.
+Both log to SQLite through `eval_db`. Connect EgptOS at os.agno.com to see history.
 
 Exit 0 on all-pass, non-zero on any failure or error.
 """

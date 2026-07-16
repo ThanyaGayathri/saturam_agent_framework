@@ -77,7 +77,7 @@
 
 **Description:** Loads `https://docs.agno.com/` into ChromaDb (hybrid search, RRF), then answers "What is Agno?" by searching the knowledge base.
 
-**Result:** Knowledge load succeeded against the updated URL. Agent searched the knowledge base and returned a comprehensive answer covering Agno's SDK code example, AgentOS production APIs, control plane UI, and data-ownership story.
+**Result:** Knowledge load succeeded against the updated URL. Agent searched the knowledge base and returned a comprehensive answer covering Agno's SDK code example, EgptOS production APIs, control plane UI, and data-ownership story.
 
 **Note:** Original URL `https://docs.agno.com/introduction.md` was failing with `httpx.HTTPStatusError: 307 Temporary Redirect` to a broken target (`/.md`). Switched to `https://docs.agno.com/` in this run.
 

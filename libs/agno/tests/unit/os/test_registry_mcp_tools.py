@@ -1,9 +1,9 @@
 """
-Unit tests for AgentOS collection and startup connection of MCP tools
+Unit tests for EgptOS collection and startup connection of MCP tools
 declared on the registry.
 
 MCP toolkits in ``registry.tools`` are not attached to any agent, team or
-workflow, so they are not covered by the per-component collectors. AgentOS
+workflow, so they are not covered by the per-component collectors. EgptOS
 must still connect them in its lifespan: components created from registry
 tools (e.g. via StudioTool) serialize a toolkit's functions at persist time,
 and an unconnected MCP toolkit has none -- its tools would be silently and
@@ -16,14 +16,14 @@ the stubs below carry those names and the ``mcp`` package is not required.
 from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.registry import Registry
 from egpt.tools.function import Function
 from egpt.tools.toolkit import Toolkit
 
 
 class MCPTools(Toolkit):
-    """Stub with the MCPTools interface AgentOS relies on: name-based
+    """Stub with the MCPTools interface EgptOS relies on: name-based
     detection, async connect()/close(), and functions that only exist after
     connect."""
 
@@ -65,7 +65,7 @@ class TestRegistryMCPToolCollection:
         mcp_tool = MCPTools()
         registry = Registry(tools=[mcp_tool])
 
-        os = AgentOS(agents=[_agent()], registry=registry, telemetry=False)
+        os = EgptOS(agents=[_agent()], registry=registry, telemetry=False)
 
         assert mcp_tool in os.mcp_tools
 
@@ -73,7 +73,7 @@ class TestRegistryMCPToolCollection:
         multi = MultiMCPTools()
         registry = Registry(tools=[multi])
 
-        os = AgentOS(agents=[_agent()], registry=registry, telemetry=False)
+        os = EgptOS(agents=[_agent()], registry=registry, telemetry=False)
 
         assert multi in os.mcp_tools
 
@@ -81,7 +81,7 @@ class TestRegistryMCPToolCollection:
         plain = Toolkit(name="plain_toolkit")
         registry = Registry(tools=[plain])
 
-        os = AgentOS(agents=[_agent()], registry=registry, telemetry=False)
+        os = EgptOS(agents=[_agent()], registry=registry, telemetry=False)
 
         assert plain not in os.mcp_tools
 
@@ -90,13 +90,13 @@ class TestRegistryMCPToolCollection:
         agent = Agent(name="MCP Agent", id="mcp-agent", tools=[mcp_tool], telemetry=False)
         registry = Registry(tools=[mcp_tool])
 
-        os = AgentOS(agents=[agent], registry=registry, telemetry=False)
+        os = EgptOS(agents=[agent], registry=registry, telemetry=False)
 
         assert os.mcp_tools.count(mcp_tool) == 1
 
     def test_mcp_tool_added_to_registry_after_init_is_collected_by_get_app(self):
         registry = Registry()
-        os = AgentOS(agents=[_agent()], registry=registry, telemetry=False)
+        os = EgptOS(agents=[_agent()], registry=registry, telemetry=False)
         late = MCPTools(name="late_mcp")
         registry.tools.append(late)
 
@@ -111,7 +111,7 @@ class TestRegistryMCPToolStartup:
         functions exist before any Studio operation persists a component."""
         mcp_tool = MCPTools()
         registry = Registry(tools=[mcp_tool])
-        os = AgentOS(agents=[_agent()], registry=registry, telemetry=False)
+        os = EgptOS(agents=[_agent()], registry=registry, telemetry=False)
 
         app = os.get_app()
         assert not mcp_tool.connected

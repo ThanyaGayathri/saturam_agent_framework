@@ -1,5 +1,5 @@
 """
-System Tests for AgentOS Health and Config Routes.
+System Tests for EgptOS Health and Config Routes.
 
 Run with: pytest test_config_routes.py -v --tb=short
 """

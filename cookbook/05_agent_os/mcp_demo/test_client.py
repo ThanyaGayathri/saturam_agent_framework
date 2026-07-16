@@ -1,13 +1,13 @@
 """
-MCP client example: an agent that operates an AgentOS through its MCP server.
+MCP client example: an agent that operates an EgptOS through its MCP server.
 
-First run the AgentOS with the MCP server enabled:
+First run the EgptOS with the MCP server enabled:
 
 ```bash
 .venvs/demo/bin/python cookbook/05_agent_os/mcp_demo/enable_mcp_example.py
 ```
 
-Then run this client in a second terminal. It connects to the AgentOS MCP server
+Then run this client in a second terminal. It connects to the EgptOS MCP server
 at /mcp and drives it through the 8 built-in tools: discover the OS
 (get_agentos_config), run components (run_agent / run_team / run_workflow),
 resolve pauses (continue_run), stop runs (cancel_run), and browse conversations
@@ -40,7 +40,7 @@ async def run_agent() -> None:
             model=OpenAIResponses(id="gpt-5.5"),
             tools=[mcp_tools],
             instructions=[
-                "You operate an AgentOS through its MCP tools.",
+                "You operate an EgptOS through its MCP tools.",
                 "Call get_agentos_config first to discover the agents, teams, and workflows you can run.",
                 "Use the run tools to delegate work, and the session tools to review past conversations.",
             ],
@@ -53,7 +53,7 @@ async def run_agent() -> None:
         )
 
         await agent.aprint_response(
-            input="Which agents do I have in my AgentOS?", stream=True, markdown=True
+            input="Which agents do I have in my EgptOS?", stream=True, markdown=True
         )
 
         # await agent.aprint_response(

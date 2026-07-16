@@ -26,11 +26,11 @@ from egpt.remote.base import RemoteDb
 from egpt.utils.log import log_info
 
 if TYPE_CHECKING:
-    from egpt.os.app import AgentOS
+    from egpt.os.app import EgptOS
 
 
 def get_database_router(
-    os: "AgentOS",
+    os: "EgptOS",
     settings: AgnoAPISettings = AgnoAPISettings(),
 ) -> APIRouter:
     """Create the database router with comprehensive OpenAPI documentation."""

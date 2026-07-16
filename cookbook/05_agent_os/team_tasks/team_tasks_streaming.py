@@ -1,7 +1,7 @@
-"""Team Task Streaming Demo with AgentOS
+"""Team Task Streaming Demo with EgptOS
 
-This example demonstrates how to expose a Team running in `tasks` mode via AgentOS.
-You can use the AgentOS API to send requests and test task streaming.
+This example demonstrates how to expose a Team running in `tasks` mode via EgptOS.
+You can use the EgptOS API to send requests and test task streaming.
 
 Usage:
     uv run cookbook/05_agent_os/team_tasks_streaming.py
@@ -15,7 +15,7 @@ Usage:
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.mode import TeamMode
 from egpt.team.team import Team
 
@@ -71,10 +71,10 @@ team = Team(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS
+# EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     name="Team Tasks Streaming Demo",
     teams=[team],
 )

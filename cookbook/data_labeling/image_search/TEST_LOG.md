@@ -29,13 +29,13 @@ through `Knowledge.insert(text_content=..., metadata=...)`, `get_content()`,
 
 ---
 
-### AgentOS endpoints
+### EgptOS endpoints
 
 **Status:** PASS
 
 - `GET /ui` → 200 with index.html.
   - Note: `StaticFiles(html=True)` mounted at `/ui` redirect-loops because
-    AgentOS's `TrailingSlashMiddleware` strips the slash StaticFiles uses
+    EgptOS's `TrailingSlashMiddleware` strips the slash StaticFiles uses
     for index-resolution. Resolved by registering an explicit
     `@base_app.get("/ui")` returning `FileResponse`.
 - `GET /knowledge/content` → paginated list with `metadata` per item.

@@ -1,4 +1,4 @@
-"""Tests for database migration endpoints in AgentOS."""
+"""Tests for database migration endpoints in EgptOS."""
 
 import os
 import tempfile
@@ -13,7 +13,7 @@ from sqlalchemy.types import JSON
 from egpt.agent.agent import Agent
 from egpt.db.migrations.manager import MigrationManager
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 LATEST_SCHEMA_VERSION = MigrationManager.available_versions[-1][1].public
 
@@ -166,14 +166,14 @@ def old_schema_dbs(temp_db_file):
 
 @pytest.fixture
 def os_client_with_old_schema_dbs(old_schema_dbs):
-    """Create an AgentOS with multiple agents having different DBs with old schema."""
+    """Create an EgptOS with multiple agents having different DBs with old schema."""
     dbs = old_schema_dbs["dbs"]
 
     agent1 = Agent(name="agent-1", id="agent-1-id", db=dbs[0])
     agent2 = Agent(name="agent-2", id="agent-2-id", db=dbs[1])
     agent3 = Agent(name="agent-3", id="agent-3-id", db=dbs[2])
 
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id="test-os",
         agents=[agent1, agent2, agent3],
     )
@@ -355,7 +355,7 @@ def test_migrate_all_dbs_partial_failure(temp_db_file):
     agent_good = Agent(name="agent-good", id="agent-good-id", db=db_good)
     agent_bad = Agent(name="agent-bad", id="agent-bad-id", db=db_bad)
 
-    agent_os = AgentOS(id="test-os", agents=[agent_good, agent_bad])
+    agent_os = EgptOS(id="test-os", agents=[agent_good, agent_bad])
     app = agent_os.get_app()
     client = TestClient(app)
 

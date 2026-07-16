@@ -2,7 +2,7 @@
 Slack Team HITL — Team Tool Confirmation (Simple)
 ==================================================
 
-Simple port of AgentOS human_in_the_loop/team/team_tool_confirmation.py.
+Simple port of EgptOS human_in_the_loop/team/team_tool_confirmation.py.
 
 The confirmation-required tool is on the team itself (not a member agent).
 When the team leader decides to use the tool, the run pauses and Slack shows
@@ -17,7 +17,7 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.team import Team
 from egpt.tools import tool
@@ -63,7 +63,7 @@ team = Team(
     telemetry=False,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Slack Team HITL — team tool confirmation (simple)",
     teams=[team],
     db=db,

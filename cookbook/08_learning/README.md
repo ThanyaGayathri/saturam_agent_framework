@@ -19,7 +19,7 @@ LearningMachine is a unified learning system that enables agents to learn from e
 
 ```python
 from agno.agent import Agent
-from agno.db.postgres import PostgresDb
+from egpt.db.postgres import PostgresDb
 from agno.models.openai import OpenAIResponses
 
 # Setup
@@ -92,7 +92,7 @@ cookbook/08_learning/
 │   ├── 01_basic_decision_log.py
 │   └── 02_decision_log_always.py
 │
-└── 10_demo/                # AgentOS demo: browse learnings in the UI
+└── 10_demo/                # EgptOS demo: browse learnings in the UI
     ├── agents.py
     ├── seed.py
     └── run.py
@@ -241,7 +241,7 @@ See also: **Memories Store** for unstructured observations that don't fit fields
 
 ```python
 from agno.agent import Agent
-from agno.db.postgres import PostgresDb
+from egpt.db.postgres import PostgresDb
 from agno.learn import LearningMachine, UserProfileConfig
 
 agent = Agent(
@@ -443,9 +443,9 @@ learning = LearningMachine(
 )
 ```
 
-## View Learnings in AgentOS
+## View Learnings in EgptOS
 
-Everything the learning system captures is browsable in the AgentOS UI and over REST. AgentOS exposes `/learnings` CRUD endpoints backed by the `agno_learnings` table, and [os.agno.com](https://os.agno.com) renders them as dedicated Learning pages: User Profiles, User Memories, Entity Memories, Session Context, and Decision Logs.
+Everything the learning system captures is browsable in the EgptOS UI and over REST. EgptOS exposes `/learnings` CRUD endpoints backed by the `agno_learnings` table, and [os.agno.com](https://os.agno.com) renders them as dedicated Learning pages: User Profiles, User Memories, Entity Memories, Session Context, and Decision Logs.
 
 Try it with the demo in this cookbook:
 
@@ -453,7 +453,7 @@ Try it with the demo in this cookbook:
 # Seed every learning store with real conversations
 .venvs/demo/bin/python cookbook/08_learning/10_demo/seed.py
 
-# Serve the AgentOS app, then connect at os.agno.com
+# Serve the EgptOS app, then connect at os.agno.com
 .venvs/demo/bin/python cookbook/08_learning/10_demo/run.py
 ```
 

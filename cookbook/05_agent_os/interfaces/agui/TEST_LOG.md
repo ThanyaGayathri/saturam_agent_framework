@@ -8,7 +8,7 @@
 
 **Description:** Agent With Media - AG-UI agent (Google Gemini) that accepts multimodal user input.
 
-**Result:** AgentOS boots with the AG-UI interface; /config returns 200. Media sent through POST /agui reaches the Gemini agent, which describes it accurately - verified with an image via CLI and interactively in a browser. Multimodal input path verified end-to-end.
+**Result:** EgptOS boots with the AG-UI interface; /config returns 200. Media sent through POST /agui reaches the Gemini agent, which describes it accurately - verified with an image via CLI and interactively in a browser. Multimodal input path verified end-to-end.
 
 ---
 

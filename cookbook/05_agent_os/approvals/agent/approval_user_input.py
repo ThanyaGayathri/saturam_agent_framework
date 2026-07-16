@@ -11,7 +11,7 @@ from egpt.agent import Agent
 from egpt.approval import approval
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools import tool
 
 DB_FILE = "tmp/approvals_test.db"
@@ -66,7 +66,7 @@ if __name__ == "__main__":
         markdown=True,
         db=db,
     )
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example app for approvals with user input",
     agents=[
         agent,

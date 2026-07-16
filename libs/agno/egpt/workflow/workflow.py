@@ -1,7 +1,6 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
-from os import getenv
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -23,6 +22,8 @@ from uuid import uuid4
 
 from fastapi import WebSocket
 from pydantic import BaseModel
+
+from egpt.utils.env import get_branded_env, get_branded_env_bool
 
 if TYPE_CHECKING:
     from egpt.os.managers import WebSocketHandler
@@ -451,7 +452,7 @@ class Workflow:
     # Number of historical runs to include in the messages
     num_history_runs: int = 3
 
-    # If True, run hooks as FastAPI background tasks (non-blocking). Set by AgentOS.
+    # If True, run hooks as FastAPI background tasks (non-blocking). Set by EgptOS.
     _run_hooks_in_background: bool = False
 
     def __init__(
@@ -1870,10 +1871,12 @@ class Workflow:
 
     def _set_debug(self) -> None:
         """Set debug mode and configure logging"""
-        if self.debug_mode or getenv("AGNO_DEBUG", "false").lower() == "true":
+        if self.debug_mode or get_branded_env_bool("DEBUG"):
             use_workflow_logger()
             debug_level: Literal[1, 2] = (
-                cast(Literal[1, 2], int(env)) if (env := getenv("AGNO_DEBUG_LEVEL")) in ("1", "2") else self.debug_level
+                cast(Literal[1, 2], int(env))
+                if (env := get_branded_env("DEBUG_LEVEL")) in ("1", "2")
+                else self.debug_level
             )
 
             self.debug_mode = True
@@ -1894,7 +1897,7 @@ class Workflow:
     def _set_telemetry(self) -> None:
         """Override telemetry settings based on environment variables."""
 
-        telemetry_env = getenv("AGNO_TELEMETRY")
+        telemetry_env = get_branded_env("TELEMETRY")
         if telemetry_env is not None:
             self.telemetry = telemetry_env.lower() == "true"
 

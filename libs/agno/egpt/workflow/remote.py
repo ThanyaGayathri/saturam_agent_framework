@@ -31,7 +31,7 @@ class RemoteWorkflow(BaseRemote):
         """Initialize RemoteWorkflow for remote execution.
 
         Supports two protocols:
-        - "agentos": Agno's proprietary AgentOS REST API (default)
+        - "agentos": Agno's proprietary EgptOS REST API (default)
         - "a2a": A2A (Agent-to-Agent) protocol for cross-framework communication
 
         Args:
@@ -66,7 +66,7 @@ class RemoteWorkflow(BaseRemote):
                 description=agent_card.description if agent_card else f"A2A workflow: {self.workflow_id}",
             )
 
-        # AgentOS protocol: fetch fresh config from remote
+        # EgptOS protocol: fetch fresh config from remote
         return await self.agentos_client.aget_workflow(self.workflow_id)  # type: ignore
 
     @property
@@ -216,7 +216,7 @@ class RemoteWorkflow(BaseRemote):
                 headers=headers,
             )
 
-        # AgentOS protocol path (default)
+        # EgptOS protocol path (default)
         if self.agentos_client:
             if stream:
                 # Handle streaming response
@@ -351,7 +351,7 @@ class RemoteWorkflow(BaseRemote):
         auth_token: Optional[str] = None,
         **kwargs: Any,
     ) -> Union[WorkflowRunOutput, AsyncIterator[WorkflowRunOutputEvent]]:
-        """Continue a paused workflow run via AgentOS API.
+        """Continue a paused workflow run via EgptOS API.
 
         Args:
             run_response: The paused WorkflowRunOutput (used to extract run_id/session_id/requirements)

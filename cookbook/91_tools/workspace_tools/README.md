@@ -2,7 +2,7 @@
 
 A polished local-machine toolkit. Read / write / edit / move / delete / search /
 shell, scoped to a `root` directory (paths that resolve outside it are rejected).
-Destructive operations require human confirmation by default — AgentOS renders
+Destructive operations require human confirmation by default — EgptOS renders
 these as approval cards in the run timeline; in a plain console you drive the
 loop yourself.
 

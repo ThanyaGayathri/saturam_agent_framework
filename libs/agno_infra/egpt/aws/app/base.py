@@ -179,8 +179,8 @@ class AwsApp(InfraApp):
 
     def get_container_env(self, container_context: ContainerContext, build_context: AwsBuildContext) -> Dict[str, str]:
         from egpt.constants import (
-            AGNO_INFRA_ROOT,
-            AGNO_RUNTIME_ENV_VAR,
+            EGPT_INFRA_ROOT,
+            EGPT_RUNTIME_ENV_VAR,
             PYTHONPATH_ENV_VAR,
             REQUIREMENTS_FILE_PATH_ENV_VAR,
         )
@@ -191,9 +191,9 @@ class AwsApp(InfraApp):
             {
                 "INSTALL_REQUIREMENTS": str(self.install_requirements),
                 "PRINT_ENV_ON_LOAD": str(self.print_env_on_load),
-                AGNO_RUNTIME_ENV_VAR: "ecs",
+                EGPT_RUNTIME_ENV_VAR: "ecs",
                 REQUIREMENTS_FILE_PATH_ENV_VAR: container_context.requirements_file or "",
-                AGNO_INFRA_ROOT: container_context.infra_root or "",
+                EGPT_INFRA_ROOT: container_context.infra_root or "",
             }
         )
 

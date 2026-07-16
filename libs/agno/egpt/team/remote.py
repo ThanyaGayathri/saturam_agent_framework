@@ -36,7 +36,7 @@ class RemoteTeam(BaseRemote):
         """Initialize RemoteTeam for remote execution.
 
         Supports two protocols:
-        - "agentos": Agno's proprietary AgentOS REST API (default)
+        - "agentos": Agno's proprietary EgptOS REST API (default)
         - "a2a": A2A (Agent-to-Agent) protocol for cross-framework communication
 
         Args:
@@ -59,7 +59,7 @@ class RemoteTeam(BaseRemote):
         """
         Get the team config from remote.
 
-        - For AgentOS protocol, always fetches fresh config from the remote.
+        - For EgptOS protocol, always fetches fresh config from the remote.
         - For A2A protocol, returns a minimal TeamResponse because A2A servers
           do not expose detailed config endpoints.
 
@@ -79,7 +79,7 @@ class RemoteTeam(BaseRemote):
                 description=agent_card.description if agent_card else f"A2A team: {self.team_id}",
             )
 
-        # Fetch fresh config from remote for AgentOS
+        # Fetch fresh config from remote for EgptOS
         return await self.agentos_client.aget_team(self.team_id)  # type: ignore
 
     @property
@@ -88,7 +88,7 @@ class RemoteTeam(BaseRemote):
         Get the team config from remote, cached with TTL.
 
         - Returns None for A2A protocol (no config available).
-        - For AgentOS protocol, uses TTL caching for efficiency.
+        - For EgptOS protocol, uses TTL caching for efficiency.
         """
         import time
 
@@ -193,7 +193,7 @@ class RemoteTeam(BaseRemote):
 
     @property
     def model(self) -> Optional[Model]:
-        # We don't expose the remote team's models, since they can't be used by other services in AgentOS.
+        # We don't expose the remote team's models, since they can't be used by other services in EgptOS.
         return None
 
     @property
@@ -293,7 +293,7 @@ class RemoteTeam(BaseRemote):
                 headers=headers,
             )
 
-        # AgentOS protocol path (default)
+        # EgptOS protocol path (default)
         if self.agentos_client:
             if stream:
                 # Handle streaming response

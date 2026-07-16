@@ -1,12 +1,12 @@
 """Integration tests for JWT middleware with RBAC (scope-based authorization).
 
-This test suite validates the AgentOS RBAC system using simplified scopes:
+This test suite validates the EgptOS RBAC system using simplified scopes:
 - Global resource: resource:action
 - Per-resource: resource:<resource-id>:action
 - Wildcards: resource:*:action
 - Admin: agent_os:admin - Full access to everything
 
-The AgentOS ID is verified via the JWT `aud` (audience) claim.
+The EgptOS ID is verified via the JWT `aud` (audience) claim.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.os.middleware import JWTMiddleware, TokenSource
 from egpt.team.team import Team
@@ -135,7 +135,7 @@ def create_jwt_token(
 
 def test_valid_scope_grants_access(test_agent):
     """Test that having the correct scope grants access."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -158,7 +158,7 @@ def test_valid_scope_grants_access(test_agent):
 
 def test_missing_scope_denies_access(test_agent):
     """Test that missing required scope denies access."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -183,7 +183,7 @@ def test_missing_scope_denies_access(test_agent):
 
 def test_admin_scope_grants_full_access(test_agent):
     """Test that admin scope bypasses all scope checks."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -213,7 +213,7 @@ def test_admin_scope_grants_full_access(test_agent):
 
 def test_wildcard_resource_grants_all_agents(test_agent):
     """Test that wildcard resource scope grants access to all agents."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -247,8 +247,8 @@ def test_wildcard_resource_grants_all_agents(test_agent):
 
 
 def test_audience_verification(test_agent):
-    """Test that audience claim is verified against AgentOS ID when verify_audience is enabled."""
-    agent_os = AgentOS(
+    """Test that audience claim is verified against EgptOS ID when verify_audience is enabled."""
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -287,7 +287,7 @@ def test_audience_verification(test_agent):
 
 def test_per_resource_scope(test_agent, second_agent):
     """Test per-resource scopes for specific agents."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         authorization=True,
@@ -324,7 +324,7 @@ def test_per_resource_scope(test_agent, second_agent):
 
 def test_get_agent_by_id_with_specific_scope(test_agent, second_agent):
     """Test that GET /agents/{id} works with specific resource-level scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         authorization=True,
@@ -356,7 +356,7 @@ def test_get_agent_by_id_with_specific_scope(test_agent, second_agent):
 
 def test_get_agent_by_id_with_global_scope(test_agent, second_agent):
     """Test that GET /agents/{id} works with global agents:read scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         authorization=True,
@@ -387,7 +387,7 @@ def test_get_agent_by_id_with_global_scope(test_agent, second_agent):
 
 def test_get_agent_by_id_with_wildcard_scope(test_agent, second_agent):
     """Test that GET /agents/{id} works with wildcard agents:*:read scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         authorization=True,
@@ -418,7 +418,7 @@ def test_get_agent_by_id_with_wildcard_scope(test_agent, second_agent):
 
 def test_get_agent_by_id_with_admin_scope(test_agent, second_agent):
     """Test that GET /agents/{id} works with admin scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         authorization=True,
@@ -449,7 +449,7 @@ def test_get_agent_by_id_with_admin_scope(test_agent, second_agent):
 
 def test_get_agent_by_id_without_scope(test_agent):
     """Test that GET /agents/{id} is denied without proper scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -473,7 +473,7 @@ def test_get_agent_by_id_without_scope(test_agent):
 
 def test_get_agent_by_id_with_wrong_specific_scope(test_agent, second_agent):
     """Test that GET /agents/{id} is denied with scope for different agent."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         authorization=True,
@@ -505,7 +505,7 @@ def test_get_agent_by_id_with_wrong_specific_scope(test_agent, second_agent):
 
 def test_global_resource_scope(test_agent, second_agent):
     """Test that global resource scope grants access to all resources of that type."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         authorization=True,
@@ -548,7 +548,7 @@ def test_global_resource_scope(test_agent, second_agent):
 
 def test_excluded_routes_skip_jwt(test_agent):
     """Test that excluded routes (health) don't require JWT."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -569,7 +569,7 @@ def test_excluded_routes_skip_jwt(test_agent):
 
 def test_expired_token_rejected(test_agent):
     """Test that expired tokens are rejected."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -606,7 +606,7 @@ def test_expired_token_rejected(test_agent):
 
 def test_missing_token_returns_401(test_agent):
     """Test that missing JWT token returns 401 when authorization is enabled."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -625,7 +625,7 @@ def test_missing_token_returns_401(test_agent):
 
 def test_invalid_token_format(test_agent):
     """Test that invalid JWT token format is rejected."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -647,7 +647,7 @@ def test_invalid_token_format(test_agent):
 
 def test_token_from_cookie(test_agent):
     """Test JWT extraction from cookie instead of header."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -677,7 +677,7 @@ def test_token_from_cookie(test_agent):
 
 def test_dependencies_claims_extraction(test_agent):
     """Test that custom dependencies claims are extracted from JWT."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -714,7 +714,7 @@ def test_dependencies_claims_extraction(test_agent):
 
 def test_session_state_claims_extraction(test_agent):
     """Test that session state claims are extracted from JWT."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -749,7 +749,7 @@ def test_session_state_claims_extraction(test_agent):
 
 def test_config_scope(test_agent):
     """Test config-level scope for reading configuration."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -766,7 +766,7 @@ def test_config_scope(test_agent):
 
 def test_legacy_system_scope_still_grants_config_access(test_agent):
     """Legacy `system:*` scopes are aliased to `config:*` for backwards compatibility."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -787,7 +787,7 @@ def test_registry_scope_required_for_registry_endpoint(test_agent, shared_db):
     from egpt.registry import Registry
 
     registry = Registry()
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         db=shared_db,
@@ -819,7 +819,7 @@ def test_registry_scope_required_for_registry_endpoint(test_agent, shared_db):
 
 
 def _components_client(test_agent, shared_db):
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         db=shared_db,
@@ -925,7 +925,7 @@ def test_components_admin_scope_grants_full_access(test_agent, shared_db):
 
 def test_different_audience_blocks_access(test_agent):
     """Test that tokens with different audience (OS ID) don't grant access when verify_audience is enabled."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -956,7 +956,7 @@ def test_different_audience_blocks_access(test_agent):
 
 def test_agent_filtering_with_global_scope(test_agent, second_agent, third_agent):
     """Test that global agents:read scope returns all agents."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent, third_agent],
         authorization=True,
@@ -983,7 +983,7 @@ def test_agent_filtering_with_global_scope(test_agent, second_agent, third_agent
 
 def test_agent_filtering_with_wildcard_scope(test_agent, second_agent, third_agent):
     """Test that agents:*:read wildcard scope returns all agents."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent, third_agent],
         authorization=True,
@@ -1010,7 +1010,7 @@ def test_agent_filtering_with_wildcard_scope(test_agent, second_agent, third_age
 
 def test_agent_filtering_with_specific_scope(test_agent, second_agent, third_agent):
     """Test that specific agent scope returns only that agent."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent, third_agent],
         authorization=True,
@@ -1036,7 +1036,7 @@ def test_agent_filtering_with_specific_scope(test_agent, second_agent, third_age
 
 def test_agent_filtering_with_multiple_specific_scopes(test_agent, second_agent, third_agent):
     """Test that multiple specific scopes return only those agents."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent, third_agent],
         authorization=True,
@@ -1068,7 +1068,7 @@ def test_agent_filtering_with_multiple_specific_scopes(test_agent, second_agent,
 
 def test_agent_run_blocked_without_specific_scope(test_agent, second_agent):
     """Test that running an agent is blocked without specific run scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         authorization=True,
@@ -1107,7 +1107,7 @@ def test_agent_run_blocked_without_specific_scope(test_agent, second_agent):
 
 def test_agent_run_with_wildcard_scope(test_agent, second_agent):
     """Test that wildcard run scope allows running any agent."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         authorization=True,
@@ -1143,7 +1143,7 @@ def test_agent_run_with_wildcard_scope(test_agent, second_agent):
 
 def test_agent_run_with_global_scope(test_agent, second_agent):
     """Test that global run scope allows running any agent."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         authorization=True,
@@ -1184,7 +1184,7 @@ def test_agent_run_with_global_scope(test_agent, second_agent):
 
 def test_team_filtering_with_global_scope(test_team, second_team):
     """Test that global teams:read scope returns all teams."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team, second_team],
         authorization=True,
@@ -1211,7 +1211,7 @@ def test_team_filtering_with_global_scope(test_team, second_team):
 
 def test_team_filtering_with_wildcard_scope(test_team, second_team):
     """Test that teams:*:read wildcard scope returns all teams."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team, second_team],
         authorization=True,
@@ -1238,7 +1238,7 @@ def test_team_filtering_with_wildcard_scope(test_team, second_team):
 
 def test_team_filtering_with_specific_scope(test_team, second_team):
     """Test that specific team scope returns only that team."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team, second_team],
         authorization=True,
@@ -1264,7 +1264,7 @@ def test_team_filtering_with_specific_scope(test_team, second_team):
 
 def test_get_team_by_id_with_specific_scope(test_team, second_team):
     """Test that GET /teams/{id} works with specific resource-level scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team, second_team],
         authorization=True,
@@ -1296,7 +1296,7 @@ def test_get_team_by_id_with_specific_scope(test_team, second_team):
 
 def test_get_team_by_id_with_global_scope(test_team, second_team):
     """Test that GET /teams/{id} works with global teams:read scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team, second_team],
         authorization=True,
@@ -1327,7 +1327,7 @@ def test_get_team_by_id_with_global_scope(test_team, second_team):
 
 def test_get_team_by_id_with_wildcard_scope(test_team, second_team):
     """Test that GET /teams/{id} works with wildcard teams:*:read scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team, second_team],
         authorization=True,
@@ -1358,7 +1358,7 @@ def test_get_team_by_id_with_wildcard_scope(test_team, second_team):
 
 def test_get_team_by_id_with_admin_scope(test_team, second_team):
     """Test that GET /teams/{id} works with admin scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team, second_team],
         authorization=True,
@@ -1389,7 +1389,7 @@ def test_get_team_by_id_with_admin_scope(test_team, second_team):
 
 def test_get_team_by_id_without_scope(test_team):
     """Test that GET /teams/{id} is denied without proper scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team],
         authorization=True,
@@ -1413,7 +1413,7 @@ def test_get_team_by_id_without_scope(test_team):
 
 def test_get_team_by_id_with_wrong_specific_scope(test_team, second_team):
     """Test that GET /teams/{id} is denied with scope for different team."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team, second_team],
         authorization=True,
@@ -1445,7 +1445,7 @@ def test_get_team_by_id_with_wrong_specific_scope(test_team, second_team):
 
 def test_team_run_blocked_without_specific_scope(test_team, second_team):
     """Test that running a team is blocked without specific run scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team, second_team],
         authorization=True,
@@ -1484,7 +1484,7 @@ def test_team_run_blocked_without_specific_scope(test_team, second_team):
 
 def test_team_run_with_wildcard_scope(test_team, second_team):
     """Test that wildcard run scope allows running any team."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team, second_team],
         authorization=True,
@@ -1520,7 +1520,7 @@ def test_team_run_with_wildcard_scope(test_team, second_team):
 
 def test_team_run_with_global_scope(test_team, second_team):
     """Test that global run scope allows running any team."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team, second_team],
         authorization=True,
@@ -1561,7 +1561,7 @@ def test_team_run_with_global_scope(test_team, second_team):
 
 def test_workflow_filtering_with_global_scope(test_workflow, second_workflow):
     """Test that global workflows:read scope returns all workflows."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow, second_workflow],
         authorization=True,
@@ -1588,7 +1588,7 @@ def test_workflow_filtering_with_global_scope(test_workflow, second_workflow):
 
 def test_workflow_filtering_with_wildcard_scope(test_workflow, second_workflow):
     """Test that workflows:*:read wildcard scope returns all workflows."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow, second_workflow],
         authorization=True,
@@ -1615,7 +1615,7 @@ def test_workflow_filtering_with_wildcard_scope(test_workflow, second_workflow):
 
 def test_workflow_filtering_with_specific_scope(test_workflow, second_workflow):
     """Test that specific workflow scope returns only that workflow."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow, second_workflow],
         authorization=True,
@@ -1641,7 +1641,7 @@ def test_workflow_filtering_with_specific_scope(test_workflow, second_workflow):
 
 def test_get_workflow_by_id_with_specific_scope(test_workflow, second_workflow):
     """Test that GET /workflows/{id} works with specific resource-level scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow, second_workflow],
         authorization=True,
@@ -1673,7 +1673,7 @@ def test_get_workflow_by_id_with_specific_scope(test_workflow, second_workflow):
 
 def test_get_workflow_by_id_with_global_scope(test_workflow, second_workflow):
     """Test that GET /workflows/{id} works with global workflows:read scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow, second_workflow],
         authorization=True,
@@ -1704,7 +1704,7 @@ def test_get_workflow_by_id_with_global_scope(test_workflow, second_workflow):
 
 def test_get_workflow_by_id_with_wildcard_scope(test_workflow, second_workflow):
     """Test that GET /workflows/{id} works with wildcard workflows:*:read scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow, second_workflow],
         authorization=True,
@@ -1735,7 +1735,7 @@ def test_get_workflow_by_id_with_wildcard_scope(test_workflow, second_workflow):
 
 def test_get_workflow_by_id_with_admin_scope(test_workflow, second_workflow):
     """Test that GET /workflows/{id} works with admin scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow, second_workflow],
         authorization=True,
@@ -1766,7 +1766,7 @@ def test_get_workflow_by_id_with_admin_scope(test_workflow, second_workflow):
 
 def test_get_workflow_by_id_without_scope(test_workflow):
     """Test that GET /workflows/{id} is denied without proper scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow],
         authorization=True,
@@ -1790,7 +1790,7 @@ def test_get_workflow_by_id_without_scope(test_workflow):
 
 def test_get_workflow_by_id_with_wrong_specific_scope(test_workflow, second_workflow):
     """Test that GET /workflows/{id} is denied with scope for different workflow."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow, second_workflow],
         authorization=True,
@@ -1822,7 +1822,7 @@ def test_get_workflow_by_id_with_wrong_specific_scope(test_workflow, second_work
 
 def test_workflow_run_blocked_without_specific_scope(test_workflow, second_workflow):
     """Test that running a workflow is blocked without specific run scope."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow, second_workflow],
         authorization=True,
@@ -1861,7 +1861,7 @@ def test_workflow_run_blocked_without_specific_scope(test_workflow, second_workf
 
 def test_workflow_run_with_wildcard_scope(test_workflow, second_workflow):
     """Test that wildcard run scope allows running any workflow."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow, second_workflow],
         authorization=True,
@@ -1897,7 +1897,7 @@ def test_workflow_run_with_wildcard_scope(test_workflow, second_workflow):
 
 def test_workflow_run_with_global_scope(test_workflow, second_workflow):
     """Test that global run scope allows running any workflow."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow, second_workflow],
         authorization=True,
@@ -1938,7 +1938,7 @@ def test_workflow_run_with_global_scope(test_workflow, second_workflow):
 
 def test_mixed_resource_filtering(test_agent, second_agent, test_team, second_team, test_workflow, second_workflow):
     """Test filtering with mixed resource types and granular scopes."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         teams=[test_team, second_team],
@@ -1997,7 +1997,7 @@ def test_mixed_resource_filtering(test_agent, second_agent, test_team, second_te
 
 def test_no_access_to_resource_type(test_agent, test_team, test_workflow):
     """Test that users without any scope for a resource type get 403."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         teams=[test_team],
@@ -2041,7 +2041,7 @@ def test_no_access_to_resource_type(test_agent, test_team, test_workflow):
 
 def test_admin_sees_all_resources(test_agent, second_agent, test_team, test_workflow):
     """Test that admin scope grants access to all resources of all types."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         teams=[test_team],
@@ -2110,7 +2110,7 @@ def test_admin_sees_all_resources(test_agent, second_agent, test_team, test_work
 
 def test_traces_access_with_valid_scope(test_agent):
     """Test that traces:read scope grants access to traces endpoints."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -2133,7 +2133,7 @@ def test_traces_access_with_valid_scope(test_agent):
 
 def test_traces_access_denied_without_scope(test_agent):
     """Test that missing traces:read scope denies access to traces endpoints."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -2157,7 +2157,7 @@ def test_traces_access_denied_without_scope(test_agent):
 
 def test_traces_admin_access(test_agent):
     """Test that admin scope grants access to traces endpoints."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -2180,7 +2180,7 @@ def test_traces_admin_access(test_agent):
 
 def test_trace_detail_access_with_valid_scope(test_agent):
     """Test that traces:read scope grants access to trace detail endpoint."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -2204,7 +2204,7 @@ def test_trace_detail_access_with_valid_scope(test_agent):
 
 def test_trace_detail_access_denied_without_scope(test_agent):
     """Test that missing traces:read scope denies access to trace detail endpoint."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -2227,7 +2227,7 @@ def test_trace_detail_access_denied_without_scope(test_agent):
 
 def test_trace_session_stats_access_with_valid_scope(test_agent):
     """Test that traces:read scope grants access to trace session stats endpoint."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -2250,7 +2250,7 @@ def test_trace_session_stats_access_with_valid_scope(test_agent):
 
 def test_trace_session_stats_access_denied_without_scope(test_agent):
     """Test that missing traces:read scope denies access to trace session stats endpoint."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -2273,7 +2273,7 @@ def test_trace_session_stats_access_denied_without_scope(test_agent):
 
 def test_traces_access_with_multiple_scopes(test_agent):
     """Test that users with both traces and agents scopes can access both."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -2308,7 +2308,7 @@ def test_traces_access_with_multiple_scopes(test_agent):
 
 def test_agent_cancel_with_run_scope(test_agent):
     """Test that agents:run scope grants access to cancel endpoint."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -2334,7 +2334,7 @@ def test_agent_cancel_with_run_scope(test_agent):
 
 def test_agent_cancel_blocked_without_run_scope(test_agent, second_agent):
     """Test that cancel is blocked without run scope for that agent."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         authorization=True,
@@ -2357,7 +2357,7 @@ def test_agent_cancel_blocked_without_run_scope(test_agent, second_agent):
 
 def test_agent_cancel_with_global_scope(test_agent):
     """Test that global agents:run scope grants access to cancel any agent."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -2382,7 +2382,7 @@ def test_agent_cancel_with_global_scope(test_agent):
 
 def test_agent_continue_with_run_scope(test_agent):
     """Test that agents:run scope grants access to continue endpoint."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -2407,7 +2407,7 @@ def test_agent_continue_with_run_scope(test_agent):
 
 def test_agent_continue_blocked_without_run_scope(test_agent, second_agent):
     """Test that continue is blocked without run scope for that agent."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         authorization=True,
@@ -2431,7 +2431,7 @@ def test_agent_continue_blocked_without_run_scope(test_agent, second_agent):
 
 def test_team_cancel_with_run_scope(test_team):
     """Test that teams:run scope grants access to cancel endpoint."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team],
         authorization=True,
@@ -2455,7 +2455,7 @@ def test_team_cancel_with_run_scope(test_team):
 
 def test_team_cancel_blocked_without_run_scope(test_team, second_team):
     """Test that cancel is blocked without run scope for that team."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team, second_team],
         authorization=True,
@@ -2478,7 +2478,7 @@ def test_team_cancel_blocked_without_run_scope(test_team, second_team):
 
 def test_team_cancel_with_global_scope(test_team):
     """Test that global teams:run scope grants access to cancel any team."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         teams=[test_team],
         authorization=True,
@@ -2502,7 +2502,7 @@ def test_team_cancel_with_global_scope(test_team):
 
 def test_workflow_cancel_with_run_scope(test_workflow):
     """Test that workflows:run scope grants access to cancel endpoint."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow],
         authorization=True,
@@ -2526,7 +2526,7 @@ def test_workflow_cancel_with_run_scope(test_workflow):
 
 def test_workflow_cancel_blocked_without_run_scope(test_workflow, second_workflow):
     """Test that cancel is blocked without run scope for that workflow."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow, second_workflow],
         authorization=True,
@@ -2549,7 +2549,7 @@ def test_workflow_cancel_blocked_without_run_scope(test_workflow, second_workflo
 
 def test_workflow_cancel_with_global_scope(test_workflow):
     """Test that global workflows:run scope grants access to cancel any workflow."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         workflows=[test_workflow],
         authorization=True,
@@ -2572,7 +2572,7 @@ def test_workflow_cancel_with_global_scope(test_workflow):
 
 def test_cancel_with_wildcard_scope(test_agent, second_agent):
     """Test that wildcard scope grants access to cancel any resource."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent, second_agent],
         authorization=True,
@@ -2602,7 +2602,7 @@ def test_cancel_with_wildcard_scope(test_agent, second_agent):
 
 def test_cancel_with_admin_scope(test_agent, test_team, test_workflow):
     """Test that admin scope grants access to cancel any resource type."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         teams=[test_team],
@@ -2776,7 +2776,7 @@ def create_rs256_token(
 
 def test_jwks_file_authentication(test_agent, rsa_key_pair, jwks_file):
     """Test JWT authentication using JWKS file."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -2808,7 +2808,7 @@ def test_jwks_file_authentication(test_agent, rsa_key_pair, jwks_file):
 
 def test_jwks_file_with_run_scope(test_agent, rsa_key_pair, jwks_file):
     """Test that JWKS-authenticated tokens work with run scopes."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -2841,7 +2841,7 @@ def test_jwks_file_with_run_scope(test_agent, rsa_key_pair, jwks_file):
 
 def test_jwks_file_without_kid(test_agent, rsa_key_pair, jwks_file_no_kid):
     """Test JWKS file with keys that don't have kid (uses _default)."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -2873,7 +2873,7 @@ def test_jwks_file_without_kid(test_agent, rsa_key_pair, jwks_file_no_kid):
 
 def test_jwks_file_wrong_kid_denied(test_agent, rsa_key_pair, jwks_file):
     """Test that tokens with non-matching kid are rejected."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -2909,7 +2909,7 @@ def test_jwks_file_invalid_signature_denied(test_agent, rsa_key_pair, jwks_file)
     from cryptography.hazmat.primitives import serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
 
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -2953,7 +2953,7 @@ def test_jwks_file_invalid_signature_denied(test_agent, rsa_key_pair, jwks_file)
 
 def test_jwks_file_not_found_raises_error(test_agent):
     """Test that non-existent JWKS file raises ValueError."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -2976,7 +2976,7 @@ def test_jwks_file_invalid_json_raises_error(test_agent, tmp_path):
     invalid_jwks = tmp_path / "invalid.json"
     invalid_jwks.write_text("not valid json {{{")
 
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -2995,7 +2995,7 @@ def test_jwks_file_invalid_json_raises_error(test_agent, tmp_path):
 
 def test_jwks_with_fallback_to_verification_keys(test_agent, rsa_key_pair, jwks_file):
     """Test that verification_keys are used as fallback when JWKS doesn't match."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -3028,7 +3028,7 @@ def test_jwks_env_variable(test_agent, rsa_key_pair, jwks_file, monkeypatch):
     # Set environment variable
     monkeypatch.setenv("JWT_JWKS_FILE", jwks_file)
 
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )
@@ -3065,7 +3065,7 @@ def test_jwks_parameter_takes_precedence_over_env(test_agent, rsa_key_pair, jwks
     # different kid, so a token minted with kid "test-key-1" only validates if
     # the jwks_file parameter (not the env file) is the source. The env file
     # must hold a real key: an empty key set fails JWTValidator's fail-closed
-    # construction inside AgentOS.get_app() before this test's middleware runs.
+    # construction inside EgptOS.get_app() before this test's middleware runs.
     with open(jwks_file) as f:
         env_jwks_data = json.load(f)
     env_jwks_data["keys"][0]["kid"] = "env-key-2"
@@ -3074,7 +3074,7 @@ def test_jwks_parameter_takes_precedence_over_env(test_agent, rsa_key_pair, jwks
 
     monkeypatch.setenv("JWT_JWKS_FILE", str(env_jwks))
 
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
     )

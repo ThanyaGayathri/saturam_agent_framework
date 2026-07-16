@@ -18,7 +18,7 @@ from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.factory import RequestContext
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.workflow.factory import WorkflowFactory
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
@@ -79,10 +79,10 @@ content_pipeline_factory = WorkflowFactory(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS
+# EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="workflow-factory-demo",
     description="Demo: basic workflow factory",
     workflows=[content_pipeline_factory],

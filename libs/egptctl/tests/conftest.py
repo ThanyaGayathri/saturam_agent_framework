@@ -1,4 +1,4 @@
-"""Test fixtures: an in-memory fake AgentOS served through httpx.MockTransport."""
+"""Test fixtures: an in-memory fake EgptOS served through httpx.MockTransport."""
 
 import json
 from typing import Any, Dict, List, Optional
@@ -7,8 +7,8 @@ import httpx
 import pytest
 
 
-class FakeAgentOS:
-    """Simulates the AgentOS endpoints the CLI touches.
+class FakeEgptOS:
+    """Simulates the EgptOS endpoints the CLI touches.
 
     auth_mode: "none" | "security_key" | "jwt"
     info_discovery: serve the mcp/auth_mode fields on /info (newer servers)
@@ -181,7 +181,7 @@ class FakeAgentOS:
                         "result": {
                             "protocolVersion": "2025-03-26",
                             "capabilities": {"tools": {}},
-                            "serverInfo": {"name": "FakeAgentOS", "version": self.agno_version},
+                            "serverInfo": {"name": "FakeEgptOS", "version": self.agno_version},
                         },
                     },
                     headers={"mcp-session-id": "fake-session-1"},
@@ -204,17 +204,17 @@ class FakeAgentOS:
 
 
 @pytest.fixture
-def fake_os(monkeypatch: pytest.MonkeyPatch) -> FakeAgentOS:
-    """A security-key-mode fake AgentOS wired into every CLI HTTP client."""
-    fake = FakeAgentOS()
+def fake_os(monkeypatch: pytest.MonkeyPatch) -> FakeEgptOS:
+    """A security-key-mode fake EgptOS wired into every CLI HTTP client."""
+    fake = FakeEgptOS()
     install_fake(monkeypatch, fake)
     return fake
 
 
-def install_fake(monkeypatch: pytest.MonkeyPatch, fake: FakeAgentOS) -> None:
+def install_fake(monkeypatch: pytest.MonkeyPatch, fake: FakeEgptOS) -> None:
     import egptctl.http as http_module
 
     monkeypatch.setattr(http_module, "_transport_override", fake.transport())
     # Keep host-machine credentials and URL overrides out of tests.
-    for var in ("AGNO_ADMIN_TOKEN", "OS_SECURITY_KEY", "AGENTOS_URL"):
+    for var in ("EGPT_ADMIN_TOKEN", "OS_SECURITY_KEY", "AGENTOS_URL"):
         monkeypatch.delenv(var, raising=False)

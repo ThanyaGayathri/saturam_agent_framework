@@ -940,7 +940,7 @@ async def test_refresh_connection_tool_call_closes_dynamic_session_without_cachi
 
 @pytest.mark.asyncio
 async def test_connect_public_does_not_raise_when_mcp_server_unreachable():
-    """connect() entrypoint used by the agent run loop and AgentOS /agents endpoint.
+    """connect() entrypoint used by the agent run loop and EgptOS /agents endpoint.
     If the MCP server is down it must NOT raise"""
     tools = MCPTools(
         server_params=StreamableHTTPClientParams(url="http://localhost:8080/mcp"),

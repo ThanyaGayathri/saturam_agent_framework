@@ -1,12 +1,12 @@
-# AgentOS Cookbook
+# EgptOS Cookbook
 
-Top-level AgentOS quickstart and entrypoint examples.
+Top-level EgptOS quickstart and entrypoint examples.
 
 ## Files
 
 - `agno_assist.py` — Agno Agent.
-- `basic.py` — Minimal example for AgentOS.
-- `demo.py` — AgentOS Demo.
+- `basic.py` — Minimal example for EgptOS.
+- `demo.py` — EgptOS Demo.
 
 ## Prerequisites
 

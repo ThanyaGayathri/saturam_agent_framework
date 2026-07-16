@@ -1,8 +1,8 @@
-# Human-in-the-Loop with AgentOS
+# Human-in-the-Loop with EgptOS
 
-AgentOS equivalents of `cookbook/03_teams/20_human_in_the_loop/`.
+EgptOS equivalents of `cookbook/03_teams/20_human_in_the_loop/`.
 
-Since AgentOS handles streaming and async automatically via FastAPI, each
+Since EgptOS handles streaming and async automatically via FastAPI, each
 pattern only needs a single server file (the client decides whether to use
 streaming or not).
 
@@ -13,7 +13,7 @@ streaming or not).
 
 ## Files
 
-| AgentOS file | Original team cookbook file(s) |
+| EgptOS file | Original team cookbook file(s) |
 |---|---|
 | `confirmation_required.py` | `confirmation_required.py`, `confirmation_required_stream.py`, `confirmation_required_async.py`, `confirmation_required_async_stream.py` |
 | `confirmation_rejected.py` | `confirmation_rejected.py`, `confirmation_rejected_stream.py` |

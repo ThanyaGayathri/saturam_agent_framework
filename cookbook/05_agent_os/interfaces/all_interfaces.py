@@ -1,5 +1,5 @@
 """
-AgentOS Demo
+EgptOS Demo
 
 Prerequisites:
 uv pip install -U fastapi uvicorn sqlalchemy pgvector psycopg openai ddgs
@@ -10,7 +10,7 @@ from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.interfaces.a2a import A2A
 from egpt.os.interfaces.agui import AGUI
 from egpt.os.interfaces.slack import Slack
@@ -94,8 +94,8 @@ agui_interface = AGUI(agent=simple_agent)
 a2a_interface = A2A(agents=[simple_agent])
 
 
-# Create the AgentOS
-agent_os = AgentOS(
+# Create the EgptOS
+agent_os = EgptOS(
     id="agentos-demo",
     name="Agno API Reference",
     version=agno_version,

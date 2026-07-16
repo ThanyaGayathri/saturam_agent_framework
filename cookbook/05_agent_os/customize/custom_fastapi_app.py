@@ -1,5 +1,5 @@
 """
-Example AgentOS app with a custom FastAPI app with basic routes.
+Example EgptOS app with a custom FastAPI app with basic routes.
 
 You can also run this using the FastAPI cli (uv pip install fastapi["standard"]):
 ```
@@ -10,7 +10,7 @@ fastapi run custom_fastapi_app.py
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.anthropic import Claude
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.websearch import WebSearchTools
 from fastapi import FastAPI
 
@@ -57,8 +57,8 @@ async def get_customers():
     ]
 
 
-# Setup our AgentOS app by passing your FastAPI app in the app_config parameter
-agent_os = AgentOS(
+# Setup our EgptOS app by passing your FastAPI app in the app_config parameter
+agent_os = EgptOS(
     description="Example app with custom routers",
     agents=[web_research_agent],
     base_app=app,
@@ -72,7 +72,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     With this setup:
     - API docs: http://localhost:7777/docs

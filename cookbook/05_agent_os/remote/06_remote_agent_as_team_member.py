@@ -1,7 +1,7 @@
 """
 Example demonstrating how to use RemoteAgent as a Team member.
 
-This shows how to include agents from another AgentOS server as members
+This shows how to include agents from another EgptOS server as members
 in a local Team, enabling cross-service agent orchestration.
 
 Prerequisites:

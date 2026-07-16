@@ -1,3 +1,4 @@
+
 """
 Session Context Store
 =====================
@@ -25,9 +26,10 @@ Supported Modes:
 - ALWAYS only. SessionContextStore does not support AGENTIC, PROPOSE, or HITL modes.
 """
 
+from egpt.utils.env import get_branded_env_bool
+
 from copy import deepcopy
 from dataclasses import dataclass, field
-from os import getenv
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union, cast
 
@@ -262,7 +264,7 @@ class SessionContextStore(LearningStore):
 
     def set_log_level(self):
         """Set log level based on debug_mode or environment variable."""
-        if self.debug_mode or getenv("AGNO_DEBUG", "false").lower() == "true":
+        if self.debug_mode or get_branded_env_bool("DEBUG"):
             self.debug_mode = True
             set_log_level_to_debug()
         else:

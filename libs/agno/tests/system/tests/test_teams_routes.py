@@ -1,5 +1,5 @@
 """
-System Tests for AgentOS Team Routes.
+System Tests for EgptOS Team Routes.
 
 Run with: pytest test_teams_routes.py -v --tb=short
 """

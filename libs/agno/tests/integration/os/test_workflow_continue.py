@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.workflow import OnReject
 from egpt.workflow.condition import Condition
 from egpt.workflow.factory import WorkflowFactory
@@ -75,7 +75,7 @@ def hitl_client(temp_storage_db_file):
             Step(name="report", executor=_report),
         ],
     )
-    app = AgentOS(workflows=[workflow]).get_app()
+    app = EgptOS(workflows=[workflow]).get_app()
     return TestClient(app)
 
 
@@ -118,7 +118,7 @@ def factory_hitl_client(temp_storage_db_file):
         factory=build_workflow,
         input_schema=WorkflowFactoryInput,
     )
-    app = AgentOS(workflows=[workflow_factory]).get_app()
+    app = EgptOS(workflows=[workflow_factory]).get_app()
     return TestClient(app)
 
 

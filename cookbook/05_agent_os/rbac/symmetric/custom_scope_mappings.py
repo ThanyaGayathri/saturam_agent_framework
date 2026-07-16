@@ -1,7 +1,7 @@
 """
 Custom Scope Mappings Example
 
-This example demonstrates how to define custom scope mappings for your AgentOS endpoints.
+This example demonstrates how to define custom scope mappings for your EgptOS endpoints.
 You can specify exactly which scopes are required for each endpoint.
 
 Pre-requisites:
@@ -16,7 +16,7 @@ import jwt
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.middleware import JWTMiddleware
 from egpt.tools.websearch import WebSearchTools
 
@@ -56,10 +56,10 @@ custom_scopes = {
     "POST /memories": ["memory:write"],
 }
 
-# Create AgentOS
-agent_os = AgentOS(
+# Create EgptOS
+agent_os = EgptOS(
     id="my-agent-os",
-    description="Custom Scope Mappings AgentOS",
+    description="Custom Scope Mappings EgptOS",
     agents=[research_agent],
 )
 
@@ -80,10 +80,10 @@ app.add_middleware(
 
 if __name__ == "__main__":
     """
-    Run your AgentOS with custom scope mappings.
+    Run your EgptOS with custom scope mappings.
     
     Audience Verification:
-    - Tokens must include `aud` claim matching the AgentOS ID
+    - Tokens must include `aud` claim matching the EgptOS ID
     - Tokens with wrong audience will be rejected
     
     This example shows how to:
@@ -93,7 +93,7 @@ if __name__ == "__main__":
     """
 
     # Create tokens with different permission levels
-    # Note: Include `aud` claim with AgentOS ID
+    # Note: Include `aud` claim with EgptOS ID
     basic_user_token = jwt.encode(
         {
             "sub": "user_123",

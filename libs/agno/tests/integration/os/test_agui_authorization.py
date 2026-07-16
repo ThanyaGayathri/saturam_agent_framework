@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 
 from egpt.agent import Agent
 from egpt.db.in_memory import InMemoryDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.os.interfaces.agui import AGUI
 from egpt.team import Team
@@ -71,7 +71,7 @@ def _build(prefix="", authorization=True, team=False):
         if authorization
         else {}
     )
-    agent_os = AgentOS(id="agui-authz-os", agents=[agent], interfaces=[agui], **os_kwargs)
+    agent_os = EgptOS(id="agui-authz-os", agents=[agent], interfaces=[agui], **os_kwargs)
     return entity, TestClient(agent_os.get_app())
 
 

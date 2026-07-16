@@ -2,7 +2,7 @@
 
 An adapter knows how one coding agent (Claude Code, Codex, Cursor) stores MCP server
 configuration: how to detect the client on this machine, read an existing entry back
-(for idempotent re-runs), and write an entry pointing at an AgentOS MCP endpoint.
+(for idempotent re-runs), and write an entry pointing at an EgptOS MCP endpoint.
 """
 
 import contextlib

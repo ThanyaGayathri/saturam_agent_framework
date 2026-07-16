@@ -1,13 +1,13 @@
-"""AgentOS RBAC Scopes
+"""EgptOS RBAC Scopes
 
-This module defines all available permission scopes for AgentOS RBAC (Role-Based Access Control).
+This module defines all available permission scopes for EgptOS RBAC (Role-Based Access Control).
 
 Scope Format:
 - Global resource scopes: `resource:action`
 - Per-resource scopes: `resource:<resource-id>:action`
 - Wildcards: `resource:*:action` for any resource
 
-The AgentOS ID is verified via the JWT `aud` (audience) claim.
+The EgptOS ID is verified via the JWT `aud` (audience) claim.
 
 Examples:
 - `config:read` - Read OS configuration
@@ -37,7 +37,7 @@ LEGACY_RESOURCE_ALIASES: Dict[str, str] = {
 
 class AgentOSScope(str, Enum):
     """
-    Enum of all available AgentOS permission scopes.
+    Enum of all available EgptOS permission scopes.
 
     Special Scopes:
     - ADMIN: Grants full access to all endpoints (agent_os:admin)
@@ -420,7 +420,7 @@ def get_a2a_scope_mappings(prefix: str = "/a2a") -> Dict[str, List[str]]:
     A2A's mount prefix is operator-configurable (``A2A(prefix=...)``), so these are
     parameterised by prefix rather than hardcoded to ``/a2a``. ``get_default_scope_mappings``
     includes the default-prefix entries; app startup additionally merges the entries for
-    each mounted A2A interface's *actual* prefix (see ``AgentOS._add_auth_middleware``), so a
+    each mounted A2A interface's *actual* prefix (see ``EgptOS._add_auth_middleware``), so a
     custom prefix is gated too instead of falling through to the unmapped-route default-allow.
 
     message:send / message:stream and tasks:cancel execute or mutate a run -> ``:run``;
@@ -450,7 +450,7 @@ def get_a2a_scope_mappings(prefix: str = "/a2a") -> Dict[str, List[str]]:
 
 def get_default_scope_mappings() -> Dict[str, List[str]]:
     """
-    Get default scope mappings for AgentOS endpoints.
+    Get default scope mappings for EgptOS endpoints.
 
     Returns a dictionary mapping route patterns (with HTTP methods) to required scope templates.
     Format: "METHOD /path/pattern": ["resource:action"]
@@ -581,7 +581,7 @@ def get_default_scope_mappings() -> Dict[str, List[str]]:
     }
     # A2A interface routes under the default prefix. App startup additionally merges
     # entries for any A2A interface mounted under a custom prefix (see
-    # AgentOS._add_auth_middleware) so a non-default prefix is gated too.
+    # EgptOS._add_auth_middleware) so a non-default prefix is gated too.
     mappings.update(get_a2a_scope_mappings("/a2a"))
     return mappings
 

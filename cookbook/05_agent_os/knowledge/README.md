@@ -1,10 +1,10 @@
 # Knowledge Cookbook
 
-Examples for `knowledge` in AgentOS.
+Examples for `knowledge` in EgptOS.
 
 ## Files
 - `agentos_excel_analyst.py` — Agentos Excel Analyst.
-- `agentos_knowledge.py` — AgentOS Knowledge (Sync And Async).
+- `agentos_knowledge.py` — EgptOS Knowledge (Sync And Async).
 - `agno_docs_agent.py` — Agno Docs Agent.
 
 ## Prerequisites

@@ -1,10 +1,10 @@
-"""Example showing how to use AgentOS with a Firestore database"""
+"""Example showing how to use EgptOS with a Firestore database"""
 
 from egpt.agent import Agent
 from egpt.db.firestore import FirestoreDb
 from egpt.eval.accuracy import AccuracyEval
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ evaluation = AccuracyEval(
 )
 # evaluation.run(print_results=True)
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example app for basic agent with Firestore database capabilities",
     id="firestore-app",
     agents=[basic_agent],

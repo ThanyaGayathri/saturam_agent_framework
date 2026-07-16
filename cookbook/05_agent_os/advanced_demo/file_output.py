@@ -8,7 +8,7 @@ Demonstrates file output.
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.file_generation import FileGenerationTools
 
 # ---------------------------------------------------------------------------
@@ -26,7 +26,7 @@ file_agent = Agent(
     instructions="Just return the file url as it is don't do anythings.",
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="agentos-demo",
     agents=[file_agent],
 )

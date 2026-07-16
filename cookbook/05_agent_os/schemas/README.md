@@ -1,6 +1,6 @@
 # Schemas Cookbook
 
-Examples for `schemas` in AgentOS.
+Examples for `schemas` in EgptOS.
 
 ## Files
 - `agent_schemas.py` — Agent Input And Output Schemas.

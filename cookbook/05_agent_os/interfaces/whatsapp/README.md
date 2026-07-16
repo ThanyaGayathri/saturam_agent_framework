@@ -1,7 +1,7 @@
 # WhatsApp Cookbook
 
 Examples for connecting Agno agents, teams, and workflows to WhatsApp using the
-`Whatsapp` interface in AgentOS. Supports text, images, video, audio, documents,
+`Whatsapp` interface in EgptOS. Supports text, images, video, audio, documents,
 and interactive messages (buttons, lists, location pins).
 
 **Requirements:** `httpx` (included with agno).
@@ -72,7 +72,7 @@ export OPENAI_API_KEY="sk-..."                   # Or whichever model provider y
 
 ### 6. Start the Server and Tunnel It
 
-Webhook verification requires your AgentOS server to be running and publicly
+Webhook verification requires your EgptOS server to be running and publicly
 reachable, so start it **before** configuring the webhook in Meta.
 
 1. With `WHATSAPP_VERIFY_TOKEN` set (step 5), run any WhatsApp example:
@@ -118,7 +118,7 @@ manually:
 ### 9. Test It — and Register the Number if Needed
 
 Send a message to the test number from any recipient on your **Step 1. Try it
-out** allow-list. If your AgentOS server receives the webhook and the agent
+out** allow-list. If your EgptOS server receives the webhook and the agent
 replies, setup is complete.
 
 If you message the number but **no webhook requests arrive** at your

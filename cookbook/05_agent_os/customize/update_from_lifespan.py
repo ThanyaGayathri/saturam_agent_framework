@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 from egpt.agent.agent import Agent
 from egpt.db.postgres.postgres import PostgresDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
@@ -18,13 +18,13 @@ from egpt.tools.mcp import MCPTools
 
 db = PostgresDb(id="basic-db", db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 
-# First agent. We will add this to the AgentOS on initialization.
+# First agent. We will add this to the EgptOS on initialization.
 agent1 = Agent(
     name="First Agent",
     markdown=True,
 )
 
-# Second agent. We will add this to the AgentOS in the lifespan function.
+# Second agent. We will add this to the EgptOS in the lifespan function.
 agent2 = Agent(
     id="second-agent",
     name="Second Agent",
@@ -34,20 +34,20 @@ agent2 = Agent(
 )
 
 
-# Lifespan function receiving the AgentOS instance as parameter.
+# Lifespan function receiving the EgptOS instance as parameter.
 @asynccontextmanager
 async def lifespan(app, agent_os):
     # Add the new Agent
     agent_os.agents.append(agent2)
 
-    # Resync the AgentOS
+    # Resync the EgptOS
     agent_os.resync(app=app)
 
     yield
 
 
-# Setup our AgentOS with the lifespan function and the first agent.
-agent_os = AgentOS(
+# Setup our EgptOS with the lifespan function and the first agent.
+agent_os = EgptOS(
     lifespan=lifespan,
     agents=[agent1],
     enable_mcp_server=True,

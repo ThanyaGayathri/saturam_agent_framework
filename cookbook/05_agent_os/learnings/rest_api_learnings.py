@@ -9,7 +9,7 @@ This example demonstrates:
 - Deleting via DELETE /learnings/{id}
 - Deleting a user and all their learnings via DELETE /learnings/users/{user_id}
 
-Requires: a running AgentOS server. Start one with:
+Requires: a running EgptOS server. Start one with:
 
     .venvs/demo/bin/python cookbook/05_agent_os/learnings/learnings_with_agentos.py
 

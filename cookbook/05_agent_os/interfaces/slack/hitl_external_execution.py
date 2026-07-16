@@ -20,7 +20,7 @@ from typing import Dict
 from egpt.agent import Agent
 from egpt.db.sqlite.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.tools import tool
 from egpt.tools.duckduckgo import DuckDuckGoTools
@@ -79,7 +79,7 @@ def kubectl_get_pods(namespace: str, selector: str = "") -> str:
     return f"kubectl get pods -n {namespace}{flag}"
 
 
-# Agent + AgentOS + Slack interface
+# Agent + EgptOS + Slack interface
 
 db = SqliteDb(
     db_file="tmp/hitl_external_execution.db",
@@ -110,7 +110,7 @@ agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Slack HITL — external execution (kubectl)",
     agents=[agent],
     db=db,

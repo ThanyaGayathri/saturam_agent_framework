@@ -276,7 +276,7 @@ class Team:
     pre_hooks: Optional[List[Union[Callable[..., Any], BaseGuardrail, BaseEval]]] = None
     # Functions called after output is generated but before the response is returned
     post_hooks: Optional[List[Union[Callable[..., Any], BaseGuardrail, BaseEval]]] = None
-    # If True, run hooks as FastAPI background tasks (non-blocking). Set by AgentOS.
+    # If True, run hooks as FastAPI background tasks (non-blocking). Set by EgptOS.
     _run_hooks_in_background: Optional[bool] = None
 
     # --- Structured output ---

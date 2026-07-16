@@ -48,7 +48,7 @@ from egpt.agent import Agent, AgentFactory
 from egpt.db.postgres import PostgresDb
 from egpt.factory import RequestContext
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools import tool
 
 # ---------------------------------------------------------------------------
@@ -117,10 +117,10 @@ hitl_factory = AgentFactory(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS
+# EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="hitl-factory-demo",
     description="Demo: factory agent with human-in-the-loop tool confirmation",
     agents=[hitl_factory],

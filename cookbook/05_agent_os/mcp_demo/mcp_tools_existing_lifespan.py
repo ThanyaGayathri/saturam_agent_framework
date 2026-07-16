@@ -1,9 +1,9 @@
 """
-Example AgentOS app where the agent has MCPTools.
+Example EgptOS app where the agent has MCPTools.
 
-AgentOS handles the lifespan of the MCPTools internally.
+EgptOS handles the lifespan of the MCPTools internally.
 
-In addition you can pass your own lifespan to AgentOS.
+In addition you can pass your own lifespan to EgptOS.
 """
 
 from contextlib import asynccontextmanager
@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.anthropic import Claude
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.mcp import MCPTools
 from egpt.utils.log import log_info
 
@@ -44,7 +44,7 @@ async def lifespan(app):
     log_info("Stopping My FastAPI App")
 
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example app with MCP Tools",
     agents=[agno_support_agent],
     enable_mcp_server=True,
@@ -59,9 +59,9 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
-    You can see test your AgentOS at:
+    You can see test your EgptOS at:
     http://localhost:7777/docs
 
     """

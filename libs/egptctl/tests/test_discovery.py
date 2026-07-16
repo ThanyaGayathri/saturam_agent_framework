@@ -5,7 +5,7 @@ import pytest
 
 from egptctl.discovery import discover
 from egptctl.errors import CLIError
-from tests.conftest import FakeAgentOS, install_fake
+from tests.conftest import FakeEgptOS, install_fake
 
 
 def test_discover_via_info_fields(fake_os):
@@ -18,7 +18,7 @@ def test_discover_via_info_fields(fake_os):
 
 
 def test_discover_probe_fallback_security_key(monkeypatch):
-    fake = FakeAgentOS(info_discovery=False)
+    fake = FakeEgptOS(info_discovery=False)
     install_fake(monkeypatch, fake)
     info = discover("http://localhost:7777")
     assert info.discovered_via == "probe"
@@ -27,21 +27,21 @@ def test_discover_probe_fallback_security_key(monkeypatch):
 
 
 def test_discover_probe_fallback_jwt(monkeypatch):
-    fake = FakeAgentOS(info_discovery=False, auth_mode="jwt")
+    fake = FakeEgptOS(info_discovery=False, auth_mode="jwt")
     install_fake(monkeypatch, fake)
     info = discover("http://localhost:7777")
     assert info.auth_mode == "jwt"
 
 
 def test_discover_probe_fallback_none_auth(monkeypatch):
-    fake = FakeAgentOS(info_discovery=False, auth_mode="none")
+    fake = FakeEgptOS(info_discovery=False, auth_mode="none")
     install_fake(monkeypatch, fake)
     info = discover("http://localhost:7777")
     assert info.auth_mode == "none"
 
 
 def test_discover_probe_detects_mcp_disabled(monkeypatch):
-    fake = FakeAgentOS(info_discovery=False, mcp_enabled=False)
+    fake = FakeEgptOS(info_discovery=False, mcp_enabled=False)
     install_fake(monkeypatch, fake)
     info = discover("http://localhost:7777")
     assert info.mcp_enabled is False
@@ -58,7 +58,7 @@ def test_discover_unreachable_raises(monkeypatch):
     monkeypatch.delenv("AGENTOS_URL", raising=False)
     with pytest.raises(CLIError) as exc_info:
         discover(None)
-    assert "No running AgentOS" in exc_info.value.message
+    assert "No running EgptOS" in exc_info.value.message
 
 
 def test_discover_env_var_url(monkeypatch, fake_os):
@@ -76,8 +76,8 @@ def test_default_urls_probe_bumped_ports():
 
 
 def test_discover_finds_os_on_bumped_port_when_7777_is_taken(monkeypatch):
-    """An AgentOS on 7778 (7777 occupied) must be found by autodiscovery, not missed."""
-    fake = FakeAgentOS()
+    """An EgptOS on 7778 (7777 occupied) must be found by autodiscovery, not missed."""
+    fake = FakeEgptOS()
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.port != 7778:

@@ -1,16 +1,16 @@
 """Helpers shared by CLI commands."""
 
 import ipaddress
-import os
 import sys
 from typing import Optional, Tuple
 from urllib.parse import urlsplit
 
 import typer
 
+from egptctl.env import PRODUCT_OS_NAME, branded_env_key, get_branded_env, legacy_env_key
 from egptctl.errors import CLIError
 
-ADMIN_TOKEN_ENV = "AGNO_ADMIN_TOKEN"
+ADMIN_TOKEN_ENV = branded_env_key("ADMIN_TOKEN")
 SECURITY_KEY_ENV = "OS_SECURITY_KEY"
 
 _SERVER_NAME_ALLOWED = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
@@ -76,21 +76,29 @@ def require_secure_url(url: str, *, allow_http: bool, what: str = "a credential"
 def resolve_admin_token(auth_mode: str, json_mode: bool) -> Optional[str]:
     """Resolve the admin credential used to call the service-accounts API.
 
-    Order: AGNO_ADMIN_TOKEN env, OS_SECURITY_KEY env, interactive prompt. Prompting is
-    disabled in --json mode and when stdin is not a TTY, so agent-driven runs fail with
-    a clear instruction instead of hanging.
+    Order: EGPT_ADMIN_TOKEN env, legacy AGNO_ADMIN_TOKEN env, OS_SECURITY_KEY env,
+    interactive prompt. Prompting is disabled in --json mode and when stdin is not a TTY,
+    so agent-driven runs fail with a clear instruction instead of hanging.
     """
     if auth_mode == "none":
         return None
-    token = os.environ.get(ADMIN_TOKEN_ENV) or os.environ.get(SECURITY_KEY_ENV)
+    token = get_branded_env("ADMIN_TOKEN") or __import__("os").environ.get(SECURITY_KEY_ENV)
     if token:
         return token
     if json_mode or not sys.stdin.isatty():
         raise CLIError(
-            "This AgentOS requires an admin credential to mint tokens (auth mode: " + auth_mode + ").",
-            hint="Set " + ADMIN_TOKEN_ENV + " (or " + SECURITY_KEY_ENV + ") and re-run.",
+            "This " + PRODUCT_OS_NAME + " requires an admin credential to mint tokens (auth mode: " + auth_mode + ").",
+            hint=(
+                "Set "
+                + ADMIN_TOKEN_ENV
+                + " (or "
+                + legacy_env_key("ADMIN_TOKEN")
+                + " / "
+                + SECURITY_KEY_ENV
+                + ") and re-run."
+            ),
         )
-    return typer.prompt("Admin credential for this AgentOS", hide_input=True)
+    return typer.prompt("Admin credential for this " + PRODUCT_OS_NAME, hide_input=True)
 
 
 def stdin_is_interactive() -> bool:

@@ -1,9 +1,9 @@
 """
-Multiple Knowledge Instances in AgentOS
+Multiple Knowledge Instances in EgptOS
 ============================================================
 
 This cookbook demonstrates how to configure multiple Knowledge instances
-in AgentOS, each with isolated content.
+in EgptOS, each with isolated content.
 
 Key Concepts:
 - Multiple Knowledge instances can share the same vector_db and contents_db
@@ -17,7 +17,7 @@ from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.vectordb.pgvector import PgVector
 
 # Database connections
@@ -66,15 +66,15 @@ agent = Agent(
     search_knowledge=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     knowledge=[company_knowledge, company_knowledge_additional, personal_knowledge],
     agents=[agent],
 )
 app = agent_os.get_app()
 
 # ============================================================================
-# Run AgentOS
+# Run EgptOS
 # ============================================================================
 if __name__ == "__main__":
-    # Serves a FastAPI app exposed by AgentOS. Use reload=True for local dev.
+    # Serves a FastAPI app exposed by EgptOS. Use reload=True for local dev.
     agent_os.serve(app="multiple_knowledge_instances:app", reload=True)

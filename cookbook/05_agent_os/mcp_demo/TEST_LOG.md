@@ -4,7 +4,7 @@
 
 **Status:** PASS (2026-07-04, v2.7 8-tool surface)
 
-**Description:** Example AgentOS app with MCP enabled, tested live end-to-end with a
+**Description:** Example EgptOS app with MCP enabled, tested live end-to-end with a
 Streamable HTTP FastMCP client against the served app.
 
 **Result:** Server boots with the MCP lifespan; `GET /` returns 200 JSON (home route now
@@ -23,7 +23,7 @@ provider auth error through the MCP tool error (error propagation fix).
 
 **Status:** PASS
 
-**Description:** AgentOS exposing a single owner-only custom MCP tool (`ask_workspace`) routed
+**Description:** EgptOS exposing a single owner-only custom MCP tool (`ask_workspace`) routed
 through an agent: built-ins disabled via `MCPServerConfig(enable_builtin_tools=False)`, `user_id`
 injected into the tool (hidden from the client schema), an `authorize` owner-gate, and built-in
 DNS-rebinding protection via `allowed_hosts` — no hand-written middleware classes.
@@ -39,7 +39,7 @@ middlewares are wired (verified with an in-memory FastMCP client). A live model 
 
 **Status:** PENDING
 
-**Description:** Example AgentOS app where the agent has MCPTools.
+**Description:** Example EgptOS app where the agent has MCPTools.
 
 ---
 
@@ -47,7 +47,7 @@ middlewares are wired (verified with an in-memory FastMCP client). A live model 
 
 **Status:** PENDING
 
-**Description:** Example AgentOS app where the agent has MCPTools.
+**Description:** Example EgptOS app where the agent has MCPTools.
 
 ---
 
@@ -55,7 +55,7 @@ middlewares are wired (verified with an in-memory FastMCP client). A live model 
 
 **Status:** PENDING
 
-**Description:** Example AgentOS app where the agent has MCPTools.
+**Description:** Example EgptOS app where the agent has MCPTools.
 
 ---
 
@@ -63,7 +63,7 @@ middlewares are wired (verified with an in-memory FastMCP client). A live model 
 
 **Status:** PASS (2026-07-04, updated)
 
-**Description:** Agent operating the AgentOS over MCP (OpenAIResponses/gpt-5.5, per repo
+**Description:** Agent operating the EgptOS over MCP (OpenAIResponses/gpt-5.5, per repo
 model rules; stale docstring path and `enable_mcp` flag name fixed).
 
 **Result:** The equivalent client flow (list tools → get_agentos_config → run_agent →

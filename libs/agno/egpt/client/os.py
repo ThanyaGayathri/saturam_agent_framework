@@ -70,10 +70,10 @@ from egpt.utils.http import get_default_async_client, get_default_sync_client
 
 
 class AgentOSClient:
-    """Client for interacting with AgentOS API endpoints.
+    """Client for interacting with EgptOS API endpoints.
 
     Attributes:
-        base_url: Base URL of the AgentOS instance
+        base_url: Base URL of the EgptOS instance
         timeout: Request timeout in seconds
     """
 
@@ -85,7 +85,7 @@ class AgentOSClient:
         """Initialize AgentOSClient.
 
         Args:
-            base_url: Base URL of the AgentOS instance (e.g., "http://localhost:7777")
+            base_url: Base URL of the EgptOS instance (e.g., "http://localhost:7777")
             timeout: Request timeout in seconds (default: 60.0)
         """
         self.base_url = base_url.rstrip("/")
@@ -406,7 +406,7 @@ class AgentOSClient:
     # Discovery & Configuration Operations
 
     def get_config(self, headers: Optional[Dict[str, str]] = None) -> ConfigResponse:
-        """Get AgentOS configuration and metadata.
+        """Get EgptOS configuration and metadata.
 
         Returns comprehensive OS configuration including:
         - OS metadata (id, description, version)
@@ -428,7 +428,7 @@ class AgentOSClient:
         return ConfigResponse.model_validate(data)
 
     async def aget_config(self, headers: Optional[Dict[str, str]] = None) -> ConfigResponse:
-        """Get AgentOS configuration and metadata.
+        """Get EgptOS configuration and metadata.
 
         Returns comprehensive OS configuration including:
         - OS metadata (id, description, version)
@@ -480,7 +480,7 @@ class AgentOSClient:
         )
 
     async def list_agents(self, headers: Optional[Dict[str, str]] = None) -> List[AgentSummaryResponse]:
-        """List all agents configured in the AgentOS instance.
+        """List all agents configured in the EgptOS instance.
 
         Returns summary information for each agent including:
         - Agent ID, name, description
@@ -757,7 +757,7 @@ class AgentOSClient:
         await self._apost(f"/agents/{agent_id}/runs/{run_id}/cancel", headers=headers)
 
     async def list_teams(self, headers: Optional[Dict[str, str]] = None) -> List[TeamSummaryResponse]:
-        """List all teams configured in the AgentOS instance.
+        """List all teams configured in the EgptOS instance.
 
         Returns summary information for each team including:
         - Team ID, name, description
@@ -1053,7 +1053,7 @@ class AgentOSClient:
             yield event
 
     async def list_workflows(self, headers: Optional[Dict[str, str]] = None) -> List[WorkflowSummaryResponse]:
-        """List all workflows configured in the AgentOS instance.
+        """List all workflows configured in the EgptOS instance.
 
         Returns summary information for each workflow including:
         - Workflow ID, name, description
@@ -2923,7 +2923,7 @@ class AgentOSClient:
         table: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
     ) -> MetricsResponse:
-        """Retrieve AgentOS metrics and analytics data for a specified date range.
+        """Retrieve EgptOS metrics and analytics data for a specified date range.
 
         If no date range is specified, returns all available metrics.
 

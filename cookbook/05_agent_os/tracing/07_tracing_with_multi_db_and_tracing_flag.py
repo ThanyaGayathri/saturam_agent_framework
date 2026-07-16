@@ -1,5 +1,5 @@
 """
-Traces with AgentOS
+Traces with EgptOS
 Requirements:
     pip install agno opentelemetry-api opentelemetry-sdk openinference-instrumentation-agno
 """
@@ -7,7 +7,7 @@ Requirements:
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.hackernews import HackerNewsTools
 from egpt.tools.websearch import WebSearchTools
 
@@ -40,13 +40,13 @@ agent2 = Agent(
     db=db2,
 )
 
-# Setup our AgentOS app with dedicated db
+# Setup our EgptOS app with dedicated db
 # This ensures traces are written to and read from the same database
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example app for tracing HackerNews",
     agents=[agent, agent2],
     tracing=True,
-    db=tracing_db,  # Default database for the AgentOS (used for tracing)
+    db=tracing_db,  # Default database for the EgptOS (used for tracing)
 )
 app = agent_os.get_app()
 

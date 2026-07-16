@@ -1,11 +1,11 @@
 """
-Condition User Decision HITL Example (AgentOS)
+Condition User Decision HITL Example (EgptOS)
 
 This example demonstrates a human-controlled Condition. Confirming runs the
 primary branch; rejecting runs the else branch.
 """
 
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.workflow import OnReject
 from egpt.workflow.condition import Condition
 from egpt.workflow.step import Step
@@ -48,7 +48,7 @@ def generate_report(step_input: StepInput) -> StepOutput:
 
 workflow = Workflow(
     name="condition_user_decision_workflow",
-    description="Use AgentOS confirmation to choose a Condition branch.",
+    description="Use EgptOS confirmation to choose a Condition branch.",
     db=db,
     steps=[
         Step(name="analyze_data", executor=analyze_data),
@@ -65,9 +65,9 @@ workflow = Workflow(
 )
 workflow.id = "workflow-hitl-condition-user-decision"
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     name="Workflow Condition Decision HITL",
-    description="AgentOS workflow example for human-controlled conditions.",
+    description="EgptOS workflow example for human-controlled conditions.",
     workflows=[workflow],
     db=db,
 )

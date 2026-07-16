@@ -14,7 +14,7 @@ from uuid import uuid4
 from egpt.agent import Agent
 from egpt.db.sqlite.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.tools import tool
 from egpt.tools.user_feedback import UserFeedbackTools
@@ -144,7 +144,7 @@ agent = Agent(
     tool_choice="required",  # Forces tool call every turn — no plain-chat escape
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Slack HITL — audit flow (tool_choice=required, no chat escape)",
     agents=[agent],
     db=db,

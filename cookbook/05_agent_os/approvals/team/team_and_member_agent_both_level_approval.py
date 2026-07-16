@@ -22,7 +22,7 @@ from egpt.agent import Agent
 from egpt.approval import approval
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 from egpt.tools import tool
 
@@ -99,7 +99,7 @@ approval_team = Team(
     telemetry=False,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="both-level-approval-demo",
     description="Both-level approval: member collects specs (approval 1), team approves deployment (approval 2)",
     agents=[spec_collector],

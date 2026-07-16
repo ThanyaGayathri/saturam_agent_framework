@@ -38,6 +38,6 @@ Notes for whoever runs these live:
 | `06_research_team.py` | PENDING | Team run; deep researcher uses Task API |
 | `07_research_workflow.py` | PENDING | Writes `tmp/parallel_workflow.db` |
 | `08_competitive_intel_monitor.py` | PENDING | Creates a server-side monitor; no events on first run |
-| `09_agent_os_app.py` | PENDING | Starts AgentOS on http://localhost:7777 — boot then terminate |
+| `09_agent_os_app.py` | PENDING | Starts EgptOS on http://localhost:7777 — boot then terminate |
 
 ---

@@ -1,5 +1,4 @@
 from dataclasses import asdict, dataclass, field
-from os import getenv
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 from uuid import uuid4
@@ -13,6 +12,7 @@ from egpt.eval.utils import async_log_eval, log_eval_run, spinner_live, store_re
 from egpt.exceptions import EvalError
 from egpt.models.base import Model
 from egpt.team.team import Team
+from egpt.utils.env import get_branded_env_bool
 from egpt.utils.log import log_error, logger, set_log_level_to_debug, set_log_level_to_info
 
 if TYPE_CHECKING:
@@ -185,7 +185,7 @@ class AccuracyEval:
     # If set, results will be saved in the given file path
     file_path_to_save_results: Optional[str] = None
     # Enable debug logs
-    debug_mode: bool = getenv("AGNO_DEBUG", "false").lower() == "true"
+    debug_mode: bool = get_branded_env_bool("DEBUG")
     # The database to store Evaluation results
     db: Optional[Union[BaseDb, AsyncBaseDb]] = None
 

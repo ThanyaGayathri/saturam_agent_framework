@@ -48,7 +48,7 @@ class RemoteAgent(BaseRemote):
         """Initialize RemoteAgent for remote execution.
 
         Supports two protocols:
-        - "agentos": Agno's proprietary AgentOS REST API (default)
+        - "agentos": Agno's proprietary EgptOS REST API (default)
         - "a2a": A2A (Agent-to-Agent) protocol for cross-framework communication
 
         Args:
@@ -72,7 +72,7 @@ class RemoteAgent(BaseRemote):
         Get the agent config from remote.
 
         For A2A protocol, returns a minimal AgentResponse since A2A servers
-        don't expose the same config endpoints as AgentOS. For AgentOS, always fetches fresh config.
+        don't expose the same config endpoints as EgptOS. For EgptOS, always fetches fresh config.
         """
         from egpt.os.routers.agents.schema import AgentResponse
 
@@ -199,7 +199,7 @@ class RemoteAgent(BaseRemote):
 
     @property
     def model(self) -> Optional[Model]:
-        # We don't expose the remote agent's models, since they can't be used by other services in AgentOS.
+        # We don't expose the remote agent's models, since they can't be used by other services in EgptOS.
         return None
 
     async def aget_tools(self, **kwargs: Any) -> List[Dict]:
@@ -300,7 +300,7 @@ class RemoteAgent(BaseRemote):
                 headers=headers,
             )
 
-        # AgentOS protocol path (default)
+        # EgptOS protocol path (default)
         if self.agentos_client:
             if stream:
                 # Handle streaming response
@@ -514,7 +514,7 @@ class RemoteAgent(BaseRemote):
         """
         headers = self._get_auth_headers(auth_token)
         if not self.agentos_client:
-            raise ValueError("AgentOS client not available")
+            raise ValueError("EgptOS client not available")
         try:
             await self.agentos_client.cancel_agent_run(
                 agent_id=self.agent_id,

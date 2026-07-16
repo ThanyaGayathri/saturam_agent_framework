@@ -8,7 +8,7 @@ Uses Google Gemini to analyze attached files. Set GOOGLE_API_KEY env var.
 
 from egpt.agent.agent import Agent
 from egpt.models.google import Gemini
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.interfaces.agui import AGUI
 
 # ---------------------------------------------------------------------------
@@ -23,9 +23,9 @@ media_agent = Agent(
     markdown=True,
 )
 
-# Setup your AgentOS app
+# Setup your EgptOS app
 # Dojo expects: http://localhost:9001/agentic_chat_multimodal/agui
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[media_agent],
     interfaces=[AGUI(agent=media_agent, prefix="/agentic_chat_multimodal")],
 )

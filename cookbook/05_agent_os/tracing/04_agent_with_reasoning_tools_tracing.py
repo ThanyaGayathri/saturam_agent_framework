@@ -10,7 +10,7 @@ from textwrap import dedent
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.reasoning import ReasoningTools
 
 # ---------------------------------------------------------------------------
@@ -61,8 +61,8 @@ reasoning_agent = Agent(
     db=db_sqlite,
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     description="Example app for reasoning agent with tracing",
     agents=[reasoning_agent],
     tracing=True,
@@ -74,7 +74,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can see the configuration and available apps at:
     http://localhost:7777/config

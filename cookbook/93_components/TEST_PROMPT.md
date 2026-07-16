@@ -33,7 +33,7 @@ Execution requirements:
 Special cases:
 - All save/load examples require a running PostgreSQL instance — ensure `./cookbook/scripts/run_pgvector.sh` is running.
 - `save_*.py` files must be run before corresponding `get_*.py` files (save creates the entity, get retrieves it).
-- `agent_os_registry.py` and `demo.py` demonstrate AgentOS with Registry — they require database access.
+- `agent_os_registry.py` and `demo.py` demonstrate EgptOS with Registry — they require database access.
 - `workflows/` files demonstrate save/load patterns for different workflow step types (conditional, custom, loop, parallel, router) — each uses Registry for non-serializable components.
 
 Validation commands (must all pass before finishing):

@@ -9,7 +9,7 @@ pytest.importorskip("ag_ui", reason="ag_ui not installed")
 from fastapi.testclient import TestClient
 
 from egpt.agent import Agent
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.agui import AGUI
 from egpt.run.agent import (
     RunCompletedEvent,
@@ -63,7 +63,7 @@ def test_agent():
 
 @pytest.fixture
 def agent_client(test_agent: Agent):
-    agent_os = AgentOS(agents=[test_agent], interfaces=[AGUI(agent=test_agent)])
+    agent_os = EgptOS(agents=[test_agent], interfaces=[AGUI(agent=test_agent)])
     app = agent_os.get_app()
     return TestClient(app), test_agent
 
@@ -385,7 +385,7 @@ def test_team():
 
 @pytest.fixture
 def team_client(test_team: Team):
-    agent_os = AgentOS(teams=[test_team], interfaces=[AGUI(team=test_team)])
+    agent_os = EgptOS(teams=[test_team], interfaces=[AGUI(team=test_team)])
     app = agent_os.get_app()
     return TestClient(app), test_team
 

@@ -1,5 +1,5 @@
 """
-Example: Background Hooks with Workflows in AgentOS
+Example: Background Hooks with Workflows in EgptOS
 
 This example demonstrates how to use background hooks with a Workflow.
 Background hooks execute after the API response is sent, making them non-blocking.
@@ -10,7 +10,7 @@ import asyncio
 from egpt.agent import Agent
 from egpt.db.sqlite import AsyncSqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.run.agent import RunOutput
 from egpt.workflow import Workflow
 
@@ -55,8 +55,8 @@ analysis_workflow = Workflow(
     db=AsyncSqliteDb(db_file="tmp/workflow.db"),
 )
 
-# Create AgentOS with background hooks enabled
-agent_os = AgentOS(
+# Create EgptOS with background hooks enabled
+agent_os = EgptOS(
     workflows=[analysis_workflow],
     run_hooks_in_background=True,
 )

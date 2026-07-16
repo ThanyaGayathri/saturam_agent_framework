@@ -5,7 +5,7 @@ Partner integrations for Agno agents.
 ## Directories
 
 ### [parallel](./parallel/)
-[Parallel](https://parallel.ai) web research for agents: Search, Extract, Task (deep research with citations), and Monitor APIs — from a single research agent up to a deployable AgentOS app.
+[Parallel](https://parallel.ai) web research for agents: Search, Extract, Task (deep research with citations), and Monitor APIs — from a single research agent up to a deployable EgptOS app.
 
 ### [surrealdb](./surrealdb/)
 SurrealDB-backed memory manager integration examples.

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from egpt.agent import Agent
 from egpt.models.response import ToolExecution
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.a2a import A2A
 from egpt.run.agent import (
     MemoryUpdateCompletedEvent,
@@ -71,7 +71,7 @@ def test_agent():
 @pytest.fixture
 def test_client(test_agent: Agent):
     """Create a FastAPI test client with A2A interface."""
-    agent_os = AgentOS(agents=[test_agent], a2a_interface=True)
+    agent_os = EgptOS(agents=[test_agent], a2a_interface=True)
     app = agent_os.get_app()
     return TestClient(app)
 
@@ -79,7 +79,7 @@ def test_client(test_agent: Agent):
 def test_a2a_interface_parameter():
     """Test that the A2A interface is setup correctly using the a2a_interface parameter."""
     agent = Agent()
-    agent_os = AgentOS(agents=[agent], a2a_interface=True)
+    agent_os = EgptOS(agents=[agent], a2a_interface=True)
     app = agent_os.get_app()
 
     assert app is not None
@@ -93,7 +93,7 @@ def test_a2a_interface_in_interfaces_parameter():
     """Test that the A2A interface is setup correctly using the interfaces parameter."""
     interface_agent = Agent(name="interface-agent")
     os_agent = Agent(name="os-agent")
-    agent_os = AgentOS(agents=[os_agent], interfaces=[A2A(agents=[interface_agent])])
+    agent_os = EgptOS(agents=[os_agent], interfaces=[A2A(agents=[interface_agent])])
     app = agent_os.get_app()
 
     assert app is not None
@@ -620,7 +620,7 @@ def test_team():
 @pytest.fixture
 def test_team_client(test_team: Team):
     """Create a FastAPI test client with A2A interface for teams."""
-    agent_os = AgentOS(teams=[test_team], a2a_interface=True)
+    agent_os = EgptOS(teams=[test_team], a2a_interface=True)
     app = agent_os.get_app()
     return TestClient(app)
 
@@ -1126,7 +1126,7 @@ def test_workflow():
 @pytest.fixture
 def test_workflow_client(test_workflow: Workflow):
     """Create a FastAPI test client with A2A interface for workflows."""
-    agent_os = AgentOS(workflows=[test_workflow], a2a_interface=True)
+    agent_os = EgptOS(workflows=[test_workflow], a2a_interface=True)
     app = agent_os.get_app()
     return TestClient(app)
 

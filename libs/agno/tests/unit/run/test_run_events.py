@@ -149,7 +149,7 @@ def test_run_content_event_includes_image():
 
     `image` is excluded from the asdict() call but, unlike its sibling media
     fields (images/videos/audio/response_audio), was never re-added, so it was
-    silently dropped from to_dict()/to_json() (e.g. in AgentOS SSE streaming).
+    silently dropped from to_dict()/to_json() (e.g. in EgptOS SSE streaming).
     """
     from egpt.media import Image
     from egpt.run.agent import RunContentEvent

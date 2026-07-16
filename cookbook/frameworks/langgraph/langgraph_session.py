@@ -3,7 +3,7 @@ LangGraph agent with session persistence.
 
 Demonstrates multi-turn conversations where chat history is persisted
 to Agno's DB. Each run is stored as a session with messages, so you
-can resume conversations and see history in the AgentOS UI.
+can resume conversations and see history in the EgptOS UI.
 
 Requirements:
     pip install langchain-openai langgraph

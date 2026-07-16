@@ -1,5 +1,5 @@
 """
-Example AgentOS app where the agent has a custom lifespan.
+Example EgptOS app where the agent has a custom lifespan.
 """
 
 from contextlib import asynccontextmanager
@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.anthropic import Claude
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.utils.log import log_info
 
 # ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ async def lifespan(app):
     log_info("Stopping My FastAPI App")
 
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example app with custom lifespan",
     agents=[agno_support_agent],
     lifespan=lifespan,
@@ -48,9 +48,9 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
-    You can see test your AgentOS at:
+    You can see test your EgptOS at:
     http://localhost:7777/docs
 
     """

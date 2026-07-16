@@ -197,7 +197,7 @@ async def test_replay() -> None:
 async def main() -> None:
     print("\nStarting Replay Test")
     print("Prerequisites:")
-    print("  1. AgentOS server should be running at http://localhost:7777")
+    print("  1. EgptOS server should be running at http://localhost:7777")
     print("  2. Run: python cookbook/agent_os/workflow/basic_workflow.py")
     print("\nStarting test in 2 seconds...")
     await asyncio.sleep(2)
@@ -205,7 +205,7 @@ async def main() -> None:
     try:
         await test_replay()
     except ConnectionRefusedError:
-        print("\n[ERROR] Connection refused. Is the AgentOS server running?")
+        print("\n[ERROR] Connection refused. Is the EgptOS server running?")
         print("  Start it with: python cookbook/agent_os/workflow/basic_workflow.py")
     except Exception as e:
         print(f"\n[ERROR] Test failed: {e}")

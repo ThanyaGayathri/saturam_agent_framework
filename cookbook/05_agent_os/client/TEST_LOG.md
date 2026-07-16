@@ -6,7 +6,7 @@
 
 **Status:** PENDING
 
-**Description:** Basic AgentOSClient Example.
+**Description:** Basic EgptOSClient Example.
 
 ---
 
@@ -14,7 +14,7 @@
 
 **Status:** PENDING
 
-**Description:** Running Agents with AgentOSClient.
+**Description:** Running Agents with EgptOSClient.
 
 ---
 
@@ -22,7 +22,7 @@
 
 **Status:** PENDING
 
-**Description:** Memory Operations with AgentOSClient.
+**Description:** Memory Operations with EgptOSClient.
 
 ---
 
@@ -30,7 +30,7 @@
 
 **Status:** PENDING
 
-**Description:** Session Management with AgentOSClient.
+**Description:** Session Management with EgptOSClient.
 
 ---
 
@@ -38,7 +38,7 @@
 
 **Status:** PENDING
 
-**Description:** Knowledge Search with AgentOSClient.
+**Description:** Knowledge Search with EgptOSClient.
 
 ---
 
@@ -46,7 +46,7 @@
 
 **Status:** PENDING
 
-**Description:** Running Teams with AgentOSClient.
+**Description:** Running Teams with EgptOSClient.
 
 ---
 
@@ -54,7 +54,7 @@
 
 **Status:** PENDING
 
-**Description:** Running Workflows with AgentOSClient.
+**Description:** Running Workflows with EgptOSClient.
 
 ---
 
@@ -62,7 +62,7 @@
 
 **Status:** PENDING
 
-**Description:** Running Evaluations with AgentOSClient.
+**Description:** Running Evaluations with EgptOSClient.
 
 ---
 
@@ -70,7 +70,7 @@
 
 **Status:** PENDING
 
-**Description:** Uploading Content to Knowledge Base with AgentOSClient.
+**Description:** Uploading Content to Knowledge Base with EgptOSClient.
 
 ---
 
@@ -78,6 +78,6 @@
 
 **Status:** PENDING
 
-**Description:** AgentOS Server for Cookbook Client Examples.
+**Description:** EgptOS Server for Cookbook Client Examples.
 
 ---

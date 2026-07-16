@@ -5,7 +5,7 @@ GitWiki Agent (env-gated)
 Same as LocalWiki, but the wiki lives in a git repository.
 After every write, the backend stages, commits with an LLM-summarised message, rebases onto the remote, and pushes.
 
-Env-gated: registered in AgentOS only when both ``WIKI_REPO_URL`` and ``WIKI_GITHUB_TOKEN`` are set. Otherwise the module exports ``None`` and ``run.py`` skips it.
+Env-gated: registered in EgptOS only when both ``WIKI_REPO_URL`` and ``WIKI_GITHUB_TOKEN`` are set. Otherwise the module exports ``None`` and ``run.py`` skips it.
 
 Setup (see the cookbook README for the click-by-click version):
   1. Pick a GitHub repo for the wiki. A fresh repo with an initial commit

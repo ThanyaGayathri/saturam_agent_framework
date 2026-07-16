@@ -1,6 +1,6 @@
 # Agent / Team / Workflow Factories
 
-Per-request, context-driven construction for multi-tenant AgentOS deployments.
+Per-request, context-driven construction for multi-tenant EgptOS deployments.
 
 Factories let you build agents, teams, and workflows dynamically on each request
 based on who is calling, what they're allowed to do, and what they asked for.
@@ -42,9 +42,9 @@ based on who is calling, what they're allowed to do, and what they asked for.
 
 ## How it works
 
-1. Register an `AgentFactory` / `TeamFactory` / `WorkflowFactory` in `AgentOS(agents=[...])`, `teams=[...]`, or `workflows=[...]`.
+1. Register an `AgentFactory` / `TeamFactory` / `WorkflowFactory` in `EgptOS(agents=[...])`, `teams=[...]`, or `workflows=[...]`.
 2. Client hits the same endpoint as a prototype component (e.g. `POST /agents/{id}/runs`).
-3. AgentOS builds a `RequestContext` from the request and calls your factory.
+3. EgptOS builds a `RequestContext` from the request and calls your factory.
 4. The factory returns a fresh instance, used for that single request.
 
 The `RequestContext` separates trusted (middleware-verified) and untrusted (client-sent)

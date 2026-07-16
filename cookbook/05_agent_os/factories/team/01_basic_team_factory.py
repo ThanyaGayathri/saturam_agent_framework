@@ -18,7 +18,7 @@ from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.factory import RequestContext
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.factory import TeamFactory
 from egpt.team.team import Team
 
@@ -76,10 +76,10 @@ support_team_factory = TeamFactory(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS
+# EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="team-factory-demo",
     description="Demo: basic team factory",
     teams=[support_team_factory],

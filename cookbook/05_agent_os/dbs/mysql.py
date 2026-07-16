@@ -2,14 +2,14 @@
 MySQL Database Backend
 ======================
 
-Demonstrates AgentOS with MySQL storage using both sync and async setups.
+Demonstrates EgptOS with MySQL storage using both sync and async setups.
 """
 
 from egpt.agent import Agent
 from egpt.db.mysql import AsyncMySQLDb, MySQLDb
 from egpt.eval.accuracy import AccuracyEval
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ async_db = AsyncMySQLDb(
 )
 
 # ---------------------------------------------------------------------------
-# Create Sync Agent, Team, Eval, And AgentOS
+# Create Sync Agent, Team, Eval, And EgptOS
 # ---------------------------------------------------------------------------
 sync_agent = Agent(
     name="Basic Agent",
@@ -68,14 +68,14 @@ sync_evaluation = AccuracyEval(
 )
 # sync_evaluation.run(print_results=True)
 
-sync_agent_os = AgentOS(
+sync_agent_os = EgptOS(
     description="Example OS setup",
     agents=[sync_agent],
     teams=[sync_team],
 )
 
 # ---------------------------------------------------------------------------
-# Create Async Agent, Team, And AgentOS
+# Create Async Agent, Team, And EgptOS
 # ---------------------------------------------------------------------------
 async_agent = Agent(
     name="Basic Agent",
@@ -98,14 +98,14 @@ async_team = Team(
     members=[async_agent],
 )
 
-async_agent_os = AgentOS(
+async_agent_os = EgptOS(
     description="Example OS setup",
     agents=[async_agent],
     teams=[async_team],
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS App
+# Create EgptOS App
 # ---------------------------------------------------------------------------
 # Default to the sync setup. Switch to async_agent_os to run the async variant.
 agent_os = sync_agent_os

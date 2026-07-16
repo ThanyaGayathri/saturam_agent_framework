@@ -21,7 +21,7 @@ from egpt.db.sqlite import SqliteDb
 from egpt.memory.manager import MemoryManager
 from egpt.models.anthropic.claude import Claude
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.tools.websearch import WebSearchTools
 
@@ -62,8 +62,8 @@ personal_agent = Agent(
 )
 
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     agents=[personal_agent],
     interfaces=[Slack(agent=personal_agent)],
 )
@@ -75,7 +75,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can see the configuration and available apps at:
     http://localhost:7777/config

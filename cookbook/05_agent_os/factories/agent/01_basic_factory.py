@@ -21,7 +21,7 @@ from egpt.agent import Agent, AgentFactory
 from egpt.db.postgres import PostgresDb
 from egpt.factory import RequestContext
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 # ---------------------------------------------------------------------------
 # Database
@@ -71,10 +71,10 @@ static_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS -- factories and prototypes coexist
+# EgptOS -- factories and prototypes coexist
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="factory-basic-demo",
     description="Demo: basic agent factory alongside a static agent",
     agents=[static_agent, tenant_factory],

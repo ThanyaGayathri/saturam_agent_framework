@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from egpt.agent.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 from egpt.workflow.workflow import Workflow
 
@@ -29,11 +29,11 @@ def test_workflow():
 
 @pytest.fixture
 def test_os(test_agent: Agent, test_team: Team, test_workflow: Workflow):
-    """Create a test AgentOS."""
-    return AgentOS(
+    """Create a test EgptOS."""
+    return EgptOS(
         id="test-os",
-        name="Test AgentOS",
-        description="Test AgentOS configuration",
+        name="Test EgptOS",
+        description="Test EgptOS configuration",
         agents=[test_agent],
         teams=[test_team],
         workflows=[test_workflow],
@@ -41,7 +41,7 @@ def test_os(test_agent: Agent, test_team: Team, test_workflow: Workflow):
 
 
 @pytest.fixture
-def test_os_client(test_agent: Agent, test_team: Team, test_workflow: Workflow, test_os: AgentOS):
+def test_os_client(test_agent: Agent, test_team: Team, test_workflow: Workflow, test_os: EgptOS):
     """Create a FastAPI test client."""
     app = test_os.get_app()
     return TestClient(app)
@@ -49,7 +49,7 @@ def test_os_client(test_agent: Agent, test_team: Team, test_workflow: Workflow, 
 
 @pytest.fixture
 def test_os_client_with_dbs():
-    """Create a test AgentOS with databases."""
+    """Create a test EgptOS with databases."""
     agent = Agent(
         name="test-agent-with-db",
         db=SqliteDb("tmp/test.db", id="agent-test-db", session_table="agent_sessions"),
@@ -64,10 +64,10 @@ def test_os_client_with_dbs():
         db=SqliteDb("tmp/test.db", id="workflow-test-db", session_table="workflow_sessions"),
     )
 
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id="test-os-with-dbs",
-        name="Test AgentOS with Databases",
-        description="Test AgentOS configuration with databases",
+        name="Test EgptOS with Databases",
+        description="Test EgptOS configuration with databases",
         agents=[agent],
         teams=[team],
         workflows=[workflow],
@@ -101,7 +101,7 @@ def test_health_endpoint_instantiated_at(test_os_client: TestClient):
     assert response_data["instantiated_at"] == response2_data["instantiated_at"]
 
 
-def test_config_endpoint(test_os: AgentOS, test_os_client: TestClient):
+def test_config_endpoint(test_os: EgptOS, test_os_client: TestClient):
     """Test that the config endpoint returns the correct configuration."""
     response = test_os_client.get("/config")
     assert response.status_code == 200
@@ -152,9 +152,9 @@ def test_config_endpoint_exposes_learnings_tables():
             "tmp/test.db", id="agent-test-db", session_table="agent_sessions", learnings_table="agent_learnings"
         ),
     )
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id="test-os-learnings",
-        name="Test AgentOS with Learnings",
+        name="Test EgptOS with Learnings",
         agents=[agent],
     )
     client = TestClient(agent_os.get_app())
@@ -171,17 +171,17 @@ def test_config_endpoint_exposes_learnings_tables():
 
 @pytest.fixture
 def test_os_client_with_knowledge():
-    """Create a test AgentOS with knowledge databases."""
+    """Create a test EgptOS with knowledge databases."""
     contents_db1 = SqliteDb("tmp/test.db", id="knowledge-db", knowledge_table="knowledge_contents1")
     contents_db2 = SqliteDb("tmp/test.db", id="knowledge-db", knowledge_table="knowledge_contents2")
 
     knowledge1 = Knowledge(name="knowledge1", contents_db=contents_db1)
     knowledge2 = Knowledge(name="knowledge2", contents_db=contents_db2)
 
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id="test-os-with-knowledge",
-        name="Test AgentOS with Knowledge",
-        description="Test AgentOS configuration with knowledge",
+        name="Test EgptOS with Knowledge",
+        description="Test EgptOS configuration with knowledge",
         knowledge=[knowledge1, knowledge2],
     )
     app = agent_os.get_app()
@@ -211,9 +211,9 @@ def test_config_knowledge_dbs_consistent_when_contents_db_set_after_init():
     knowledge = Knowledge(name="patient_kb")
     assert knowledge.contents_db is None
 
-    # Build AgentOS and get app, self.knowledge_dbs stays empty
+    # Build EgptOS and get app, self.knowledge_dbs stays empty
     agent = Agent(name="test-agent", knowledge=knowledge)
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id="test-os-late-init",
         agents=[agent],
     )

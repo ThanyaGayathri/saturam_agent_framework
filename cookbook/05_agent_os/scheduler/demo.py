@@ -1,7 +1,7 @@
-"""Running the scheduler inside AgentOS with programmatic schedule creation.
+"""Running the scheduler inside EgptOS with programmatic schedule creation.
 
 This example demonstrates:
-- Setting scheduler=True on AgentOS to enable cron polling
+- Setting scheduler=True on EgptOS to enable cron polling
 - Using ScheduleManager to create schedules directly (no curl needed)
 - The poller starts automatically on app startup and executes due schedules
 
@@ -12,7 +12,7 @@ Run with:
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.scheduler import ScheduleManager
 
 # --- Setup ---
@@ -61,9 +61,9 @@ print(
     f"Schedule ready: {report_schedule.name} (next run: {report_schedule.next_run_at})"
 )
 
-# --- Create AgentOS with scheduler enabled ---
+# --- Create EgptOS with scheduler enabled ---
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     name="Scheduled OS",
     agents=[greeter, reporter],
     db=db,

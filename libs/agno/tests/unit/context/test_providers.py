@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine
 
-from egpt import __version__ as AGNO_VERSION
+from egpt import __version__ as EGPT_VERSION
 from egpt.context.calendar import GoogleCalendarContextProvider
 from egpt.context.database import DatabaseContextProvider
 from egpt.context.fs import FilesystemContextProvider
@@ -241,7 +241,7 @@ def test_parallel_mcp_backend_builds_mcp_tools_with_bearer_header():
     params = mcp_tools.server_params
     assert params.url == "https://search.parallel.ai/mcp"
     assert params.headers == {
-        "User-Agent": f"agno/{AGNO_VERSION}",
+        "User-Agent": f"egpt/{EGPT_VERSION}",
         "Authorization": "Bearer secret",
     }
     assert mcp_tools.include_tools == ["web_search", "web_fetch"]
@@ -253,7 +253,7 @@ def test_parallel_mcp_backend_keyless_has_no_auth_header(monkeypatch):
     b = ParallelMCPBackend()
     tools = b.get_tools()
     headers = tools[0].server_params.headers
-    assert headers == {"User-Agent": f"agno/{AGNO_VERSION}"}
+    assert headers == {"User-Agent": f"egpt/{EGPT_VERSION}"}
     assert "Authorization" not in headers
 
 

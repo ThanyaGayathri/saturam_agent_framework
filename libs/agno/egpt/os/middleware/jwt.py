@@ -1,4 +1,4 @@
-"""JWT Middleware for AgentOS - JWT Authentication with optional RBAC."""
+"""JWT Middleware for EgptOS - JWT Authentication with optional RBAC."""
 
 import fnmatch
 import hmac
@@ -344,7 +344,7 @@ class JWTValidator:
 def jwt_kwargs_have_key_source(kwargs: Dict[str, Any]) -> bool:
     """Whether ``add_middleware`` kwargs carry a JWT key source (or disable validation).
 
-    AgentOS installs this same middleware class as the general auth layer for
+    EgptOS installs this same middleware class as the general auth layer for
     security-key / service-account-only deployments, constructed without any JWT
     source. Callers that scan ``app.user_middleware`` (``/info`` auth-mode detection,
     WebSocket config resolution) must use this predicate to tell a JWT-validating
@@ -413,11 +413,11 @@ def build_jwt_middleware_kwargs(
 
 class AuthMiddleware(BaseHTTPMiddleware):
     """
-    The AgentOS authentication middleware: JWTs, service-account tokens (agno_pat_...),
+    The EgptOS authentication middleware: JWTs, service-account tokens (agno_pat_...),
     the internal service token, and the OS security key -- with optional RBAC
     (Role-Based Access Control) for JWTs.
 
-    AgentOS installs one instance of this middleware on the parent app in every
+    EgptOS installs one instance of this middleware on the parent app in every
     authenticated deployment mode; it covers the REST routes, the mounted /mcp app,
     and anything else served by the app. ``JWTMiddleware`` is an alias kept for the
     manual ``app.add_middleware(JWTMiddleware, ...)`` setup path.
@@ -425,7 +425,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
     This middleware:
     1. Extracts JWT token from Authorization header or cookies
     2. Decodes and validates the token
-    3. Validates the `aud` (audience) claim matches the AgentOS ID (if configured)
+    3. Validates the `aud` (audience) claim matches the EgptOS ID (if configured)
     4. Stores JWT claims (user_id, session_id, scopes) in request.state
     5. Optionally checks if the request path requires specific scopes (if scope_mappings provided)
     6. Validates that the authenticated user has the required scopes
@@ -434,11 +434,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
     RBAC is opt-in: Only enabled when authorization=True or scope_mappings are provided.
     Without authorization enabled, the middleware only extracts and validates JWT tokens —
     endpoints return 200 regardless of scopes. Pass `authorization=True` (or set it via
-    AgentOS(authorization=True)) to enforce the default scope map.
+    EgptOS(authorization=True)) to enforce the default scope map.
 
     Audience Verification:
-    - The `aud` claim in JWT tokens should contain the AgentOS ID
-    - This is verified against the AgentOS instance ID from app.state.agent_os_id
+    - The `aud` claim in JWT tokens should contain the EgptOS ID
+    - This is verified against the EgptOS instance ID from app.state.agent_os_id
     - Tokens with mismatched audience will be rejected with 401
 
     Scope Format (simplified):
@@ -461,7 +461,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             JWTMiddleware,
             verification_keys=["your-public-key"],
             authorization=True,
-            verify_audience=True,  # Verify aud claim matches AgentOS ID
+            verify_audience=True,  # Verify aud claim matches EgptOS ID
             scope_mappings={
                 # Override default scope for this endpoint
                 "GET /agents": ["agents:read"],
@@ -552,7 +552,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             user_id_claim: JWT claim name for user ID (default: "sub")
             session_id_claim: JWT claim name for session ID (default: "session_id")
             audience_claim: JWT claim name for audience/OS ID (default: "aud")
-            audience: Optional expected audience claim to validate against the token's audience claim (default: AgentOS ID)
+            audience: Optional expected audience claim to validate against the token's audience claim (default: EgptOS ID)
             verify_audience: Whether to verify the token's audience claim matches the expected audience claim (default: False)
             dependencies_claims: A list of claims to extract from the JWT token for dependencies
             session_state_claims: A list of claims to extract from the JWT token for session state
@@ -584,7 +584,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             - At least one verification key or JWKS file must be provided if validate=True
             - If validate=False, no verification key is needed (claims are extracted without verification)
             - JWKS keys are tried first (by kid), then static verification_keys as fallback
-            - CORS allowed origins are read from app.state.cors_allowed_origins (set by AgentOS).
+            - CORS allowed origins are read from app.state.cors_allowed_origins (set by EgptOS).
               This allows error responses to include proper CORS headers.
         """
         super().__init__(app)
@@ -596,7 +596,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if secret_key not in all_verification_keys:
                 all_verification_keys.append(secret_key)
 
-        # JWT is optional: AgentOS installs this middleware as the single auth layer
+        # JWT is optional: EgptOS installs this middleware as the single auth layer
         # in every authenticated mode, so security-key / service-account-only
         # deployments construct it with no JWT source at all. The validator is only
         # built (and only required) when a JWT source is configured.
@@ -671,7 +671,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # An auth middleware with no credential source authenticates nothing and
         # silently authorizes everyone -- almost always a misconfiguration (a typo'd
-        # key path, a forgotten security key). Fail loudly. Internal AgentOS wiring
+        # key path, a forgotten security key). Fail loudly. Internal EgptOS wiring
         # only installs this middleware once a credential exists, so this guards the
         # manual app.add_middleware(JWTMiddleware, ...) path.
         if not self._jwt_configured and not self.security_key and self.service_account_verifier is None:
@@ -881,7 +881,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Ensure the JWT auth config is accessible on app.state for WebSocket
         # endpoints (which don't flow through this middleware) and any other
         # components that need it outside the middleware chain. This handles
-        # both built-in (AgentOS authorization=True) and manual
+        # both built-in (EgptOS authorization=True) and manual
         # (app.add_middleware(JWTMiddleware, ...)) setup paths.
         #
         # All these values must be cached together: resolve_ws_jwt_config
@@ -938,7 +938,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return self._create_error_response(401, error_msg, origin, cors_allowed_origins)
 
         # Service account tokens (agno_pat_...) are first-party opaque credentials
-        # verified against the AgentOS database rather than decoded as JWTs.
+        # verified against the EgptOS database rather than decoded as JWTs.
         if token.startswith(SERVICE_ACCOUNT_TOKEN_PREFIX):
             return await self._dispatch_service_account(
                 request, token, method, path, origin, cors_allowed_origins, call_next
@@ -1073,7 +1073,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         except jwt.InvalidAudienceError as e:
             log_warning(f"Invalid token audience - expected: {expected_audience}: {str(e)}")
             return self._create_error_response(
-                401, "Invalid token audience - token not valid for this AgentOS instance", origin, cors_allowed_origins
+                401, "Invalid token audience - token not valid for this EgptOS instance", origin, cors_allowed_origins
             )
         except jwt.ExpiredSignatureError as e:
             if self.validate:
@@ -1135,12 +1135,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
         Verification failures all return the same 401 detail - the precise reason
         (unknown, revoked, expired) is only logged server-side. Scope enforcement
         always runs, regardless of the authorization flag: unlike JWT claims, service
-        account scopes are ACL data owned by this AgentOS instance.
+        account scopes are ACL data owned by this EgptOS instance.
         """
         verifier = self.service_account_verifier or getattr(request.app.state, "service_account_verifier", None)
         if verifier is None:
             return self._create_error_response(
-                401, "Service accounts are not enabled on this AgentOS instance", origin, cors_allowed_origins
+                401, "Service accounts are not enabled on this EgptOS instance", origin, cors_allowed_origins
             )
 
         error = await authenticate_service_account_request(

@@ -8,7 +8,7 @@ Demonstrates agent os.
 from textwrap import dedent
 
 from egpt.agent import Agent
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.mcp_toolbox import MCPToolbox
 
 # ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ agent = Agent(
 )
 
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     name="Hotel Assistant",
     description="An agent that helps users find and book hotels.",
     agents=[agent],

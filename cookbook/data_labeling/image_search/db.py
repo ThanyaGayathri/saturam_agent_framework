@@ -16,7 +16,7 @@ so:
 
 Knowledge is used by:
   - The ingest workflow's executor (writes)
-  - AgentOS's /knowledge/* routes (reads)
+  - EgptOS's /knowledge/* routes (reads)
 """
 
 from egpt.db.postgres import PostgresDb

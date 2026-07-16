@@ -27,7 +27,7 @@ from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.factory import RequestContext
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.middleware import JWTMiddleware
 from egpt.workflow.factory import WorkflowFactory
 from egpt.workflow.step import Step
@@ -106,10 +106,10 @@ article_pipeline_factory = WorkflowFactory(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS
+# EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="tiered-workflow-demo",
     description="Demo: tiered workflow factory with JWT",
     workflows=[article_pipeline_factory],

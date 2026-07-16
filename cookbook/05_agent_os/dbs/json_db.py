@@ -1,10 +1,10 @@
-"""Example showing how to use AgentOS with JSON files as database"""
+"""Example showing how to use EgptOS with JSON files as database"""
 
 from egpt.agent import Agent
 from egpt.db.json import JsonDb
 from egpt.eval.accuracy import AccuracyEval
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
@@ -49,8 +49,8 @@ evaluation = AccuracyEval(
 )
 # evaluation.run(print_results=True)
 
-# Create the AgentOS instance
-agent_os = AgentOS(
+# Create the EgptOS instance
+agent_os = EgptOS(
     id="json-demo-app",
     description="Example app using JSON file database for simple deployments and demos",
     agents=[agent],

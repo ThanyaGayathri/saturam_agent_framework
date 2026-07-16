@@ -1,8 +1,8 @@
 """
-Example showing how to use an AgentOS instance as a gateway to remote agents, teams and workflows.
+Example showing how to use an EgptOS instance as a gateway to remote agents, teams and workflows.
 
 This gateway demonstrates combining multiple remote agent sources:
-1. AgentOS protocol agents (from server.py on port 7778)
+1. EgptOS protocol agents (from server.py on port 7778)
 2. Agno A2A protocol agents (from agno_a2a_server.py on port 7779)
 3. Google ADK A2A protocol agents (from adk_server.py on port 7780)
 4. Local agents and workflows
@@ -20,7 +20,7 @@ Prerequisites:
 from egpt.agent import Agent, RemoteAgent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import RemoteTeam
 from egpt.workflow import RemoteWorkflow, Workflow
 from egpt.workflow.agent import WorkflowAgent
@@ -113,11 +113,11 @@ advanced_workflow = Workflow(
     db=db,
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
-    description="Gateway combining AgentOS, Agno A2A, and Google ADK agents",
+# Setup our EgptOS app
+agent_os = EgptOS(
+    description="Gateway combining EgptOS, Agno A2A, and Google ADK agents",
     agents=[
-        # AgentOS protocol agents (from server.py on port 7778)
+        # EgptOS protocol agents (from server.py on port 7778)
         RemoteAgent(base_url="http://localhost:7778", agent_id="assistant-agent"),
         RemoteAgent(base_url="http://localhost:7778", agent_id="researcher-agent"),
         # Agno A2A protocol agents (from agno_a2a_server.py on port 7779)
@@ -160,10 +160,10 @@ app = agent_os.get_app()
 
 if __name__ == "__main__":
     """
-    Run your AgentOS gateway.
+    Run your EgptOS gateway.
     
     This gateway combines:
-    - Remote AgentOS agents (port 7778)
+    - Remote EgptOS agents (port 7778)
     - Remote Agno A2A agents (port 7779)
     - Remote Google ADK agents (port 7780)
     - Local agents and workflows

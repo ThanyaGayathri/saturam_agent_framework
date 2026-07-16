@@ -1,5 +1,5 @@
 """
-This example demonstrates how to add custom middleware to your AgentOS application.
+This example demonstrates how to add custom middleware to your EgptOS application.
 
 We add two middleware:
 - Rate Limiting: Limits requests per IP address
@@ -13,7 +13,7 @@ from typing import Dict
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.websearch import WebSearchTools
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -132,7 +132,7 @@ agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Essential middleware demo with rate limiting and logging",
     agents=[agent],
 )
@@ -158,7 +158,7 @@ app.add_middleware(
 
 if __name__ == "__main__":
     """
-    Run the essential middleware demo using AgentOS serve method.
+    Run the essential middleware demo using EgptOS serve method.
     
     Features:
     1. Rate Limiting (10 requests/minute)

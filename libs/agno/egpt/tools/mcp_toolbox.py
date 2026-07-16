@@ -12,7 +12,7 @@ except ImportError:
 
 
 class MCPToolsMeta(type):
-    """Metaclass for MCPTools to ensure proper initialization with AgentOS"""
+    """Metaclass for MCPTools to ensure proper initialization with EgptOS"""
 
     @property
     def __name__(cls):

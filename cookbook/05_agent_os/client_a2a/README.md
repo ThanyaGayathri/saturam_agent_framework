@@ -1,6 +1,6 @@
 # Client A2A Cookbook
 
-Examples for `client_a2a` in AgentOS.
+Examples for `client_a2a` in EgptOS.
 
 ## Files
 - `01_basic_messaging.py` — Basic A2A Messaging with A2AClient.

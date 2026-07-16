@@ -18,7 +18,7 @@ from egpt.agent import Agent
 from egpt.approval import approval
 from egpt.db.sqlite.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.tools import tool
 
@@ -172,7 +172,7 @@ agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Slack HITL — required approval demo (DB-backed approval records)",
     agents=[agent],
     db=db,

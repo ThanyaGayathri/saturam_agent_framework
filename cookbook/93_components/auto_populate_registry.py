@@ -2,12 +2,12 @@
 Auto-Populating the Registry from Agents, Teams, and Workflows
 ==============================================================
 
-AgentOS automatically discovers the components (models, tools, databases, and
+EgptOS automatically discovers the components (models, tools, databases, and
 vector databases) used anywhere inside its agents, teams, and workflows and adds
 them to the registry. You do not need to declare these components a second time
 when constructing the Registry.
 
-This example builds a team and a workflow, hands them to AgentOS WITHOUT passing
+This example builds a team and a workflow, hands them to EgptOS WITHOUT passing
 an explicit registry, and then inspects the auto-populated registry. No model
 calls are made, so this runs offline without any API key.
 """
@@ -15,7 +15,7 @@ calls are made, so this runs offline without any API key.
 from egpt.agent.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 from egpt.workflow import Step, Workflow
 
@@ -70,9 +70,9 @@ content_workflow = Workflow(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS WITHOUT an explicit registry
+# Create EgptOS WITHOUT an explicit registry
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="auto-registry-os",
     teams=[content_team],
     workflows=[content_workflow],

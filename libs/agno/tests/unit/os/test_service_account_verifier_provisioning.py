@@ -1,7 +1,7 @@
 """Service-account verifier capability vs auth-enforcement policy.
 
 The verifier (the *capability* to check ``agno_pat_`` tokens) lives on app.state
-whenever the AgentOS has a db: the WS authenticate action, the REST dependency,
+whenever the EgptOS has a db: the WS authenticate action, the REST dependency,
 and manually added JWTMiddleware all resolve it at request time. Enforcement is
 a separate decision: the auth middleware only installs when the operator
 configured a base auth mechanism (JWT or security key), and on an open instance
@@ -14,7 +14,7 @@ from starlette.testclient import TestClient
 
 from egpt.agent.agent import Agent
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.os.settings import AgnoAPISettings
 
@@ -41,15 +41,15 @@ class TestSAVerifierProvisioning:
     def test_db_alone_exposes_verifier_without_enforcement(self, sqlite_db):
         """A db is enough to *have* the verifier -- request-time consumers (the WS
         authenticate action, manually added JWTMiddleware) need it even when
-        AgentOS itself installs no auth. Enforcement stays off: see
+        EgptOS itself installs no auth. Enforcement stays off: see
         TestOpenInstanceStaysOpen for the no-middleware / stale-PAT-ignored pins.
         """
-        os_instance = AgentOS(agents=[_agent()], db=sqlite_db, telemetry=False)
+        os_instance = EgptOS(agents=[_agent()], db=sqlite_db, telemetry=False)
         app = os_instance.get_app()
         assert getattr(app.state, "service_account_verifier", None) is not None
 
     def test_authorization_true_installs_verifier(self, sqlite_db):
-        os_instance = AgentOS(
+        os_instance = EgptOS(
             agents=[_agent()],
             db=sqlite_db,
             telemetry=False,
@@ -60,7 +60,7 @@ class TestSAVerifierProvisioning:
         assert getattr(app.state, "service_account_verifier", None) is not None
 
     def test_security_key_installs_verifier(self, sqlite_db):
-        os_instance = AgentOS(
+        os_instance = EgptOS(
             agents=[_agent()],
             db=sqlite_db,
             telemetry=False,
@@ -72,7 +72,7 @@ class TestSAVerifierProvisioning:
     def test_jwt_env_var_installs_verifier(self, sqlite_db, monkeypatch):
         """Env-var-configured JWT (manual middleware path) auto-enables the verifier."""
         monkeypatch.setenv("JWT_VERIFICATION_KEY", JWT_SECRET)
-        os_instance = AgentOS(agents=[_agent()], db=sqlite_db, telemetry=False)
+        os_instance = EgptOS(agents=[_agent()], db=sqlite_db, telemetry=False)
         app = os_instance.get_app()
         assert getattr(app.state, "service_account_verifier", None) is not None
 
@@ -85,7 +85,7 @@ class TestOpenInstanceStaysOpen:
         """
         from egpt.os.middleware.jwt import AuthMiddleware
 
-        os_instance = AgentOS(agents=[_agent()], db=sqlite_db, telemetry=False)
+        os_instance = EgptOS(agents=[_agent()], db=sqlite_db, telemetry=False)
         app = os_instance.get_app()
 
         auth_middleware_present = any(
@@ -99,7 +99,7 @@ class TestOpenInstanceStaysOpen:
         on a db-only (open) instance is ignored and the request proceeds
         anonymously, exactly as if no token had been sent.
         """
-        os_instance = AgentOS(agents=[_agent()], db=sqlite_db, telemetry=False)
+        os_instance = EgptOS(agents=[_agent()], db=sqlite_db, telemetry=False)
         client = TestClient(os_instance.get_app())
 
         no_token = client.get("/agents")

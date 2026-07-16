@@ -1,6 +1,6 @@
 """Basic scheduled agent run.
 
-Starts an AgentOS with the scheduler enabled. After the server is running,
+Starts an EgptOS with the scheduler enabled. After the server is running,
 use the REST API to create a schedule that triggers an agent every 5 minutes.
 
 Prerequisites:
@@ -24,7 +24,7 @@ Then, in another terminal, create a schedule:
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -46,7 +46,7 @@ greeter = Agent(
     markdown=True,
 )
 
-app = AgentOS(
+app = EgptOS(
     agents=[greeter],
     db=db,
     scheduler=True,

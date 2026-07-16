@@ -1,1 +1,1 @@
-"""Unit tests for AgentOS components."""
+"""Unit tests for EgptOS components."""

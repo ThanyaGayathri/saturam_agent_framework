@@ -1,10 +1,10 @@
-# AgentOS RBAC - Role-Based Access Control
+# EgptOS RBAC - Role-Based Access Control
 
-This directory contains examples demonstrating AgentOS's RBAC (Role-Based Access Control) system with JWT authentication.
+This directory contains examples demonstrating EgptOS's RBAC (Role-Based Access Control) system with JWT authentication.
 
 ## Overview
 
-AgentOS RBAC provides fine-grained access control using JWT tokens with scopes.
+EgptOS RBAC provides fine-grained access control using JWT tokens with scopes.
 
 **Important:** RBAC is opt-in. Router-level authorization checks (scope validation, resource filtering) only run when `authorization=True` is set on the JWT middleware. Without this flag, JWT tokens are validated but all resources are accessible.
 
@@ -13,19 +13,19 @@ The system supports:
 1. **Global Resource Scopes** - Permissions for all resources of a type
 2. **Per-Resource Scopes** - Granular agent/team/workflow permissions
 3. **Wildcard Support** - Flexible permission patterns
-4. **Audience Verification** - JWT `aud` claim must match the AgentOS ID
+4. **Audience Verification** - JWT `aud` claim must match the EgptOS ID
 
-## AgentOS Control Plane
+## EgptOS Control Plane
 
-RBAC on AgentOS is compatible with the AgentOS Control Plane. When connecting your AgentOS, you'll need to enable "Authorization" for traffic from the control plane to have the required JWT token with the correct scopes.
+RBAC on EgptOS is compatible with the EgptOS Control Plane. When connecting your EgptOS, you'll need to enable "Authorization" for traffic from the control plane to have the required JWT token with the correct scopes.
 
-See the [documentation](https://docs.agno.com/agent-os/security/overview) for more information about AgentOS Security.
+See the [documentation](https://docs.agno.com/agent-os/security/overview) for more information about EgptOS Security.
 
-Note: Only Asymmetric keys are supported for AgentOS Control Plane traffic.  The public key will be provided by the control plane when you connect your AgentOS.
+Note: Only Asymmetric keys are supported for EgptOS Control Plane traffic.  The public key will be provided by the control plane when you connect your EgptOS.
 
 ## JWT Signing Algorithms
 
-AgentOS supports both symmetric and asymmetric JWT signing:
+EgptOS supports both symmetric and asymmetric JWT signing:
 
 | Algorithm | Type | Use Case |
 |-----------|------|----------|
@@ -37,17 +37,17 @@ AgentOS supports both symmetric and asymmetric JWT signing:
 For an asymmetric key example, see `asymmetric/basic.py` which demonstrates:
 - RSA key pair generation
 - Using private key to sign tokens (auth server)
-- Using public key to verify tokens (AgentOS)
+- Using public key to verify tokens (EgptOS)
 
 ## Audience Verification
 
-The `aud` (audience) claim in JWT tokens is used to verify the token is intended for this AgentOS instance:
+The `aud` (audience) claim in JWT tokens is used to verify the token is intended for this EgptOS instance:
 
 ```python
-# Token payload must include aud claim matching AgentOS ID
+# Token payload must include aud claim matching EgptOS ID
 payload = {
     "sub": "user_123",
-    "aud": "my-agent-os",  # Must match AgentOS ID
+    "aud": "my-agent-os",  # Must match EgptOS ID
     "scopes": ["agents:read", "agents:run"],
     "exp": datetime.now(UTC) + timedelta(hours=24),
 }
@@ -163,11 +163,11 @@ See `symmetric/advanced_scopes.py` for comprehensive examples of:
 
 There are two ways to enable RBAC:
 
-**Option A: Via AgentOS parameters (recommended)**
+**Option A: Via EgptOS parameters (recommended)**
 ```python
-from agno.os import AgentOS
+from egpt.os import EgptOS
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="my-agent-os",
     agents=[agent1, agent2],
     authorization=True,  # Enable RBAC
@@ -182,10 +182,10 @@ app = agent_os.get_app()
 
 **Option B: Via JWTMiddleware directly**
 ```python
-from agno.os import AgentOS
+from egpt.os import EgptOS
 from agno.os.middleware import JWTMiddleware
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="my-agent-os",
     agents=[agent1, agent2],
 )
@@ -255,7 +255,7 @@ curl -X POST \
 
 ## Default Scope Mappings
 
-All AgentOS endpoints have default scope requirements:
+All EgptOS endpoints have default scope requirements:
 
 ```python
 {
@@ -300,7 +300,7 @@ app.add_middleware(
     verification_keys=["your-public-key-or-secret"],
     algorithm="RS256",  # Default; use "HS256" for symmetric keys
     authorization=True,
-    verify_audience=True,  # Verify aud claim matches AgentOS ID
+    verify_audience=True,  # Verify aud claim matches EgptOS ID
     scope_mappings={
         # Override default
         "GET /agents": ["custom:scope"],
@@ -316,7 +316,7 @@ app.add_middleware(
 
 ## Security Best Practices
 
-1. **Use RS256 asymmetric keys in production** - Only share the public key with AgentOS. This is how the AgentOS Control Plane communicates with your AgentOS instance.
+1. **Use RS256 asymmetric keys in production** - Only share the public key with EgptOS. This is how the EgptOS Control Plane communicates with your EgptOS instance.
 2. **Use environment variables** for keys and secrets
 3. **Set appropriate token expiration** (exp claim)
 4. **Use HTTPS** in production
@@ -339,11 +339,11 @@ app.add_middleware(
 - Check both `agents:read` and `agents:<id>:read` scopes
 
 ### Scopes not being enforced
-- Ensure `authorization=True` is set on JWTMiddleware or AgentOS
+- Ensure `authorization=True` is set on JWTMiddleware or EgptOS
 - Without this flag, JWT validation occurs but scope checks are skipped
 - All authenticated users will have access to all resources
 
 ## Additional Resources
 
-- [AgentOS Documentation](https://docs.agno.com/agent-os/security/overview)
+- [EgptOS Documentation](https://docs.agno.com/agent-os/security/overview)
 - [JWT.io](https://jwt.io) - JWT debugging tool

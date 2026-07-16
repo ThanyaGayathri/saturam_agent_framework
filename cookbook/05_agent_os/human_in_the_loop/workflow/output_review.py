@@ -1,11 +1,11 @@
 """
-Output Review HITL Example (AgentOS)
+Output Review HITL Example (EgptOS)
 
 This example demonstrates pausing after a step runs so a human can review the
-step output before the workflow continues in AgentOS.
+step output before the workflow continues in EgptOS.
 """
 
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.workflow import HumanReview, OnReject
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput
@@ -47,9 +47,9 @@ workflow = Workflow(
 )
 workflow.id = "workflow-hitl-output-review"
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     name="Workflow Output Review HITL",
-    description="AgentOS workflow example for post-step output review.",
+    description="EgptOS workflow example for post-step output review.",
     workflows=[workflow],
     db=db,
 )

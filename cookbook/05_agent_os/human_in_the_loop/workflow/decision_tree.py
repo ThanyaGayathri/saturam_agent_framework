@@ -1,11 +1,11 @@
 """
-Decision Tree HITL Example (AgentOS)
+Decision Tree HITL Example (EgptOS)
 
 This example demonstrates multiple sequential human decisions in one workflow.
-Each Condition pauses in AgentOS and the selected branch shapes the final output.
+Each Condition pauses in EgptOS and the selected branch shapes the final output.
 """
 
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.workflow import OnReject
 from egpt.workflow.condition import Condition
 from egpt.workflow.step import Step
@@ -57,7 +57,7 @@ def internal_notes(step_input: StepInput) -> StepOutput:
 
 workflow = Workflow(
     name="decision_tree_workflow",
-    description="Guide a workflow through sequential human decisions in AgentOS.",
+    description="Guide a workflow through sequential human decisions in EgptOS.",
     db=db,
     steps=[
         Step(name="gather_requirements", executor=gather_requirements),
@@ -81,9 +81,9 @@ workflow = Workflow(
 )
 workflow.id = "workflow-hitl-decision-tree"
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     name="Workflow Decision Tree HITL",
-    description="AgentOS workflow example for sequential human decisions.",
+    description="EgptOS workflow example for sequential human decisions.",
     workflows=[workflow],
     db=db,
 )

@@ -1,7 +1,7 @@
 """
-Examples demonstrating AgentOSRunner for remote execution.
+Examples demonstrating EgptOSRunner for remote execution.
 
-Run `agent_os_setup.py` to start the remote AgentOS instance.
+Run `agent_os_setup.py` to start the remote EgptOS instance.
 """
 
 import asyncio
@@ -14,7 +14,7 @@ from egpt.agent import RemoteAgent
 
 
 async def remote_agent_example():
-    """Call a remote agent hosted on another AgentOS instance."""
+    """Call a remote agent hosted on another EgptOS instance."""
     # Create a runner that points to a remote agent
     agent = RemoteAgent(
         base_url="http://localhost:7778",
@@ -54,7 +54,7 @@ async def main():
     print("=" * 60)
 
     # Run examples
-    # Note: Remote examples require a running AgentOS instance
+    # Note: Remote examples require a running EgptOS instance
 
     print("\n1. Remote Agent Example:")
     await remote_agent_example()

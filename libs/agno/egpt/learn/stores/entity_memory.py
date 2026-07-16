@@ -1,3 +1,4 @@
+
 """
 Entity Memory Store
 ===================
@@ -34,10 +35,11 @@ Supported Modes:
 - AGENTIC: Agent calls tools directly to manage entity info
 """
 
+from egpt.utils.env import get_branded_env_bool
+
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from os import getenv
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union, cast
 
@@ -388,7 +390,7 @@ class EntityMemoryStore(LearningStore):
 
     def set_log_level(self):
         """Set log level based on debug_mode or environment variable."""
-        if self.debug_mode or getenv("AGNO_DEBUG", "false").lower() == "true":
+        if self.debug_mode or get_branded_env_bool("DEBUG"):
             self.debug_mode = True
             set_log_level_to_debug()
         else:

@@ -1,7 +1,7 @@
 """Factory with Input Schema -- client-controlled agent parameters.
 
 The client sends a `factory_input` JSON object in the run request. The factory
-declares a pydantic model for validation. AgentOS validates the input and
+declares a pydantic model for validation. EgptOS validates the input and
 exposes it as `ctx.input` (a typed pydantic instance).
 
 Run:
@@ -34,7 +34,7 @@ from egpt.agent import Agent, AgentFactory
 from egpt.db.postgres import PostgresDb
 from egpt.factory import RequestContext
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
@@ -58,7 +58,7 @@ PERSONAS = {
 
 
 class ResearchInput(BaseModel):
-    """Schema for factory_input -- validated by AgentOS before the factory runs."""
+    """Schema for factory_input -- validated by EgptOS before the factory runs."""
 
     persona: Literal["analyst", "advisor", "skeptic"] = "analyst"
     depth: int = 3
@@ -96,10 +96,10 @@ research_factory = AgentFactory(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS
+# EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="factory-schema-demo",
     description="Demo: agent factory with pydantic input schema",
     agents=[research_factory],

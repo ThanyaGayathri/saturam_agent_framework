@@ -11,7 +11,7 @@ Agno integrates Antigravity two ways. Pick based on who drives the loop:
 
 | Integration | When to use | Example |
 |---|---|---|
-| `AntigravityAgent` (external agent) | You want Antigravity to **be** the agent — served through AgentOS, with Agno handling sessions, streaming, and the UI. | `antigravity_basic.py`, `antigravity_session_agentos.py` (this folder) |
+| `AntigravityAgent` (external agent) | You want Antigravity to **be** the agent — served through EgptOS, with Agno handling sessions, streaming, and the UI. | `antigravity_basic.py`, `antigravity_session_agentos.py` (this folder) |
 | `AntigravityTools` (toolkit) | You want a regular Agno agent (any model) to **delegate** a sub-task to an Antigravity sandbox as one tool call. | [`cookbook/91_tools/antigravity/antigravity_tools.py`](../../91_tools/antigravity/antigravity_tools.py) |
 
 ## Setup

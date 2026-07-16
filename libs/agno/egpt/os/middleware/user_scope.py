@@ -53,7 +53,7 @@ from egpt.utils.log import log_warning
 if TYPE_CHECKING:
     from egpt.agent import Agent, RemoteAgent
     from egpt.agent.protocol import AgentProtocol
-    from egpt.os.app import AgentOS
+    from egpt.os.app import EgptOS
     from egpt.team import RemoteTeam, Team
     from egpt.workflow import RemoteWorkflow, Workflow
 
@@ -410,7 +410,7 @@ async def verify_run_in_session_via_db(
         raise HTTPException(status_code=404, detail="Run not found")
 
 
-def resolve_owned_agent(os: "AgentOS") -> Callable:
+def resolve_owned_agent(os: "EgptOS") -> Callable:
     """Return a FastAPI dependency yielding the Agent for a run the caller owns.
 
     For non-admin JWT callers the dependency also requires ``session_id`` as a
@@ -456,7 +456,7 @@ def resolve_owned_agent(os: "AgentOS") -> Callable:
     return dependency
 
 
-def resolve_owned_team(os: "AgentOS") -> Callable:
+def resolve_owned_team(os: "EgptOS") -> Callable:
     """Return a dependency yielding the Team for a run the caller owns.
 
     See ``resolve_owned_agent`` for behaviour.
@@ -499,7 +499,7 @@ def resolve_owned_team(os: "AgentOS") -> Callable:
     return dependency
 
 
-def resolve_owned_workflow(os: "AgentOS") -> Callable:
+def resolve_owned_workflow(os: "EgptOS") -> Callable:
     """Return a dependency yielding the Workflow for a run the caller owns.
 
     See ``resolve_owned_agent`` for behaviour.

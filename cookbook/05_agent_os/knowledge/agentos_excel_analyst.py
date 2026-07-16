@@ -12,7 +12,7 @@ from egpt.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader.excel_reader import ExcelReader
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
@@ -46,8 +46,8 @@ excel_agent = Agent(
     ],
 )
 
-# Create AgentOS app
-agent_os = AgentOS(
+# Create EgptOS app
+agent_os = EgptOS(
     description="Excel Knowledge API - Query Excel data via REST",
     agents=[excel_agent],
 )
@@ -72,7 +72,7 @@ if __name__ == "__main__":
             skip_if_exists=True,
         )
 
-    print("\nStarting AgentOS server...")
+    print("\nStarting EgptOS server...")
     print("Test at: http://localhost:7777/")
     print("\nExample queries:")
     print("  - What electronics products are in stock?")

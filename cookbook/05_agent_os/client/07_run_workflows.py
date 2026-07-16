@@ -1,17 +1,17 @@
 """
-Running Workflows with AgentOSClient
+Running Workflows with EgptOSClient
 
 This example demonstrates how to execute workflow runs using
-AgentOSClient, including both streaming and non-streaming responses.
+EgptOSClient, including both streaming and non-streaming responses.
 
 Prerequisites:
-1. Start an AgentOS server with a workflow configured
+1. Start an EgptOS server with a workflow configured
 2. Run this script: python 07_run_workflows.py
 """
 
 import asyncio
 
-from egpt.client import AgentOSClient
+from egpt.client import EgptOSClient
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -24,7 +24,7 @@ async def run_workflow_non_streaming():
     print("Non-Streaming Workflow Run")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     # Get available workflows
     config = await client.aget_config()
@@ -56,7 +56,7 @@ async def run_workflow_streaming():
     print("Streaming Workflow Run")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     # Get available workflows
     config = await client.aget_config()

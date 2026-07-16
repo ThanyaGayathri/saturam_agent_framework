@@ -77,7 +77,7 @@ async def _authenticate_service_account(
     identity the middleware would attach (user_id = the ``sa:<name>`` principal,
     the account's scopes) and the scopes are enforced against the route. Scope
     enforcement is never skipped: service account scopes are ACL data owned by
-    this AgentOS instance, unlike JWT claims.
+    this EgptOS instance, unlike JWT claims.
 
     ``treat_unverifiable_as_anonymous`` selects what happens when the token can
     NOT be verified (unknown, expired, revoked, or verification unavailable):
@@ -95,7 +95,7 @@ async def _authenticate_service_account(
     if verifier is None:
         if treat_unverifiable_as_anonymous:
             return True
-        raise HTTPException(status_code=401, detail="Service accounts are not enabled on this AgentOS instance")
+        raise HTTPException(status_code=401, detail="Service accounts are not enabled on this EgptOS instance")
 
     admin_scope_raw = getattr(request.app.state, "admin_scope", None)
     admin_scope = admin_scope_raw if isinstance(admin_scope_raw, str) else None
@@ -132,7 +132,7 @@ def _has_jwt_middleware(app: Any) -> bool:
     """Check whether the app has JWTMiddleware installed via ``add_middleware``.
 
     Covers deployments that wire JWT auth by calling ``app.add_middleware(JWTMiddleware, ...)``
-    directly instead of via ``AgentOS(authorization=True)`` or JWT env vars.
+    directly instead of via ``EgptOS(authorization=True)`` or JWT env vars.
     """
     if app is None:
         return False
@@ -145,7 +145,7 @@ def _has_jwt_middleware(app: Any) -> bool:
         cls = getattr(mw, "cls", None)
         if not (isinstance(cls, type) and issubclass(cls, JWTMiddleware)):
             continue
-        # Only count instances that actually validate JWTs: AgentOS installs the same
+        # Only count instances that actually validate JWTs: EgptOS installs the same
         # middleware class as the auth layer for security-key / service-account-only
         # modes, constructed without any JWT source. (Env-var-configured JWT is
         # detected separately by _is_jwt_configured.)
@@ -162,13 +162,13 @@ def get_effective_auth_mode(
     """Return the authentication mode effectively enforced by the OS.
 
     Mirrors the precedence used by ``get_authentication_dependency``:
-    JWT (via authorization=True on AgentOS, JWT environment variables, or a manually
+    JWT (via authorization=True on EgptOS, JWT environment variables, or a manually
     installed ``JWTMiddleware``) takes precedence over the security key, which takes
     precedence over no auth.
 
     Args:
         settings: The API settings containing the security key and authorization flag
-        authorization: The AgentOS authorization flag (JWT middleware enabled)
+        authorization: The EgptOS authorization flag (JWT middleware enabled)
         app: The Starlette/FastAPI app instance; when provided, its middleware stack
             is inspected so a manually-installed ``JWTMiddleware`` is detected.
 
@@ -205,7 +205,7 @@ def get_authentication_dependency(settings: AgnoAPISettings):
     """
 
     async def auth_dependency(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security)) -> bool:
-        # If JWT authorization is enabled via settings (authorization=True on AgentOS)
+        # If JWT authorization is enabled via settings (authorization=True on EgptOS)
         if settings and settings.authorization_enabled:
             return True
 

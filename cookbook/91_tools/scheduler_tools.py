@@ -5,11 +5,11 @@ Scheduler Tools
 Give an agent the ability to create and manage recurring schedules.
 
 The agent can convert natural language requests like "do this every day at 9am"
-into cron-based schedules that run via the AgentOS scheduler infrastructure.
+into cron-based schedules that run via the EgptOS scheduler infrastructure.
 
 Prerequisites:
     pip install agno[scheduler]
-    # A running AgentOS server with scheduler enabled
+    # A running EgptOS server with scheduler enabled
     # See cookbook/05_agent_os/scheduler/scheduler_tools_agent.py for full setup
 """
 

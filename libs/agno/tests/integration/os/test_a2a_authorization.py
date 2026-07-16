@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 
 from egpt.agent import Agent
 from egpt.db.in_memory import InMemoryDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.run.agent import RunOutput
 from egpt.session.agent import AgentSession
@@ -79,7 +79,7 @@ def agent():
 @pytest.fixture
 def authz_client(agent):
     """A2A behind authorization=True with JWT verification."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id="a2a-authz-os",
         agents=[agent],
         a2a_interface=True,
@@ -94,7 +94,7 @@ def authz_client(agent):
 @pytest.fixture
 def anon_client(agent):
     """A2A with no authorization -- anonymous callers allowed (attribution only)."""
-    agent_os = AgentOS(id="a2a-anon-os", agents=[agent], a2a_interface=True)
+    agent_os = EgptOS(id="a2a-anon-os", agents=[agent], a2a_interface=True)
     return TestClient(agent_os.get_app())
 
 
@@ -104,7 +104,7 @@ def multi_entity_authz_client():
     agent = Agent(id=AGENT_ID, name="Authz Agent", db=InMemoryDb())
     team = Team(id="authz-team", name="Authz Team", members=[agent], db=InMemoryDb())
     workflow = Workflow(id="authz-wf", name="Authz WF", steps=[Step(name="s", agent=agent)], db=InMemoryDb())
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id="a2a-multi-os",
         agents=[agent],
         teams=[team],
@@ -121,7 +121,7 @@ def custom_prefix_authz_client(agent):
     """A2A mounted under a NON-default prefix, behind authorization=True."""
     from egpt.os.interfaces.a2a import A2A
 
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id="a2a-custom-prefix-os",
         agents=[agent],
         interfaces=[A2A(prefix="/protocol", agents=[agent])],
@@ -260,7 +260,7 @@ def test_every_a2a_route_has_a_scope_mapping():
     agent = Agent(id=AGENT_ID, name="Authz Agent", db=InMemoryDb())
     team = Team(id="authz-team", name="Authz Team", members=[agent], db=InMemoryDb())
     workflow = Workflow(id="authz-wf", name="Authz WF", steps=[Step(name="s", agent=agent)], db=InMemoryDb())
-    agent_os = AgentOS(id="a2a-guard-os", agents=[agent], teams=[team], workflows=[workflow], a2a_interface=True)
+    agent_os = EgptOS(id="a2a-guard-os", agents=[agent], teams=[team], workflows=[workflow], a2a_interface=True)
 
     mappings = get_default_scope_mappings()
     unmapped = []
@@ -312,7 +312,7 @@ class TestA2ARootPrefix:
     def root_prefix_authz_client(self, agent):
         from egpt.os.interfaces.a2a import A2A
 
-        agent_os = AgentOS(
+        agent_os = EgptOS(
             id="a2a-root-prefix-os",
             agents=[agent],
             interfaces=[A2A(prefix="", agents=[agent])],

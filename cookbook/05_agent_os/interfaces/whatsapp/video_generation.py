@@ -15,7 +15,7 @@ Requires:
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.tools.fal import FalTools
 
@@ -42,10 +42,10 @@ video_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS setup
+# EgptOS setup
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[video_agent],
     interfaces=[Whatsapp(agent=video_agent)],
 )

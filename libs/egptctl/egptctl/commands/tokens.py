@@ -1,4 +1,4 @@
-"""`egpt tokens`: thin wrappers over the AgentOS service-accounts API."""
+"""`egpt tokens`: thin wrappers over the EgptOS service-accounts API."""
 
 import time
 from datetime import datetime, timezone
@@ -17,11 +17,11 @@ from egptctl.commands._common import (
 from egptctl.console import console, emit_json, print_info, print_success, print_warning
 from egptctl.discovery import discover
 from egptctl.errors import CLIError, ConflictError
-from egptctl.http import AgentOSAPI
+from egptctl.http import EgptOSAPI
 
-tokens_app = typer.Typer(name="tokens", help="Mint, list, and revoke AgentOS service-account tokens.")
+tokens_app = typer.Typer(name="tokens", help="Mint, list, and revoke EgptOS service-account tokens.")
 
-UrlOption = typer.Option(None, "--url", help="AgentOS base URL (default: autodiscover on localhost).")
+UrlOption = typer.Option(None, "--url", help="EgptOS base URL (default: autodiscover on localhost).")
 JsonOption = typer.Option(False, "--json", help="Emit a single JSON document for machine consumption.")
 AllowHttpOption = typer.Option(
     False, "--allow-http", help="Permit sending credentials over plaintext HTTP to a non-loopback host."
@@ -34,12 +34,12 @@ def _timestamp(value: Optional[int]) -> str:
     return datetime.fromtimestamp(value, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def _api_for(url: Optional[str], json_mode: bool, allow_http: bool, sensitive: bool = False) -> AgentOSAPI:
+def _api_for(url: Optional[str], json_mode: bool, allow_http: bool, sensitive: bool = False) -> EgptOSAPI:
     os_info = discover(url)
     # Surface which OS we resolved before we mint or attach a credential: on a shared host
     # autodiscovery could land on a port-squatter, and the operator should see the target.
     if url is None and not json_mode:
-        print_info("Using AgentOS at " + os_info.base_url)
+        print_info("Using EgptOS at " + os_info.base_url)
     admin_token = resolve_admin_token(os_info.auth_mode, json_mode)
     # Refuse to put a bearer credential (admin token) or receive a freshly minted PAT over
     # plaintext HTTP unless the target is loopback or the operator opted in with --allow-http.
@@ -49,7 +49,7 @@ def _api_for(url: Optional[str], json_mode: bool, allow_http: bool, sensitive: b
             allow_http=allow_http,
             what="a token" if sensitive else "the admin credential",
         )
-    return AgentOSAPI(os_info.base_url, admin_token=admin_token)
+    return EgptOSAPI(os_info.base_url, admin_token=admin_token)
 
 
 @tokens_app.command("create")

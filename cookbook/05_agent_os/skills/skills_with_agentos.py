@@ -9,7 +9,7 @@ from pathlib import Path
 
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.skills import LocalSkills, Skills
 
 # ---------------------------------------------------------------------------
@@ -28,9 +28,9 @@ skills_agent = Agent(
     markdown=True,
 )
 
-# Setup AgentOS
-agent_os = AgentOS(
-    description="Agent with Skills Demo - Execute skill scripts via AgentOS",
+# Setup EgptOS
+agent_os = EgptOS(
+    description="Agent with Skills Demo - Execute skill scripts via EgptOS",
     agents=[skills_agent],
 )
 app = agent_os.get_app()

@@ -20,7 +20,7 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history,
 
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.team import Team
 from egpt.tools.dalle import DalleTools
@@ -76,10 +76,10 @@ multimodal_team = Team(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS
+# EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     teams=[multimodal_team],
     interfaces=[
         Slack(

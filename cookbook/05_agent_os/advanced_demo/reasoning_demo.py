@@ -4,7 +4,7 @@ from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 from egpt.tools.knowledge import KnowledgeTools
 from egpt.tools.reasoning import ReasoningTools
@@ -134,8 +134,8 @@ reasoning_finance_team = Team(
 )
 
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     description="Example OS setup",
     agents=[
         finance_agent,

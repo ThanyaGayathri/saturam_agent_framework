@@ -63,11 +63,11 @@ from egpt.workflow.remote import RemoteWorkflow
 from egpt.workflow.workflow import Workflow
 
 if TYPE_CHECKING:
-    from egpt.os.app import AgentOS
+    from egpt.os.app import EgptOS
 
 
 async def handle_workflow_via_websocket(
-    websocket: WebSocket, message: dict, os: "AgentOS", ws_user_context: Optional[Dict[str, Any]] = None
+    websocket: WebSocket, message: dict, os: "EgptOS", ws_user_context: Optional[Dict[str, Any]] = None
 ):
     """Handle workflow execution directly via WebSocket"""
     try:
@@ -217,7 +217,7 @@ class WebSocketAuthContext:
 async def handle_workflow_subscription(
     websocket: WebSocket,
     message: dict,
-    os: "AgentOS",
+    os: "EgptOS",
     ws_auth: Optional[WebSocketAuthContext] = None,
 ):
     """
@@ -446,7 +446,7 @@ async def handle_workflow_subscription(
 async def handle_workflow_continue_via_websocket(
     websocket: WebSocket,
     message: dict,
-    os: "AgentOS",
+    os: "EgptOS",
     ws_auth: Optional[WebSocketAuthContext] = None,
 ):
     """Handle continuing a paused workflow run via WebSocket"""
@@ -971,7 +971,7 @@ async def _resume_stream_generator(
 
 
 def get_workflow_router(
-    os: "AgentOS",
+    os: "EgptOS",
     settings: AgnoAPISettings = AgnoAPISettings(),
 ) -> APIRouter:
     """Create the workflow router with comprehensive OpenAPI documentation."""

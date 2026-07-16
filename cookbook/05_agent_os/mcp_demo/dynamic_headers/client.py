@@ -1,5 +1,5 @@
 """
-AgentOS with MCPTools using dynamic headers.
+EgptOS with MCPTools using dynamic headers.
 
 This example shows how to pass user context to external MCP servers.
 The header_provider receives run_context, agent, and team - allowing you to
@@ -7,7 +7,7 @@ forward user info, session data, or entity names to MCP tools.
 
 Usage:
 1. Start the MCP server: python server.py
-2. Start AgentOS: python client.py
+2. Start EgptOS: python client.py
 3. Test at http://localhost:7777/docs
    - Call the standalone agent: POST /agents/greeting-agent/runs
    - Call the team: POST /teams/greeting-team/runs
@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Optional
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.run import RunContext
 from egpt.team.team import Team
 from egpt.tools.mcp import MCPTools
@@ -41,7 +41,7 @@ def header_provider(
     """
     Generate headers from run context to pass to external MCP server.
 
-    When users call the AgentOS API with user_id/session_id, those values
+    When users call the EgptOS API with user_id/session_id, those values
     flow through run_context and get forwarded to the MCP server.
     """
     return {
@@ -78,9 +78,9 @@ greeting_team = Team(
     db=db,
 )
 
-# AgentOS with both standalone agent and team
-agent_os = AgentOS(
-    description="AgentOS showcasing dynamic headers for MCP tools",
+# EgptOS with both standalone agent and team
+agent_os = EgptOS(
+    description="EgptOS showcasing dynamic headers for MCP tools",
     teams=[greeting_team],
     agents=[greeting_agent],
 )

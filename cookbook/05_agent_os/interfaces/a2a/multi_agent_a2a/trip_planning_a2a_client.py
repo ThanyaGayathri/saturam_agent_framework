@@ -10,7 +10,7 @@ import uuid
 import requests
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -103,9 +103,9 @@ trip_planner = Agent(
         "If an agent returns an error, inform the user and try to proceed with the available information.",
     ],
 )
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="trip-planning-service",
-    description="AgentOS hosting the Trip Planning Orchestrator.",
+    description="EgptOS hosting the Trip Planning Orchestrator.",
     agents=[
         trip_planner,
     ],
@@ -116,7 +116,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
     You can run the Agent via A2A protocol:
     POST http://localhost:7777/agents/{id}/v1/message:send
     For streaming responses:

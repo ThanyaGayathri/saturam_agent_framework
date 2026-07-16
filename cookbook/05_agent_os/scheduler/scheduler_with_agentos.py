@@ -1,7 +1,7 @@
-"""Running the scheduler inside AgentOS with automatic polling.
+"""Running the scheduler inside EgptOS with automatic polling.
 
 This example demonstrates the primary DX for the scheduler:
-- Setting scheduler=True on AgentOS to enable cron polling
+- Setting scheduler=True on EgptOS to enable cron polling
 - The poller starts automatically on app startup and stops on shutdown
 - Schedules are created via the REST API (POST /schedules)
 - The internal service token handles auth between scheduler and agent endpoints
@@ -13,7 +13,7 @@ Run with:
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 # --- Setup ---
 
@@ -33,12 +33,12 @@ reporter = Agent(
     db=db,
 )
 
-# Create AgentOS with scheduler enabled.
+# Create EgptOS with scheduler enabled.
 # This does three things:
 #   1. Registers the /schedules REST endpoints
 #   2. Starts a SchedulePoller on app startup (polls every 15s by default)
 #   3. Auto-generates an internal service token for scheduler -> agent auth
-agent_os = AgentOS(
+agent_os = EgptOS(
     name="Scheduled OS",
     agents=[greeter, reporter],
     db=db,

@@ -1,13 +1,13 @@
 """
-Example AgentOS app with MCP enabled.
+Example EgptOS app with MCP enabled.
 
-After starting this AgentOS app, you can test the MCP server with the test_client.py file.
+After starting this EgptOS app, you can test the MCP server with the test_client.py file.
 """
 
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.anthropic import Claude
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
@@ -32,8 +32,8 @@ web_research_agent = Agent(
 )
 
 
-# Setup our AgentOS with MCP enabled
-agent_os = AgentOS(
+# Setup our EgptOS with MCP enabled
+agent_os = EgptOS(
     description="Example app with MCP enabled",
     agents=[web_research_agent],
     enable_mcp_server=True,  # This enables a LLM-friendly MCP server at /mcp
@@ -46,7 +46,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can see view your LLM-friendly MCP server at:
     http://localhost:7777/mcp

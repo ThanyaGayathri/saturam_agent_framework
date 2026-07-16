@@ -1,5 +1,5 @@
 """
-WorkOS BYOT with AgentOS - 3 roles, real WorkOS tokens, RBAC provisioned via API
+WorkOS BYOT with EgptOS - 3 roles, real WorkOS tokens, RBAC provisioned via API
 
 Like the basic asymmetric cookbook (3 users / roles + printed curl commands), but
 WorkOS is the token issuer. This script:
@@ -8,10 +8,10 @@ WorkOS is the token issuer. This script:
 2. Mints a REAL WorkOS-signed access token for each user via the password grant
    (a single-org user gets an org-scoped token, so it carries `permissions`).
 3. Prints a curl command per user.
-4. Serves AgentOS, which verifies each token against the WorkOS JWKS and reads
+4. Serves EgptOS, which verifies each token against the WorkOS JWKS and reads
    scopes from the `permissions` claim.
 
-Roles (permission slugs match AgentOS scopes):
+Roles (permission slugs match EgptOS scopes):
 - admin  -> agent_os:admin                          (full access)
 - member -> agents:read, agents:run, sessions:read  (can list/run agents)
 - viewer -> sessions:read                           (no agents:read -> 403 on /agents)
@@ -34,7 +34,7 @@ import jwt
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.middleware.jwt import JWTMiddleware
 from workos import WorkOSClient
 from workos.organization_membership._resource import RoleSingle
@@ -63,7 +63,7 @@ _JWKS_FILE = "/tmp/agno_workos_jwks.json"
 
 workos = WorkOSClient(api_key=WORKOS_API_KEY, client_id=WORKOS_CLIENT_ID)
 
-# RBAC definition - permission slugs are identical to AgentOS scope names.
+# RBAC definition - permission slugs are identical to EgptOS scope names.
 ORG_NAME = "Agno BYOT Demo"
 DEMO_DOMAIN = "agno-byot-demo.com"  # a domain with no SSO connection
 DEMO_PASSWORD = "Agno-Demo-Passw0rd!"
@@ -102,7 +102,7 @@ def _download_workos_jwks(client_id: str, dest: str) -> str:
 # DEMO ONLY: this whole section just bootstraps a fresh WorkOS account so the
 # example runs end to end with no dashboard clicks. If you already have WorkOS
 # auth set up (orgs, roles, permissions, users), you do NOT need any of this -
-# your users log in through your existing WorkOS flow and AgentOS only has to
+# your users log in through your existing WorkOS flow and EgptOS only has to
 # verify the token (see the JWTMiddleware setup below, which is the real
 # integration).
 # ---------------------------------------------------------------------------
@@ -174,7 +174,7 @@ def _mint_token(email: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# AgentOS configured to verify WorkOS tokens via JWKS + `permissions` claim
+# EgptOS configured to verify WorkOS tokens via JWKS + `permissions` claim
 # This is the actual WorkOS integration - the only part you need in production.
 # ---------------------------------------------------------------------------
 
@@ -191,12 +191,12 @@ research_agent = Agent(
     markdown=True,
 )
 
-# Create AgentOS WITHOUT authorization=True, then attach JWTMiddleware directly.
+# Create EgptOS WITHOUT authorization=True, then attach JWTMiddleware directly.
 # AuthorizationConfig can't set claim names; WorkOS uses `permissions` (not the
 # default `scopes`), so we need JWTMiddleware to override scopes_claim.
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="my-agent-os",
-    description="AgentOS verifying WorkOS-issued tokens (BYOT)",
+    description="EgptOS verifying WorkOS-issued tokens (BYOT)",
     agents=[research_agent],
 )
 

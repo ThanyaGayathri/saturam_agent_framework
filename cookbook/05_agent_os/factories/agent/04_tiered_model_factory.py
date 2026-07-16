@@ -28,7 +28,7 @@ from egpt.agent import Agent, AgentFactory
 from egpt.db.postgres import PostgresDb
 from egpt.factory import RequestContext
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.middleware import JWTMiddleware
 
 # ---------------------------------------------------------------------------
@@ -89,10 +89,10 @@ tiered_factory = AgentFactory(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS
+# EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="factory-tiered-demo",
     description="Demo: subscription-tier-based model selection",
     agents=[tiered_factory],

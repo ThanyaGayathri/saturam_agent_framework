@@ -6,7 +6,7 @@
 
 **Status:** PENDING
 
-**Description:** Agno AgentOS A2A Server for testing A2AClient.
+**Description:** Agno EgptOS A2A Server for testing A2AClient.
 
 ---
 

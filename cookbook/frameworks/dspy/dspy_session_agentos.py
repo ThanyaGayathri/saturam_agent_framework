@@ -1,9 +1,9 @@
 """
-DSPy ReAct agent with web search, served through AgentOS.
+DSPy ReAct agent with web search, served through EgptOS.
 
 Uses DSPy's ReAct module with a live DuckDuckGo search tool.
 Multi-turn conversations are persisted to Postgres and visible
-in the AgentOS UI.
+in the EgptOS UI.
 
 Requirements:
     pip install dspy ddgs
@@ -31,7 +31,7 @@ import dspy
 from ddgs import DDGS
 from egpt.agents.dspy import DSPyAgent
 from egpt.db.postgres import PostgresDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 
 # ----- Define a live web search tool -----
@@ -57,13 +57,13 @@ react_program = dspy.ReAct(
 
 agent = DSPyAgent(
     name="DSPy Search Agent",
-    description="A DSPy ReAct agent with live web search, served through AgentOS",
+    description="A DSPy ReAct agent with live web search, served through EgptOS",
     program=react_program,
     db=db,
 )
 
-# ----- Serve through AgentOS -----
-agent_os = AgentOS(agents=[agent])
+# ----- Serve through EgptOS -----
+agent_os = EgptOS(agents=[agent])
 app = agent_os.get_app()
 
 if __name__ == "__main__":

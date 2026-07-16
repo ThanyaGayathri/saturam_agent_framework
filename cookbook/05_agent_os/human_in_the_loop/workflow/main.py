@@ -1,14 +1,14 @@
 """
-AgentOS Workflow HITL Examples
+EgptOS Workflow HITL Examples
 
-Run all workflow human-in-the-loop examples from this directory in one AgentOS.
+Run all workflow human-in-the-loop examples from this directory in one EgptOS.
 """
 
 from condition_user_decision import workflow as condition_user_decision_workflow
 from decision_tree import workflow as decision_tree_workflow
 from dual_level_hitl import travel_agent
 from dual_level_hitl import workflow as dual_level_hitl_workflow
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from loop_confirmation import workflow as loop_confirmation_workflow
 from output_review import workflow as output_review_workflow
 from router_user_selection import workflow as router_user_selection_workflow
@@ -16,10 +16,10 @@ from step_confirmation import workflow as step_confirmation_workflow
 from step_user_input import workflow as step_user_input_workflow
 from step_user_input import workflow_with_executor as step_user_input_executor_workflow
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="workflow-hitl-examples",
     name="Workflow HITL Examples",
-    description="All AgentOS-compatible workflow human-in-the-loop examples.",
+    description="All EgptOS-compatible workflow human-in-the-loop examples.",
     agents=[travel_agent],
     workflows=[
         step_confirmation_workflow,

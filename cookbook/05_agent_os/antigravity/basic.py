@@ -1,15 +1,15 @@
 """
-Antigravity on AgentOS
+Antigravity on EgptOS
 ======================
 
-Serves an Antigravity-backed agent through AgentOS, with sessions persisted
+Serves an Antigravity-backed agent through EgptOS, with sessions persisted
 to a local SQLite database.
 """
 
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.google import GeminiInteractions
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -19,7 +19,7 @@ db = SqliteDb(
 )
 
 # ---------------------------------------------------------------------------
-# Create Antigravity Agent and AgentOS
+# Create Antigravity Agent and EgptOS
 # ---------------------------------------------------------------------------
 antigravity_agent = Agent(
     db=db,
@@ -29,13 +29,13 @@ antigravity_agent = Agent(
     num_history_runs=3,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example OS setup",
     agents=[antigravity_agent],
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS App
+# Create EgptOS App
 # ---------------------------------------------------------------------------
 app = agent_os.get_app()
 

@@ -46,9 +46,9 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
         response_model=MetricsResponse,
         status_code=200,
         operation_id="get_metrics",
-        summary="Get AgentOS Metrics",
+        summary="Get EgptOS Metrics",
         description=(
-            "Retrieve AgentOS metrics and analytics data for a specified date range. "
+            "Retrieve EgptOS metrics and analytics data for a specified date range. "
             "If no date range is specified, returns all available metrics."
         ),
         responses={

@@ -1,5 +1,5 @@
 """
-Data Enrichment with Antigravity on AgentOS
+Data Enrichment with Antigravity on EgptOS
 ============================================
 
 Give the agent a list of partial records (just company names) and let
@@ -14,7 +14,7 @@ the data itself.
 Run:
     python cookbook/05_agent_os/antigravity/data_enrichment.py
 
-Then either hit the AgentOS UI / API on http://localhost:7777, or run the
+Then either hit the EgptOS UI / API on http://localhost:7777, or run the
 __main__ demo below by setting RUN_DEMO=1.
 """
 
@@ -24,7 +24,7 @@ from typing import List, Optional
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.google import GeminiInteractions
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
@@ -101,9 +101,9 @@ data_enrichment_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS App
+# Create EgptOS App
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Antigravity-powered data enrichment service",
     agents=[data_enrichment_agent],
 )

@@ -1,5 +1,5 @@
 """
-AgentOS Demo
+EgptOS Demo
 
 Set the OS_SECURITY_KEY environment variable to your OS security key to enable authentication.
 """
@@ -9,7 +9,7 @@ from _teams import finance_reasoning_team  # type: ignore[import-not-found]
 from egpt.db.postgres.postgres import PostgresDb  # noqa: F401
 from egpt.eval.accuracy import AccuracyEval
 from egpt.models.anthropic.claude import Claude
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -18,8 +18,8 @@ from egpt.os import AgentOS
 # Database connection
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 
-# Create the AgentOS
-agent_os = AgentOS(
+# Create the EgptOS
+agent_os = EgptOS(
     id="agentos-demo",
     agents=[sage, agno_assist],
     teams=[finance_reasoning_team],

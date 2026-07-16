@@ -2,7 +2,7 @@
 Workflow With Custom Function Executors
 =======================================
 
-Demonstrates AgentOS workflows using both sync and streaming custom function steps.
+Demonstrates EgptOS workflows using both sync and streaming custom function steps.
 """
 
 from typing import AsyncIterator, Union
@@ -12,7 +12,7 @@ from egpt.db.in_memory import InMemoryDb
 from egpt.db.postgres import PostgresDb
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools
 from egpt.tools.websearch import WebSearchTools
@@ -216,9 +216,9 @@ streaming_content_creation_workflow = Workflow(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS
+# Create EgptOS
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example app for basic agent with playground capabilities",
     workflows=[
         streaming_content_creation_workflow

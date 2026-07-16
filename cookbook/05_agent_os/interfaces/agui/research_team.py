@@ -7,7 +7,7 @@ Demonstrates research team.
 
 from egpt.agent.agent import Agent
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.interfaces.agui import AGUI
 from egpt.team import Team
 from egpt.tools.websearch import WebSearchTools
@@ -47,8 +47,8 @@ research_team = Team(
     add_history_to_context=True,
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     teams=[research_team],
     interfaces=[AGUI(team=research_team)],
 )
@@ -60,7 +60,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can see the configuration and available apps at:
     http://localhost:9001/config

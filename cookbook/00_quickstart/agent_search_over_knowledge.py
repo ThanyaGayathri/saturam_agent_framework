@@ -11,7 +11,7 @@ Key concepts:
 
 Example prompts to try:
 - "What is Agno?"
-- "What is the AgentOS?"
+- "What is the EgptOS?"
 """
 
 from egpt.agent import Agent

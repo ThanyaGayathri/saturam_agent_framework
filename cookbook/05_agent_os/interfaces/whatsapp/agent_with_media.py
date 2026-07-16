@@ -8,7 +8,7 @@ Demonstrates agent with media.
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.google import Gemini
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 
 # ---------------------------------------------------------------------------
@@ -26,8 +26,8 @@ media_agent = Agent(
     markdown=True,
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     agents=[media_agent],
     interfaces=[Whatsapp(agent=media_agent)],
 )

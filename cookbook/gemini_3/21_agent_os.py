@@ -10,7 +10,7 @@ How to use:
 4. Select any agent, team, or workflow and start chatting
 
 Key concepts:
-- AgentOS: Wraps agents, teams, and workflows into a FastAPI web service
+- EgptOS: Wraps agents, teams, and workflows into a FastAPI web service
 - get_app(): Returns a FastAPI app you can customize
 - serve(): Starts the server with uvicorn (hot-reload enabled)
 - tracing=True: Enables request tracing in the Agent OS UI
@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 from db import gemini_agents_db
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 # Numbered filenames need importlib since Python can't import modules starting with digits
 sys.path.insert(0, str(Path(__file__).parent))
@@ -46,7 +46,7 @@ tutor_agent = _import("18_memory", "tutor_agent")
 content_team = _import("19_team", "content_team")
 research_pipeline = _import("20_workflow", "research_pipeline")
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="gemini-agent-os",
     agents=[
         chat_agent,

@@ -1,4 +1,4 @@
-"""Integration tests for running Agents in AgentOS."""
+"""Integration tests for running Agents in EgptOS."""
 
 import json
 from unittest.mock import AsyncMock, patch
@@ -86,7 +86,7 @@ def test_create_agent_run_with_kwargs(test_os_client, test_agent: Agent):
             return {}
 
     # Patch deep_copy to return the same instance so our mock works
-    # (AgentOS uses create_fresh=True which calls deep_copy)
+    # (EgptOS uses create_fresh=True which calls deep_copy)
     with (
         patch.object(test_agent, "deep_copy", return_value=test_agent),
         patch.object(test_agent, "arun", new_callable=AsyncMock) as mock_arun,

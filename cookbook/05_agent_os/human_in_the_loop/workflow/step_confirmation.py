@@ -1,11 +1,11 @@
 """
-Step Confirmation HITL Example (AgentOS)
+Step Confirmation HITL Example (EgptOS)
 
 This example demonstrates pausing a workflow before a step executes so the
-human can approve or reject that step from AgentOS.
+human can approve or reject that step from EgptOS.
 """
 
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.workflow import OnReject
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput
@@ -42,7 +42,7 @@ def save_results(step_input: StepInput) -> StepOutput:
 
 workflow = Workflow(
     name="step_confirmation_workflow",
-    description="Pause before processing sensitive data and continue through AgentOS.",
+    description="Pause before processing sensitive data and continue through EgptOS.",
     db=db,
     steps=[
         Step(name="fetch_data", executor=fetch_data),
@@ -58,9 +58,9 @@ workflow = Workflow(
 )
 workflow.id = "workflow-hitl-step-confirmation"
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     name="Workflow Step Confirmation HITL",
-    description="AgentOS workflow example for step-level confirmation.",
+    description="EgptOS workflow example for step-level confirmation.",
     workflows=[workflow],
     db=db,
 )

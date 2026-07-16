@@ -2,14 +2,14 @@
 Mongo Database Backend
 ======================
 
-Demonstrates AgentOS with MongoDB storage using both sync and async setups.
+Demonstrates EgptOS with MongoDB storage using both sync and async setups.
 """
 
 from egpt.agent import Agent
 from egpt.db.mongo import AsyncMongoDb, MongoDb
 from egpt.eval.accuracy import AccuracyEval
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
@@ -23,7 +23,7 @@ async_db = AsyncMongoDb(
 )
 
 # ---------------------------------------------------------------------------
-# Create Sync Agent, Team, Eval, And AgentOS
+# Create Sync Agent, Team, Eval, And EgptOS
 # ---------------------------------------------------------------------------
 sync_agent = Agent(
     name="Basic Agent",
@@ -57,14 +57,14 @@ sync_evaluation = AccuracyEval(
 )
 # sync_evaluation.run(print_results=True)
 
-sync_agent_os = AgentOS(
+sync_agent_os = EgptOS(
     description="Example OS setup",
     agents=[sync_agent],
     teams=[sync_team],
 )
 
 # ---------------------------------------------------------------------------
-# Create Async Agent, Team, Eval, And AgentOS
+# Create Async Agent, Team, Eval, And EgptOS
 # ---------------------------------------------------------------------------
 async_agent = Agent(
     name="Basic Agent",
@@ -98,14 +98,14 @@ async_evaluation = AccuracyEval(
 )
 # async_evaluation.run(print_results=True)
 
-async_agent_os = AgentOS(
+async_agent_os = EgptOS(
     description="Example OS setup",
     agents=[async_agent],
     teams=[async_team],
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS App
+# Create EgptOS App
 # ---------------------------------------------------------------------------
 # Default to the sync setup. Switch to async_agent_os to run the async variant.
 agent_os = sync_agent_os

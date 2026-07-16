@@ -22,7 +22,7 @@ Environment variables:
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.team import Team
 from egpt.tools.slack import SlackTools
@@ -87,7 +87,7 @@ support_team = Team(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     teams=[support_team],
     interfaces=[
         Slack(

@@ -1,6 +1,6 @@
 """Serialization of run outputs into MCP tool results.
 
-The run tools on the AgentOS MCP server return results sized for the consuming
+The run tools on the EgptOS MCP server return results sized for the consuming
 LLM: MCP tool results are injected directly into the frontend model's context
 window, so the default ("trimmed") mode carries the answer and a minimal set of
 identifiers rather than the full run transcript. Raw dataclass serialization is
