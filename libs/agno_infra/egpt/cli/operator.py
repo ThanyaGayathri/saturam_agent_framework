@@ -4,7 +4,7 @@ from typing import List, Optional
 from egpt.base.resources import InfraResources
 from egpt.cli.config import AgnoCliConfig
 from egpt.cli.console import print_heading, print_info
-from egpt.cli.settings import EGPT_CLI_CONFIG_DIR
+from egpt.cli.settings import BRANDED_CLI_CONFIG_DIR, resolve_cli_config_dir
 from egpt.utilities.logging import logger
 
 
@@ -12,14 +12,14 @@ def delete_agno_config() -> None:
     from egpt.utilities.filesystem import delete_from_fs
 
     logger.debug("Removing existing EGPT configuration")
-    delete_from_fs(EGPT_CLI_CONFIG_DIR)
+    delete_from_fs(BRANDED_CLI_CONFIG_DIR)
 
 
 def initialize_agno_cli(reset: bool = False) -> Optional[AgnoCliConfig]:
     """Initialize Agno CLI config.
 
     Steps:
-    1. Check if EGPT_CLI_CONFIG_DIR exists, if not, create it. If reset == True, recreate EGPT_CLI_CONFIG_DIR.
+    1. Check if BRANDED_CLI_CONFIG_DIR exists, if not, create it. If reset == True, recreate BRANDED_CLI_CONFIG_DIR.
     2. If AgnoCliConfig exists and auth is valid, returns AgnoCliConfig.
     """
     from egpt.utilities.filesystem import delete_from_fs
@@ -30,23 +30,23 @@ def initialize_agno_cli(reset: bool = False) -> Optional[AgnoCliConfig]:
 
     logger.debug("Initializing Agno")
 
-    # Check if ~/.config/ag exists, if it is not a dir - delete it and create the directory
-    if EGPT_CLI_CONFIG_DIR.exists():
-        logger.debug(f"{EGPT_CLI_CONFIG_DIR} exists")
-        if not EGPT_CLI_CONFIG_DIR.is_dir():
+    # Ensure the resolved config directory exists (branded for new installs, legacy when config.json is there).
+    active_config_dir = resolve_cli_config_dir()
+    if active_config_dir.exists():
+        logger.debug(f"{active_config_dir} exists")
+        if not active_config_dir.is_dir():
             try:
-                delete_from_fs(EGPT_CLI_CONFIG_DIR)
+                delete_from_fs(active_config_dir)
             except Exception as e:
                 logger.exception(e)
-                raise Exception(f"Something went wrong, please delete {EGPT_CLI_CONFIG_DIR} and run again")
-            EGPT_CLI_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+                raise Exception(f"Something went wrong, please delete {active_config_dir} and run again")
+            active_config_dir.mkdir(parents=True, exist_ok=True)
     else:
-        EGPT_CLI_CONFIG_DIR.mkdir(parents=True)
-        logger.debug(f"Created {EGPT_CLI_CONFIG_DIR}")
+        active_config_dir.mkdir(parents=True)
+        logger.debug(f"Created {active_config_dir}")
 
-    # Confirm EGPT_CLI_CONFIG_DIR exists otherwise we should return
-    if EGPT_CLI_CONFIG_DIR.exists():
-        logger.debug(f"EGPT config location: {EGPT_CLI_CONFIG_DIR}")
+    if active_config_dir.exists():
+        logger.debug(f"EGPT config location: {active_config_dir}")
     else:
         raise Exception("Something went wrong, please try again")
 

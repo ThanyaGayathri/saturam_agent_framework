@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from egpt.base.app import InfraApp
@@ -37,8 +36,8 @@ class DockerApp(InfraApp):
     # Path to mount the resources_dir
     resources_dir_container_path: str = "/mnt/resources"
 
-    # -*- Agno Volume
-    # Mount ~/.config/ag directory from host machine to the container
+    # -*- CLI config volume
+    # Mount the resolved CLI config directory (~/.config/egpt, or ~/.config/ag fallback)
     mount_agno_config: bool = True
 
     # -*- Container Configuration
@@ -232,14 +231,17 @@ class DockerApp(InfraApp):
                 "mode": "ro",
             }
 
-        # Add ~/.config/ag as a volume
+        # Add the resolved CLI config directory as a volume
         if self.mount_agno_config:
-            agno_config_host_path = str(Path.home().joinpath(".config/ag"))
-            agno_config_container_path = f"{self.infra_dir_container_path}/.config/ag"
-            logger.debug(f"Mounting: {agno_config_host_path}")
-            logger.debug(f"      to: {agno_config_container_path}")
-            container_volumes[agno_config_host_path] = {
-                "bind": agno_config_container_path,
+            from egpt.cli.settings import resolve_cli_config_dir
+
+            cli_config_dir = resolve_cli_config_dir()
+            cli_config_host_path = str(cli_config_dir)
+            cli_config_container_path = f"{self.infra_dir_container_path}/.config/{cli_config_dir.name}"
+            logger.debug(f"Mounting: {cli_config_host_path}")
+            logger.debug(f"      to: {cli_config_container_path}")
+            container_volumes[cli_config_host_path] = {
+                "bind": cli_config_container_path,
                 "mode": "ro",
             }
 
