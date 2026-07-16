@@ -1,0 +1,239 @@
+{
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "k": 5,
+  "ranking_only": {
+    "no_decay": {
+      "precision_at_k": 0.20041885964912304,
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 0.8906604650156453,
+      "mrr": 0.853457650937729,
+      "stale_hit_rate": 0.14713242499408177,
+      "prune_precision": 0.0,
+      "prune_recall": 0.0,
+      "false_forget": 0.0,
+      "retained_final": 0.0,
+      "recall_by_age_bucket": {
+        "0-1d": 1.0,
+        "1-7d": 1.0,
+        "30d+": 1.0,
+        "7-30d": 1.0
+      },
+      "params": {}
+    },
+    "exp_recency": {
+      "precision_at_k": 0.14212218754805822,
+      "recall_at_k": 0.7085166394946788,
+      "ndcg_at_k": 0.6118375395937257,
+      "mrr": 0.5798752952811747,
+      "stale_hit_rate": 0.03101561071742689,
+      "prune_precision": 0.0,
+      "prune_recall": 0.0,
+      "false_forget": 0.0,
+      "retained_final": 0.0,
+      "recall_by_age_bucket": {
+        "0-1d": 1.0,
+        "1-7d": 1.0,
+        "30d+": 0.42739367058906585,
+        "7-30d": 0.7310472827176313
+      },
+      "params": {
+        "alpha": 1.0,
+        "beta": 1.0,
+        "gamma": 0.5,
+        "base": 0.995
+      }
+    },
+    "ttl_halflife": {
+      "precision_at_k": 0.1286296298216236,
+      "recall_at_k": 0.6410538508625054,
+      "ndcg_at_k": 0.5633761159703718,
+      "mrr": 0.5373171290476471,
+      "stale_hit_rate": 0.042997512834336414,
+      "prune_precision": 0.0,
+      "prune_recall": 0.0,
+      "false_forget": 0.0,
+      "retained_final": 0.0,
+      "recall_by_age_bucket": {
+        "0-1d": 1.0,
+        "1-7d": 1.0,
+        "30d+": 0.17644214789943652,
+        "7-30d": 0.7622809590809134
+      },
+      "params": {
+        "alpha": 1.0,
+        "beta": 1.0,
+        "half_life_hours": 168.0
+      }
+    },
+    "importance_weighted": {
+      "precision_at_k": 0.1881900062810923,
+      "recall_at_k": 0.9388557331598473,
+      "ndcg_at_k": 0.864343640099856,
+      "mrr": 0.8391594423665866,
+      "stale_hit_rate": 0.08807937438765825,
+      "prune_precision": 0.0,
+      "prune_recall": 0.0,
+      "false_forget": 0.0,
+      "retained_final": 0.0,
+      "recall_by_age_bucket": {
+        "0-1d": 1.0,
+        "1-7d": 1.0,
+        "30d+": 0.8279567047970658,
+        "7-30d": 0.9821959973966109
+      },
+      "params": {
+        "alpha": 1.0,
+        "beta": 1.0,
+        "base_half_life_hours": 120.0,
+        "imp_factor": 4.0
+      }
+    },
+    "ebbinghaus": {
+      "precision_at_k": 0.11244275479894433,
+      "recall_at_k": 0.5601194757491088,
+      "ndcg_at_k": 0.5014376494265217,
+      "mrr": 0.48212943319550067,
+      "stale_hit_rate": 0.034942579412186536,
+      "prune_precision": 0.0,
+      "prune_recall": 0.0,
+      "false_forget": 0.0,
+      "retained_final": 0.0,
+      "recall_by_age_bucket": {
+        "0-1d": 1.0,
+        "1-7d": 0.8840644820295983,
+        "30d+": 0.4019051633502425,
+        "7-30d": 0.45926999104357535
+      },
+      "params": {
+        "alpha": 1.0,
+        "beta": 1.0,
+        "gamma": 0.5,
+        "s0_hours": 120.0,
+        "reinforce_gain_hours": 120.0
+      }
+    }
+  },
+  "with_pruning": {
+    "no_decay": {
+      "precision_at_k": 0.20041885964912304,
+      "recall_at_k": 1.0,
+      "ndcg_at_k": 0.8906604650156453,
+      "mrr": 0.853457650937729,
+      "stale_hit_rate": 0.14713242499408177,
+      "prune_precision": 0.0,
+      "prune_recall": 0.0,
+      "false_forget": 0.0,
+      "retained_final": 438.4,
+      "recall_by_age_bucket": {
+        "0-1d": 1.0,
+        "1-7d": 1.0,
+        "30d+": 1.0,
+        "7-30d": 1.0
+      },
+      "params": {}
+    },
+    "exp_recency": {
+      "precision_at_k": 0.13689411737261964,
+      "recall_at_k": 0.6823762886174858,
+      "ndcg_at_k": 0.5937525957481952,
+      "mrr": 0.5643591799488297,
+      "stale_hit_rate": 0.031182992538719017,
+      "prune_precision": 0.365134989126908,
+      "prune_recall": 0.7034180401797235,
+      "false_forget": 22.8,
+      "retained_final": 164.2,
+      "recall_by_age_bucket": {
+        "0-1d": 1.0,
+        "1-7d": 1.0,
+        "30d+": 0.35056406550759667,
+        "7-30d": 0.7291669140330517
+      },
+      "params": {
+        "alpha": 1.0,
+        "beta": 1.0,
+        "gamma": 0.5,
+        "base": 0.995,
+        "prune_threshold": 0.05
+      }
+    },
+    "ttl_halflife": {
+      "precision_at_k": 0.1286296298216236,
+      "recall_at_k": 0.6410538508625054,
+      "ndcg_at_k": 0.5633761159703718,
+      "mrr": 0.5373171290476471,
+      "stale_hit_rate": 0.042997512834336414,
+      "prune_precision": 0.38227189343687207,
+      "prune_recall": 0.6220864472047045,
+      "false_forget": 21.6,
+      "retained_final": 191.8,
+      "recall_by_age_bucket": {
+        "0-1d": 1.0,
+        "1-7d": 1.0,
+        "30d+": 0.17644214789943652,
+        "7-30d": 0.7622809590809134
+      },
+      "params": {
+        "alpha": 1.0,
+        "beta": 1.0,
+        "half_life_hours": 168.0,
+        "ttl_hours": 720.0,
+        "prune_threshold": 0.05
+      }
+    },
+    "importance_weighted": {
+      "precision_at_k": 0.1881900062810923,
+      "recall_at_k": 0.9388557331598473,
+      "ndcg_at_k": 0.864343640099856,
+      "mrr": 0.8391594423665866,
+      "stale_hit_rate": 0.08807937438765825,
+      "prune_precision": 0.2804232823116995,
+      "prune_recall": 0.23452697717888663,
+      "false_forget": 0.0,
+      "retained_final": 294.6,
+      "recall_by_age_bucket": {
+        "0-1d": 1.0,
+        "1-7d": 1.0,
+        "30d+": 0.8279567047970658,
+        "7-30d": 0.9821959973966109
+      },
+      "params": {
+        "alpha": 1.0,
+        "beta": 1.0,
+        "base_half_life_hours": 120.0,
+        "imp_factor": 4.0,
+        "prune_threshold": 0.05
+      }
+    },
+    "ebbinghaus": {
+      "precision_at_k": 0.11244275479894433,
+      "recall_at_k": 0.5601194757491088,
+      "ndcg_at_k": 0.5014376494265217,
+      "mrr": 0.48212943319550067,
+      "stale_hit_rate": 0.034942579412186536,
+      "prune_precision": 0.32507514301957857,
+      "prune_recall": 0.7202209432485654,
+      "false_forget": 29.0,
+      "retained_final": 136.4,
+      "recall_by_age_bucket": {
+        "0-1d": 1.0,
+        "1-7d": 0.8840644820295983,
+        "30d+": 0.4019051633502425,
+        "7-30d": 0.45926999104357535
+      },
+      "params": {
+        "alpha": 1.0,
+        "beta": 1.0,
+        "gamma": 0.5,
+        "s0_hours": 120.0,
+        "reinforce_gain_hours": 120.0,
+        "prune_threshold": 0.05
+      }
+    }
+  }
+}
