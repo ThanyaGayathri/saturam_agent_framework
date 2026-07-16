@@ -1,11 +1,10 @@
 import logging
-from os import getenv
 from typing import Any, Optional
 
 from rich.logging import RichHandler
 from rich.text import Text
 
-from egpt.utils.env import get_branded_env, get_branded_env_bool
+from egpt.utils.env import get_branded_env
 
 LOGGER_NAME = "agno_infra"
 
