@@ -152,6 +152,8 @@ jobs:
           set -e
           uv venv ../../.venv --python "${{ matrix.python-version }}"
           source ../../.venv/bin/activate
+          # egpt-infra shares the egpt namespace and imports egpt.brand / egpt.utils from libs/agno
+          uv pip install -e ../agno
           uv pip install -e .[dev]
           uv pip install build
 
