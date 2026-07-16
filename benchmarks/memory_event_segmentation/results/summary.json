@@ -1,0 +1,140 @@
+{
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "tol": 1,
+  "relevance": "synthetic",
+  "results": {
+    "single_session": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "pk": 0.46546543170725424,
+      "window_diff": 0.46546543170725424,
+      "n_pred": 0.0,
+      "latency_ms": 0.0009060000000005175,
+      "cost_usd": 0.0,
+      "input_tokens": 0.0,
+      "output_tokens": 0.0,
+      "params": {}
+    },
+    "per_turn": {
+      "precision": 0.08752156152354762,
+      "recall": 1.0,
+      "f1": 0.16076697047658936,
+      "pk": 0.5345345682927457,
+      "window_diff": 1.0,
+      "n_pred": 111.0,
+      "latency_ms": 0.0024599999999930233,
+      "cost_usd": 0.0,
+      "input_tokens": 0.0,
+      "output_tokens": 0.0,
+      "params": {}
+    },
+    "fixed_window": {
+      "precision": 0.25555555555555554,
+      "recall": 0.2902597402597403,
+      "f1": 0.2705444165970482,
+      "pk": 0.4233542369284808,
+      "window_diff": 0.4233542369284808,
+      "n_pred": 10.6,
+      "latency_ms": 0.003108399999973699,
+      "cost_usd": 0.0,
+      "input_tokens": 0.0,
+      "output_tokens": 0.0,
+      "params": {
+        "n": 10
+      }
+    },
+    "time_gap": {
+      "precision": 1.0,
+      "recall": 0.5676767676767677,
+      "f1": 0.691497975708502,
+      "pk": 0.20130609053148366,
+      "window_diff": 0.20130609053148366,
+      "n_pred": 5.2,
+      "latency_ms": 0.022881400000018814,
+      "cost_usd": 0.0,
+      "input_tokens": 0.0,
+      "output_tokens": 0.0,
+      "params": {
+        "gap_s": 600.0
+      }
+    },
+    "embedding_drift": {
+      "precision": 0.9623931623931624,
+      "recall": 0.9777777777777777,
+      "f1": 0.9697777777777777,
+      "pk": 0.02314121522042314,
+      "window_diff": 0.02314121522042314,
+      "n_pred": 9.8,
+      "latency_ms": 4.892766799999981,
+      "cost_usd": 0.0,
+      "input_tokens": 0.0,
+      "output_tokens": 0.0,
+      "params": {
+        "block": 3,
+        "threshold_c": 0.5,
+        "min_seg": 3
+      }
+    },
+    "surprise_em_llm": {
+      "precision": 0.7517948717948718,
+      "recall": 0.9777777777777777,
+      "f1": 0.8456449106449107,
+      "pk": 0.09599109743358095,
+      "window_diff": 0.14745119751824254,
+      "n_pred": 12.8,
+      "latency_ms": 19.14573759999998,
+      "cost_usd": 0.0,
+      "input_tokens": 0.0,
+      "output_tokens": 0.0,
+      "params": {
+        "gamma": 1.0,
+        "min_seg": 3,
+        "ema_alpha": 0.5,
+        "refine": true,
+        "radius": 3,
+        "objective": "modularity"
+      }
+    },
+    "hybrid_gap_emllm": {
+      "precision": 0.7517948717948718,
+      "recall": 0.9777777777777777,
+      "f1": 0.8456449106449107,
+      "pk": 0.09599109743358095,
+      "window_diff": 0.14745119751824254,
+      "n_pred": 12.8,
+      "latency_ms": 18.80653480000001,
+      "cost_usd": 0.0,
+      "input_tokens": 0.0,
+      "output_tokens": 0.0,
+      "params": {
+        "gap_s": 600.0,
+        "min_seg": 3,
+        "semantic_kind": "em_llm"
+      }
+    },
+    "hybrid_gap_drift": {
+      "precision": 0.9623931623931624,
+      "recall": 0.9777777777777777,
+      "f1": 0.9697777777777777,
+      "pk": 0.020543812623020543,
+      "window_diff": 0.020543812623020543,
+      "n_pred": 9.8,
+      "latency_ms": 4.99182720000001,
+      "cost_usd": 0.0,
+      "input_tokens": 0.0,
+      "output_tokens": 0.0,
+      "params": {
+        "gap_s": 600.0,
+        "min_seg": 3,
+        "semantic_kind": "embedding_drift"
+      }
+    }
+  }
+}
