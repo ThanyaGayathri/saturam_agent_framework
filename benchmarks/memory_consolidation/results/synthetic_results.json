@@ -1,0 +1,177 @@
+[
+  {
+    "strategy": "baseline",
+    "dataset": "synthetic",
+    "n_episodes": 17,
+    "n_sessions": 6,
+    "usage": {
+      "llm_calls": 30,
+      "input_tokens": 6472,
+      "output_tokens": 182,
+      "total_tokens": 6654,
+      "latency_s": 70.923,
+      "usd_cost": 0.00991
+    },
+    "label_metrics": {
+      "fact_recall": 1.0,
+      "fact_precision": 0.7059,
+      "dedup_score": 0.75,
+      "facts_per_covered_target": 1.333,
+      "conflict_accuracy": 1.0,
+      "provenance_precision": 1.0,
+      "provenance_recall": 0.75,
+      "provenance_validity": 1.0,
+      "active_fact_count": 17,
+      "noise_fact_count": 2,
+      "memory_tokens": 255,
+      "n_expected_targets": 9,
+      "n_retired_targets": 3
+    },
+    "composite_quality": 0.8809,
+    "qa": {
+      "qa_correct": 9,
+      "qa_total": 9,
+      "qa_accuracy": 1.0
+    }
+  },
+  {
+    "strategy": "mem0",
+    "dataset": "synthetic",
+    "n_episodes": 17,
+    "n_sessions": 6,
+    "usage": {
+      "llm_calls": 60,
+      "input_tokens": 14388,
+      "output_tokens": 1740,
+      "total_tokens": 16128,
+      "latency_s": 130.118,
+      "usd_cost": 0.035385
+    },
+    "label_metrics": {
+      "fact_recall": 1.0,
+      "fact_precision": 0.6667,
+      "dedup_score": 0.8,
+      "facts_per_covered_target": 1.25,
+      "conflict_accuracy": 1.0,
+      "provenance_precision": 0.85,
+      "provenance_recall": 0.8,
+      "provenance_validity": 1.0,
+      "active_fact_count": 15,
+      "noise_fact_count": 2,
+      "memory_tokens": 160,
+      "n_expected_targets": 9,
+      "n_retired_targets": 3
+    },
+    "composite_quality": 0.86,
+    "qa": {
+      "qa_correct": 9,
+      "qa_total": 9,
+      "qa_accuracy": 1.0
+    }
+  },
+  {
+    "strategy": "reflection",
+    "dataset": "synthetic",
+    "n_episodes": 17,
+    "n_sessions": 6,
+    "usage": {
+      "llm_calls": 40,
+      "input_tokens": 9751,
+      "output_tokens": 1551,
+      "total_tokens": 11302,
+      "latency_s": 121.601,
+      "usd_cost": 0.027699
+    },
+    "label_metrics": {
+      "fact_recall": 1.0,
+      "fact_precision": 0.5652,
+      "dedup_score": 0.6154,
+      "facts_per_covered_target": 1.625,
+      "conflict_accuracy": 1.0,
+      "provenance_precision": 0.8256,
+      "provenance_recall": 0.7692,
+      "provenance_validity": 1.0,
+      "active_fact_count": 23,
+      "noise_fact_count": 4,
+      "memory_tokens": 451,
+      "n_expected_targets": 9,
+      "n_retired_targets": 3
+    },
+    "composite_quality": 0.8076,
+    "qa": {
+      "qa_correct": 9,
+      "qa_total": 9,
+      "qa_accuracy": 1.0
+    }
+  },
+  {
+    "strategy": "hierarchical",
+    "dataset": "synthetic",
+    "n_episodes": 17,
+    "n_sessions": 6,
+    "usage": {
+      "llm_calls": 42,
+      "input_tokens": 10926,
+      "output_tokens": 1011,
+      "total_tokens": 11937,
+      "latency_s": 87.797,
+      "usd_cost": 0.023767
+    },
+    "label_metrics": {
+      "fact_recall": 1.0,
+      "fact_precision": 1.0,
+      "dedup_score": 0.5714,
+      "facts_per_covered_target": 1.75,
+      "conflict_accuracy": 1.0,
+      "provenance_precision": 0.3501,
+      "provenance_recall": 0.7143,
+      "provenance_validity": 1.0,
+      "active_fact_count": 7,
+      "noise_fact_count": 0,
+      "memory_tokens": 331,
+      "n_expected_targets": 9,
+      "n_retired_targets": 3
+    },
+    "composite_quality": 0.7629,
+    "qa": {
+      "qa_correct": 9,
+      "qa_total": 9,
+      "qa_accuracy": 1.0
+    }
+  },
+  {
+    "strategy": "hybrid",
+    "dataset": "synthetic",
+    "n_episodes": 17,
+    "n_sessions": 6,
+    "usage": {
+      "llm_calls": 63,
+      "input_tokens": 17324,
+      "output_tokens": 2157,
+      "total_tokens": 19481,
+      "latency_s": 225.528,
+      "usd_cost": 0.043225
+    },
+    "label_metrics": {
+      "fact_recall": 1.0,
+      "fact_precision": 0.6957,
+      "dedup_score": 0.5625,
+      "facts_per_covered_target": 1.778,
+      "conflict_accuracy": 1.0,
+      "provenance_precision": 0.6708,
+      "provenance_recall": 0.7188,
+      "provenance_validity": 1.0,
+      "active_fact_count": 23,
+      "noise_fact_count": 4,
+      "memory_tokens": 384,
+      "n_expected_targets": 9,
+      "n_retired_targets": 3
+    },
+    "composite_quality": 0.7807,
+    "qa": {
+      "qa_correct": 9,
+      "qa_total": 9,
+      "qa_accuracy": 1.0
+    }
+  }
+]
