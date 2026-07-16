@@ -46,16 +46,31 @@ network.
 - **Pruning:** prune-precision, prune-recall, **false-forget** (pruned while still
   needed), and retained-count (growth).
 
+## Relevance modes
+
+The `α·relevance` term can be sourced two ways:
+
+- **`synthetic`** (default) — deterministic topic-vector cosine. Fully offline,
+  bit-reproducible, and isolates the decay signal. This is what the decision is
+  made on.
+- **`embedding`** — encode each episode/query's natural-language `text` (see
+  `harness/vocab.py`) with a local `sentence-transformers` model
+  (`all-MiniLM-L6-v2`) and use cosine over real embeddings. A **confirmation**
+  run: it re-checks that the decision survives real semantic-retrieval noise. No
+  network/keys after the first model download.
+
 ## Run
 
 ```bash
 cd benchmarks/memory_decay
 ./setup.sh
-./.venv/bin/python run_benchmark.py --seeds 5
+./.venv/bin/python run_benchmark.py --seeds 5                    # synthetic (decision)
+./.venv/bin/python run_benchmark.py --seeds 5 --relevance embedding  # confirmation
 ./.venv/bin/python sweep_params.py --seeds 5
 ```
 
-Deterministic given the seeds. Results: `results/summary.{json,md}`,
+Deterministic given the seeds (and, for embedding mode, the model). Results:
+`results/summary.{json,md}`, `results/summary_embedding.{json,md}`,
 `results/sensitivity.{json,md}`. See [TEST_LOG.md](TEST_LOG.md).
 
 ## Layout
@@ -67,9 +82,9 @@ benchmarks/memory_decay/
 ├── TEST_LOG.md            # run log
 ├── setup.sh               # dedicated venv (numpy only)
 ├── requirements.txt
-├── run_benchmark.py       # compare all five candidates
+├── run_benchmark.py       # compare all five candidates (--relevance synthetic|embedding)
 ├── sweep_params.py        # parameter sensitivity
-├── harness/               # stream, strategies, simulate, metrics, episode
-├── results/               # generated outputs
+├── harness/               # stream, strategies, simulate, metrics, episode, vocab, relevance
+├── results/               # generated outputs (synthetic + embedding)
 └── findings/              # notes for the implementation phase (SM-C*)
 ```

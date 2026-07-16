@@ -52,38 +52,38 @@ and false-forget are better.
 
 | strategy | nDCG@k | recall@k | stale-hit-rate | recall @30d+ |
 |---|---|---|---|---|
-| no_decay (baseline) | 0.891 | **1.000** | 0.147 (worst) | 1.000 |
-| exp_recency | 0.612 | 0.709 | 0.031 | 0.427 |
-| ttl_halflife | 0.563 | 0.641 | 0.043 | 0.176 |
-| **importance_weighted** | **0.864** | **0.939** | **0.088** | **0.828** |
-| ebbinghaus | 0.501 | 0.560 | 0.035 | 0.402 |
+| no_decay (baseline) | 0.893 | **1.000** | 0.151 (worst) | 1.000 |
+| exp_recency | 0.614 | 0.718 | 0.039 | 0.442 |
+| ttl_halflife | 0.586 | 0.664 | 0.049 | 0.161 |
+| **importance_weighted** | **0.866** | **0.937** | **0.110** | **0.787** |
+| ebbinghaus | 0.485 | 0.548 | 0.031 | 0.411 |
 
 ### Pruning behaviour (prune enabled)
 
 | strategy | prune-precision | prune-recall | false-forget | retained |
 |---|---|---|---|---|
-| no_decay | – | – | 0.0 | 438 (unbounded) |
-| exp_recency | 0.365 | 0.703 | 22.8 | 164 |
-| ttl_halflife | 0.382 | 0.622 | 21.6 | 192 |
-| **importance_weighted** | 0.280 | 0.235 | **0.0** | 295 |
-| ebbinghaus | 0.325 | 0.720 | 29.0 | 136 |
+| no_decay | – | – | 0.0 | 439 (unbounded) |
+| exp_recency | 0.371 | 0.671 | 21.0 | 168 |
+| ttl_halflife | 0.392 | 0.615 | 21.0 | 193 |
+| **importance_weighted** | 0.277 | 0.236 | **0.0** | 292 |
+| ebbinghaus | 0.319 | 0.710 | 28.0 | 140 |
 
 **Reading of the results:**
 
 1. **No-decay never forgets the fresh fact (recall 1.0) but cannot suppress
-   stale ones** — it has the worst stale-hit-rate (0.147) and grows without bound
-   (438 retained). Pure semantic RAG behaviour; not episodic.
+   stale ones** — it has the worst stale-hit-rate (0.151) and grows without bound
+   (439 retained). Pure semantic RAG behaviour; not episodic.
 2. **Pure recency decay (exp_recency, ebbinghaus, ttl) suppresses stale well
-   (~0.03) but over-forgets valid-but-old facts** — 30d+ recall collapses to
-   0.18–0.43, and when used for pruning they **false-forget 22–29 still-needed
+   (~0.03–0.05) but over-forgets valid-but-old facts** — 30d+ recall collapses to
+   0.16–0.44, and when used for pruning they **false-forget 21–28 still-needed
    memories per run**. A durable fact that simply hasn't been queried recently
    decays even though it is still true.
 3. **Importance-weighting fixes exactly that failure.** Salient facts decay
-   slowly, so importance_weighted keeps near-baseline recall (0.939, and **0.828
-   even at 30d+**) while still **halving** the stale-hit-rate vs baseline (0.088
-   vs 0.147), and it **never false-forgets** (0.0) because low-importance stale
-   items are the only ones that decay below the prune floor. It bounds growth
-   (295 vs 438) without the aggressive-pruning risk.
+   slowly, so importance_weighted keeps near-baseline recall (0.937, and **0.787
+   even at 30d+**) while still cutting the stale-hit-rate vs baseline (0.110 vs
+   0.151), and it **never false-forgets** (0.0) because low-importance stale items
+   are the only ones that decay below the prune floor. It bounds growth (292 vs
+   439) without the aggressive-pruning risk.
 
 Importance_weighted is the only candidate that is Pareto-strong on both axes:
 close to baseline recall **and** materially lower staleness, with zero
@@ -91,14 +91,46 @@ false-forgets.
 
 ### Parameter sensitivity (`results/sensitivity.md`)
 
-- `imp_factor`: monotone, well-behaved knee at **4–6** (nDCG 0.86 -> 0.93 while
-  stale-hit rises 0.088 -> 0.122). No cliffs; the decision is robust to ±50%.
+- `imp_factor`: monotone, well-behaved knee at **4–8** (nDCG 0.87 -> 0.93 while
+  stale-hit rises 0.110 -> 0.133). No cliffs; the decision is robust to ±50%.
 - `base_half_life`: the main recall/staleness dial; 5 days sits at the knee for a
   90-day horizon.
 - **Ebbinghaus strength-reinforcement showed negligible benefit** (nDCG spread
-  only 0.056 across the whole `reinforce_gain` sweep). The dominant lever is the
-  decay rate and its importance modulation — not an ever-growing strength field.
-  This directly informs the schema decision in §5.
+  only 0.080 across the whole `reinforce_gain` sweep, and the best point is
+  `gain = 0`). The dominant lever is the decay rate and its importance modulation
+  — not an ever-growing strength field. This directly informs the schema decision
+  in §5.
+
+### Confirmation under real embeddings (`results/summary_embedding.md`)
+
+The decision is made on the synthetic signal (which isolates decay), then
+**confirmed** by re-running with real `sentence-transformers` (`all-MiniLM-L6-v2`)
+embeddings of the episode/query text — same 5 seeds, `--relevance embedding`.
+
+| strategy | nDCG (syn→emb) | recall (syn→emb) | recall@30d+ (syn→emb) | stale-hit (syn→emb) | false-forget (emb) |
+|---|---|---|---|---|---|
+| no_decay | 0.893 → 0.903 | 1.000 → 1.000 | 1.000 → 1.000 | 0.151 → 0.151 | 0.0 |
+| **importance_weighted** | 0.866 → **0.703** | 0.937 → **0.782** | 0.787 → **0.459** | 0.110 → **0.059** | **0.6** |
+| exp_recency | 0.614 → 0.415 | 0.718 → 0.489 | 0.442 → 0.127 | 0.039 → 0.015 | 26.2 |
+| ttl_halflife | 0.586 → 0.385 | 0.664 → 0.442 | 0.161 → 0.014 | 0.049 → 0.023 | 24.6 |
+| ebbinghaus | 0.485 → 0.373 | 0.548 → 0.429 | 0.411 → 0.380 | 0.031 → 0.017 | 28.4 |
+
+**What holds:** the candidate ranking is unchanged. importance_weighted is again
+the only Pareto-strong decay strategy — highest nDCG/recall of the decay group,
+by far the best old-fact recall (30d+ 0.459 vs 0.13/0.01/0.38), a **61% cut in
+stale-hit-rate vs no_decay** (0.059 vs 0.151), bounded growth (292 vs 439), and
+near-zero false-forgets (0.6 vs 24–28). The recommendation in §1 stands under real
+embeddings.
+
+**What changes (important):** real embeddings make fresh-vs-stale discrimination
+harder (more within-topic ambiguity), so every decay strategy loses more recall
+than under synthetic relevance — importance_weighted's recall drops 0.937 → 0.782
+and its 30d+ recall 0.787 → 0.459. **Consequence:** the provisional targets in §7
+were calibrated on the clean synthetic signal and are *too tight* for a real
+embedding backend. They must be re-calibrated per embedding model during SM-C
+implementation (and likely met by nudging `imp_factor`/`base_half_life` up, since
+embeddings raise the cost of decay). This is the concrete "real value" of the
+confirmation run: the *choice* is robust, the *thresholds* are backend-sensitive.
 
 ---
 
@@ -182,15 +214,21 @@ migration additive/back-compatible (both fields nullable with sensible defaults)
 
 ## 7. Provisional acceptance targets (for SM-R1 to ratify)
 
-| Metric | Provisional target | importance_weighted @ default |
-|---|---|---|
-| Overall recall@k | >= 0.90 | 0.939 |
-| Recall@k for facts aged 30d+ | >= 0.80 | 0.828 |
-| Stale-hit-rate | < 0.10 | 0.088 |
-| False-forget (pruning on) | 0 | 0.0 |
+| Metric | Provisional target | synthetic | real embeddings |
+|---|---|---|---|
+| Overall recall@k | >= 0.90 | 0.937 ✅ | 0.782 ❌ |
+| Recall@k for facts aged 30d+ | >= 0.80 | 0.787 (~) | 0.459 ❌ |
+| Stale-hit-rate | < 0.10 | 0.110 (~) | 0.059 ✅ |
+| False-forget (pruning on) | 0 | 0.0 ✅ | 0.6 (~) |
 
-All met at the provisional defaults. **These thresholds are assumptions for SM-R1
-to confirm, not ratified targets.**
+Met (or near) on the synthetic signal. **Under real embeddings the recall targets
+are not met** (see §2 confirmation): the thresholds were set against clean
+synthetic relevance and are too tight for an embedding backend. **These thresholds
+are assumptions for SM-R1 to ratify, not ratified targets** — and SM-R1 should set
+them per the actual production embedding model, expecting to raise
+`imp_factor`/`base_half_life` to recover recall. The stale-hit and false-forget
+targets *are* met under real embeddings, so the qualitative goal (cut staleness
+without forgetting) is delivered regardless of backend.
 
 ---
 
@@ -198,9 +236,11 @@ to confirm, not ratified targets.**
 
 ```bash
 cd benchmarks/memory_decay
-./setup.sh                                   # creates .venv, installs numpy
-./.venv/bin/python run_benchmark.py --seeds 5
+./setup.sh                                            # creates .venv, installs deps
+./.venv/bin/python run_benchmark.py --seeds 5                     # synthetic (decision)
+./.venv/bin/python run_benchmark.py --seeds 5 --relevance embedding  # confirmation
 ./.venv/bin/python sweep_params.py --seeds 5
 ```
 
-Outputs land in `results/`. See [TEST_LOG.md](TEST_LOG.md).
+Outputs land in `results/` (`summary.md`, `summary_embedding.md`,
+`sensitivity.md`). See [TEST_LOG.md](TEST_LOG.md).

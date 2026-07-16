@@ -31,10 +31,17 @@ changed in this task; these are pointers for whoever implements the chosen model
 - **Ebbinghaus strength reinforcement added negligible benefit** in-sim (nDCG
   spread 0.056 across the whole `reinforce_gain` sweep). If a future importance
   scorer changes the dynamics, re-run the sweep before adding a `strength` column.
-- **Relevance is synthetic here.** Once real embeddings are wired in, re-run
-  `run_benchmark.py` with an embedding-backed relevance to confirm the
-  importance_weighted advantage holds; the ranking of candidates is expected to be
-  stable but the absolute stale-hit / recall numbers will move.
+- **Relevance: synthetic vs real embeddings — confirmation DONE.** The decision is
+  made on the synthetic signal; `run_benchmark.py --relevance embedding` re-runs it
+  with real `all-MiniLM-L6-v2` embeddings (`results/summary_embedding.md`). The
+  candidate ranking is stable (importance_weighted still wins), but absolute recall
+  drops (0.937 → 0.782; 30d+ 0.787 → 0.459) because real embeddings make
+  fresh-vs-stale discrimination harder. **Action for SM-C:** re-calibrate the §7
+  targets against the *production* embedding model, and expect to raise
+  `imp_factor` / `base_half_life` to recover recall. Stale-hit and false-forget
+  targets are met under both backends.
+- **Env note:** the embedding mode pins `numpy<2` (torch 2.2.x ABI). The synthetic
+  mode is version-agnostic and reproduces identically on numpy 1.26 and 2.0.
 
 ## No core bug found
 

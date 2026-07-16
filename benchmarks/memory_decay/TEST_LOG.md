@@ -1,24 +1,44 @@
 # TEST_LOG — Episodic Decay Harness (SM-R5)
 
 Environment: dedicated venv `benchmarks/memory_decay/.venv` (Python 3.9, numpy
-2.0.2). No external services. Deterministic given seeds.
+pinned <2 for torch ABI). Synthetic mode: no external services. Embedding mode:
+local `sentence-transformers` model (downloaded once, then offline). Deterministic
+given seeds (and model).
 
 ---
 
-### run_benchmark.py --seeds 5
+### run_benchmark.py --seeds 5 (synthetic relevance)
 
 **Status:** PASS
 
 **Description:** Runs all five candidate decay strategies over 5 seeds (90-day
-horizon, ~446 episodes / ~192 queries per seed), ranking-only and prune-enabled.
+horizon, ~450 episodes / ~190 queries per seed), ranking-only and prune-enabled.
 Writes `results/summary.json` and `results/summary.md`.
 
 **Result:** Completed cleanly. importance_weighted is Pareto-strong: recall@k
-0.939 (0.828 at 30d+) with stale-hit-rate 0.088 (vs no_decay 1.000 / 0.147) and
+0.937 (0.787 at 30d+) with stale-hit-rate 0.110 (vs no_decay 1.000 / 0.151) and
 **0 false-forgets** when pruning. Pure-recency candidates (exp_recency,
-ttl_halflife, ebbinghaus) suppress stale (~0.03) but over-forget old valid facts
-(30d+ recall 0.18–0.43) and false-forget 22–29 memories under pruning. Basis for
-DECISION.md.
+ttl_halflife, ebbinghaus) suppress stale (~0.03–0.05) but over-forget old valid
+facts (30d+ recall 0.16–0.44) and false-forget 21–28 memories under pruning.
+Basis for DECISION.md.
+
+---
+
+### run_benchmark.py --seeds 5 --relevance embedding (real embeddings)
+
+**Status:** PASS
+
+**Description:** Confirmation run using real `all-MiniLM-L6-v2` embeddings of the
+episode/query text instead of synthetic vectors. Writes
+`results/summary_embedding.json` and `results/summary_embedding.md`.
+
+**Result:** Completed cleanly. Candidate ranking preserved — importance_weighted
+again the only Pareto-strong decay strategy (nDCG 0.703, recall 0.782, 30d+ 0.459,
+stale-hit 0.059, false-forget 0.6) vs pure-recency (recall 0.43–0.49, false-forget
+25–28) and no_decay (stale 0.151, 439 retained). Absolute recall lower than
+synthetic (embeddings make fresh-vs-stale harder), confirming the §7 targets are
+backend-sensitive. A first-run torch/numpy-2 ABI crash was fixed by pinning
+numpy<2 (documented in findings/).
 
 ---
 
@@ -31,9 +51,10 @@ DECISION.md.
 Writes `results/sensitivity.json` and `results/sensitivity.md`.
 
 **Result:** Completed cleanly. Trade-offs are monotone with no cliffs.
-`imp_factor` has a clean knee at 4–6 (nDCG 0.86 -> 0.93 as stale-hit rises 0.088
--> 0.122). `ebbinghaus.reinforce_gain` is nearly flat (nDCG spread 0.056) —
-strength reinforcement adds little; motivates deferring the `strength` field.
+`imp_factor` has a clean knee at 4–8 (nDCG 0.87 -> 0.93 as stale-hit rises 0.110
+-> 0.133). `ebbinghaus.reinforce_gain` is nearly flat (nDCG spread 0.080, best at
+gain=0) — strength reinforcement adds little; motivates deferring the `strength`
+field.
 
 ---
 

@@ -1,1 +1,7 @@
-numpy>=1.24
+# Core (default synthetic-relevance mode) — fully offline.
+# Pinned <2 so a single venv also satisfies torch's numpy-1.x ABI (embedding mode).
+numpy>=1.24,<2
+
+# Optional: only for `run_benchmark.py --relevance embedding` (real text
+# embeddings via a local model; no network/keys needed after first download).
+sentence-transformers>=2.2

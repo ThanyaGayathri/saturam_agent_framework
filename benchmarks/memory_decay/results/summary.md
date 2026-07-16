@@ -1,16 +1,16 @@
 # Episodic Decay Benchmark Results
 
-Seeds: [0, 1, 2, 3, 4]  |  k = 5  |  candidates = 5
+Seeds: [0, 1, 2, 3, 4]  |  k = 5  |  relevance = synthetic  |  candidates = 5
 
 ## Retrieval quality (ranking only, no pruning)
 
 | strategy | nDCG@k | precision@k | recall@k | MRR | stale-hit-rate |
 |---|---|---|---|---|---|
-| no_decay | 0.891 | 0.200 | 1.000 | 0.853 | 0.147 |
-| exp_recency | 0.612 | 0.142 | 0.709 | 0.580 | 0.031 |
-| ttl_halflife | 0.563 | 0.129 | 0.641 | 0.537 | 0.043 |
-| importance_weighted | 0.864 | 0.188 | 0.939 | 0.839 | 0.088 |
-| ebbinghaus | 0.501 | 0.112 | 0.560 | 0.482 | 0.035 |
+| no_decay | 0.893 | 0.201 | 1.000 | 0.856 | 0.151 |
+| exp_recency | 0.614 | 0.145 | 0.718 | 0.579 | 0.039 |
+| ttl_halflife | 0.586 | 0.134 | 0.664 | 0.560 | 0.049 |
+| importance_weighted | 0.866 | 0.189 | 0.937 | 0.842 | 0.110 |
+| ebbinghaus | 0.485 | 0.111 | 0.548 | 0.465 | 0.031 |
 
 Higher nDCG/precision/recall/MRR is better; lower stale-hit-rate is better.
 
@@ -19,10 +19,10 @@ Higher nDCG/precision/recall/MRR is better; lower stale-hit-rate is better.
 | strategy | 0-1d | 1-7d | 7-30d | 30d+ |
 |---|---|---|---|---|
 | no_decay | 1.000 | 1.000 | 1.000 | 1.000 |
-| exp_recency | 1.000 | 1.000 | 0.731 | 0.427 |
-| ttl_halflife | 1.000 | 1.000 | 0.762 | 0.176 |
-| importance_weighted | 1.000 | 1.000 | 0.982 | 0.828 |
-| ebbinghaus | 1.000 | 0.884 | 0.459 | 0.402 |
+| exp_recency | 1.000 | 1.000 | 0.721 | 0.442 |
+| ttl_halflife | 1.000 | 1.000 | 0.788 | 0.161 |
+| importance_weighted | 1.000 | 1.000 | 0.996 | 0.787 |
+| ebbinghaus | 0.983 | 0.870 | 0.410 | 0.411 |
 
 How well each strategy still finds the current fact as it ages.
 
@@ -30,10 +30,10 @@ How well each strategy still finds the current fact as it ages.
 
 | strategy | prune-precision | prune-recall | false-forget | retained-final |
 |---|---|---|---|---|
-| no_decay | 0.000 | 0.000 | 0.0 | 438 |
-| exp_recency | 0.365 | 0.703 | 22.8 | 164 |
-| ttl_halflife | 0.382 | 0.622 | 21.6 | 192 |
-| importance_weighted | 0.280 | 0.235 | 0.0 | 295 |
-| ebbinghaus | 0.325 | 0.720 | 29.0 | 136 |
+| no_decay | 0.000 | 0.000 | 0.0 | 439 |
+| exp_recency | 0.371 | 0.671 | 21.0 | 168 |
+| ttl_halflife | 0.392 | 0.615 | 21.0 | 193 |
+| importance_weighted | 0.277 | 0.236 | 0.0 | 292 |
+| ebbinghaus | 0.319 | 0.710 | 28.0 | 140 |
 
 prune-precision: of pruned, fraction already dead. prune-recall: of dead, fraction pruned. false-forget: pruned while still needed (lower is better).

@@ -23,6 +23,7 @@ from typing import List
 import numpy as np
 
 from harness.episode import FOREVER, Episode, Query, Stream
+from harness.vocab import memory_text, query_text, subject_pairs
 
 
 def _unit(vec: np.ndarray) -> np.ndarray:
@@ -100,12 +101,36 @@ def generate_stream(
     # Per-topic record of (episode, valid_from, valid_until) so we can build GT.
     topic_versions: dict = {}
 
+    # Assign each topic a distinct (person, attribute) subject for its text form.
+    # Text is only consumed by the embedding relevance mode; the synthetic vectors
+    # are generated regardless so the default (offline) mode is unaffected.
+    pairs = subject_pairs()
+    total_topics = n_durable + n_versioned + n_ephemeral + n_noise
+    if total_topics > len(pairs):
+        raise ValueError(
+            f"Need {total_topics} distinct subjects but vocab has only {len(pairs)}"
+        )
+    subject_order = rng.permutation(len(pairs))
+
+    def subject_for(tid: int) -> tuple:
+        person, attribute, values = pairs[int(subject_order[tid])]
+        return person, attribute, values
+
+    def pick_values(values: List[str], count: int) -> List[str]:
+        """`count` distinct values (so consecutive versions genuinely differ)."""
+        take = min(count, len(values))
+        chosen = [values[int(i)] for i in rng.permutation(len(values))[:take]]
+        while len(chosen) < count:  # only if count exceeds pool; cycle to fill
+            chosen.append(values[len(chosen) % len(values)])
+        return chosen
+
     def base_vector() -> np.ndarray:
         return _unit(rng.normal(0.0, 1.0, size=dim))
 
     # ---- Durable topics: single version, valid forever, high importance ----
     for _ in range(n_durable):
         base = base_vector()
+        person, attribute, values = subject_for(topic_id)
         created = float(rng.uniform(0.0, horizon_hours * 0.5))
         ep = Episode(
             memory_id=next_mem_id(),
@@ -116,6 +141,7 @@ def generate_stream(
             kind="durable",
             valid_from=created,
             valid_until=FOREVER,
+            text=memory_text(person, attribute, pick_values(values, 1)[0]),
         )
         episodes.append(ep)
         topic_versions[topic_id] = (base, [ep])
@@ -124,7 +150,9 @@ def generate_stream(
     # ---- Versioned topics: a fact updated over time; old versions go stale ----
     for _ in range(n_versioned):
         base = base_vector()
+        person, attribute, values = subject_for(topic_id)
         n_versions = int(rng.integers(2, max_versions + 1))
+        version_values = pick_values(values, n_versions)
         times = sorted(rng.uniform(0.0, horizon_hours, size=n_versions).tolist())
         versions: List[Episode] = []
         for i, t in enumerate(times):
@@ -138,6 +166,7 @@ def generate_stream(
                 kind="fact_version",
                 valid_from=float(t),
                 valid_until=float(valid_until),
+                text=memory_text(person, attribute, version_values[i]),
             )
             versions.append(ep)
         for i in range(len(versions) - 1):
@@ -149,10 +178,12 @@ def generate_stream(
     # ---- Ephemeral topics: short-lived facts that expire, leaving a gap ----
     for _ in range(n_ephemeral):
         base = base_vector()
+        person, attribute, values = subject_for(topic_id)
         n_events = int(rng.integers(2, 5))
+        event_values = pick_values(values, n_events)
         starts = sorted(rng.uniform(0.0, horizon_hours, size=n_events).tolist())
         versions = []
-        for t in starts:
+        for i, t in enumerate(starts):
             ep = Episode(
                 memory_id=next_mem_id(),
                 topic_id=topic_id,
@@ -162,6 +193,7 @@ def generate_stream(
                 kind="ephemeral",
                 valid_from=float(t),
                 valid_until=float(min(t + ephemeral_ttl_hours, horizon_hours)),
+                text=memory_text(person, attribute, event_values[i]),
             )
             versions.append(ep)
         episodes.extend(versions)
@@ -171,6 +203,7 @@ def generate_stream(
     # ---- Noise: unrelated clutter, never queried (drives store growth) ----
     for _ in range(n_noise):
         base = base_vector()
+        person, attribute, values = subject_for(topic_id)
         created = float(rng.uniform(0.0, horizon_hours))
         episodes.append(
             Episode(
@@ -182,12 +215,15 @@ def generate_stream(
                 kind="noise",
                 valid_from=created,
                 valid_until=FOREVER,
+                text=memory_text(person, attribute, pick_values(values, 1)[0]),
             )
         )
         topic_id += 1
 
     # ---- Queries over queryable topics (durable/versioned/ephemeral) ----
     for tid, (base, versions) in topic_versions.items():
+        person, attribute, _ = subject_for(tid)
+        q_text = query_text(person, attribute)
         n_q = max(1, int(rng.poisson(queries_per_topic)))
         for _ in range(n_q):
             # Query some time after the topic's first fact appears.
@@ -207,6 +243,7 @@ def generate_stream(
                     at=at,
                     vector=_topic_vector(rng, base, query_jitter),
                     gt_ids=gt_ids,
+                    text=q_text,
                 )
             )
 

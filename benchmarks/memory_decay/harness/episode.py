@@ -40,6 +40,7 @@ class Episode:
     valid_from: float
     valid_until: float = FOREVER
     superseded_by: Optional[str] = None
+    text: str = ""  # natural-language form; only used by the embedding relevance mode
 
     def is_valid_at(self, t: float) -> bool:
         """True if this episode is the currently-correct fact at time ``t``."""
@@ -59,6 +60,7 @@ class Query:
     at: float  # simulated hours
     vector: np.ndarray  # unit vector; query "embedding"
     gt_ids: List[str] = field(default_factory=list)  # currently-valid memory ids
+    text: str = ""  # natural-language form; only used by the embedding relevance mode
 
 
 @dataclass

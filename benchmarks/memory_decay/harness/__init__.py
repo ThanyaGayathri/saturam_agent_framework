@@ -13,6 +13,7 @@ Public entry points:
 
 from harness.episode import Episode, Query, Stream
 from harness.metrics import PruneMetrics, QueryMetrics, RunResult
+from harness.relevance import aembed_stream, embed_stream, embeddings_available
 from harness.simulate import arun_simulation, run_simulation
 from harness.strategies import (
     DecayStrategy,
@@ -40,6 +41,9 @@ __all__ = [
     "default_strategies",
     "run_simulation",
     "arun_simulation",
+    "embed_stream",
+    "aembed_stream",
+    "embeddings_available",
     "QueryMetrics",
     "PruneMetrics",
     "RunResult",

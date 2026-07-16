@@ -1,15 +1,18 @@
 """Run the episodic-decay benchmark across all five candidate strategies.
 
 Usage:
-    ./.venv/bin/python run_benchmark.py                 # default: 5 seeds
+    ./.venv/bin/python run_benchmark.py                        # synthetic relevance
     ./.venv/bin/python run_benchmark.py --seeds 10 --k 5
+    ./.venv/bin/python run_benchmark.py --relevance embedding  # confirm w/ real embeddings
 
-Writes:
-    results/summary.json   machine-readable metrics (per strategy, averaged)
-    results/summary.md     human-readable comparison tables
+Writes (suffixed by relevance mode for the embedding run):
+    results/summary.json / summary_embedding.json
+    results/summary.md   / summary_embedding.md
 
-No external services; deterministic given the seeds. Both a sync ``main`` and an
-async ``amain`` entry point are provided.
+The synthetic mode needs no external services and is deterministic given the
+seeds; the embedding mode additionally needs a local sentence-transformers model
+(``pip install -r requirements.txt``). Both a sync ``main`` and an async ``amain``
+entry point are provided.
 """
 
 from __future__ import annotations
@@ -32,15 +35,36 @@ def _mean(values: List[float]) -> float:
     return statistics.mean(values) if values else 0.0
 
 
-def _collect(seeds: List[int], k: int, prune: bool) -> Dict[str, dict]:
-    """Run every strategy over every seed; average the metrics."""
-    # Build strategies once per seed (never inside the inner loop).
+def _build_streams(seeds: List[int], relevance: str, model_name: str) -> List:
+    """Build one stream per seed, embedding the text if requested.
+
+    Streams are built once and reused for both the ranking and pruning passes so
+    real embeddings (the expensive part) are computed a single time per seed.
+    """
+    streams = []
+    for seed in seeds:
+        stream = generate_stream(seed=seed)
+        if relevance == "embedding":
+            from harness.relevance import embed_stream, embeddings_available
+
+            if not embeddings_available():
+                raise SystemExit(
+                    "embedding relevance needs sentence-transformers; "
+                    "install it with: ./.venv/bin/pip install -r requirements.txt"
+                )
+            embed_stream(stream, model_name=model_name)
+        streams.append(stream)
+    return streams
+
+
+def _collect(streams: List, k: int, prune: bool) -> Dict[str, dict]:
+    """Run every strategy over every (prebuilt) stream; average the metrics."""
     accum: Dict[str, Dict[str, List[float]]] = {}
     bucket_accum: Dict[str, Dict[str, List[float]]] = {}
     params: Dict[str, dict] = {}
 
-    for seed in seeds:
-        stream = generate_stream(seed=seed)
+    for stream in streams:
+        # Build strategies once per stream (never inside the inner loop).
         strategies = default_strategies(prune=prune)
         for strategy in strategies:
             result = run_simulation(stream=stream, strategy=strategy, k=k, prune=prune)
@@ -114,19 +138,25 @@ def _fmt_bucket_table(summary: Dict[str, dict]) -> str:
 
 
 def _write_outputs(
-    seeds: List[int], k: int, ranking: Dict[str, dict], pruning: Dict[str, dict]
+    seeds: List[int],
+    k: int,
+    relevance: str,
+    ranking: Dict[str, dict],
+    pruning: Dict[str, dict],
 ) -> None:
     RESULTS_DIR.mkdir(exist_ok=True)
+    suffix = "_embedding" if relevance == "embedding" else ""
     payload = {
         "seeds": seeds,
         "k": k,
+        "relevance": relevance,
         "ranking_only": ranking,
         "with_pruning": pruning,
     }
-    (RESULTS_DIR / "summary.json").write_text(json.dumps(payload, indent=2))
+    (RESULTS_DIR / f"summary{suffix}.json").write_text(json.dumps(payload, indent=2))
 
     md = "# Episodic Decay Benchmark Results\n\n"
-    md += f"Seeds: {seeds}  |  k = {k}  |  candidates = {len(ranking)}\n\n"
+    md += f"Seeds: {seeds}  |  k = {k}  |  relevance = {relevance}  |  candidates = {len(ranking)}\n\n"
     md += "## Retrieval quality (ranking only, no pruning)\n\n"
     md += _fmt_quality_table(ranking) + "\n"
     md += "Higher nDCG/precision/recall/MRR is better; lower stale-hit-rate is better.\n\n"
@@ -139,7 +169,8 @@ def _write_outputs(
     md += (
         "fraction pruned. false-forget: pruned while still needed (lower is better).\n"
     )
-    (RESULTS_DIR / "summary.md").write_text(md)
+    suffix = "_embedding" if relevance == "embedding" else ""
+    (RESULTS_DIR / f"summary{suffix}.md").write_text(md)
 
 
 def main() -> None:
@@ -148,15 +179,36 @@ def main() -> None:
         "--seeds", type=int, default=5, help="Number of seeds to average over"
     )
     parser.add_argument("--k", type=int, default=5, help="Retrieval depth (top-k)")
+    parser.add_argument(
+        "--relevance",
+        choices=["synthetic", "embedding"],
+        default="synthetic",
+        help="Relevance signal: deterministic synthetic (default) or real text embeddings",
+    )
+    parser.add_argument(
+        "--embedding-model",
+        default="sentence-transformers/all-MiniLM-L6-v2",
+        help="sentence-transformers model id (embedding mode only)",
+    )
     args = parser.parse_args()
 
     seeds = list(range(args.seeds))
-    ranking = _collect(seeds=seeds, k=args.k, prune=False)
-    pruning = _collect(seeds=seeds, k=args.k, prune=True)
-    _write_outputs(seeds=seeds, k=args.k, ranking=ranking, pruning=pruning)
+    streams = _build_streams(
+        seeds=seeds, relevance=args.relevance, model_name=args.embedding_model
+    )
+    ranking = _collect(streams=streams, k=args.k, prune=False)
+    pruning = _collect(streams=streams, k=args.k, prune=True)
+    _write_outputs(
+        seeds=seeds,
+        k=args.k,
+        relevance=args.relevance,
+        ranking=ranking,
+        pruning=pruning,
+    )
 
+    suffix = "_embedding" if args.relevance == "embedding" else ""
     print("Episodic decay benchmark")
-    print(f"seeds={seeds} k={args.k}")
+    print(f"seeds={seeds} k={args.k} relevance={args.relevance}")
     print("")
     print("Retrieval quality (ranking only):")
     print(_fmt_quality_table(ranking))
@@ -164,7 +216,9 @@ def main() -> None:
     print(_fmt_bucket_table(ranking))
     print("Pruning behaviour:")
     print(_fmt_prune_table(pruning))
-    print(f"Wrote {RESULTS_DIR / 'summary.json'} and {RESULTS_DIR / 'summary.md'}")
+    print(
+        f"Wrote {RESULTS_DIR / f'summary{suffix}.json'} and {RESULTS_DIR / f'summary{suffix}.md'}"
+    )
 
 
 async def amain() -> None:
