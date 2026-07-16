@@ -232,7 +232,41 @@ without forgetting) is delivered regardless of backend.
 
 ---
 
-## 8. Reproduce
+## 8. Acceptance criteria (issue #80)
+
+Every checkbox from the issue, resolved and measured (not asserted):
+
+| # | Acceptance criterion | Status | Where |
+|---|---|---|---|
+| 1 | Decay model + parameters chosen with rationale | ✅ Done | §1 (importance-weighted exp. recency; params table) + §2 (measured trade-off across all 5 candidates) |
+| 2 | Ranking-only vs also-prunes behaviour defined | ✅ Done | §4 (ranking-primary; conservative importance-gated prune; measured false-forget) |
+| 3 | Reinforcement-on-access rule defined (what counts as access, how strength resets) | ✅ Done | §3 (access = injection into top-k; reset `last_accessed_at = now`) |
+| 4 | New `UserMemory` fields specified for SM-C3/R12 | ✅ Done | §5 (`last_accessed_at`, `importance` required; `strength` deferred with evidence) |
+
+The issue's four **"Questions to answer"** are also each resolved:
+
+- *Ebbinghaus vs exponential recency vs conflict-only (no decay)?* → All three (plus
+  TTL/half-life and importance-weighted) implemented and benchmarked. Winner:
+  importance-weighted exponential recency; confirmed under real embeddings (§1, §2).
+- *Ranking only, or also prune/archive (feeds SM-E9)?* → Ranking primary; pruning a
+  separate, conservative, importance-gated opt-in gate (§4).
+- *What is "access", and how does reinforcement reset strength/last-access?* →
+  Access = injection into retrieval context; on access `last_accessed_at = now` (§3).
+- *What new `UserMemory` fields are needed?* → `last_accessed_at`, `importance`;
+  `strength` deferred because Ebbinghaus reinforcement showed negligible benefit (§5).
+
+The three **"Options to evaluate"** named in the issue (Ebbinghaus, Exponential
+recency, No decay) were all implemented in the harness and measured, per the rule
+that decision tasks must implement every option rather than cite numbers.
+
+**Provisional / deferred (not blocking these criteria):** absolute acceptance
+*thresholds* are provisional for SM-R1 to ratify and are embedding-backend
+sensitive (§7); promotion of the chosen strategy into `egpt/memory` core happens in
+SM-C* (this task commits benchmarks only).
+
+---
+
+## 9. Reproduce
 
 ```bash
 cd benchmarks/memory_decay
