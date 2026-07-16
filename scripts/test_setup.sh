@@ -4,7 +4,7 @@
 #
 #    Agno Test Setup
 #
-#    Creates .venv with agnoctl and agno[tests] installed in editable
+#    Creates .venv with egptctl and agno[tests] installed in editable
 #    mode: the full provider-SDK test surface used by the CI matrices.
 #    For the day-to-day dev loop use ./scripts/dev_setup.sh instead.
 #
@@ -17,7 +17,7 @@ set -e
 CURR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${CURR_DIR}")"
 AGNO_DIR="${REPO_ROOT}/libs/agno"
-AGNOCTL_DIR="${REPO_ROOT}/libs/agnoctl"
+EGPTCTL_DIR="${REPO_ROOT}/libs/egptctl"
 VENV_DIR="${REPO_ROOT}/.venv"
 
 # Colors
@@ -61,13 +61,11 @@ echo -e "    ${DIM}Creating Python 3.12 venv...${NC}"
 echo -e "    ${DIM}> uv venv ${VENV_DIR} --python 3.12${NC}"
 uv venv "${VENV_DIR}" --python 3.12 --quiet
 
-# One resolve for both editables: the local agnoctl satisfies agno's
-# agnoctl dependency, so nothing is pulled from PyPI for it (and a
-# just-bumped, not-yet-published agnoctl version cannot break CI).
+# Install the separately distributed CLI and core library together for testing.
 echo ""
-echo -e "    ${DIM}Installing agnoctl and agno[tests] in editable mode...${NC}"
-echo -e "    ${DIM}> uv pip install -e libs/agnoctl -e libs/agno[tests]${NC}"
-VIRTUAL_ENV="${VENV_DIR}" uv pip install -e "${AGNOCTL_DIR}" -e "${AGNO_DIR}[tests]" --quiet
+echo -e "    ${DIM}Installing egptctl and agno[tests] in editable mode...${NC}"
+echo -e "    ${DIM}> uv pip install -e libs/egptctl -e libs/agno[tests]${NC}"
+VIRTUAL_ENV="${VENV_DIR}" uv pip install -e "${EGPTCTL_DIR}" -e "${AGNO_DIR}[tests]" --quiet
 
 # Install brave-search without its dependencies: it hard-pins numpy<2 (and older
 # httpx/pytest/tenacity), which would downgrade the resolved test environment and

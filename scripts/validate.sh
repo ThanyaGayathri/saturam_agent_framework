@@ -4,7 +4,7 @@
 #
 #    Agno Validate
 #
-#    ruff check + mypy for agno and agnoctl, ruff + pattern check for
+#    ruff check + mypy for agno and egptctl, ruff + pattern check for
 #    cookbook. Exits non-zero if anything fails — safe to gate on.
 #    agno-infra is not part of the dev venv; it validates in its own CI job.
 #
@@ -66,9 +66,9 @@ target "agno"
 run_step "ruff check" ruff check "${REPO_ROOT}/libs/agno"
 run_step "mypy" mypy "${REPO_ROOT}/libs/agno" --config-file "${REPO_ROOT}/libs/agno/pyproject.toml"
 
-target "agnoctl"
-run_step "ruff check" ruff check "${REPO_ROOT}/libs/agnoctl"
-run_step "mypy" mypy "${REPO_ROOT}/libs/agnoctl/agnoctl" --config-file "${REPO_ROOT}/libs/agnoctl/pyproject.toml"
+target "egptctl"
+run_step "ruff check" ruff check "${REPO_ROOT}/libs/egptctl"
+run_step "mypy" mypy "${REPO_ROOT}/libs/egptctl/egptctl" --config-file "${REPO_ROOT}/libs/egptctl/pyproject.toml"
 
 target "cookbook"
 run_step "ruff check" ruff check "${REPO_ROOT}/cookbook"

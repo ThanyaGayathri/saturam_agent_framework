@@ -14,7 +14,7 @@ set -e
 CURR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${CURR_DIR}")"
 AGNO_DIR="${REPO_ROOT}/libs/agno"
-AGNOCTL_DIR="${REPO_ROOT}/libs/agnoctl"
+EGPTCTL_DIR="${REPO_ROOT}/libs/egptctl"
 VENV_DIR="${REPO_ROOT}/.venvs/demo"
 
 # Colors
@@ -58,12 +58,11 @@ echo -e "    ${DIM}Creating Python 3.12 venv...${NC}"
 echo -e "    ${DIM}> uv venv ${VENV_DIR} --python 3.12${NC}"
 uv venv "${VENV_DIR}" --python 3.12 --quiet
 
-# One resolve for both editables: the local agnoctl satisfies agno's
-# agnoctl dependency, so nothing is pulled from PyPI for it.
+# Install the separately distributed CLI and core library together for demos.
 echo ""
-echo -e "    ${DIM}Installing agnoctl and agno[demo] in editable mode...${NC}"
-echo -e "    ${DIM}> uv pip install -e libs/agnoctl -e libs/agno[demo]${NC}"
-VIRTUAL_ENV="${VENV_DIR}" uv pip install -e "${AGNOCTL_DIR}" -e "${AGNO_DIR}[demo]" --quiet
+echo -e "    ${DIM}Installing egptctl and agno[demo] in editable mode...${NC}"
+echo -e "    ${DIM}> uv pip install -e libs/egptctl -e libs/agno[demo]${NC}"
+VIRTUAL_ENV="${VENV_DIR}" uv pip install -e "${EGPTCTL_DIR}" -e "${AGNO_DIR}[demo]" --quiet
 
 # Copy activation command to clipboard
 ACTIVATE_CMD="source .venvs/demo/bin/activate"

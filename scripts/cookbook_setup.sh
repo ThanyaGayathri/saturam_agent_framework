@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 ############################################################################
 # Agno Setup for running cookbooks
@@ -10,6 +11,7 @@
 CURR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "${CURR_DIR}")"
 AGNO_DIR="${REPO_ROOT}/libs/agno"
+EGPTCTL_DIR="${REPO_ROOT}/libs/egptctl"
 source "${CURR_DIR}/_utils.sh"
 
 VENV_DIR="${REPO_ROOT}/agnoenv"
@@ -19,7 +21,7 @@ print_heading "Development setup..."
 
 print_heading "Removing virtual env"
 print_info "rm -rf ${VENV_DIR}"
-rm -rf ${VENV_DIR}
+rm -rf "${VENV_DIR}"
 
 print_heading "Creating virtual env"
 print_info "Creating python3 venv: ${VENV_DIR}"
@@ -31,12 +33,8 @@ source "${VENV_DIR}/bin/activate"
 print_info "Installing base python packages"
 pip3 install --upgrade pip pip-tools twine build
 
-print_heading "Installing requirements.txt"
-pip install --no-deps \
-  -r ${AGNO_DIR}/requirements.txt
-
-print_heading "Installing agno with [dev] extras"
-pip install --editable "${AGNO_DIR}[dev]"
+print_heading "Installing egptctl and agno with [dev] extras"
+pip install --editable "${EGPTCTL_DIR}" --editable "${AGNO_DIR}[dev]"
 
 print_heading "pip list"
 pip list

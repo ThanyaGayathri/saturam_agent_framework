@@ -37,7 +37,7 @@ jobs:
           set -e
           uv venv .venv --python "${{ matrix.python-version }}"
           source .venv/bin/activate
-          uv pip install -e libs/agnoctl[dev] -e libs/agno[dev]
+          uv pip install -e libs/egptctl[dev] -e libs/agno[dev]
 
       - name: Run validate
         run: |
@@ -95,12 +95,12 @@ jobs:
             working-directory: libs/agno
             python-version: "3.12"
             pytest-extra-ignores: ""
-          - package: agnoctl
-            working-directory: libs/agnoctl
+          - package: egptctl
+            working-directory: libs/egptctl
             python-version: "3.10"
             pytest-extra-ignores: ""
-          - package: agnoctl
-            working-directory: libs/agnoctl
+          - package: egptctl
+            working-directory: libs/egptctl
             python-version: "3.12"
             pytest-extra-ignores: ""
           - package: egpt-infra
@@ -133,12 +133,12 @@ jobs:
           set -e
           uv venv ../../.venv --python "${{ matrix.python-version }}"
           source ../../.venv/bin/activate
-          uv pip install -e ../agnoctl -e .[tests]
+          uv pip install -e .[tests]
           uv pip install brave-search --no-deps
           uv pip install build pytest-cov
 
-      - name: Install agnoctl dependencies
-        if: matrix.package == 'agnoctl'
+      - name: Install egptctl dependencies
+        if: matrix.package == 'egptctl'
         run: |
           set -e
           uv venv ../../.venv --python "${{ matrix.python-version }}"
@@ -172,8 +172,8 @@ jobs:
             --ignore=libs/agno/tests/unit/tools/test_scrapegraph.py \
             ${{ matrix.pytest-extra-ignores }}
 
-      - name: Run agnoctl tests
-        if: matrix.package == 'agnoctl'
+      - name: Run egptctl tests
+        if: matrix.package == 'egptctl'
         run: |
           set -e
           source ../../.venv/bin/activate

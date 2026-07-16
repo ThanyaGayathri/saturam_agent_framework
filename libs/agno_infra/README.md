@@ -1,8 +1,8 @@
 # Agno Infra
 
-**A lightweight framework and CLI for managing Agentic Infrastructure**
+**A lightweight framework for managing Agentic Infrastructure**
 
-[![PyPI version](https://badge.fury.io/py/agno-infra.svg)](https://badge.fury.io/py/agno-infra)
+[![PyPI version](https://badge.fury.io/py/egpt-infra.svg)](https://badge.fury.io/py/egpt-infra)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 
 ## Overview
@@ -14,7 +14,6 @@ Agno Infra is a powerful infrastructure management framework designed specifical
 - **Multi-Platform Support**: Seamlessly manage infrastructure across AWS, Docker, and local environments
 - **Agent-Focused**: Purpose-built for deploying AI agents and their supporting infrastructure
 - **Template-Based**: Quick start with pre-built infrastructure templates
-- **Unified CLI**: Single command interface (`ag` or `agno`) for all infrastructure operations
 - **Resource Management**: Comprehensive resource management for databases, networking, storage, and compute
 - **Application Support**: Built-in support for FastAPI, Streamlit, Celery, Django, and more
 
@@ -23,54 +22,31 @@ Agno Infra is a powerful infrastructure management framework designed specifical
 ### Using pip
 
 ```bash
-pip install agno-infra
+pip install egpt-infra
 ```
 
 ### With optional dependencies
 
 ```bash
 # For AWS support
-pip install agno-infra[aws]
+pip install egpt-infra[aws]
 
 # For Docker support
-pip install agno-infra[docker]
+pip install egpt-infra[docker]
 
 # For development
-pip install agno-infra[dev]
+pip install egpt-infra[dev]
 ```
 
-## 🛠 Quick Start
+## Command-line interface
 
-### 1. Create Infrastructure from Template
-
-```bash
-# Create a new agent infrastructure project
-ag create my-agent-infra --template agent-infra-docker
-
-# Navigate to your project
-cd my-agent-infra
-```
-
-### 2. CLI Operations
-
-```bash
-# List available templates
-ag templates
-
-# Deploy infrastructure
-ag deploy
-
-# Check infrastructure status
-ag status
-
-# Tear down infrastructure
-ag destroy
-```
+The legacy `ag` and `agno` executables are no longer installed. Infrastructure CLI
+integration with the branded `egpt` command is deferred to a separate release.
 
 ## 🏗 Project Structure
 
 ```
-agno/
+egpt/
 ├── aws/                    # AWS resource management
 │   ├── resource/          # AWS resource types (EC2, RDS, S3, etc.)
 │   └── app/              # AWS application deployments
