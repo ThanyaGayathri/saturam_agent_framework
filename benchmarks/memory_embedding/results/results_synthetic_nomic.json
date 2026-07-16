@@ -1,0 +1,45 @@
+{
+  "generated_at": "2026-07-16T10:49:53.025115+00:00",
+  "dataset": "synthetic",
+  "corpus_size": 54,
+  "query_count": 32,
+  "results": [
+    {
+      "key": "nomic-1.5",
+      "mode": "A",
+      "egpt_class": "SentenceTransformerEmbedder",
+      "model_id": "nomic-ai/nomic-embed-text-v1.5",
+      "declared_dim": 768,
+      "measured_dim": 768,
+      "license": "Apache-2.0",
+      "offline": true,
+      "params_m": 137,
+      "disk_mb": 550,
+      "quality": {
+        "recall@1": 0.8125,
+        "recall@5": 0.9375,
+        "recall@10": 0.9688,
+        "ndcg@10": 0.9102,
+        "mrr@10": 0.8958
+      },
+      "latency_ms": {
+        "p50": 257.38,
+        "p95": 429.65,
+        "n": 96
+      },
+      "throughput_docs_per_s": {
+        "sync": 3.0,
+        "async": 4.4
+      },
+      "sync_async_max_abs_diff": 0.0,
+      "storage_10m": {
+        "storage_type": "vector",
+        "raw_gb": 28.61,
+        "index_gb": 51.5,
+        "total_gb": 80.11,
+        "fits_vector": true,
+        "fits_halfvec": true
+      }
+    }
+  ]
+}

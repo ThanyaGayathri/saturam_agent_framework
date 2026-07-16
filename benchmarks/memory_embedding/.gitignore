@@ -1,0 +1,11 @@
+# Python caches
+__pycache__/
+*.pyc
+
+# Local run logs (kept out of git; the committed evidence is the results/*.json)
+results/_run_*.log
+
+# Never commit secrets (Azure key lives only in the session scratchpad)
+*.key
+azure_key.txt
+.env

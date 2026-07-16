@@ -1,0 +1,78 @@
+{
+  "n_vectors": 10000000,
+  "note": "HNSW index approx 1.8x raw; measured for real in SM-R3",
+  "rows": [
+    {
+      "dim": 256,
+      "default_type": "vector",
+      "raw_gb": 9.54,
+      "total_gb": 26.7,
+      "halfvec_total_gb": 13.35,
+      "fits_vector": true,
+      "fits_halfvec": true
+    },
+    {
+      "dim": 384,
+      "default_type": "vector",
+      "raw_gb": 14.31,
+      "total_gb": 40.05,
+      "halfvec_total_gb": 20.03,
+      "fits_vector": true,
+      "fits_halfvec": true
+    },
+    {
+      "dim": 512,
+      "default_type": "vector",
+      "raw_gb": 19.07,
+      "total_gb": 53.41,
+      "halfvec_total_gb": 26.7,
+      "fits_vector": true,
+      "fits_halfvec": true
+    },
+    {
+      "dim": 768,
+      "default_type": "vector",
+      "raw_gb": 28.61,
+      "total_gb": 80.11,
+      "halfvec_total_gb": 40.05,
+      "fits_vector": true,
+      "fits_halfvec": true
+    },
+    {
+      "dim": 1024,
+      "default_type": "vector",
+      "raw_gb": 38.15,
+      "total_gb": 106.81,
+      "halfvec_total_gb": 53.41,
+      "fits_vector": true,
+      "fits_halfvec": true
+    },
+    {
+      "dim": 1536,
+      "default_type": "vector",
+      "raw_gb": 57.22,
+      "total_gb": 160.22,
+      "halfvec_total_gb": 80.11,
+      "fits_vector": true,
+      "fits_halfvec": true
+    },
+    {
+      "dim": 2048,
+      "default_type": "halfvec",
+      "raw_gb": 38.15,
+      "total_gb": 106.81,
+      "halfvec_total_gb": 106.81,
+      "fits_vector": false,
+      "fits_halfvec": true
+    },
+    {
+      "dim": 3072,
+      "default_type": "halfvec",
+      "raw_gb": 57.22,
+      "total_gb": 160.22,
+      "halfvec_total_gb": 160.22,
+      "fits_vector": false,
+      "fits_halfvec": true
+    }
+  ]
+}

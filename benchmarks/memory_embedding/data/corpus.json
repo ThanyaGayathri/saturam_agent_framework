@@ -1,0 +1,218 @@
+{
+  "m01": {
+    "text": "The user prefers dark mode in all their applications.",
+    "type": "preference"
+  },
+  "m02": {
+    "text": "The user is vegetarian and avoids all meat and fish.",
+    "type": "preference"
+  },
+  "m03": {
+    "text": "The user likes their coffee black with no sugar.",
+    "type": "preference"
+  },
+  "m04": {
+    "text": "The user prefers to receive meeting invites in the morning, never after 4pm.",
+    "type": "preference"
+  },
+  "m05": {
+    "text": "The user wants code reviews to focus on correctness before style.",
+    "type": "preference"
+  },
+  "m06": {
+    "text": "The user reads technical books on their Kindle, not on paper.",
+    "type": "preference"
+  },
+  "m07": {
+    "text": "The user dislikes phone calls and prefers async written communication.",
+    "type": "preference"
+  },
+  "m08": {
+    "text": "The user keeps Slack notifications muted between 8pm and 8am.",
+    "type": "preference"
+  },
+  "m09": {
+    "text": "On 2025-03-12 the user deployed the billing service to production for the first time.",
+    "type": "episodic"
+  },
+  "m10": {
+    "text": "Last quarter the user migrated the analytics database from MySQL to Postgres.",
+    "type": "episodic"
+  },
+  "m11": {
+    "text": "In January the user gave a conference talk about vector databases in Berlin.",
+    "type": "episodic"
+  },
+  "m12": {
+    "text": "The user broke the CI pipeline on Friday by merging an untested dependency bump.",
+    "type": "episodic"
+  },
+  "m13": {
+    "text": "Two weeks ago the user onboarded a new backend engineer named Priya.",
+    "type": "episodic"
+  },
+  "m14": {
+    "text": "The user cancelled the Tuesday standup because half the team was on holiday.",
+    "type": "episodic"
+  },
+  "m15": {
+    "text": "During the outage on 2025-06-01 the user rolled back the payments release at 2am.",
+    "type": "episodic"
+  },
+  "m16": {
+    "text": "The user spent last weekend debugging a memory leak in the ingestion worker.",
+    "type": "episodic"
+  },
+  "m17": {
+    "text": "The user filed a patent draft for the neuro-symbolic memory design in May.",
+    "type": "episodic"
+  },
+  "m18": {
+    "text": "Priya is the backend engineer who owns the authentication service.",
+    "type": "entity"
+  },
+  "m19": {
+    "text": "The billing service is written in Go and runs on Kubernetes.",
+    "type": "entity"
+  },
+  "m20": {
+    "text": "The analytics database now runs Postgres 16 with the pgvector extension.",
+    "type": "entity"
+  },
+  "m21": {
+    "text": "Acme Corp is the user's largest enterprise customer, based in Singapore.",
+    "type": "entity"
+  },
+  "m22": {
+    "text": "The user's manager is Dana, who leads the platform organization.",
+    "type": "entity"
+  },
+  "m23": {
+    "text": "The ingestion worker is a Python service that batches events into Kafka.",
+    "type": "entity"
+  },
+  "m24": {
+    "text": "The staging cluster has 3 nodes; the production cluster has 12 nodes.",
+    "type": "entity"
+  },
+  "m25": {
+    "text": "The memory subsystem stores episodic vectors in a pgvector-backed store.",
+    "type": "entity"
+  },
+  "m26": {
+    "text": "The user promised to send Dana the quarterly roadmap by end of week.",
+    "type": "task"
+  },
+  "m27": {
+    "text": "The user still needs to rotate the production database credentials.",
+    "type": "task"
+  },
+  "m28": {
+    "text": "The user agreed to mentor Priya on the release process next sprint.",
+    "type": "task"
+  },
+  "m29": {
+    "text": "The user wants to add rate limiting to the public API before launch.",
+    "type": "task"
+  },
+  "m30": {
+    "text": "The user plans to evaluate embedding models for the memory tier this month.",
+    "type": "task"
+  },
+  "m31": {
+    "text": "The user's personal laptop runs Linux, but their work laptop runs macOS.",
+    "type": "entity"
+  },
+  "m32": {
+    "text": "The user prefers tea in the afternoon even though they drink coffee in the morning.",
+    "type": "preference"
+  },
+  "m33": {
+    "text": "The user attended a conference in Berlin two years ago but did not speak.",
+    "type": "episodic"
+  },
+  "m34": {
+    "text": "Dana used to be a backend engineer before moving into management.",
+    "type": "entity"
+  },
+  "m35": {
+    "text": "The user migrated a logging pipeline from Elasticsearch to Loki last year.",
+    "type": "episodic"
+  },
+  "m36": {
+    "text": "The payments service is maintained by a separate team in the Dublin office.",
+    "type": "entity"
+  },
+  "m37": {
+    "text": "The user turns on light mode only when giving presentations on a projector.",
+    "type": "preference"
+  },
+  "m38": {
+    "text": "The user interviewed three backend candidates before hiring Priya.",
+    "type": "episodic"
+  },
+  "m39": {
+    "text": "The company uses GitHub Actions for continuous integration.",
+    "type": "entity"
+  },
+  "m40": {
+    "text": "The design system is maintained in a shared Figma workspace.",
+    "type": "entity"
+  },
+  "m41": {
+    "text": "The user enjoys hiking on weekends when the weather is clear.",
+    "type": "preference"
+  },
+  "m42": {
+    "text": "The user upgraded their monitor to an ultrawide display in April.",
+    "type": "episodic"
+  },
+  "m43": {
+    "text": "The customer success team handles onboarding for small accounts.",
+    "type": "entity"
+  },
+  "m44": {
+    "text": "The user intends to write a blog post about air-gapped deployments.",
+    "type": "task"
+  },
+  "m45": {
+    "text": "The frontend is a React application deployed on a CDN.",
+    "type": "entity"
+  },
+  "m46": {
+    "text": "The user gave positive feedback to the SRE team after the smooth Q1 release.",
+    "type": "episodic"
+  },
+  "m47": {
+    "text": "The user prefers concise pull request descriptions with a bullet summary.",
+    "type": "preference"
+  },
+  "m48": {
+    "text": "The observability stack is Prometheus for metrics and Grafana for dashboards.",
+    "type": "entity"
+  },
+  "m49": {
+    "text": "The user wants to deprecate the legacy SOAP endpoint by next quarter.",
+    "type": "task"
+  },
+  "m50": {
+    "text": "The user paired with Priya to fix the authentication token refresh bug.",
+    "type": "episodic"
+  },
+  "m51": {
+    "text": "The user's timezone is CET and Dana's timezone is PST.",
+    "type": "entity"
+  },
+  "m52": {
+    "text": "The user wants alerts delivered to PagerDuty, not email.",
+    "type": "preference"
+  },
+  "m53": {
+    "text": "The user archived the old analytics dashboards after the Postgres migration.",
+    "type": "episodic"
+  },
+  "m54": {
+    "text": "The neuro-symbolic memory design combines a vector tier with a symbolic graph.",
+    "type": "entity"
+  }
+}
