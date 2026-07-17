@@ -1,0 +1,2269 @@
+{
+  "p10_q01": {
+    "intended": [
+      "p10_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p10_m01": 2,
+      "p10_m09": 1,
+      "p10_m10": 1,
+      "p10_m11": 1,
+      "p10_m12": 1
+    },
+    "mode": "paraphrase",
+    "query": "What does Tessa do at the theatre in Wellington?"
+  },
+  "p10_q02": {
+    "intended": [
+      "p10_m02"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p10_m02": 2,
+      "p10_m13": 1
+    },
+    "mode": "paraphrase",
+    "query": "Who is Tessa sharing her Newtown townhouse with?"
+  },
+  "p10_q03": {
+    "intended": [
+      "p10_m06"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p10_m05": 1,
+      "p10_m06": 2
+    },
+    "mode": "paraphrase",
+    "query": "Which hobby has her drawing sea life along the south coast?"
+  },
+  "p10_q04": {
+    "intended": [
+      "p10_m11"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p10_m01": 1,
+      "p10_m09": 1,
+      "p10_m10": 1,
+      "p10_m11": 2,
+      "p10_m12": 1
+    },
+    "mode": "temporal",
+    "query": "What did Tessa buy most recently for the theatre's period drama?"
+  },
+  "p10_q05": {
+    "intended": [
+      "p10_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p10_m09": 1,
+      "p10_m10": 2,
+      "p10_m11": 1
+    },
+    "mode": "temporal",
+    "query": "What was the previous dated errand before she bought the brass candlesticks?"
+  },
+  "p10_q06": {
+    "intended": [
+      "p10_m13"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p10_m02": 1,
+      "p10_m13": 2
+    },
+    "mode": "coreference",
+    "query": "What is her flatmate expecting her to pick up after work on Friday?"
+  },
+  "p10_q07": {
+    "intended": [
+      "p10_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p10_m03": 2,
+      "p10_m15": 1
+    },
+    "mode": "coreference",
+    "query": "Where does her brother live, and what is he training as?"
+  },
+  "p10_q08": {
+    "intended": [
+      "p10_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p10_m01": 1,
+      "p10_m09": 2,
+      "p10_m10": 1,
+      "p10_m11": 1,
+      "p10_m12": 1
+    },
+    "mode": "hard_negative",
+    "query": "What did Tessa buy on February 14, 2026 for the stage production?"
+  },
+  "p10_q09": {
+    "intended": [
+      "p10_m07"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p10_m07": 1
+    },
+    "mode": "hard_negative",
+    "query": "Which nights does Tessa play badminton at the community hall?"
+  },
+  "p10_q10": {
+    "intended": [
+      "p10_m15",
+      "p10_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p10_m03": 2,
+      "p10_m15": 2
+    },
+    "mode": "multi_hop",
+    "query": "Who is Tessa helping compare rain jackets for, and what job is he training toward?"
+  },
+  "p10_q11": {
+    "intended": [
+      "p10_m14",
+      "p10_m05"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p10_m05": 1,
+      "p10_m14": 2
+    },
+    "mode": "multi_hop",
+    "query": "What book does Tessa need to renew before Tuesday, related to the hobby she does on windy weekends?"
+  },
+  "p10_q12": {
+    "intended": [
+      "p10_m04",
+      "p10_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p10_m01": 1,
+      "p10_m02": 1,
+      "p10_m04": 2
+    },
+    "mode": "multi_hop",
+    "query": "What transport does Tessa usually take to the Wellington theatre where she works?"
+  },
+  "p11_q01": {
+    "intended": [
+      "p11_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p11_m01": 2,
+      "p11_m03": 1,
+      "p11_m12": 1
+    },
+    "mode": "paraphrase",
+    "query": "What does Rafael do for the city in Recife?"
+  },
+  "p11_q02": {
+    "intended": [
+      "p11_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p11_m01": 1,
+      "p11_m03": 2,
+      "p11_m14": 1
+    },
+    "mode": "paraphrase",
+    "query": "Where in Recife is his apartment located?"
+  },
+  "p11_q03": {
+    "intended": [
+      "p11_m08"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p11_m08": 2
+    },
+    "mode": "paraphrase",
+    "query": "What kind of notebook does Rafael keep about the weather?"
+  },
+  "p11_q04": {
+    "intended": [
+      "p11_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p11_m02": 1,
+      "p11_m09": 1,
+      "p11_m10": 2,
+      "p11_m13": 1
+    },
+    "mode": "temporal",
+    "query": "When did Rafael last take Luiza to a museum?"
+  },
+  "p11_q05": {
+    "intended": [
+      "p11_m12"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p11_m11": 1,
+      "p11_m12": 2
+    },
+    "mode": "temporal",
+    "query": "What did he sign up for after failing the drone photography class?"
+  },
+  "p11_q06": {
+    "intended": [
+      "p11_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p11_m02": 1,
+      "p11_m09": 2,
+      "p11_m10": 1,
+      "p11_m13": 1
+    },
+    "mode": "coreference",
+    "query": "What is his daughter's food allergy?"
+  },
+  "p11_q07": {
+    "intended": [
+      "p11_m15"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p11_m15": 2
+    },
+    "mode": "coreference",
+    "query": "Where does his older sister run her business?"
+  },
+  "p11_q08": {
+    "intended": [
+      "p11_m11"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p11_m11": 2,
+      "p11_m12": 1
+    },
+    "mode": "hard_negative",
+    "query": "What course did Rafael fail because he missed the final exam?"
+  },
+  "p11_q09": {
+    "intended": [
+      "p11_m05"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p11_m04": 2,
+      "p11_m05": 2
+    },
+    "mode": "hard_negative",
+    "query": "Does Rafael take sugar in his morning coffee?"
+  },
+  "p11_q10": {
+    "intended": [
+      "p11_m13",
+      "p11_m02"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p11_m02": 1,
+      "p11_m09": 1,
+      "p11_m13": 2,
+      "p11_m14": 1
+    },
+    "mode": "multi_hop",
+    "query": "What does Rafael need to fix before Luiza comes for the next custody weekend?"
+  },
+  "p11_q11": {
+    "intended": [
+      "p11_m14",
+      "p11_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p11_m03": 2,
+      "p11_m14": 1
+    },
+    "mode": "multi_hop",
+    "query": "Which neighborhood should he mention when calling about the flickering hallway light in his building?"
+  },
+  "p11_q12": {
+    "intended": [
+      "p11_m06",
+      "p11_m04"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p11_m04": 2,
+      "p11_m05": 1,
+      "p11_m06": 2
+    },
+    "mode": "multi_hop",
+    "query": "What activity does Rafael usually do on Saturday mornings, and what drink does he prefer with breakfast?"
+  },
+  "p12_q01": {
+    "intended": [
+      "p12_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p12_m01": 2,
+      "p12_m07": 1,
+      "p12_m08": 1,
+      "p12_m09": 1,
+      "p12_m10": 1,
+      "p12_m11": 1,
+      "p12_m13": 1
+    },
+    "mode": "paraphrase",
+    "query": "What kind of work am I training for in Inverness?"
+  },
+  "p12_q02": {
+    "intended": [
+      "p12_m04"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p12_m04": 2
+    },
+    "mode": "paraphrase",
+    "query": "What do I usually put in my tea?"
+  },
+  "p12_q03": {
+    "intended": [
+      "p12_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p12_m09": 2
+    },
+    "mode": "temporal",
+    "query": "What happened the last time I injured my hand?"
+  },
+  "p12_q04": {
+    "intended": [
+      "p12_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p12_m10": 2
+    },
+    "mode": "temporal",
+    "query": "When did I buy that used anvil stand from the retiring farrier?"
+  },
+  "p12_q05": {
+    "intended": [
+      "p12_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p12_m03": 2
+    },
+    "mode": "coreference",
+    "query": "What's the name of my van again?"
+  },
+  "p12_q06": {
+    "intended": [
+      "p12_m12"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p12_m02": 1,
+      "p12_m12": 2
+    },
+    "mode": "coreference",
+    "query": "Do I need to message my housemate about the heating bill, and when?"
+  },
+  "p12_q07": {
+    "intended": [],
+    "intended_matches_judge": null,
+    "judge_positive": {
+      "p12_m08": 1
+    },
+    "mode": "hard_negative",
+    "query": "When did I pass my driving test on the first try?"
+  },
+  "p12_q08": {
+    "intended": [],
+    "intended_matches_judge": null,
+    "judge_positive": {
+      "p12_m01": 1,
+      "p12_m07": 1,
+      "p12_m11": 1
+    },
+    "mode": "hard_negative",
+    "query": "Who owns the two Clydesdales I help shoe?"
+  },
+  "p12_q09": {
+    "intended": [
+      "p12_m02",
+      "p12_m12"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p12_m01": 1,
+      "p12_m02": 2,
+      "p12_m11": 1,
+      "p12_m12": 2,
+      "p12_m15": 1
+    },
+    "mode": "multi_hop",
+    "query": "Who do I live with near Inverness, and what do I need to ask her on Thursday evening?"
+  },
+  "p12_q10": {
+    "intended": [
+      "p12_m11",
+      "p12_m07"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p12_m07": 1,
+      "p12_m11": 2,
+      "p12_m12": 1
+    },
+    "mode": "multi_hop",
+    "query": "Which client should I text on Thursday evening, and what are we confirming for Friday?"
+  },
+  "p12_q11": {
+    "intended": [
+      "p12_m05"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p12_m05": 2,
+      "p12_m06": 1
+    },
+    "mode": "paraphrase",
+    "query": "What do I make by hand on quiet evenings for dogs?"
+  },
+  "p12_q12": {
+    "intended": [
+      "p12_m15"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p12_m02": 1,
+      "p12_m14": 1,
+      "p12_m15": 2
+    },
+    "mode": "temporal",
+    "query": "Where did Mairi and I go before dawn last Sunday, and what did we see?"
+  },
+  "p13_q01": {
+    "intended": [
+      "p13_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p13_m01": 2,
+      "p13_m06": 1,
+      "p13_m08": 1,
+      "p13_m10": 1,
+      "p13_m13": 1,
+      "p13_m14": 1,
+      "p13_m15": 1
+    },
+    "mode": "paraphrase",
+    "query": "Where does Yara run her perfume business?"
+  },
+  "p13_q02": {
+    "intended": [
+      "p13_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p13_m03": 2,
+      "p13_m07": 1,
+      "p13_m08": 1,
+      "p13_m15": 1
+    },
+    "mode": "paraphrase",
+    "query": "Which scent notes does she favor instead of heavy oud?"
+  },
+  "p13_q03": {
+    "intended": [
+      "p13_m07"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p13_m07": 2
+    },
+    "mode": "temporal",
+    "query": "When was the last time she took the ferry to Tarifa?"
+  },
+  "p13_q04": {
+    "intended": [
+      "p13_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p13_m02": 1,
+      "p13_m09": 2,
+      "p13_m11": 1
+    },
+    "mode": "temporal",
+    "query": "When did Idris play at his school recital?"
+  },
+  "p13_q05": {
+    "intended": [
+      "p13_m12"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p13_m12": 2
+    },
+    "mode": "coreference",
+    "query": "Who does she call every Thursday evening?"
+  },
+  "p13_q06": {
+    "intended": [
+      "p13_m11"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p13_m02": 1,
+      "p13_m09": 1,
+      "p13_m11": 2
+    },
+    "mode": "coreference",
+    "query": "What did her son promise ask her to help with this Saturday?"
+  },
+  "p13_q07": {
+    "intended": [
+      "p13_m08"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p13_m08": 1,
+      "p13_m15": 1
+    },
+    "mode": "hard_negative",
+    "query": "What scent note did Yara say faded too slowly in her citrus blend?"
+  },
+  "p13_q08": {
+    "intended": [
+      "p13_m05"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p13_m03": 1,
+      "p13_m04": 1,
+      "p13_m05": 2,
+      "p13_m07": 1,
+      "p13_m08": 1,
+      "p13_m15": 1
+    },
+    "mode": "hard_negative",
+    "query": "Does Yara like wearing strong perfume while serving food?"
+  },
+  "p13_q09": {
+    "intended": [
+      "p13_m02"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p13_m02": 2,
+      "p13_m06": 1,
+      "p13_m09": 1,
+      "p13_m11": 1
+    },
+    "mode": "multi_hop",
+    "query": "Who lives with Yara, and how old is her child?"
+  },
+  "p13_q10": {
+    "intended": [
+      "p13_m14"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p13_m03": 1,
+      "p13_m14": 2
+    },
+    "mode": "multi_hop",
+    "query": "What does Yara like listening to while bottling perfumes, and what kind does she prefer?"
+  },
+  "p13_q11": {
+    "intended": [
+      "p13_m04"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p13_m04": 2
+    },
+    "mode": "paraphrase",
+    "query": "What does Yara use before trying a fragrance on her skin?"
+  },
+  "p13_q12": {
+    "intended": [
+      "p13_m06"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p13_m06": 2,
+      "p13_m13": 1
+    },
+    "mode": "coreference",
+    "query": "What is the name of the cat that sleeps by the workshop window?"
+  },
+  "p14_q01": {
+    "intended": [
+      "p14_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p14_m01": 2,
+      "p14_m07": 1,
+      "p14_m08": 1,
+      "p14_m09": 1,
+      "p14_m10": 1,
+      "p14_m13": 1
+    },
+    "mode": "paraphrase",
+    "query": "What kind of work do I do for the coastal administration in Troms\u00f8?"
+  },
+  "p14_q02": {
+    "intended": [
+      "p14_m06"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p14_m06": 2
+    },
+    "mode": "paraphrase",
+    "query": "Which craft do I make mittens with in winter instead of crochet?"
+  },
+  "p14_q03": {
+    "intended": [
+      "p14_m07"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p14_m07": 2,
+      "p14_m08": 1
+    },
+    "mode": "temporal",
+    "query": "What was the last thing I documented at Torsv\u00e5g before the keeper's house window glazing issue?"
+  },
+  "p14_q04": {
+    "intended": [
+      "p14_m08"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p14_m01": 1,
+      "p14_m07": 1,
+      "p14_m08": 2,
+      "p14_m10": 1
+    },
+    "mode": "temporal",
+    "query": "When did I spend the afternoon documenting cracked window glazing at the keeper's house?"
+  },
+  "p14_q05": {
+    "intended": [
+      "p14_m02"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p14_m01": 1,
+      "p14_m02": 2,
+      "p14_m10": 1
+    },
+    "mode": "coreference",
+    "query": "Where does my partner and I live?"
+  },
+  "p14_q06": {
+    "intended": [
+      "p14_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p14_m01": 1,
+      "p14_m03": 2
+    },
+    "mode": "coreference",
+    "query": "What does my sister do for work?"
+  },
+  "p14_q07": {
+    "intended": [
+      "p14_m06"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p14_m06": 2
+    },
+    "mode": "hard_negative",
+    "query": "Do I enjoy crochet in winter?"
+  },
+  "p14_q08": {
+    "intended": [
+      "p14_m14"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p14_m14": 2,
+      "p14_m15": 1
+    },
+    "mode": "hard_negative",
+    "query": "Do I usually choose regional flights when weather delays are likely?"
+  },
+  "p14_q09": {
+    "intended": [
+      "p14_m02"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p14_m02": 2,
+      "p14_m03": 1
+    },
+    "mode": "multi_hop",
+    "query": "Who do I live with in the yellow wooden rowhouse?"
+  },
+  "p14_q10": {
+    "intended": [
+      "p14_m15"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p14_m14": 1,
+      "p14_m15": 2
+    },
+    "mode": "multi_hop",
+    "query": "What transport am I usually okay on even though fast passenger boats make me motion sick?"
+  },
+  "p14_q11": {
+    "intended": [
+      "p14_m04"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p14_m04": 2
+    },
+    "mode": "paraphrase",
+    "query": "What do I usually drink first thing in the morning?"
+  },
+  "p14_q12": {
+    "intended": [
+      "p14_m11"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p14_m03": 1,
+      "p14_m11": 2
+    },
+    "mode": "temporal",
+    "query": "What do I need to mail my sister before August 1, 2026?"
+  },
+  "p15_q01": {
+    "intended": [
+      "p15_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p15_m01": 2,
+      "p15_m07": 1,
+      "p15_m08": 1,
+      "p15_m13": 1,
+      "p15_m14": 1,
+      "p15_m15": 1
+    },
+    "mode": "paraphrase",
+    "query": "What kind of work does Carmen do near Mendoza?"
+  },
+  "p15_q02": {
+    "intended": [
+      "p15_m04"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p15_m04": 2
+    },
+    "mode": "paraphrase",
+    "query": "How does she usually take her mat\u00e9?"
+  },
+  "p15_q03": {
+    "intended": [
+      "p15_m08"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p15_m01": 1,
+      "p15_m08": 2,
+      "p15_m09": 1
+    },
+    "mode": "temporal",
+    "query": "What happened the last time she stayed late at the vineyard?"
+  },
+  "p15_q04": {
+    "intended": [
+      "p15_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p15_m05": 1,
+      "p15_m09": 2
+    },
+    "mode": "temporal",
+    "query": "When did she miss the bus home because she stopped for cloud photos?"
+  },
+  "p15_q05": {
+    "intended": [
+      "p15_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p15_m03": 2,
+      "p15_m13": 1
+    },
+    "mode": "coreference",
+    "query": "What does her brother do for a living?"
+  },
+  "p15_q06": {
+    "intended": [
+      "p15_m11"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p15_m10": 1,
+      "p15_m11": 2
+    },
+    "mode": "coreference",
+    "query": "Who often leaves eggs at her gate?"
+  },
+  "p15_q07": {
+    "intended": [
+      "p15_m14"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p15_m01": 1,
+      "p15_m08": 1,
+      "p15_m13": 1,
+      "p15_m14": 2,
+      "p15_m15": 2
+    },
+    "mode": "hard_negative",
+    "query": "Does Carmen use the scheduling app for all her irrigation notes?"
+  },
+  "p15_q08": {
+    "intended": [
+      "p15_m04"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p15_m04": 2
+    },
+    "mode": "hard_negative",
+    "query": "Does she sweeten her mat\u00e9 with sugar?"
+  },
+  "p15_q09": {
+    "intended": [
+      "p15_m03",
+      "p15_m13"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p15_m03": 1,
+      "p15_m13": 2
+    },
+    "mode": "multi_hop",
+    "query": "Who is she supposed to help before harvest starts in August, and what with?"
+  },
+  "p15_q10": {
+    "intended": [
+      "p15_m10",
+      "p15_m11"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p15_m07": 1,
+      "p15_m10": 2,
+      "p15_m11": 1
+    },
+    "mode": "multi_hop",
+    "query": "Which neighbor did Carmen barter melons with, and what did she get in return?"
+  },
+  "p15_q11": {
+    "intended": [
+      "p15_m06"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p15_m06": 2,
+      "p15_m12": 1
+    },
+    "mode": "paraphrase",
+    "query": "What instrument does she like fixing even though she barely plays it?"
+  },
+  "p15_q12": {
+    "intended": [
+      "p15_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p15_m07": 1,
+      "p15_m10": 2
+    },
+    "mode": "temporal",
+    "query": "What did she trade away in March 2025?"
+  },
+  "p1_q01": {
+    "intended": [
+      "p1_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p1_m01": 2,
+      "p1_m02": 1,
+      "p1_m11": 1
+    },
+    "mode": "paraphrase",
+    "query": "Where do I work as a ranger near Flagstaff?"
+  },
+  "p1_q02": {
+    "intended": [
+      "p1_m04"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p1_m04": 2,
+      "p1_m05": 1
+    },
+    "mode": "paraphrase",
+    "query": "How do I take my coffee?"
+  },
+  "p1_q03": {
+    "intended": [
+      "p1_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p1_m09": 2,
+      "p1_m12": 1
+    },
+    "mode": "temporal",
+    "query": "What was the last thing I did in the backyard garden in February 2025?"
+  },
+  "p1_q04": {
+    "intended": [
+      "p1_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p1_m03": 1,
+      "p1_m10": 2,
+      "p1_m13": 1
+    },
+    "mode": "temporal",
+    "query": "When did I take Juniper to the vet?"
+  },
+  "p1_q05": {
+    "intended": [
+      "p1_m02"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p1_m02": 2
+    },
+    "mode": "coreference",
+    "query": "What does my wife do for work?"
+  },
+  "p1_q06": {
+    "intended": [
+      "p1_m13"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p1_m03": 1,
+      "p1_m10": 1,
+      "p1_m13": 2
+    },
+    "mode": "coreference",
+    "query": "When do I need to renew his license?"
+  },
+  "p1_q07": {
+    "intended": [],
+    "intended_matches_judge": null,
+    "judge_positive": {
+      "p1_m02": 1
+    },
+    "mode": "hard_negative",
+    "query": "Which school in Flagstaff does Lena teach at?"
+  },
+  "p1_q08": {
+    "intended": [],
+    "intended_matches_judge": null,
+    "judge_positive": {
+      "p1_m06": 1,
+      "p1_m14": 1
+    },
+    "mode": "hard_negative",
+    "query": "What kind of camera lens do I use for meteor showers?"
+  },
+  "p1_q09": {
+    "intended": [
+      "p1_m15"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p1_m15": 2
+    },
+    "mode": "multi_hop",
+    "query": "Where does my brother live, and how often do I call him?"
+  },
+  "p1_q10": {
+    "intended": [
+      "p1_m14"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p1_m06": 1,
+      "p1_m13": 1,
+      "p1_m14": 2
+    },
+    "mode": "multi_hop",
+    "query": "What do I need to get done before the Perseids, and in what month are they?"
+  },
+  "p1_q11": {
+    "intended": [
+      "p1_m07",
+      "p1_m08"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p1_m07": 2,
+      "p1_m08": 2
+    },
+    "mode": "multi_hop",
+    "query": "Why do I usually run at sunrise instead of later in the day?"
+  },
+  "p1_q12": {
+    "intended": [
+      "p1_m03",
+      "p1_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p1_m03": 2,
+      "p1_m10": 2,
+      "p1_m13": 1
+    },
+    "mode": "multi_hop",
+    "query": "What's the name of my dog, and what happened at her vet visit in March 2025?"
+  },
+  "p2_q01": {
+    "intended": [
+      "p2_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p2_m01": 2,
+      "p2_m08": 1,
+      "p2_m12": 1
+    },
+    "mode": "paraphrase",
+    "query": "Where do I live these days?"
+  },
+  "p2_q02": {
+    "intended": [
+      "p2_m02"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p2_m02": 2,
+      "p2_m08": 1,
+      "p2_m11": 1
+    },
+    "mode": "paraphrase",
+    "query": "What kind of job do I have at the school?"
+  },
+  "p2_q03": {
+    "intended": [
+      "p2_m07"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p2_m07": 2,
+      "p2_m10": 1
+    },
+    "mode": "paraphrase",
+    "query": "Which fountain pen brand do I especially like restoring?"
+  },
+  "p2_q04": {
+    "intended": [
+      "p2_m08"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p2_m02": 1,
+      "p2_m08": 2,
+      "p2_m11": 1
+    },
+    "mode": "temporal",
+    "query": "When did I conduct the winter choir concert?"
+  },
+  "p2_q05": {
+    "intended": [
+      "p2_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p2_m09": 2,
+      "p2_m13": 1,
+      "p2_m15": 1
+    },
+    "mode": "temporal",
+    "query": "What was the last car-related thing I did with the Saab?"
+  },
+  "p2_q06": {
+    "intended": [
+      "p2_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p2_m02": 1,
+      "p2_m03": 2
+    },
+    "mode": "coreference",
+    "query": "What does my wife do for work?"
+  },
+  "p2_q07": {
+    "intended": [
+      "p2_m04"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p2_m01": 1,
+      "p2_m04": 2
+    },
+    "mode": "coreference",
+    "query": "Where does my younger brother live?"
+  },
+  "p2_q08": {
+    "intended": [
+      "p2_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p2_m07": 1,
+      "p2_m10": 2
+    },
+    "mode": "coreference",
+    "query": "What color is the pen I bought at the estate sale?"
+  },
+  "p2_q09": {
+    "intended": [
+      "p2_m05"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p2_m05": 2
+    },
+    "mode": "hard_negative",
+    "query": "Do I usually drink coffee in the mornings?"
+  },
+  "p2_q10": {
+    "intended": [
+      "p2_m15"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p2_m01": 1,
+      "p2_m06": 1,
+      "p2_m13": 1,
+      "p2_m15": 2
+    },
+    "mode": "hard_negative",
+    "query": "Do I enjoy driving in heavy snowstorms?"
+  },
+  "p2_q11": {
+    "intended": [
+      "p2_m09",
+      "p2_m13"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p2_m09": 2,
+      "p2_m13": 2
+    },
+    "mode": "multi_hop",
+    "query": "What do I drive to the mechanic when it needs work?"
+  },
+  "p2_q12": {
+    "intended": [
+      "p2_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p2_m03": 2
+    },
+    "mode": "multi_hop",
+    "query": "Who is my spouse, and what does she teach?"
+  },
+  "p3_q01": {
+    "intended": [
+      "p3_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p3_m01": 2,
+      "p3_m07": 1
+    },
+    "mode": "paraphrase",
+    "query": "Where does Leila work, and what does she look after there?"
+  },
+  "p3_q02": {
+    "intended": [
+      "p3_m06"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p3_m06": 2,
+      "p3_m14": 1
+    },
+    "mode": "paraphrase",
+    "query": "Does Leila fix old jeans by sewing them herself or by using stick-on patches?"
+  },
+  "p3_q03": {
+    "intended": [
+      "p3_m07"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p3_m01": 1,
+      "p3_m07": 2
+    },
+    "mode": "temporal",
+    "query": "What happened on Valentine\u2019s Day 2025 after her night shift?"
+  },
+  "p3_q04": {
+    "intended": [
+      "p3_m08"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p3_m08": 2
+    },
+    "mode": "temporal",
+    "query": "When did Leila begin her Korean class at the library?"
+  },
+  "p3_q05": {
+    "intended": [
+      "p3_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p3_m03": 1,
+      "p3_m05": 1,
+      "p3_m10": 2
+    },
+    "mode": "coreference",
+    "query": "What car did her boyfriend lend her for that pre-dawn trip to Peggy\u2019s Cove?"
+  },
+  "p3_q06": {
+    "intended": [
+      "p3_m14"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p3_m02": 1,
+      "p3_m09": 1,
+      "p3_m14": 2
+    },
+    "mode": "coreference",
+    "query": "What does the woman she lives with need hemmed before her new hospital rotation?"
+  },
+  "p3_q07": {
+    "intended": [
+      "p3_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p3_m10": 1,
+      "p3_m11": 1
+    },
+    "mode": "hard_negative",
+    "query": "What is the name of Leila\u2019s red hatchback?"
+  },
+  "p3_q08": {
+    "intended": [
+      "p3_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p3_m01": 1,
+      "p3_m03": 1,
+      "p3_m05": 1,
+      "p3_m09": 2,
+      "p3_m11": 1,
+      "p3_m13": 1
+    },
+    "mode": "hard_negative",
+    "query": "When did Leila buy a new yellow kayak in Halifax?"
+  },
+  "p3_q09": {
+    "intended": [
+      "p3_m02",
+      "p3_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p3_m02": 2,
+      "p3_m09": 2,
+      "p3_m11": 1,
+      "p3_m14": 1
+    },
+    "mode": "multi_hop",
+    "query": "Who is Priya, and what did she and Leila buy together in May 2025?"
+  },
+  "p3_q10": {
+    "intended": [
+      "p3_m09",
+      "p3_m11"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p3_m02": 1,
+      "p3_m03": 1,
+      "p3_m05": 1,
+      "p3_m09": 1,
+      "p3_m11": 2,
+      "p3_m13": 1,
+      "p3_m14": 1
+    },
+    "mode": "multi_hop",
+    "query": "What is the name of the yellow kayak Leila bought with her roommate?"
+  },
+  "p3_q11": {
+    "intended": [
+      "p3_m04"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p3_m04": 2
+    },
+    "mode": "paraphrase",
+    "query": "How does Leila take her coffee?"
+  },
+  "p3_q12": {
+    "intended": [
+      "p3_m13"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p3_m05": 1,
+      "p3_m13": 2
+    },
+    "mode": "temporal",
+    "query": "What does Leila need to do before her next weekend paddle?"
+  },
+  "p4_q01": {
+    "intended": [
+      "p4_m02"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p4_m02": 2,
+      "p4_m11": 1
+    },
+    "mode": "paraphrase",
+    "query": "What kind of law does Priya practice, and where does she work?"
+  },
+  "p4_q02": {
+    "intended": [
+      "p4_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p4_m01": 2
+    },
+    "mode": "paraphrase",
+    "query": "Which neighborhood is Priya\u2019s 1920s bungalow in?"
+  },
+  "p4_q03": {
+    "intended": [
+      "p4_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p4_m03": 1,
+      "p4_m09": 2
+    },
+    "mode": "temporal",
+    "query": "Where did Priya take her son for that photo walk back in February 2026?"
+  },
+  "p4_q04": {
+    "intended": [
+      "p4_m11"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p4_m02": 1,
+      "p4_m06": 1,
+      "p4_m07": 1,
+      "p4_m10": 1,
+      "p4_m11": 2,
+      "p4_m12": 1
+    },
+    "mode": "temporal",
+    "query": "What happened the last time she missed pottery class?"
+  },
+  "p4_q05": {
+    "intended": [
+      "p4_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p4_m03": 2,
+      "p4_m09": 1,
+      "p4_m13": 1
+    },
+    "mode": "coreference",
+    "query": "How old is her son, and what grade did he just start?"
+  },
+  "p4_q06": {
+    "intended": [
+      "p4_m04"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p4_m04": 2,
+      "p4_m14": 1
+    },
+    "mode": "coreference",
+    "query": "When does her sister usually call?"
+  },
+  "p4_q07": {
+    "intended": [
+      "p4_m05"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p4_m05": 2
+    },
+    "mode": "hard_negative",
+    "query": "What kind of tea does Priya drink in the morning?"
+  },
+  "p4_q08": {
+    "intended": [
+      "p4_m08"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p4_m08": 2,
+      "p4_m15": 1
+    },
+    "mode": "hard_negative",
+    "query": "Which bird does Priya get excited to see at the feeder?"
+  },
+  "p4_q09": {
+    "intended": [
+      "p4_m07",
+      "p4_m11"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p4_m02": 1,
+      "p4_m07": 1,
+      "p4_m11": 2
+    },
+    "mode": "multi_hop",
+    "query": "Why did Priya miss her usual Thursday night studio class in early April?"
+  },
+  "p4_q10": {
+    "intended": [
+      "p4_m03",
+      "p4_m13"
+    ],
+    "intended_matches_judge": false,
+    "judge_positive": {
+      "p4_m13": 1
+    },
+    "mode": "multi_hop",
+    "query": "Who does Priya need to contact about Rohan\u2019s follow-up, and by when?"
+  },
+  "p4_q11": {
+    "intended": [
+      "p4_m12"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p4_m06": 1,
+      "p4_m07": 1,
+      "p4_m10": 1,
+      "p4_m12": 2
+    },
+    "mode": "paraphrase",
+    "query": "What does Priya keep her clay tools in?"
+  },
+  "p4_q12": {
+    "intended": [
+      "p4_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p4_m06": 1,
+      "p4_m07": 1,
+      "p4_m10": 2,
+      "p4_m12": 1
+    },
+    "mode": "temporal",
+    "query": "What did Priya finish glazing in March 2026?"
+  },
+  "p5_q01": {
+    "intended": [
+      "p5_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p5_m01": 2,
+      "p5_m11": 1,
+      "p5_m13": 1,
+      "p5_m15": 1
+    },
+    "mode": "paraphrase",
+    "query": "What kind of engineering program is Nadia in at the naval academy?"
+  },
+  "p5_q02": {
+    "intended": [
+      "p5_m04"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p5_m03": 1,
+      "p5_m04": 2
+    },
+    "mode": "paraphrase",
+    "query": "What's her go-to fast savory breakfast?"
+  },
+  "p5_q03": {
+    "intended": [
+      "p5_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p5_m09": 2
+    },
+    "mode": "temporal",
+    "query": "When did she pass the sea survival test?"
+  },
+  "p5_q04": {
+    "intended": [
+      "p5_m11"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p5_m11": 2
+    },
+    "mode": "temporal",
+    "query": "What happened the previous time she missed thermodynamics in the morning?"
+  },
+  "p5_q05": {
+    "intended": [
+      "p5_m02"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p5_m01": 1,
+      "p5_m02": 2,
+      "p5_m11": 1
+    },
+    "mode": "coreference",
+    "query": "Where does she stay while studying in Constanta?"
+  },
+  "p5_q06": {
+    "intended": [
+      "p5_m07"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p5_m07": 2,
+      "p5_m13": 1
+    },
+    "mode": "coreference",
+    "query": "What does her brother do for work?"
+  },
+  "p5_q07": {
+    "intended": [
+      "p5_m05"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p5_m05": 2,
+      "p5_m15": 1
+    },
+    "mode": "hard_negative",
+    "query": "Does Nadia enjoy lead climbing?"
+  },
+  "p5_q08": {
+    "intended": [
+      "p5_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p5_m06": 1,
+      "p5_m10": 2
+    },
+    "mode": "hard_negative",
+    "query": "Did she buy the Korg Volca Keys brand new from a store?"
+  },
+  "p5_q09": {
+    "intended": [
+      "p5_m13",
+      "p5_m07"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p5_m07": 2,
+      "p5_m13": 2
+    },
+    "mode": "multi_hop",
+    "query": "Who is she supposed to send engine room simulator photos to, and what job does he have?"
+  },
+  "p5_q10": {
+    "intended": [
+      "p5_m15"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p5_m05": 1,
+      "p5_m15": 2
+    },
+    "mode": "multi_hop",
+    "query": "What hobby did she skip last month, and what was the reason?"
+  },
+  "p5_q11": {
+    "intended": [
+      "p5_m14"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p5_m14": 2
+    },
+    "mode": "paraphrase",
+    "query": "Which Turkish dish is she especially trying to learn to make at home?"
+  },
+  "p5_q12": {
+    "intended": [
+      "p5_m12"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p5_m12": 2
+    },
+    "mode": "temporal",
+    "query": "Before what date does she need to renew her seafarer medical certificate?"
+  },
+  "p6_q01": {
+    "intended": [
+      "p6_m05"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p6_m05": 2
+    },
+    "mode": "paraphrase",
+    "query": "What kind of records does Owen play while making dinner?"
+  },
+  "p6_q02": {
+    "intended": [
+      "p6_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p6_m01": 2
+    },
+    "mode": "paraphrase",
+    "query": "Where does Owen work for the city?"
+  },
+  "p6_q03": {
+    "intended": [
+      "p6_m07"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p6_m07": 2
+    },
+    "mode": "temporal",
+    "query": "What did Owen donate on March 12, 2026?"
+  },
+  "p6_q04": {
+    "intended": [
+      "p6_m14"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p6_m04": 1,
+      "p6_m13": 2,
+      "p6_m14": 2
+    },
+    "mode": "temporal",
+    "query": "Which walking tour did Owen go on most recently?"
+  },
+  "p6_q05": {
+    "intended": [
+      "p6_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p6_m09": 2
+    },
+    "mode": "coreference",
+    "query": "What's the name of his cat?"
+  },
+  "p6_q06": {
+    "intended": [
+      "p6_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p6_m08": 1,
+      "p6_m10": 2
+    },
+    "mode": "coreference",
+    "query": "Who does he co-host the radio-history segment with?"
+  },
+  "p6_q07": {
+    "intended": [
+      "p6_m05"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p6_m05": 1,
+      "p6_m06": 2
+    },
+    "mode": "hard_negative",
+    "query": "What mushrooms does Owen like cooking with?"
+  },
+  "p6_q08": {
+    "intended": [
+      "p6_m13"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p6_m07": 1,
+      "p6_m13": 1,
+      "p6_m14": 1
+    },
+    "mode": "hard_negative",
+    "query": "Which museum did Owen visit for a walking tour?"
+  },
+  "p6_q09": {
+    "intended": [
+      "p6_m02"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p6_m02": 2,
+      "p6_m03": 1,
+      "p6_m12": 1
+    },
+    "mode": "multi_hop",
+    "query": "Who is Owen's wife, the one he married in September 2025?"
+  },
+  "p6_q10": {
+    "intended": [
+      "p6_m08",
+      "p6_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p6_m08": 2,
+      "p6_m10": 2
+    },
+    "mode": "multi_hop",
+    "query": "Who's the friend Owen both repaired an old radio with and co-hosts the radio segment with?"
+  },
+  "p6_q11": {
+    "intended": [
+      "p6_m11"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p6_m05": 1,
+      "p6_m11": 2
+    },
+    "mode": "multi_hop",
+    "query": "What does Owen need to finish before the end of August 2026 related to accordion music?"
+  },
+  "p6_q12": {
+    "intended": [
+      "p6_m08",
+      "p6_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p6_m08": 1,
+      "p6_m10": 2
+    },
+    "mode": "multi_hop",
+    "query": "Which station airs the monthly radio-history segment Owen does with the friend who helped fix the 1948 radio?"
+  },
+  "p7_q01": {
+    "intended": [
+      "p7_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p7_m01": 2
+    },
+    "mode": "paraphrase",
+    "query": "Where do I work, and what kind of nurse am I?"
+  },
+  "p7_q02": {
+    "intended": [
+      "p7_m04"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p7_m04": 2,
+      "p7_m05": 1
+    },
+    "mode": "paraphrase",
+    "query": "What do I usually put on my breakfast burrito?"
+  },
+  "p7_q03": {
+    "intended": [
+      "p7_m08"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p7_m02": 1,
+      "p7_m08": 2
+    },
+    "mode": "temporal",
+    "query": "What did I do with In\u00e9s on Valentine\u2019s Day 2025?"
+  },
+  "p7_q04": {
+    "intended": [
+      "p7_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p7_m09": 2,
+      "p7_m10": 1
+    },
+    "mode": "temporal",
+    "query": "What was the previous adobe-house repair thing I handled before patching the living-room wall?"
+  },
+  "p7_q05": {
+    "intended": [
+      "p7_m13"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p7_m01": 1,
+      "p7_m02": 1,
+      "p7_m13": 2
+    },
+    "mode": "coreference",
+    "query": "What does my partner do for work?"
+  },
+  "p7_q06": {
+    "intended": [
+      "p7_m06"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p7_m06": 2,
+      "p7_m15": 1
+    },
+    "mode": "coreference",
+    "query": "When does she love going to those balloon events?"
+  },
+  "p7_q07": {
+    "intended": [
+      "p7_m05"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p7_m04": 1,
+      "p7_m05": 2
+    },
+    "mode": "hard_negative",
+    "query": "Do I like cilantro in my salsa?"
+  },
+  "p7_q08": {
+    "intended": [
+      "p7_m14"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p7_m14": 1
+    },
+    "mode": "hard_negative",
+    "query": "Did I promise Elena I\u2019d host Thanksgiving dinner?"
+  },
+  "p7_q09": {
+    "intended": [
+      "p7_m02",
+      "p7_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p7_m02": 2,
+      "p7_m03": 1,
+      "p7_m08": 1,
+      "p7_m12": 1,
+      "p7_m13": 1
+    },
+    "mode": "multi_hop",
+    "query": "Who lives with me at home besides our elderly orange cat?"
+  },
+  "p7_q10": {
+    "intended": [
+      "p7_m02",
+      "p7_m12"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p7_m02": 1,
+      "p7_m12": 2
+    },
+    "mode": "multi_hop",
+    "query": "What home project am I planning for my daughter\u2019s room before the hottest part of the year?"
+  },
+  "p7_q11": {
+    "intended": [
+      "p7_m07"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p7_m07": 2,
+      "p7_m12": 1
+    },
+    "mode": "paraphrase",
+    "query": "What craft do I do to unwind?"
+  },
+  "p7_q12": {
+    "intended": [
+      "p7_m11"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p7_m03": 1,
+      "p7_m11": 2
+    },
+    "mode": "temporal",
+    "query": "By when do I need to get the senior cat\u2019s bloodwork scheduled?"
+  },
+  "p8_q01": {
+    "intended": [
+      "p8_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p8_m01": 2,
+      "p8_m05": 1,
+      "p8_m06": 1,
+      "p8_m07": 1,
+      "p8_m08": 1,
+      "p8_m09": 1,
+      "p8_m10": 1,
+      "p8_m11": 1,
+      "p8_m12": 1,
+      "p8_m14": 1
+    },
+    "mode": "paraphrase",
+    "query": "What\u2019s the name of my honey business again?"
+  },
+  "p8_q02": {
+    "intended": [
+      "p8_m06"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p8_m05": 1,
+      "p8_m06": 2,
+      "p8_m07": 1,
+      "p8_m12": 1
+    },
+    "mode": "paraphrase",
+    "query": "Which kind of honey do I like most on toast?"
+  },
+  "p8_q03": {
+    "intended": [
+      "p8_m08"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p8_m08": 2
+    },
+    "mode": "temporal",
+    "query": "When did I move the hives to the rooftop site in Partick?"
+  },
+  "p8_q04": {
+    "intended": [
+      "p8_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p8_m01": 1,
+      "p8_m08": 1,
+      "p8_m09": 2,
+      "p8_m14": 1
+    },
+    "mode": "temporal",
+    "query": "What happened the last time I was stung inspecting the bees?"
+  },
+  "p8_q05": {
+    "intended": [
+      "p8_m02"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p8_m02": 2
+    },
+    "mode": "coreference",
+    "query": "What does my brother do for training, and where is he living now?"
+  },
+  "p8_q06": {
+    "intended": [
+      "p8_m13"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p8_m13": 2
+    },
+    "mode": "coreference",
+    "query": "Who is the bicycle mechanic I\u2019m seeing, and where did I meet him?"
+  },
+  "p8_q07": {
+    "intended": [
+      "p8_m04"
+    ],
+    "intended_matches_judge": false,
+    "judge_positive": {
+      "p8_m05": 1,
+      "p8_m06": 1,
+      "p8_m07": 1,
+      "p8_m12": 1
+    },
+    "mode": "hard_negative",
+    "query": "Which honey do I prefer in hot tea?"
+  },
+  "p8_q08": {
+    "intended": [
+      "p8_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p8_m07": 1,
+      "p8_m10": 1,
+      "p8_m12": 1
+    },
+    "mode": "hard_negative",
+    "query": "Did I sell out of heather honey at the Southside makers market?"
+  },
+  "p8_q09": {
+    "intended": [
+      "p8_m12",
+      "p8_m07"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p8_m06": 1,
+      "p8_m07": 1,
+      "p8_m12": 2
+    },
+    "mode": "multi_hop",
+    "query": "What honey should I give my upstairs neighbor on Thursday?"
+  },
+  "p8_q10": {
+    "intended": [
+      "p8_m08",
+      "p8_m14"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p8_m08": 1,
+      "p8_m14": 2
+    },
+    "mode": "multi_hop",
+    "query": "Where do I keep the gear I\u2019d need after moving hives to the Partick rooftop?"
+  },
+  "p8_q11": {
+    "intended": [
+      "p8_m14"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p8_m01": 1,
+      "p8_m14": 2
+    },
+    "mode": "paraphrase",
+    "query": "Where do I keep my spare beekeeping equipment?"
+  },
+  "p8_q12": {
+    "intended": [
+      "p8_m15"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p8_m13": 1,
+      "p8_m14": 1,
+      "p8_m15": 2
+    },
+    "mode": "temporal",
+    "query": "Why did I call off the canal cycling meetup last Tuesday?"
+  },
+  "p9_q01": {
+    "intended": [
+      "p9_m01"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p9_m01": 2,
+      "p9_m05": 1,
+      "p9_m09": 1,
+      "p9_m15": 1
+    },
+    "mode": "paraphrase",
+    "query": "Where does Haruto work as a stenographer?"
+  },
+  "p9_q02": {
+    "intended": [
+      "p9_m05"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p9_m01": 1,
+      "p9_m05": 2,
+      "p9_m15": 1
+    },
+    "mode": "paraphrase",
+    "query": "What kind of tea does he usually drink instead of coffee while working on transcripts at home?"
+  },
+  "p9_q03": {
+    "intended": [
+      "p9_m10"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p9_m06": 1,
+      "p9_m10": 2,
+      "p9_m12": 1,
+      "p9_m15": 1
+    },
+    "mode": "temporal",
+    "query": "What was the last thing Haruto bought for his watch-repair hobby?"
+  },
+  "p9_q04": {
+    "intended": [
+      "p9_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p9_m02": 1,
+      "p9_m03": 2,
+      "p9_m11": 1
+    },
+    "mode": "temporal",
+    "query": "When did his daughter leave for graduate school?"
+  },
+  "p9_q05": {
+    "intended": [
+      "p9_m04"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p9_m04": 2
+    },
+    "mode": "coreference",
+    "query": "Who does he call every Sunday evening?"
+  },
+  "p9_q06": {
+    "intended": [
+      "p9_m12"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p9_m06": 1,
+      "p9_m12": 2
+    },
+    "mode": "coreference",
+    "query": "What did he promise to do for his neighbor next weekend?"
+  },
+  "p9_q07": {
+    "intended": [
+      "p9_m06"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p9_m06": 1
+    },
+    "mode": "hard_negative",
+    "query": "Which smart watch model does Haruto wear every day?"
+  },
+  "p9_q08": {
+    "intended": [
+      "p9_m05"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p9_m05": 2,
+      "p9_m14": 1
+    },
+    "mode": "hard_negative",
+    "query": "What coffee does Haruto prefer while transcribing notes at home?"
+  },
+  "p9_q09": {
+    "intended": [
+      "p9_m02",
+      "p9_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p9_m02": 2,
+      "p9_m03": 1,
+      "p9_m11": 1
+    },
+    "mode": "multi_hop",
+    "query": "Why does Haruto live alone in Kyoto now?"
+  },
+  "p9_q10": {
+    "intended": [
+      "p9_m11",
+      "p9_m03"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p9_m03": 1,
+      "p9_m11": 2
+    },
+    "mode": "multi_hop",
+    "query": "Before Emi's July visit, what does Haruto need to send her?"
+  },
+  "p9_q11": {
+    "intended": [
+      "p9_m13"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p9_m08": 1,
+      "p9_m13": 2
+    },
+    "mode": "paraphrase",
+    "query": "What trees does Haruto keep on his balcony?"
+  },
+  "p9_q12": {
+    "intended": [
+      "p9_m09"
+    ],
+    "intended_matches_judge": true,
+    "judge_positive": {
+      "p9_m07": 1,
+      "p9_m09": 2
+    },
+    "mode": "temporal",
+    "query": "What happened the previous time Haruto missed a rakugo performance?"
+  }
+}

@@ -17,6 +17,18 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional
 
+# Pin embedding to CPU. The target deployment (Mode A) is CPU / air-gapped, so CPU
+# is the representative device for both quality and latency. On a Mac dev box
+# SentenceTransformer would otherwise auto-select the Metal (MPS) GPU, which (a)
+# gives non-representative latency and (b) OOMs under memory pressure from other
+# processes. FastEmbed (ONNX) already runs on CPU; Azure/OpenAI are remote.
+try:  # pragma: no cover - environment guard
+    import torch
+
+    torch.backends.mps.is_available = lambda: False  # type: ignore[assignment]
+except Exception:  # noqa: BLE001
+    pass
+
 
 @dataclass
 class Candidate:
@@ -358,7 +370,49 @@ def doc_prefix(key: str) -> str:
 # Uniform embedding wrappers over the egpt adapters. Both variants exposed.
 # --------------------------------------------------------------------------- #
 def embed_texts_sync(embedder, texts: List[str]) -> List[List[float]]:
-    """Sync path: exercises `Embedder.get_embedding`."""
+    """Sync path: exercises `Embedder.get_embedding` one item at a time.
+
+    This mirrors the memory subsystem's per-item write path and is what the
+    single-query latency measurement uses. For embedding a large *corpus* during
+    a benchmark, prefer `embed_texts_batched` — same vectors, far faster.
+    """
+    return [embedder.get_embedding(t) for t in texts]
+
+
+def embed_texts_batched(
+    embedder, texts: List[str], batch_size: int = 256
+) -> List[List[float]]:
+    """Batched corpus embedding for the self-hostable (Mode A) models.
+
+    Only the corpus-indexing path is batched; single-query latency is still
+    measured per-item elsewhere. Uses each adapter's native batch capability:
+
+      - SentenceTransformerEmbedder: `get_embedding` already accepts a list and
+        returns a list of vectors (SentenceTransformer batches internally).
+      - FastEmbedEmbedder: its `get_embedding` returns only the first vector for a
+        list, so we call the underlying ONNX client's `embed` directly.
+      - Anything else (e.g. provider APIs): fall back to per-item.
+    """
+    cls = type(embedder).__name__
+
+    if cls == "FastEmbedEmbedder":
+        out: List[List[float]] = []
+        for e in embedder.client.embed(texts, batch_size=batch_size):
+            out.append(e.tolist() if hasattr(e, "tolist") else list(e))
+        return out
+
+    if cls == "SentenceTransformerEmbedder":
+        out = []
+        for i in range(0, len(texts), batch_size):
+            vecs = embedder.get_embedding(texts[i : i + batch_size])
+            # guard: if the adapter returned a single vector, batching isn't
+            # supported here — fall back to per-item for this chunk.
+            if vecs and isinstance(vecs[0], (int, float)):
+                out.extend(embedder.get_embedding(t) for t in texts[i : i + batch_size])
+            else:
+                out.extend(vecs)
+        return out
+
     return [embedder.get_embedding(t) for t in texts]
 
 

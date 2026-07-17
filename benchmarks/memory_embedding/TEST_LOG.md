@@ -1,135 +1,109 @@
-# TEST_LOG — SM-R4 memory-embedding benchmark
+# TEST_LOG — SM-R4 memory-embedding benchmark (v2 rigorous re-run)
 
-Environment: macOS x86_64, Python 3.12 (`.venvs/mememb`), CPU-only.
-egpt imported from source (`PYTHONPATH=libs/agno`); no core code committed.
-Deterministic eval set built by `data/build_dataset.py` (54 memories / 32 queries).
+Environment: macOS x86_64, Python 3.12 (`.venvs/mememb`), CPU (device pinned).
+egpt imported from source (`PYTHONPATH=libs/agno`); **no core code committed**
+(`git diff main -- libs/` empty, verified twice).
 
----
-
-### data/build_dataset.py
-
-**Status:** PASS
-
-**Description:** Serializes the hand-authored synthetic memory corpus, queries and
-qrels to JSON. Sanity check asserts every gold id exists in the corpus.
-
-**Result:** 54 memories, 32 queries, 34 relevance judgements. Reproducible
-(byte-identical on re-run).
+Note: the shared host was under heavy external load during the runs (load avg
+~15–83 on 16 cores; a VM consuming ~5 cores). This drove three deliberate,
+documented adaptations: batched corpus embedding, CPU pinning, and capped BEIR
+slices. See below.
 
 ---
 
-### harness/run.py --dataset synthetic --mode A
+### data/generate_synthetic_v2.py + data/label_relevance.py
 
 **Status:** PASS
 
-**Description:** Retrieval quality + latency + throughput + sync/async parity +
-storage cost for 7 self-hostable models, each via its egpt embedder abstraction
-(`SentenceTransformerEmbedder`, `FastEmbedEmbedder`).
+**Description:** Build the independent memory set — LLM (Azure gpt-5.4) authors
+the corpus and queries in separate passes; a separate **blind** judge pass grades
+relevance (candidate ids anonymized/shuffled so it can't copy the generator).
 
-**Result:** All models ran. Every model's sync (`get_embedding`) and async
-(`async_get_embedding`) paths produced byte-identical vectors (max abs diff 0.0).
-Highlights (synthetic memory set):
-
-| Model | Dim | Recall@5 | nDCG@10 | p50 ms |
-|-------|-----|----------|---------|--------|
-| bge-base-en-v1.5 | 768 | 1.000 | 0.923 | 94 |
-| gte-base | 768 | 1.000 | 0.895 | 86 |
-| bge-large-en-v1.5 | 1024 | 0.984 | 0.942 | 253 |
-| bge-small-en-v1.5 (ST) | 384 | 0.969 | 0.927 | 88 |
-| bge-small ONNX (fastembed) | 384 | 0.969 | 0.927 | 12.6 |
-| e5-base-v2 | 768 | 0.938 | 0.902 | 105 |
-| all-MiniLM-L6-v2 | 384 | 0.953 | 0.874 | 35 |
-
-`nomic-embed-text-v1.5` FAILED on stock core (needs `trust_remote_code`) — see
-Finding 1; re-run with the local patch gave Recall@5 0.938 / nDCG@10 0.910 / 257 ms
-(dim 768). Results: `results/results_synthetic.json`,
-`results/results_synthetic_nomic.json`.
+**Result:** 225 memories / 180 queries / 15 diverse personas (no clustering after
+diversity fix). Graded qrels: avg 2.49 positives/query, 0 empty; grades 179×2,
+270×1. Generator/judge agreement on intended memories **174/176 (99%)** —
+independent confirmation the labels are sound and not circular.
 
 ---
 
-### harness/run.py --dataset beir:scifact (6 models, external cross-check)
+### metrics + stats sanity (harness/metrics.py, harness/stats.py)
 
-**Status:** PASS
+**Status:** PASS (bug caught by the run-twice rule)
 
-**Description:** Capped BEIR/SciFact slice (859 docs, 50 queries) to check the
-synthetic ranking against a public IR benchmark.
+**Description:** Graded nDCG/recall/MRR against a hand-computed example; bootstrap
+CI + paired significance against known cases. Run twice.
 
-**Result:** Ranking order tracks published MTEB standings (bge-base ≈ gte-base >
-e5-base ≈ bge-small > MiniLM), validating the harness. bge-small (384d) stays
-within ~3 nDCG points of the 768d models. ONNX and ST routes to the same BGE
-weights gave identical quality. Results: `results/results_beir_scifact.json`.
-
----
-
-### storage cost model (harness/storage.py) @ 10M vectors
-
-**Status:** PASS
-
-**Description:** pgvector footprint by dimension at the provisional 10M-memory
-scale (SM-R3 coupling).
-
-**Result:** 384d ≈ 40 GB (float32) / 20 GB (halfvec); 768d ≈ 80 / 40 GB;
-1536d ≈ 160 / 80 GB; 3072d exceeds the pgvector `vector` 2000-dim limit and must
-use `halfvec` (≈160 GB) or be truncated. Results: `results/storage_cost_10M.json`.
+**Result:** Metrics match hand calc (nDCG@10 0.950234). First run flagged a stats
+bug — two identical models reported "significant"; fixed (two-sided p used
+`1 - prop_le0`, mishandling bootstrap mass at 0). Re-verified: identical→tie,
+clear diff→significant, near-tie→tie. Both runs agree.
 
 ---
 
-### harness/run.py --dataset synthetic --mode B (Azure AI Foundry)
+### harness.run --dataset synthetic_v2 --mode A (CPU)
 
 **Status:** PASS
 
-**Description:** `text-embedding-3-small` / `-large` (full + Matryoshka-truncated
-dims) via `AzureOpenAIEmbedder` against Azure AI Foundry
-(`aicoekey.cognitiveservices.azure.com`, api_version 2024-10-21). Key supplied via
-gitignored session scratchpad, never committed.
+**Description:** 7 self-hostable models, graded quality + CPU latency + sync/async
+parity + storage. Corpus batched (verified batched == per-item, identical nDCG).
 
-**Result:** All 4 points ran. Quality (synthetic memory set):
-
-| Model | Dim | Recall@5 | nDCG@10 | p50 (network) |
-|-------|-----|----------|---------|---------------|
-| text-embedding-3-large | 3072 | 1.000 | 0.959 | 1749 ms |
-| text-embedding-3-large | 1024 | 1.000 | 0.947 | 1435 ms |
-| text-embedding-3-small | 1536 | 1.000 | 0.954 | 1759 ms |
-| text-embedding-3-small | 512 | 0.969 | 0.931 | 1337 ms |
-
-Dimension truncation via the `dimensions` param confirmed working (1024/512
-returned exactly). Latency is WAN round-trip from the dev box, not model compute;
-sync/async parity ≤ 4e-3 (provider embeddings not bitwise-deterministic across
-calls, unlike local models). Results: `results/results_synthetic_modeB.json`.
+**Result (nDCG@10, 95% CI):** bge-large 0.856, gte-base 0.850, bge-base 0.842,
+bge-small(onnx/st) 0.825, e5-base 0.823, minilm 0.804. **gte-base/bge-base (768)
+significantly beat bge-small (384): p=0.037.** CPU p50: minilm 10ms, bge-small-onnx
+11ms, gte-base 49ms, e5 52ms, bge-base 60ms, bge-large 187ms. Parity ≤ 3e-7.
+Results: `results/results_v2_synthetic_v2.json`.
 
 ---
 
-### Core untouched check
+### harness.run --dataset synthetic_v2 --mode B (Azure)
 
 **Status:** PASS
 
-**Description:** Decision task must not commit core changes. The `nomic` run
-temporarily applied `findings/st_trust_remote_code.patch` to
-`libs/agno/egpt/knowledge/embedder/sentence_transformer.py` and reverted it.
+**Description:** text-embedding-3-large/-small (full + Matryoshka-truncated) via
+`AzureOpenAIEmbedder`. Key from env only (never committed).
 
-**Result:** `git status libs/` clean; only `benchmarks/` is added.
+**Result (nDCG@10):** 3-large@3072 0.882, 3-large@1024 0.877, 3-small@1536 0.869,
+3-small@512 0.849 — all beat the open models. 1024 is a statistical tie with the
+full 3072. Latency is WAN round-trip (~1.3–1.7s), not compute. Parity ≤ 4e-3
+(provider embeddings not bitwise-deterministic). Results:
+`results/results_v2_synthetic_v2_modeB.json`.
+
+---
+
+### harness.run --dataset beir:scifact (external cross-check)
+
+**Status:** PASS (capped slice due to host load)
+
+**Description:** Established human-labeled IR set; ranking cross-check. Ran as a
+capped 1007-doc slice, quality-only (host CPU-saturated by other work; full
+reproduces with `--dataset beir:scifact` when the host is free).
+
+**Result:** Independently confirms 768>384 — **bge-base 0.846 > bge-small 0.818,
+p=0.0096**; gte-base tops at 0.865, gte-base > bge-base p=0.045. Rank agreement
+with the memory set (Spearman, open models) = 0.54. Results:
+`results/results_v2_beir_scifact.json`.
+
+---
+
+### Host-load adaptations (documented, not silently absorbed)
+
+**Status:** PASS
+
+1. **Batched corpus embedding** — per-item embedding of BEIR corpora projected
+   ~10h; added a batched fast-path (single-query latency still per-item).
+   Verified batched == per-item (identical nDCG). ~6× faster even under load.
+2. **CPU pinned** — SentenceTransformer was auto-selecting Mac MPS (GPU), which
+   OOM'd under memory pressure and gave non-representative latency. Pinned to CPU
+   (the deployment target) at the harness level.
+3. **Capped BEIR** — full ArguAna/NFCorpus were not tractable on the loaded host;
+   used capped slices for the ranking cross-check. Full is one flag away.
 
 ---
 
 ### ./scripts/format.sh and ./scripts/validate.sh
 
-**Status:** PASS (in scope) — see note on out-of-scope core mypy.
-
-**Description:** Repo format/validate gates. These target `libs/*` and `cookbook`,
-not `benchmarks/`; the in-scope (`benchmarks/`) files were additionally checked
-directly with the repo-pinned `ruff==0.15.20` (`ruff format --check`, `ruff check`)
-and `mypy` — all clean.
-
-**Result:**
-- `format.sh`: PASS — 4126 files across agno/agnoctl/agno_infra/cookbook left
-  unchanged; `git diff HEAD -- libs/` is empty (core byte-identical, untouched).
-- `validate.sh`: `ruff check` PASS (agno/agnoctl/cookbook); `agnoctl` mypy PASS;
-  `cookbook` pattern check PASS. `agno` mypy reports 3 pre-existing errors in
-  `libs/agno/egpt/knowledge/reranker/sentence_transformer.py` (a core reranker
-  file **not touched by this task** and unrelated to embedders). They are a
-  `CrossEncoder` signature mismatch surfaced by the benchmark venv's
-  `sentence-transformers==3.0.1` pin (required by the macOS-x86 torch-2.2.2
-  constraint), not by any change here — `git diff HEAD -- libs/` is empty. Running
-  `validate.sh` in the repo's own dev venv (`./scripts/dev_setup.sh`) checks core
-  against its intended dependency versions; this benchmark venv is deliberately
-  minimal. No core file was modified to silence these.
+**Status:** see the commit-time run recorded below; in-scope `benchmarks/` files
+checked directly with the repo-pinned `ruff==0.15.20` + `mypy` (clean). Core
+untouched (`git diff main -- libs/` empty). The `agno` mypy step reports 3
+pre-existing errors in `knowledge/reranker/sentence_transformer.py` — a core file
+not touched by this task (see prior log / findings); not introduced here.

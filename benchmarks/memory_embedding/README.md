@@ -1,117 +1,117 @@
 # SM-R4 — Embedding model benchmark for the memory vector tier
 
-Reproducible benchmark backing the decision in [`DECISION.md`](DECISION.md) for
+Reproducible benchmark backing [`DECISION.md`](DECISION.md) for
 [aicoe-tracker#79](https://github.com/Saturam-Inc/aicoe-tracker/issues/79)
 ("Decision: embedding model for memory").
 
-This is a **decision task**. It produces benchmark code + a decision document
+This is a **decision task**: it produces benchmark code + a decision document
 only. It does **not** modify framework/core code (`libs/agno/egpt/**`); the
 embedder implementation happens later in the SM-C* tasks. Every candidate is
 exercised through an *existing* egpt embedder abstraction so the numbers reflect
 what the memory subsystem would actually get.
 
+> This is the **v2** eval (rigorous re-run). The v1 set that shipped in the first
+> attempt was too small/single-authored to separate close models; it is retained
+> under `data/synthetic_v1/` for provenance and is **superseded** — do not decide
+> on it. See `DECISION.md` §3 for what changed.
+
 ## What is measured
 
-For each candidate model (per query set):
+For each candidate model, per eval set:
 
 | Dimension | How |
 |-----------|-----|
-| Retrieval quality | recall@{1,5,10}, nDCG@10, MRR@10 on a labeled eval set |
-| Latency | single-query embedding p50 / p95 (ms), sync path, CPU |
-| Throughput | documents/second, sync sequential **and** async concurrent |
+| Retrieval quality | Recall@{1,5,10}, **graded** nDCG@10, MRR@10 |
+| Statistical significance | 95% bootstrap CIs + **paired-bootstrap** tests; close models flagged as ties, never ranked within noise |
+| Latency | single-query embedding p50/p95 (ms), **CPU**, per-item |
+| Throughput | documents/second (batched corpus indexing) |
 | sync/async parity | max abs vector diff between `get_embedding` and `async_get_embedding` |
-| Vector dimension | measured from the produced vectors |
 | Storage/index cost | pgvector footprint at 10M vectors for that dim (couples to SM-R3) |
-| Footprint / license / offline | from the registry (static model facts) |
 
-Quality, latency and throughput are always **measured**, never cited. Only the
-static columns (params, disk, license, offline-capable) are declared.
-
-## Models under test
-
-English-only scope (see decision Q&A). Mode A = self-hostable / air-gapped,
-Mode B = provider.
-
-- **Mode A** (via `SentenceTransformerEmbedder` / `FastEmbedEmbedder`):
-  `all-MiniLM-L6-v2` (384), `bge-small-en-v1.5` (384, ST + ONNX),
-  `bge-base-en-v1.5` (768), `bge-large-en-v1.5` (1024), `e5-base-v2` (768),
-  `gte-base` (768), `nomic-embed-text-v1.5` (768).
-- **Mode B** (via `OpenAIEmbedder`): `text-embedding-3-small` (1536 and
-  truncated 512), `text-embedding-3-large` (3072 and truncated 1024).
+Quality/latency are always **measured**, never cited. CPU is pinned (the Mode A
+deployment is CPU/air-gapped; also avoids a Mac-MPS OOM/artifact).
 
 ## Eval sets
 
-1. **`synthetic`** (primary) — a hand-authored, seeded memory-tier corpus of 54
-   short memories (preferences / episodic events / entity facts / tasks) with 32
-   labeled queries exercising paraphrase, temporal, coreference and
-   hard-negative retrieval. Built by [`data/build_dataset.py`](data/build_dataset.py);
-   re-running it reproduces byte-identical JSON. Generic IR benchmarks are not
-   representative of the short, personal, episodic text of the memory tier,
-   which is why this set exists.
-2. **`beir:scifact`** (cross-check) — a capped slice of a public BEIR IR
-   benchmark, for an external sanity check against published MTEB-style rankings.
+1. **`synthetic_v2`** (primary) — an **independent** memory-tier set: 225 memories
+   / 180 queries across 15 diverse personas, authored by an LLM (Azure gpt-5.4) in
+   separate passes and **blind-labeled with graded relevance by a separate judge
+   pass** (de-circularized — the harness author writes neither the content nor the
+   labels). Built by `data/generate_synthetic_v2.py` + `data/label_relevance.py`.
+2. **`beir:<name>`** (external cross-check) — established, human-labeled BEIR IR
+   benchmarks (SciFact / NFCorpus / ArguAna). Full/uncapped by default; a capped
+   slice (`--beir-capped`) is used when the host is CPU-constrained.
+
+## Models under test
+
+English-only scope. Mode A = self-hostable / air-gapped, Mode B = provider.
+
+- **Mode A** (`SentenceTransformerEmbedder` / `FastEmbedEmbedder`): all-MiniLM-L6-v2
+  (384), bge-small-en-v1.5 (384, ST + ONNX), bge-base-en-v1.5 (768), bge-large-en-v1.5
+  (1024), e5-base-v2 (768), **gte-base (768)**, nomic-embed-text-v1.5 (768, `[patched]`).
+- **Mode B** (`AzureOpenAIEmbedder`): text-embedding-3-large (3072 / 1024),
+  text-embedding-3-small (1536 / 512).
 
 ## Setup
 
 ```bash
-# Dedicated venv (Python 3.12; not the project .venv / .venvs/demo).
 python3.12 -m venv .venvs/mememb
 .venvs/mememb/bin/python -m pip install -r benchmarks/memory_embedding/requirements.txt
 ```
 
-> macOS x86 caps `torch` at 2.2.2, which requires `numpy<2` and
-> `transformers<4.45`; the pins in `requirements.txt` reflect that. On
-> linux/arm64 newer versions work too.
+> macOS x86 caps `torch` at 2.2.2 → `numpy<2`, `transformers<4.45` (pinned).
 
 ## Running
 
 ```bash
 cd benchmarks/memory_embedding
-export PYTHONPATH=../../libs/agno:.        # egpt + harness on the path
+export PYTHONPATH=../../libs/agno:.
 
-# Build (or rebuild) the eval set
-../../.venvs/mememb/bin/python data/build_dataset.py
+# (Re)build the independent synthetic set (needs Azure chat creds in env)
+python data/generate_synthetic_v2.py --personas 15 --mem-per 15 --q-per 12 --out data/synthetic_v2
+python data/label_relevance.py --dir data/synthetic_v2
 
-# Mode A (self-hostable models) on the synthetic memory set
-../../.venvs/mememb/bin/python -m harness.run --dataset synthetic --mode A
+# Mode A on the memory set (CPU, with latency)
+python -m harness.run --dataset synthetic_v2 --mode A --out results_v2_synthetic_v2.json
 
-# Mode B (OpenAI) — requires OPENAI_API_KEY in the environment
-OPENAI_API_KEY=sk-... ../../.venvs/mememb/bin/python -m harness.run \
-    --dataset synthetic --mode B
+# Mode B (Azure) — needs AZURE_EMBEDDER_OPENAI_* env
+python -m harness.run --dataset synthetic_v2 --mode B --out results_v2_synthetic_v2_modeB.json
 
-# External cross-check
-../../.venvs/mememb/bin/python -m harness.run --dataset beir:scifact --mode A
+# External cross-check (full; add --beir-capped on a loaded host)
+python -m harness.run --dataset beir:scifact --mode A --latency-reps 0 --out results_v2_beir_scifact.json
+
+# Significance + CIs + cross-set rank agreement
+python -m harness.analyze --metric ndcg@10 results/results_v2_synthetic_v2*.json
 ```
 
-Results are written to [`results/`](results/) as JSON. A rendered summary and
-the interpretation live in [`DECISION.md`](DECISION.md).
+Credentials come from env only (never committed): `AZURE_OPENAI_*` for the
+data-build LLM, `AZURE_EMBEDDER_OPENAI_*` + `AZURE_DEPLOYMENT_{SMALL,LARGE}` for
+Mode B. Results (vectors/metrics only, no secrets) are under `results/`.
 
 ## Layout
 
 ```
 benchmarks/memory_embedding/
-├── README.md              # this file
-├── DECISION.md            # the decision + provisional targets + migration plan
-├── TEST_LOG.md            # run log (PASS/FAIL per step)
-├── requirements.txt       # pinned benchmark deps
+├── README.md · DECISION.md · TEST_LOG.md · requirements.txt
 ├── data/
-│   ├── build_dataset.py   # authored corpus/queries/qrels -> JSON (reproducible)
-│   ├── corpus.json
-│   ├── queries.json
-│   └── qrels.json
+│   ├── generate_synthetic_v2.py   # LLM authors corpus+queries (separate passes)
+│   ├── label_relevance.py         # separate BLIND graded judge -> qrels
+│   ├── synthetic_v2/              # the primary eval set of record
+│   └── synthetic_v1/              # retired PR-#5 set (provenance only, superseded)
 ├── harness/
-│   ├── embedders.py       # registry over existing egpt embedder abstractions
-│   ├── datasets.py        # synthetic + BEIR loaders
-│   ├── metrics.py         # recall@k, nDCG@10, MRR@10
-│   ├── storage.py         # pgvector storage/index cost model (SM-R3 coupling)
-│   └── run.py             # orchestrator
-├── results/               # generated JSON + logs
-└── findings/              # adapter issues found while benchmarking (for SM-C*)
+│   ├── embedders.py   # registry over egpt abstractions; batched + CPU-pinned
+│   ├── metrics.py     # graded recall/nDCG/MRR, per-query
+│   ├── stats.py       # bootstrap CIs + paired significance + tie-aware ranking
+│   ├── datasets.py    # synthetic_v2 + (full/capped) BEIR loaders
+│   ├── llm.py         # Azure chat helper (data build only; not model scoring)
+│   ├── run.py         # orchestrator
+│   └── analyze.py     # CIs / significance / cross-set rank agreement
+├── results/           # measured JSON
+└── findings/          # egpt adapter issues found while benchmarking (for SM-C*)
 ```
 
 ## Coupling to SM-R3
 
-The chosen dimension drives the vector-store storage and index cost that SM-R3
-(#78) sizes. `harness/storage.py` quantifies this at the provisional 10M-memory
-scale and enforces the pgvector limits (`vector` ≤ 2000 dims, `halfvec` ≤ 4000).
-See the storage table in `DECISION.md`.
+The chosen dimension drives the vector-store storage/index cost SM-R3 (#78) sizes.
+`harness/storage.py` quantifies it at 10M vectors and enforces the pgvector limits
+(`vector` ≤ 2000, `halfvec` ≤ 4000). See `DECISION.md` §4.

@@ -59,7 +59,10 @@ def _rank(
 
 
 def evaluate_candidate(
-    cand: embedders.Candidate, eset: datasets.EvalSet, latency_reps: int = 3
+    cand: embedders.Candidate,
+    eset: datasets.EvalSet,
+    latency_reps: int = 3,
+    parity_sample: int = 64,
 ) -> Dict:
     embedder = cand.build()
 
@@ -70,11 +73,11 @@ def evaluate_candidate(
         embedders.query_prefix(cand.key) + eset.queries[q] for q in query_ids
     ]
 
-    # --- sync embedding (quality + throughput) ---
+    # --- corpus/query embedding (batched; quality + index throughput) ---
     t0 = time.perf_counter()
-    doc_vecs_sync = embedders.embed_texts_sync(embedder, doc_texts)
+    doc_vecs_sync = embedders.embed_texts_batched(embedder, doc_texts)
     sync_doc_secs = time.perf_counter() - t0
-    query_vecs_sync = embedders.embed_texts_sync(embedder, query_texts)
+    query_vecs_sync = embedders.embed_texts_batched(embedder, query_texts)
 
     doc_mat = _normalize(np.asarray(doc_vecs_sync, dtype=np.float64))
     q_mat = _normalize(np.asarray(query_vecs_sync, dtype=np.float64))
@@ -82,22 +85,29 @@ def evaluate_candidate(
 
     rankings_list = _rank(q_mat, doc_mat, doc_ids)
     rankings = {qid: r for qid, r in zip(query_ids, rankings_list)}
-    quality = metrics.aggregate(rankings, eset.qrels)
+    pq = metrics.per_query(rankings, eset.qrels)
+    quality = {m: (sum(v.values()) / len(v) if v else 0.0) for m, v in pq.items()}
 
     # --- async embedding (parity + async throughput) ---
+    # Only re-embed a sample async: it validates the two code paths agree without
+    # paying to embed a large BEIR corpus twice.
+    sample_texts = doc_texts[:parity_sample]
     t0 = time.perf_counter()
-    doc_vecs_async = asyncio.run(embedders.embed_texts_async(embedder, doc_texts))
+    async_vecs = asyncio.run(embedders.embed_texts_async(embedder, sample_texts))
     async_doc_secs = time.perf_counter() - t0
-    async_mat = _normalize(np.asarray(doc_vecs_async, dtype=np.float64))
+    async_mat = _normalize(np.asarray(async_vecs, dtype=np.float64))
     parity = (
-        float(np.max(np.abs(doc_mat - async_mat)))
-        if async_mat.shape == doc_mat.shape
+        float(np.max(np.abs(doc_mat[: len(sample_texts)] - async_mat)))
+        if async_mat.shape == doc_mat[: len(sample_texts)].shape
         else -1.0
     )
+    n_async = len(sample_texts)
 
     # --- single-query latency (sync path) ---
+    # Skipped when latency_reps <= 0 (e.g. BEIR quality cross-check, or when the
+    # host is under load and per-item latency would be unrepresentative).
     latencies_ms: List[float] = []
-    for _ in range(latency_reps):
+    for _ in range(max(0, latency_reps)):
         for t in query_texts:
             s = time.perf_counter()
             embedder.get_embedding(t)
@@ -118,14 +128,17 @@ def evaluate_candidate(
         "params_m": cand.params_m,
         "disk_mb": cand.disk_mb,
         "quality": {k: round(v, 4) for k, v in quality.items()},
+        "per_query": {
+            m: {q: round(x, 6) for q, x in vals.items()} for m, vals in pq.items()
+        },
         "latency_ms": {
-            "p50": round(median(latencies_ms), 2),
-            "p95": round(_percentile(latencies_ms, 95), 2),
+            "p50": round(median(latencies_ms), 2) if latencies_ms else None,
+            "p95": round(_percentile(latencies_ms, 95), 2) if latencies_ms else None,
             "n": len(latencies_ms),
         },
         "throughput_docs_per_s": {
             "sync": round(n_docs / sync_doc_secs, 1) if sync_doc_secs > 0 else None,
-            "async": round(n_docs / async_doc_secs, 1) if async_doc_secs > 0 else None,
+            "async": round(n_async / async_doc_secs, 1) if async_doc_secs > 0 else None,
         },
         "sync_async_max_abs_diff": round(parity, 8),
         "storage_10m": {
@@ -145,6 +158,11 @@ def main() -> None:
     ap.add_argument("--mode", default=None, help="filter candidates by mode: A or B")
     ap.add_argument("--models", nargs="*", default=None, help="explicit candidate keys")
     ap.add_argument("--latency-reps", type=int, default=3)
+    ap.add_argument(
+        "--beir-capped",
+        action="store_true",
+        help="use a capped BEIR slice for a quick smoke run (default: full/uncapped)",
+    )
     ap.add_argument("--beir-max-queries", type=int, default=100)
     ap.add_argument("--beir-max-distractors", type=int, default=2000)
     ap.add_argument("--out", default=None, help="output json filename (under results/)")
@@ -153,6 +171,7 @@ def main() -> None:
     if args.dataset.startswith("beir:"):
         eset = datasets.load(
             args.dataset,
+            full=not args.beir_capped,
             max_queries=args.beir_max_queries,
             max_distractors=args.beir_max_distractors,
         )
