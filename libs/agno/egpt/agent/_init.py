@@ -59,9 +59,8 @@ def set_debug(agent: Agent, debug_mode: Optional[bool] = None) -> None:
 
 def set_telemetry(agent: Agent) -> None:
     """Override telemetry settings based on environment variables."""
-    telemetry_env = get_branded_env("TELEMETRY")
-    if telemetry_env is not None:
-        agent.telemetry = telemetry_env.lower() == "true"
+    if get_branded_env("TELEMETRY") is not None:
+        agent.telemetry = get_branded_env_bool("TELEMETRY", default=False)
 
 
 def set_checkpoint(agent: Agent) -> None:

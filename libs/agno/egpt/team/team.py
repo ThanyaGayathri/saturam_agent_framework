@@ -390,9 +390,9 @@ class Team:
     exponential_backoff: bool = False
 
     # --- Telemetry ---
-    # telemetry=True logs minimal telemetry for analytics
-    # This helps us improve the Teams implementation and provide better support
-    telemetry: bool = True
+    # telemetry=True opts into minimal telemetry for analytics (default off).
+    # Requires EGPT_TELEMETRY=true (or AGNO_TELEMETRY) and a configured EGPT_API_URL.
+    telemetry: bool = False
 
     # --- Callable factory settings ---
     # Enable caching of callable factory results
@@ -552,7 +552,7 @@ class Team:
         retries: int = 0,
         delay_between_retries: int = 1,
         exponential_backoff: bool = False,
-        telemetry: bool = True,
+        telemetry: bool = False,
         cache_callables: bool = True,
         callable_tools_cache_key: Optional[Callable[..., Optional[str]]] = None,
         callable_knowledge_cache_key: Optional[Callable[..., Optional[str]]] = None,

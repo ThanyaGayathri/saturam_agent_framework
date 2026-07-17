@@ -190,7 +190,7 @@ class AgentAsJudgeEval(BaseEval):
     file_path_to_save_results: Optional[str] = None
     debug_mode: bool = get_branded_env_bool("DEBUG")
     db: Optional[Union[BaseDb, AsyncBaseDb]] = None
-    telemetry: bool = True
+    telemetry: bool = False
     run_in_background: bool = False
 
     def __post_init__(self):

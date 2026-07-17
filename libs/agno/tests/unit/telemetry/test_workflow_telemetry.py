@@ -13,21 +13,25 @@ def dummy_step(step_input):
     return StepOutput(content="Test step executed")
 
 
-def test_workflow_telemetry():
-    """Test that telemetry logging is called during sync workflow run."""
+def test_workflow_telemetry_default_off():
+    """Telemetry is off by default; _log_workflow_telemetry is not called on run."""
     workflow = Workflow(steps=[Step(executor=dummy_step)])
+    assert workflow.telemetry is False
 
-    # Assert telemetry is active by default
-    assert workflow.telemetry
+    with patch.object(workflow, "_log_workflow_telemetry") as mock_log:
+        workflow.run("This is a test run")
+        mock_log.assert_not_called()
 
-    # Mock the telemetry logging method
+
+def test_workflow_telemetry_opt_in():
+    """When telemetry=True, logging is called during sync workflow run."""
+    workflow = Workflow(steps=[Step(executor=dummy_step)], telemetry=True)
+    assert workflow.telemetry is True
+
     with patch.object(workflow, "_log_workflow_telemetry") as mock_log:
         workflow.run("This is a test run")
 
-        # Assert the telemetry logging func was called
         mock_log.assert_called_once()
-
-        # Assert the telemetry logging func was called with the correct arguments
         call_args = mock_log.call_args
         assert "session_id" in call_args.kwargs
         assert call_args.kwargs["session_id"] is not None
@@ -36,21 +40,15 @@ def test_workflow_telemetry():
 
 
 @pytest.mark.asyncio
-async def test_workflow_telemetry_async():
-    """Test that telemetry logging is called during async workflow run."""
-    workflow = Workflow(steps=[Step(executor=dummy_step)])
+async def test_workflow_telemetry_async_opt_in():
+    """When telemetry=True, logging is called during async workflow run."""
+    workflow = Workflow(steps=[Step(executor=dummy_step)], telemetry=True)
+    assert workflow.telemetry is True
 
-    # Assert telemetry is active by default
-    assert workflow.telemetry
-
-    # Mock the async telemetry logging method
     with patch.object(workflow, "_alog_workflow_telemetry") as mock_alog:
         await workflow.arun("This is a test run")
 
-        # Assert the telemetry logging func was called
         mock_alog.assert_called_once()
-
-        # Assert the telemetry logging func was called with the correct arguments
         call_args = mock_alog.call_args
         assert "session_id" in call_args.kwargs
         assert call_args.kwargs["session_id"] is not None

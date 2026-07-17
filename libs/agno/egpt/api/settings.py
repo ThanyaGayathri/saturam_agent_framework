@@ -36,7 +36,8 @@ class AgnoAPISettings(BaseSettings):
     api_runtime: str = "prd"
     alpha_features: bool = False
 
-    api_url: str = "https://os-api.agno.com"
+    # Empty by default — no upstream phone-home. Set EGPT_API_URL to opt in.
+    api_url: str = ""
 
     model_config = SettingsConfigDict(env_prefix="")
 
@@ -70,15 +71,21 @@ class AgnoAPISettings(BaseSettings):
 
     @field_validator("api_url", mode="before")
     def update_api_url(cls, v, info: ValidationInfo):
+        # Honor explicit configuration (EGPT_API_URL / AGNO_API_URL / init kwarg)
+        if v is not None and str(v).strip():
+            return str(v).strip()
+
         api_runtime = info.data.get("api_runtime")
         if api_runtime == "dev":
             if get_branded_env("RUNTIME") == "docker":
                 return "http://host.docker.internal:7070"
             return "http://localhost:7070"
-        elif api_runtime == "stg":
-            return "https://api-stg.agno.com"
-        else:
-            return "https://os-api.agno.com"
+        # prd/stg: no upstream default — require explicit EGPT_API_URL
+        return ""
+
+    def has_telemetry_endpoint(self) -> bool:
+        """Return True when an API endpoint is configured for telemetry POSTs."""
+        return bool(self.api_url and self.api_url.strip())
 
     def gate_alpha_feature(self):
         if not self.alpha_features:

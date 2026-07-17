@@ -1,4 +1,4 @@
-from egpt.api.api import api
+from egpt.api.api import api, is_telemetry_endpoint_configured
 from egpt.api.routes import ApiRoutes
 from egpt.api.schemas.os import OSLaunch
 from egpt.utils.log import log_debug
@@ -6,6 +6,8 @@ from egpt.utils.log import log_debug
 
 def log_os_telemetry(launch: OSLaunch) -> None:
     """Telemetry recording for OS launches"""
+    if not is_telemetry_endpoint_configured():
+        return
     try:
         with api.Client() as api_client:
             response = api_client.post(

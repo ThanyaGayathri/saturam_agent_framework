@@ -79,7 +79,7 @@ from egpt.os.utils import (
 from egpt.registry import Registry
 from egpt.remote.base import RemoteDb, RemoteKnowledge
 from egpt.team import RemoteTeam, Team, TeamFactory
-from egpt.utils.env import get_branded_env
+from egpt.utils.env import get_branded_env, get_branded_env_bool
 from egpt.utils.log import log_debug, log_error, log_info, log_warning
 from egpt.utils.string import generate_id, generate_id_from_name
 from egpt.workflow import RemoteWorkflow, Workflow, WorkflowFactory
@@ -250,7 +250,7 @@ class EgptOS:
         tracing: bool = False,
         auto_provision_dbs: bool = True,
         run_hooks_in_background: bool = False,
-        telemetry: bool = True,
+        telemetry: bool = False,
         registry: Optional[Registry] = None,
         scheduler: bool = False,
         scheduler_poll_interval: int = 15,
@@ -336,6 +336,7 @@ class EgptOS:
         self.checkpoint = checkpoint
 
         self.telemetry = telemetry
+        self._set_telemetry()
         self.tracing = tracing
 
         self.enable_mcp_server = enable_mcp_server
@@ -1361,6 +1362,11 @@ class EgptOS:
         else:
             # No conflicts, add router normally
             fastapi_app.include_router(router)
+
+    def _set_telemetry(self) -> None:
+        """Override telemetry settings based on environment variables."""
+        if get_branded_env("TELEMETRY") is not None:
+            self.telemetry = get_branded_env_bool("TELEMETRY", default=False)
 
     def _get_telemetry_data(self) -> Dict[str, Any]:
         """Get the telemetry data for the OS"""

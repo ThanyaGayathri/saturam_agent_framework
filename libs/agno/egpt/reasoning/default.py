@@ -17,7 +17,7 @@ def get_default_reasoning_agent(
     tools: Optional[List[Union[Toolkit, Callable, Function, Dict]]] = None,
     tool_call_limit: Optional[int] = None,
     use_json_mode: bool = False,
-    telemetry: bool = True,
+    telemetry: bool = False,
     debug_mode: bool = False,
     debug_level: Literal[1, 2] = 1,
     run_context: Optional[RunContext] = None,

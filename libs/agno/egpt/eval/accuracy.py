@@ -190,9 +190,9 @@ class AccuracyEval:
     db: Optional[Union[BaseDb, AsyncBaseDb]] = None
 
     # Telemetry settings
-    # telemetry=True logs minimal telemetry for analytics
-    # This helps us improve our Evals and provide better support
-    telemetry: bool = True
+    # telemetry=True opts into minimal telemetry for analytics (default off).
+    # Requires EGPT_TELEMETRY=true (or AGNO_TELEMETRY) and a configured EGPT_API_URL.
+    telemetry: bool = False
 
     def get_evaluator_agent(self) -> Agent:
         """Return the evaluator agent. If not provided, build it based on the evaluator fields and default instructions."""

@@ -34,6 +34,11 @@ class Api:
 api = Api()
 
 
+def is_telemetry_endpoint_configured() -> bool:
+    """Return True when a telemetry API endpoint is configured (no default upstream)."""
+    return agno_api_settings.has_telemetry_endpoint()
+
+
 def invalid_response(r: Response) -> bool:
     """Returns true if the response is invalid"""
 

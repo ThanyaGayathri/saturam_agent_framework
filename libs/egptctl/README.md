@@ -54,6 +54,8 @@ Boolean settings other than `LOG_TRACEBACKS` accept only the literal `true` (cas
 | `AGNO_RUNTIME` | `EGPT_RUNTIME` |
 | `AGNO_TELEMETRY` | `EGPT_TELEMETRY` |
 
+Telemetry is **off by default**. Set `EGPT_TELEMETRY=true` and `EGPT_API_URL` (your endpoint) to opt in. There is no upstream default endpoint.
+
 Notes:
 
 - CLI config lives on disk at `~/.config/egpt/config.json`. On first init, if that file is absent and `~/.config/ag/config.json` exists, it is copied once. There is no `EGPT_CLI_CONFIG_DIR` environment variable.

@@ -179,7 +179,7 @@ def __init__(
     retries: int = 0,
     delay_between_retries: int = 1,
     exponential_backoff: bool = False,
-    telemetry: bool = True,
+    telemetry: bool = False,
     cache_callables: bool = True,
     callable_tools_cache_key: Optional[Callable[..., Optional[str]]] = None,
     callable_knowledge_cache_key: Optional[Callable[..., Optional[str]]] = None,
@@ -479,10 +479,8 @@ def _set_debug(team: "Team", debug_mode: Optional[bool] = None) -> None:
 
 def _set_telemetry(team: "Team") -> None:
     """Override telemetry settings based on environment variables."""
-
-    telemetry_env = get_branded_env("TELEMETRY")
-    if telemetry_env is not None:
-        team.telemetry = telemetry_env.lower() == "true"
+    if get_branded_env("TELEMETRY") is not None:
+        team.telemetry = get_branded_env_bool("TELEMETRY", default=False)
 
 
 def _initialize_member(team: "Team", member: Union["Team", Agent], debug_mode: Optional[bool] = None) -> None:
