@@ -6,7 +6,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.db.base import ComponentType as DbComponentType
-from egpt.db.utils import DB_TABLE_NAME_KEYS
+from egpt.db.utils import DB_CONFIG_OVERRIDE_KEYS, DB_TABLE_NAME_KEYS
 from egpt.os.auth import get_authentication_dependency
 from egpt.os.schema import (
     BadRequestResponse,
@@ -69,15 +69,27 @@ def _resolve_db_in_config(
             elif registry is not None:
                 resolved_db = registry.get_db(component_db_id)
 
-            # Merge resolved db with caller-provided table-name overrides.
+            # Merge resolved db with caller-provided table-naming overrides.
             # Connection-defining fields (type, db_url, db_file, db_schema,
             # id, ...) always come from the resolved db so the caller can't
             # redirect a referenced db to a different backend. Only the
-            # whitelisted table-name keys are taken from the caller.
+            # whitelisted table-naming keys (per-table names + table_prefix)
+            # are taken from the caller.
             if resolved_db is not None:
                 resolved_dict = resolved_db.to_dict()
-                table_overrides = {key: component_db[key] for key in DB_TABLE_NAME_KEYS if key in component_db}
-                config["db"] = {**resolved_dict, **table_overrides}
+                table_overrides = {key: component_db[key] for key in DB_CONFIG_OVERRIDE_KEYS if key in component_db}
+                merged = {**resolved_dict, **table_overrides}
+                # If the caller changes table_prefix, drop the resolved db's
+                # concrete per-table names that the caller did NOT explicitly
+                # override. Otherwise those inherited names would shadow the
+                # new prefix (explicit table name > prefixed default), leaving
+                # the prefix silently ineffective.
+                new_prefix = table_overrides.get("table_prefix")
+                if new_prefix is not None and new_prefix != resolved_dict.get("table_prefix"):
+                    for key in DB_TABLE_NAME_KEYS:
+                        if key not in table_overrides:
+                            merged.pop(key, None)
+                config["db"] = merged
             else:
                 log_error(f"Could not resolve db with id: {component_db_id}")
     elif component_db is None and "db" in config:

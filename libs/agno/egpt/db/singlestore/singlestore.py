@@ -58,6 +58,7 @@ class SingleStoreDb(BaseDb):
         versions_table: Optional[str] = None,
         traces_table: Optional[str] = None,
         spans_table: Optional[str] = None,
+        table_prefix: Optional[str] = None,
         create_schema: bool = True,
     ):
         """
@@ -94,6 +95,7 @@ class SingleStoreDb(BaseDb):
 
         super().__init__(
             id=id,
+            table_prefix=table_prefix,
             session_table=session_table,
             culture_table=culture_table,
             memory_table=memory_table,

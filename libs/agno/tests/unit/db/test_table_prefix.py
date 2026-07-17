@@ -4,7 +4,9 @@ import pytest
 
 from egpt.brand import TABLE_PREFIX
 from egpt.db.json.json_db import JsonDb
+from egpt.db.sqlite.async_sqlite import AsyncSqliteDb
 from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.db.utils import _clone_db_with_table_overrides, resolve_db_from_config
 
 DEFAULT_TABLE_NAMES = (
     "session_table_name",
@@ -99,6 +101,73 @@ class TestTablePrefixSerialization:
 
         assert restored.table_prefix == "acme_"
         assert restored.session_table_name == "acme_sessions"
+
+
+class TestAsyncTablePrefix:
+    def test_async_sqlite_uses_branded_default_prefix(self, tmp_path):
+        db = AsyncSqliteDb(db_file=str(tmp_path / "test.db"))
+
+        assert db.table_prefix == TABLE_PREFIX
+        assert db.session_table_name == f"{TABLE_PREFIX}sessions"
+        assert db.memory_table_name == f"{TABLE_PREFIX}memories"
+        assert db.knowledge_table_name == f"{TABLE_PREFIX}knowledge"
+
+    def test_async_sqlite_custom_prefix_and_override(self, tmp_path):
+        db = AsyncSqliteDb(
+            db_file=str(tmp_path / "test.db"),
+            table_prefix="acme_",
+            session_table="custom_sessions",
+        )
+
+        assert db.table_prefix == "acme_"
+        assert db.session_table_name == "custom_sessions"
+        assert db.memory_table_name == "acme_memories"
+
+
+class _FakeRegistry:
+    def __init__(self, db):
+        self._db = db
+
+    def get_db(self, db_id):
+        if self._db is not None and getattr(self._db, "id", None) == db_id:
+            return self._db
+        return None
+
+
+class TestResolveDbFromConfigWithPrefix:
+    def test_clone_applies_table_prefix_override(self, tmp_path):
+        src = SqliteDb(db_file=str(tmp_path / "src.db"))
+
+        clone = _clone_db_with_table_overrides(src, {"table_prefix": "acme_"})
+
+        assert clone is not None
+        assert clone.table_prefix == "acme_"
+        assert clone.session_table_name == "acme_sessions"
+        # Engine is shared, not rebuilt.
+        assert clone.db_engine is src.db_engine
+
+    def test_differing_prefix_triggers_clone(self, tmp_path):
+        os_db = SqliteDb(db_file=str(tmp_path / "os.db"))
+        registry = _FakeRegistry(os_db)
+
+        # Config references the registered db by id but requests a new prefix
+        # and carries no concrete per-table names, so the prefix must win.
+        data = {"id": os_db.id, "type": "sqlite", "table_prefix": "acme_"}
+
+        resolved = resolve_db_from_config(data, registry=registry)
+
+        assert resolved is not os_db
+        assert resolved.table_prefix == "acme_"
+        assert resolved.session_table_name == "acme_sessions"
+        assert resolved.db_engine is os_db.db_engine
+
+    def test_identical_prefix_returns_registered_instance(self, tmp_path):
+        os_db = SqliteDb(db_file=str(tmp_path / "os.db"))
+        registry = _FakeRegistry(os_db)
+
+        resolved = resolve_db_from_config(os_db.to_dict(), registry=registry)
+
+        assert resolved is os_db
 
 
 if __name__ == "__main__":

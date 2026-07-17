@@ -77,6 +77,7 @@ class ClickhouseDb(BaseDb):
         traces_table: Optional[str] = None,
         spans_table: Optional[str] = None,
         versions_table: Optional[str] = None,
+        table_prefix: Optional[str] = None,
         id: Optional[str] = None,
         create_schema: bool = True,
     ):
@@ -103,6 +104,7 @@ class ClickhouseDb(BaseDb):
             id = generate_id(seed)
         super().__init__(
             id=id,
+            table_prefix=table_prefix,
             traces_table=traces_table,
             spans_table=spans_table,
             versions_table=versions_table,
@@ -234,6 +236,7 @@ class ClickhouseDb(BaseDb):
             traces_table=data.get("traces_table"),
             spans_table=data.get("spans_table"),
             versions_table=data.get("versions_table"),
+            table_prefix=data.get("table_prefix"),
             id=data.get("id"),
         )
 

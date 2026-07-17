@@ -680,3 +680,43 @@ class TestResolveDbInConfig:
 
         assert "arbitrary_extension" not in out["db"]
         assert out["db"]["session_table"] == "custom_sessions"
+
+    def test_matching_id_honors_table_prefix_override(self, tmp_path):
+        """A caller-supplied table_prefix must take effect: the resolved db's
+        concrete default table names (which would otherwise shadow the prefix)
+        are dropped so they get re-derived from the new prefix."""
+        from egpt.os.routers.components.components import _resolve_db_in_config
+
+        os_db = self._make_os_db(tmp_path)
+        payload = {"db": {"id": os_db.id, "table_prefix": "acme_"}}
+
+        out = _resolve_db_in_config(dict(payload), os_db, None)
+
+        assert out["db"]["table_prefix"] == "acme_"
+        # Connection metadata still comes from the resolved db.
+        assert out["db"]["type"] == "sqlite"
+        assert out["db"]["db_file"] == os_db.db_file
+        # Inherited concrete default names are dropped so the prefix wins on reload.
+        assert "session_table" not in out["db"]
+        assert "knowledge_table" not in out["db"]
+
+    def test_table_prefix_with_explicit_override_keeps_explicit_name(self, tmp_path):
+        """An explicit per-table name provided alongside a new table_prefix is
+        preserved, while the other tables re-derive from the prefix."""
+        from egpt.os.routers.components.components import _resolve_db_in_config
+
+        os_db = self._make_os_db(tmp_path)
+        payload = {
+            "db": {
+                "id": os_db.id,
+                "table_prefix": "acme_",
+                "session_table": "custom_sessions",
+            },
+        }
+
+        out = _resolve_db_in_config(dict(payload), os_db, None)
+
+        assert out["db"]["table_prefix"] == "acme_"
+        assert out["db"]["session_table"] == "custom_sessions"
+        # Non-overridden tables are dropped for re-derivation from the prefix.
+        assert "memory_table" not in out["db"]

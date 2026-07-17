@@ -55,6 +55,7 @@ class FirestoreDb(BaseDb):
         culture_collection: Optional[str] = None,
         traces_collection: Optional[str] = None,
         spans_collection: Optional[str] = None,
+        table_prefix: Optional[str] = None,
         id: Optional[str] = None,
     ):
         """
@@ -82,6 +83,7 @@ class FirestoreDb(BaseDb):
 
         super().__init__(
             id=id,
+            table_prefix=table_prefix,
             session_table=session_collection,
             memory_table=memory_collection,
             metrics_table=metrics_collection,
