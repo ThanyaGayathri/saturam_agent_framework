@@ -276,7 +276,7 @@ class Manifest(BaseModel):
     quick_prompts: Optional[List[str]] = None
 
 
-class AgentOSConfig(BaseModel):
+class EgptOSConfig(BaseModel):
     """General configuration for an EgptOS instance"""
 
     available_models: Optional[List[str]] = None
@@ -292,3 +292,27 @@ class AgentOSConfig(BaseModel):
     session: Optional[SessionConfig] = None
     metrics: Optional[MetricsConfig] = None
     traces: Optional[TracesConfig] = None
+
+
+_warned_agentos_config = False
+
+
+def __getattr__(name: str):
+    """Provide deprecated AgentOSConfig alias."""
+    global _warned_agentos_config
+    import warnings
+
+    if name == "AgentOSConfig":
+        if not _warned_agentos_config:
+            _warned_agentos_config = True
+            warnings.warn(
+                "AgentOSConfig is deprecated; use EgptOSConfig instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+        return EgptOSConfig
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(list(globals().keys()) + ["AgentOSConfig"])

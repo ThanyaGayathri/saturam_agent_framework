@@ -1,4 +1,3 @@
-
 """
 Decision Log Store
 ==================
@@ -22,8 +21,6 @@ Supported Modes:
 - AGENTIC: Agent explicitly logs decisions via tools
 """
 
-from egpt.utils.env import get_branded_env_bool
-
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -34,6 +31,7 @@ from egpt.learn.config import DecisionLogConfig, LearningMode
 from egpt.learn.schemas import DecisionLog
 from egpt.learn.stores.protocol import LearningStore
 from egpt.learn.utils import from_dict_safe, to_dict_safe
+from egpt.utils.env import get_branded_env_bool
 from egpt.utils.log import (
     log_debug,
     log_warning,

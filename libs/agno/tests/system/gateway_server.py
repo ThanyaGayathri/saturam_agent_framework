@@ -8,7 +8,7 @@ defined in a separate remote server container.
 import os
 
 from egpt.agent import Agent, RemoteAgent
-from egpt.client.os import AgentOSClient
+from egpt.client.os import EgptOSClient
 from egpt.db.postgres import AsyncPostgresDb
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
@@ -117,7 +117,7 @@ remote_team = RemoteTeam(base_url=REMOTE_SERVER_URL, team_id="research-team")
 remote_workflow = RemoteWorkflow(base_url=REMOTE_SERVER_URL, workflow_id="qa-workflow")
 
 # Remote knowledge - proxies the remote server's "remote-db" knowledge through the gateway
-remote_os_client = AgentOSClient(base_url=REMOTE_SERVER_URL)
+remote_os_client = EgptOSClient(base_url=REMOTE_SERVER_URL)
 remote_knowledge = RemoteKnowledge(
     client=remote_os_client,
     contents_db=RemoteDb(id="remote-db", client=remote_os_client),

@@ -1,4 +1,3 @@
-
 """
 User Memory Store
 =================
@@ -24,8 +23,6 @@ Supported Modes:
 - AGENTIC: Agent calls update_user_memory tool directly
 """
 
-from egpt.utils.env import get_branded_env_bool
-
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -36,6 +33,7 @@ from egpt.learn.config import LearningMode, UserMemoryConfig
 from egpt.learn.schemas import Memories
 from egpt.learn.stores.protocol import LearningStore
 from egpt.learn.utils import build_learning_id, from_dict_safe, to_dict_safe
+from egpt.utils.env import get_branded_env_bool
 from egpt.utils.log import (
     log_debug,
     log_warning,

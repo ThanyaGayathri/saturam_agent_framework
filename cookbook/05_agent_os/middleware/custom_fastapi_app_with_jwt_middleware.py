@@ -70,7 +70,7 @@ async def login(username: str = Form(...), password: str = Form(...)):
     raise HTTPException(status_code=401, detail="Invalid credentials")
 
 
-# Clean EgptOS setup with tuple middleware pattern! ✨
+# Clean EgptOS setup with tuple middleware pattern
 agent_os = EgptOS(
     description="JWT Protected EgptOS",
     agents=[research_agent],

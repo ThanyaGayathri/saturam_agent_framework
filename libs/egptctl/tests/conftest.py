@@ -216,5 +216,5 @@ def install_fake(monkeypatch: pytest.MonkeyPatch, fake: FakeEgptOS) -> None:
 
     monkeypatch.setattr(http_module, "_transport_override", fake.transport())
     # Keep host-machine credentials and URL overrides out of tests.
-    for var in ("EGPT_ADMIN_TOKEN", "OS_SECURITY_KEY", "AGENTOS_URL"):
+    for var in ("EGPT_ADMIN_TOKEN", "AGNO_ADMIN_TOKEN", "OS_SECURITY_KEY", "AGENTOS_URL"):
         monkeypatch.delenv(var, raising=False)

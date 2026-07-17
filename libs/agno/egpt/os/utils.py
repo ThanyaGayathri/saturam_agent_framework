@@ -22,7 +22,7 @@ from egpt.knowledge.knowledge import Knowledge
 from egpt.media import Audio, Image, Video
 from egpt.media import File as FileMedia
 from egpt.models.message import Message
-from egpt.os.config import AgentOSConfig
+from egpt.os.config import EgptOSConfig
 from egpt.registry import Registry
 from egpt.remote.base import RemoteDb, RemoteKnowledge
 from egpt.run.agent import RunOutputEvent
@@ -1361,8 +1361,8 @@ def find_conflicting_routes(fastapi_app: FastAPI, router: APIRouter) -> List[Dic
     return conflicts
 
 
-def load_yaml_config(config_file_path: str) -> AgentOSConfig:
-    """Load a YAML config file and return the configuration as an AgentOSConfig instance."""
+def load_yaml_config(config_file_path: str) -> EgptOSConfig:
+    """Load a YAML config file and return the configuration as an EgptOSConfig instance."""
     from pathlib import Path
 
     import yaml
@@ -1374,7 +1374,7 @@ def load_yaml_config(config_file_path: str) -> AgentOSConfig:
 
     # Load the YAML file
     with open(config_file_path, "r") as f:
-        return AgentOSConfig.model_validate(yaml.safe_load(f))
+        return EgptOSConfig.model_validate(yaml.safe_load(f))
 
 
 def collect_mcp_tools_from_team(team: Team, mcp_tools: List[Any]) -> None:

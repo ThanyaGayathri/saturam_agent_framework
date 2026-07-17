@@ -1,16 +1,32 @@
 from __future__ import annotations
 
 from importlib import metadata
+from typing import Any, Dict, Tuple, Type
 
 from pydantic import field_validator
 from pydantic_core.core_schema import ValidationInfo
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
-from egpt.brand import ENV_PREFIX, PRODUCT_NAME
-from egpt.utils.env import apply_legacy_env_fallbacks, get_branded_env
+from egpt.brand import PRODUCT_NAME
+from egpt.utils.env import get_branded_env
 from egpt.utils.log import log_error
 
-apply_legacy_env_fallbacks()
+
+class _BrandedEnvSettingsSource(PydanticBaseSettingsSource):
+    """Read EGPT_* then AGNO_* via get_branded_env (emits deprecation warnings)."""
+
+    def get_field_value(self, field: Any, field_name: str) -> Tuple[Any, str, bool]:
+        env_name = field_name.upper()
+        value = get_branded_env(env_name)
+        return value, field_name, value is not None
+
+    def __call__(self) -> Dict[str, Any]:
+        data: Dict[str, Any] = {}
+        for field_name in self.settings_cls.model_fields:
+            value, _key, is_set = self.get_field_value(None, field_name)
+            if is_set and value is not None:
+                data[field_name] = value
+        return data
 
 
 class AgnoAPISettings(BaseSettings):
@@ -22,7 +38,25 @@ class AgnoAPISettings(BaseSettings):
 
     api_url: str = "https://os-api.agno.com"
 
-    model_config = SettingsConfigDict(env_prefix=f"{ENV_PREFIX}_")
+    model_config = SettingsConfigDict(env_prefix="")
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: Type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> Tuple[PydanticBaseSettingsSource, ...]:
+        # Prefer branded dual-read source over the default env source so AGNO_*
+        # fallbacks emit FutureWarning and late env changes are still honored.
+        return (
+            init_settings,
+            _BrandedEnvSettingsSource(settings_cls),
+            dotenv_settings,
+            file_secret_settings,
+        )
 
     @field_validator("api_runtime", mode="before")
     def validate_runtime_env(cls, v):
@@ -36,7 +70,7 @@ class AgnoAPISettings(BaseSettings):
 
     @field_validator("api_url", mode="before")
     def update_api_url(cls, v, info: ValidationInfo):
-        api_runtime = info.data["api_runtime"]
+        api_runtime = info.data.get("api_runtime")
         if api_runtime == "dev":
             if get_branded_env("RUNTIME") == "docker":
                 return "http://host.docker.internal:7070"

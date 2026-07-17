@@ -40,7 +40,7 @@ def status(
         emit_json({"os": os_info.public_dict(), "clients": clients})
         return
 
-    version = " (agno " + os_info.version + ")" if os_info.version else ""
+    version = " (egpt " + os_info.version + ")" if os_info.version else ""
     print_success("EgptOS: " + os_info.base_url + version)
     mcp = os_info.mcp_url if os_info.mcp_enabled else "disabled"
     print_info("  MCP: " + mcp)

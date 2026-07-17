@@ -69,7 +69,7 @@ from egpt.run.workflow import WorkflowRunOutput, WorkflowRunOutputEvent, workflo
 from egpt.utils.http import get_default_async_client, get_default_sync_client
 
 
-class AgentOSClient:
+class EgptOSClient:
     """Client for interacting with EgptOS API endpoints.
 
     Attributes:
@@ -82,7 +82,7 @@ class AgentOSClient:
         base_url: str,
         timeout: float = 60.0,
     ):
-        """Initialize AgentOSClient.
+        """Initialize EgptOSClient.
 
         Args:
             base_url: Base URL of the EgptOS instance (e.g., "http://localhost:7777")
@@ -2978,3 +2978,17 @@ class AgentOSClient:
 
         data = await self._apost("/metrics/refresh", params=params, headers=headers)
         return [DayAggregatedMetrics.model_validate(m) for m in data]
+
+
+def __getattr__(name: str):
+    """Provide deprecated AgentOSClient alias."""
+    import warnings
+
+    if name == "AgentOSClient":
+        warnings.warn(
+            "AgentOSClient is deprecated; use EgptOSClient instead.",
+            FutureWarning,
+            stacklevel=2,
+        )
+        return EgptOSClient
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

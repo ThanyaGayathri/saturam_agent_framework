@@ -1,4 +1,3 @@
-
 """
 Session Context Store
 =====================
@@ -26,8 +25,6 @@ Supported Modes:
 - ALWAYS only. SessionContextStore does not support AGENTIC, PROPOSE, or HITL modes.
 """
 
-from egpt.utils.env import get_branded_env_bool
-
 from copy import deepcopy
 from dataclasses import dataclass, field
 from textwrap import dedent
@@ -37,6 +34,7 @@ from egpt.learn.config import LearningMode, SessionContextConfig
 from egpt.learn.schemas import SessionContext
 from egpt.learn.stores.protocol import LearningStore
 from egpt.learn.utils import build_learning_id, from_dict_safe, to_dict_safe
+from egpt.utils.env import get_branded_env_bool
 from egpt.utils.log import (
     log_debug,
     log_warning,

@@ -4,7 +4,7 @@ from typing import List, Optional
 from egpt.base.resources import InfraResources
 from egpt.cli.config import AgnoCliConfig
 from egpt.cli.console import print_heading, print_info
-from egpt.cli.settings import BRANDED_CLI_CONFIG_DIR, resolve_cli_config_dir
+from egpt.cli.settings import BRANDED_CLI_CONFIG_DIR, migrate_legacy_cli_config
 from egpt.utilities.logging import logger
 
 
@@ -30,8 +30,8 @@ def initialize_agno_cli(reset: bool = False) -> Optional[AgnoCliConfig]:
 
     logger.debug("Initializing Agno")
 
-    # Ensure the resolved config directory exists (branded for new installs, legacy when config.json is there).
-    active_config_dir = resolve_cli_config_dir()
+    # One-time copy from ~/.config/ag when branded config is absent, then resolve.
+    active_config_dir = migrate_legacy_cli_config()
     if active_config_dir.exists():
         logger.debug(f"{active_config_dir} exists")
         if not active_config_dir.is_dir():

@@ -1,6 +1,7 @@
 """Helpers shared by CLI commands."""
 
 import ipaddress
+import os
 import sys
 from typing import Optional, Tuple
 from urllib.parse import urlsplit
@@ -82,7 +83,7 @@ def resolve_admin_token(auth_mode: str, json_mode: bool) -> Optional[str]:
     """
     if auth_mode == "none":
         return None
-    token = get_branded_env("ADMIN_TOKEN") or __import__("os").environ.get(SECURITY_KEY_ENV)
+    token = get_branded_env("ADMIN_TOKEN") or os.environ.get(SECURITY_KEY_ENV)
     if token:
         return token
     if json_mode or not sys.stdin.isatty():

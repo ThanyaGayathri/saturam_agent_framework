@@ -78,6 +78,9 @@ class InfraConfig(BaseModel):
         from os import environ
 
         from egpt.constants import (
+            AGNO_INFRA_DIR,
+            AGNO_INFRA_NAME,
+            AGNO_INFRA_ROOT,
             AWS_REGION_ENV_VAR,
             EGPT_INFRA_DIR,
             EGPT_INFRA_NAME,
@@ -85,14 +88,18 @@ class InfraConfig(BaseModel):
         )
 
         if self.infra_root_path is not None:
+            # Dual-write branded and legacy names for the deprecation window.
             environ[EGPT_INFRA_ROOT] = str(self.infra_root_path)
+            environ[AGNO_INFRA_ROOT] = str(self.infra_root_path)
 
             infra_dir_path: Optional[Path] = self.infra_dir_path
             if infra_dir_path is not None:
                 environ[EGPT_INFRA_DIR] = str(infra_dir_path)
+                environ[AGNO_INFRA_DIR] = str(infra_dir_path)
 
             if self.infra_settings is not None:
                 environ[EGPT_INFRA_NAME] = str(self.infra_settings.infra_name)
+                environ[AGNO_INFRA_NAME] = str(self.infra_settings.infra_name)
 
         if (
             environ.get(AWS_REGION_ENV_VAR) is None

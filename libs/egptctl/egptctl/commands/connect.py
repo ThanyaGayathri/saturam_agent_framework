@@ -280,7 +280,7 @@ def _connect(
             + MCP_ENABLE_INSTRUCTIONS
         )
     if not json_mode:
-        version = " (agno " + os_info.version + ")" if os_info.version else ""
+        version = " (egpt " + os_info.version + ")" if os_info.version else ""
         source = " (from AGENTOS_URL)" if os_info.url_source == "env" else ""
         print_info("EgptOS at " + os_info.base_url + version + source + ", MCP at " + os_info.mcp_url)
 
@@ -315,9 +315,9 @@ def _connect(
         open_probe = verify_mcp(os_info.mcp_url, token=None)
         if open_probe.ok:
             open_mcp_warning = (
-                "This EgptOS accepts unauthenticated MCP requests: its agno version predates "
+                "This EgptOS accepts unauthenticated MCP requests: its egpt version predates "
                 "token enforcement on /mcp. Tokens were still minted and configured; upgrade "
-                "agno to make them meaningful."
+                "egpt to make them meaningful."
             )
 
     api = EgptOSAPI(os_info.base_url, admin_token=admin_token) if minting else None

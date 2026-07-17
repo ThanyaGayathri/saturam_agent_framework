@@ -655,7 +655,9 @@ def build_mcp_server(
     mcp_config: "Optional[MCPServerConfig]" = getattr(os, "mcp_config", None)
 
     # Create an MCP server
-    mcp = FastMCP(os.name or "EgptOS")
+    from egpt.brand import DEFAULT_OS_ID, PRODUCT_OS_NAME
+
+    mcp = FastMCP(os.name or PRODUCT_OS_NAME)
 
     # Decorator used to register the built-in tools. Honors ``mcp_config`` scoping;
     # behaves exactly like ``mcp.tool`` when no config (or default config) is provided.
@@ -733,7 +735,7 @@ def build_mcp_server(
                     logger.exception("Error summarizing DB workflow for get_agentos_config")
 
         return {
-            "os_id": os.id or "EgptOS",
+            "os_id": os.id or DEFAULT_OS_ID,
             "description": os.description,
             # A db shared by several components is registered once per component in os.dbs,
             # so collect the ids into a set to list each database once -- matching the REST /config route.

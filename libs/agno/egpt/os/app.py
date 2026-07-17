@@ -1,4 +1,3 @@
-import warnings
 import asyncio
 from contextlib import asynccontextmanager
 from functools import partial
@@ -18,13 +17,13 @@ from starlette.requests import Request
 from egpt.agent import Agent, AgentFactory, RemoteAgent
 from egpt.agent.protocol import AgentProtocol
 from egpt.agents.base import BaseExternalAgent
-from egpt.brand import PRODUCT_NAME, PRODUCT_OS_NAME
+from egpt.brand import PRODUCT_OS_NAME
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.os.config import (
-    AgentOSConfig,
     AuthorizationConfig,
     DatabaseConfig,
+    EgptOSConfig,
     EvalsConfig,
     EvalsDomainConfig,
     KnowledgeConfig,
@@ -241,7 +240,7 @@ class EgptOS:
         authorization: bool = False,
         authorization_config: Optional[AuthorizationConfig] = None,
         cors_allowed_origins: Optional[List[str]] = None,
-        config: Optional[Union[str, AgentOSConfig]] = None,
+        config: Optional[Union[str, EgptOSConfig]] = None,
         settings: Optional[AgnoAPISettings] = None,
         lifespan: Optional[Any] = None,
         enable_mcp_server: bool = False,
@@ -276,7 +275,7 @@ class EgptOS:
             knowledge: List of knowledge bases to include in the OS
             interfaces: List of interfaces to include in the OS
             a2a_interface: Whether to expose the OS agents and teams in an A2A server
-            config: Configuration file path or AgentOSConfig instance
+            config: Configuration file path or EgptOSConfig instance
             settings: API settings for the OS
             lifespan: Optional lifespan context manager for the FastAPI app
             enable_mcp_server: Whether to enable MCP (Model Context Protocol)
@@ -622,7 +621,7 @@ class EgptOS:
 
     def _make_app(self, lifespan: Optional[Any] = None) -> FastAPI:
         return FastAPI(
-            title=self.name or f"{PRODUCT_NAME} {PRODUCT_OS_NAME}",
+            title=self.name or PRODUCT_OS_NAME,
             version=self.version or "1.0.0",
             description=self.description or "Your multi-agent operating system.",
             docs_url="/docs" if self.settings.docs_enabled else None,
@@ -1869,7 +1868,7 @@ class EgptOS:
         console.print(
             Panel(
                 Group(*panel_group),
-                title="EgptOS",
+                title=PRODUCT_OS_NAME,
                 expand=False,
                 border_style="dark_orange",
                 box=box.DOUBLE_EDGE,
@@ -1893,15 +1892,3 @@ class EgptOS:
             lifespan="on",
             **kwargs,
         )
-
-
-
-def __getattr__(name: str):
-    if name == "AgentOS":
-        warnings.warn(
-            "AgentOS is deprecated; use EgptOS instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return EgptOS
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

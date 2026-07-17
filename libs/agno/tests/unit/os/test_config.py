@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from egpt.agent.agent import Agent
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
-from egpt.os.config import AgentOSConfig, ChatConfig, Manifest
+from egpt.os.config import ChatConfig, EgptOSConfig, Manifest
 from egpt.os.schema import AgentSummaryResponse, ConfigResponse, TeamSummaryResponse
 from egpt.os.utils import load_yaml_config
 from egpt.team.team import Team
@@ -59,11 +59,11 @@ class TestManifest:
 
 class TestAgentOSConfigManifestField:
     def test_manifest_field_default_none(self):
-        cfg = AgentOSConfig()
+        cfg = EgptOSConfig()
         assert cfg.manifest is None
 
     def test_manifest_python_construction(self):
-        cfg = AgentOSConfig(
+        cfg = EgptOSConfig(
             manifest={
                 "marketing-agent": Manifest(
                     description="Plans and runs marketing campaigns.",
@@ -92,7 +92,7 @@ class TestAgentOSConfigManifestField:
                 labels: ["prod", "support"]
             """
         )
-        cfg = AgentOSConfig(**raw)
+        cfg = EgptOSConfig(**raw)
         m = cfg.manifest["marketing-agent"]
         assert m.description == "Plans and runs marketing campaigns."
         assert m.labels == ["beta", "marketing"]
@@ -107,7 +107,7 @@ class TestAgentOSConfigManifestField:
                 quick_prompts: ["1", "2", "3", "4"]
             """
         )
-        cfg = AgentOSConfig(**raw)
+        cfg = EgptOSConfig(**raw)
         assert cfg.manifest["marketing-agent"].quick_prompts == ["1", "2", "3", "4"]
 
 
@@ -131,12 +131,12 @@ class TestBackwardCompat:
                   - "What can you do?"
             """
         )
-        cfg = AgentOSConfig(**raw)
+        cfg = EgptOSConfig(**raw)
         assert cfg.chat.quick_prompts == {"marketing-agent": ["What can you do?"]}
         assert cfg.manifest is None
 
     def test_chat_and_manifest_coexist(self):
-        cfg = AgentOSConfig(
+        cfg = EgptOSConfig(
             chat=ChatConfig(quick_prompts={"legacy-agent": ["one", "two"]}),
             manifest={"new-agent": Manifest(description="Hi", quick_prompts=["a"])},
         )
@@ -227,7 +227,7 @@ class TestConfigEndpointSerialization:
         os_instance = EgptOS(
             agents=[agent],
             telemetry=False,
-            config=AgentOSConfig(manifest=manifest),
+            config=EgptOSConfig(manifest=manifest),
         )
         return TestClient(os_instance.get_app())
 

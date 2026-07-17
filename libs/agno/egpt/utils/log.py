@@ -115,7 +115,7 @@ debug_level: Literal[1, 2] = 1
 
 # Controls whether exc_info tracebacks are rendered in warning log output.
 # Opt-in only: set EGPT_LOG_TRACEBACKS=true or call set_log_tracebacks(True).
-log_tracebacks: bool = get_branded_env_bool("LOG_TRACEBACKS")
+log_tracebacks: bool = get_branded_env_bool("LOG_TRACEBACKS", strict=False)
 
 
 def set_log_level_to_debug(source_type: Optional[str] = None, level: Literal[1, 2] = 1):
@@ -277,7 +277,7 @@ def configure_agno_logging(
         custom_team_logger: Custom logger for team operations
         custom_workflow_logger: Custom logger for workflow operations
         enable_log_tracebacks: If True, show full tracebacks on warning logs.
-            Also controllable via ``AGNO_LOG_TRACEBACKS`` env var.
+            Also controllable via ``EGPT_LOG_TRACEBACKS`` (legacy ``AGNO_LOG_TRACEBACKS``) env var.
     """
     if enable_log_tracebacks is not None:
         set_log_tracebacks(enable_log_tracebacks)

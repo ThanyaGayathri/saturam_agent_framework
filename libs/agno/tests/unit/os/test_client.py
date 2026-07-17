@@ -16,32 +16,32 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from egpt.client import AgentOSClient
+from egpt.client import EgptOSClient
 
 
 def test_init_with_base_url():
     """Verify basic initialization with base URL."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     assert client.base_url == "http://localhost:7777"
     assert client.timeout == 60
 
 
 def test_init_strips_trailing_slash():
     """Verify trailing slash is removed from base URL."""
-    client = AgentOSClient(base_url="http://localhost:7777/")
+    client = EgptOSClient(base_url="http://localhost:7777/")
     assert client.base_url == "http://localhost:7777"
 
 
 def test_init_with_custom_timeout():
     """Verify custom timeout is respected."""
-    client = AgentOSClient(base_url="http://localhost:7777", timeout=120)
+    client = EgptOSClient(base_url="http://localhost:7777", timeout=120)
     assert client.timeout == 120
 
 
 @pytest.mark.asyncio
 async def test_get_method():
     """Verify _aget method makes correct HTTP request."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     mock_response = MagicMock()
     mock_response.json.return_value = {"data": "test"}
@@ -64,7 +64,7 @@ async def test_get_method():
 @pytest.mark.asyncio
 async def test_post_method():
     """Verify _apost method makes correct HTTP request."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     mock_response = MagicMock()
     mock_response.json.return_value = {"created": True}
@@ -86,7 +86,7 @@ async def test_post_method():
 @pytest.mark.asyncio
 async def test_patch_method():
     """Verify _apatch method makes correct HTTP request."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     mock_response = MagicMock()
     mock_response.json.return_value = {"updated": True}
@@ -108,7 +108,7 @@ async def test_patch_method():
 @pytest.mark.asyncio
 async def test_delete_method():
     """Verify _adelete method makes correct HTTP request."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     mock_response = MagicMock()
     mock_response.raise_for_status = MagicMock()
@@ -128,7 +128,7 @@ async def test_delete_method():
 @pytest.mark.asyncio
 async def test_get_config():
     """Verify get_config returns ConfigResponse."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "os_id": "test-os",
         "name": "Test OS",
@@ -151,7 +151,7 @@ async def test_get_config():
 @pytest.mark.asyncio
 async def test_get_agent():
     """Verify get_agent returns AgentResponse."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "id": "agent-1",
         "name": "Test Agent",
@@ -170,7 +170,7 @@ async def test_get_agent():
 @pytest.mark.asyncio
 async def test_get_team():
     """Verify get_team returns TeamResponse."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "id": "team-1",
         "name": "Test Team",
@@ -189,7 +189,7 @@ async def test_get_team():
 @pytest.mark.asyncio
 async def test_get_workflow():
     """Verify get_workflow returns WorkflowResponse."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "id": "workflow-1",
         "name": "Test Workflow",
@@ -206,7 +206,7 @@ async def test_get_workflow():
 @pytest.mark.asyncio
 async def test_get_workflow_with_version():
     """Verify aget_workflow passes version as query param."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "id": "workflow-1",
         "name": "Test Workflow v2",
@@ -222,7 +222,7 @@ async def test_get_workflow_with_version():
 
 def test_get_workflow_sync():
     """Verify sync get_workflow passes version as query param."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "id": "workflow-1",
         "name": "Test Workflow v3",
@@ -238,7 +238,7 @@ def test_get_workflow_sync():
 
 def test_get_workflow_sync_no_version():
     """Verify sync get_workflow without version sends empty params."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "id": "workflow-1",
         "name": "Test Workflow",
@@ -255,7 +255,7 @@ def test_get_workflow_sync_no_version():
 @pytest.mark.asyncio
 async def test_create_memory():
     """Verify create_memory creates a new memory."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "memory_id": "mem-123",
         "memory": "User likes blue",
@@ -278,7 +278,7 @@ async def test_create_memory():
 @pytest.mark.asyncio
 async def test_get_memory():
     """Verify get_memory retrieves a memory."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "memory_id": "mem-123",
         "memory": "User likes blue",
@@ -296,7 +296,7 @@ async def test_get_memory():
 @pytest.mark.asyncio
 async def test_list_memories():
     """Verify list_memories returns paginated memories."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "data": [
             {
@@ -319,7 +319,7 @@ async def test_list_memories():
 @pytest.mark.asyncio
 async def test_update_memory():
     """Verify update_memory updates a memory."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "memory_id": "mem-123",
         "memory": "Updated memory",
@@ -341,7 +341,7 @@ async def test_update_memory():
 @pytest.mark.asyncio
 async def test_delete_memory():
     """Verify delete_memory deletes a memory."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     with patch.object(client, "_adelete", new_callable=AsyncMock) as mock_delete:
         await client.delete_memory("mem-123", user_id="user-1")
         mock_delete.assert_called_once()
@@ -350,7 +350,7 @@ async def test_delete_memory():
 @pytest.mark.asyncio
 async def test_list_sessions():
     """Verify list_sessions returns paginated sessions."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "data": [
             {
@@ -371,7 +371,7 @@ async def test_list_sessions():
 @pytest.mark.asyncio
 async def test_create_session():
     """Verify create_session creates a new session."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "agent_session_id": "agent-sess-123",
         "session_id": "sess-123",
@@ -390,7 +390,7 @@ async def test_create_session():
 @pytest.mark.asyncio
 async def test_get_session():
     """Verify get_session retrieves a session."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "agent_session_id": "agent-sess-123",
         "session_id": "sess-123",
@@ -409,7 +409,7 @@ async def test_get_session():
 @pytest.mark.asyncio
 async def test_delete_session():
     """Verify delete_session deletes a session."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     with patch.object(client, "_adelete", new_callable=AsyncMock) as mock_delete:
         await client.delete_session("sess-123")
         mock_delete.assert_called_once()
@@ -418,7 +418,7 @@ async def test_delete_session():
 @pytest.mark.asyncio
 async def test_list_eval_runs():
     """Verify list_eval_runs returns paginated evals."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "data": [
             {
@@ -441,7 +441,7 @@ async def test_list_eval_runs():
 @pytest.mark.asyncio
 async def test_get_eval_run():
     """Verify get_eval_run retrieves an eval."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "id": "eval-123",
         "name": "Test Eval",
@@ -459,7 +459,7 @@ async def test_get_eval_run():
 @pytest.mark.asyncio
 async def test_list_content():
     """Verify list_content returns paginated content."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "data": [
             {
@@ -480,7 +480,7 @@ async def test_list_content():
 @pytest.mark.asyncio
 async def test_get_content():
     """Verify get_content retrieves content."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "id": "content-123",
         "name": "Test Document",
@@ -496,7 +496,7 @@ async def test_get_content():
 @pytest.mark.asyncio
 async def test_search_knowledge():
     """Verify search_knowledge searches the knowledge base."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "data": [
             {
@@ -517,7 +517,7 @@ async def test_search_knowledge():
 @pytest.mark.asyncio
 async def test_get_knowledge_config():
     """Verify get_knowledge_config returns config."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {}
     with patch.object(client, "_aget", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = mock_data
@@ -529,7 +529,7 @@ async def test_get_knowledge_config():
 @pytest.mark.asyncio
 async def test_run_agent():
     """Verify run_agent executes an agent run."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "run_id": "run-123",
         "agent_id": "agent-1",
@@ -551,7 +551,7 @@ async def test_run_agent():
 @pytest.mark.asyncio
 async def test_run_team():
     """Verify run_team executes a team run."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "run_id": "run-123",
         "team_id": "team-1",
@@ -572,7 +572,7 @@ async def test_run_team():
 @pytest.mark.asyncio
 async def test_run_workflow():
     """Verify run_workflow executes a workflow run."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "run_id": "run-123",
         "workflow_id": "workflow-1",
@@ -593,7 +593,7 @@ async def test_run_workflow():
 @pytest.mark.asyncio
 async def test_cancel_agent_run():
     """Verify cancel_agent_run cancels a run."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     with patch.object(client, "_apost", new_callable=AsyncMock) as mock_post:
         mock_post.return_value = None
         await client.cancel_agent_run("agent-1", "run-123")
@@ -605,7 +605,7 @@ async def test_cancel_agent_run():
 @pytest.mark.asyncio
 async def test_headers_passed_through():
     """Verify headers are passed through to requests."""
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "os_id": "test-os",
         "name": "Test OS",
@@ -632,7 +632,7 @@ async def test_run_agent_stream_returns_typed_events():
     """Verify run_agent_stream yields typed RunOutputEvent objects."""
     from egpt.run.agent import RunCompletedEvent, RunContentEvent, RunStartedEvent
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     # Mock SSE lines
     mock_lines = [
@@ -664,7 +664,7 @@ async def test_stream_handles_invalid_json():
     """Verify invalid JSON is logged and skipped."""
     from egpt.run.agent import RunCompletedEvent, RunStartedEvent
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     mock_lines = [
         'data: {"event": "RunStarted", "run_id": "run-123", "agent_id": "agent-1", "created_at": 1234567890}',
@@ -696,7 +696,7 @@ async def test_stream_handles_unknown_event_type():
     """Verify unknown event types are logged and skipped."""
     from egpt.run.agent import RunCompletedEvent, RunStartedEvent
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     mock_lines = [
         'data: {"event": "RunStarted", "run_id": "run-123", "agent_id": "agent-1", "created_at": 1234567890}',
@@ -728,7 +728,7 @@ async def test_stream_handles_empty_lines():
     """Verify empty lines and comments are skipped."""
     from egpt.run.agent import RunCompletedEvent, RunStartedEvent
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     mock_lines = [
         "",  # Empty line
@@ -760,7 +760,7 @@ async def test_run_team_stream_returns_typed_events():
     """Verify run_team_stream yields BaseTeamRunEvent objects."""
     from egpt.run.agent import RunCompletedEvent, RunStartedEvent
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     # Team runs can emit agent events
     mock_lines = [
@@ -789,7 +789,7 @@ async def test_run_workflow_stream_returns_typed_events():
     """Verify run_workflow_stream yields WorkflowRunOutputEvent objects."""
     from egpt.run.agent import RunCompletedEvent, RunStartedEvent
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     # Workflow runs can emit agent events
     mock_lines = [

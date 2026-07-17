@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from egpt.cli.settings import resolve_cli_config_dir
+from egpt.cli.settings import migrate_legacy_cli_config, resolve_cli_config_dir
 
 
 def test_resolve_cli_config_dir_prefers_branded_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -45,3 +45,18 @@ def test_resolve_cli_config_dir_defaults_to_branded_for_new_install(
     monkeypatch.setattr("egpt.cli.settings.LEGACY_CLI_CONFIG_DIR", legacy)
 
     assert resolve_cli_config_dir() == branded
+
+
+def test_migrate_legacy_cli_config_copies_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    branded = tmp_path / "egpt"
+    legacy = tmp_path / "ag"
+    legacy.mkdir()
+    (legacy / "config.json").write_text('{"token": "legacy"}', encoding="utf-8")
+
+    monkeypatch.setattr("egpt.cli.settings.BRANDED_CLI_CONFIG_DIR", branded)
+    monkeypatch.setattr("egpt.cli.settings.LEGACY_CLI_CONFIG_DIR", legacy)
+
+    assert migrate_legacy_cli_config() == branded
+    assert (branded / "config.json").read_text(encoding="utf-8") == '{"token": "legacy"}'
+    # Legacy file remains intact.
+    assert (legacy / "config.json").is_file()

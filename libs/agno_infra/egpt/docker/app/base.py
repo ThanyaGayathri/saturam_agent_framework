@@ -129,6 +129,8 @@ class DockerApp(InfraApp):
 
     def get_container_env(self, container_context: ContainerContext) -> Dict[str, str]:
         from egpt.constants import (
+            AGNO_INFRA_ROOT,
+            AGNO_RUNTIME_ENV_VAR,
             EGPT_INFRA_ROOT,
             EGPT_RUNTIME_ENV_VAR,
             PYTHONPATH_ENV_VAR,
@@ -136,6 +138,8 @@ class DockerApp(InfraApp):
         )
 
         # Container Environment
+        # Dual-write EGPT_* and AGNO_* for the deprecation window so released
+        # packages inside the image that still read AGNO_* keep working.
         container_env: Dict[str, str] = self.container_env or {}
         container_env.update(
             {
@@ -145,8 +149,10 @@ class DockerApp(InfraApp):
                 "PRINT_ENV_ON_LOAD": str(self.print_env_on_load),
                 "RESOURCES_DIR_CONTAINER_PATH": str(self.resources_dir_container_path),
                 EGPT_RUNTIME_ENV_VAR: "docker",
+                AGNO_RUNTIME_ENV_VAR: "docker",
                 REQUIREMENTS_FILE_PATH_ENV_VAR: container_context.requirements_file or "",
                 EGPT_INFRA_ROOT: container_context.infra_root or "",
+                AGNO_INFRA_ROOT: container_context.infra_root or "",
             }
         )
 

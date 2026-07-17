@@ -7,11 +7,7 @@ import warnings
 import pytest
 
 from egpt.utils import env as env_module
-from egpt.utils.env import (
-    apply_legacy_env_fallbacks,
-    get_branded_env,
-    get_branded_env_bool,
-)
+from egpt.utils.env import get_branded_env, get_branded_env_bool, get_from_env
 
 
 @pytest.fixture(autouse=True)
@@ -37,6 +33,7 @@ def test_get_branded_env_falls_back_to_agno_with_warning(monkeypatch: pytest.Mon
 
     assert len(caught) == 1
     assert "AGNO_DEBUG is deprecated" in str(caught[0].message)
+    assert issubclass(caught[0].category, FutureWarning)
 
 
 def test_get_branded_env_returns_default_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -45,13 +42,29 @@ def test_get_branded_env_returns_default_when_unset(monkeypatch: pytest.MonkeyPa
     assert get_branded_env("DEBUG", "false") == "false"
 
 
-def test_get_branded_env_bool(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_branded_env_empty_branded_falls_through_to_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EGPT_DEBUG", "")
+    monkeypatch.setenv("AGNO_DEBUG", "true")
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        assert get_branded_env("DEBUG") == "true"
+
+
+def test_get_branded_env_bool_strict_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EGPT_TELEMETRY", "yes")
+    assert get_branded_env_bool("TELEMETRY") is False
+    monkeypatch.setenv("EGPT_TELEMETRY", "true")
     assert get_branded_env_bool("TELEMETRY") is True
 
 
-def test_apply_legacy_env_fallbacks_copies_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("EGPT_KEY", raising=False)
-    monkeypatch.setenv("AGNO_KEY", "legacy-value")
-    apply_legacy_env_fallbacks()
-    assert get_branded_env("KEY") == "legacy-value"
+def test_get_branded_env_bool_wide_grammar(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EGPT_LOG_TRACEBACKS", "1")
+    assert get_branded_env_bool("LOG_TRACEBACKS", strict=False) is True
+
+
+def test_get_from_env_deprecated(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SOME_KEY", "value")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert get_from_env("SOME_KEY") == "value"
+    assert any("get_from_env is deprecated" in str(item.message) for item in caught)

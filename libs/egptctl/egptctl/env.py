@@ -8,7 +8,6 @@ from typing import Optional, Set
 
 ENV_PREFIX = "EGPT"
 LEGACY_ENV_PREFIX = "AGNO"
-PRODUCT_NAME = "EGPT"
 PRODUCT_OS_NAME = "EgptOS"
 
 _warned_legacy_env_vars: Set[str] = set()
@@ -28,7 +27,7 @@ def _warn_legacy_env_var(name: str) -> None:
     _warned_legacy_env_vars.add(name)
     warnings.warn(
         f"{legacy_env_key(name)} is deprecated; use {branded_env_key(name)} instead.",
-        DeprecationWarning,
+        FutureWarning,
         stacklevel=3,
     )
 

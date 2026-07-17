@@ -14,8 +14,7 @@ from egpt.cli.console import (
 )
 from egpt.infra.config import InfraConfig
 from egpt.infra.enums import InfraStarterTemplate
-from egpt.utilities.logging import log_warning, logger
-from egpt.utils.log import log_info
+from egpt.utilities.logging import log_info, log_warning, logger
 
 TEMPLATE_TO_NAME_MAP: Dict[InfraStarterTemplate, str] = {
     InfraStarterTemplate.agentos_docker: "agentos-docker",

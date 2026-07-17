@@ -4,7 +4,7 @@ from typing import Any, Optional
 from rich.logging import RichHandler
 from rich.text import Text
 
-from egpt.utils.env import get_branded_env
+from egpt.utilities.branding import get_branded_env
 
 LOGGER_NAME = "agno_infra"
 

@@ -1,4 +1,3 @@
-
 """
 Learned Knowledge Store
 =======================
@@ -25,8 +24,6 @@ Supported Modes:
 - ALWAYS: Automatic extraction with duplicate detection
 """
 
-from egpt.utils.env import get_branded_env_bool
-
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -37,6 +34,7 @@ from egpt.learn.config import LearnedKnowledgeConfig, LearningMode
 from egpt.learn.schemas import LearnedKnowledge
 from egpt.learn.stores.protocol import LearningStore
 from egpt.learn.utils import to_dict_safe
+from egpt.utils.env import get_branded_env_bool
 from egpt.utils.log import (
     log_debug,
     log_warning,

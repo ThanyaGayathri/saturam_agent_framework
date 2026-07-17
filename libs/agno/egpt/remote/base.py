@@ -17,7 +17,7 @@ from egpt.run.workflow import WorkflowRunOutput, WorkflowRunOutputEvent
 if TYPE_CHECKING:
     from fastapi import UploadFile
 
-    from egpt.client import AgentOSClient
+    from egpt.client import EgptOSClient
     from egpt.client.a2a import A2AClient
     from egpt.client.a2a.schemas import AgentCard
     from egpt.os.routers.evals.schemas import EvalSchema
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 @dataclass
 class RemoteDb:
     id: str
-    client: "AgentOSClient"
+    client: "EgptOSClient"
     session_table_name: Optional[str] = None
     knowledge_table_name: Optional[str] = None
     memory_table_name: Optional[str] = None
@@ -61,14 +61,14 @@ class RemoteDb:
     def from_config(
         cls,
         db_id: str,
-        client: "AgentOSClient",
+        client: "EgptOSClient",
         config: "ConfigResponse",
     ) -> Optional["RemoteDb"]:
         """Create a RemoteDb instance from an AgentResponse/TeamResponse/WorkflowResponse and ConfigResponse.
 
         Args:
             db_id (str): The id of the remote database
-            client: The AgentOSClient for remote operations.
+            client: The EgptOSClient for remote operations.
             config: The ConfigResponse containing database table information.
 
         Returns:
@@ -263,7 +263,7 @@ class RemoteDb:
 
 @dataclass
 class RemoteKnowledge:
-    client: "AgentOSClient"
+    client: "EgptOSClient"
     contents_db: Optional[RemoteDb] = None
     knowledge_id: Optional[str] = None
 
@@ -416,18 +416,18 @@ class BaseRemote:
         else:
             raise ValueError(f"Invalid protocol: {protocol}")
 
-    def get_os_client(self) -> "AgentOSClient":
-        """Get an AgentOSClient for fetching remote configuration.
+    def get_os_client(self) -> "EgptOSClient":
+        """Get an EgptOSClient for fetching remote configuration.
 
         This is used internally by EgptOS to fetch configuration from remote
         EgptOS instances when this runner represents a remote resource.
 
         Returns:
-            AgentOSClient: Client configured for this remote resource's base URL
+            EgptOSClient: Client configured for this remote resource's base URL
         """
-        from egpt.client import AgentOSClient
+        from egpt.client import EgptOSClient
 
-        return AgentOSClient(
+        return EgptOSClient(
             base_url=self.base_url,
             timeout=self.timeout,
         )

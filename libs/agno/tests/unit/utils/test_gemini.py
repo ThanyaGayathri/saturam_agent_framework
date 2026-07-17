@@ -699,7 +699,7 @@ def test_inject_header_into_empty_params():
     from egpt import __version__ as agno_version
 
     result = inject_agno_client_header({})
-    assert result["http_options"]["headers"]["x-goog-api-client"] == f"agno/{agno_version}"
+    assert result["http_options"]["headers"]["x-goog-api-client"] == f"egpt/{agno_version}"
 
 
 def test_inject_header_preserves_existing_headers():
@@ -709,7 +709,7 @@ def test_inject_header_preserves_existing_headers():
     params = {"http_options": {"headers": {"custom-header": "value"}}}
     result = inject_agno_client_header(params)
     assert result["http_options"]["headers"]["custom-header"] == "value"
-    assert result["http_options"]["headers"]["x-goog-api-client"] == f"agno/{agno_version}"
+    assert result["http_options"]["headers"]["x-goog-api-client"] == f"egpt/{agno_version}"
 
 
 def test_inject_header_preserves_other_http_options():
@@ -719,7 +719,7 @@ def test_inject_header_preserves_other_http_options():
     params = {"http_options": {"timeout": 30000}}
     result = inject_agno_client_header(params)
     assert result["http_options"]["timeout"] == 30000
-    assert result["http_options"]["headers"]["x-goog-api-client"] == f"agno/{agno_version}"
+    assert result["http_options"]["headers"]["x-goog-api-client"] == f"egpt/{agno_version}"
 
 
 def test_inject_header_preserves_other_client_params():
@@ -737,4 +737,4 @@ def test_inject_header_overrides_existing_x_goog_api_client():
 
     params = {"http_options": {"headers": {"x-goog-api-client": "stale/0.0.0"}}}
     result = inject_agno_client_header(params)
-    assert result["http_options"]["headers"]["x-goog-api-client"] == f"agno/{agno_version}"
+    assert result["http_options"]["headers"]["x-goog-api-client"] == f"egpt/{agno_version}"
