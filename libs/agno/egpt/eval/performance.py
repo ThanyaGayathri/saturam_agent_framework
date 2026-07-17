@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.db.schemas.evals import EvalType
+from egpt.eval._telemetry import apply_eval_telemetry_env
 from egpt.eval.utils import async_log_eval, log_eval_run, spinner_live, store_result_in_file
 from egpt.utils.env import get_branded_env_bool
 from egpt.utils.log import log_debug, set_log_level_to_debug, set_log_level_to_info
@@ -236,6 +237,9 @@ class PerformanceEval:
     # telemetry=True opts into minimal telemetry for analytics (default off).
     # Requires EGPT_TELEMETRY=true (or AGNO_TELEMETRY) and a configured EGPT_API_URL.
     telemetry: bool = False
+
+    def __post_init__(self) -> None:
+        apply_eval_telemetry_env(self)
 
     def _measure_time(self) -> float:
         """Measure execution time for a single run."""

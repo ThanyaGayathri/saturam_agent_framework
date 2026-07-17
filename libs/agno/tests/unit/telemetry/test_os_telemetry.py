@@ -14,6 +14,19 @@ def test_os_telemetry_default_off():
         mock_create.assert_not_called()
 
 
+def test_log_os_telemetry_no_endpoint_no_post():
+    """OS telemetry POST is skipped when no endpoint is configured."""
+    with (
+        patch("egpt.api.os.is_telemetry_endpoint_configured", return_value=False),
+        patch("egpt.api.os.api.Client") as mock_client,
+    ):
+        from egpt.api.os import log_os_telemetry
+        from egpt.api.schemas.os import OSLaunch
+
+        log_os_telemetry(launch=OSLaunch(os_id="test", data={}))
+        mock_client.assert_not_called()
+
+
 def test_os_telemetry_opt_in():
     """When telemetry=True, OS launch telemetry is sent."""
     agent = Agent()

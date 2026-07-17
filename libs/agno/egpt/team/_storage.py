@@ -997,7 +997,7 @@ def from_dict(
             debug_mode=config.get("debug_mode", False),
             debug_level=config.get("debug_level", 1),
             show_members_responses=config.get("show_members_responses", False),
-            telemetry=config.get("telemetry", True),
+            telemetry=config.get("telemetry", False),
         ),
     )
 

@@ -1004,7 +1004,7 @@ class Workflow:
             add_session_state_to_context=config.get("add_session_state_to_context"),
             # --- Debug and telemetry settings ---
             debug_mode=config.get("debug_mode", False),
-            telemetry=config.get("telemetry", True),
+            telemetry=config.get("telemetry", False),
             # --- Steps ---
             steps=steps,
         )

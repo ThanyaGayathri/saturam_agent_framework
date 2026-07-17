@@ -4,7 +4,6 @@ from importlib import metadata
 from typing import Any, Dict, Tuple, Type
 
 from pydantic import field_validator
-from pydantic_core.core_schema import ValidationInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from egpt.brand import PRODUCT_NAME
@@ -70,17 +69,11 @@ class AgnoAPISettings(BaseSettings):
         return v.lower()
 
     @field_validator("api_url", mode="before")
-    def update_api_url(cls, v, info: ValidationInfo):
-        # Honor explicit configuration (EGPT_API_URL / AGNO_API_URL / init kwarg)
+    def update_api_url(cls, v):
+        # Require an explicit endpoint (EGPT_API_URL / AGNO_API_URL / init kwarg).
+        # No runtime auto-fills a URL; empty means no telemetry egress.
         if v is not None and str(v).strip():
             return str(v).strip()
-
-        api_runtime = info.data.get("api_runtime")
-        if api_runtime == "dev":
-            if get_branded_env("RUNTIME") == "docker":
-                return "http://host.docker.internal:7070"
-            return "http://localhost:7070"
-        # prd/stg: no upstream default — require explicit EGPT_API_URL
         return ""
 
     def has_telemetry_endpoint(self) -> bool:

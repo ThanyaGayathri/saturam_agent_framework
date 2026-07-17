@@ -19,6 +19,14 @@ def test_accuracy_evals_telemetry_default_off():
         mock_create.assert_not_called()
 
 
+def test_accuracy_evals_telemetry_env_opt_in(monkeypatch):
+    """EGPT_TELEMETRY=true enables eval telemetry via env override."""
+    monkeypatch.setenv("EGPT_TELEMETRY", "true")
+    agent = Agent()
+    accuracy_eval = AccuracyEval(agent=agent, input="What is the capital of France?", expected_output="Paris")
+    assert accuracy_eval.telemetry is True
+
+
 def test_accuracy_evals_telemetry_opt_in():
     """When telemetry=True, logging is called during sync accuracy eval run."""
     agent = Agent()
@@ -35,6 +43,22 @@ def test_accuracy_evals_telemetry_opt_in():
         call_args = mock_create.call_args[1]["eval_run"]
         assert call_args.run_id == accuracy_eval.eval_id
         assert call_args.eval_type.value == "accuracy"
+
+
+def test_create_eval_run_no_endpoint_no_post():
+    """Eval telemetry POST is skipped when no endpoint is configured."""
+    with (
+        patch("egpt.api.evals.is_telemetry_endpoint_configured", return_value=False),
+        patch("egpt.api.evals.api.Client") as mock_client,
+    ):
+        from egpt.api.evals import create_eval_run_telemetry
+        from egpt.api.schemas.evals import EvalRunCreate
+        from egpt.db.schemas.evals import EvalType
+
+        create_eval_run_telemetry(
+            EvalRunCreate(run_id="r1", eval_type=EvalType.ACCURACY, data={}),
+        )
+        mock_client.assert_not_called()
 
 
 def test_performance_evals_telemetry_opt_in():

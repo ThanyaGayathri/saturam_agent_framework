@@ -65,6 +65,27 @@ def test_agent_telemetry_env_opt_in(monkeypatch):
     assert agent.telemetry is True
 
 
+def test_agent_telemetry_enabled_without_endpoint_no_http(monkeypatch):
+    """EGPT_TELEMETRY=true with empty api_url must not open an HTTP client on run."""
+    monkeypatch.setenv("EGPT_TELEMETRY", "true")
+    monkeypatch.delenv("EGPT_API_URL", raising=False)
+    monkeypatch.delenv("AGNO_API_URL", raising=False)
+
+    with (
+        patch("egpt.api.agent.is_telemetry_endpoint_configured", return_value=False),
+        patch("egpt.api.agent.api.Client") as mock_client,
+    ):
+        agent = Agent()
+        from egpt.agent import _init
+
+        _init.set_telemetry(agent)
+        assert agent.telemetry is True
+
+        agent.model = MagicMock()
+        agent.run("This is a test run")
+        mock_client.assert_not_called()
+
+
 def test_create_agent_run_no_endpoint_no_post():
     """Enabled telemetry with empty api_url must not open an HTTP client."""
     with (

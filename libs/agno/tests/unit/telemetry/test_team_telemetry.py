@@ -19,6 +19,19 @@ def test_team_telemetry_default_off():
         mock_create.assert_not_called()
 
 
+def test_create_team_run_no_endpoint_no_post():
+    """Team telemetry POST is skipped when no endpoint is configured."""
+    with (
+        patch("egpt.api.team.is_telemetry_endpoint_configured", return_value=False),
+        patch("egpt.api.team.api.Client") as mock_client,
+    ):
+        from egpt.api.schemas.team import TeamRunCreate
+        from egpt.api.team import create_team_run
+
+        create_team_run(TeamRunCreate(session_id="s1", run_id="r1", data={}))
+        mock_client.assert_not_called()
+
+
 def test_team_telemetry_opt_in():
     """When telemetry=True, logging is called during sync team run."""
     agent = Agent()

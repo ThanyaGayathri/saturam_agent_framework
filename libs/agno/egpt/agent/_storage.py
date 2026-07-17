@@ -983,7 +983,7 @@ def from_dict(cls: Type[Agent], data: Dict[str, Any], registry: Optional[Registr
         # --- Debug and telemetry settings ---
         debug_mode=config.get("debug_mode", False),
         debug_level=config.get("debug_level", 1),
-        telemetry=config.get("telemetry", True),
+        telemetry=config.get("telemetry", False),
     )
 
 

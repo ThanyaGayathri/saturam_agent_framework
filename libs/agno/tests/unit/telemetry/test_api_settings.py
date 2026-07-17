@@ -27,8 +27,8 @@ def test_api_url_stg_default_empty(monkeypatch):
     assert "agno.com" not in settings.api_url
 
 
-def test_api_url_dev_localhost(monkeypatch):
-    """Dev runtime may use localhost for local tooling."""
+def test_api_url_dev_empty_without_explicit(monkeypatch):
+    """Dev runtime does not auto-fill localhost — require EGPT_API_URL."""
     monkeypatch.delenv("EGPT_API_URL", raising=False)
     monkeypatch.delenv("AGNO_API_URL", raising=False)
     monkeypatch.delenv("EGPT_RUNTIME", raising=False)
@@ -37,7 +37,8 @@ def test_api_url_dev_localhost(monkeypatch):
     from egpt.api.settings import AgnoAPISettings
 
     settings = AgnoAPISettings(api_runtime="dev", api_url="")
-    assert settings.api_url == "http://localhost:7070"
+    assert settings.api_url == ""
+    assert settings.has_telemetry_endpoint() is False
 
 
 def test_api_url_explicit_override():
@@ -46,6 +47,15 @@ def test_api_url_explicit_override():
 
     settings = AgnoAPISettings(api_runtime="prd", api_url="https://telemetry.example.com")
     assert settings.api_url == "https://telemetry.example.com"
+    assert settings.has_telemetry_endpoint() is True
+
+
+def test_api_url_explicit_dev_localhost():
+    """Dev tooling must set EGPT_API_URL explicitly (e.g. localhost)."""
+    from egpt.api.settings import AgnoAPISettings
+
+    settings = AgnoAPISettings(api_runtime="dev", api_url="http://localhost:7070")
+    assert settings.api_url == "http://localhost:7070"
     assert settings.has_telemetry_endpoint() is True
 
 
@@ -58,3 +68,5 @@ def test_no_upstream_agno_defaults_in_source():
     source = inspect.getsource(settings_mod)
     assert "os-api.agno.com" not in source
     assert "api-stg.agno.com" not in source
+    assert "localhost:7070" not in source
+    assert "host.docker.internal" not in source

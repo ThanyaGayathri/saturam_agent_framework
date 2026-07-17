@@ -23,6 +23,19 @@ def test_workflow_telemetry_default_off():
         mock_log.assert_not_called()
 
 
+def test_create_workflow_run_no_endpoint_no_post():
+    """Workflow telemetry POST is skipped when no endpoint is configured."""
+    with (
+        patch("egpt.api.workflow.is_telemetry_endpoint_configured", return_value=False),
+        patch("egpt.api.workflow.api.Client") as mock_client,
+    ):
+        from egpt.api.schemas.workflows import WorkflowRunCreate
+        from egpt.api.workflow import create_workflow_run
+
+        create_workflow_run(WorkflowRunCreate(session_id="s1", run_id="r1", data={}))
+        mock_client.assert_not_called()
+
+
 def test_workflow_telemetry_opt_in():
     """When telemetry=True, logging is called during sync workflow run."""
     workflow = Workflow(steps=[Step(executor=dummy_step)], telemetry=True)
