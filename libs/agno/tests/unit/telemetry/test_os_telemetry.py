@@ -4,6 +4,12 @@ from egpt.agent.agent import Agent
 from egpt.os import EgptOS
 
 
+def _clear_telemetry_env(monkeypatch) -> None:
+    """Clear CI/default env so constructor telemetry=True is not overridden."""
+    monkeypatch.delenv("EGPT_TELEMETRY", raising=False)
+    monkeypatch.delenv("AGNO_TELEMETRY", raising=False)
+
+
 def test_os_telemetry_default_off():
     """Telemetry is off by default; OS launch telemetry is not sent."""
     agent = Agent()
@@ -27,8 +33,9 @@ def test_log_os_telemetry_no_endpoint_no_post():
         mock_client.assert_not_called()
 
 
-def test_os_telemetry_opt_in():
+def test_os_telemetry_opt_in(monkeypatch):
     """When telemetry=True, OS launch telemetry is sent."""
+    _clear_telemetry_env(monkeypatch)
     agent = Agent()
 
     with patch("egpt.api.os.log_os_telemetry") as mock_create:

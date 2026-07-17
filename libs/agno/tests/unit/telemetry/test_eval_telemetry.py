@@ -7,6 +7,12 @@ from egpt.eval.performance import PerformanceEval
 from egpt.eval.reliability import ReliabilityEval
 
 
+def _clear_telemetry_env(monkeypatch) -> None:
+    """Clear CI/default env so constructor telemetry=True is not overridden."""
+    monkeypatch.delenv("EGPT_TELEMETRY", raising=False)
+    monkeypatch.delenv("AGNO_TELEMETRY", raising=False)
+
+
 def test_accuracy_evals_telemetry_default_off():
     """Telemetry is off by default for accuracy evals."""
     agent = Agent()
@@ -27,8 +33,9 @@ def test_accuracy_evals_telemetry_env_opt_in(monkeypatch):
     assert accuracy_eval.telemetry is True
 
 
-def test_accuracy_evals_telemetry_opt_in():
+def test_accuracy_evals_telemetry_opt_in(monkeypatch):
     """When telemetry=True, logging is called during sync accuracy eval run."""
+    _clear_telemetry_env(monkeypatch)
     agent = Agent()
     accuracy_eval = AccuracyEval(
         agent=agent, input="What is the capital of France?", expected_output="Paris", telemetry=True
@@ -61,8 +68,9 @@ def test_create_eval_run_no_endpoint_no_post():
         mock_client.assert_not_called()
 
 
-def test_performance_evals_telemetry_opt_in():
+def test_performance_evals_telemetry_opt_in(monkeypatch):
     """When telemetry=True, telemetry works for performance evaluations."""
+    _clear_telemetry_env(monkeypatch)
 
     def sample_func():
         return "test result"
@@ -79,8 +87,9 @@ def test_performance_evals_telemetry_opt_in():
         assert call_args.eval_type.value == "performance"
 
 
-def test_reliability_evals_telemetry_opt_in():
+def test_reliability_evals_telemetry_opt_in(monkeypatch):
     """When telemetry=True, telemetry works for reliability evaluations."""
+    _clear_telemetry_env(monkeypatch)
     from egpt.models.message import Message
     from egpt.run.agent import RunOutput
 
@@ -102,8 +111,9 @@ def test_reliability_evals_telemetry_opt_in():
         assert call_args.eval_type.value == "reliability"
 
 
-def test_agent_as_judge_numeric_telemetry_opt_in():
+def test_agent_as_judge_numeric_telemetry_opt_in(monkeypatch):
     """When telemetry=True, telemetry works for agent-as-judge evaluations (numeric mode)."""
+    _clear_telemetry_env(monkeypatch)
     eval = AgentAsJudgeEval(
         criteria="Response must be helpful",
         scoring_strategy="numeric",
@@ -123,8 +133,9 @@ def test_agent_as_judge_numeric_telemetry_opt_in():
         assert call_args.eval_type.value == "agent_as_judge"
 
 
-def test_agent_as_judge_binary_telemetry_opt_in():
+def test_agent_as_judge_binary_telemetry_opt_in(monkeypatch):
     """When telemetry=True, telemetry works for agent-as-judge evaluations (binary mode)."""
+    _clear_telemetry_env(monkeypatch)
     eval = AgentAsJudgeEval(
         criteria="Response must not contain personal info",
         scoring_strategy="binary",
