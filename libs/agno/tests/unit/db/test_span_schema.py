@@ -21,7 +21,7 @@ def test_sqlite_span_schema_default_traces_table():
 
     assert "trace_id" in schema
     assert "foreign_key" in schema["trace_id"]
-    assert schema["trace_id"]["foreign_key"] == "agno_traces.trace_id"
+    assert schema["trace_id"]["foreign_key"] == "egpt_traces.trace_id"
 
 
 def test_sqlite_span_schema_custom_traces_table():
@@ -85,7 +85,7 @@ def test_postgres_span_schema_default_values():
     assert "trace_id" in schema
     assert "foreign_key" in schema["trace_id"]
     # Postgres includes schema prefix
-    assert schema["trace_id"]["foreign_key"] == "agno.agno_traces.trace_id"
+    assert schema["trace_id"]["foreign_key"] == "agno.egpt_traces.trace_id"
 
 
 def test_postgres_span_schema_custom_traces_table():
@@ -99,7 +99,7 @@ def test_postgres_span_schema_custom_db_schema():
     """Test span schema uses custom database schema in foreign key."""
     schema = get_postgres_schema("spans", db_schema="custom_schema")
 
-    assert schema["trace_id"]["foreign_key"] == "custom_schema.agno_traces.trace_id"
+    assert schema["trace_id"]["foreign_key"] == "custom_schema.egpt_traces.trace_id"
 
 
 def test_postgres_span_schema_custom_both():
@@ -138,11 +138,7 @@ def test_postgres_span_schema_has_required_columns():
 def sqlite_db_default(tmp_path):
     """Create a SqliteDb instance with default table names."""
     db_file = str(tmp_path / "test.db")
-    return SqliteDb(
-        db_file=db_file,
-        traces_table="agno_traces",
-        spans_table="agno_spans",
-    )
+    return SqliteDb(db_file=db_file)
 
 
 @pytest.fixture
@@ -158,7 +154,7 @@ def sqlite_db_custom(tmp_path):
 
 def test_sqlite_default_trace_table_name(sqlite_db_default):
     """Test default traces table name is used."""
-    assert sqlite_db_default.trace_table_name == "agno_traces"
+    assert sqlite_db_default.trace_table_name == "egpt_traces"
 
 
 def test_sqlite_custom_trace_table_name(sqlite_db_custom):
@@ -172,16 +168,16 @@ def test_sqlite_create_span_table_with_default_fk(sqlite_db_default):
     sqlite_db_default._get_table(table_type="traces", create_table_if_not_found=True)
 
     # Create spans table
-    table = sqlite_db_default._create_table("agno_spans", "spans")
+    table = sqlite_db_default._create_table("egpt_spans", "spans")
 
     assert table is not None
-    assert table.name == "agno_spans"
+    assert table.name == "egpt_spans"
 
     # Verify foreign key references default traces table
     trace_id_col = table.c.trace_id
     assert len(trace_id_col.foreign_keys) == 1
     fk = list(trace_id_col.foreign_keys)[0]
-    assert "agno_traces.trace_id" in str(fk.target_fullname)
+    assert "egpt_traces.trace_id" in str(fk.target_fullname)
 
 
 def test_sqlite_create_span_table_with_custom_fk(sqlite_db_custom):
@@ -231,8 +227,6 @@ def postgres_db_default(mock_engine):
     return PostgresDb(
         db_engine=mock_engine,
         db_schema="ai",
-        traces_table="agno_traces",
-        spans_table="agno_spans",
     )
 
 
@@ -249,7 +243,7 @@ def postgres_db_custom(mock_engine):
 
 def test_postgres_default_trace_table_name(postgres_db_default):
     """Test default traces table name is used."""
-    assert postgres_db_default.trace_table_name == "agno_traces"
+    assert postgres_db_default.trace_table_name == "egpt_traces"
 
 
 def test_postgres_custom_trace_table_name(postgres_db_custom):
@@ -269,18 +263,18 @@ def test_postgres_create_span_table_with_default_fk(postgres_db_default, mock_se
     with patch.object(Table, "create"):
         with patch("egpt.db.postgres.postgres.create_schema"):
             with patch("egpt.db.postgres.postgres.is_table_available", return_value=False):
-                table = postgres_db_default._create_table("agno_spans", "spans")
+                table = postgres_db_default._create_table("egpt_spans", "spans")
 
     assert table is not None
-    assert table.name == "agno_spans"
+    assert table.name == "egpt_spans"
 
     # Verify foreign key references default traces table with schema
     trace_id_col = table.c.trace_id
     assert len(trace_id_col.foreign_keys) == 1
     fk = list(trace_id_col.foreign_keys)[0]
-    # FK should reference ai.agno_traces.trace_id
+    # FK should reference ai.egpt_traces.trace_id
     fk_target = str(fk.target_fullname)
-    assert "agno_traces" in fk_target
+    assert "egpt_traces" in fk_target
     assert "trace_id" in fk_target
 
 
@@ -310,7 +304,7 @@ def test_postgres_create_span_table_with_custom_fk(postgres_db_custom, mock_sess
 
 
 def test_sqlite_span_fk_not_hardcoded():
-    """Ensure SQLite span FK is not hardcoded to 'agno_traces'."""
+    """Ensure SQLite span FK is not hardcoded to 'egpt_traces'."""
     # Get schema with a different table name
     schema1 = get_sqlite_schema("spans", traces_table_name="table_a")
     schema2 = get_sqlite_schema("spans", traces_table_name="table_b")
@@ -322,7 +316,7 @@ def test_sqlite_span_fk_not_hardcoded():
 
 
 def test_postgres_span_fk_not_hardcoded():
-    """Ensure Postgres span FK is not hardcoded to 'agno.agno_traces'."""
+    """Ensure Postgres span FK is not hardcoded to 'agno.egpt_traces'."""
     # Get schema with different table and schema names
     schema1 = get_postgres_schema("spans", traces_table_name="table_a", db_schema="schema_a")
     schema2 = get_postgres_schema("spans", traces_table_name="table_b", db_schema="schema_b")

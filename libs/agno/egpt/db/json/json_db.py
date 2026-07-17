@@ -40,6 +40,7 @@ class JsonDb(BaseDb):
         knowledge_table: Optional[str] = None,
         traces_table: Optional[str] = None,
         spans_table: Optional[str] = None,
+        table_prefix: Optional[str] = None,
         id: Optional[str] = None,
     ):
         """
@@ -58,11 +59,12 @@ class JsonDb(BaseDb):
             id (Optional[str]): ID of the database.
         """
         if id is None:
-            seed = db_path or "agno_json_db"
+            seed = db_path or "egpt_json_db"
             id = generate_id(seed)
 
         super().__init__(
             id=id,
+            table_prefix=table_prefix,
             session_table=session_table,
             culture_table=culture_table,
             memory_table=memory_table,
@@ -74,7 +76,7 @@ class JsonDb(BaseDb):
         )
 
         # Create the directory where the JSON files will be stored, if it doesn't exist
-        self.db_path = Path(db_path or os.path.join(os.getcwd(), "agno_json_db"))
+        self.db_path = Path(db_path or os.path.join(os.getcwd(), "egpt_json_db"))
 
     def table_exists(self, table_name: str) -> bool:
         """JSON implementation, always returns True."""

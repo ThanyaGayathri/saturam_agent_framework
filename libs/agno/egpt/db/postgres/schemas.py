@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from egpt.brand import TABLE_PREFIX
+
 try:
     from sqlalchemy.dialects.postgresql import JSONB
     from sqlalchemy.types import BigInteger, Boolean, Date, Integer, String, Text
@@ -132,7 +134,7 @@ TRACE_TABLE_SCHEMA = {
 }
 
 
-def _get_span_table_schema(traces_table_name: str = "agno_traces", db_schema: str = "agno") -> dict[str, Any]:
+def _get_span_table_schema(traces_table_name: str = TABLE_PREFIX + "traces", db_schema: str = "agno") -> dict[str, Any]:
     """Get the span table schema with the correct foreign key reference.
 
     Args:
@@ -250,7 +252,7 @@ SCHEDULE_TABLE_SCHEMA = {
 
 
 def _get_schedule_runs_table_schema(
-    schedules_table_name: str = "agno_schedules", db_schema: str = "agno"
+    schedules_table_name: str = TABLE_PREFIX + "schedules", db_schema: str = "agno"
 ) -> dict[str, Any]:
     """Get the schedule runs table schema with a foreign key to the schedules table."""
     return {
@@ -344,9 +346,9 @@ SERVICE_ACCOUNT_TABLE_SCHEMA = {
 
 def get_table_schema_definition(
     table_type: str,
-    traces_table_name: str = "agno_traces",
+    traces_table_name: str = TABLE_PREFIX + "traces",
     db_schema: str = "agno",
-    schedules_table_name: str = "agno_schedules",
+    schedules_table_name: str = TABLE_PREFIX + "schedules",
 ) -> dict[str, Any]:
     """
     Get the expected schema definition for the given table.

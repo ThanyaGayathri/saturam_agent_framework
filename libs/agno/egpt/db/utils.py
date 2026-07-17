@@ -40,6 +40,9 @@ DB_TABLE_NAME_KEYS: frozenset = frozenset(
     }
 )
 
+# Serialized db keys that customize table naming (prefix and/or per-table overrides).
+DB_CONFIG_OVERRIDE_KEYS: frozenset = frozenset({"table_prefix"}) | DB_TABLE_NAME_KEYS
+
 
 def detect_session_type(record: Dict[str, Any]) -> str:
     """Detect session type from a raw session dict, inferring from component IDs if needed.
@@ -373,7 +376,7 @@ def _clone_db_with_table_overrides(
     Returns ``None`` if the source db type is not recognized, so the
     caller can decide how to fall back.
     """
-    overrides: Dict[str, Any] = {key: db_data[key] for key in DB_TABLE_NAME_KEYS if key in db_data}
+    overrides: Dict[str, Any] = {key: db_data[key] for key in DB_CONFIG_OVERRIDE_KEYS if key in db_data}
 
     try:
         from egpt.db.postgres import PostgresDb
@@ -440,7 +443,7 @@ def resolve_db_from_config(
         if registry_db is not None:
             registry_dict = registry_db.to_dict()
             has_table_overrides = any(
-                key in db_data and db_data[key] != registry_dict.get(key) for key in DB_TABLE_NAME_KEYS
+                key in db_data and db_data[key] != registry_dict.get(key) for key in DB_CONFIG_OVERRIDE_KEYS
             )
             if not has_table_overrides:
                 return registry_db

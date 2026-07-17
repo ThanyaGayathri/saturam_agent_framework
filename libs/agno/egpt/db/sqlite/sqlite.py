@@ -75,6 +75,7 @@ class SqliteDb(BaseDb):
         approvals_table: Optional[str] = None,
         auth_tokens_table: Optional[str] = None,
         service_accounts_table: Optional[str] = None,
+        table_prefix: Optional[str] = None,
         id: Optional[str] = None,
     ):
         """
@@ -116,6 +117,7 @@ class SqliteDb(BaseDb):
 
         super().__init__(
             id=id,
+            table_prefix=table_prefix,
             session_table=session_table,
             culture_table=culture_table,
             memory_table=memory_table,
@@ -177,6 +179,7 @@ class SqliteDb(BaseDb):
         return cls(
             db_file=data.get("db_file"),
             db_url=data.get("db_url"),
+            table_prefix=data.get("table_prefix"),
             session_table=data.get("session_table"),
             culture_table=data.get("culture_table"),
             memory_table=data.get("memory_table"),

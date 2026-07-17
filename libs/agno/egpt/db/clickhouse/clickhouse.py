@@ -14,7 +14,7 @@ Typical usage::
     from egpt.tracing import setup_tracing
 
     primary_db = PostgresDb(db_url="postgresql+psycopg://...")
-    traces_db = ClickhouseDb(host="localhost", port=8123, database="agno_traces")
+    traces_db = ClickhouseDb(host="localhost", port=8123, database="egpt_traces")
 
     setup_tracing(db=traces_db, batch_processing=True)
 """

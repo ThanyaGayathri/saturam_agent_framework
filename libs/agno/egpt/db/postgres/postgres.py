@@ -85,6 +85,7 @@ class PostgresDb(BaseDb):
         approvals_table: Optional[str] = None,
         auth_tokens_table: Optional[str] = None,
         service_accounts_table: Optional[str] = None,
+        table_prefix: Optional[str] = None,
         id: Optional[str] = None,
         create_schema: bool = True,
     ):
@@ -145,6 +146,7 @@ class PostgresDb(BaseDb):
 
         super().__init__(
             id=id,
+            table_prefix=table_prefix,
             session_table=session_table,
             memory_table=memory_table,
             metrics_table=metrics_table,
@@ -189,6 +191,7 @@ class PostgresDb(BaseDb):
         return cls(
             db_url=data.get("db_url"),
             db_schema=data.get("db_schema"),
+            table_prefix=data.get("table_prefix"),
             session_table=data.get("session_table"),
             culture_table=data.get("culture_table"),
             memory_table=data.get("memory_table"),

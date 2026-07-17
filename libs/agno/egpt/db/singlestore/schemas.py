@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from egpt.brand import TABLE_PREFIX
+
 try:
     from sqlalchemy.types import JSON, BigInteger, Boolean, Date, String, Text
 except ImportError:
@@ -126,7 +128,7 @@ TRACE_TABLE_SCHEMA = {
 }
 
 
-def _get_span_table_schema(traces_table_name: str = "agno_traces", db_schema: str = "agno") -> dict[str, Any]:
+def _get_span_table_schema(traces_table_name: str = TABLE_PREFIX + "traces", db_schema: str = "agno") -> dict[str, Any]:
     """Get the span table schema with the correct foreign key reference.
 
     Args:
@@ -158,7 +160,7 @@ def _get_span_table_schema(traces_table_name: str = "agno_traces", db_schema: st
 
 
 def get_table_schema_definition(
-    table_type: str, traces_table_name: str = "agno_traces", db_schema: str = "agno"
+    table_type: str, traces_table_name: str = TABLE_PREFIX + "traces", db_schema: str = "agno"
 ) -> dict[str, Any]:
     """
     Get the expected schema definition for the given table.

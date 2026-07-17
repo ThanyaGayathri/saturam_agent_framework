@@ -3,7 +3,7 @@
 Mirrors the original bug report: create a workflow through the
 Components API path with custom ``session_table`` in its db config,
 execute it, and verify the session row lands in the configured custom
-table rather than the default ``agno_sessions`` table.
+table rather than the default ``egpt_sessions`` table.
 """
 
 import asyncio
@@ -48,7 +48,7 @@ class TestWorkflowCustomSessionTable:
         + ``upsert_config``) with a db block that overrides ``session_table``
         and references os_db's id. On reload via ``get_workflow_by_id``
         through the registry-backed path, execution must write sessions
-        to the custom table, not the default ``agno_sessions``.
+        to the custom table, not the default ``egpt_sessions``.
         """
         db_path = tmp_path / "e2e.db"
         os_db = SqliteDb(db_file=str(db_path))
@@ -88,7 +88,7 @@ class TestWorkflowCustomSessionTable:
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 
         assert "custom_workflow_sessions" in tables, "custom session table was not created"
-        assert "agno_sessions" not in tables, "default session table must not be used when an override is configured"
+        assert "egpt_sessions" not in tables, "default session table must not be used when an override is configured"
 
         # Repeated loads must all share one engine (Codex P1 concern).
         seen_engines = set()

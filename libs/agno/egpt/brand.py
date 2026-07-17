@@ -6,6 +6,8 @@ PRODUCT_OS_NAME = "EgptOS"
 DEFAULT_OS_ID = "egpt-os"
 ENV_PREFIX = "EGPT"
 LEGACY_ENV_PREFIX = "AGNO"
+# Default prefix for persisted database table names (e.g. egpt_sessions).
+TABLE_PREFIX = "egpt_"
 
 __all__ = [
     "DEFAULT_OS_ID",
@@ -13,4 +15,5 @@ __all__ = [
     "LEGACY_ENV_PREFIX",
     "PRODUCT_NAME",
     "PRODUCT_OS_NAME",
+    "TABLE_PREFIX",
 ]
