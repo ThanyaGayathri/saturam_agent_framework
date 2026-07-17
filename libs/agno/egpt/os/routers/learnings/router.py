@@ -1,4 +1,4 @@
-"""Learnings API router -- CRUD over the agno_learnings table."""
+"""Learnings API router -- CRUD over the learnings table (egpt_learnings by default)."""
 
 import logging
 from typing import Optional, Union, cast
@@ -354,7 +354,7 @@ def _attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBas
         summary="Delete Learning User",
         description=(
             "Delete the learning records owned by a user. By default removes every learning type "
-            "backed by the agno_learnings table (user_profile, user_memory, and any user-scoped "
+            "backed by the learnings table (egpt_learnings by default) (user_profile, user_memory, and any user-scoped "
             "entity records); pass `learning_type` to restrict deletion to a single store. Records "
             "with no owner (`user_id IS NULL`) are not affected. For a scoped (non-admin) caller, "
             "only their own learnings may be deleted; a different `user_id` is rejected with 403. "

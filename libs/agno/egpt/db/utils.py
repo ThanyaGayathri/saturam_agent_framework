@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 from uuid import UUID
 
+from egpt.db.table_names import LEGACY_TABLE_PREFIX, TABLE_SUFFIXES
 from egpt.metrics import ModelMetrics, RunMetrics, SessionMetrics
 from egpt.models.message import Message
 from egpt.utils.log import log_error, log_warning
@@ -17,31 +18,28 @@ if TYPE_CHECKING:
 
 # Keys in a serialized db dict that correspond to table-name overrides.
 # Matches the parameters BaseDb.__init__ accepts for customizing table names.
-DB_TABLE_NAME_KEYS: frozenset = frozenset(
-    {
-        "session_table",
-        "culture_table",
-        "memory_table",
-        "metrics_table",
-        "eval_table",
-        "knowledge_table",
-        "traces_table",
-        "spans_table",
-        "versions_table",
-        "components_table",
-        "component_configs_table",
-        "component_links_table",
-        "learnings_table",
-        "schedules_table",
-        "schedule_runs_table",
-        "approvals_table",
-        "auth_tokens_table",
-        "service_accounts_table",
-    }
-)
+DB_TABLE_NAME_KEYS: frozenset = frozenset(TABLE_SUFFIXES)
 
 # Serialized db keys that customize table naming (prefix and/or per-table overrides).
 DB_CONFIG_OVERRIDE_KEYS: frozenset = frozenset({"table_prefix"}) | DB_TABLE_NAME_KEYS
+
+
+def _is_legacy_default_table_name(key: str, value: Any) -> bool:
+    """Whether a serialized table-name value is a pre-rename (agno_*) default.
+
+    One-release compatibility shim: configs stored before the egpt_ rename
+    serialized every resolved default name (agno_sessions, agno_memories, ...).
+    Those are snapshots of old defaults, not intentional user overrides, so
+    they must not be treated as explicit table-name customizations — doing so
+    would pin reloaded components to the legacy tables while the registry db
+    and new components use the current defaults (split-brain), or silently
+    discard the config on backends the cloner does not support.
+
+    Deployments that genuinely want to keep using the legacy tables should
+    set table_prefix="agno_" explicitly, which is honored as a real override.
+    """
+    suffix = TABLE_SUFFIXES.get(key)
+    return suffix is not None and value == f"{LEGACY_TABLE_PREFIX}{suffix}"
 
 
 def detect_session_type(record: Dict[str, Any]) -> str:
@@ -351,6 +349,14 @@ def db_from_dict(db_data: Dict[str, Any]) -> Optional[Union["BaseDb"]]:
         except Exception as e:
             log_error(f"Error reconstructing ClickhouseDb from dictionary: {str(e)}")
             return None
+    elif db_type == "json":
+        try:
+            from egpt.db.json import JsonDb
+
+            return JsonDb.from_dict(db_data)
+        except Exception as e:
+            log_error(f"Error reconstructing JsonDb from dictionary: {str(e)}")
+            return None
     else:
         log_warning(f"Unknown database type: {db_type}")
         return None
@@ -376,7 +382,16 @@ def _clone_db_with_table_overrides(
     Returns ``None`` if the source db type is not recognized, so the
     caller can decide how to fall back.
     """
-    overrides: Dict[str, Any] = {key: db_data[key] for key in DB_CONFIG_OVERRIDE_KEYS if key in db_data}
+    overrides: Dict[str, Any] = {
+        key: db_data[key]
+        for key in DB_CONFIG_OVERRIDE_KEYS
+        if key in db_data
+        and db_data[key] is not None
+        # Skip pre-rename default names: they are snapshots of old defaults,
+        # not user overrides, and pinning them would split reads/writes
+        # between agno_* and the current default tables.
+        and not _is_legacy_default_table_name(key, db_data[key])
+    }
 
     try:
         from egpt.db.postgres import PostgresDb
@@ -443,7 +458,16 @@ def resolve_db_from_config(
         if registry_db is not None:
             registry_dict = registry_db.to_dict()
             has_table_overrides = any(
-                key in db_data and db_data[key] != registry_dict.get(key) for key in DB_CONFIG_OVERRIDE_KEYS
+                key in db_data
+                and db_data[key] is not None
+                and db_data[key] != registry_dict.get(key)
+                # Pre-rename configs serialized the old agno_* defaults for
+                # every table; when the registry db uses its own default for
+                # that table (key not serialized), treat the legacy name as
+                # equal to the current default rather than as an explicit
+                # override (one-release shim).
+                and not (_is_legacy_default_table_name(key, db_data[key]) and registry_dict.get(key) is None)
+                for key in DB_CONFIG_OVERRIDE_KEYS
             )
             if not has_table_overrides:
                 return registry_db

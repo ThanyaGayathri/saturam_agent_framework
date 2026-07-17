@@ -88,6 +88,9 @@ class ClickhouseDb(BaseDb):
             username: ClickHouse username.
             password: ClickHouse password.
             database: ClickHouse database name. Created at startup if missing.
+                Defaults to "agno" (legacy container name, intentionally kept —
+                see egpt/db/README.md "Out of scope"); pass an explicit name
+                such as "egpt_traces" for new deployments.
             secure: Use HTTPS when True.
             client: Pre-built ``clickhouse_connect`` client. When provided the
                 connection arguments above are ignored.

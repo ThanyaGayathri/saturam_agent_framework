@@ -1240,7 +1240,7 @@ def get_agent_router(
                                 "db_id": "c6bf0644-feb8-4930-a305-380dae5ad6aa",
                                 "model": {"name": "OpenAIChat", "model": "gpt-4o", "provider": "OpenAI"},
                                 "tools": None,
-                                "sessions": {"session_table": "agno_sessions"},
+                                "sessions": {"session_table": "egpt_sessions"},
                                 "knowledge": {"knowledge_table": "main_knowledge"},
                                 "system_message": {"markdown": True, "add_datetime_to_context": True},
                             }
@@ -1345,7 +1345,7 @@ def get_agent_router(
                             "db_id": "9e064c70-6821-4840-a333-ce6230908a70",
                             "model": {"name": "OpenAIChat", "model": "gpt-4o", "provider": "OpenAI"},
                             "tools": None,
-                            "sessions": {"session_table": "agno_sessions"},
+                            "sessions": {"session_table": "egpt_sessions"},
                             "knowledge": {"knowledge_table": "main_knowledge"},
                             "system_message": {"markdown": True, "add_datetime_to_context": True},
                         }

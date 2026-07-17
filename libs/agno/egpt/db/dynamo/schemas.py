@@ -2,7 +2,7 @@
 
 from typing import Any, Dict
 
-from egpt.brand import TABLE_PREFIX
+from egpt.db.table_names import DEFAULT_TABLE_PREFIX as TABLE_PREFIX
 
 SESSION_TABLE_SCHEMA = {
     "TableName": f"{TABLE_PREFIX}sessions",
@@ -68,7 +68,7 @@ SESSION_TABLE_SCHEMA = {
 }
 
 USER_MEMORY_TABLE_SCHEMA = {
-    "TableName": f"{TABLE_PREFIX}user_memory",
+    "TableName": f"{TABLE_PREFIX}memories",
     "KeySchema": [{"AttributeName": "memory_id", "KeyType": "HASH"}],
     "AttributeDefinitions": [
         {"AttributeName": "memory_id", "AttributeType": "S"},
@@ -131,7 +131,7 @@ USER_MEMORY_TABLE_SCHEMA = {
 }
 
 EVAL_TABLE_SCHEMA = {
-    "TableName": f"{TABLE_PREFIX}eval",
+    "TableName": f"{TABLE_PREFIX}eval_runs",
     "KeySchema": [{"AttributeName": "run_id", "KeyType": "HASH"}],
     "AttributeDefinitions": [
         {"AttributeName": "run_id", "AttributeType": "S"},
@@ -257,7 +257,7 @@ METRICS_TABLE_SCHEMA = {
 }
 
 CULTURAL_KNOWLEDGE_TABLE_SCHEMA = {
-    "TableName": f"{TABLE_PREFIX}cultural_knowledge",
+    "TableName": f"{TABLE_PREFIX}culture",
     "KeySchema": [{"AttributeName": "id", "KeyType": "HASH"}],
     "AttributeDefinitions": [
         {"AttributeName": "id", "AttributeType": "S"},

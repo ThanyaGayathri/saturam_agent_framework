@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from egpt.brand import TABLE_PREFIX
+from egpt.db.table_names import DEFAULT_TABLE_PREFIX as TABLE_PREFIX
 
 try:
     from sqlalchemy.dialects.postgresql import JSONB

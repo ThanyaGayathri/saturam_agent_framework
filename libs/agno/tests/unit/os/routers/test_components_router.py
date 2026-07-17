@@ -631,8 +631,10 @@ class TestResolveDbInConfig:
         # Connection metadata is filled in from the resolved db.
         assert out["db"]["type"] == "sqlite"
         assert out["db"]["db_file"] == os_db.db_file
-        # Fields the caller didn't override inherit os_db's values.
-        assert out["db"]["knowledge_table"] == os_db.knowledge_table_name
+        # Fields the caller didn't override are not serialized (sparse dict):
+        # they re-derive from the resolved db's table_prefix on reload.
+        assert "knowledge_table" not in out["db"]
+        assert out["db"]["table_prefix"] == os_db.table_prefix
 
     def test_matching_id_rejects_caller_override_of_connection_fields(self, tmp_path):
         """Whitelist: a caller cannot redirect a referenced db by

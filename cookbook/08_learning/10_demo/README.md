@@ -12,7 +12,7 @@ A small EgptOS app that shows the learning system end to end: one agent with all
 | Entity Memories | `entity_memory` | Postgres Cluster, Marcus Lee, Northwind, Design System |
 | Decision Logs | `decision_log` | Recommendations the agent logged with reasoning |
 
-The sixth store, **Learned Knowledge**, lives in pgvector rather than the `agno_learnings` table, so it surfaces through the agent instead of a Learning page: Alice teaches the agent a Postgres upgrade rule, and the agent recalls it when Ben asks a related question in a different session. Watch for the `save_learning` and `search_learnings` tool calls in the seed output.
+The sixth store, **Learned Knowledge**, lives in pgvector rather than the `egpt_learnings` table, so it surfaces through the agent instead of a Learning page: Alice teaches the agent a Postgres upgrade rule, and the agent recalls it when Ben asks a related question in a different session. Watch for the `save_learning` and `search_learnings` tool calls in the seed output.
 
 ## Files
 
@@ -54,7 +54,7 @@ This runs the conversations through the agent. Extraction happens automatically,
 2. **Add OS** -> **Local**, connect to `http://localhost:7777`
 3. Open the **Learning** section in the sidebar
 
-Each page reads from the `agno_learnings` table through the `/learnings` REST endpoints. You can also chat with the Ops Assistant directly: it recalls what it knows about the active user and keeps learning from new conversations.
+Each page reads from the `egpt_learnings` table through the `/learnings` REST endpoints. You can also chat with the Ops Assistant directly: it recalls what it knows about the active user and keeps learning from new conversations.
 
 ## The REST API
 
@@ -70,10 +70,10 @@ Interactive docs are at `http://localhost:7777/docs`. For a client-side walkthro
 
 ## Start fresh
 
-Learnings live in the `ai.agno_learnings` table and the `ai.learning_demo_knowledge` vector table. Drop both and re-run `seed.py` to reset:
+Learnings live in the `ai.egpt_learnings` table and the `ai.learning_demo_knowledge` vector table. Drop both and re-run `seed.py` to reset:
 
 ```bash
-docker exec pgvector psql -U ai -d ai -c 'DROP TABLE IF EXISTS ai.agno_learnings, ai.learning_demo_knowledge;'
+docker exec pgvector psql -U ai -d ai -c 'DROP TABLE IF EXISTS ai.egpt_learnings, ai.learning_demo_knowledge;'
 ```
 
-Note: `agno_learnings` is shared by every cookbook example using this container, so this also clears learnings from other runs.
+Note: `egpt_learnings` is shared by every cookbook example using this container, so this also clears learnings from other runs.

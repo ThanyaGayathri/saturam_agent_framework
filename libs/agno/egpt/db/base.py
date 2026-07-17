@@ -7,11 +7,17 @@ from uuid import uuid4
 if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
-from egpt.brand import TABLE_PREFIX
 from egpt.db.schemas import UserMemory
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
+from egpt.db.table_names import (
+    DEFAULT_TABLE_PREFIX,
+    LEGACY_TABLE_PREFIX,
+    TABLE_SUFFIXES,
+    table_name_attr,
+    validate_table_prefix,
+)
 from egpt.run.base import RunStatus
 from egpt.session import Session
 
@@ -32,8 +38,9 @@ class BaseDb(ABC):
     """Base abstract class for all our Database implementations.
 
     Table names default to ``{table_prefix}<name>`` (default prefix from
-    ``egpt.brand.TABLE_PREFIX``, currently ``egpt_``). Pass explicit
-    ``session_table``, ``memory_table``, etc. to override individual tables.
+    ``egpt.db.table_names.DEFAULT_TABLE_PREFIX``, currently ``egpt_``). Pass
+    explicit ``session_table``, ``memory_table``, etc. to override individual
+    tables; pass ``table_prefix=""`` for unprefixed table names.
     """
 
     # We assume the database to be up to date with the 2.0.0 release
@@ -63,7 +70,7 @@ class BaseDb(ABC):
         id: Optional[str] = None,
     ):
         self.id = id or str(uuid4())
-        self.table_prefix = table_prefix or TABLE_PREFIX
+        self.table_prefix = validate_table_prefix(table_prefix)
         self.session_table_name = session_table or f"{self.table_prefix}sessions"
         self.culture_table_name = culture_table or f"{self.table_prefix}culture"
         self.memory_table_name = memory_table or f"{self.table_prefix}memories"
@@ -85,30 +92,22 @@ class BaseDb(ABC):
 
     def to_dict(self) -> Dict[str, Any]:
         """
-        Serialize common DB fields (table names + id). Subclasses may extend this.
+        Serialize common DB fields (id, table_prefix, and table-name overrides).
+
+        Table names equal to their prefixed default are NOT serialized: they
+        re-derive from ``table_prefix`` on reload, so editing the prefix in a
+        stored config stays meaningful and future default changes don't get
+        baked into old configs. Subclasses may extend this.
         """
-        return {
+        data: Dict[str, Any] = {
             "id": self.id,
             "table_prefix": self.table_prefix,
-            "session_table": self.session_table_name,
-            "culture_table": self.culture_table_name,
-            "memory_table": self.memory_table_name,
-            "metrics_table": self.metrics_table_name,
-            "eval_table": self.eval_table_name,
-            "knowledge_table": self.knowledge_table_name,
-            "traces_table": self.trace_table_name,
-            "spans_table": self.span_table_name,
-            "versions_table": self.versions_table_name,
-            "components_table": self.components_table_name,
-            "component_configs_table": self.component_configs_table_name,
-            "component_links_table": self.component_links_table_name,
-            "learnings_table": self.learnings_table_name,
-            "schedules_table": self.schedules_table_name,
-            "schedule_runs_table": self.schedule_runs_table_name,
-            "approvals_table": self.approvals_table_name,
-            "auth_tokens_table": self.auth_tokens_table_name,
-            "service_accounts_table": self.service_accounts_table_name,
         }
+        for param, suffix in TABLE_SUFFIXES.items():
+            value = getattr(self, table_name_attr(param), None)
+            if value is not None and value != f"{self.table_prefix}{suffix}":
+                data[param] = value
+        return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "BaseDb":
@@ -141,6 +140,37 @@ class BaseDb(ABC):
     @abstractmethod
     def table_exists(self, table_name: str) -> bool:
         raise NotImplementedError
+
+    def _warn_if_legacy_table_exists(self, table_name: str) -> None:
+        """Warn before provisioning a default-prefixed table whose pre-rename
+        (agno_*) sibling already holds data.
+
+        Existing deployments upgrading across the agno_ -> egpt_ rename are
+        not migrated automatically; without this check their data silently
+        stays behind in agno_* tables while reads/writes target fresh empty
+        egpt_* tables. Passing table_prefix="agno_" keeps using the legacy
+        tables.
+        """
+        if self.table_prefix != DEFAULT_TABLE_PREFIX or not table_name.startswith(DEFAULT_TABLE_PREFIX):
+            return
+        legacy_name = LEGACY_TABLE_PREFIX + table_name[len(DEFAULT_TABLE_PREFIX) :]
+        warned: Set[str] = getattr(self, "_legacy_tables_warned", set())
+        if legacy_name in warned:
+            return
+        try:
+            legacy_exists = self.table_exists(legacy_name)
+        except Exception:
+            return
+        if legacy_exists:
+            warned.add(legacy_name)
+            self._legacy_tables_warned = warned
+            from egpt.utils.log import log_warning
+
+            log_warning(
+                f"Creating table '{table_name}' but legacy table '{legacy_name}' already exists in this "
+                "database. Data from a pre-rename deployment is NOT migrated automatically; pass "
+                'table_prefix="agno_" to keep using the existing tables.'
+            )
 
     def _create_all_tables(self) -> None:
         """Create all tables for this database."""
@@ -1318,7 +1348,7 @@ class AsyncBaseDb(ABC):
         table_prefix: Optional[str] = None,
     ):
         self.id = id or str(uuid4())
-        self.table_prefix = table_prefix or TABLE_PREFIX
+        self.table_prefix = validate_table_prefix(table_prefix)
         self.session_table_name = session_table or f"{self.table_prefix}sessions"
         self.memory_table_name = memory_table or f"{self.table_prefix}memories"
         self.metrics_table_name = metrics_table or f"{self.table_prefix}metrics"
