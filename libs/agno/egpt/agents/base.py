@@ -32,7 +32,7 @@ class BaseExternalAgent:
 
     Structurally satisfies the AgentProtocol (egpt.agent.protocol) — any subclass
     that implements the two hooks below will automatically be compatible with
-    AgentOS routing, SSE streaming, and the agent os.
+    EgptOS routing, SSE streaming, and the agent os.
 
     Provides shared infrastructure for:
     - ID and name management
@@ -435,7 +435,7 @@ class BaseExternalAgent:
         elif isinstance(self.db, BaseDb):
             self.db.upsert_session(session)
 
-    # Run inspection (used by AgentOS /agents/{id}/runs/{run_id} for external agents)
+    # Run inspection (used by EgptOS /agents/{id}/runs/{run_id} for external agents)
 
     @staticmethod
     def _find_run_in_session(session: AgentSession, run_id: str) -> Optional[RunOutput]:

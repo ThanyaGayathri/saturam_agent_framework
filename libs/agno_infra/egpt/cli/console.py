@@ -48,8 +48,8 @@ def log_config_not_available_msg() -> None:
 
 
 def log_active_infra_not_available() -> None:
-    logger.error("Could not find an active AgentOS codebase. You can:")
-    logger.error("- Run `ag infra create` to create a new AgentOS codebase")
+    logger.error("Could not find an active EgptOS codebase. You can:")
+    logger.error("- Run `ag infra create` to create a new EgptOS codebase")
 
 
 def print_available_infra(avl_infra_list) -> None:

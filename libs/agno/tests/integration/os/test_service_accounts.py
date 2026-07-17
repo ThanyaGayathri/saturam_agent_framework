@@ -1,4 +1,4 @@
-"""Integration tests for service account (agno_pat_) authentication in AgentOS."""
+"""Integration tests for service account (agno_pat_) authentication in EgptOS."""
 
 import json
 import time
@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.middleware import JWTMiddleware
 from egpt.os.settings import AgnoAPISettings
 
@@ -53,8 +53,8 @@ def test_agent(sqlite_db):
 
 @pytest.fixture
 def jwt_client(test_agent, sqlite_db):
-    """AgentOS with a db and JWT middleware with authorization enabled."""
-    agent_os = AgentOS(agents=[test_agent], db=sqlite_db)
+    """EgptOS with a db and JWT middleware with authorization enabled."""
+    agent_os = EgptOS(agents=[test_agent], db=sqlite_db)
     app = agent_os.get_app()
     app.add_middleware(
         JWTMiddleware,
@@ -281,7 +281,7 @@ class TestInternalTokenRegression:
 
     @pytest.fixture
     def internal_client(self, test_agent, sqlite_db):
-        agent_os = AgentOS(agents=[test_agent], db=sqlite_db, internal_service_token="internal-test-token")
+        agent_os = EgptOS(agents=[test_agent], db=sqlite_db, internal_service_token="internal-test-token")
         app = agent_os.get_app()
         app.add_middleware(
             JWTMiddleware,
@@ -305,7 +305,7 @@ class TestServiceAccountsInSecurityKeyMode:
 
     @pytest.fixture
     def security_key_client(self, test_agent, sqlite_db):
-        agent_os = AgentOS(
+        agent_os = EgptOS(
             agents=[test_agent],
             db=sqlite_db,
             settings=AgnoAPISettings(os_security_key="root-security-key"),
@@ -362,7 +362,7 @@ class TestServiceAccountsOnOpenInstance:
 
     @pytest.fixture
     def open_client(self, test_agent, sqlite_db):
-        agent_os = AgentOS(agents=[test_agent], db=sqlite_db)
+        agent_os = EgptOS(agents=[test_agent], db=sqlite_db)
         return TestClient(agent_os.get_app())
 
     def test_pat_authenticates_and_attributes_on_open_instance(self, open_client, test_agent, sqlite_db):
@@ -426,13 +426,13 @@ class TestServiceAccountsOverMCP:
     """The mounted /mcp app enforces the same auth rules as REST in non-JWT modes.
 
     Router dependencies never run for mounted sub-apps, so /mcp carries its own auth
-    middleware. These tests drive the full AgentOS app end to end: mint over REST,
+    middleware. These tests drive the full EgptOS app end to end: mint over REST,
     then call the MCP endpoint.
     """
 
     @pytest.fixture
     def mcp_security_key_client(self, test_agent, sqlite_db):
-        agent_os = AgentOS(
+        agent_os = EgptOS(
             agents=[test_agent],
             db=sqlite_db,
             enable_mcp_server=True,
@@ -445,7 +445,7 @@ class TestServiceAccountsOverMCP:
 
     @pytest.fixture
     def mcp_open_client(self, test_agent, sqlite_db):
-        agent_os = AgentOS(agents=[test_agent], db=sqlite_db, enable_mcp_server=True)
+        agent_os = EgptOS(agents=[test_agent], db=sqlite_db, enable_mcp_server=True)
         with TestClient(agent_os.get_app(), base_url="http://localhost") as client:
             yield client
 
@@ -508,15 +508,15 @@ WS_SECURITY_KEY = "ws-test-security-key"
 
 @pytest.fixture
 def security_key_client(test_agent, sqlite_db):
-    """AgentOS in security-key mode (no JWT anywhere) with a db."""
-    agent_os = AgentOS(agents=[test_agent], db=sqlite_db, settings=AgnoAPISettings(os_security_key=WS_SECURITY_KEY))
+    """EgptOS in security-key mode (no JWT anywhere) with a db."""
+    agent_os = EgptOS(agents=[test_agent], db=sqlite_db, settings=AgnoAPISettings(os_security_key=WS_SECURITY_KEY))
     return TestClient(agent_os.get_app())
 
 
 @pytest.fixture
 def open_client(test_agent, sqlite_db):
-    """AgentOS with a db but no credential configured (open instance)."""
-    agent_os = AgentOS(agents=[test_agent], db=sqlite_db)
+    """EgptOS with a db but no credential configured (open instance)."""
+    agent_os = EgptOS(agents=[test_agent], db=sqlite_db)
     return TestClient(agent_os.get_app())
 
 

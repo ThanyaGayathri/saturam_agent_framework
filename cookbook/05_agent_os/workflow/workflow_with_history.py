@@ -8,7 +8,7 @@ Demonstrates workflow with history.
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.workflow.step import Step, StepInput, StepOutput
 from egpt.workflow.workflow import Workflow
 
@@ -146,7 +146,7 @@ meal_workflow = Workflow(
     num_history_runs=3,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example OS setup",
     workflows=[meal_workflow],
 )

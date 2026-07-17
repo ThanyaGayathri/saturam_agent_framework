@@ -1,17 +1,17 @@
 """
-Running Evaluations with AgentOSClient
+Running Evaluations with EgptOSClient
 
 This example demonstrates how to run and manage evaluations
-using AgentOSClient.
+using EgptOSClient.
 
 Prerequisites:
-1. Start an AgentOS server with agents
+1. Start an EgptOS server with agents
 2. Run this script: python 08_run_evals.py
 """
 
 import asyncio
 
-from egpt.client import AgentOSClient
+from egpt.client import EgptOSClient
 from egpt.db.schemas.evals import EvalType
 
 # ---------------------------------------------------------------------------
@@ -25,7 +25,7 @@ async def run_accuracy_eval():
     print("Running Accuracy Evaluation")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     # Get available agents
     config = await client.aget_config()
@@ -64,7 +64,7 @@ async def run_performance_eval():
     print("Running Performance Evaluation")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     # Get available agents
     config = await client.aget_config()
@@ -103,7 +103,7 @@ async def list_eval_runs():
     print("Listing Evaluation Runs")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     try:
         evals = await client.list_eval_runs()
@@ -125,7 +125,7 @@ async def get_eval_details():
     print("Getting Evaluation Details")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     try:
         # First list evals to get an ID
@@ -154,7 +154,7 @@ async def run_reliability_eval():
     print("Running Reliability Evaluation")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     # Get available agents
     config = await client.aget_config()

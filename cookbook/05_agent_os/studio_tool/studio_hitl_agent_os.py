@@ -1,11 +1,11 @@
-"""StudioTools + human-in-the-loop served through AgentOS.
+"""StudioTools + human-in-the-loop served through EgptOS.
 
-Same HITL studio agent as studio_hitl_agent.py, but running behind AgentOS:
-the run pauses surface through the AgentOS API and chat UI instead of the
+Same HITL studio agent as studio_hitl_agent.py, but running behind EgptOS:
+the run pauses surface through the EgptOS API and chat UI instead of the
 console. When the studio agent is missing details it pauses with a structured
 multi-select question (ask_user) or a free-text input request
 (get_user_input), and create_agent always pauses for explicit confirmation
-before anything is persisted. The AgentOS UI renders each pause and continues
+before anything is persisted. The EgptOS UI renders each pause and continues
 the run with the user's response.
 
 Try in the chat UI:
@@ -14,7 +14,7 @@ Try in the chat UI:
     - "What models and tools do we have available?"
 
 Usage:
-    # Start the AgentOS server
+    # Start the EgptOS server
     .venvs/demo/bin/python cookbook/05_agent_os/studio_tool/studio_hitl_agent_os.py
 """
 
@@ -24,7 +24,7 @@ from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.anthropic import Claude
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.registry import Registry
 from egpt.tools.calculator import CalculatorTools
 from egpt.tools.duckduckgo import DuckDuckGoTools
@@ -82,7 +82,7 @@ studio_agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="studio-hitl-agent-os",
     description="Studio agent with human-in-the-loop composition",
     agents=[studio_agent],

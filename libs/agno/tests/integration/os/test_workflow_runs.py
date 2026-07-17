@@ -1,4 +1,4 @@
-"""Integration tests for running Workflows in AgentOS."""
+"""Integration tests for running Workflows in EgptOS."""
 
 import json
 from datetime import UTC, datetime, timedelta
@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from egpt.db.base import ComponentType
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.workflow.factory import WorkflowFactory
 from egpt.workflow.step import Step
@@ -108,7 +108,7 @@ def test_create_workflow_run_with_kwargs(test_os_client, test_workflow: Workflow
             return {}
 
     # Patch deep_copy to return the same instance so our mock works
-    # (AgentOS uses create_fresh=True which calls deep_copy)
+    # (EgptOS uses create_fresh=True which calls deep_copy)
     with (
         patch.object(test_workflow, "deep_copy", return_value=test_workflow),
         patch.object(test_workflow, "arun", new_callable=AsyncMock) as mock_arun,
@@ -135,7 +135,7 @@ def test_create_workflow_run_with_kwargs(test_os_client, test_workflow: Workflow
 
 @pytest.fixture
 def factory_workflow_client(temp_storage_db_file):
-    """Create a TestClient with a workflow factory registered in AgentOS."""
+    """Create a TestClient with a workflow factory registered in EgptOS."""
     db = SqliteDb(db_file=temp_storage_db_file)
 
     def build_workflow(ctx):
@@ -154,7 +154,7 @@ def factory_workflow_client(temp_storage_db_file):
         input_schema=FactoryWorkflowInput,
     )
 
-    app = AgentOS(workflows=[workflow_factory]).get_app()
+    app = EgptOS(workflows=[workflow_factory]).get_app()
     return TestClient(app)
 
 
@@ -226,7 +226,7 @@ def websocket_factory_client(temp_storage_db_file):
             db=db,
         )
 
-    app = AgentOS(
+    app = EgptOS(
         id=os_id,
         workflows=[
             WorkflowFactory(
@@ -374,7 +374,7 @@ def test_websocket_workflow_factory_rejects_missing_scope(
 
 @pytest.fixture
 def versioned_workflow_client(temp_storage_db_file):
-    """Create a TestClient with a DB-only AgentOS containing two published workflow versions."""
+    """Create a TestClient with a DB-only EgptOS containing two published workflow versions."""
     db = SqliteDb(db_file=temp_storage_db_file)
 
     db.create_component_with_config(
@@ -390,7 +390,7 @@ def versioned_workflow_client(temp_storage_db_file):
         stage="published",
     )
 
-    agent_os = AgentOS(db=db)
+    agent_os = EgptOS(db=db)
     app = agent_os.get_app()
     return TestClient(app)
 
@@ -435,7 +435,7 @@ def test_get_workflow_nonexistent_version_returns_404(versioned_workflow_client)
 
 @pytest.fixture
 def versioned_workflow_app(temp_storage_db_file):
-    """Create a FastAPI app with a DB-only AgentOS containing two published workflow versions."""
+    """Create a FastAPI app with a DB-only EgptOS containing two published workflow versions."""
     db = SqliteDb(db_file=temp_storage_db_file)
 
     db.create_component_with_config(
@@ -451,7 +451,7 @@ def versioned_workflow_app(temp_storage_db_file):
         stage="published",
     )
 
-    agent_os = AgentOS(db=db)
+    agent_os = EgptOS(db=db)
     return agent_os.get_app()
 
 

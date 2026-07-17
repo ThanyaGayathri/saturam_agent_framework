@@ -23,7 +23,7 @@ from os import getenv
 from egpt.agent import Agent
 from egpt.db.sqlite.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.tools.websearch import WebSearchTools
 
@@ -56,10 +56,10 @@ analyst_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS — each Slack interface gets its own credentials
+# EgptOS — each Slack interface gets its own credentials
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[research_agent, analyst_agent],
     interfaces=[
         Slack(

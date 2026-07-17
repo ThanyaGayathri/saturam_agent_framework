@@ -96,14 +96,14 @@ Once the agent is running, try these commands:
 > What are the available hotels in Zurich?
 ```
 
-### 4. Run AgentOS
-To run the AgentOS:
+### 4. Run EgptOS
+To run the EgptOS:
 
 ```bash
 uv run agent_os.py
 ```
 
-Connect AgentOS Control Plane to `http://localhost:7777` and interact with the agent via the web interface.
+Connect EgptOS Control Plane to `http://localhost:7777` and interact with the agent via the web interface.
 
 ### 5. Run Workflows
 To run Hotel booking workflow:

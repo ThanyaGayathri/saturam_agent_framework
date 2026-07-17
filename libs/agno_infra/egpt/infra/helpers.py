@@ -5,12 +5,11 @@ from egpt.utilities.logging import log_debug
 
 
 def get_infra_dir_from_env() -> Optional[Path]:
-    from os import getenv
+    from egpt.constants import EGPT_INFRA_DIR
+    from egpt.utilities.branding import get_branded_env
 
-    from egpt.constants import AGNO_INFRA_DIR
-
-    log_debug(f"Reading {AGNO_INFRA_DIR} from environment variables")
-    infra_dir = getenv(AGNO_INFRA_DIR, None)
+    log_debug(f"Reading {EGPT_INFRA_DIR} from environment variables")
+    infra_dir = get_branded_env("INFRA_DIR")
     if infra_dir is not None:
         return Path(infra_dir)
     return None

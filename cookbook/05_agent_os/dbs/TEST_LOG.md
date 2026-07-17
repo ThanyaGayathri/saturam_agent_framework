@@ -6,7 +6,7 @@
 
 **Status:** PENDING
 
-**Description:** AgentOS Demo.
+**Description:** EgptOS Demo.
 
 ---
 
@@ -14,7 +14,7 @@
 
 **Status:** PENDING
 
-**Description:** Example showing how to use AgentOS with a DynamoDB database.
+**Description:** Example showing how to use EgptOS with a DynamoDB database.
 
 ---
 
@@ -22,7 +22,7 @@
 
 **Status:** PENDING
 
-**Description:** Example showing how to use AgentOS with a Firestore database.
+**Description:** Example showing how to use EgptOS with a Firestore database.
 
 ---
 
@@ -30,7 +30,7 @@
 
 **Status:** PENDING
 
-**Description:** Example showing how to use AgentOS with JSON files hosted in GCS as database.
+**Description:** Example showing how to use EgptOS with JSON files hosted in GCS as database.
 
 ---
 
@@ -38,7 +38,7 @@
 
 **Status:** PENDING
 
-**Description:** Example showing how to use AgentOS with JSON files as database.
+**Description:** Example showing how to use EgptOS with JSON files as database.
 
 ---
 
@@ -62,7 +62,7 @@
 
 **Status:** PENDING
 
-**Description:** Example showing how to use AgentOS with Neon as our database provider.
+**Description:** Example showing how to use EgptOS with Neon as our database provider.
 
 ---
 
@@ -78,7 +78,7 @@
 
 **Status:** PENDING
 
-**Description:** Example showing how to use AgentOS with Redis as database.
+**Description:** Example showing how to use EgptOS with Redis as database.
 
 ---
 
@@ -86,7 +86,7 @@
 
 **Status:** PENDING
 
-**Description:** Example showing how to use AgentOS with SingleStore as our database provider.
+**Description:** Example showing how to use EgptOS with SingleStore as our database provider.
 
 ---
 
@@ -94,7 +94,7 @@
 
 **Status:** PENDING
 
-**Description:** Example showing how to use AgentOS with a SQLite database.
+**Description:** Example showing how to use EgptOS with a SQLite database.
 
 ---
 
@@ -102,7 +102,7 @@
 
 **Status:** PENDING
 
-**Description:** Example showing how to use AgentOS with Supabase as our database provider.
+**Description:** Example showing how to use EgptOS with Supabase as our database provider.
 
 ---
 
@@ -110,6 +110,6 @@
 
 **Status:** PENDING
 
-**Description:** Example showing how to use AgentOS with SurrealDB as database.
+**Description:** Example showing how to use EgptOS with SurrealDB as database.
 
 ---

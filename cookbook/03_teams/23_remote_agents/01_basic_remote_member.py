@@ -3,17 +3,17 @@ Remote Agent as Team Member
 ===========================
 
 This cookbook demonstrates using a RemoteAgent as a team member.
-A RemoteAgent connects to an agent running on a remote AgentOS server,
+A RemoteAgent connects to an agent running on a remote EgptOS server,
 enabling distributed agent architectures.
 
 Requirements:
-    - A running AgentOS server (e.g., `python -m egpt.os --agents my_agent.py`)
+    - A running EgptOS server (e.g., `python -m egpt.os --agents my_agent.py`)
     - The remote agent must be registered on the server
 
 Key Points:
     - RemoteAgent only supports async methods (arun, aprint_response)
     - Teams with RemoteAgent members MUST use async team methods
-    - Supports both AgentOS protocol and A2A (Agent-to-Agent) protocol
+    - Supports both EgptOS protocol and A2A (Agent-to-Agent) protocol
 """
 
 import asyncio
@@ -32,10 +32,10 @@ async def main():
         instructions="You summarize information concisely in 2-3 sentences.",
     )
 
-    # 2. Create a RemoteAgent pointing to a remote AgentOS server
+    # 2. Create a RemoteAgent pointing to a remote EgptOS server
     # Replace with your actual remote server URL and agent ID
     remote_explorer = RemoteAgent(
-        base_url="http://localhost:7777",  # Your AgentOS server URL
+        base_url="http://localhost:7777",  # Your EgptOS server URL
         agent_id="explorer",  # ID of the agent on the remote server
         timeout=60.0,  # Request timeout in seconds
     )

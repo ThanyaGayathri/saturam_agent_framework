@@ -11,10 +11,11 @@ from egptctl.commands.lifecycle import down, restart, up
 from egptctl.commands.status import status
 from egptctl.commands.tokens import tokens_app
 from egptctl.console import console, print_info
+from egptctl.env import PRODUCT_OS_NAME
 
 app = typer.Typer(
     name=CLI_NAME,
-    help="The CLI for AgentOS, built for humans and coding agents.",
+    help=f"The CLI for {PRODUCT_OS_NAME}, built for humans and coding agents.",
     no_args_is_help=False,
     add_completion=False,
     pretty_exceptions_show_locals=False,
@@ -43,15 +44,15 @@ _GROUPS: List[Tuple[str, List[Tuple[str, str]]]] = [
     (
         "Get started",
         [
-            (CLI_NAME + " create <name>", "Create a new AgentOS"),
-            (CLI_NAME + " connect", "Connect your AI apps to your AgentOS using MCP"),
+            (CLI_NAME + " create <name>", f"Create a new {PRODUCT_OS_NAME}"),
+            (CLI_NAME + " connect", f"Connect your AI apps to your {PRODUCT_OS_NAME} using MCP"),
         ],
     ),
     (
         "Operate",
         [
-            (CLI_NAME + " up / down / restart", "Run your AgentOS"),
-            (CLI_NAME + " status", "Show the AgentOS and which agents are connected"),
+            (CLI_NAME + " up / down / restart", f"Run your {PRODUCT_OS_NAME}"),
+            (CLI_NAME + " status", f"Show the {PRODUCT_OS_NAME} and which agents are connected"),
         ],
     ),
     (
@@ -68,7 +69,7 @@ def render_home() -> None:
     console.print()
     console.print(Text(_BANNER, style=f"bold {ORANGE}"))
     console.print()
-    console.print(Text("The CLI for AgentOS, built for humans and agents", style="dim"))
+    console.print(Text(f"The CLI for {PRODUCT_OS_NAME}, built for humans and agents", style="dim"))
     console.print()
 
     grid = Table.grid(padding=(0, 3))

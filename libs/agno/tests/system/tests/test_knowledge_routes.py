@@ -1,5 +1,5 @@
 """
-System Tests for AgentOS Knowledge Routes.
+System Tests for EgptOS Knowledge Routes.
 
 Run with: pytest test_knowledge_routes.py -v --tb=short
 """
@@ -50,7 +50,7 @@ class TestLocalKnowledgeRoutes:
 
     DB_ID = "gateway-db"
     CONTENT_NAME = "Local Test Document"
-    CONTENT_TEXT = "This is local test content about AgentOS framework. It covers system testing, integration patterns, best practices for agent development, and Python programming."
+    CONTENT_TEXT = "This is local test content about EgptOS framework. It covers system testing, integration patterns, best practices for agent development, and Python programming."
 
     @pytest.fixture(scope="class", autouse=True)
     def setup_knowledge_content(self, client: httpx.Client) -> dict:
@@ -166,7 +166,7 @@ class TestLocalKnowledgeRoutes:
         response = client.post(
             "/knowledge/search",
             json={
-                "query": "AgentOS framework testing",
+                "query": "EgptOS framework testing",
                 "max_results": 10,
                 "db_id": self.DB_ID,
             },

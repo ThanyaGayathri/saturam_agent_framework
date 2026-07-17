@@ -1,8 +1,8 @@
 """
-AgentOS Docling Markdown Analyst
+EgptOS Docling Markdown Analyst
 ========================
 
-Demonstrates AgentOS markdown analyst using Docling reader.
+Demonstrates EgptOS markdown analyst using Docling reader.
 """
 
 from pathlib import Path
@@ -12,7 +12,7 @@ from egpt.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader.docling_reader import DoclingReader
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------
@@ -46,8 +46,8 @@ docling_agent = Agent(
     ],
 )
 
-# Create AgentOS app
-agent_os = AgentOS(
+# Create EgptOS app
+agent_os = EgptOS(
     description="Docling Knowledge API - Query markdowns via REST",
     agents=[docling_agent],
 )
@@ -70,7 +70,7 @@ if __name__ == "__main__":
             skip_if_exists=True,
         )
 
-    print("\nStarting AgentOS server...")
+    print("\nStarting EgptOS server...")
     print("Test at: http://localhost:7777/")
     print("\nExample queries:")
     print("  - What is the difference between a cappuccino and a latte?")

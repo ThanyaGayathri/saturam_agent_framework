@@ -4,22 +4,22 @@ from typing import List, Optional
 from egpt.base.resources import InfraResources
 from egpt.cli.config import AgnoCliConfig
 from egpt.cli.console import print_heading, print_info
-from egpt.cli.settings import AGNO_CLI_CONFIG_DIR
+from egpt.cli.settings import BRANDED_CLI_CONFIG_DIR, migrate_legacy_cli_config
 from egpt.utilities.logging import logger
 
 
 def delete_agno_config() -> None:
     from egpt.utilities.filesystem import delete_from_fs
 
-    logger.debug("Removing existing Agno configuration")
-    delete_from_fs(AGNO_CLI_CONFIG_DIR)
+    logger.debug("Removing existing EGPT configuration")
+    delete_from_fs(BRANDED_CLI_CONFIG_DIR)
 
 
 def initialize_agno_cli(reset: bool = False) -> Optional[AgnoCliConfig]:
     """Initialize Agno CLI config.
 
     Steps:
-    1. Check if AGNO_CLI_CONFIG_DIR exists, if not, create it. If reset == True, recreate AGNO_CLI_CONFIG_DIR.
+    1. Check if BRANDED_CLI_CONFIG_DIR exists, if not, create it. If reset == True, recreate BRANDED_CLI_CONFIG_DIR.
     2. If AgnoCliConfig exists and auth is valid, returns AgnoCliConfig.
     """
     from egpt.utilities.filesystem import delete_from_fs
@@ -30,23 +30,23 @@ def initialize_agno_cli(reset: bool = False) -> Optional[AgnoCliConfig]:
 
     logger.debug("Initializing Agno")
 
-    # Check if ~/.config/ag exists, if it is not a dir - delete it and create the directory
-    if AGNO_CLI_CONFIG_DIR.exists():
-        logger.debug(f"{AGNO_CLI_CONFIG_DIR} exists")
-        if not AGNO_CLI_CONFIG_DIR.is_dir():
+    # One-time copy from ~/.config/ag when branded config is absent, then resolve.
+    active_config_dir = migrate_legacy_cli_config()
+    if active_config_dir.exists():
+        logger.debug(f"{active_config_dir} exists")
+        if not active_config_dir.is_dir():
             try:
-                delete_from_fs(AGNO_CLI_CONFIG_DIR)
+                delete_from_fs(active_config_dir)
             except Exception as e:
                 logger.exception(e)
-                raise Exception(f"Something went wrong, please delete {AGNO_CLI_CONFIG_DIR} and run again")
-            AGNO_CLI_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+                raise Exception(f"Something went wrong, please delete {active_config_dir} and run again")
+            active_config_dir.mkdir(parents=True, exist_ok=True)
     else:
-        AGNO_CLI_CONFIG_DIR.mkdir(parents=True)
-        logger.debug(f"Created {AGNO_CLI_CONFIG_DIR}")
+        active_config_dir.mkdir(parents=True)
+        logger.debug(f"Created {active_config_dir}")
 
-    # Confirm AGNO_CLI_CONFIG_DIR exists otherwise we should return
-    if AGNO_CLI_CONFIG_DIR.exists():
-        logger.debug(f"Agno config location: {AGNO_CLI_CONFIG_DIR}")
+    if active_config_dir.exists():
+        logger.debug(f"EGPT config location: {active_config_dir}")
     else:
         raise Exception("Something went wrong, please try again")
 

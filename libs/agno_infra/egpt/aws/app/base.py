@@ -181,18 +181,24 @@ class AwsApp(InfraApp):
         from egpt.constants import (
             AGNO_INFRA_ROOT,
             AGNO_RUNTIME_ENV_VAR,
+            EGPT_INFRA_ROOT,
+            EGPT_RUNTIME_ENV_VAR,
             PYTHONPATH_ENV_VAR,
             REQUIREMENTS_FILE_PATH_ENV_VAR,
         )
 
         # Container Environment
+        # Dual-write EGPT_* and AGNO_* for the deprecation window so released
+        # packages inside the image that still read AGNO_* keep working.
         container_env: Dict[str, str] = self.container_env or {}
         container_env.update(
             {
                 "INSTALL_REQUIREMENTS": str(self.install_requirements),
                 "PRINT_ENV_ON_LOAD": str(self.print_env_on_load),
+                EGPT_RUNTIME_ENV_VAR: "ecs",
                 AGNO_RUNTIME_ENV_VAR: "ecs",
                 REQUIREMENTS_FILE_PATH_ENV_VAR: container_context.requirements_file or "",
+                EGPT_INFRA_ROOT: container_context.infra_root or "",
                 AGNO_INFRA_ROOT: container_context.infra_root or "",
             }
         )

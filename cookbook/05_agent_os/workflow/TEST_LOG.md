@@ -6,7 +6,7 @@
 
 **Status:** PENDING
 
-**Description:** Example demonstrating how to add a Workflow using a WorkflowAgent to your AgentOS.
+**Description:** Example demonstrating how to add a Workflow using a WorkflowAgent to your EgptOS.
 
 ---
 

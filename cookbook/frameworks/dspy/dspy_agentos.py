@@ -1,11 +1,11 @@
 """
-DSPy on AgentOS
+DSPy on EgptOS
 ===============
-Serve a DSPy program through AgentOS -- the same runtime used for native Agno agents.
+Serve a DSPy program through EgptOS -- the same runtime used for native Agno agents.
 
 The agent is available at the standard /agents/{agent_id}/runs endpoint,
 supports streaming (SSE) and non-streaming responses, and appears in
-the AgentOS UI alongside any native agents.
+the EgptOS UI alongside any native agents.
 
 Requirements:
     pip install dspy
@@ -31,7 +31,7 @@ Then call the API:
 
 import dspy
 from egpt.agents.dspy import DSPyAgent
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 # ---------------------------------------------------------------------------
 # Configure DSPy LM (must be set on the main thread)
@@ -43,16 +43,16 @@ dspy.configure(lm=dspy.LM("openai/gpt-5.4"))
 # ---------------------------------------------------------------------------
 dspy_agent = DSPyAgent(
     name="DSPy Assistant",
-    description="A DSPy-powered assistant served through AgentOS",
+    description="A DSPy-powered assistant served through EgptOS",
     program=dspy.ChainOfThought("question -> answer"),
 )
 
 # ---------------------------------------------------------------------------
-# Setup AgentOS
+# Setup EgptOS
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
+agent_os = EgptOS(
     name="DSPy Agent Example",
-    description="AgentOS serving a DSPy agent",
+    description="EgptOS serving a DSPy agent",
     agents=[dspy_agent],
 )
 app = agent_os.get_app()

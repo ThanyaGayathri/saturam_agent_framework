@@ -25,7 +25,7 @@ A progression from a single agent to a deployable research app:
 | [`06_research_team.py`](./06_research_team.py) | A Team of Parallel-backed agents |
 | [`07_research_workflow.py`](./07_research_workflow.py) | A deterministic gather-then-synthesize pipeline |
 | [`08_competitive_intel_monitor.py`](./08_competitive_intel_monitor.py) | Monitor API as a standing intelligence desk |
-| [`09_agent_os_app.py`](./09_agent_os_app.py) | Deploy a research agent as an AgentOS app |
+| [`09_agent_os_app.py`](./09_agent_os_app.py) | Deploy a research agent as an EgptOS app |
 
 > Looking for the tool-by-tool reference (one example per API and use case)?
 > See [`cookbook/91_tools/parallel`](../../91_tools/parallel/).

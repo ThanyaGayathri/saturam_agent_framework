@@ -1,6 +1,6 @@
 """Server-side example for the learnings REST endpoints.
 
-This sets up an AgentOS instance with a learning-enabled agent so that you can
+This sets up an EgptOS instance with a learning-enabled agent so that you can
 exercise the /learnings CRUD endpoints from a client (see rest_api_learnings.py).
 
 Run with:
@@ -13,7 +13,7 @@ from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.learn import LearningMachine
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 db = SqliteDb(id="learnings-os-demo", db_file="tmp/learnings_os_demo.db")
 
@@ -33,15 +33,15 @@ assistant = Agent(
     learning=learning,
 )
 
-agent_os = AgentOS(
-    description="AgentOS exposing the /learnings CRUD endpoints",
+agent_os = EgptOS(
+    description="EgptOS exposing the /learnings CRUD endpoints",
     agents=[assistant],
 )
 app = agent_os.get_app()
 
 
 if __name__ == "__main__":
-    """Run the AgentOS.
+    """Run the EgptOS.
 
     The learnings endpoints will be available at:
       GET    /learnings

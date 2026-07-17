@@ -1,8 +1,8 @@
 # Agno Demo
 
-A demo AgentOS built from wiki agents. Ingest URLs, images, voice memos, or PDFs. Store them as clean, linked pages across three backends: local markdown files, a git repo, or Notion.
+A demo EgptOS built from wiki agents. Ingest URLs, images, voice memos, or PDFs. Store them as clean, linked pages across three backends: local markdown files, a git repo, or Notion.
 
-Built on AgentOS with SQLite-backed sessions. The codebase is small enough to grok in an afternoon, and stable enough to build on.
+Built on EgptOS with SQLite-backed sessions. The codebase is small enough to grok in an afternoon, and stable enough to build on.
 
 > For a production version of this demo, see the [agent-platform-railway](https://github.com/agno-agi/agent-platform-railway) codebase.
 
@@ -53,7 +53,7 @@ fastapi dev cookbook/01_demo/run.py
 Then open [os.agno.com](https://os.agno.com) and sign in:
 
 1. **Add OS** → **Local**
-2. Connect to `http://localhost:8000`, call it Local AgentOS
+2. Connect to `http://localhost:8000`, call it Local EgptOS
 3. Chat with your agents
 
 ## Enable the other wiki backends
@@ -122,11 +122,11 @@ python -m evals -v
 python -m evals --case <name>
 ```
 
-Each case runs one agent once, then checks the response with `AgentAsJudgeEval` (an LLM rubric with a binary pass or fail) and optionally `ReliabilityEval` (a tool-call assertion). Results log to SQLite. Connect AgentOS at os.agno.com to see history.
+Each case runs one agent once, then checks the response with `AgentAsJudgeEval` (an LLM rubric with a binary pass or fail) and optionally `ReliabilityEval` (a tool-call assertion). Results log to SQLite. Connect EgptOS at os.agno.com to see history.
 
 ## Extending
 
-To add an agent: drop a file in `agents/`, register it in the `AgentOS(agents=[...])` list in `run.py`, add quick prompts to `config.yaml`, and restart. Add eval cases in `evals/cases.py` once it's stable.
+To add an agent: drop a file in `agents/`, register it in the `EgptOS(agents=[...])` list in `run.py`, add quick prompts to `config.yaml`, and restart. Add eval cases in `evals/cases.py` once it's stable.
 
 ## Regenerating requirements
 

@@ -14,7 +14,7 @@ Prerequisites:
     # Start postgres: ./cookbook/scripts/run_pgvector.sh
 
 Usage:
-    # Terminal 1: Start the AgentOS server
+    # Terminal 1: Start the EgptOS server
     python cookbook/05_agent_os/scheduler/scheduler_tools_agent.py serve
 
     # Terminal 2: Talk to the agent
@@ -68,10 +68,10 @@ scheduler_agent = Agent(
 
 
 def serve():
-    """Start the AgentOS server with the scheduler enabled."""
-    from egpt.os import AgentOS
+    """Start the EgptOS server with the scheduler enabled."""
+    from egpt.os import EgptOS
 
-    app = AgentOS(
+    app = EgptOS(
         agents=[scheduler_agent],
         db=db,
         scheduler=True,

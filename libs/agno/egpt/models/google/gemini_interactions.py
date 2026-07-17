@@ -873,7 +873,7 @@ class GeminiInteractions(Model):
             elif isinstance(step, _CALL_STEP_TYPES) and self.agent is not None:
                 # Agent path: every call/result pair is already executed by the
                 # autonomous loop (Antigravity sandbox, Deep Research). Record
-                # each as a ToolExecution so the run_response/AgentOS UI shows
+                # each as a ToolExecution so the run_response/EgptOS UI shows
                 # the same tool history we'd see for client-executed tools,
                 # without sending function_result back (the API would 400).
                 #

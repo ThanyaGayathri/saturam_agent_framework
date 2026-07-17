@@ -1,4 +1,4 @@
-"""Schemas related to the AgentOS configuration"""
+"""Schemas related to the EgptOS configuration"""
 
 from typing import Any, Callable, Dict, Generic, List, Literal, Optional, Set, TypeVar
 
@@ -16,9 +16,9 @@ MCPBuiltinTag = Literal["core", "session"]
 
 
 class MCPServerConfig(BaseModel):
-    """Configuration for the AgentOS MCP server (served at ``/mcp``).
+    """Configuration for the EgptOS MCP server (served at ``/mcp``).
 
-    Pair this with ``AgentOS(enable_mcp_server=True, mcp_config=...)`` to register
+    Pair this with ``EgptOS(enable_mcp_server=True, mcp_config=...)`` to register
     your own tools, scope the built-in tools, gate the server, and add middleware.
     With no ``mcp_config`` provided the MCP server behaves exactly as before: all
     built-in tools are registered and no extra gate or middleware is added.
@@ -40,7 +40,7 @@ class MCPServerConfig(BaseModel):
     # (name/description inferred from ``__name__``/docstring) or an Agno tool/``Function``
     # (name/description taken from the tool, entrypoint used as the callable).
     #
-    # Identity: a custom tool may declare a ``user_id`` parameter. AgentOS fills it with
+    # Identity: a custom tool may declare a ``user_id`` parameter. EgptOS fills it with
     # the authenticated caller's id (the JWT subject) and hides it from the client-facing
     # schema, so clients cannot spoof it. Tools that need the full request can declare a
     # FastMCP ``Context`` parameter, which FastMCP injects natively.
@@ -72,7 +72,7 @@ class MCPServerConfig(BaseModel):
     # to allow the request and False to reject it with 401 -- before any tool or model runs.
     # Runs after JWT verification.
     #
-    # ``user_id`` is the verified JWT subject when ``AgentOS(authorization=True, ...)`` is set,
+    # ``user_id`` is the verified JWT subject when ``EgptOS(authorization=True, ...)`` is set,
     # and ``None`` otherwise -- including local dev where no JWT layer is configured. ``authorize``
     # is therefore the only thing standing between an unauthenticated caller and the MCP surface
     # in that mode; you MUST decide what ``None`` means for your app. Common choices: ``return
@@ -84,7 +84,7 @@ class MCPServerConfig(BaseModel):
     authorize: Optional[Callable[[Optional[str]], bool]] = None
 
     # Built-in DNS-rebinding protection. When ``allowed_hosts`` is set (even to an empty list),
-    # AgentOS validates the request Host -- and the Origin when one is present -- against these
+    # EgptOS validates the request Host -- and the Origin when one is present -- against these
     # values plus localhost defaults, rejecting anything else with 400. This is what an always-on
     # local MCP server needs so a malicious web page can't drive it via a rebound DNS name; you
     # list only your deploy/tunnel host, localhost works out of the box. Left as None (default),
@@ -127,7 +127,7 @@ class AuthorizationConfig(BaseModel):
     verify_audience: Optional[bool] = None
     audience: Optional[str] = None
     admin_scope: Optional[str] = None
-    # Opt-in per-user data isolation. When True, AgentOS:
+    # Opt-in per-user data isolation. When True, EgptOS:
     #   - threads the JWT sub as ``user_id`` on every user-scoped DB read
     #     (sessions, memory, traces) for non-admin callers
     #   - coerces ``user_id`` on writes (sessions / memories / traces) so a
@@ -140,19 +140,19 @@ class AuthorizationConfig(BaseModel):
 
 
 class EvalsDomainConfig(BaseModel):
-    """Configuration for the Evals domain of the AgentOS"""
+    """Configuration for the Evals domain of the EgptOS"""
 
     display_name: Optional[str] = None
 
 
 class SessionDomainConfig(BaseModel):
-    """Configuration for the Session domain of the AgentOS"""
+    """Configuration for the Session domain of the EgptOS"""
 
     display_name: Optional[str] = None
 
 
 class KnowledgeDomainConfig(BaseModel):
-    """Configuration for the Knowledge domain of the AgentOS"""
+    """Configuration for the Knowledge domain of the EgptOS"""
 
     display_name: Optional[str] = None
 
@@ -168,25 +168,25 @@ class KnowledgeInstanceConfig(BaseModel):
 
 
 class MetricsDomainConfig(BaseModel):
-    """Configuration for the Metrics domain of the AgentOS"""
+    """Configuration for the Metrics domain of the EgptOS"""
 
     display_name: Optional[str] = None
 
 
 class MemoryDomainConfig(BaseModel):
-    """Configuration for the Memory domain of the AgentOS"""
+    """Configuration for the Memory domain of the EgptOS"""
 
     display_name: Optional[str] = None
 
 
 class LearningDomainConfig(BaseModel):
-    """Configuration for the Learning domain of the AgentOS"""
+    """Configuration for the Learning domain of the EgptOS"""
 
     display_name: Optional[str] = None
 
 
 class TracesDomainConfig(BaseModel):
-    """Configuration for the Traces domain of the AgentOS"""
+    """Configuration for the Traces domain of the EgptOS"""
 
     display_name: Optional[str] = None
 
@@ -203,25 +203,25 @@ class DatabaseConfig(BaseModel, Generic[DomainConfigType]):
 
 
 class EvalsConfig(EvalsDomainConfig):
-    """Configuration for the Evals domain of the AgentOS"""
+    """Configuration for the Evals domain of the EgptOS"""
 
     dbs: Optional[List[DatabaseConfig[EvalsDomainConfig]]] = None
 
 
 class SessionConfig(SessionDomainConfig):
-    """Configuration for the Session domain of the AgentOS"""
+    """Configuration for the Session domain of the EgptOS"""
 
     dbs: Optional[List[DatabaseConfig[SessionDomainConfig]]] = None
 
 
 class MemoryConfig(MemoryDomainConfig):
-    """Configuration for the Memory domain of the AgentOS"""
+    """Configuration for the Memory domain of the EgptOS"""
 
     dbs: Optional[List[DatabaseConfig[MemoryDomainConfig]]] = None
 
 
 class LearningConfig(LearningDomainConfig):
-    """Configuration for the Learning domain of the AgentOS"""
+    """Configuration for the Learning domain of the EgptOS"""
 
     dbs: Optional[List[DatabaseConfig[LearningDomainConfig]]] = None
 
@@ -235,26 +235,26 @@ class KnowledgeDatabaseConfig(BaseModel):
 
 
 class KnowledgeConfig(KnowledgeDomainConfig):
-    """Configuration for the Knowledge domain of the AgentOS"""
+    """Configuration for the Knowledge domain of the EgptOS"""
 
     dbs: Optional[List[KnowledgeDatabaseConfig]] = None
     knowledge_instances: Optional[List[KnowledgeInstanceConfig]] = None
 
 
 class MetricsConfig(MetricsDomainConfig):
-    """Configuration for the Metrics domain of the AgentOS"""
+    """Configuration for the Metrics domain of the EgptOS"""
 
     dbs: Optional[List[DatabaseConfig[MetricsDomainConfig]]] = None
 
 
 class TracesConfig(TracesDomainConfig):
-    """Configuration for the Traces domain of the AgentOS"""
+    """Configuration for the Traces domain of the EgptOS"""
 
     dbs: Optional[List[DatabaseConfig[TracesDomainConfig]]] = None
 
 
 class ChatConfig(BaseModel):
-    """Configuration for the Chat page of the AgentOS"""
+    """Configuration for the Chat page of the EgptOS"""
 
     quick_prompts: dict[str, list[str]]
 
@@ -262,7 +262,7 @@ class ChatConfig(BaseModel):
 class Manifest(BaseModel):
     """OS-level UI metadata for an agent/team/workflow.
 
-    Fields here are AgentOS UI metadata only. ``description`` is unrelated to
+    Fields here are EgptOS UI metadata only. ``description`` is unrelated to
     ``Agent.description`` / ``Team.description`` / ``Workflow.description``,
     which are sent to the model.
 
@@ -276,8 +276,8 @@ class Manifest(BaseModel):
     quick_prompts: Optional[List[str]] = None
 
 
-class AgentOSConfig(BaseModel):
-    """General configuration for an AgentOS instance"""
+class EgptOSConfig(BaseModel):
+    """General configuration for an EgptOS instance"""
 
     available_models: Optional[List[str]] = None
     chat: Optional[ChatConfig] = None
@@ -292,3 +292,27 @@ class AgentOSConfig(BaseModel):
     session: Optional[SessionConfig] = None
     metrics: Optional[MetricsConfig] = None
     traces: Optional[TracesConfig] = None
+
+
+_warned_agentos_config = False
+
+
+def __getattr__(name: str):
+    """Provide deprecated AgentOSConfig alias."""
+    global _warned_agentos_config
+    import warnings
+
+    if name == "AgentOSConfig":
+        if not _warned_agentos_config:
+            _warned_agentos_config = True
+            warnings.warn(
+                "AgentOSConfig is deprecated; use EgptOSConfig instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+        return EgptOSConfig
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(list(globals().keys()) + ["AgentOSConfig"])

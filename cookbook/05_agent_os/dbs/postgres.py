@@ -2,13 +2,13 @@
 Postgres Database Backend
 =========================
 
-Demonstrates AgentOS with PostgreSQL storage using both sync and async setups.
+Demonstrates EgptOS with PostgreSQL storage using both sync and async setups.
 """
 
 from egpt.agent import Agent
 from egpt.db.postgres import AsyncPostgresDb, PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
@@ -23,7 +23,7 @@ sync_db = PostgresDb(
 async_db = AsyncPostgresDb(db_url="postgresql+psycopg_async://ai:ai@localhost:5532/ai")
 
 # ---------------------------------------------------------------------------
-# Create Sync Agent, Team, And AgentOS
+# Create Sync Agent, Team, And EgptOS
 # ---------------------------------------------------------------------------
 sync_agent = Agent(
     db=sync_db,
@@ -44,14 +44,14 @@ sync_team = Team(
     num_history_runs=3,
 )
 
-sync_agent_os = AgentOS(
+sync_agent_os = EgptOS(
     description="Example OS setup",
     agents=[sync_agent],
     teams=[sync_team],
 )
 
 # ---------------------------------------------------------------------------
-# Create Async Agent, Team, Workflow, And AgentOS
+# Create Async Agent, Team, Workflow, And EgptOS
 # ---------------------------------------------------------------------------
 async_agent = Agent(
     name="Basic Agent",
@@ -89,7 +89,7 @@ async_workflow = Workflow(
     ],
 )
 
-async_agent_os = AgentOS(
+async_agent_os = EgptOS(
     description="Example OS setup",
     agents=[async_agent],
     teams=[async_team],
@@ -97,7 +97,7 @@ async_agent_os = AgentOS(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS App
+# Create EgptOS App
 # ---------------------------------------------------------------------------
 # Default to the sync setup. Switch to async_agent_os to run the async variant.
 agent_os = sync_agent_os

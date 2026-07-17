@@ -1,10 +1,10 @@
-"""Example showing how to use AgentOS with a SQLite database"""
+"""Example showing how to use EgptOS with a SQLite database"""
 
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.eval.accuracy import AccuracyEval
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ evaluation = AccuracyEval(
 )
 # evaluation.run(print_results=True)
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example OS setup",
     agents=[basic_agent],
     teams=[team_agent],

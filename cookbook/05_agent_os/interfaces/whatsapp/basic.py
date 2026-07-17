@@ -8,7 +8,7 @@ Demonstrates basic.
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 
 # ---------------------------------------------------------------------------
@@ -33,8 +33,8 @@ basic_agent = Agent(
 )
 
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     agents=[basic_agent],
     interfaces=[Whatsapp(agent=basic_agent)],
 )

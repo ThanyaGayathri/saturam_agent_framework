@@ -1,6 +1,6 @@
 """Integration tests for per-request isolation feature.
 
-Per-request isolation is the default behavior in AgentOS. Each request
+Per-request isolation is the default behavior in EgptOS. Each request
 gets a fresh instance of the agent/team/workflow to prevent state
 contamination between concurrent requests.
 """
@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.team import Team
 from egpt.workflow import Workflow
 from egpt.workflow.step import Step
@@ -71,16 +71,16 @@ def test_workflow():
 
 
 # ============================================================================
-# Basic AgentOS Per-Request Isolation Tests
+# Basic EgptOS Per-Request Isolation Tests
 # ============================================================================
 
 
 class TestAgentOSPerRequestIsolation:
-    """Tests for AgentOS with per-request isolation (default behavior)."""
+    """Tests for EgptOS with per-request isolation (default behavior)."""
 
     def test_agent_run_creates_fresh_instance(self, test_agent):
         """Each request should use a fresh agent instance."""
-        os = AgentOS(agents=[test_agent])
+        os = EgptOS(agents=[test_agent])
         app = os.get_app()
         client = TestClient(app)
 
@@ -119,7 +119,7 @@ class TestMetadataIsolation:
     def test_metadata_not_shared_between_requests(self, test_agent):
         """Metadata changes in one request should not affect others."""
         test_agent.metadata = {"initial": "value"}
-        os = AgentOS(agents=[test_agent])
+        os = EgptOS(agents=[test_agent])
         app = os.get_app()
         client = TestClient(app)
 
@@ -142,7 +142,7 @@ class TestMetadataIsolation:
 
     def test_metadata_mutation_during_request_isolated(self, test_agent_with_metadata):
         """Metadata mutated during a request should not leak to other requests."""
-        os = AgentOS(agents=[test_agent_with_metadata])
+        os = EgptOS(agents=[test_agent_with_metadata])
         app = os.get_app()
         client = TestClient(app)
 
@@ -189,7 +189,7 @@ class TestTeamIsolation:
 
     def test_team_creates_fresh_instance(self, test_team):
         """Each request should use a fresh team instance."""
-        os = AgentOS(teams=[test_team])
+        os = EgptOS(teams=[test_team])
         app = os.get_app()
         client = TestClient(app)
 
@@ -221,7 +221,7 @@ class TestTeamIsolation:
             members=[member],
             model=OpenAIChat(id="gpt-4o-mini"),
         )
-        os = AgentOS(teams=[team])
+        os = EgptOS(teams=[team])
         app = os.get_app()
         client = TestClient(app)
 
@@ -253,7 +253,7 @@ class TestWorkflowIsolation:
 
     def test_workflow_agent_step_isolated(self, test_workflow):
         """Agents inside workflow steps should be isolated."""
-        os = AgentOS(workflows=[test_workflow])
+        os = EgptOS(workflows=[test_workflow])
         app = os.get_app()
         client = TestClient(app)
 
@@ -290,7 +290,7 @@ class TestConcurrentRequestIsolation:
 
     def test_concurrent_agent_requests_isolated(self, test_agent_with_metadata):
         """Concurrent requests should not interfere with each other."""
-        os = AgentOS(agents=[test_agent_with_metadata])
+        os = EgptOS(agents=[test_agent_with_metadata])
         app = os.get_app()
 
         results: List[Dict[str, Any]] = []
@@ -1908,7 +1908,7 @@ class TestCustomExecutorWithInternalAgentTeam:
         assert execution_teams[0].members[0] is not execution_teams[1].members[0]
 
     def test_integration_workflow_with_agent_run_in_agentos(self):
-        """Integration test: Workflow with function that calls agent inside AgentOS."""
+        """Integration test: Workflow with function that calls agent inside EgptOS."""
         from egpt.workflow.types import StepInput, StepOutput
 
         # Shared agent via closure (demonstrating the problem)
@@ -1930,7 +1930,7 @@ class TestCustomExecutorWithInternalAgentTeam:
             steps=[Step(name="shared-step", executor=executor_using_shared_agent)],
         )
 
-        os = AgentOS(workflows=[workflow])
+        os = EgptOS(workflows=[workflow])
         app = os.get_app()
         client = TestClient(app)
 
@@ -1963,7 +1963,7 @@ class TestCustomExecutorWithInternalAgentTeam:
         # This test documents this behavior.
 
     def test_integration_safe_workflow_with_agent_factory(self):
-        """Integration test: Safe workflow pattern with agent factory inside AgentOS."""
+        """Integration test: Safe workflow pattern with agent factory inside EgptOS."""
         from egpt.workflow.types import StepInput, StepOutput
 
         agent_instances_created: List[str] = []
@@ -1985,7 +1985,7 @@ class TestCustomExecutorWithInternalAgentTeam:
             steps=[Step(name="safe-factory-step", executor=safe_executor_factory)],
         )
 
-        os = AgentOS(workflows=[workflow])
+        os = EgptOS(workflows=[workflow])
         app = os.get_app()
         client = TestClient(app)
 

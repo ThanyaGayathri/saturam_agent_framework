@@ -22,7 +22,7 @@
 
 **Status:** PENDING
 
-**Description:** SurrealDB + AgentOS demo.
+**Description:** SurrealDB + EgptOS demo.
 
 ---
 

@@ -1,7 +1,7 @@
 """
 This example demonstrates how to use our JWT middleware with your custom FastAPI app.
 
-# Note: This example won't work with the AgentOS UI, because of the token validation mechanism in the JWT middleware.
+# Note: This example won't work with the EgptOS UI, because of the token validation mechanism in the JWT middleware.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -10,7 +10,7 @@ import jwt
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.middleware import JWTMiddleware
 from egpt.tools.websearch import WebSearchTools
 from fastapi import FastAPI, Form, HTTPException
@@ -70,9 +70,9 @@ async def login(username: str = Form(...), password: str = Form(...)):
     raise HTTPException(status_code=401, detail="Invalid credentials")
 
 
-# Clean AgentOS setup with tuple middleware pattern! ✨
-agent_os = AgentOS(
-    description="JWT Protected AgentOS",
+# Clean EgptOS setup with tuple middleware pattern
+agent_os = EgptOS(
+    description="JWT Protected EgptOS",
     agents=[research_agent],
     base_app=app,
 )
@@ -86,7 +86,7 @@ app = agent_os.get_app()
 
 if __name__ == "__main__":
     """
-    Run your AgentOS with JWT middleware applied to the entire app.
+    Run your EgptOS with JWT middleware applied to the entire app.
 
     Test endpoints:
     1. POST /auth/login - Login to get JWT token

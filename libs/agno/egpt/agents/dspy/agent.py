@@ -18,7 +18,7 @@ class DSPyAgent(BaseExternalAgent):
     """Adapter for DSPy modules and programs.
 
     Wraps any DSPy Module (Predict, ChainOfThought, ReAct, or custom) so it can
-    be used with AgentOS endpoints or standalone via .run() / .print_response().
+    be used with EgptOS endpoints or standalone via .run() / .print_response().
 
     Args:
         name: Display name for this agent.
@@ -43,9 +43,9 @@ class DSPyAgent(BaseExternalAgent):
         # Standalone usage
         agent.print_response("What is quantum computing?")
 
-        # Or deploy with AgentOS
-        from egpt.os.app import AgentOS
-        AgentOS(agents=[agent])
+        # Or deploy with EgptOS
+        from egpt.os.app import EgptOS
+        EgptOS(agents=[agent])
     """
 
     program: Any = None

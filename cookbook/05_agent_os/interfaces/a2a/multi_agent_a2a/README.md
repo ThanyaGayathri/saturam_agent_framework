@@ -1,6 +1,6 @@
 # Multi Agent A2A Cookbook
 
-Examples for `interfaces/a2a/multi_agent_a2a` in AgentOS.
+Examples for `interfaces/a2a/multi_agent_a2a` in EgptOS.
 
 ## Files
 - `airbnb_agent.py` — Airbnb Agent.

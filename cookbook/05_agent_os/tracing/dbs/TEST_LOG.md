@@ -6,7 +6,7 @@
 
 **Status:** PENDING
 
-**Description:** Traces with AgentOS.
+**Description:** Traces with EgptOS.
 
 ---
 
@@ -14,7 +14,7 @@
 
 **Status:** PENDING
 
-**Description:** Traces with AgentOS.
+**Description:** Traces with EgptOS.
 
 ---
 
@@ -22,7 +22,7 @@
 
 **Status:** PENDING
 
-**Description:** Traces with AgentOS using SqliteDb.
+**Description:** Traces with EgptOS using SqliteDb.
 
 ---
 

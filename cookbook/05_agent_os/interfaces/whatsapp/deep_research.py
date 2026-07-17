@@ -17,7 +17,7 @@ Requires:
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.tools.arxiv import ArxivTools
 from egpt.tools.calculator import CalculatorTools
@@ -74,7 +74,7 @@ deep_research_agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[deep_research_agent],
     interfaces=[Whatsapp(agent=deep_research_agent, send_user_number_to_context=True)],
 )

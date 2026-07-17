@@ -16,7 +16,7 @@
 
 **Status:** PASS (smoke test)
 
-**Description:** AgentOS Studio example with registry primitives, code-defined agents, and StudioTools component CRUD/versioning. Verified by importing the module: the FastAPI app builds (107 routes, `/agents` present), `enable_versions` is True, and `publish_component` is registered on the studio toolkit.
+**Description:** EgptOS Studio example with registry primitives, code-defined agents, and StudioTools component CRUD/versioning. Verified by importing the module: the FastAPI app builds (107 routes, `/agents` present), `enable_versions` is True, and `publish_component` is registered on the studio toolkit.
 
 **Result:** App construction and tool registration verified. Interactive Studio UI flow not exercised.
 
@@ -36,8 +36,8 @@
 
 **Status:** PASS
 
-**Description:** Same HITL studio agent served through AgentOS. Verified the full API round-trip against a live server: POST /agents/studio-hitl-agent/runs with "Create an agent called 'os-buddy'." returned status PAUSED with the `ask_user` feedback schema (questions + options); POST .../continue with `selected_options` advanced to a `get_user_input` pause for instructions; the next continue advanced to the `create_agent` confirmation pause; confirming completed the run with status COMPLETED and the `os-buddy` agent created.
+**Description:** Same HITL studio agent served through EgptOS. Verified the full API round-trip against a live server: POST /agents/studio-hitl-agent/runs with "Create an agent called 'os-buddy'." returned status PAUSED with the `ask_user` feedback schema (questions + options); POST .../continue with `selected_options` advanced to a `get_user_input` pause for instructions; the next continue advanced to the `create_agent` confirmation pause; confirming completed the run with status COMPLETED and the `os-buddy` agent created.
 
-**Result:** All three pause types surface through the AgentOS API and the continue endpoint resumes each one correctly.
+**Result:** All three pause types surface through the EgptOS API and the continue endpoint resumes each one correctly.
 
 ---

@@ -16,6 +16,6 @@ chat:
       - "What's in the wiki?"
 
     code-search:
-      - "What agents are registered in this AgentOS demo?"
+      - "What agents are registered in this EgptOS demo?"
       - "Where is the Agent class defined?"
       - "How does the WikiContextProvider work?"

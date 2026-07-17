@@ -942,7 +942,7 @@ class TestParseInteractionResponse:
         """On the agent path, Antigravity returns FunctionCallStep + matching
         FunctionResultStep. Surfacing them as model.tool_calls would make Agno
         dispatch locally and 400 on the follow-up turn; instead, pair them
-        into ToolExecution records so AgentOS/run_response.tools shows the
+        into ToolExecution records so EgptOS/run_response.tools shows the
         full audit (tool name, args, result, is_error)."""
         model = GeminiInteractions(api_key="test-key", agent="antigravity-preview-05-2026")
 
@@ -2011,7 +2011,7 @@ class TestInvokeStream:
         routes tool_executions into run_response.tools (and emits the UI
         tool-call event) when model_response.event ==
         ModelResponseEvent.tool_call_completed.value. Without the tag, the
-        AgentOS UI shows no tool activity even though the data is there."""
+        EgptOS UI shows no tool activity even though the data is there."""
         from egpt.models.google.gemini_interactions import (
             DeltaArgumentsDelta,
             FunctionCallStep,

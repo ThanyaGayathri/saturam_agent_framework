@@ -21,7 +21,7 @@ except ImportError:
 
 def inject_agno_client_header(client_params: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Add the `x-goog-api-client: agno/<version>` header to a Gemini client's http_options.
+    Add the `x-goog-api-client: egpt/<version>` header to a Gemini client's http_options.
 
     Google requests partner integrations to identify themselves via this header
     (https://ai.google.dev/gemini-api/docs/partner-integration#client-id) so they
@@ -35,13 +35,13 @@ def inject_agno_client_header(client_params: Dict[str, Any]) -> Dict[str, Any]:
         The same dict, with `http_options.headers["x-goog-api-client"]` set.
         Existing headers and http_options keys are preserved.
     """
-    from egpt import __version__ as agno_version
+    from egpt import __version__ as egpt_version
 
     http_options = client_params.get("http_options", {})
     if isinstance(http_options, dict):
         headers = http_options.get("headers", {})
         if isinstance(headers, dict):
-            headers["x-goog-api-client"] = f"agno/{agno_version}"
+            headers["x-goog-api-client"] = f"egpt/{egpt_version}"
             http_options["headers"] = headers
             client_params["http_options"] = http_options
     return client_params

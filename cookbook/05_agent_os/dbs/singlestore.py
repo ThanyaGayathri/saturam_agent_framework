@@ -1,10 +1,10 @@
-"""Example showing how to use AgentOS with SingleStore as our database provider"""
+"""Example showing how to use EgptOS with SingleStore as our database provider"""
 
 from egpt.agent import Agent
 from egpt.db.singlestore import SingleStoreDb
 from egpt.eval.accuracy import AccuracyEval
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 
 # ---------------------------------------------------------------------------
@@ -56,7 +56,7 @@ evaluation = AccuracyEval(
 )
 # evaluation.run(print_results=True)
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example OS setup",
     agents=[agent],
     teams=[team],

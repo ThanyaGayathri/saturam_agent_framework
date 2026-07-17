@@ -1,12 +1,12 @@
 # Studio Cookbook
 
-Examples for composing AgentOS agents, teams, and workflows with `StudioTools`.
+Examples for composing EgptOS agents, teams, and workflows with `StudioTools`.
 
 ## Files
-- `standalone_studio_agent.py` — Runs a local agent with `StudioTools` and SQLite persistence, without starting AgentOS.
-- `studio_tools_agent.py` — Starts an AgentOS app with code-defined agents, registry primitives, and a Studio agent that can create/edit/version components.
+- `standalone_studio_agent.py` — Runs a local agent with `StudioTools` and SQLite persistence, without starting EgptOS.
+- `studio_tools_agent.py` — Starts an EgptOS app with code-defined agents, registry primitives, and a Studio agent that can create/edit/version components.
 - `studio_hitl_agent.py` — Human-in-the-loop studio on the console: the agent pauses with a structured multi-select question for tool choice (`UserFeedbackTools`), asks for free-text instructions (`UserControlFlowTools`), and `create_agent` requires explicit user confirmation before anything is persisted.
-- `studio_hitl_agent_os.py` — The same HITL studio agent served through AgentOS: pauses surface through the AgentOS API/chat UI, which collects the answers and continues the run.
+- `studio_hitl_agent_os.py` — The same HITL studio agent served through EgptOS: pauses surface through the EgptOS API/chat UI, which collects the answers and continues the run.
 
 ## Versioning
 
@@ -19,13 +19,13 @@ Versioning tools (`list_versions`, `get_version`, `publish_component`, `set_curr
 
 ## Studio UI
 
-Run the AgentOS example:
+Run the EgptOS example:
 
 ```bash
 .venvs/demo/bin/python cookbook/05_agent_os/studio_tool/studio_tools_agent.py
 ```
 
-Open the Studio frontend and connect it to the local AgentOS server on port `7777`.
+Open the Studio frontend and connect it to the local EgptOS server on port `7777`.
 
 Useful Studio routes:
 - Registry primitives: `/studio/registry`

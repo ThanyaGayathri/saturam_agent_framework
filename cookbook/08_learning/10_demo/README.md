@@ -1,6 +1,6 @@
-# Learning Demo: AgentOS + the Learning UI
+# Learning Demo: EgptOS + the Learning UI
 
-A small AgentOS app that shows the learning system end to end: one agent with all six learning stores enabled, a seed script that populates them with real conversations, and the Learning pages at [os.agno.com](https://os.agno.com) to browse the results.
+A small EgptOS app that shows the learning system end to end: one agent with all six learning stores enabled, a seed script that populates them with real conversations, and the Learning pages at [os.agno.com](https://os.agno.com) to browse the results.
 
 ## What it shows
 
@@ -18,7 +18,7 @@ The sixth store, **Learned Knowledge**, lives in pgvector rather than the `agno_
 
 - `agents.py`: The ops assistant with all six stores enabled on Postgres + pgvector.
 - `seed.py`: Scripted conversations across two users that populate every store.
-- `run.py`: The AgentOS server exposing the `/learnings` CRUD endpoints.
+- `run.py`: The EgptOS server exposing the `/learnings` CRUD endpoints.
 
 ## Run it
 
@@ -42,7 +42,7 @@ export OPENAI_API_KEY="..."
 
 This runs the conversations through the agent. Extraction happens automatically, and the script prints everything the agent learned at the end.
 
-### 4. Start the AgentOS server
+### 4. Start the EgptOS server
 
 ```bash
 .venvs/demo/bin/python cookbook/08_learning/10_demo/run.py

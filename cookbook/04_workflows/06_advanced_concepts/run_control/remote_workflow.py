@@ -34,7 +34,7 @@ async def run_remote_examples() -> None:
         print(f"  Content: {str(response.content)[:240]}")
     except Exception as exc:
         print("\nRemote run failed.")
-        print("  Ensure AgentOS is running and the workflow ID exists.")
+        print("  Ensure EgptOS is running and the workflow ID exists.")
         print(f"  Error: {exc}")
         return
 

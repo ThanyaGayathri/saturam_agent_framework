@@ -6,7 +6,7 @@
 
 **Status:** PENDING
 
-**Description:** This example demonstrates how to add custom middleware to your AgentOS application.
+**Description:** This example demonstrates how to add custom middleware to your EgptOS application.
 
 ---
 
@@ -14,7 +14,7 @@
 
 **Status:** PENDING
 
-**Description:** This example demonstrates how to use our JWT middleware with AgentOS.
+**Description:** This example demonstrates how to use our JWT middleware with EgptOS.
 
 ---
 
@@ -30,7 +30,7 @@
 
 **Status:** PASS
 
-**Description:** Serves an AgentOS with JWT middleware (authorization enabled) and a sqlite db. An admin JWT mints a service account token for `claude-code` via POST /service-accounts; the plaintext `agno_pat_...` token is returned once with default run+read scopes and a 90-day expiry. The token then runs the agent over POST /agents/assistant-agent/runs.
+**Description:** Serves an EgptOS with JWT middleware (authorization enabled) and a sqlite db. An admin JWT mints a service account token for `claude-code` via POST /service-accounts; the plaintext `agno_pat_...` token is returned once with default run+read scopes and a 90-day expiry. The token then runs the agent over POST /agents/assistant-agent/runs.
 
 **Result:** Verified end to end on 2026-07-04: mint returned 201 with principal `sa:claude-code`; the PAT-authenticated run COMPLETED with the model response and the run and session attributed to user `sa:claude-code`; the PAT could not mint further tokens (403); DELETE revoked the account (204) and the revoked token was rejected with a uniform 401 on its next request.
 
@@ -48,7 +48,7 @@
 
 **Status:** PENDING
 
-**Description:** Example for AgentOS to show how to extract content from a response and send it to a notification service.
+**Description:** Example for EgptOS to show how to extract content from a response and send it to a notification service.
 
 ---
 

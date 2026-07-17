@@ -1,8 +1,8 @@
 """
-AgentOS Registry Demo
+EgptOS Registry Demo
 =====================
 
-Demonstrates using Registry with AgentOS for tools, functions, schemas,
+Demonstrates using Registry with EgptOS for tools, functions, schemas,
 models, and vector database components.
 """
 
@@ -10,7 +10,7 @@ from egpt.db.postgres import PostgresDb
 from egpt.models.anthropic import Claude
 from egpt.models.google.gemini import Gemini
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.registry import Registry
 from egpt.tools.calculator import CalculatorTools
 from egpt.tools.parallel import ParallelTools
@@ -64,9 +64,9 @@ registry = Registry(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS App
+# Create EgptOS App
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="demo-agent-os",
     registry=registry,
     db=db,
@@ -75,7 +75,7 @@ agent_os = AgentOS(
 app = agent_os.get_app()
 
 # ---------------------------------------------------------------------------
-# Run AgentOS App
+# Run EgptOS App
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     agent_os.serve(app="demo:app", reload=True)

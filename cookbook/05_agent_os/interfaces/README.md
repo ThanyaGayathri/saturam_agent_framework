@@ -1,9 +1,9 @@
 # Interfaces Cookbook
 
-Examples for `interfaces` in AgentOS.
+Examples for `interfaces` in EgptOS.
 
 ## Files
-- `all_interfaces.py` — AgentOS Demo.
+- `all_interfaces.py` — EgptOS Demo.
 
 ## Prerequisites
 - Load environment variables with `direnv allow` (requires `.envrc`).

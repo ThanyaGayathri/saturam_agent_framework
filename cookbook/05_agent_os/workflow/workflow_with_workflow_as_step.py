@@ -3,7 +3,7 @@ Workflow With Workflow as a Step
 ================================
 
 Demonstrates deeply nested workflows (3 levels) with a Parallel step containing
-a Condition, all served via AgentOS.
+a Condition, all served via EgptOS.
 
 Architecture:
   Level 1 (Outer):  "Research and Write"
@@ -26,7 +26,7 @@ from egpt.models.openai import OpenAIResponses
 # ---------------------------------------------------------------------------
 # Create Example
 # ---------------------------------------------------------------------------
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.condition import Condition
 from egpt.workflow.parallel import Parallel
@@ -158,9 +158,9 @@ outer_workflow = Workflow(
     db=db,
 )
 
-# Initialize the AgentOS with the workflow
-agent_os = AgentOS(
-    description="Deeply nested workflow demo: 3 levels with Parallel + Condition, served via AgentOS",
+# Initialize the EgptOS with the workflow
+agent_os = EgptOS(
+    description="Deeply nested workflow demo: 3 levels with Parallel + Condition, served via EgptOS",
     workflows=[outer_workflow],
 )
 app = agent_os.get_app()

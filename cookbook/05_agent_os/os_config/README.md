@@ -1,6 +1,6 @@
 # Os Config Cookbook
 
-Examples for `os_config` in AgentOS.
+Examples for `os_config` in EgptOS.
 
 ## Files
 - `basic.py` — Basic.

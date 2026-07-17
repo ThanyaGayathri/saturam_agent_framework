@@ -24,7 +24,7 @@ from os import getenv
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 
 db = SqliteDb(session_table="agent_sessions", db_file="tmp/multi_bot.db")
@@ -57,7 +57,7 @@ dash_agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[ace_agent, dash_agent],
     interfaces=[
         Slack(

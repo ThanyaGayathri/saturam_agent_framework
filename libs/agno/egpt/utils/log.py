@@ -1,10 +1,11 @@
 import logging
 from functools import lru_cache
-from os import getenv
 from typing import Any, Literal, Optional
 
 from rich.logging import RichHandler
 from rich.text import Text
+
+from egpt.utils.env import get_branded_env, get_branded_env_bool
 
 LOGGER_NAME = "egpt"
 TEAM_LOGGER_NAME = f"{LOGGER_NAME}-team"
@@ -84,7 +85,7 @@ def build_logger(logger_name: str, source_type: Optional[str] = None) -> Any:
     rich_handler = ColoredRichHandler(
         show_time=False,
         rich_tracebacks=False,
-        show_path=True if getenv("AGNO_API_RUNTIME") == "dev" else False,
+        show_path=True if get_branded_env("API_RUNTIME") == "dev" else False,
         tracebacks_show_locals=False,
         source_type=source_type or "agent",
     )
@@ -113,8 +114,8 @@ debug_on: bool = False
 debug_level: Literal[1, 2] = 1
 
 # Controls whether exc_info tracebacks are rendered in warning log output.
-# Opt-in only: set AGNO_LOG_TRACEBACKS=true or call set_log_tracebacks(True).
-log_tracebacks: bool = getenv("AGNO_LOG_TRACEBACKS", "false").lower() in ("true", "1", "yes")
+# Opt-in only: set EGPT_LOG_TRACEBACKS=true or call set_log_tracebacks(True).
+log_tracebacks: bool = get_branded_env_bool("LOG_TRACEBACKS", strict=False)
 
 
 def set_log_level_to_debug(source_type: Optional[str] = None, level: Literal[1, 2] = 1):
@@ -213,7 +214,7 @@ def log_info(msg, center: bool = False, symbol: str = "*", *args, **kwargs):
 
 
 def log_warning(msg, *args, **kwargs):
-    """Log a warning. When called inside an except block and AGNO_LOG_TRACEBACKS
+    """Log a warning. When called inside an except block and EGPT_LOG_TRACEBACKS
     is enabled, the traceback is automatically included — no need to pass
     exc_info=True at the call site.
     """
@@ -226,7 +227,7 @@ def log_warning(msg, *args, **kwargs):
 
 
 def log_error(msg, *args, **kwargs):
-    """Log an error. When called inside an except block and AGNO_LOG_TRACEBACKS
+    """Log an error. When called inside an except block and EGPT_LOG_TRACEBACKS
     is enabled, the traceback is automatically included.
     """
     import sys
@@ -239,7 +240,7 @@ def log_error(msg, *args, **kwargs):
 
 def log_exception(msg, *args, **kwargs):
     """Log an error with full traceback. Always includes the traceback
-    regardless of AGNO_LOG_TRACEBACKS setting.
+    regardless of EGPT_LOG_TRACEBACKS setting.
     """
     global logger
     logger.exception(msg, *args, **kwargs)
@@ -254,7 +255,7 @@ def set_log_tracebacks(enabled: bool = True) -> None:
 
     ``log_exception`` always includes tracebacks regardless of this setting.
 
-    Can also be controlled via the ``AGNO_LOG_TRACEBACKS`` env var.
+    Can also be controlled via the ``EGPT_LOG_TRACEBACKS`` env var.
     """
     global log_tracebacks
     log_tracebacks = enabled
@@ -276,7 +277,7 @@ def configure_agno_logging(
         custom_team_logger: Custom logger for team operations
         custom_workflow_logger: Custom logger for workflow operations
         enable_log_tracebacks: If True, show full tracebacks on warning logs.
-            Also controllable via ``AGNO_LOG_TRACEBACKS`` env var.
+            Also controllable via ``EGPT_LOG_TRACEBACKS`` (legacy ``AGNO_LOG_TRACEBACKS``) env var.
     """
     if enable_log_tracebacks is not None:
         set_log_tracebacks(enable_log_tracebacks)

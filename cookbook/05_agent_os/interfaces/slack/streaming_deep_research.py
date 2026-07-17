@@ -15,7 +15,7 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 from egpt.agent import Agent
 from egpt.db.sqlite.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.tools.arxiv import ArxivTools
 from egpt.tools.calculator import CalculatorTools
@@ -63,7 +63,7 @@ deep_research_agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[deep_research_agent],
     interfaces=[
         Slack(

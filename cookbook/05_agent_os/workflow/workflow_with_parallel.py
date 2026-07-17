@@ -12,7 +12,7 @@ from egpt.db.sqlite import SqliteDb
 # Create Example
 # ---------------------------------------------------------------------------
 # Import the workflows
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.hackernews import HackerNewsTools
 from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.parallel import Parallel
@@ -44,8 +44,8 @@ workflow = Workflow(
     ),
 )
 
-# Initialize the AgentOS with the workflows
-agent_os = AgentOS(
+# Initialize the EgptOS with the workflows
+agent_os = EgptOS(
     description="Example OS setup",
     workflows=[workflow],
 )

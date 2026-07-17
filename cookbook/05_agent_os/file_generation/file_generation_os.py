@@ -1,7 +1,7 @@
-"""File generation with AgentOS.
+"""File generation with EgptOS.
 
 This example serves an agent that generates files (JSON, CSV, PDF, DOCX, TXT, HTML)
-through AgentOS using the FileGenerationTools toolkit.
+through EgptOS using the FileGenerationTools toolkit.
 
 Run:
     .venvs/demo/bin/python cookbook/05_agent_os/file_generation/file_generation_os.py
@@ -12,14 +12,14 @@ Then open os.agno.com, connect to the local server, and chat with the agent, e.g
     "Generate a CSV of 5 fictional employees."
     "Generate an HTML landing page for a coffee shop."
 
-Generated files are returned as base64-encoded artifacts in the AgentOS response
+Generated files are returned as base64-encoded artifacts in the EgptOS response
 and saved to tmp/file_gen_out/.
 """
 
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.tools.file_generation import FileGenerationTools
 
 agent_db = SqliteDb(db_file="tmp/file_gen_os.db")
@@ -47,7 +47,7 @@ file_agent = Agent(
     num_history_runs=3,
 )
 
-agent_os = AgentOS(agents=[file_agent])
+agent_os = EgptOS(agents=[file_agent])
 app = agent_os.get_app()
 
 if __name__ == "__main__":

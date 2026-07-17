@@ -18,7 +18,7 @@ from fastmcp import Client  # noqa: E402
 import egpt.os.mcp as mcp_mod  # noqa: E402
 from egpt.agent import Agent  # noqa: E402
 from egpt.db.sqlite import SqliteDb  # noqa: E402
-from egpt.os import AgentOS  # noqa: E402
+from egpt.os import EgptOS  # noqa: E402
 from egpt.os.mcp import build_mcp_server  # noqa: E402
 
 
@@ -38,7 +38,7 @@ async def test_resolve_run_component_returns_a_fresh_copy_each_call():
     """create_fresh: every run resolves a distinct deep_copy, never the shared singleton,
     so concurrent MCP runs cannot contaminate each other's state."""
     agent = Agent(id="a1", name="A1")
-    os = AgentOS(agents=[agent], enable_mcp_server=True)
+    os = EgptOS(agents=[agent], enable_mcp_server=True)
 
     first = await mcp_mod._resolve_run_component(os, "agents", "a1", user_id=None, session_id=None)
     second = await mcp_mod._resolve_run_component(os, "agents", "a1", user_id=None, session_id=None)
@@ -57,7 +57,7 @@ async def test_resolve_run_component_reads_the_db_registry(monkeypatch, tmp_path
     db_agent = Agent(id="db-only", name="DB Only")
     monkeypatch.setattr(agent_mod, "get_agent_by_id", lambda **kwargs: db_agent)
 
-    os = AgentOS(
+    os = EgptOS(
         agents=[Agent(id="in-memory", name="In Memory")],
         db=SqliteDb(db_file=str(tmp_path / "res.db")),
         enable_mcp_server=True,
@@ -68,7 +68,7 @@ async def test_resolve_run_component_reads_the_db_registry(monkeypatch, tmp_path
 
 
 async def test_resolve_run_component_reports_missing_id():
-    os = AgentOS(agents=[Agent(id="a1", name="A1")], enable_mcp_server=True)
+    os = EgptOS(agents=[Agent(id="a1", name="A1")], enable_mcp_server=True)
     with pytest.raises(Exception, match="Agent ghost not found"):
         await mcp_mod._resolve_run_component(os, "agents", "ghost", user_id=None, session_id=None)
 
@@ -84,7 +84,7 @@ async def test_config_lists_db_registry_components(monkeypatch, tmp_path):
     monkeypatch.setattr(team_mod, "get_teams", lambda **kwargs: [])
     monkeypatch.setattr(workflow_mod, "get_workflows", lambda **kwargs: [])
 
-    os = AgentOS(
+    os = EgptOS(
         agents=[Agent(id="mem-agent", name="Mem Agent")],
         db=SqliteDb(db_file=str(tmp_path / "cfg.db")),
         enable_mcp_server=True,
@@ -101,7 +101,7 @@ async def test_config_lists_db_registry_components(monkeypatch, tmp_path):
 async def test_config_filters_roster_to_accessible_resources(monkeypatch):
     """A caller scoped to one agent must not enumerate the whole deployment via the config
     tool -- the roster is filtered exactly as the REST list routes filter it."""
-    os = AgentOS(
+    os = EgptOS(
         agents=[Agent(id="mine", name="Mine"), Agent(id="theirs", name="Theirs")],
         enable_mcp_server=True,
     )
@@ -125,7 +125,7 @@ async def test_config_filters_roster_to_accessible_resources(monkeypatch):
 async def test_config_unfiltered_without_authorization(monkeypatch):
     """With authorization off (open/dev), the config tool returns the full roster -- filtering
     only kicks in when scopes are actually enforced."""
-    os = AgentOS(
+    os = EgptOS(
         agents=[Agent(id="a", name="A"), Agent(id="b", name="B")],
         enable_mcp_server=True,
     )

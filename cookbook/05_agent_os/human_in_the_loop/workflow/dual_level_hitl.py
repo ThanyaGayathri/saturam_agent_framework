@@ -15,7 +15,7 @@ Usage:
 
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools import tool
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
@@ -70,7 +70,7 @@ workflow = Workflow(
     telemetry=False,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="dual-level-hitl-demo",
     description="Demo: dual-level HITL workflow",
     name="Dual Level HITL Workflow",

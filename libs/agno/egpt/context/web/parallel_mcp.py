@@ -26,7 +26,8 @@ from collections.abc import Sequence
 from os import getenv
 from typing import Any, Optional
 
-from egpt import __version__ as _AGNO_VERSION
+from egpt import __version__
+from egpt.brand import PRODUCT_NAME
 from egpt.context.backend import ContextBackend
 from egpt.context.provider import Status
 from egpt.utils.log import log_info, log_warning
@@ -82,7 +83,7 @@ class ParallelMCPBackend(ContextBackend):
         from egpt.tools.mcp import MCPTools
         from egpt.tools.mcp.params import StreamableHTTPClientParams
 
-        headers: dict[str, Any] = {"User-Agent": f"agno/{_AGNO_VERSION}"}
+        headers: dict[str, Any] = {"User-Agent": f"{PRODUCT_NAME.lower()}/{__version__}"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 

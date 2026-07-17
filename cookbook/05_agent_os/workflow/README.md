@@ -1,9 +1,9 @@
 # Workflow Cookbook
 
-Examples for `workflow` in AgentOS.
+Examples for `workflow` in EgptOS.
 
 ## Files
-- `basic_chat_workflow_agent.py` — Example demonstrating how to add a Workflow using a WorkflowAgent to your AgentOS.
+- `basic_chat_workflow_agent.py` — Example demonstrating how to add a Workflow using a WorkflowAgent to your EgptOS.
 - `basic_workflow.py` — Basic Workflow.
 - `basic_workflow_team.py` — Basic Workflow Team.
 - `customer_research_workflow_parallel.py` — Customer Research Workflow Parallel.

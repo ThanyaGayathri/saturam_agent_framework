@@ -18,7 +18,7 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history,
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.anthropic import Claude
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.tools.slack import SlackTools
 
@@ -54,7 +54,7 @@ file_analyst = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[file_analyst],
     interfaces=[
         Slack(

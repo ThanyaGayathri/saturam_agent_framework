@@ -1,5 +1,5 @@
 """
-RBAC + Per-User Data Isolation Example with AgentOS
+RBAC + Per-User Data Isolation Example with EgptOS
 
 Builds on basic.py by opting in to per-user data isolation. With
 ``AuthorizationConfig(user_isolation=True)``:
@@ -24,7 +24,7 @@ import jwt
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 
 # ---------------------------------------------------------------------------
@@ -47,9 +47,9 @@ research_agent = Agent(
 # user_isolation=True is the only difference from basic.py.
 # admin_scope is left at the default ("agent_os:admin"); set it explicitly
 # if you want a custom override, e.g. admin_scope="ops:admin".
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="my-agent-os",
-    description="RBAC + Per-User Isolation AgentOS",
+    description="RBAC + Per-User Isolation EgptOS",
     agents=[research_agent],
     authorization=True,
     authorization_config=AuthorizationConfig(

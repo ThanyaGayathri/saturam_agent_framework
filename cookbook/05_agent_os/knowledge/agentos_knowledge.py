@@ -1,8 +1,8 @@
 """
-AgentOS Knowledge (Sync And Async)
+EgptOS Knowledge (Sync And Async)
 ==================================
 
-Demonstrates AgentOS knowledge integration with both sync and async database setups.
+Demonstrates EgptOS knowledge integration with both sync and async database setups.
 """
 
 import asyncio
@@ -13,7 +13,7 @@ from egpt.db.postgres import AsyncPostgresDb, PostgresDb
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.vectordb.pgvector import PgVector, SearchType
 
 # ---------------------------------------------------------------------------
@@ -119,16 +119,16 @@ async_knowledge_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS
+# Create EgptOS
 # ---------------------------------------------------------------------------
-sync_agent_os = AgentOS(
-    description="Example app with AgentOS Knowledge",
+sync_agent_os = EgptOS(
+    description="Example app with EgptOS Knowledge",
     agents=[sync_knowledge_agent],
     knowledge=[sync_faq_knowledge],
 )
 
-async_agent_os = AgentOS(
-    description="Example app with AgentOS Knowledge (Async)",
+async_agent_os = EgptOS(
+    description="Example app with EgptOS Knowledge (Async)",
     agents=[async_knowledge_agent],
     knowledge=[async_faq_knowledge],
 )

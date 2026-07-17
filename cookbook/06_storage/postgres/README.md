@@ -12,7 +12,7 @@ uv pip install psycopg2-binary
 
 ```python
 from agno.agent import Agent
-from agno.db.postgres import PostgresDb
+from egpt.db.postgres import PostgresDb
 
 db = PostgresDb(db_url="postgresql+psycopg://username:password@localhost:5432/database")
 

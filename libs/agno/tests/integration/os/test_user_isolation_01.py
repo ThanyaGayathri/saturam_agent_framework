@@ -20,7 +20,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.team.team import Team
 from egpt.workflow.step import Step
@@ -103,7 +103,7 @@ def client(test_agent, test_team, test_workflow):
     run listing, continue-run, factory cancel, etc.) can exercise their
     endpoints. The original session / trace / memory tests are unaffected.
     """
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         teams=[test_team],
@@ -127,7 +127,7 @@ def custom_admin_client(test_agent):
     middleware to recognise ``custom:admin`` (rather than the framework
     default ``agent_os:admin``) as the bypass scope.
     """
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -369,7 +369,7 @@ class TestAsyncDbDispatch:
             db_file=str(tmp_path / f"async_iso_{uuid.uuid4().hex[:8]}.db"),
         )
         agent = Agent(name="test-agent", id="test-agent", db=db, instructions="hi")
-        agent_os = AgentOS(
+        agent_os = EgptOS(
             id=TEST_OS_ID,
             agents=[agent],
             authorization=True,

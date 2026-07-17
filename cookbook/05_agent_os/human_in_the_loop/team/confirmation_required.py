@@ -1,12 +1,12 @@
-"""AgentOS HITL: Confirmation Required
+"""EgptOS HITL: Confirmation Required
 
-AgentOS equivalent of cookbook/03_teams/20_human_in_the_loop/confirmation_required.py
+EgptOS equivalent of cookbook/03_teams/20_human_in_the_loop/confirmation_required.py
 
 A team member's tool requires human confirmation before execution.
 When the tool is called the run pauses and the API response contains the
 requirement. The client confirms or rejects, then calls continue_run.
 
-AgentOS handles streaming and async automatically, so this single server
+EgptOS handles streaming and async automatically, so this single server
 covers the sync, async, streaming, and async-streaming variants.
 
 Run:
@@ -16,7 +16,7 @@ Run:
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 from egpt.tools import tool
 
@@ -72,12 +72,12 @@ team = Team(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS
+# Create EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="hitl-confirmation-required",
-    description="AgentOS HITL: member tool requiring confirmation before execution",
+    description="EgptOS HITL: member tool requiring confirmation before execution",
     agents=[weather_agent],
     teams=[team],
 )

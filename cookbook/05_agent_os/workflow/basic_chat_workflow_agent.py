@@ -1,9 +1,9 @@
-"""Example demonstrating how to add a Workflow using a WorkflowAgent to your AgentOS"""
+"""Example demonstrating how to add a Workflow using a WorkflowAgent to your EgptOS"""
 
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.workflow import WorkflowAgent
 from egpt.workflow.condition import Condition
 from egpt.workflow.step import Step
@@ -100,8 +100,8 @@ workflow = Workflow(
 )
 
 
-# Initialize the AgentOS with the workflows
-agent_os = AgentOS(
+# Initialize the EgptOS with the workflows
+agent_os = EgptOS(
     description="Example OS setup",
     workflows=[workflow],
 )

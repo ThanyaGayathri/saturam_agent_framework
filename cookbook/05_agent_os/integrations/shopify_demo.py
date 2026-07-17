@@ -1,5 +1,5 @@
 """
-Example for AgentOS with Shopify tools.
+Example for EgptOS with Shopify tools.
 
 Prerequisites:
 - Set the following environment variables:
@@ -18,8 +18,8 @@ Required scopes:
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
-from egpt.os.config import AgentOSConfig, ChatConfig
+from egpt.os import EgptOS
+from egpt.os.config import ChatConfig, EgptOSConfig
 from egpt.tools.shopify import ShopifyTools
 
 # ---------------------------------------------------------------------------
@@ -49,11 +49,11 @@ sales_agent = Agent(
     add_datetime_to_context=True,
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     description="Example app for Shopify agent",
     agents=[sales_agent],
-    config=AgentOSConfig(
+    config=EgptOSConfig(
         chat=ChatConfig(
             quick_prompts={
                 "sales_agent": [
@@ -73,7 +73,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can see the configuration and available apps at:
     http://localhost:7777/config

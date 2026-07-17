@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from egpt.base.app import InfraApp
@@ -37,8 +36,8 @@ class DockerApp(InfraApp):
     # Path to mount the resources_dir
     resources_dir_container_path: str = "/mnt/resources"
 
-    # -*- Agno Volume
-    # Mount ~/.config/ag directory from host machine to the container
+    # -*- CLI config volume
+    # Mount the resolved CLI config directory (~/.config/egpt, or ~/.config/ag fallback)
     mount_agno_config: bool = True
 
     # -*- Container Configuration
@@ -132,11 +131,15 @@ class DockerApp(InfraApp):
         from egpt.constants import (
             AGNO_INFRA_ROOT,
             AGNO_RUNTIME_ENV_VAR,
+            EGPT_INFRA_ROOT,
+            EGPT_RUNTIME_ENV_VAR,
             PYTHONPATH_ENV_VAR,
             REQUIREMENTS_FILE_PATH_ENV_VAR,
         )
 
         # Container Environment
+        # Dual-write EGPT_* and AGNO_* for the deprecation window so released
+        # packages inside the image that still read AGNO_* keep working.
         container_env: Dict[str, str] = self.container_env or {}
         container_env.update(
             {
@@ -145,8 +148,10 @@ class DockerApp(InfraApp):
                 "MOUNT_INFRA_DIR": str(self.mount_infra_dir),
                 "PRINT_ENV_ON_LOAD": str(self.print_env_on_load),
                 "RESOURCES_DIR_CONTAINER_PATH": str(self.resources_dir_container_path),
+                EGPT_RUNTIME_ENV_VAR: "docker",
                 AGNO_RUNTIME_ENV_VAR: "docker",
                 REQUIREMENTS_FILE_PATH_ENV_VAR: container_context.requirements_file or "",
+                EGPT_INFRA_ROOT: container_context.infra_root or "",
                 AGNO_INFRA_ROOT: container_context.infra_root or "",
             }
         )
@@ -232,14 +237,17 @@ class DockerApp(InfraApp):
                 "mode": "ro",
             }
 
-        # Add ~/.config/ag as a volume
+        # Add the resolved CLI config directory as a volume
         if self.mount_agno_config:
-            agno_config_host_path = str(Path.home().joinpath(".config/ag"))
-            agno_config_container_path = f"{self.infra_dir_container_path}/.config/ag"
-            logger.debug(f"Mounting: {agno_config_host_path}")
-            logger.debug(f"      to: {agno_config_container_path}")
-            container_volumes[agno_config_host_path] = {
-                "bind": agno_config_container_path,
+            from egpt.cli.settings import resolve_cli_config_dir
+
+            cli_config_dir = resolve_cli_config_dir()
+            cli_config_host_path = str(cli_config_dir)
+            cli_config_container_path = f"{self.infra_dir_container_path}/.config/{cli_config_dir.name}"
+            logger.debug(f"Mounting: {cli_config_host_path}")
+            logger.debug(f"      to: {cli_config_container_path}")
+            container_volumes[cli_config_host_path] = {
+                "bind": cli_config_container_path,
                 "mode": "ro",
             }
 

@@ -6,7 +6,7 @@
 
 **Status:** PENDING
 
-**Description:** Basic RBAC Example with AgentOS (Asymmetric Keys).
+**Description:** Basic RBAC Example with EgptOS (Asymmetric Keys).
 
 ---
 

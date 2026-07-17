@@ -5,7 +5,7 @@ This example demonstrates how to maintain conversation context
 across multiple messages using the A2A protocol.
 
 Prerequisites:
-1. Start an AgentOS server with A2A interface:
+1. Start an EgptOS server with A2A interface:
    python cookbook/05_agent_os/client_a2a/servers/agno_server.py
 
 2. Run this script:

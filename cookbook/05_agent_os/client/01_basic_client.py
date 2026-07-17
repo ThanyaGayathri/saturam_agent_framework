@@ -1,22 +1,22 @@
 """
-Basic AgentOSClient Example
+Basic EgptOSClient Example
 
-This example demonstrates how to use AgentOSClient to connect to
-a remote AgentOS instance and perform basic operations.
+This example demonstrates how to use EgptOSClient to connect to
+a remote EgptOS instance and perform basic operations.
 
 Prerequisites:
-1. Start an AgentOS server:
+1. Start an EgptOS server:
    python -c "
    from egpt.agent import Agent
    from egpt.models.openai import OpenAIChat
-   from egpt.os import AgentOS
+   from egpt.os import EgptOS
 
    agent = Agent(
        name='Assistant',
        model=OpenAIChat(id='gpt-5.2'),
        instructions='You are a helpful assistant.',
    )
-   agent_os = AgentOS(agents=[agent])
+   agent_os = EgptOS(agents=[agent])
    agent_os.serve()
    "
 
@@ -25,7 +25,7 @@ Prerequisites:
 
 import asyncio
 
-from egpt.client import AgentOSClient
+from egpt.client import EgptOSClient
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -33,9 +33,9 @@ from egpt.client import AgentOSClient
 
 
 async def main():
-    # Connect to AgentOS using async context manager
-    client = AgentOSClient(base_url="http://localhost:7777")
-    # Get AgentOS configuration
+    # Connect to EgptOS using async context manager
+    client = EgptOSClient(base_url="http://localhost:7777")
+    # Get EgptOS configuration
     config = await client.aget_config()
     print(f"Connected to: {config.name or config.os_id}")
     print(f"Available agents: {[a.id for a in (config.agents or [])]}")

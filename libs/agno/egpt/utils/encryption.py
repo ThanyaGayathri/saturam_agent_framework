@@ -1,6 +1,7 @@
 import json
-import os
 from typing import Any, Dict, Optional
+
+from egpt.utils.env import get_branded_env
 
 
 def generate_encryption_key() -> str:
@@ -28,7 +29,7 @@ def _validate_fernet_key(secret: str) -> bytes:
 
 
 def get_encryption_key() -> Optional[str]:
-    return os.getenv("AGNO_ENCRYPTION_KEY")
+    return get_branded_env("ENCRYPTION_KEY")
 
 
 def is_encrypted(data: Dict[str, Any]) -> bool:
@@ -43,7 +44,7 @@ def encrypt_dict(data: Dict[str, Any], key: Optional[str] = None) -> Dict[str, s
 
     secret = key or get_encryption_key()
     if not secret:
-        raise ValueError("No encryption key provided. Set AGNO_ENCRYPTION_KEY or pass key=")
+        raise ValueError("No encryption key provided. Set EGPT_ENCRYPTION_KEY or pass key=")
 
     fernet_key = _validate_fernet_key(secret)
     f = Fernet(fernet_key)

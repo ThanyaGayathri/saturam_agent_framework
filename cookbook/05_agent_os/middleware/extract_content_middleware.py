@@ -1,4 +1,4 @@
-"""Example for AgentOS to show how to extract content from a response and send it to a notification service.
+"""Example for EgptOS to show how to extract content from a response and send it to a notification service.
 
 This example middleware can extract content from both streaming and non-streaming responses.
 """
@@ -7,7 +7,7 @@ import json
 
 from egpt.agent import Agent
 from egpt.db.sqlite.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.base import _StreamingResponse as StreamingResponse
@@ -152,9 +152,9 @@ user_request_bot = Agent(
     instructions="You are a user agent. You are asked to answer queries about the user.",
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
-    description="Example AgentOS to show how to extract content from a response",
+# Setup our EgptOS app
+agent_os = EgptOS(
+    description="Example EgptOS to show how to extract content from a response",
     agents=[user_request_bot],
 )
 app = agent_os.get_app()
@@ -168,7 +168,7 @@ app.add_middleware(ContentExtractionMiddleware)
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
     
     This shows how to pass UUIDs via headers to the agent. It also shows how to pass metadata to the agent.
 

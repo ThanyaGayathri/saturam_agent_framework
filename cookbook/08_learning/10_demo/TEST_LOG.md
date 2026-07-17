@@ -26,7 +26,7 @@
 
 **Status:** PASS
 
-**Description:** Imported the demo agent against Postgres + pgvector, confirmed all six stores initialize (user_profile, user_memory, session_context, entity_memory, learned_knowledge, decision_log), built the AgentOS app, and exercised the learnings endpoints with a FastAPI TestClient.
+**Description:** Imported the demo agent against Postgres + pgvector, confirmed all six stores initialize (user_profile, user_memory, session_context, entity_memory, learned_knowledge, decision_log), built the EgptOS app, and exercised the learnings endpoints with a FastAPI TestClient.
 
 **Result:** App builds and the /learnings endpoints respond with paginated results.
 

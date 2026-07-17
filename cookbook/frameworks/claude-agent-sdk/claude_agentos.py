@@ -1,12 +1,12 @@
 """
-Claude Agent SDK on AgentOS
+Claude Agent SDK on EgptOS
 ===========================
-Serve a Claude Agent SDK agent through AgentOS -- the same runtime
+Serve a Claude Agent SDK agent through EgptOS -- the same runtime
 used for native Agno agents.
 
 The agent is available at the standard /agents/{agent_id}/runs endpoint,
 supports streaming (SSE) and non-streaming responses, and appears in
-the AgentOS UI alongside any native agents.
+the EgptOS UI alongside any native agents.
 
 Requirements:
     pip install claude-agent-sdk
@@ -31,14 +31,14 @@ Then call the API:
 """
 
 from egpt.agents.claude import ClaudeAgent
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 # ---------------------------------------------------------------------------
 # Create the Claude Agent SDK agent
 # ---------------------------------------------------------------------------
 claude_agent = ClaudeAgent(
     name="Claude Assistant",
-    description="A Claude-powered assistant served through AgentOS",
+    description="A Claude-powered assistant served through EgptOS",
     model="claude-sonnet-4-6",
     allowed_tools=["Read", "Bash"],
     permission_mode="acceptEdits",
@@ -46,11 +46,11 @@ claude_agent = ClaudeAgent(
 )
 
 # ---------------------------------------------------------------------------
-# Setup AgentOS
+# Setup EgptOS
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
+agent_os = EgptOS(
     name="Claude Agent SDK Example",
-    description="AgentOS serving a Claude Agent SDK agent",
+    description="EgptOS serving a Claude Agent SDK agent",
     agents=[claude_agent],
 )
 app = agent_os.get_app()

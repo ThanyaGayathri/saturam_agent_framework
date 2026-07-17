@@ -8,7 +8,7 @@ Demonstrates 02 basic team tracing.
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools
 
@@ -36,9 +36,9 @@ team = Team(
     db=db,
 )
 
-# Setup AgentOS with tracing=True
+# Setup EgptOS with tracing=True
 # This automatically enables tracing for ALL agents and teams!
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example app for tracing HackerNews",
     teams=[team],
     tracing=True,

@@ -26,7 +26,7 @@ def _sdk() -> Any:
 class ClaudeAgent(BaseExternalAgent):
     """Adapter for the Claude Agent SDK (claude-agent-sdk).
 
-    Wraps the Claude Agent SDK's query() function so it can be used with AgentOS
+    Wraps the Claude Agent SDK's query() function so it can be used with EgptOS
     endpoints or standalone via .run() / .print_response().
 
     The Claude Agent SDK runs Claude Code as a subprocess. Tool execution is handled
@@ -59,9 +59,9 @@ class ClaudeAgent(BaseExternalAgent):
         # Standalone usage
         agent.print_response("Read main.py and summarize it", stream=True)
 
-        # Or deploy with AgentOS
-        from egpt.os import AgentOS
-        AgentOS(agents=[agent])
+        # Or deploy with EgptOS
+        from egpt.os import EgptOS
+        EgptOS(agents=[agent])
     """
 
     system_prompt: Optional[str] = None

@@ -1,5 +1,5 @@
 """
-System Tests for AgentOS Metrics Routes.
+System Tests for EgptOS Metrics Routes.
 
 Run with: pytest test_metrics_routes.py -v --tb=short
 """

@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from egpt.agent.agent import Agent
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.vectordb.chroma import ChromaDb
 
 
@@ -31,7 +31,7 @@ def agent(shared_db, vector_db):
 @pytest.fixture
 def test_os_client(agent: Agent):
     """Create a FastAPI test client with AgentOS."""
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
     app = agent_os.get_app()
     return TestClient(app)
 

@@ -15,7 +15,7 @@ Requires:
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.anthropic import Claude
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.tools.websearch import WebSearchTools
 from egpt.tools.whatsapp import WhatsAppTools
@@ -57,10 +57,10 @@ tourist_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS setup
+# EgptOS setup
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[tourist_agent],
     interfaces=[Whatsapp(agent=tourist_agent, send_user_number_to_context=True)],
 )

@@ -3,7 +3,7 @@ Claude Agent SDK with session persistence.
 
 Demonstrates multi-turn conversations where chat history is persisted
 to Agno's DB. Each run is stored as a session with messages, so you
-can resume conversations and see history in the AgentOS UI.
+can resume conversations and see history in the EgptOS UI.
 
 Requirements:
     pip install claude-agent-sdk
@@ -14,7 +14,7 @@ Usage:
 
 from egpt.agents.claude import ClaudeAgent
 from egpt.db.postgres import PostgresDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 pg_db = PostgresDb(db_url=db_url)
@@ -29,12 +29,12 @@ agent = ClaudeAgent(
 )
 
 # ---------------------------------------------------------------------------
-# Setup AgentOS
+# Setup EgptOS
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="claude-session-agentos",
     name="Claude Agent SDK Example",
-    description="AgentOS serving a Claude Agent SDK agent",
+    description="EgptOS serving a Claude Agent SDK agent",
     agents=[agent],
 )
 app = agent_os.get_app()

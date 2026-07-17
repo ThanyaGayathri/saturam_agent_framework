@@ -67,7 +67,7 @@ from egpt.utils.log import log_debug, log_warning, logger
 from egpt.utils.serialize import json_serializer
 
 if TYPE_CHECKING:
-    from egpt.os.app import AgentOS
+    from egpt.os.app import EgptOS
 
 
 async def team_response_streamer(
@@ -508,7 +508,7 @@ async def team_resumable_continue_response_streamer(
 
 
 def get_team_router(
-    os: "AgentOS",
+    os: "EgptOS",
     settings: AgnoAPISettings = AgnoAPISettings(),
     registry: Optional[Registry] = None,
 ) -> APIRouter:

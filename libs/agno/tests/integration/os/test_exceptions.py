@@ -1,4 +1,4 @@
-"""Integration tests for exception handling in AgentOS."""
+"""Integration tests for exception handling in EgptOS."""
 
 import logging
 from unittest.mock import AsyncMock, patch
@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def test_agent_bad_model(shared_db):
 @pytest.fixture
 def test_os_client(test_agent: Agent, test_agent_bad_model: Agent):
     """Create a FastAPI test client with AgentOS."""
-    agent_os = AgentOS(agents=[test_agent, test_agent_bad_model])
+    agent_os = EgptOS(agents=[test_agent, test_agent_bad_model])
     app = agent_os.get_app()
     return TestClient(app, raise_server_exceptions=False)
 
@@ -110,13 +110,13 @@ def test_http_exception_logging(test_os_client, caplog):
 
 def test_internal_server_error_response_format(test_agent: Agent, caplog):
     """Test that 500 errors return generic message without exposing internals."""
-    # Create a fresh AgentOS with the test agent
-    agent_os = AgentOS(agents=[test_agent])
+    # Create a fresh EgptOS with the test agent
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app, raise_server_exceptions=False)
 
     # Mock deep_copy to return the same instance, then mock arun to raise an exception
-    # (AgentOS uses create_fresh=True which calls deep_copy)
+    # (EgptOS uses create_fresh=True which calls deep_copy)
     with (
         patch.object(test_agent, "deep_copy", return_value=test_agent),
         patch.object(test_agent, "arun", new_callable=AsyncMock, side_effect=Exception("Internal error")),
@@ -168,7 +168,7 @@ def test_exception_handler_with_custom_base_app(shared_db):
         db=shared_db,
     )
 
-    agent_os = AgentOS(agents=[test_agent], base_app=base_app)
+    agent_os = EgptOS(agents=[test_agent], base_app=base_app)
     app = agent_os.get_app()
     client = TestClient(app, raise_server_exceptions=False)
 

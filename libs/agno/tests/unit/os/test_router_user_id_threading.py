@@ -35,7 +35,7 @@ from egpt.os.settings import AgnoAPISettings
 
 
 def _make_jwt_middleware(*, user_isolation_enabled: bool):
-    """Build a JWT-middleware stand-in that mirrors what AgentOS's real
+    """Build a JWT-middleware stand-in that mirrors what EgptOS's real
     middleware writes to ``request.state``.
 
     The ``user_isolation_enabled`` knob controls whether the strict scoping

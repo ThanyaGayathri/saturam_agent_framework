@@ -12,7 +12,7 @@ Steps:
 3. Reconnect via /resume and catch up on missed events
 
 Prerequisites:
-1. Start the AgentOS server: python cookbook/05_agent_os/basic.py
+1. Start the EgptOS server: python cookbook/05_agent_os/basic.py
 2. Run this script: python cookbook/05_agent_os/client/11_team_sse_reconnect.py
 """
 

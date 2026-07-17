@@ -1,5 +1,5 @@
 """
-Integration Tests for AgentOS Routes - Remote Resources, Error Handling, and Authorization.
+Integration Tests for EgptOS Routes - Remote Resources, Error Handling, and Authorization.
 
 This file contains integration tests for:
 - Remote resource accessibility (agents, teams, workflows)

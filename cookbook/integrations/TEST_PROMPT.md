@@ -28,7 +28,7 @@ Execution requirements:
 
 Special cases:
 - `parallel/` requires `PARALLEL_API_KEY` and `pip install parallel-web`. Task and Monitor examples can be slow (deep research runs up to ~25 minutes) — allow long timeouts or SKIP with a note.
-- `parallel/09_agent_os_app.py` starts an AgentOS server — confirm it boots, then terminate.
+- `parallel/09_agent_os_app.py` starts an EgptOS server — confirm it boots, then terminate.
 - `surrealdb/` examples require a running SurrealDB instance — skip if not available.
 
 Validation commands (must all pass before finishing):

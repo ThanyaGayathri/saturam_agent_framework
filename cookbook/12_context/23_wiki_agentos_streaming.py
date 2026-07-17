@@ -1,5 +1,5 @@
 """
-Wiki Context Provider — AgentOS Streaming
+Wiki Context Provider — EgptOS Streaming
 ==========================================
 
 Tests sub-agent event streaming through os.agno.com. When the parent agent
@@ -22,14 +22,14 @@ from pathlib import Path
 from egpt.agent import Agent
 from egpt.context.wiki import FileSystemBackend, WikiContextProvider
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 WIKI_PATH = Path(__file__).resolve().parent / "demo-wiki-os"
 if WIKI_PATH.exists():
     shutil.rmtree(WIKI_PATH)
 WIKI_PATH.mkdir()
 (WIKI_PATH / "README.md").write_text(
-    "# Demo Wiki\n\nA tiny wiki for testing sub-agent streaming on AgentOS.\n"
+    "# Demo Wiki\n\nA tiny wiki for testing sub-agent streaming on EgptOS.\n"
 )
 (WIKI_PATH / "architecture.md").write_text(
     "# Architecture\n\n"
@@ -61,7 +61,7 @@ agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Context provider streaming demo",
     agents=[agent],
 )
@@ -72,7 +72,7 @@ if __name__ == "__main__":
     for f in WIKI_PATH.iterdir():
         print(f"  - {f.name}")
     print()
-    print("Starting AgentOS on http://localhost:7777")
+    print("Starting EgptOS on http://localhost:7777")
     print("Connect via os.agno.com and ask: 'What is our system architecture?'")
     print()
     agent_os.serve(app="23_wiki_agentos_streaming:app", reload=True)

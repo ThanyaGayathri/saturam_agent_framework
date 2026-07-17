@@ -1,9 +1,10 @@
 import logging
-from os import getenv
 from typing import Any, Optional
 
 from rich.logging import RichHandler
 from rich.text import Text
+
+from egpt.utilities.branding import get_branded_env
 
 LOGGER_NAME = "agno_infra"
 
@@ -61,7 +62,7 @@ def build_logger(logger_name: str, source_type: Optional[str] = None) -> Any:
     rich_handler = ColoredRichHandler(
         show_time=False,
         rich_tracebacks=False,
-        show_path=True if getenv("AGNO_API_RUNTIME") == "dev" else False,
+        show_path=True if get_branded_env("API_RUNTIME") == "dev" else False,
         tracebacks_show_locals=False,
     )
     rich_handler.setFormatter(

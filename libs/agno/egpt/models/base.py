@@ -1163,7 +1163,7 @@ class Model(ABC):
             model_response.response_usage = provider_response.response_usage
         # Providers (e.g. GeminiInteractions on the agent path) can produce
         # already-executed ToolExecution records server-side; carry them
-        # through so run_response.tools / AgentOS UI sees the audit.
+        # through so run_response.tools / EgptOS UI sees the audit.
         if provider_response.tool_executions:
             if model_response.tool_executions is None:
                 model_response.tool_executions = []
@@ -1233,7 +1233,7 @@ class Model(ABC):
             model_response.response_usage = provider_response.response_usage
         # Providers (e.g. GeminiInteractions on the agent path) can produce
         # already-executed ToolExecution records server-side; carry them
-        # through so run_response.tools / AgentOS UI sees the audit.
+        # through so run_response.tools / EgptOS UI sees the audit.
         if provider_response.tool_executions:
             if model_response.tool_executions is None:
                 model_response.tool_executions = []

@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from egpt.agent import Agent
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.os.settings import AgnoAPISettings
 
@@ -51,7 +51,7 @@ def agent_os_with_slack_and_key():
         patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack_tools),
         patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_async_web_client),
     ):
-        agent_os = AgentOS(agents=[agent], interfaces=[slack], settings=settings, telemetry=False)
+        agent_os = EgptOS(agents=[agent], interfaces=[slack], settings=settings, telemetry=False)
         app = agent_os.get_app()
         yield app, agent.arun
 
@@ -142,7 +142,7 @@ def test_env_var_os_security_key_does_not_block_slack(monkeypatch):
         patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack_tools),
         patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_async_web_client),
     ):
-        agent_os = AgentOS(agents=[agent], interfaces=[slack], telemetry=False)
+        agent_os = EgptOS(agents=[agent], interfaces=[slack], telemetry=False)
         assert agent_os.settings.os_security_key == OS_KEY, "Env var should have been picked up by AgnoAPISettings"
 
         app = agent_os.get_app()

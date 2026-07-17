@@ -7,7 +7,7 @@ Demonstrates basic.
 
 from egpt.agent.agent import Agent
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.interfaces.agui import AGUI
 
 # ---------------------------------------------------------------------------
@@ -22,8 +22,8 @@ chat_agent = Agent(
     markdown=True,
 )
 
-# Setup your AgentOS app
-agent_os = AgentOS(
+# Setup your EgptOS app
+agent_os = EgptOS(
     agents=[chat_agent],
     interfaces=[AGUI(agent=chat_agent)],
 )
@@ -35,7 +35,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can see the configuration and available apps at:
     http://localhost:9001/config

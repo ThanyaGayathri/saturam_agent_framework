@@ -1,5 +1,5 @@
 """
-Example: Background Hooks with Teams in AgentOS
+Example: Background Hooks with Teams in EgptOS
 
 This example demonstrates how to use background hooks with a Team.
 Background hooks execute after the API response is sent, making them non-blocking.
@@ -11,7 +11,7 @@ from egpt.agent import Agent
 from egpt.db.sqlite import AsyncSqliteDb
 from egpt.hooks.decorator import hook
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.run.team import TeamRunOutput
 from egpt.team import Team
 
@@ -59,8 +59,8 @@ content_team = Team(
     markdown=True,
 )
 
-# Create AgentOS with background hooks enabled
-agent_os = AgentOS(
+# Create EgptOS with background hooks enabled
+agent_os = EgptOS(
     teams=[content_team],
     run_hooks_in_background=True,
 )

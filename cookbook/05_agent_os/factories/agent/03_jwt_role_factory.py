@@ -37,7 +37,7 @@ from egpt.agent import Agent, AgentFactory
 from egpt.db.postgres import PostgresDb
 from egpt.factory import FactoryPermissionError, RequestContext
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.middleware import JWTMiddleware
 from pydantic import BaseModel
 
@@ -133,10 +133,10 @@ workspace_factory = AgentFactory(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS
+# EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="factory-jwt-demo",
     description="Demo: JWT-driven agent factory with RBAC tool grants",
     agents=[workspace_factory],

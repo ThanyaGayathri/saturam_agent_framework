@@ -32,20 +32,20 @@ Run `ag infra [COMMAND] --help` for more info.
 )
 
 
-@infra_cli.command(short_help="Create a new AgentOS codebase in the current directory.")
+@infra_cli.command(short_help="Create a new EgptOS codebase in the current directory.")
 def create(
     name: Optional[str] = typer.Option(
         None,
         "-n",
         "--name",
-        help="Name of the new AgentOS codebase directory (e.g. `my-agentos-project`).",
+        help="Name of the new EgptOS codebase directory (e.g. `my-agentos-project`).",
         show_default=False,
     ),
     template: Optional[str] = typer.Option(
         None,
         "-t",
         "--template",
-        help="Starter template for the Agno AgentOS codebase.",
+        help="Starter template for the Agno EgptOS codebase.",
         show_default=False,
     ),
     url: Optional[str] = typer.Option(
@@ -63,7 +63,7 @@ def create(
     ),
 ):
     """\b
-    Create a new AgentOS Infrastructure project in the current directory using a starter template
+    Create a new EgptOS Infrastructure project in the current directory using a starter template
     \b
     Examples:
     > ag infra create -t agentos-aws-template                        -> Create an `agentos-aws-template` in the current directory
@@ -77,7 +77,7 @@ def create(
     create_infra_from_template(name=name, template=template, url=url)
 
 
-@infra_cli.command(short_help="Start the resources for the active AgentOS codebase")
+@infra_cli.command(short_help="Start the resources for the active EgptOS codebase")
 def up(
     resource_filter: Optional[str] = typer.Argument(
         None,
@@ -128,7 +128,7 @@ def up(
     ),
 ):
     """\b
-    Create resources for the active AgentOS codebase
+    Create resources for the active EgptOS codebase
     Options can be used to limit the resources to create.
       --env     : Env (dev, stg, prd)
       --infra   : Infra type (docker, aws)
@@ -275,7 +275,7 @@ def up(
     )
 
 
-@infra_cli.command(short_help="Delete resources for active AgentOS codebase")
+@infra_cli.command(short_help="Delete resources for active EgptOS codebase")
 def down(
     resource_filter: Optional[str] = typer.Argument(
         None,
@@ -322,7 +322,7 @@ def down(
     ),
 ):
     """\b
-    Delete resources for the active AgentOS codebase.
+    Delete resources for the active EgptOS codebase.
     Options can be used to limit the resources to delete.
       --env     : Env (dev, stg, prd)
       --infra   : Infra type (docker, aws)
@@ -463,7 +463,7 @@ def down(
     )
 
 
-@infra_cli.command(short_help="Update resources for active AgentOS codebase")
+@infra_cli.command(short_help="Update resources for active EgptOS codebase")
 def patch(
     resource_filter: Optional[str] = typer.Argument(
         None,
@@ -514,7 +514,7 @@ def patch(
     ),
 ):
     """\b
-    Update resources for the active AgentOS codebase.
+    Update resources for the active EgptOS codebase.
     Options can be used to limit the resources to update.
       --env     : Env (dev, stg, prd)
       --infra   : Infra type (docker, aws)
@@ -631,7 +631,7 @@ def patch(
     )
 
 
-@infra_cli.command(short_help="Restart resources for active AgentOS codebase")
+@infra_cli.command(short_help="Restart resources for active EgptOS codebase")
 def restart(
     resource_filter: Optional[str] = typer.Argument(
         None,
@@ -682,7 +682,7 @@ def restart(
     ),
 ):
     """\b
-    Restarts the active AgentOS codebase. i.e. runs `ag infra down` and then `ag infra up`.
+    Restarts the active EgptOS codebase. i.e. runs `ag infra down` and then `ag infra up`.
 
     \b
     Examples:
@@ -722,7 +722,7 @@ def restart(
     )
 
 
-@infra_cli.command(short_help="Prints active AgentOS codebase config")
+@infra_cli.command(short_help="Prints active EgptOS codebase config")
 def config(
     print_debug_log: bool = typer.Option(
         False,
@@ -732,7 +732,7 @@ def config(
     ),
 ):
     """\b
-    Prints the active AgentOS codebase config
+    Prints the active EgptOS codebase config
 
     \b
     Examples:
@@ -767,9 +767,9 @@ def config(
     print_info(active_infra_config.model_dump_json(include={"infra_name", "infra_root_path"}, indent=2))
 
 
-@infra_cli.command(short_help="Delete AgentOS codebase infra record")
+@infra_cli.command(short_help="Delete EgptOS codebase infra record")
 def delete(
-    infra_name: Optional[str] = typer.Option(None, "-infra", help="Name of the AgentOS codebase to delete"),
+    infra_name: Optional[str] = typer.Option(None, "-infra", help="Name of the EgptOS codebase to delete"),
     print_debug_log: bool = typer.Option(
         False,
         "-d",
@@ -778,12 +778,12 @@ def delete(
     ),
 ):
     """\b
-    Deletes the AgentOS codebase record from agno_infra.
+    Deletes the EgptOS codebase record from agno_infra.
     NOTE: Does not delete any physical files.
 
     \b
     Examples:
-    $ `ag infra delete`         -> Delete the active AgentOS codebase from Agno
+    $ `ag infra delete`         -> Delete the active EgptOS codebase from Agno
     """
     if print_debug_log:
         set_log_level_to_debug()
@@ -804,7 +804,7 @@ def delete(
     if infra_name is not None:
         infra_config = agno_config.get_infra_config_by_dir_name(infra_name)
         if infra_config is None:
-            logger.error(f"AgentOS codebase {infra_name} not found")
+            logger.error(f"EgptOS codebase {infra_name} not found")
             return
         infra_to_delete.append(infra_config.infra_root_path)
     else:

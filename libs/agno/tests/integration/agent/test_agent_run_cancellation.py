@@ -767,7 +767,7 @@ def test_cancel_non_streaming_tool_loop_preserves_messages(shared_db):
 def test_cancel_streaming_emits_cancelled_then_completed_terminal(shared_db):
     """Cancelled streaming runs emit a RunCancelledEvent AND a terminal RunCompletedEvent.
 
-    The trailing RunCompletedEvent is intentional: the AgentOS frontend keys stream
+    The trailing RunCompletedEvent is intentional: the EgptOS frontend keys stream
     finalization on completed events (it does not treat RunCancelled as terminal), so a
     cancelled streaming run must still emit a completion marker. The run status itself
     stays 'cancelled' in the DB.

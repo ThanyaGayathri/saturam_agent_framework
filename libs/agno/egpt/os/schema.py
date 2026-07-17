@@ -99,7 +99,7 @@ class ScopeSchema(BaseModel):
     """Read shape for one scope — the parsed RBAC payload shared by every scope-bearing API.
 
     Mirrors the cloud RBAC scope shape ({raw, namespace, sub_namespace, permission, value})
-    so a frontend renders scopes from any AgentOS API with one integration.
+    so a frontend renders scopes from any EgptOS API with one integration.
     """
 
     id: Optional[str] = Field(

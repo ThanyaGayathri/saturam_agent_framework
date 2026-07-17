@@ -1,5 +1,5 @@
 """
-Unit tests for AgentOS registry population and deduplication logic.
+Unit tests for EgptOS registry population and deduplication logic.
 
 Covers:
 - _populate_registry_managers(): discovery of memory/session managers from
@@ -16,7 +16,7 @@ from egpt.db.sqlite import SqliteDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.memory.manager import MemoryManager
 from egpt.models.base import Model
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.registry import Registry
 from egpt.session.summary import SessionSummaryManager
 from egpt.team.team import Team
@@ -59,7 +59,7 @@ def _model(model_id, provider="openai"):
 
 
 class TestPopulateRegistryManagers:
-    """Tests for AgentOS._populate_registry_managers()."""
+    """Tests for EgptOS._populate_registry_managers()."""
 
     def test_discovers_managers_from_agent(self):
         """Memory and session managers on an agent are added to the registry."""
@@ -67,7 +67,7 @@ class TestPopulateRegistryManagers:
         sm = SessionSummaryManager(id="sm-1")
         agent = Agent(name="A1", id="a1", memory_manager=mm, session_summary_manager=sm, telemetry=False)
 
-        os = AgentOS(agents=[agent], telemetry=False)
+        os = EgptOS(agents=[agent], telemetry=False)
         os._populate_registry_managers()
 
         assert mm in os.registry.memory_managers
@@ -85,7 +85,7 @@ class TestPopulateRegistryManagers:
             telemetry=False,
         )
 
-        os = AgentOS(agents=[agent], telemetry=False)
+        os = EgptOS(agents=[agent], telemetry=False)
         os._populate_registry_managers()
 
         assert mm.owner_id == "a1"
@@ -108,7 +108,7 @@ class TestPopulateRegistryManagers:
         mm = MemoryManager(id="shared-mm")
         agent = Agent(name="A1", id="a1", memory_manager=mm, telemetry=False)
 
-        os = AgentOS(agents=[agent], telemetry=False)
+        os = EgptOS(agents=[agent], telemetry=False)
         os._populate_registry_managers()
         os._populate_registry_managers()
 
@@ -122,7 +122,7 @@ class TestPopulateRegistryManagers:
         a1 = Agent(name="A1", id="a1", memory_manager=mm1, telemetry=False)
         a2 = Agent(name="A2", id="a2", memory_manager=mm2, telemetry=False)
 
-        os = AgentOS(agents=[a1, a2], telemetry=False)
+        os = EgptOS(agents=[a1, a2], telemetry=False)
         os._populate_registry_managers()
 
         assert os.registry.get_memory_manager_ids() == {"mm-1", "mm-2"}
@@ -131,7 +131,7 @@ class TestPopulateRegistryManagers:
         """Agents without managers do not break population."""
         agent = Agent(name="A1", id="a1", telemetry=False)
 
-        os = AgentOS(agents=[agent], telemetry=False)
+        os = EgptOS(agents=[agent], telemetry=False)
         os._populate_registry_managers()
 
         assert os.registry.memory_managers == []
@@ -143,7 +143,7 @@ class TestPopulateRegistryManagers:
         registry = Registry(memory_managers=[existing])
         agent = Agent(name="A1", id="a1", telemetry=False)
 
-        os = AgentOS(agents=[agent], registry=registry, telemetry=False)
+        os = EgptOS(agents=[agent], registry=registry, telemetry=False)
         os._populate_registry_managers()
 
         ids = [m.id for m in os.registry.memory_managers]
@@ -156,7 +156,7 @@ class TestPopulateRegistryManagers:
 
 
 class TestPopulateRegistryKnowledge:
-    """Tests for AgentOS._populate_registry_knowledge()."""
+    """Tests for EgptOS._populate_registry_knowledge()."""
 
     def test_discovered_knowledge_added_to_registry(self, tmp_path):
         """Knowledge attached to an agent is copied into the registry."""
@@ -164,7 +164,7 @@ class TestPopulateRegistryKnowledge:
         kb = Knowledge(name="Docs KB", contents_db=db, vector_db=MagicMock())
         agent = Agent(name="A1", id="a1", knowledge=kb, telemetry=False)
 
-        os = AgentOS(agents=[agent], telemetry=False)
+        os = EgptOS(agents=[agent], telemetry=False)
         os._auto_discover_knowledge_instances()
         os._populate_registry_knowledge()
 
@@ -176,7 +176,7 @@ class TestPopulateRegistryKnowledge:
         kb = Knowledge(name="Docs KB", contents_db=db, vector_db=MagicMock())
         agent = Agent(name="A1", id="a1", knowledge=kb, telemetry=False)
 
-        os = AgentOS(agents=[agent], telemetry=False)
+        os = EgptOS(agents=[agent], telemetry=False)
         os._auto_discover_knowledge_instances()
         os._populate_registry_knowledge()
         os._populate_registry_knowledge()
@@ -193,8 +193,8 @@ class TestPopulateRegistryKnowledge:
         kb = Knowledge(name="Early KB", contents_db=db, vector_db=MagicMock())
         agent = Agent(name="A1", id="a1", knowledge=kb, telemetry=False)
 
-        # Only construct AgentOS; do not call get_app() or resync().
-        os = AgentOS(agents=[agent], telemetry=False)
+        # Only construct EgptOS; do not call get_app() or resync().
+        os = EgptOS(agents=[agent], telemetry=False)
 
         assert any(getattr(k, "name", None) == "Early KB" for k in os.registry.knowledge)
 
@@ -214,7 +214,7 @@ class TestBidirectionalKnowledge:
         registry = Registry(knowledge=[kb])
         agent = Agent(name="A1", id="a1", telemetry=False)
 
-        os = AgentOS(agents=[agent], registry=registry, telemetry=False)
+        os = EgptOS(agents=[agent], registry=registry, telemetry=False)
         os._auto_discover_knowledge_instances()
 
         assert any(getattr(k, "name", None) == "Registry KB" for k in os.knowledge_instances)
@@ -225,7 +225,7 @@ class TestBidirectionalKnowledge:
         registry = Registry(knowledge=[kb])
         agent = Agent(name="A1", id="a1", telemetry=False)
 
-        os = AgentOS(agents=[agent], registry=registry, telemetry=False)
+        os = EgptOS(agents=[agent], registry=registry, telemetry=False)
         os._auto_discover_knowledge_instances()
 
         assert all(getattr(k, "name", None) != "No DB KB" for k in os.knowledge_instances)
@@ -250,7 +250,7 @@ class TestPopulateRegistryComponentsAgents:
     def test_model_collected_from_agent(self):
         agent = Agent(name="A1", id="a1", model=_model("gpt-5.4"), telemetry=False)
 
-        os = AgentOS(agents=[agent], telemetry=False)
+        os = EgptOS(agents=[agent], telemetry=False)
 
         assert ("openai", "gpt-5.4") in _model_keys(os.registry)
 
@@ -264,7 +264,7 @@ class TestPopulateRegistryComponentsAgents:
             telemetry=False,
         )
 
-        os = AgentOS(agents=[agent], telemetry=False)
+        os = EgptOS(agents=[agent], telemetry=False)
 
         keys = _model_keys(os.registry)
         assert ("openai", "gpt-5.4") in keys
@@ -278,7 +278,7 @@ class TestPopulateRegistryComponentsAgents:
 
         agent = Agent(name="A1", id="a1", tools=[my_tool], telemetry=False)
 
-        os = AgentOS(agents=[agent], telemetry=False)
+        os = EgptOS(agents=[agent], telemetry=False)
 
         assert "my_tool" in _tool_names(os.registry)
 
@@ -286,7 +286,7 @@ class TestPopulateRegistryComponentsAgents:
         db = SqliteDb(db_file=str(tmp_path / "a.db"), id="db-1")
         agent = Agent(name="A1", id="a1", db=db, telemetry=False)
 
-        os = AgentOS(agents=[agent], telemetry=False)
+        os = EgptOS(agents=[agent], telemetry=False)
 
         assert db in os.registry.dbs
 
@@ -296,7 +296,7 @@ class TestPopulateRegistryComponentsAgents:
         kb = Knowledge(name="KB", contents_db=contents_db, vector_db=vector_db)
         agent = Agent(name="A1", id="a1", knowledge=kb, telemetry=False)
 
-        os = AgentOS(agents=[agent], telemetry=False)
+        os = EgptOS(agents=[agent], telemetry=False)
 
         assert vector_db in os.registry.vector_dbs
 
@@ -309,7 +309,7 @@ class TestPopulateRegistryComponentsDedup:
         a1 = Agent(name="A1", id="a1", model=shared, telemetry=False)
         a2 = Agent(name="A2", id="a2", model=shared, telemetry=False)
 
-        os = AgentOS(agents=[a1, a2], telemetry=False)
+        os = EgptOS(agents=[a1, a2], telemetry=False)
 
         gpt = [m for m in os.registry.models if m.id == "gpt-5.4"]
         assert len(gpt) == 1
@@ -318,7 +318,7 @@ class TestPopulateRegistryComponentsDedup:
         a1 = Agent(name="A1", id="a1", model=_model("gpt-5.4"), telemetry=False)
         a2 = Agent(name="A2", id="a2", model=_model("gpt-5.4"), telemetry=False)
 
-        os = AgentOS(agents=[a1, a2], telemetry=False)
+        os = EgptOS(agents=[a1, a2], telemetry=False)
 
         gpt = [m for m in os.registry.models if m.id == "gpt-5.4"]
         assert len(gpt) == 1
@@ -328,7 +328,7 @@ class TestPopulateRegistryComponentsDedup:
         registry = Registry(models=[existing])
         agent = Agent(name="A1", id="a1", model=_model("gpt-5.4"), telemetry=False)
 
-        os = AgentOS(agents=[agent], registry=registry, telemetry=False)
+        os = EgptOS(agents=[agent], registry=registry, telemetry=False)
 
         gpt = [m for m in os.registry.models if m.id == "gpt-5.4"]
         assert len(gpt) == 1
@@ -337,7 +337,7 @@ class TestPopulateRegistryComponentsDedup:
     def test_idempotent_across_repeated_population(self):
         agent = Agent(name="A1", id="a1", model=_model("gpt-5.4"), telemetry=False)
 
-        os = AgentOS(agents=[agent], telemetry=False)
+        os = EgptOS(agents=[agent], telemetry=False)
         os._populate_registry_components()
         os._populate_registry_components()
 
@@ -360,7 +360,7 @@ class TestPopulateRegistryComponentsNested:
             telemetry=False,
         )
 
-        os = AgentOS(teams=[outer_team], telemetry=False)
+        os = EgptOS(teams=[outer_team], telemetry=False)
 
         keys = _model_keys(os.registry)
         assert ("openai", "inner-model") in keys
@@ -383,7 +383,7 @@ class TestPopulateRegistryComponentsNested:
             steps=[Step(name="team-step", team=team)],
         )
 
-        os = AgentOS(workflows=[workflow], telemetry=False)
+        os = EgptOS(workflows=[workflow], telemetry=False)
 
         keys = _model_keys(os.registry)
         assert ("openai", "coordinator-model") in keys
@@ -406,7 +406,7 @@ class TestPopulateRegistryComponentsNested:
 
         workflow = Workflow(name="WF", id="wf", steps=[condition, router])
 
-        os = AgentOS(workflows=[workflow], telemetry=False)
+        os = EgptOS(workflows=[workflow], telemetry=False)
 
         keys = _model_keys(os.registry)
         # The else branch and the router choices must not be missed
@@ -423,7 +423,7 @@ class TestPopulateRegistryComponentsSafety:
         # collected; it just has no tools, dbs or vector dbs.
         agent = Agent(name="A1", id="a1", telemetry=False)
 
-        os = AgentOS(agents=[agent], telemetry=False)
+        os = EgptOS(agents=[agent], telemetry=False)
 
         assert os.registry.tools == []
         assert os.registry.dbs == []
@@ -445,7 +445,7 @@ class TestPopulateRegistryComponentsToolDedup:
         a = Agent(name="A1", id="a1", tools=[toolkit_alpha], telemetry=False)
         b = Agent(name="A2", id="a2", tools=[toolkit_beta], telemetry=False)
 
-        os = AgentOS(agents=[a, b], telemetry=False)
+        os = EgptOS(agents=[a, b], telemetry=False)
 
         toolkits = [t for t in os.registry.tools if isinstance(t, _NamedToolkit)]
         assert len(toolkits) == 1
@@ -462,7 +462,7 @@ class TestPopulateRegistryComponentsToolDedup:
         a = Agent(name="A1", id="a1", tools=[first], telemetry=False)
         b = Agent(name="A2", id="a2", tools=[second], telemetry=False)
 
-        os = AgentOS(agents=[a, b], telemetry=False)
+        os = EgptOS(agents=[a, b], telemetry=False)
 
         kept = [t for t in os.registry.tools if isinstance(t, DuckDuckGoTools)]
         assert len(kept) == 1 and kept[0] is first
@@ -483,7 +483,7 @@ class TestPopulateRegistryComponentsToolDedup:
         a = Agent(name="A1", id="a1", tools=[toolkit_alpha], telemetry=False)
         b = Agent(name="A2", id="a2", tools=[toolkit_beta], telemetry=False)
 
-        os = AgentOS(agents=[a, b], telemetry=False)
+        os = EgptOS(agents=[a, b], telemetry=False)
 
         assert toolkit_alpha in os.registry.tools
         assert toolkit_beta in os.registry.tools
@@ -494,7 +494,7 @@ class TestPopulateRegistryComponentsToolDedup:
         a = Agent(name="A1", id="a1", tools=[shared_toolkit], telemetry=False)
         b = Agent(name="A2", id="a2", tools=[shared_toolkit], telemetry=False)
 
-        os = AgentOS(agents=[a, b], telemetry=False)
+        os = EgptOS(agents=[a, b], telemetry=False)
 
         assert os.registry.tools.count(shared_toolkit) == 1
 
@@ -508,7 +508,7 @@ class TestPopulateRegistryComponentsCacheInvalidation:
             return x
 
         agent_a = Agent(name="A1", id="a1", tools=[tool_a], telemetry=False)
-        os = AgentOS(agents=[agent_a], telemetry=False)
+        os = EgptOS(agents=[agent_a], telemetry=False)
 
         # Prime (cache) the entrypoint lookup, as rehydrate_function() would
         assert "tool_a" in os.registry._entrypoint_lookup
@@ -544,10 +544,10 @@ class TestPopulateRegistryDedupLogging:
         # auto-created registry deduping across agents: both stay silent.
         registry = Registry(tools=[_NamedToolkit()])
         agent = Agent(name="A1", id="a1", tools=[_NamedToolkit()], telemetry=False)
-        AgentOS(agents=[agent], registry=registry, telemetry=False)
+        EgptOS(agents=[agent], registry=registry, telemetry=False)
 
         a = Agent(name="A2", id="a2", tools=[_NamedToolkit()], telemetry=False)
         b = Agent(name="A3", id="a3", tools=[_NamedToolkit()], telemetry=False)
-        AgentOS(agents=[a, b], telemetry=False)
+        EgptOS(agents=[a, b], telemetry=False)
 
         assert not any("shared_name" in m for m in logged)

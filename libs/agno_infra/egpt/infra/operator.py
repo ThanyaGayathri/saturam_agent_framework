@@ -14,8 +14,7 @@ from egpt.cli.console import (
 )
 from egpt.infra.config import InfraConfig
 from egpt.infra.enums import InfraStarterTemplate
-from egpt.utilities.logging import log_warning, logger
-from egpt.utils.log import log_info
+from egpt.utilities.logging import log_info, log_warning, logger
 
 TEMPLATE_TO_NAME_MAP: Dict[InfraStarterTemplate, str] = {
     InfraStarterTemplate.agentos_docker: "agentos-docker",
@@ -34,7 +33,7 @@ def create_infra_from_template(
     template: Optional[str] = None,
     url: Optional[str] = None,
 ) -> Optional[InfraConfig]:
-    """Creates a new AgentOS infra codebase from a template and returns the InfraConfig.
+    """Creates a new EgptOS infra codebase from a template and returns the InfraConfig.
 
     This function clones a template or url on the users machine at the path:
         cwd/name
@@ -64,7 +63,7 @@ def create_infra_from_template(
     infra_template = InfraStarterTemplate.agentos_docker
     templates = list(InfraStarterTemplate.__members__.values())
 
-    print_subheading("Creating a new AgentOS codebase...\n")
+    print_subheading("Creating a new EgptOS codebase...\n")
 
     if repo_to_clone is None:
         # Get repo_to_clone from template
@@ -121,7 +120,7 @@ def create_infra_from_template(
         )
         return None
 
-    print_info("\nCreating your new AgentOS codebase...")
+    print_info("\nCreating your new EgptOS codebase...")
     logger.debug("Cloning: {}".format(repo_to_clone))
     try:
         git.Repo.clone_from(
@@ -173,16 +172,16 @@ def create_infra_from_template(
     if infra_config is not None:
         relative_infra_root_path = infra_root_path.relative_to(current_dir)
         print_info("\n--------------------------------")
-        print_info(f"Done! Your new AgentOS codebase is available at: ./{str(relative_infra_root_path)} \n")
+        print_info(f"Done! Your new EgptOS codebase is available at: ./{str(relative_infra_root_path)} \n")
         print_info(f"Please run `cd ./{str(relative_infra_root_path)}` and:\n")
-        print_info("1. Start your AgentOS -> `ag infra up`")
-        print_info("2. Stop your AgentOS -> `ag infra down`")
-        print_info("\nView your AgentOS on https://os.agno.com")
+        print_info("1. Start your EgptOS -> `ag infra up`")
+        print_info("2. Stop your EgptOS -> `ag infra down`")
+        print_info("\nView your EgptOS on https://os.agno.com")
         print_info("--------------------------------")
 
         return infra_config
     else:
-        print_info("AgentOS codebase setup unsuccessful. Please try again.")
+        print_info("EgptOS codebase setup unsuccessful. Please try again.")
     return None
 
 
@@ -223,9 +222,9 @@ def start_infra(
     force: Optional[bool] = None,
     pull: Optional[bool] = False,
 ) -> None:
-    """Start an AgentOS codebase infrastructure. This is called from `ag infra up`"""
+    """Start an EgptOS codebase infrastructure. This is called from `ag infra up`"""
 
-    print_heading("Starting AgentOS codebase infrastructure: {}".format(str(infra_config.infra_root_path.stem)))
+    print_heading("Starting EgptOS codebase infrastructure: {}".format(str(infra_config.infra_root_path.stem)))
     logger.debug(f"\ttarget_env   : {target_env}")
     logger.debug(f"\ttarget_infra : {target_infra}")
     logger.debug(f"\ttarget_group : {target_group}")
@@ -479,19 +478,19 @@ def set_infra_as_active(infra_dir_name: Optional[str]) -> None:
     ######################################################
     # 1.3 Validate InfraConfig is available i.e. a Infra is available at this directory
     ######################################################
-    logger.debug(f"Checking for an AgentOS codebase at path: {infra_root_path}")
+    logger.debug(f"Checking for an EgptOS codebase at path: {infra_root_path}")
     active_infra_config: Optional[InfraConfig] = agno_config.get_infra_config_by_path(infra_root_path)
     if active_infra_config is None:
         # This happens when the infra is not yet setup
-        print_info(f"Could not find a AgentOS codebase at path: {infra_root_path}")
+        print_info(f"Could not find a EgptOS codebase at path: {infra_root_path}")
         # TODO: setup automatically for the user
-        # print_info("If this AgentOS codebase has not been setup, please run `ag infra setup` from the infra directory")
+        # print_info("If this EgptOS codebase has not been setup, please run `ag infra setup` from the infra directory")
         return
 
     ######################################################
     ## 2. Set Infra as active
     ######################################################
-    print_heading(f"Setting AgentOS codebase {active_infra_config.infra_root_path.stem} as active")
+    print_heading(f"Setting EgptOS codebase {active_infra_config.infra_root_path.stem} as active")
     agno_config.set_active_infra_dir(active_infra_config.infra_root_path)
-    print_info("Active AgentOS codebase updated")
+    print_info("Active EgptOS codebase updated")
     return

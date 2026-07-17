@@ -1,4 +1,4 @@
-# Demo AgentOS Test Log
+# Demo EgptOS Test Log
 
 Last updated: 2026-06-05
 

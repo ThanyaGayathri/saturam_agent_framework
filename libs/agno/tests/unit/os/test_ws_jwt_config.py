@@ -2,7 +2,7 @@
 
 Covers the manual-setup gap: when a user does
 ``app.add_middleware(JWTMiddleware, ...)`` instead of going through
-``AgentOS(authorization=True)``, ``app.state.jwt_validator`` is only set
+``EgptOS(authorization=True)``, ``app.state.jwt_validator`` is only set
 lazily during HTTP dispatch. The FIRST WebSocket connection arriving before
 any HTTP request would otherwise silently fall through to ``requires_auth=False``.
 
@@ -31,7 +31,7 @@ def _make_fake_app(*, state_attrs: dict[str, Any] | None = None, middleware_entr
 
 
 class TestResolveWsJwtConfigAgentOSPath:
-    """When AgentOS pre-populates app.state, the resolver returns those values."""
+    """When EgptOS pre-populates app.state, the resolver returns those values."""
 
     def test_returns_state_values_when_validator_already_set(self):
         validator = MagicMock(name="validator")
@@ -268,7 +268,7 @@ class TestManualSetupHttpFirstPreservesWsConfig:
     ``dispatch``. If an HTTP request fires before a WebSocket connection,
     ``dispatch`` must cache ALL the WS-relevant fields together — not just
     ``jwt_validator`` — otherwise ``resolve_ws_jwt_config`` returns early on
-    the AgentOS-path branch and silently drops ``verify_audience``,
+    the EgptOS-path branch and silently drops ``verify_audience``,
     ``audience``, ``admin_scope`` and ``user_isolation``.
     """
 
@@ -340,7 +340,7 @@ class TestManualSetupHttpFirstPreservesWsConfig:
         assert fake_app.state.user_isolation_enabled is True
 
         # A subsequent WebSocket connection routes through resolve_ws_jwt_config.
-        # It must take the AgentOS-path (validator already on app.state) and
+        # It must take the EgptOS-path (validator already on app.state) and
         # return the full set of values rather than silently defaulting.
         cfg = resolve_ws_jwt_config(fake_app)
         assert cfg["validator"] is manual_setup.validator

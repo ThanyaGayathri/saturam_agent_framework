@@ -1,8 +1,8 @@
 """
-AgentOS Registry App
+EgptOS Registry App
 ====================
 
-Demonstrates configuring AgentOS with a Registry and serving the app.
+Demonstrates configuring EgptOS with a Registry and serving the app.
 """
 
 from egpt.agent.agent import Agent
@@ -10,7 +10,7 @@ from egpt.db.postgres import PostgresDb
 from egpt.models.anthropic import Claude
 from egpt.models.azure import AzureOpenAI
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.registry import Registry
 from egpt.tools.calculator import CalculatorTools
 from egpt.tools.duckduckgo import DuckDuckGoTools
@@ -41,7 +41,7 @@ registry = Registry(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS App
+# Create EgptOS App
 # ---------------------------------------------------------------------------
 agent = Agent(
     id="registry-agent",
@@ -49,7 +49,7 @@ agent = Agent(
     db=db,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[agent],
     id="registry-agent-os",
     registry=registry,
@@ -59,7 +59,7 @@ agent_os = AgentOS(
 app = agent_os.get_app()
 
 # ---------------------------------------------------------------------------
-# Run AgentOS App
+# Run EgptOS App
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     agent_os.serve(app="agent_os_registry:app", reload=True)

@@ -1,4 +1,4 @@
-"""Unit tests for the AgentOS MCP server.
+"""Unit tests for the EgptOS MCP server.
 
 Covers the three things added/fixed for the MCP server:
   1. Custom tools can be registered and called over the MCP server.
@@ -30,7 +30,7 @@ from egpt.db.schemas.service_accounts import ServiceAccount  # noqa: E402
 from egpt.models.base import Model  # noqa: E402
 from egpt.models.message import MessageMetrics  # noqa: E402
 from egpt.models.response import ModelResponse  # noqa: E402
-from egpt.os import AgentOS, MCPServerConfig  # noqa: E402
+from egpt.os import EgptOS, MCPServerConfig  # noqa: E402
 from egpt.os.config import AuthorizationConfig  # noqa: E402
 from egpt.os.mcp import _resolve_user_id, build_mcp_server, get_mcp_server  # noqa: E402
 from egpt.os.service_accounts import ServiceAccountVerification, VerificationStatus, generate_token  # noqa: E402
@@ -54,12 +54,12 @@ def _agent() -> Agent:
     return Agent(id="demo-agent", name="Demo Agent")
 
 
-async def _tool_names(os: AgentOS) -> set:
+async def _tool_names(os: EgptOS) -> set:
     async with Client(build_mcp_server(os)) as client:
         return {t.name for t in await client.list_tools()}
 
 
-async def _call_tool(os: AgentOS, name: str, args: dict):
+async def _call_tool(os: EgptOS, name: str, args: dict):
     async with Client(build_mcp_server(os)) as client:
         return await client.call_tool(name, args)
 
@@ -117,7 +117,7 @@ async def test_custom_plain_callable_is_registered_and_callable():
         """Reverse the given text."""
         return text[::-1]
 
-    os = AgentOS(agents=[_agent()], enable_mcp_server=True, mcp_config=MCPServerConfig(tools=[reverse_text]))
+    os = EgptOS(agents=[_agent()], enable_mcp_server=True, mcp_config=MCPServerConfig(tools=[reverse_text]))
 
     assert "reverse_text" in await _tool_names(os)
     result = await _call_tool(os, "reverse_text", {"text": "abc"})
@@ -132,7 +132,7 @@ async def test_custom_agno_tool_is_registered_with_its_name():
         """Return a widget summary."""
         return f"widget:{widget_id}"
 
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         mcp_config=MCPServerConfig(tools=[lookup_widget], enable_builtin_tools=False),
@@ -147,7 +147,7 @@ async def test_unregisterable_custom_tool_raises():
     """A non-callable custom tool fails loudly rather than being silently dropped."""
     with pytest.raises(TypeError):
         build_mcp_server(
-            AgentOS(agents=[_agent()], enable_mcp_server=True, mcp_config=MCPServerConfig(tools=[object()]))
+            EgptOS(agents=[_agent()], enable_mcp_server=True, mcp_config=MCPServerConfig(tools=[object()]))
         )
 
 
@@ -156,7 +156,7 @@ async def test_unregisterable_custom_tool_raises():
 
 async def test_default_registers_all_builtin_tools():
     """With no mcp_config, every built-in tool is registered (unchanged behavior)."""
-    os = AgentOS(agents=[_agent()], enable_mcp_server=True)
+    os = EgptOS(agents=[_agent()], enable_mcp_server=True)
     assert await _tool_names(os) == ALL_BUILTIN_TOOLS
 
 
@@ -167,7 +167,7 @@ async def test_disabling_builtins_yields_only_custom_tools():
         """Return pong."""
         return "pong"
 
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         mcp_config=MCPServerConfig(tools=[ping], enable_builtin_tools=False),
@@ -187,12 +187,12 @@ def test_disabling_builtins_with_no_custom_tools_is_rejected_at_construction():
 
 
 async def test_include_tags_scopes_builtins_to_core():
-    os = AgentOS(agents=[_agent()], enable_mcp_server=True, mcp_config=MCPServerConfig(include_tags={"core"}))
+    os = EgptOS(agents=[_agent()], enable_mcp_server=True, mcp_config=MCPServerConfig(include_tags={"core"}))
     assert await _tool_names(os) == CORE_TOOLS
 
 
 async def test_exclude_tags_drops_session_builtins():
-    os = AgentOS(agents=[_agent()], enable_mcp_server=True, mcp_config=MCPServerConfig(exclude_tags={"session"}))
+    os = EgptOS(agents=[_agent()], enable_mcp_server=True, mcp_config=MCPServerConfig(exclude_tags={"session"}))
     names = await _tool_names(os)
     assert names == CORE_TOOLS
     assert not (names & SESSION_TOOLS)
@@ -225,7 +225,7 @@ async def test_custom_tools_coexist_with_scoped_builtins():
         """Return pong."""
         return "pong"
 
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         mcp_config=MCPServerConfig(tools=[ping], include_tags={"core"}),
@@ -262,7 +262,7 @@ async def test_run_agent_threads_resolved_identity(monkeypatch):
 
     agent = _agent()
     captured = _stub_arun(agent, RunOutput(content="ok"))
-    os = AgentOS(agents=[agent], enable_mcp_server=True)
+    os = EgptOS(agents=[agent], enable_mcp_server=True)
 
     await _call_tool(os, "run_agent", {"agent_id": agent.id, "message": "hi", "session_id": "s-1"})
 
@@ -276,7 +276,7 @@ async def test_run_team_threads_resolved_identity(monkeypatch):
 
     team = Team(id="demo-team", name="Demo Team", members=[_agent()])
     captured = _stub_arun(team, TeamRunOutput(content="ok"))
-    os = AgentOS(teams=[team], enable_mcp_server=True)
+    os = EgptOS(teams=[team], enable_mcp_server=True)
 
     await _call_tool(os, "run_team", {"team_id": team.id, "message": "hi", "session_id": "s-2"})
 
@@ -289,7 +289,7 @@ async def test_run_workflow_threads_resolved_identity(monkeypatch):
 
     workflow = Workflow(id="demo-wf", name="Demo WF", steps=[Step(agent=_agent())])
     captured = _stub_arun(workflow, WorkflowRunOutput(content="ok"))
-    os = AgentOS(workflows=[workflow], enable_mcp_server=True)
+    os = EgptOS(workflows=[workflow], enable_mcp_server=True)
 
     await _call_tool(os, "run_workflow", {"workflow_id": workflow.id, "message": "hi", "session_id": "s-3"})
 
@@ -408,7 +408,7 @@ async def test_run_agent_mints_a_new_session_when_omitted():
     """Omitting session_id makes run_agent pass a fresh (non-None) session_id to arun."""
     agent = _agent()
     sessions = _capture_run_sessions(agent, RunOutput(content="ok"))
-    os = AgentOS(agents=[agent], enable_mcp_server=True)
+    os = EgptOS(agents=[agent], enable_mcp_server=True)
 
     await _call_tool(os, "run_agent", {"agent_id": agent.id, "message": "hi"})
 
@@ -421,7 +421,7 @@ async def test_run_agent_omitted_session_is_distinct_per_call():
     -- the core regression: sessionless runs must not collapse into one shared conversation."""
     agent = _agent()
     sessions = _capture_run_sessions(agent, RunOutput(content="ok"))
-    os = AgentOS(agents=[agent], enable_mcp_server=True)
+    os = EgptOS(agents=[agent], enable_mcp_server=True)
 
     async with Client(build_mcp_server(os)) as client:
         await client.call_tool("run_agent", {"agent_id": agent.id, "message": "one"})
@@ -435,7 +435,7 @@ async def test_run_agent_parallel_omitted_sessions_are_distinct():
     """Concurrent sessionless run_agent calls still mint distinct sessions (no shared default)."""
     agent = _agent()
     sessions = _capture_run_sessions(agent, RunOutput(content="ok"))
-    os = AgentOS(agents=[agent], enable_mcp_server=True)
+    os = EgptOS(agents=[agent], enable_mcp_server=True)
 
     async with Client(build_mcp_server(os)) as client:
         await asyncio.gather(
@@ -452,7 +452,7 @@ async def test_run_agent_explicit_session_is_reused():
     """An explicit session_id is honoured verbatim across calls -- continuity still works."""
     agent = _agent()
     sessions = _capture_run_sessions(agent, RunOutput(content="ok"))
-    os = AgentOS(agents=[agent], enable_mcp_server=True)
+    os = EgptOS(agents=[agent], enable_mcp_server=True)
 
     async with Client(build_mcp_server(os)) as client:
         await client.call_tool("run_agent", {"agent_id": agent.id, "message": "one", "session_id": "fixed-1"})
@@ -465,7 +465,7 @@ async def test_run_team_omitted_session_is_distinct_per_call():
     """run_team applies the same fix: sessionless calls mint distinct sessions."""
     team = Team(id="demo-team", name="Demo Team", members=[_agent()])
     sessions = _capture_run_sessions(team, TeamRunOutput(content="ok"))
-    os = AgentOS(teams=[team], enable_mcp_server=True)
+    os = EgptOS(teams=[team], enable_mcp_server=True)
 
     async with Client(build_mcp_server(os)) as client:
         await client.call_tool("run_team", {"team_id": team.id, "message": "one"})
@@ -478,7 +478,7 @@ async def test_run_team_omitted_session_is_distinct_per_call():
 async def test_run_team_explicit_session_is_reused():
     team = Team(id="demo-team", name="Demo Team", members=[_agent()])
     sessions = _capture_run_sessions(team, TeamRunOutput(content="ok"))
-    os = AgentOS(teams=[team], enable_mcp_server=True)
+    os = EgptOS(teams=[team], enable_mcp_server=True)
 
     await _call_tool(os, "run_team", {"team_id": team.id, "message": "hi", "session_id": "team-sess"})
 
@@ -489,7 +489,7 @@ async def test_run_workflow_omitted_session_is_distinct_per_call():
     """run_workflow applies the same fix: sessionless calls mint distinct sessions."""
     workflow = Workflow(id="demo-wf", name="Demo WF", steps=[Step(agent=_agent())])
     sessions = _capture_run_sessions(workflow, WorkflowRunOutput(content="ok"))
-    os = AgentOS(workflows=[workflow], enable_mcp_server=True)
+    os = EgptOS(workflows=[workflow], enable_mcp_server=True)
 
     async with Client(build_mcp_server(os)) as client:
         await client.call_tool("run_workflow", {"workflow_id": workflow.id, "message": "one"})
@@ -502,7 +502,7 @@ async def test_run_workflow_omitted_session_is_distinct_per_call():
 async def test_run_workflow_explicit_session_is_reused():
     workflow = Workflow(id="demo-wf", name="Demo WF", steps=[Step(agent=_agent())])
     sessions = _capture_run_sessions(workflow, WorkflowRunOutput(content="ok"))
-    os = AgentOS(workflows=[workflow], enable_mcp_server=True)
+    os = EgptOS(workflows=[workflow], enable_mcp_server=True)
 
     await _call_tool(os, "run_workflow", {"workflow_id": workflow.id, "message": "hi", "session_id": "wf-sess"})
 
@@ -515,7 +515,7 @@ async def test_run_agent_omitted_session_end_to_end_returns_distinct_ids(monkeyp
     instance (the tool always hands arun a concrete session, so the sticky branch never fires)."""
     monkeypatch.setattr(mcp_mod, "_resolve_user_id", lambda caller: None)
     agent = Agent(id="demo-agent", name="Demo Agent", model=_MockModel())
-    os = AgentOS(agents=[agent], enable_mcp_server=True)
+    os = EgptOS(agents=[agent], enable_mcp_server=True)
 
     async with Client(build_mcp_server(os)) as client:
         r1 = await client.call_tool("run_agent", {"agent_id": agent.id, "message": "one"})
@@ -539,7 +539,7 @@ async def test_continue_run_targets_the_given_session_and_never_mints(monkeypatc
         return RunOutput(run_id=run_id, session_id=session_id, content="resumed")
 
     agent.acontinue_run = fake_acontinue_run  # type: ignore[method-assign]
-    os = AgentOS(agents=[agent], enable_mcp_server=True)
+    os = EgptOS(agents=[agent], enable_mcp_server=True)
 
     result = await _call_tool(os, "continue_run", {"run_id": "run-1", "session_id": "orig-sess", "agent_id": agent.id})
 
@@ -557,7 +557,7 @@ async def test_custom_tool_user_id_is_injected_and_hidden(monkeypatch):
     async def ask(message: str, user_id: Optional[str] = None) -> str:
         return f"{message}:{user_id}"
 
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         mcp_config=MCPServerConfig(tools=[ask], enable_builtin_tools=False),
@@ -580,7 +580,7 @@ async def test_custom_tool_without_user_id_is_unchanged():
         """Echo the text."""
         return text
 
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         mcp_config=MCPServerConfig(tools=[echo], enable_builtin_tools=False),
@@ -600,7 +600,7 @@ async def test_custom_tool_can_use_native_ctx():
     async def whoami(ctx: Context) -> str:
         return f"ctx:{type(ctx).__name__}"
 
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         mcp_config=MCPServerConfig(tools=[whoami], enable_builtin_tools=False),
@@ -635,8 +635,8 @@ async def _ok_tool(message: str) -> str:
 
 
 @asynccontextmanager
-async def _mcp_http_client(os: AgentOS):
-    """Drive the full AgentOS app and hit /mcp through the whole stack.
+async def _mcp_http_client(os: EgptOS):
+    """Drive the full EgptOS app and hit /mcp through the whole stack.
 
     Auth lives on the parent app's single AuthMiddleware (not the mounted /mcp app),
     so requests must flow through the full app for the auth layer to run.
@@ -653,7 +653,7 @@ async def _mcp_http_client(os: AgentOS):
 
 async def test_authorize_gate_rejects_unauthorized_caller():
     """The authorize predicate 401s a non-authorized caller before the MCP machinery runs."""
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         mcp_config=MCPServerConfig(
@@ -671,7 +671,7 @@ async def test_authorize_gate_rejects_unauthorized_caller():
 
 async def test_authorize_gate_allows_authorized_caller():
     """An allow-all authorize predicate lets the request through to the MCP machinery."""
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         mcp_config=MCPServerConfig(tools=[_ok_tool], enable_builtin_tools=False, authorize=lambda user_id: True),
@@ -690,7 +690,7 @@ def test_authorize_without_jwt_warns_at_startup(monkeypatch):
     warnings: list = []
     monkeypatch.setattr("egpt.utils.log.log_warning", lambda msg, *a, **kw: warnings.append(msg))
 
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         authorization=False,
@@ -711,7 +711,7 @@ def test_authorize_with_jwt_does_not_warn(monkeypatch):
     warnings: list = []
     monkeypatch.setattr("egpt.utils.log.log_warning", lambda msg, *a, **kw: warnings.append(msg))
 
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         authorization=True,
@@ -728,7 +728,7 @@ def test_authorize_with_jwt_does_not_warn(monkeypatch):
     assert not relevant, f"unexpected authorize-without-JWT warning: {relevant}"
 
 
-def _parent_auth_middleware(os: AgentOS):
+def _parent_auth_middleware(os: EgptOS):
     """The single AuthMiddleware on the parent app (covers REST + the mounted /mcp)."""
     app = os.get_app()
     return next(m for m in app.user_middleware if m.cls.__name__ == "AuthMiddleware")
@@ -739,7 +739,7 @@ def test_auth_middleware_carries_jwt_constraints():
     the single parent-app auth layer, which covers /mcp -- so a token that passes REST's
     audience check (or honours user_isolation / a custom admin scope) is held to the same
     constraints over /mcp (same middleware instance, no second layer to drift)."""
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         authorization=True,
@@ -759,7 +759,7 @@ def test_auth_middleware_carries_jwt_constraints():
 def test_auth_middleware_omits_unset_kwargs():
     """Unset optional kwargs must not be forwarded -- they shouldn't override the
     middleware's own defaults."""
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         authorization=True,
@@ -773,7 +773,7 @@ def test_auth_middleware_omits_unset_kwargs():
 
 def test_mounted_mcp_app_carries_no_auth_middleware():
     """Auth lives only on the parent app; the mounted /mcp app has no auth layer of its own."""
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         authorization=True,
@@ -795,7 +795,7 @@ async def test_custom_middleware_passthrough_runs():
             response.headers["X-Passthrough"] = "1"
             return response
 
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         mcp_config=MCPServerConfig(
@@ -822,8 +822,8 @@ def _headers(host: Optional[str] = None, origin: Optional[str] = None) -> dict:
     return headers
 
 
-def _security_os(**kwargs) -> AgentOS:
-    return AgentOS(
+def _security_os(**kwargs) -> EgptOS:
+    return EgptOS(
         agents=[_agent()],
         enable_mcp_server=True,
         mcp_config=MCPServerConfig(tools=[_ok_tool], enable_builtin_tools=False, **kwargs),
@@ -896,7 +896,7 @@ def test_manual_jwt_middleware_on_base_app_is_not_open():
 
     base = FastAPI()
     base.add_middleware(JWTMiddleware, validate=False)  # validate=False counts as a JWT key source
-    os = AgentOS(
+    os = EgptOS(
         agents=[_agent()],
         base_app=base,
         enable_mcp_server=True,
@@ -936,8 +936,8 @@ def _mint_pat(db, name="mcp-bot", revoked=False):
     return plaintext
 
 
-def _auth_os(security_key=None, db=None, **config_kwargs) -> AgentOS:
-    return AgentOS(
+def _auth_os(security_key=None, db=None, **config_kwargs) -> EgptOS:
+    return EgptOS(
         agents=[_agent()],
         db=db,
         enable_mcp_server=True,
@@ -1015,11 +1015,11 @@ async def test_pat_without_db_gets_service_accounts_disabled_401():
     async with _mcp_http_client(_auth_os(security_key="test-key")) as client:
         response = await client.post("/mcp", json=_MCP_INIT_BODY, headers=_bearer("agno_pat_notenabled0000000"))
     assert response.status_code == 401
-    assert response.json()["detail"] == "Service accounts are not enabled on this AgentOS instance"
+    assert response.json()["detail"] == "Service accounts are not enabled on this EgptOS instance"
 
 
 async def test_open_mode_with_db_stays_open_and_ignores_stale_pats(tmp_path):
-    """A db-only AgentOS (no security key, no JWT) installs no auth layer on /mcp.
+    """A db-only EgptOS (no security key, no JWT) installs no auth layer on /mcp.
 
     The verifier still lives on app.state (the WS authenticate action and manually
     added JWTMiddleware resolve it at request time), but no middleware runs for the

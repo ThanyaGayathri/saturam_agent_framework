@@ -1,7 +1,7 @@
 """
-Claude Code Agent on AgentOS
+Claude Code Agent on EgptOS
 ============================
-A Claude Code agent (via the Claude Agent SDK), served through AgentOS.
+A Claude Code agent (via the Claude Agent SDK), served through EgptOS.
 
 The Claude Agent SDK runs Claude Code as a subprocess. Tool execution
 is handled by the SDK — you configure which built-in tools are allowed.
@@ -15,7 +15,7 @@ Usage:
 
 from egpt.agents.claude import ClaudeAgent
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 agent = ClaudeAgent(
     name="Claude Code Agent",
@@ -25,7 +25,7 @@ agent = ClaudeAgent(
     max_turns=10,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[agent],
     tracing=True,
     db=SqliteDb(db_file="tmp/agentos.db"),

@@ -7,7 +7,7 @@ Demonstrates research team.
 
 from egpt.agent.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.team.team import Team
 from egpt.tools.websearch import WebSearchTools
 
@@ -51,8 +51,8 @@ research_team = Team(
     debug_mode=True,
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     teams=[research_team],
     a2a_interface=True,
 )
@@ -64,7 +64,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS with A2A interface.
+    """Run your EgptOS with A2A interface.
 
     You can run the Agent via A2A protocol:
     POST http://localhost:7777/teamss/{id}/v1/message:send

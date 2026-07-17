@@ -158,12 +158,12 @@ agent = Agent(
 result: Result = agent.run(query).content
 ```
 
-AgentOS Production:
+EgptOS Production:
 ```python
-from agno.os import AgentOS
-from agno.db.postgres import PostgresDb
+from egpt.os import EgptOS
+from egpt.db.postgres import PostgresDb
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[agent],
     db=PostgresDb(db_url=os.getenv("DATABASE_URL")),
 )

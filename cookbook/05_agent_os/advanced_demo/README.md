@@ -1,16 +1,16 @@
 # Advanced Demo Cookbook
 
-Examples for `advanced_demo` in AgentOS.
+Examples for `advanced_demo` in EgptOS.
 
 ## Files
 - `_agents.py` — Agents.
 - `_teams.py` — Teams.
-- `demo.py` — AgentOS Demo.
+- `demo.py` — EgptOS Demo.
 - `file_output.py` — File Output.
 - `mcp_demo.py` — This example shows how to run an Agent using our MCP integration in the Agno OS.
 - `multiple_knowledge_bases.py` — Multiple Knowledge Bases.
 - `reasoning_demo.py` — Run `uv pip install openai exa_py ddgs yfinance pypdf sqlalchemy 'fastapi[standard]' youtube-transcript-api python-docx agno` to install dependencies.
-- `reasoning_model.py` — Example showing a reasoning Agent in the AgentOS.
+- `reasoning_model.py` — Example showing a reasoning Agent in the EgptOS.
 - `teams_demo.py` — Teams Demo.
 
 ## Prerequisites

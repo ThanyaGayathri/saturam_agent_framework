@@ -1,17 +1,17 @@
 """
-Running Teams with AgentOSClient
+Running Teams with EgptOSClient
 
 This example demonstrates how to execute team runs using
-AgentOSClient, including both streaming and non-streaming responses.
+EgptOSClient, including both streaming and non-streaming responses.
 
 Prerequisites:
-1. Start an AgentOS server with a team configured
+1. Start an EgptOS server with a team configured
 2. Run this script: python 06_run_teams.py
 """
 
 import asyncio
 
-from egpt.client import AgentOSClient
+from egpt.client import EgptOSClient
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -24,7 +24,7 @@ async def run_team_non_streaming():
     print("Non-Streaming Team Run")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     # Get available teams
     config = await client.aget_config()
@@ -51,7 +51,7 @@ async def run_team_streaming():
     print("Streaming Team Run")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     # Get available teams
     config = await client.aget_config()

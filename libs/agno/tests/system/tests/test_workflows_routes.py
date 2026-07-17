@@ -1,5 +1,5 @@
 """
-System Tests for AgentOS Workflow Routes.
+System Tests for EgptOS Workflow Routes.
 
 Run with: pytest test_workflows_routes.py -v --tb=short
 """

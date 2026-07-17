@@ -35,7 +35,7 @@ def _to_form_value(v: Any) -> str:
 
 
 class ScheduleExecutor:
-    """Execute a schedule by calling its endpoint on the AgentOS server.
+    """Execute a schedule by calling its endpoint on the EgptOS server.
 
     For run endpoints (``/agents/*/runs``, ``/teams/*/runs``, etc.) the executor
     submits a background run (``background=true``), then polls the run status

@@ -1,7 +1,7 @@
 """
-Integration tests for AgentOS dynamic output_schema.
+Integration tests for EgptOS dynamic output_schema.
 
-Tests passing output_schema as JSON schema string via AgentOS API endpoints.
+Tests passing output_schema as JSON schema string via EgptOS API endpoints.
 """
 
 import json
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 
 
@@ -271,7 +271,7 @@ def test_agent_preconfigured_vs_dynamic_schema(test_os_client: TestClient, test_
         telemetry=False,
         markdown=False,
     )
-    agent_os1 = AgentOS(agents=[agent_with_schema])
+    agent_os1 = EgptOS(agents=[agent_with_schema])
     app1 = agent_os1.get_app()
 
     with TestClient(app1) as client1:
@@ -574,7 +574,7 @@ def test_team_preconfigured_vs_dynamic_schema(test_os_client: TestClient, test_t
         telemetry=False,
         markdown=False,
     )
-    agent_os1 = AgentOS(teams=[team_with_schema])
+    agent_os1 = EgptOS(teams=[team_with_schema])
     app1 = agent_os1.get_app()
 
     with TestClient(app1) as client1:

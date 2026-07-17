@@ -1,16 +1,16 @@
 """
-Session Management with AgentOSClient
+Session Management with EgptOSClient
 
-This example demonstrates how to manage sessions using AgentOSClient.
+This example demonstrates how to manage sessions using EgptOSClient.
 
 Prerequisites:
-1. Start an AgentOS server with an agent
+1. Start an EgptOS server with an agent
 2. Run this script: python 04_session_management.py
 """
 
 import asyncio
 
-from egpt.client import AgentOSClient
+from egpt.client import EgptOSClient
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -18,7 +18,7 @@ from egpt.client import AgentOSClient
 
 
 async def main():
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     # Get available agents
     config = await client.aget_config()

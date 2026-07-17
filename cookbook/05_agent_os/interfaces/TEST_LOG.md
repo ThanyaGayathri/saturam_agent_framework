@@ -6,6 +6,6 @@
 
 **Status:** PENDING
 
-**Description:** AgentOS Demo.
+**Description:** EgptOS Demo.
 
 ---

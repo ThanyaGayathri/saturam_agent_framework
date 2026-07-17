@@ -16,7 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.os.middleware.user_scope import (
     INSUFFICIENT_PERMISSIONS_WS_RECONNECT,
@@ -90,7 +90,7 @@ def test_workflow(shared_db, test_agent: Agent):
 
 @pytest.fixture
 def client(test_agent, test_team, test_workflow):
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         teams=[test_team],
@@ -108,7 +108,7 @@ def client(test_agent, test_team, test_workflow):
 @pytest.fixture
 def custom_admin_client(test_agent):
     """Client with admin_scope configured to a non-default value."""
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -608,7 +608,7 @@ def two_agent_client(shared_db):
     """
     a1 = Agent(name="agent-a", id="agent-a", db=shared_db, instructions="x")
     a2 = Agent(name="agent-b", id="agent-b", db=shared_db, instructions="x")
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[a1, a2],
         authorization=True,
@@ -797,7 +797,7 @@ class TestWorkflowSessionLeakViaAgentRoute:
         )
         shared_db.upsert_session(wf_session)
 
-        agent_os = AgentOS(
+        agent_os = EgptOS(
             id=TEST_OS_ID,
             agents=[test_agent],
             workflows=[test_workflow],
@@ -882,12 +882,12 @@ class TestCustomAdminScopeListings:
 
 @pytest.fixture
 def no_isolation_client(test_agent):
-    """AgentOS with authorization=True but user_isolation NOT enabled.
+    """EgptOS with authorization=True but user_isolation NOT enabled.
 
     Asserts the backwards-compatibility contract: JWT/RBAC apply, but the
     user-scoped DB wrapper and per-user ownership gates stay dormant.
     """
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[test_agent],
         authorization=True,
@@ -932,7 +932,7 @@ class TestUserIsolationDefaultOff:
     def test_sessions_list_returns_other_users_sessions(self, no_isolation_client):
         """Without isolation, the sessions list does not auto-filter by JWT
         user_id. user-b can see user-a's session because the DB wrapper
-        stays unscoped — matching legacy AgentOS behavior."""
+        stays unscoped — matching legacy EgptOS behavior."""
         # Seed a session under user-a via an admin token (write path).
         admin_token = make_token("admin", scopes=["agent_os:admin"])
         resp = no_isolation_client.post(

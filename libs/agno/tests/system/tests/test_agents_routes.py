@@ -1,5 +1,5 @@
 """
-System Tests for AgentOS Agent Routes.
+System Tests for EgptOS Agent Routes.
 
 Run with: pytest test_agents_routes.py -v --tb=short
 """

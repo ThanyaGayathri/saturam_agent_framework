@@ -1,11 +1,11 @@
 """
-Router User Selection HITL Example (AgentOS)
+Router User Selection HITL Example (EgptOS)
 
 This example demonstrates a Router that pauses for a human to choose which
 analysis path should run.
 """
 
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.workflow.router import Router
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput
@@ -58,7 +58,7 @@ def generate_report(step_input: StepInput) -> StepOutput:
 
 workflow = Workflow(
     name="router_user_selection_workflow",
-    description="Let a human select the workflow route from AgentOS.",
+    description="Let a human select the workflow route from EgptOS.",
     db=db,
     steps=[
         Step(name="analyze_data", executor=analyze_data),
@@ -90,9 +90,9 @@ workflow = Workflow(
 )
 workflow.id = "workflow-hitl-router-user-selection"
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     name="Workflow Router Selection HITL",
-    description="AgentOS workflow example for human-selected router paths.",
+    description="EgptOS workflow example for human-selected router paths.",
     workflows=[workflow],
     db=db,
 )

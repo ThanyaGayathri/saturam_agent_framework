@@ -1,6 +1,6 @@
 # Frameworks Quickstart: Agno, Claude Code, LangGraph, DSPy
 
-AgentOS supports agents built with **Agno**, the **Claude Agent SDK** (Claude Code), **LangGraph**, and **DSPy** — served through one runtime, one API, and one UI.
+EgptOS supports agents built with **Agno**, the **Claude Agent SDK** (Claude Code), **LangGraph**, and **DSPy** — served through one runtime, one API, and one UI.
 
 This quickstart shows each framework on its own and all together.
 
@@ -10,9 +10,9 @@ This quickstart shows each framework on its own and all together.
 |:-----|:--------------|
 | `agno_agent.py` | Native Agno agent with the `Workspace` tool (read/edit/search/shell, with confirmation gates) |
 | `claude_agent.py` | Claude Code agent via the Claude Agent SDK, with `Read`, `Edit`, `Bash` tools |
-| `langgraph_agent.py` | A LangGraph chatbot wrapped for AgentOS |
-| `dspy_agent.py` | A DSPy `ChainOfThought` program wrapped for AgentOS |
-| `multi_framework_agentos.py` | Agno + Claude Code in one AgentOS — the example from the launch blog post |
+| `langgraph_agent.py` | A LangGraph chatbot wrapped for EgptOS |
+| `dspy_agent.py` | A DSPy `ChainOfThought` program wrapped for EgptOS |
+| `multi_framework_agentos.py` | Agno + Claude Code in one EgptOS — the example from the launch blog post |
 
 Each example uses SQLite for session storage so you can run it with no infra setup.
 
@@ -22,7 +22,7 @@ Each example uses SQLite for session storage so you can run it with no infra set
 from agno.agent import Agent
 from agno.agents.claude import ClaudeAgent
 from agno.db.sqlite import SqliteDb
-from agno.os import AgentOS
+from egpt.os import EgptOS
 from agno.tools.workspace import Workspace
 
 # Claude Code agent
@@ -47,7 +47,7 @@ agno_agent = Agent(
     ],
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[agno_agent, claude_agent],
     tracing=True,
     db=SqliteDb(db_file="tmp/agentos.db"),
@@ -55,7 +55,7 @@ agent_os = AgentOS(
 app = agent_os.get_app()
 ```
 
-Both agents share session storage, the API surface and the AgentOS UI.
+Both agents share session storage, the API surface and the EgptOS UI.
 
 ## Run It
 
@@ -85,7 +85,7 @@ Run any of the examples:
 python cookbook/frameworks/00_quickstart/multi_framework_agentos.py
 ```
 
-The AgentOS UI is at <http://localhost:7777>. To list agents over HTTP:
+The EgptOS UI is at <http://localhost:7777>. To list agents over HTTP:
 
 ```bash
 curl http://localhost:7777/agents
@@ -104,7 +104,7 @@ curl -X POST http://localhost:7777/agents/agno-agent/runs \
 - `../claude-agent-sdk/` — sessions, custom MCP tools, and more Claude SDK patterns
 - `../langgraph/` — tool calls, sessions, time travel
 - `../dspy/` — sessions, ReAct with tools
-- [AgentOS docs](https://docs.agno.com/agent-os/introduction)
+- [EgptOS docs](https://docs.agno.com/agent-os/introduction)
 
 ## Status
 

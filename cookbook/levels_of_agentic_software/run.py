@@ -35,7 +35,7 @@ Prerequisites
 
 from pathlib import Path
 
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from level_1_tools import l1_coding_agent
 from level_2_storage_knowledge import l2_coding_agent
 from level_3_memory_learning import l3_coding_agent
@@ -43,16 +43,16 @@ from level_4_team import l4_coding_team
 from level_5_api import l5_coding_agent
 
 # ---------------------------------------------------------------------------
-# AgentOS Config
+# EgptOS Config
 # ---------------------------------------------------------------------------
 config_path = str(Path(__file__).parent.joinpath("config.yaml"))
 
 # ---------------------------------------------------------------------------
-# Create AgentOS
+# Create EgptOS
 # ---------------------------------------------------------------------------
 # All levels are registered so users can compare the progression.
 # Level 5 is the most complete — start there for the full experience.
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="Coding Agent OS",
     agents=[l1_coding_agent, l2_coding_agent, l3_coding_agent, l5_coding_agent],
     teams=[l4_coding_team],
@@ -62,7 +62,7 @@ agent_os = AgentOS(
 app = agent_os.get_app()
 
 # ---------------------------------------------------------------------------
-# Run AgentOS
+# Run EgptOS
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     agent_os.serve(app="run:app", reload=True)

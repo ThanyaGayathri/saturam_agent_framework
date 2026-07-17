@@ -1,6 +1,6 @@
-"""Agno AgentOS A2A Server for testing A2AClient.
+"""Agno EgptOS A2A Server for testing A2AClient.
 
-This server uses Agno's AgentOS to create an A2A-compatible
+This server uses Agno's EgptOS to create an A2A-compatible
 agent that can be tested with A2AClient.
 
 Prerequisites:
@@ -15,7 +15,7 @@ The server will start at http://localhost:7003
 from egpt.agent.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -34,7 +34,7 @@ chat_agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[chat_agent],
     a2a_interface=True,
 )

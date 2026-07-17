@@ -1,18 +1,18 @@
 """
-Knowledge Search with AgentOSClient
+Knowledge Search with EgptOSClient
 
 This example demonstrates how to search the knowledge base
-using AgentOSClient.
+using EgptOSClient.
 
 Prerequisites:
-1. Start an AgentOS server with knowledge base configured
+1. Start an EgptOS server with knowledge base configured
 2. Upload some content to the knowledge base
 3. Run this script: python 05_knowledge_search.py
 """
 
 import asyncio
 
-from egpt.client import AgentOSClient
+from egpt.client import EgptOSClient
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -20,7 +20,7 @@ from egpt.client import AgentOSClient
 
 
 async def main():
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     print("=" * 60)
     print("Knowledge Search")

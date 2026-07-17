@@ -1,7 +1,7 @@
 """
-Managers for AgentOS.
+Managers for EgptOS.
 
-This module provides various manager classes for AgentOS:
+This module provides various manager classes for EgptOS:
 - WebSocketManager: WebSocket connection management for real-time streaming
 - EventsBuffer: Event buffering for agent/team/workflow reconnection support
 - WebSocketHandler: Handler for sending events over WebSocket connections
@@ -122,9 +122,9 @@ class WebSocketManager:
                 {
                     "event": "connected",
                     "message": (
-                        "Connected to AgentOS. Please authenticate to continue."
+                        "Connected to EgptOS. Please authenticate to continue."
                         if requires_auth
-                        else "Connected to AgentOS."
+                        else "Connected to EgptOS."
                     ),
                     "requires_auth": requires_auth,
                 }

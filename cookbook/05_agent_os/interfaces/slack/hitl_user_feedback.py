@@ -18,13 +18,13 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 from egpt.agent import Agent
 from egpt.db.sqlite.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.tools.duckduckgo import DuckDuckGoTools
 from egpt.tools.user_feedback import UserFeedbackTools
 from egpt.tools.wikipedia import WikipediaTools
 
-# Agent + AgentOS + Slack interface
+# Agent + EgptOS + Slack interface
 
 db = SqliteDb(
     db_file="tmp/hitl_user_feedback.db",
@@ -57,7 +57,7 @@ agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Slack HITL — user feedback (travel preferences)",
     agents=[agent],
     db=db,

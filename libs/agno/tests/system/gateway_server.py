@@ -1,5 +1,5 @@
 """
-Gateway AgentOS Server for System Tests.
+Gateway EgptOS Server for System Tests.
 
 This server acts as a gateway that consumes remote agents, teams, and workflows
 defined in a separate remote server container.
@@ -8,12 +8,12 @@ defined in a separate remote server container.
 import os
 
 from egpt.agent import Agent, RemoteAgent
-from egpt.client.os import AgentOSClient
+from egpt.client.os import EgptOSClient
 from egpt.db.postgres import AsyncPostgresDb
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.os.interfaces.a2a import A2A
 from egpt.os.interfaces.agui import AGUI
@@ -117,7 +117,7 @@ remote_team = RemoteTeam(base_url=REMOTE_SERVER_URL, team_id="research-team")
 remote_workflow = RemoteWorkflow(base_url=REMOTE_SERVER_URL, workflow_id="qa-workflow")
 
 # Remote knowledge - proxies the remote server's "remote-db" knowledge through the gateway
-remote_os_client = AgentOSClient(base_url=REMOTE_SERVER_URL)
+remote_os_client = EgptOSClient(base_url=REMOTE_SERVER_URL)
 remote_knowledge = RemoteKnowledge(
     client=remote_os_client,
     contents_db=RemoteDb(id="remote-db", client=remote_os_client),
@@ -187,13 +187,13 @@ a2a_interface = A2A(
 )
 
 # =============================================================================
-# AgentOS Configuration
+# EgptOS Configuration
 # =============================================================================
 
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="gateway-os",
-    description="Gateway AgentOS for system testing - consumes remote agents, teams, and workflows",
+    description="Gateway EgptOS for system testing - consumes remote agents, teams, and workflows",
     agents=[
         local_agent,
         remote_assistant,

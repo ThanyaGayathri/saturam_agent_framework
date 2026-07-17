@@ -1,7 +1,7 @@
 # Telegram Cookbook
 
 Examples for connecting Agno agents, teams, and workflows to Telegram using the
-`Telegram` interface in AgentOS. Supports text, media, streaming, and multi-agent
+`Telegram` interface in EgptOS. Supports text, media, streaming, and multi-agent
 teams via Telegram's Bot API with webhook-based message delivery.
 
 ## Telegram Bot Setup
@@ -172,7 +172,7 @@ curl -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/setWebhook" \
 ```
 
 - Telegram requires HTTPS for webhook URLs (ports 443, 80, 88, or 8443). Use a reverse proxy (nginx, Caddy) with TLS in production.
-- The server runs on port 7777 by default via AgentOS.
+- The server runs on port 7777 by default via EgptOS.
 - Rate limits: 30 messages/second globally, 1 message/second per chat, 20 messages/minute per group.
 - File limits: bots can download files up to 20 MB and upload up to 50 MB.
 

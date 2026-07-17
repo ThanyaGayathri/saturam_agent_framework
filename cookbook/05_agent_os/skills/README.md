@@ -1,6 +1,6 @@
 # Skills Cookbook
 
-Examples for `skills` in AgentOS.
+Examples for `skills` in EgptOS.
 
 ## Files
 - `skills_with_agentos.py` — Skills With Agentos.

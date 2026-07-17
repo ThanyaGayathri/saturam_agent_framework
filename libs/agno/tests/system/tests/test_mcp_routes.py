@@ -1,7 +1,7 @@
 """
 Comprehensive System Tests for MCP (Model Context Protocol) Routes.
 
-These tests verify the MCP interface functionality provided by AgentOS.
+These tests verify the MCP interface functionality provided by EgptOS.
 The MCP server exposes tools that can be called by MCP clients using
 Streamable HTTP transport (the modern MCP standard).
 

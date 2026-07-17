@@ -1,4 +1,4 @@
-"""Integration tests for session and run endpoints in AgentOS."""
+"""Integration tests for session and run endpoints in EgptOS."""
 
 import time
 from datetime import UTC, datetime
@@ -10,7 +10,7 @@ from egpt.agent.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.message import Message
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.utils import get_session_name
 from egpt.run.agent import RunOutput
 from egpt.run.base import RunStatus
@@ -33,7 +33,7 @@ def test_agent(shared_db):
 @pytest.fixture
 def test_os_client(test_agent: Agent, shared_db: SqliteDb):
     """Create a FastAPI test client with AgentOS."""
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     return TestClient(app), shared_db, test_agent
 
@@ -110,7 +110,7 @@ def test_get_specific_run_from_session_success(session_with_runs, shared_db):
 
     # Create test client
     agent = Agent(name="test-agent", id="test-agent-id", db=shared_db)
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -129,7 +129,7 @@ def test_get_specific_run_not_found(session_with_runs, shared_db):
 
     # Create test client
     agent = Agent(name="test-agent", id="test-agent-id", db=shared_db)
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -142,7 +142,7 @@ def test_get_specific_run_not_found(session_with_runs, shared_db):
 def test_get_specific_run_session_not_found(shared_db):
     """Test retrieving a run from a non-existent session returns 404."""
     agent = Agent(name="test-agent", id="test-agent-id", db=shared_db)
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -157,7 +157,7 @@ def test_get_session_runs_with_created_after_filter(session_with_runs, shared_db
 
     # Create test client
     agent = Agent(name="test-agent", id="test-agent-id", db=shared_db)
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -182,7 +182,7 @@ def test_get_session_runs_with_created_before_filter(session_with_runs, shared_d
 
     # Create test client
     agent = Agent(name="test-agent", id="test-agent-id", db=shared_db)
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -208,7 +208,7 @@ def test_get_session_runs_with_date_range_filter(session_with_runs, shared_db):
 
     # Create test client
     agent = Agent(name="test-agent", id="test-agent-id", db=shared_db)
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -240,7 +240,7 @@ def test_get_session_runs_with_epoch_timestamp(session_with_runs, shared_db):
 
     # Create test client
     agent = Agent(name="test-agent", id="test-agent-id", db=shared_db)
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -263,7 +263,7 @@ def test_get_session_runs_with_invalid_timestamp_type(session_with_runs, shared_
 
     # Create test client
     agent = Agent(name="test-agent", id="test-agent-id", db=shared_db)
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -281,7 +281,7 @@ def test_get_session_runs_no_filters(session_with_runs, shared_db):
 
     # Create test client
     agent = Agent(name="test-agent", id="test-agent-id", db=shared_db)
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -302,7 +302,7 @@ def test_get_session_runs_empty_result_with_filters(session_with_runs, shared_db
     """Test that filtering with no matches returns 404."""
     # Create test client
     agent = Agent(name="test-agent", id="test-agent-id", db=shared_db)
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -371,7 +371,7 @@ def test_endpoints_with_multiple_sessions(shared_db, test_agent: Agent):
     shared_db.upsert_session(session2)
 
     # Create test client
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -397,7 +397,7 @@ def test_timestamp_filter_with_epoch_precision(session_with_runs, shared_db):
 
     # Create test client
     agent = Agent(name="test-agent", id="test-agent-id", db=shared_db)
-    agent_os = AgentOS(agents=[agent])
+    agent_os = EgptOS(agents=[agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -434,7 +434,7 @@ def test_update_session_summary(session_with_runs, shared_db, test_agent: Agent)
     """Test updating a session's summary."""
 
     # Create test client
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -459,7 +459,7 @@ def test_update_session_summary(session_with_runs, shared_db, test_agent: Agent)
 def test_update_session_metadata(session_with_runs, shared_db, test_agent: Agent):
     """Test updating a session's metadata."""
     # Create test client
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -491,7 +491,7 @@ def test_update_session_name(session_with_runs, shared_db, test_agent: Agent):
     """Test updating session name."""
 
     # Create test client
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -511,7 +511,7 @@ def test_update_session_state(session_with_runs, shared_db, test_agent: Agent):
     """Test updating session state."""
 
     # Create test client
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -541,7 +541,7 @@ def test_update_session_state(session_with_runs, shared_db, test_agent: Agent):
 def test_update_multiple_session_fields(session_with_runs, shared_db, test_agent: Agent):
     """Test updating multiple session fields in one request."""
     # Create test client
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -576,7 +576,7 @@ def test_update_multiple_session_fields(session_with_runs, shared_db, test_agent
 def test_update_session_preserves_runs(session_with_runs, shared_db, test_agent: Agent):
     """Test that updating a session doesn't affect its runs."""
     # Create test client
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -605,7 +605,7 @@ def test_update_session_preserves_runs(session_with_runs, shared_db, test_agent:
 
 def test_update_nonexistent_session(shared_db, test_agent: Agent):
     """Test updating a session that doesn't exist returns 404."""
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -621,7 +621,7 @@ def test_update_nonexistent_session(shared_db, test_agent: Agent):
 def test_update_session_with_empty_payload(session_with_runs, shared_db, test_agent: Agent):
     """Test updating a session with empty payload (should succeed with no changes)."""
     # Create test client
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -639,7 +639,7 @@ def test_update_session_with_empty_payload(session_with_runs, shared_db, test_ag
 def test_update_session_with_session_type_parameter(session_with_runs, shared_db, test_agent: Agent):
     """Test updating a session with explicit session type."""
     # Create test client
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -659,7 +659,7 @@ def test_update_session_with_session_type_parameter(session_with_runs, shared_db
 def test_create_empty_session_minimal(shared_db, test_agent: Agent):
     """Test creating an empty session with minimal configuration."""
     # Create test client
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -688,7 +688,7 @@ def test_create_empty_session_minimal(shared_db, test_agent: Agent):
 def test_create_empty_session_with_session_state(shared_db, test_agent: Agent):
     """Test creating an empty session with session_state."""
     # Create test client
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -716,7 +716,7 @@ def test_create_empty_session_with_session_state(shared_db, test_agent: Agent):
 def test_create_empty_session_with_all_params(shared_db, test_agent: Agent):
     """Test creating an empty session with all optional parameters."""
     # Create test client
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -770,7 +770,7 @@ def test_create_empty_session_with_all_params(shared_db, test_agent: Agent):
 def test_create_empty_session_auto_generates_id(shared_db, test_agent: Agent):
     """Test that session_id is auto-generated if not provided."""
     # Create test client
-    agent_os = AgentOS(agents=[test_agent])
+    agent_os = EgptOS(agents=[test_agent])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -814,7 +814,7 @@ def test_create_empty_team_session(shared_db, test_agent: Agent):
     )
 
     # Create test client
-    agent_os = AgentOS(teams=[test_team])
+    agent_os = EgptOS(teams=[test_team])
     app = agent_os.get_app()
     client = TestClient(app)
 
@@ -851,7 +851,7 @@ def test_create_empty_workflow_session(shared_db, test_agent: Agent):
     )
 
     # Create test client
-    agent_os = AgentOS(workflows=[test_workflow])
+    agent_os = EgptOS(workflows=[test_workflow])
     app = agent_os.get_app()
     client = TestClient(app)
 

@@ -1,6 +1,5 @@
 from dataclasses import asdict, dataclass, field
 from inspect import iscoroutinefunction
-from os import getenv
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Optional, Union
 from uuid import uuid4
@@ -16,6 +15,7 @@ from egpt.exceptions import EvalError
 from egpt.models.base import Model
 from egpt.run.agent import RunInput, RunOutput
 from egpt.run.team import TeamRunInput, TeamRunOutput
+from egpt.utils.env import get_branded_env_bool
 from egpt.utils.log import log_warning, logger, set_log_level_to_debug, set_log_level_to_info
 
 if TYPE_CHECKING:
@@ -188,7 +188,7 @@ class AgentAsJudgeEval(BaseEval):
     # console (e.g. the suite runner) disable it.
     show_spinner: bool = True
     file_path_to_save_results: Optional[str] = None
-    debug_mode: bool = getenv("AGNO_DEBUG", "false").lower() == "true"
+    debug_mode: bool = get_branded_env_bool("DEBUG")
     db: Optional[Union[BaseDb, AsyncBaseDb]] = None
     telemetry: bool = True
     run_in_background: bool = False

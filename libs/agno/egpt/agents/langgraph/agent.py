@@ -17,7 +17,7 @@ from egpt.run.agent import (
 class LangGraphAgent(BaseExternalAgent):
     """Adapter for LangGraph compiled graphs.
 
-    Wraps a LangGraph compiled graph so it can be used with AgentOS endpoints
+    Wraps a LangGraph compiled graph so it can be used with EgptOS endpoints
     or standalone via .run() / .print_response().
 
     Args:
@@ -49,9 +49,9 @@ class LangGraphAgent(BaseExternalAgent):
         # Standalone usage
         agent.print_response("Hello!")
 
-        # Or register with AgentOS
-        from egpt.os.app import AgentOS
-        app = AgentOS(agents=[agent])
+        # Or register with EgptOS
+        from egpt.os.app import EgptOS
+        app = EgptOS(agents=[agent])
     """
 
     graph: Any = None

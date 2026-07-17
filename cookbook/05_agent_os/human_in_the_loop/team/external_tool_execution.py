@@ -1,6 +1,6 @@
-"""AgentOS HITL: External Tool Execution
+"""EgptOS HITL: External Tool Execution
 
-AgentOS equivalent of cookbook/03_teams/20_human_in_the_loop/external_tool_execution.py
+EgptOS equivalent of cookbook/03_teams/20_human_in_the_loop/external_tool_execution.py
 
 A team member's tool is marked for external execution. The run pauses and
 the API response includes the tool name and arguments. The client executes
@@ -13,7 +13,7 @@ Run:
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 from egpt.tools import tool
 
@@ -69,12 +69,12 @@ team = Team(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS
+# Create EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="hitl-external-tool-execution",
-    description="AgentOS HITL: external tool execution with result provided by the client",
+    description="EgptOS HITL: external tool execution with result provided by the client",
     agents=[email_agent],
     teams=[team],
 )

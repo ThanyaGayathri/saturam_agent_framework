@@ -1,4 +1,4 @@
-"""SurrealDB + AgentOS demo
+"""SurrealDB + EgptOS demo
 
 Steps:
     1. Run SurrealDB in a container: `./cookbook/scripts/run_surrealdb.sh`
@@ -6,7 +6,7 @@ Steps:
 """
 
 from agents import agno_assist
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from teams import reasoning_finance_team
 from workflows import research_workflow
 
@@ -14,18 +14,18 @@ from workflows import research_workflow
 # Create Example
 # ---------------------------------------------------------------------------
 
-# ************* Create the AgentOS *************
-agent_os = AgentOS(
-    description="SurrealDB AgentOS",
+# ************* Create the EgptOS *************
+agent_os = EgptOS(
+    description="SurrealDB EgptOS",
     agents=[agno_assist],
     teams=[reasoning_finance_team],
     workflows=[research_workflow],
 )
-# Get the FastAPI app for the AgentOS
+# Get the FastAPI app for the EgptOS
 app = agent_os.get_app()
 # *******************************
 
-# ************* Run the AgentOS *************
+# ************* Run the EgptOS *************
 # ---------------------------------------------------------------------------
 # Run Example
 # ---------------------------------------------------------------------------

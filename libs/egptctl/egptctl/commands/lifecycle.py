@@ -45,7 +45,7 @@ def find_compose_file(explicit: Optional[str] = None, cwd: Optional[Path] = None
                 return candidate
     raise CLIError(
         "No compose file found in " + str(base) + " or " + str(base / "infra") + ".",
-        hint="Run from an AgentOS project (" + CLI_NAME + " create <name>) or pass --file.",
+        hint="Run from an EgptOS project (" + CLI_NAME + " create <name>) or pass --file.",
     )
 
 

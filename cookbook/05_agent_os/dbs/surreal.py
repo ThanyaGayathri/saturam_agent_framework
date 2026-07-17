@@ -1,10 +1,10 @@
-"""Example showing how to use AgentOS with SurrealDB as database"""
+"""Example showing how to use EgptOS with SurrealDB as database"""
 
 from egpt.agent import Agent
 from egpt.db.surrealdb import SurrealDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 from egpt.vectordb.pgvector import PgVector
 
@@ -54,8 +54,8 @@ team = Team(
     num_history_runs=3,
 )
 
-# AgentOS Setup
-agent_os = AgentOS(
+# EgptOS Setup
+agent_os = EgptOS(
     description="Example OS setup",
     agents=[agent],
     teams=[team],

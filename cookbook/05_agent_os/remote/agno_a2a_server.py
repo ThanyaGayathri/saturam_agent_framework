@@ -12,7 +12,7 @@ from egpt.db.sqlite import SqliteDb
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.calculator import CalculatorTools
 from egpt.tools.websearch import WebSearchTools
 from egpt.vectordb.chroma import ChromaDb
@@ -79,10 +79,10 @@ researcher = Agent(
 )
 
 # =============================================================================
-# AgentOS Configuration with A2A Interface
+# EgptOS Configuration with A2A Interface
 # =============================================================================
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="cookbook-a2a-server",
     description="Agno A2A server for cookbook examples",
     agents=[assistant, researcher],

@@ -1,4 +1,4 @@
-"""AgentOS discovery: find a running OS and learn its capabilities before touching it.
+"""EgptOS discovery: find a running OS and learn its capabilities before touching it.
 
 Prefers the structured discovery fields on GET /info (agno >= the /info discovery release):
 ``mcp: {enabled, path}`` and ``auth_mode``. Falls back to probing for older servers:
@@ -13,12 +13,12 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from egptctl.errors import CLIError
-from egptctl.http import AgentOSAPI, build_client
+from egptctl.http import EgptOSAPI, build_client
 
-# AgentOS.serve() defaults to port 7777; when that is taken, users commonly bump to
+# EgptOS.serve() defaults to port 7777; when that is taken, users commonly bump to
 # 7778/7779, and 8000 covers a bare-uvicorn setup. All are probed on localhost when no
 # --url / AGENTOS_URL is given. A server on any other port needs --url or AGENTOS_URL
-# (the "no running AgentOS found" error names both).
+# (the "no running EgptOS found" error names both).
 DEFAULT_URLS = [
     "http://localhost:7777",
     "http://localhost:7778",
@@ -87,10 +87,10 @@ def _probe_mcp(base_url: str) -> bool:
 
 
 def discover(url: Optional[str] = None) -> OSInfo:
-    """Find a running AgentOS and return what the CLI needs to know about it."""
+    """Find a running EgptOS and return what the CLI needs to know about it."""
     candidates, url_source = _candidate_urls(url)
     for candidate in candidates:
-        with AgentOSAPI(candidate) as api:
+        with EgptOSAPI(candidate) as api:
             if api.health() is None:
                 continue
             info = api.info() or {}
@@ -121,14 +121,14 @@ def discover(url: Optional[str] = None) -> OSInfo:
 
     tried = ", ".join(candidates)
     raise CLIError(
-        "No running AgentOS found (tried: " + tried + ").",
-        hint="Start your AgentOS (agent_os.serve()) or pass --url / set " + URL_ENV_VAR + ".",
+        "No running EgptOS found (tried: " + tried + ").",
+        hint="Start your EgptOS (agent_os.serve()) or pass --url / set " + URL_ENV_VAR + ".",
     )
 
 
-MCP_ENABLE_INSTRUCTIONS = """MCP is not enabled on this AgentOS. Enable it and restart:
+MCP_ENABLE_INSTRUCTIONS = """MCP is not enabled on this EgptOS. Enable it and restart:
 
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         agents=[...],
         enable_mcp_server=True,  # add this line
     )

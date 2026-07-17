@@ -6,7 +6,7 @@
 
 **Status:** PENDING
 
-**Description:** Example: Per-Hook Background Control with AgentAsJudgeEval in AgentOS.
+**Description:** Example: Per-Hook Background Control with AgentAsJudgeEval in EgptOS.
 
 ---
 
@@ -14,7 +14,7 @@
 
 **Status:** PENDING
 
-**Description:** Example: Using Background Post-Hooks in AgentOS.
+**Description:** Example: Using Background Post-Hooks in EgptOS.
 
 ---
 
@@ -22,7 +22,7 @@
 
 **Status:** PENDING
 
-**Description:** Example: Using Background Post-Hooks in AgentOS.
+**Description:** Example: Using Background Post-Hooks in EgptOS.
 
 ---
 
@@ -30,7 +30,7 @@
 
 **Status:** PENDING
 
-**Description:** Example: Background Hooks with Teams in AgentOS.
+**Description:** Example: Background Hooks with Teams in EgptOS.
 
 ---
 
@@ -38,7 +38,7 @@
 
 **Status:** PENDING
 
-**Description:** Example: Background Hooks with Workflows in AgentOS.
+**Description:** Example: Background Hooks with Workflows in EgptOS.
 
 ---
 
@@ -54,6 +54,6 @@
 
 **Status:** PENDING
 
-**Description:** Simple example creating a session and using the AgentOS with a SessionApp to expose it.
+**Description:** Simple example creating a session and using the EgptOS with a SessionApp to expose it.
 
 ---

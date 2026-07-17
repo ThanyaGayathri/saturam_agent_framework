@@ -15,7 +15,7 @@ Requires:
 
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.team import Team
 from egpt.tools.dalle import DalleTools
@@ -64,7 +64,7 @@ multimodal_team = Team(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     teams=[multimodal_team],
     interfaces=[Whatsapp(team=multimodal_team)],
 )

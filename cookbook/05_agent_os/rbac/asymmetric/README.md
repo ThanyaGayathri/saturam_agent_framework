@@ -1,9 +1,9 @@
 # Asymmetric Cookbook
 
-Examples for `rbac/asymmetric` in AgentOS.
+Examples for `rbac/asymmetric` in EgptOS.
 
 ## Files
-- `basic.py` — Basic RBAC Example with AgentOS (Asymmetric Keys).
+- `basic.py` — Basic RBAC Example with EgptOS (Asymmetric Keys).
 - `custom_scope_mappings.py` — Custom Scope Mappings Example.
 
 ## Prerequisites

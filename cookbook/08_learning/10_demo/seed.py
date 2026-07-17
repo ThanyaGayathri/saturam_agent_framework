@@ -2,7 +2,7 @@
 Learning Demo: Seed Data
 ========================
 Runs a few short conversations through the ops assistant so that every
-Learning page in AgentOS has data: user profiles, user memories, session
+Learning page in EgptOS has data: user profiles, user memories, session
 context, entity memories, and decision logs. It also seeds a learned
 knowledge insight that one user teaches and another benefits from.
 
@@ -12,7 +12,7 @@ Requires the pgvector container:
 Run:
     .venvs/demo/bin/python cookbook/08_learning/10_demo/seed.py
 
-Then start the AgentOS server with run.py and connect from os.agno.com.
+Then start the EgptOS server with run.py and connect from os.agno.com.
 """
 
 from agents import ops_assistant

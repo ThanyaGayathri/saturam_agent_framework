@@ -17,7 +17,7 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.team import Team
 from egpt.tools import tool
@@ -52,7 +52,7 @@ weather_team = Team(
     telemetry=False,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Slack Team HITL — member agent confirmation",
     teams=[weather_team],
     db=db,

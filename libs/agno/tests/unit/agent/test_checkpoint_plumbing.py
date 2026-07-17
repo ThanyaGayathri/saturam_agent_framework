@@ -3,14 +3,14 @@
 Scope: additive plumbing only — no behavior change. Covers:
 - New optional fields on RunOutput and their dict round-trip
 - Agent constructor accepts checkpoint and resolves the None default
-- AgentOS-level checkpoint inheritance respects the agent override
+- EgptOS-level checkpoint inheritance respects the agent override
 """
 
 import pytest
 
 from egpt.agent.agent import Agent
 from egpt.db.in_memory import InMemoryDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.run.agent import RunOutput
 
 # ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ def test_agent_initialize_raises_on_invalid_level():
 
 
 # ---------------------------------------------------------------------------
-# AgentOS-level inheritance
+# EgptOS-level inheritance
 # ---------------------------------------------------------------------------
 
 
@@ -101,7 +101,7 @@ def test_agentos_checkpoint_propagates_when_agent_has_none():
     agent = Agent(name="a", id="a-id")
     assert agent.checkpoint is None
 
-    AgentOS(agents=[agent], db=InMemoryDb(), checkpoint="tool-batch", telemetry=False)
+    EgptOS(agents=[agent], db=InMemoryDb(), checkpoint="tool-batch", telemetry=False)
 
     # Inherited from OS, then resolved by initialize_agent
     assert agent.checkpoint == "tool-batch"
@@ -110,21 +110,21 @@ def test_agentos_checkpoint_propagates_when_agent_has_none():
 def test_agentos_checkpoint_does_not_override_agent_setting():
     agent = Agent(name="a", id="a-id", checkpoint="runs")
 
-    AgentOS(agents=[agent], db=InMemoryDb(), checkpoint="tool-batch", telemetry=False)
+    EgptOS(agents=[agent], db=InMemoryDb(), checkpoint="tool-batch", telemetry=False)
 
     # Agent-level wins
     assert agent.checkpoint == "runs"
 
 
 def test_agentos_default_checkpoint_is_none():
-    os_app = AgentOS(db=InMemoryDb(), telemetry=False)
+    os_app = EgptOS(db=InMemoryDb(), telemetry=False)
     assert os_app.checkpoint is None
 
 
 def test_agentos_without_checkpoint_leaves_agent_at_runs_default():
     agent = Agent(name="a", id="a-id")
 
-    AgentOS(agents=[agent], db=InMemoryDb(), telemetry=False)
+    EgptOS(agents=[agent], db=InMemoryDb(), telemetry=False)
 
     # No OS-level setting → agent resolves to "runs" via initialize_agent
     assert agent.checkpoint == "runs"

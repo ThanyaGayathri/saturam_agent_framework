@@ -1,6 +1,6 @@
-# Learnings CRUD via AgentOS
+# Learnings CRUD via EgptOS
 
-These cookbooks demonstrate the `/learnings` REST endpoints exposed by AgentOS.
+These cookbooks demonstrate the `/learnings` REST endpoints exposed by EgptOS.
 The endpoints provide CRUD operations over the `agno_learnings` table, which
 backs every learning store (`user_profile`, `user_memory`, `entity_memory`, etc.).
 
@@ -8,12 +8,12 @@ backs every learning store (`user_profile`, `user_memory`, `entity_memory`, etc.
 
 | File | Purpose |
 |------|---------|
-| `learnings_with_agentos.py` | Starts an AgentOS with a learning-enabled agent. |
+| `learnings_with_agentos.py` | Starts an EgptOS with a learning-enabled agent. |
 | `rest_api_learnings.py` | Hits the `/learnings` endpoints with `httpx`. |
 
 ## Running
 
-In one terminal, start the AgentOS:
+In one terminal, start the EgptOS:
 
 ```bash
 .venvs/demo/bin/python cookbook/05_agent_os/learnings/learnings_with_agentos.py

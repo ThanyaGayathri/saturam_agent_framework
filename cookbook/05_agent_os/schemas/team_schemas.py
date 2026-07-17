@@ -2,7 +2,7 @@
 Team Input And Output Schemas
 =============================
 
-Demonstrates AgentOS teams that use input and output schemas.
+Demonstrates EgptOS teams that use input and output schemas.
 """
 
 from typing import List
@@ -10,7 +10,7 @@ from typing import List
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools
 from egpt.tools.websearch import WebSearchTools
@@ -126,9 +126,9 @@ research_team_with_output_schema = Team(
 )
 
 # ---------------------------------------------------------------------------
-# Create AgentOS
+# Create EgptOS
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="team-schemas-demo",
     teams=[research_team_with_input_schema, research_team_with_output_schema],
 )

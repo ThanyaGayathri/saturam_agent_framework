@@ -159,7 +159,7 @@ jobs:
         if: matrix.package == 'egpt'
         working-directory: .
         env:
-          AGNO_TELEMETRY: false
+          EGPT_TELEMETRY: false
         run: |
           set -e
           source .venv/bin/activate

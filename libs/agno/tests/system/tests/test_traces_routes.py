@@ -1,5 +1,5 @@
 """
-System Tests for AgentOS Traces Routes.
+System Tests for EgptOS Traces Routes.
 
 Run with: pytest test_traces_routes.py -v --tb=short
 """

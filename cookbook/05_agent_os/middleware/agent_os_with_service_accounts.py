@@ -1,9 +1,9 @@
 """
-This example demonstrates service accounts: machine identities for AgentOS.
+This example demonstrates service accounts: machine identities for EgptOS.
 
-Coding agents and chat apps connecting to your AgentOS need long-lived credentials.
+Coding agents and chat apps connecting to your EgptOS need long-lived credentials.
 Humans get JWTs; machines get service accounts - opaque `agno_pat_...` tokens
-following the GitHub PAT model. Only the SHA-256 hash is stored in the AgentOS
+following the GitHub PAT model. Only the SHA-256 hash is stored in the EgptOS
 database, and the plaintext is returned exactly once at creation.
 
 Successful verifications are cached in-process for a short TTL (default 30s), so PAT
@@ -26,7 +26,7 @@ import jwt
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.middleware import JWTMiddleware
 
 # ---------------------------------------------------------------------------
@@ -47,8 +47,8 @@ assistant_agent = Agent(
     instructions="You are a helpful assistant.",
 )
 
-agent_os = AgentOS(
-    description="AgentOS with service accounts",
+agent_os = EgptOS(
+    description="EgptOS with service accounts",
     agents=[assistant_agent],
     db=db,
 )

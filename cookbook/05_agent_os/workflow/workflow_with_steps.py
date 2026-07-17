@@ -13,7 +13,7 @@ from egpt.models.openai.chat import OpenAIChat
 # Create Example
 # ---------------------------------------------------------------------------
 # Import the workflows
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.step import Step
 from egpt.workflow.steps import Steps
@@ -75,8 +75,8 @@ article_workflow = Workflow(
     ),
 )
 
-# Initialize the AgentOS with the workflows
-agent_os = AgentOS(
+# Initialize the EgptOS with the workflows
+agent_os = EgptOS(
     description="Example OS setup",
     workflows=[article_workflow],
 )

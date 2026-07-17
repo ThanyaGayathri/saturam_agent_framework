@@ -1,4 +1,4 @@
-"""Integration tests for background tasks in AgentOS.
+"""Integration tests for background tasks in EgptOS.
 
 Note on Testing Background Tasks:
 When using httpx.AsyncClient with ASGITransport for testing, the ASGI transport
@@ -10,7 +10,7 @@ Instead, we use mocking to verify that hooks are properly added to FastAPI's
 BackgroundTasks when run_hooks_in_background=True, which proves they will run
 in the background in production environments.
 
-Note: run_hooks_in_background is configured at the AgentOS level (default=False)
+Note: run_hooks_in_background is configured at the EgptOS level (default=False)
 and propagated to agents/teams, rather than being set on individual agents.
 """
 
@@ -26,7 +26,7 @@ from httpx import ASGITransport
 
 from egpt.agent.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.run.agent import RunOutput
 
 
@@ -43,7 +43,7 @@ def execution_tracker() -> Dict[str, bool]:
 
 @pytest.fixture
 def agent_with_hooks(shared_db, execution_tracker):
-    """Create an agent with hooks (background mode is set by AgentOS)."""
+    """Create an agent with hooks (background mode is set by EgptOS)."""
 
     async def pre_hook_log(run_input, agent):
         """Pre-hook that logs request."""
@@ -72,7 +72,7 @@ def agent_with_hooks(shared_db, execution_tracker):
 @pytest.fixture
 def test_app_with_background(agent_with_hooks):
     """Create a FastAPI app with background hooks enabled."""
-    agent_os = AgentOS(agents=[agent_with_hooks], run_hooks_in_background=True)
+    agent_os = EgptOS(agents=[agent_with_hooks], run_hooks_in_background=True)
     return agent_os.get_app()
 
 
@@ -181,7 +181,7 @@ async def test_background_hooks_are_added_as_background_tasks(agent_with_hooks):
 
     with patch.object(BackgroundTasks, "add_task", mock_add_task):
         # Create app after patching with background hooks enabled
-        agent_os = AgentOS(agents=[agent_with_hooks], run_hooks_in_background=True)
+        agent_os = EgptOS(agents=[agent_with_hooks], run_hooks_in_background=True)
         app = agent_os.get_app()
 
         async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -244,7 +244,7 @@ async def test_background_hooks_with_hook_parameters(test_app_with_background, a
 
 @pytest.mark.asyncio
 async def test_agent_without_background_mode(shared_db):
-    """Test that hooks execute synchronously when background mode is disabled on AgentOS."""
+    """Test that hooks execute synchronously when background mode is disabled on EgptOS."""
 
     execution_tracker = {"hook_executed": False}
     tasks_added = []
@@ -275,8 +275,8 @@ async def test_agent_without_background_mode(shared_db):
     original_add_task = BackgroundTasks.add_task
 
     with patch.object(BackgroundTasks, "add_task", mock_add_task):
-        # Disable background hooks at the AgentOS level
-        agent_os = AgentOS(agents=[agent], run_hooks_in_background=False)
+        # Disable background hooks at the EgptOS level
+        agent_os = EgptOS(agents=[agent], run_hooks_in_background=False)
         app = agent_os.get_app()
 
         async with httpx.AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -293,7 +293,7 @@ async def test_agent_without_background_mode(shared_db):
             assert execution_tracker["hook_executed"] is True
 
             # Verify that our post hook was NOT added to background tasks
-            # When run_hooks_in_background=False on AgentOS, hooks execute synchronously
+            # When run_hooks_in_background=False on EgptOS, hooks execute synchronously
             assert "blocking_post_hook" not in tasks_added, "Hook should not be added as background task when disabled"
 
 
@@ -337,7 +337,7 @@ async def test_background_hooks_with_multiple_hooks(test_app_with_background, ag
 
 @pytest.mark.asyncio
 async def test_agentos_propagates_background_setting_to_agents(shared_db):
-    """Test that AgentOS correctly propagates run_hooks_in_background to agents."""
+    """Test that EgptOS correctly propagates run_hooks_in_background to agents."""
 
     agent = Agent(
         name="test-agent",
@@ -349,8 +349,8 @@ async def test_agentos_propagates_background_setting_to_agents(shared_db):
     # By default, _run_hooks_in_background should be False on the agent
     assert agent._run_hooks_in_background is None
 
-    # When AgentOS is created with run_hooks_in_background=True (default)
-    agent_os = AgentOS(agents=[agent], run_hooks_in_background=True)
+    # When EgptOS is created with run_hooks_in_background=True (default)
+    agent_os = EgptOS(agents=[agent], run_hooks_in_background=True)
     agent_os.get_app()
 
     # The agent's _run_hooks_in_background should now be True
@@ -359,7 +359,7 @@ async def test_agentos_propagates_background_setting_to_agents(shared_db):
 
 @pytest.mark.asyncio
 async def test_agentos_propagates_background_setting_disabled(shared_db):
-    """Test that AgentOS correctly propagates run_hooks_in_background=False to agents."""
+    """Test that EgptOS correctly propagates run_hooks_in_background=False to agents."""
 
     agent = Agent(
         name="test-agent",
@@ -368,8 +368,8 @@ async def test_agentos_propagates_background_setting_disabled(shared_db):
         db=shared_db,
     )
 
-    # When AgentOS is created with run_hooks_in_background=False
-    agent_os = AgentOS(agents=[agent], run_hooks_in_background=False)
+    # When EgptOS is created with run_hooks_in_background=False
+    agent_os = EgptOS(agents=[agent], run_hooks_in_background=False)
     agent_os.get_app()
 
     # The agent's _run_hooks_in_background should remain False

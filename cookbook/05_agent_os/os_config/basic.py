@@ -8,10 +8,10 @@ Demonstrates basic.
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import (
-    AgentOSConfig,
     DatabaseConfig,
+    EgptOSConfig,
     Manifest,
     MemoryConfig,
     MemoryDomainConfig,
@@ -59,15 +59,15 @@ basic_workflow = Workflow(
     ],
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
-    description="Your AgentOS",
+# Setup our EgptOS app
+agent_os = EgptOS(
+    description="Your EgptOS",
     id="basic-os",
     agents=[basic_agent],
     teams=[basic_team],
     workflows=[basic_workflow],
-    # Configuration for the AgentOS
-    config=AgentOSConfig(
+    # Configuration for the EgptOS
+    config=EgptOSConfig(
         manifest={
             "marketing-agent": Manifest(
                 description="Plans, runs and reports on marketing campaigns.",
@@ -99,7 +99,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can see the configuration and available endpoints at:
     http://localhost:7777/config

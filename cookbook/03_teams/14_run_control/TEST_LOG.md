@@ -21,7 +21,7 @@ RemoteTeam Examples
 
 1. Remote Team Example:
 
-RemoteTeam server is not available. Start a remote AgentOS instance at http://localhost:7778 and rerun this cookbook.
+RemoteTeam server is not available. Start a remote EgptOS instance at http://localhost:7778 and rerun this cookbook.
 Original error: Failed to connect to remote server at http://localhost:7778
 
 ---

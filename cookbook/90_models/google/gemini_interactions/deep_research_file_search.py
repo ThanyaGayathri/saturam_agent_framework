@@ -40,7 +40,7 @@ print(f"Created store: {store.name}")
 sample = Path(tempfile.gettempdir()) / "agno_fy2025_summary.txt"
 sample.write_text(
     "Agno FY2025 internal summary.\n"
-    "Revenue grew 240% year over year, driven by AgentOS adoption.\n"
+    "Revenue grew 240% year over year, driven by EgptOS adoption.\n"
     "Headcount doubled. The flagship launch was the Antigravity integration.\n"
 )
 

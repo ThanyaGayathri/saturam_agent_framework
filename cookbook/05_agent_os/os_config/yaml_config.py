@@ -10,7 +10,7 @@ from pathlib import Path
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.team import Team
@@ -61,15 +61,15 @@ basic_workflow = Workflow(
     ],
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
-    description="Example AgentOS",
+# Setup our EgptOS app
+agent_os = EgptOS(
+    description="Example EgptOS",
     id="basic-os",
     agents=[basic_agent],
     teams=[basic_team],
     workflows=[basic_workflow],
     interfaces=[Whatsapp(agent=basic_agent), Slack(agent=basic_agent)],
-    # Configuration for the AgentOS
+    # Configuration for the EgptOS
     config=os_config_path,
 )
 app = agent_os.get_app()
@@ -80,7 +80,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can see the configuration and available endpoints at:
     http://localhost:7777/config

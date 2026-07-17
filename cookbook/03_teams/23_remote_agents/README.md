@@ -4,7 +4,7 @@ This cookbook demonstrates using `RemoteAgent` as team members, enabling distrib
 
 ## Overview
 
-A `RemoteAgent` is a proxy that connects to an agent running on a remote AgentOS server. When used as a team member, the team leader can delegate tasks to agents running anywhere on the network.
+A `RemoteAgent` is a proxy that connects to an agent running on a remote EgptOS server. When used as a team member, the team leader can delegate tasks to agents running anywhere on the network.
 
 ## Key Concepts
 
@@ -14,7 +14,7 @@ A `RemoteAgent` is a proxy that connects to an agent running on a remote AgentOS
 from agno.agent.remote import RemoteAgent
 
 remote_agent = RemoteAgent(
-    base_url="http://remote-server:7777",  # AgentOS server URL
+    base_url="http://remote-server:7777",  # EgptOS server URL
     agent_id="explorer",                    # Agent ID on remote server
     timeout=60.0,                           # Request timeout
 )
@@ -28,7 +28,7 @@ remote_agent = RemoteAgent(
 
 ## Running the Example
 
-1. **Start a remote AgentOS server:**
+1. **Start a remote EgptOS server:**
    ```bash
    python -m agno.os --agents path/to/agents.py --port 7777
    ```
@@ -157,7 +157,7 @@ def arun(self, input, *, stream=None, ...):
     serialized_input = serialize_input(validated_input)
     headers = self._get_auth_headers(auth_token)
 
-    # AgentOS protocol path (default)
+    # EgptOS protocol path (default)
     if self.agentos_client:
         if stream:
             return self.agentos_client.run_agent_stream(

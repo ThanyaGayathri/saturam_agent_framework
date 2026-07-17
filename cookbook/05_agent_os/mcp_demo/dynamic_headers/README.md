@@ -1,9 +1,9 @@
 # Dynamic Headers Cookbook
 
-Examples for `mcp_demo/dynamic_headers` in AgentOS.
+Examples for `mcp_demo/dynamic_headers` in EgptOS.
 
 ## Files
-- `client.py` — AgentOS with MCPTools using dynamic headers.
+- `client.py` — EgptOS with MCPTools using dynamic headers.
 - `server.py` — Simple MCP server that logs headers received from clients.
 
 ## Prerequisites

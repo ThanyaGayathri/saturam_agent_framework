@@ -1,4 +1,4 @@
-"""Shared service layer for AgentOS surfaces.
+"""Shared service layer for EgptOS surfaces.
 
 One implementation of the session-read and run-lifecycle operations, imported by
 both the REST routers and the MCP tools (``from egpt.os.services import sessions``

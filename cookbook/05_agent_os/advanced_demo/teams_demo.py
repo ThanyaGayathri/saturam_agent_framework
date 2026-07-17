@@ -10,7 +10,7 @@ from egpt.db.postgres import PostgresDb
 from egpt.models.anthropic import Claude
 from egpt.models.google.gemini import Gemini
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 from egpt.tools.exa import ExaTools
 from egpt.tools.websearch import WebSearchTools
@@ -174,8 +174,8 @@ financial_news_team = Team(
 )
 
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     description="Example OS setup",
     agents=[
         simple_agent,

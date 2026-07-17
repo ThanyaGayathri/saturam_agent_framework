@@ -1,6 +1,6 @@
 # Scripts Cookbook
 
-Examples for `skills/sample_skills/system-info/scripts` in AgentOS.
+Examples for `skills/sample_skills/system-info/scripts` in EgptOS.
 
 ## Files
 - `get_system_info.py` — Get basic system information.

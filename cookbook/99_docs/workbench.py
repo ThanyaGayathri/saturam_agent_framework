@@ -1,6 +1,6 @@
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.workspace import Workspace
 
 workbench = Agent(
@@ -13,6 +13,6 @@ workbench = Agent(
     num_history_runs=3,  # last 3 runs
 )
 
-# Serve via AgentOS, get streaming, auth, session isolation, API endpoints
-agent_os = AgentOS(agents=[workbench], tracing=True)
+# Serve via EgptOS, get streaming, auth, session isolation, API endpoints
+agent_os = EgptOS(agents=[workbench], tracing=True)
 app = agent_os.get_app()

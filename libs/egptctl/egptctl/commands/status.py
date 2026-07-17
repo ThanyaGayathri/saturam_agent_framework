@@ -13,11 +13,11 @@ from egptctl.errors import CLIError
 
 
 def status(
-    url: Optional[str] = typer.Option(None, "--url", help="AgentOS base URL (default: autodiscover on localhost)."),
+    url: Optional[str] = typer.Option(None, "--url", help="EgptOS base URL (default: autodiscover on localhost)."),
     server_name: str = typer.Option("agno", "--server-name", help="MCP server entry name to look for in clients."),
     json_output: bool = typer.Option(False, "--json", help="Emit a single JSON document for machine consumption."),
 ) -> None:
-    """Show the discovered AgentOS and which coding agents are connected to it."""
+    """Show the discovered EgptOS and which coding agents are connected to it."""
     try:
         os_info = discover(url)
     except CLIError as e:
@@ -40,8 +40,8 @@ def status(
         emit_json({"os": os_info.public_dict(), "clients": clients})
         return
 
-    version = " (agno " + os_info.version + ")" if os_info.version else ""
-    print_success("AgentOS: " + os_info.base_url + version)
+    version = " (egpt " + os_info.version + ")" if os_info.version else ""
+    print_success("EgptOS: " + os_info.base_url + version)
     mcp = os_info.mcp_url if os_info.mcp_enabled else "disabled"
     print_info("  MCP: " + mcp)
     print_info("  Auth mode: " + os_info.auth_mode)

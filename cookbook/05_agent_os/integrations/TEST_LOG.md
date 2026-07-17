@@ -6,6 +6,6 @@
 
 **Status:** PENDING
 
-**Description:** Example for AgentOS with Shopify tools.
+**Description:** Example for EgptOS with Shopify tools.
 
 ---

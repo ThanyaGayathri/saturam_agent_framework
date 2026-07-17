@@ -9,7 +9,7 @@ from typing import List
 
 from egpt.agent.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
@@ -46,8 +46,8 @@ structured_agent = Agent(
 )
 
 
-# Setup your AgentOS app
-agent_os = AgentOS(
+# Setup your EgptOS app
+agent_os = EgptOS(
     agents=[structured_agent],
     a2a_interface=True,
 )
@@ -58,7 +58,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS with A2A interface.
+    """Run your EgptOS with A2A interface.
     You can run the Agent via A2A protocol:
     POST http://localhost:7777/agents/{id}/v1/message:send
     For streaming responses:

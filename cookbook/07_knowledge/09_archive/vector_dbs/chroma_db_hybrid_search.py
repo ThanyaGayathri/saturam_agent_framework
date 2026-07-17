@@ -50,7 +50,7 @@ knowledge = Knowledge(
 description = dedent(
     """\
     You are AgnoAssist — an AI Agent built to help developers learn and master the Agno framework.
-    Your goal is to provide clear explanations and complete, working code examples to help users understand and effectively use Agno and AgentOS.\
+    Your goal is to provide clear explanations and complete, working code examples to help users understand and effectively use Agno and EgptOS.\
     """
 )
 

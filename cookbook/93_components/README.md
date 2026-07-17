@@ -32,8 +32,8 @@ The Agent-as-Config feature allows you to:
 | `save_workflow.py` | Save a multi-step workflow to the database |
 | `get_workflow.py` | Load a workflow and execute its steps |
 | `registry.py` | Use a registry for non-serializable components |
-| `auto_populate_registry.py` | Inspect how AgentOS auto-discovers components from teams and workflows |
-| `auto_populate_registry_os.py` | Serve an AgentOS and see the auto-discovered components over the API |
+| `auto_populate_registry.py` | Inspect how EgptOS auto-discovers components from teams and workflows |
+| `auto_populate_registry_os.py` | Serve an EgptOS and see the auto-discovered components over the API |
 
 ---
 
@@ -43,7 +43,7 @@ The Agent-as-Config feature allows you to:
 
 ```python
 from agno.agent import Agent
-from agno.db.postgres import PostgresDb
+from egpt.db.postgres import PostgresDb
 from agno.models.openai import OpenAIChat
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
@@ -64,7 +64,7 @@ print(f"Saved agent as version {version}")
 
 ```python
 from agno.agent import get_agent_by_id
-from agno.db.postgres import PostgresDb
+from egpt.db.postgres import PostgresDb
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 
@@ -106,7 +106,7 @@ Teams automatically save their member agents as linked components.
 ```python
 from agno.agent import Agent
 from agno.team import Team
-from agno.db.postgres import PostgresDb
+from egpt.db.postgres import PostgresDb
 from agno.models.openai import OpenAIChat
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
@@ -172,7 +172,7 @@ Workflows save their steps with links to the agents/teams that execute them.
 ```python
 from agno.agent import Agent
 from agno.workflow import Workflow, Step
-from agno.db.postgres import PostgresDb
+from egpt.db.postgres import PostgresDb
 from agno.models.openai import OpenAIChat
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
@@ -297,7 +297,7 @@ agent.print_response("Search for AI news")
 
 ## Auto-Populating the Registry
 
-You do not have to declare components twice. When you construct an `AgentOS`, it
+You do not have to declare components twice. When you construct an `EgptOS`, it
 recursively walks every agent, team, and workflow you pass in and adds the
 **models**, **tools**, **databases**, and **vector databases** they reference to
 the registry automatically. This keeps `GET /registry` consistent with what is
@@ -307,7 +307,7 @@ actually wired into your OS.
 from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
 from agno.models.openai import OpenAIResponses
-from agno.os import AgentOS
+from egpt.os import EgptOS
 from agno.team import Team
 
 db = SqliteDb(db_file="tmp/auto_registry.db", id="auto-registry-db")
@@ -317,7 +317,7 @@ writer = Agent(id="writer", model=OpenAIResponses(id="gpt-5.4-mini"))
 team = Team(id="content-team", members=[researcher, writer])
 
 # No registry passed; components are discovered from the team members
-agent_os = AgentOS(teams=[team])
+agent_os = EgptOS(teams=[team])
 
 print([f"{m.provider}:{m.id}" for m in agent_os.registry.models])
 # -> ['OpenAI:gpt-5.4', 'OpenAI:gpt-5.4-mini']
@@ -344,7 +344,7 @@ See `auto_populate_registry.py` (offline inspection) and
 ### PostgreSQL (Recommended for Production)
 
 ```python
-from agno.db.postgres import PostgresDb
+from egpt.db.postgres import PostgresDb
 
 db = PostgresDb(db_url="postgresql+psycopg://user:pass@host:port/dbname")
 ```

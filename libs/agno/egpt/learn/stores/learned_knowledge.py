@@ -27,7 +27,6 @@ Supported Modes:
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from os import getenv
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Callable, List, Optional
 
@@ -35,6 +34,7 @@ from egpt.learn.config import LearnedKnowledgeConfig, LearningMode
 from egpt.learn.schemas import LearnedKnowledge
 from egpt.learn.stores.protocol import LearningStore
 from egpt.learn.utils import to_dict_safe
+from egpt.utils.env import get_branded_env_bool
 from egpt.utils.log import (
     log_debug,
     log_warning,
@@ -475,7 +475,7 @@ class LearnedKnowledgeStore(LearningStore):
 
     def set_log_level(self):
         """Set log level based on debug_mode or environment variable."""
-        if self.debug_mode or getenv("AGNO_DEBUG", "false").lower() == "true":
+        if self.debug_mode or get_branded_env_bool("DEBUG"):
             self.debug_mode = True
             set_log_level_to_debug()
         else:

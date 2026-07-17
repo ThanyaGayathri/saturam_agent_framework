@@ -2,7 +2,7 @@
 
 Wraps the ScheduleManager to expose schedule CRUD as agent-callable tools.
 Requires a database backend that implements the scheduler DB methods and
-the AgentOS server + SchedulePoller to actually execute the schedules.
+the EgptOS server + SchedulePoller to actually execute the schedules.
 
 Example:
     from egpt.tools.scheduler import SchedulerTools
@@ -31,7 +31,7 @@ class SchedulerTools(Toolkit):
 
     The agent can ask a user "what should I do every day?" and then call
     ``create_schedule`` to set up a cron-based recurring execution via the
-    existing AgentOS scheduler infrastructure.
+    existing EgptOS scheduler infrastructure.
 
     Args:
         db: A database adapter that implements the scheduler DB methods.

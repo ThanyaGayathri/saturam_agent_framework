@@ -37,7 +37,7 @@ from egpt.run.team import TeamRunEvent, TeamRunOutput
 from egpt.run.workflow import WorkflowRunEvent, WorkflowRunOutput
 
 if TYPE_CHECKING:
-    from egpt.os.app import AgentOS
+    from egpt.os.app import EgptOS
     from egpt.os.config import MCPServerConfig
 
 logger = logging.getLogger(__name__)
@@ -174,7 +174,7 @@ def _forwarded_auth_headers() -> Optional[Dict[str, str]]:
     """The caller's bearer token as an Authorization header for downstream RemoteDb calls.
 
     Mirrors the REST routers, which forward the inbound token on every RemoteDb call so
-    a JWT/PAT-protected downstream AgentOS accepts the request.
+    a JWT/PAT-protected downstream EgptOS accepts the request.
     """
     from fastmcp.server.dependencies import get_http_request
 
@@ -400,7 +400,7 @@ async def _run_agentic_component(
     plain await for everything else.
 
     Only native ``Agent`` / ``Team`` instances take the streaming path: remotes proxy to
-    another AgentOS over HTTP and ``AgentProtocol`` implementations follow the protocol's
+    another EgptOS over HTTP and ``AgentProtocol`` implementations follow the protocol's
     streaming contract -- in both cases the streaming ``arun`` never yields the final
     output object, so they run non-streaming (no intermediate progress, same result
     contract).
@@ -539,7 +539,7 @@ def _classify_lifecycle_target(
 
 
 async def _resolve_run_component(
-    os: "AgentOS",
+    os: "EgptOS",
     kind: "Literal['agents', 'teams', 'workflows']",
     component_id: str,
     *,
@@ -597,8 +597,8 @@ async def _resolve_run_component(
         raise Exception(e.detail if isinstance(e.detail, str) else str(e.detail))
 
 
-def _make_run_ownership_verifier(os: "AgentOS"):
-    """Bind the run-lifecycle ownership verifier to an AgentOS.
+def _make_run_ownership_verifier(os: "EgptOS"):
+    """Bind the run-lifecycle ownership verifier to an EgptOS.
 
     continue_run and cancel_run must, for a scoped (non-admin) caller, prove the run lives
     in a session they own -- the same gate the REST cancel/continue endpoints enforce
@@ -644,9 +644,9 @@ def _make_run_ownership_verifier(os: "AgentOS"):
 
 
 def build_mcp_server(
-    os: "AgentOS",
+    os: "EgptOS",
 ) -> FastMCP:
-    """Build the FastMCP server for an AgentOS.
+    """Build the FastMCP server for an EgptOS.
 
     Registers the built-in tools (scoped by ``os.mcp_config``) and any custom tools.
     Split out from :func:`get_mcp_server` so the tool surface can be exercised directly
@@ -655,7 +655,9 @@ def build_mcp_server(
     mcp_config: "Optional[MCPServerConfig]" = getattr(os, "mcp_config", None)
 
     # Create an MCP server
-    mcp = FastMCP(os.name or "AgentOS")
+    from egpt.brand import DEFAULT_OS_ID, PRODUCT_OS_NAME
+
+    mcp = FastMCP(os.name or PRODUCT_OS_NAME)
 
     # Decorator used to register the built-in tools. Honors ``mcp_config`` scoping;
     # behaves exactly like ``mcp.tool`` when no config (or default config) is provided.
@@ -671,7 +673,7 @@ def build_mcp_server(
     @register_builtin_tool(
         name="get_agentos_config",
         description=(
-            "Discover this AgentOS: the agents, teams, and workflows available to run (with their ids "
+            "Discover this EgptOS: the agents, teams, and workflows available to run (with their ids "
             "and descriptions), and the database ids used by the session tools. Call this first to learn "
             "what you can operate. The payload is deliberately compact -- the full configuration lives on "
             "the REST /config endpoint."
@@ -733,7 +735,7 @@ def build_mcp_server(
                     logger.exception("Error summarizing DB workflow for get_agentos_config")
 
         return {
-            "os_id": os.id or "AgentOS",
+            "os_id": os.id or DEFAULT_OS_ID,
             "description": os.description,
             # A db shared by several components is registered once per component in os.dbs,
             # so collect the ids into a set to list each database once -- matching the REST /config route.
@@ -1114,11 +1116,11 @@ def _add_transport_security_middleware(
     mcp_app.add_middleware(_MCPTransportSecurityMiddleware)
 
 
-def _mcp_server_is_open(os: "AgentOS") -> bool:
+def _mcp_server_is_open(os: "EgptOS") -> bool:
     """True when /mcp serves anonymous callers: no auth is effectively enforced.
 
     Delegates to :func:`get_effective_auth_mode` -- the same detection the auth layer and
-    ``/info`` use -- so this agrees with them on every mode: ``AgentOS(authorization=True)``,
+    ``/info`` use -- so this agrees with them on every mode: ``EgptOS(authorization=True)``,
     JWT env vars, a manually installed ``JWTMiddleware`` on a ``base_app``, and the security
     key all count as authenticated. Only when it returns "none" does /mcp answer requests
     carrying no bearer token (a service-account verifier alone does NOT close that path --
@@ -1139,7 +1141,7 @@ def _mcp_server_is_open(os: "AgentOS") -> bool:
 
 
 def get_mcp_server(
-    os: "AgentOS",
+    os: "EgptOS",
 ) -> StarletteWithLifespan:
     """Build the MCP HTTP app served at ``/mcp``.
 
@@ -1159,7 +1161,7 @@ def get_mcp_server(
     # Use http_app for Streamable HTTP transport (modern MCP standard).
     # fastmcp >= 3.4.3 adds a Host/Origin guard with localhost-only defaults, which 421s
     # deployed hosts before our own middleware runs. Disable it where the parameter exists
-    # and run AgentOS's single validation engine instead (the transport-security middleware
+    # and run EgptOS's single validation engine instead (the transport-security middleware
     # below), which protects open servers by default and lets deployed hosts opt in via
     # MCPServerConfig.allowed_hosts.
     http_app_kwargs: Dict[str, Any] = {"path": "/mcp"}
@@ -1181,7 +1183,7 @@ def get_mcp_server(
             from egpt.utils.log import log_warning
 
             log_warning(
-                "MCPServerConfig.authorize is set but AgentOS(authorization=False); the gate will "
+                "MCPServerConfig.authorize is set but EgptOS(authorization=False); the gate will "
                 "be called with user_id=None on every request because no JWT middleware populates "
                 "request.state.user_id. Either pass authorization=True with an authorization_config, "
                 "or write your authorize() to handle user_id=None explicitly (e.g. for a dev shortcut)."

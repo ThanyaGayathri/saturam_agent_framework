@@ -1,13 +1,13 @@
 """
-Example AgentOS app with a custom health endpoint.
+Example EgptOS app with a custom health endpoint.
 
-This example demonstrates how to add a custom health endpoint to your AgentOS app.
+This example demonstrates how to add a custom health endpoint to your EgptOS app.
 """
 
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.anthropic import Claude
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.routers.health import get_health_router
 from egpt.tools.websearch import WebSearchTools
 from fastapi import FastAPI
@@ -43,8 +43,8 @@ health_router = get_health_router(health_endpoint="/health-check")
 app.include_router(health_router)
 
 
-# Setup our AgentOS app by passing your FastAPI app in the app_config parameter
-agent_os = AgentOS(
+# Setup our EgptOS app by passing your FastAPI app in the app_config parameter
+agent_os = EgptOS(
     description="Example app with custom health endpoint",
     agents=[web_research_agent],
     base_app=app,
@@ -57,9 +57,9 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can test your custom health endpoint at: http://localhost:7777/health-check
-    While the AgentOS health endpoint is still available at: http://localhost:7777/health
+    While the EgptOS health endpoint is still available at: http://localhost:7777/health
     """
     agent_os.serve(app="custom_health_endpoint:app", reload=True)

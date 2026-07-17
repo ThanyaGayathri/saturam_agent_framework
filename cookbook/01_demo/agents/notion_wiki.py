@@ -11,7 +11,7 @@ The point: the wiki the agent reads + edits is the same database your
 team already opens in Notion. Agents file structured notes; humans
 read and edit them in the UI they already use.
 
-Env-gated: registered in AgentOS only when both ``NOTION_API_KEY`` and
+Env-gated: registered in EgptOS only when both ``NOTION_API_KEY`` and
 ``NOTION_DATABASE_ID`` are set. Otherwise the module exports ``None``
 and ``run.py`` skips it.
 

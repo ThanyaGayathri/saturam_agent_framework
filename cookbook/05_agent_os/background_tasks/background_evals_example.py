@@ -1,5 +1,5 @@
 """
-Example: Per-Hook Background Control with AgentAsJudgeEval in AgentOS
+Example: Per-Hook Background Control with AgentAsJudgeEval in EgptOS
 
 This example demonstrates fine-grained control over which hooks run in background:
 - Set eval.run_in_background = True for eval instances
@@ -10,7 +10,7 @@ from egpt.agent import Agent
 from egpt.db.sqlite import AsyncSqliteDb
 from egpt.eval.agent_as_judge import AgentAsJudgeEval
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -62,8 +62,8 @@ agent = Agent(
     telemetry=False,
 )
 
-# Create AgentOS
-agent_os = AgentOS(agents=[agent])
+# Create EgptOS
+agent_os = EgptOS(agents=[agent])
 app = agent_os.get_app()
 
 # Flow:

@@ -252,7 +252,7 @@ class WorkflowWebSocketTester:
 async def main() -> None:
     print("\nStarting WebSocket Reconnection Test")
     print("Prerequisites:")
-    print("  1. AgentOS server should be running at http://localhost:7777")
+    print("  1. EgptOS server should be running at http://localhost:7777")
     print("  2. Run: python cookbook/agent_os/workflow/basic_workflow.py")
     print("\nStarting test in 2 seconds...")
     await asyncio.sleep(2)
@@ -261,7 +261,7 @@ async def main() -> None:
     try:
         await tester.test_workflow_execution_with_reconnection()
     except ConnectionRefusedError:
-        print("\nConnection refused. Is the AgentOS server running?")
+        print("\nConnection refused. Is the EgptOS server running?")
         print("  Start it with: python cookbook/agent_os/workflow/basic_workflow.py")
     except Exception as e:
         print(f"\nTest failed: {e}")

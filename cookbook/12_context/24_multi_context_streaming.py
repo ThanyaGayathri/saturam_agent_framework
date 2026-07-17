@@ -25,7 +25,7 @@ from pathlib import Path
 from egpt.agent import Agent
 from egpt.context.wiki import FileSystemBackend, WikiContextProvider
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 # Wiki 1: Architecture docs
 ARCH_PATH = Path(__file__).resolve().parent / "demo-arch-wiki"
@@ -102,7 +102,7 @@ agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Multi-context provider streaming demo",
     agents=[agent],
 )
@@ -116,7 +116,7 @@ if __name__ == "__main__":
     for f in OPS_PATH.iterdir():
         print(f"  - {f.name}")
     print()
-    print("Starting AgentOS on http://localhost:7777")
+    print("Starting EgptOS on http://localhost:7777")
     print("Connect via os.agno.com and try:")
     print("  - 'What microservices do we have?'")
     print("  - 'How do I handle an on-call page?'")

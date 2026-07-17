@@ -6,7 +6,7 @@
 
 **Status:** PENDING
 
-**Description:** Example AgentOS app with a custom FastAPI app with basic routes.
+**Description:** Example EgptOS app with a custom FastAPI app with basic routes.
 
 ---
 
@@ -14,7 +14,7 @@
 
 **Status:** PENDING
 
-**Description:** Example AgentOS app with a custom health endpoint.
+**Description:** Example EgptOS app with a custom health endpoint.
 
 ---
 
@@ -22,7 +22,7 @@
 
 **Status:** PENDING
 
-**Description:** Example AgentOS app where the agent has a custom lifespan.
+**Description:** Example EgptOS app where the agent has a custom lifespan.
 
 ---
 
@@ -30,7 +30,7 @@
 
 **Status:** PENDING
 
-**Description:** Example for AgentOS to show how to generate custom events.
+**Description:** Example for EgptOS to show how to generate custom events.
 
 ---
 
@@ -38,7 +38,7 @@
 
 **Status:** PENDING
 
-**Description:** Example AgentOS app with a custom FastAPI app with conflicting routes.
+**Description:** Example EgptOS app with a custom FastAPI app with conflicting routes.
 
 ---
 
@@ -46,7 +46,7 @@
 
 **Status:** PENDING
 
-**Description:** Example for AgentOS to show how to pass dependencies to an agent.
+**Description:** Example for EgptOS to show how to pass dependencies to an agent.
 
 ---
 

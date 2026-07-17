@@ -1,6 +1,6 @@
 # Agui Cookbook
 
-Examples for `interfaces/agui` in AgentOS.
+Examples for `interfaces/agui` in EgptOS.
 
 ## Files
 - `agent_with_media.py` — Agent With Media - Accept multimodal user input (image, audio, video, document).

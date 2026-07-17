@@ -1,8 +1,8 @@
 """
-Basic RBAC Example with AgentOS
+Basic RBAC Example with EgptOS
 
 This example demonstrates how to enable RBAC (Role-Based Access Control)
-with JWT token authentication in AgentOS using middleware.
+with JWT token authentication in EgptOS using middleware.
 
 Prerequisites:
 - Set JWT_VERIFICATION_KEY environment variable or pass it to middleware
@@ -16,7 +16,7 @@ import jwt
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.tools.websearch import WebSearchTools
 
@@ -41,10 +41,10 @@ research_agent = Agent(
     markdown=True,
 )
 
-# Create AgentOS
-agent_os = AgentOS(
+# Create EgptOS
+agent_os = EgptOS(
     id="my-agent-os",
-    description="RBAC Protected AgentOS",
+    description="RBAC Protected EgptOS",
     agents=[research_agent],
     authorization=True,
     authorization_config=AuthorizationConfig(
@@ -63,10 +63,10 @@ app = agent_os.get_app()
 
 if __name__ == "__main__":
     """
-    Run your AgentOS with RBAC enabled.
+    Run your EgptOS with RBAC enabled.
     
     Audience Verification:
-    - Tokens must include `aud` claim matching the AgentOS ID
+    - Tokens must include `aud` claim matching the EgptOS ID
     - Tokens with wrong audience will be rejected
     
     Default scope mappings protect all endpoints:
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     Test with a JWT token that includes scopes:
     """
     # Create test tokens with different scopes
-    # Note: Include `aud` claim with AgentOS ID
+    # Note: Include `aud` claim with EgptOS ID
     user_token_payload = {
         "sub": "user_123",
         "session_id": "session_456",

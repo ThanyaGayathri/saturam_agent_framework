@@ -11,8 +11,8 @@ chat:
       - "What's Tesla's P/E ratio and how does it compare to the industry?"
 
     agent-with-knowledge:
-      - "What is Agno?"
-      - "What is the AgentOS?"
+      - "What is EGPT?"
+      - "What is EgptOS?"
       - "Summarize your knowledge"
 
     self-learning-agent:

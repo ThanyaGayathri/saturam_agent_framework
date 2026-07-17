@@ -20,7 +20,7 @@ Requires:
 
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.tools.dalle import DalleTools
 from egpt.tools.file_generation import FileGenerationTools
@@ -92,7 +92,7 @@ creative_workflow = Workflow(
     steps=[research_phase, synthesis_step],
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     workflows=[creative_workflow],
     interfaces=[Whatsapp(workflow=creative_workflow)],
 )

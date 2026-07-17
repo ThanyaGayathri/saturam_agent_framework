@@ -24,7 +24,6 @@ Supported Modes:
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from os import getenv
 from textwrap import dedent
 from typing import Any, Callable, List, Optional, Union
 
@@ -32,6 +31,7 @@ from egpt.learn.config import DecisionLogConfig, LearningMode
 from egpt.learn.schemas import DecisionLog
 from egpt.learn.stores.protocol import LearningStore
 from egpt.learn.utils import from_dict_safe, to_dict_safe
+from egpt.utils.env import get_branded_env_bool
 from egpt.utils.log import (
     log_debug,
     log_warning,
@@ -323,7 +323,7 @@ class DecisionLogStore(LearningStore):
 
     def set_log_level(self):
         """Set log level based on debug_mode or environment variable."""
-        if self.debug_mode or getenv("AGNO_DEBUG", "false").lower() == "true":
+        if self.debug_mode or get_branded_env_bool("DEBUG"):
             self.debug_mode = True
             set_log_level_to_debug()
         else:

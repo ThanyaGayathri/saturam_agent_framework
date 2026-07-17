@@ -17,7 +17,7 @@ Requires:
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.anthropic import Claude
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.tools.mcp import MCPTools
 from egpt.tools.websearch import WebSearchTools
@@ -68,7 +68,7 @@ concierge_agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[concierge_agent],
     interfaces=[Whatsapp(agent=concierge_agent, send_user_number_to_context=True)],
 )

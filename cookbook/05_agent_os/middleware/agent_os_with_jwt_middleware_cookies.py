@@ -9,7 +9,7 @@ import jwt
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.middleware import JWTMiddleware, TokenSource
 from fastapi import FastAPI, Response
 
@@ -117,8 +117,8 @@ app.add_middleware(
 )
 
 
-agent_os = AgentOS(
-    description="JWT Cookie-Based AgentOS",
+agent_os = EgptOS(
+    description="JWT Cookie-Based EgptOS",
     agents=[profile_agent],
     base_app=app,
 )
@@ -133,7 +133,7 @@ app = agent_os.get_app()
 
 if __name__ == "__main__":
     """
-    Run your AgentOS with JWT cookie authentication.
+    Run your EgptOS with JWT cookie authentication.
 
     This example demonstrates:
     1. JWT tokens stored in HTTP-only cookies (more secure than localStorage)

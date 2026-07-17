@@ -60,11 +60,11 @@ from egpt.team.factory import TeamFactory
 from egpt.utils.log import logger
 
 if TYPE_CHECKING:
-    from egpt.os.app import AgentOS
+    from egpt.os.app import EgptOS
 
 
 def get_base_router(
-    os: "AgentOS",
+    os: "EgptOS",
     settings: AgnoAPISettings = AgnoAPISettings(),
 ) -> APIRouter:
     """
@@ -98,7 +98,7 @@ def get_base_router(
         operation_id="get_config",
         summary="Get OS Configuration",
         description=(
-            "Retrieve the complete configuration of the AgentOS instance, including:\n\n"
+            "Retrieve the complete configuration of the EgptOS instance, including:\n\n"
             "- Available models and databases\n"
             "- Registered agents, teams, and workflows\n"
             "- Chat, session, memory, knowledge, and evaluation configurations\n"
@@ -111,7 +111,7 @@ def get_base_router(
                     "application/json": {
                         "example": {
                             "id": "demo",
-                            "description": "Example AgentOS configuration",
+                            "description": "Example EgptOS configuration",
                             "available_models": [],
                             "databases": ["9c884dc4-9066-448c-9074-ef49ec7eb73c"],
                             "session": {
@@ -180,7 +180,7 @@ def get_base_router(
         except RemoteServerUnavailableError as e:
             raise HTTPException(
                 status_code=502,
-                detail=f"Failed to fetch config from remote AgentOS: {e}",
+                detail=f"Failed to fetch config from remote EgptOS: {e}",
             )
 
         return ConfigResponse(
@@ -265,7 +265,7 @@ def get_base_router(
     return router
 
 
-def get_info_router(os: "AgentOS") -> APIRouter:
+def get_info_router(os: "EgptOS") -> APIRouter:
     """
     Create an unauthenticated router that returns lightweight OS metadata.
     """
@@ -275,7 +275,7 @@ def get_info_router(os: "AgentOS") -> APIRouter:
         "/info",
         operation_id="get_info",
         summary="Get OS Info",
-        description="Return lightweight, unauthenticated metadata about this AgentOS instance.",
+        description="Return lightweight, unauthenticated metadata about this EgptOS instance.",
         response_model=InfoResponse,
     )
     async def get_info(request: Request) -> InfoResponse:
@@ -293,7 +293,7 @@ def get_info_router(os: "AgentOS") -> APIRouter:
 
 
 def get_websocket_router(
-    os: "AgentOS",
+    os: "EgptOS",
     settings: AgnoAPISettings = AgnoAPISettings(),
 ) -> APIRouter:
     """
@@ -301,7 +301,7 @@ def get_websocket_router(
     WebSocket endpoints handle authentication internally via message-based auth.
 
     Supports both JWT and legacy (os_security_key) authentication.
-    When JWT is configured (via authorization=True on AgentOS), tokens are
+    When JWT is configured (via authorization=True on EgptOS), tokens are
     validated using the JWTValidator stored on app.state. Scopes from the
     JWT are enforced before workflow execution.
     """
@@ -313,7 +313,7 @@ def get_websocket_router(
     )
     async def workflow_websocket_endpoint(websocket: WebSocket):
         """WebSocket endpoint for receiving real-time workflow events"""
-        # Check if JWT validator is configured (set by AgentOS when authorization=True
+        # Check if JWT validator is configured (set by EgptOS when authorization=True
         # or, for the manual app.add_middleware(JWTMiddleware, ...) path, resolved
         # lazily from app.user_middleware so the FIRST WebSocket connection cannot
         # see requires_auth=False before any HTTP request has been handled).

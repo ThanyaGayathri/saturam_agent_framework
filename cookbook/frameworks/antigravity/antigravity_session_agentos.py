@@ -1,8 +1,8 @@
 """
-Antigravity on AgentOS with session persistence.
+Antigravity on EgptOS with session persistence.
 
-Serves an `AntigravityAgent` through AgentOS, backed by a SQLite DB so runs
-and sessions persist across restarts and appear in the AgentOS UI's session
+Serves an `AntigravityAgent` through EgptOS, backed by a SQLite DB so runs
+and sessions persist across restarts and appear in the EgptOS UI's session
 list.
 
 Requirements:
@@ -14,7 +14,7 @@ Usage:
 
 from egpt.agents.antigravity import AntigravityAgent
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 
 db = SqliteDb(db_file="tmp/antigravity_agentos.db")
 
@@ -24,9 +24,9 @@ antigravity_agent = AntigravityAgent(
     db=db,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     name="Antigravity Sessioned",
-    description="AgentOS serving an Antigravity-backed agent with SQLite sessions",
+    description="EgptOS serving an Antigravity-backed agent with SQLite sessions",
     agents=[antigravity_agent],
 )
 app = agent_os.get_app()

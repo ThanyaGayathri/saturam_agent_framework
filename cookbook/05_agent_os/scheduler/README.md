@@ -1,6 +1,6 @@
 # Scheduler Cookbook
 
-Examples for `scheduler` in AgentOS.
+Examples for `scheduler` in EgptOS.
 
 ## Files
 - `basic_schedule.py` — Basic scheduled agent run.
@@ -23,7 +23,7 @@ This installs `croniter` and `pytz`.
 
 ### basic_schedule.py
 
-Minimal example: creates an AgentOS with a single agent and enables the scheduler. A schedule is created via the API that triggers the agent every 5 minutes.
+Minimal example: creates an EgptOS with a single agent and enables the scheduler. A schedule is created via the API that triggers the agent every 5 minutes.
 
 ### schedule_management.py
 
@@ -34,17 +34,17 @@ Demonstrates full CRUD lifecycle: creating, listing, updating, enabling/disablin
 - **Cron expressions**: Standard 5-field cron syntax (minute, hour, day-of-month, month, day-of-week)
 - **Timezones**: All schedules support timezone-aware scheduling via pytz
 - **Retries**: Configurable retry count and delay for failed executions
-- **Internal auth**: The scheduler authenticates to AgentOS using an auto-generated internal service token
+- **Internal auth**: The scheduler authenticates to EgptOS using an auto-generated internal service token
 - **Run history**: Every execution is tracked with status, timing, and error details
 
 ## Configuration
 
 ```python
-AgentOS(
+EgptOS(
     agents=[my_agent],
     db=db,
     scheduler=True,                  # Enable the scheduler
     scheduler_poll_interval=15,      # Poll every 15 seconds (default)
-    scheduler_base_url="http://127.0.0.1:7777",  # AgentOS base URL
+    scheduler_base_url="http://127.0.0.1:7777",  # EgptOS base URL
 )
 ```

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.run import RunContext
 from egpt.team import Team
 
@@ -91,7 +91,7 @@ Be brief in your responses.""",
 
     @pytest.fixture
     def client(self, state_agent: Agent):
-        agent_os = AgentOS(agents=[state_agent], interfaces=[AGUI(agent=state_agent)])
+        agent_os = EgptOS(agents=[state_agent], interfaces=[AGUI(agent=state_agent)])
         app = agent_os.get_app()
         return TestClient(app)
 
@@ -244,7 +244,7 @@ class TestTeamStateEventsIntegration:
 
     @pytest.fixture
     def team_client(self, state_team: Team):
-        agent_os = AgentOS(teams=[state_team], interfaces=[AGUI(team=state_team)])
+        agent_os = EgptOS(teams=[state_team], interfaces=[AGUI(team=state_team)])
         app = agent_os.get_app()
         return TestClient(app)
 

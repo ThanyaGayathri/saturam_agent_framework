@@ -13,7 +13,7 @@ from egpt.agent import Agent
 from egpt.db.in_memory import InMemoryDb
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.run import RunContext
 from egpt.run.workflow import WorkflowRunOutputEvent
 from egpt.team import Team
@@ -762,7 +762,7 @@ customer_research_workflow = Workflow(
     ],
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example OS setup",
     workflows=[customer_research_workflow],
 )

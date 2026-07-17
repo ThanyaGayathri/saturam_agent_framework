@@ -5,7 +5,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from egpt.client import AgentOSClient
+from egpt.client import EgptOSClient
 from egpt.db.base import SessionType
 from egpt.os.mcp import _resolve_user_id
 
@@ -16,7 +16,7 @@ from egpt.os.mcp import _resolve_user_id
 
 @pytest.mark.asyncio
 async def test_run_agent_serializes_empty_string_user_id():
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {"run_id": "run-1", "agent_id": "a-1", "content": "ok", "created_at": 0}
     with patch.object(client, "_apost", new_callable=AsyncMock) as mock_post:
         mock_post.return_value = mock_data
@@ -29,7 +29,7 @@ async def test_run_agent_serializes_empty_string_user_id():
 
 @pytest.mark.asyncio
 async def test_run_agent_omits_none_user_id():
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {"run_id": "run-1", "agent_id": "a-1", "content": "ok", "created_at": 0}
     with patch.object(client, "_apost", new_callable=AsyncMock) as mock_post:
         mock_post.return_value = mock_data
@@ -42,7 +42,7 @@ async def test_run_agent_omits_none_user_id():
 
 @pytest.mark.asyncio
 async def test_run_team_serializes_empty_string_user_id():
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {"run_id": "run-1", "team_id": "t-1", "content": "ok", "created_at": 0}
     with patch.object(client, "_apost", new_callable=AsyncMock) as mock_post:
         mock_post.return_value = mock_data
@@ -55,7 +55,7 @@ async def test_run_team_serializes_empty_string_user_id():
 
 @pytest.mark.asyncio
 async def test_run_workflow_serializes_empty_string_user_id():
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {"run_id": "run-1", "workflow_id": "w-1", "content": "ok", "created_at": 0}
     with patch.object(client, "_apost", new_callable=AsyncMock) as mock_post:
         mock_post.return_value = mock_data
@@ -68,7 +68,7 @@ async def test_run_workflow_serializes_empty_string_user_id():
 
 @pytest.mark.asyncio
 async def test_delete_session_includes_user_id_in_params():
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     with patch.object(client, "_adelete", new_callable=AsyncMock) as mock_delete:
         await client.delete_session("sess-1", user_id="alice")
 
@@ -78,7 +78,7 @@ async def test_delete_session_includes_user_id_in_params():
 
 @pytest.mark.asyncio
 async def test_delete_session_omits_user_id_when_none():
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     with patch.object(client, "_adelete", new_callable=AsyncMock) as mock_delete:
         await client.delete_session("sess-1")
 
@@ -88,7 +88,7 @@ async def test_delete_session_omits_user_id_when_none():
 
 @pytest.mark.asyncio
 async def test_delete_sessions_includes_user_id_in_params():
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     with patch.object(client, "_adelete", new_callable=AsyncMock) as mock_delete:
         await client.delete_sessions(
             session_ids=["s-1"],
@@ -102,7 +102,7 @@ async def test_delete_sessions_includes_user_id_in_params():
 
 @pytest.mark.asyncio
 async def test_rename_session_includes_user_id_in_params():
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
     mock_data = {
         "agent_session_id": "as-1",
         "session_id": "sess-1",

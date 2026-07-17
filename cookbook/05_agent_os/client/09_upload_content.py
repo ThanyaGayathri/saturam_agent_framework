@@ -1,17 +1,17 @@
 """
-Uploading Content to Knowledge Base with AgentOSClient
+Uploading Content to Knowledge Base with EgptOSClient
 
 This example demonstrates how to upload documents and content
-to the knowledge base using AgentOSClient.
+to the knowledge base using EgptOSClient.
 
 Prerequisites:
-1. Start an AgentOS server with knowledge base configured
+1. Start an EgptOS server with knowledge base configured
 2. Run this script: python 09_upload_content.py
 """
 
 import asyncio
 
-from egpt.client import AgentOSClient
+from egpt.client import EgptOSClient
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -24,7 +24,7 @@ async def upload_text_content():
     print("Uploading Text Content")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     # Text content to upload
     content = """
@@ -43,7 +43,7 @@ async def upload_text_content():
     1. Install agno: uv pip install agno
     2. Create an agent with a model
     3. Add tools for specific capabilities
-    4. Deploy with AgentOS
+    4. Deploy with EgptOS
     """
 
     try:
@@ -79,7 +79,7 @@ async def list_uploaded_content():
     print("Listing Uploaded Content")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     try:
         content = await client.list_knowledge_content()
@@ -101,7 +101,7 @@ async def search_uploaded_content():
     print("Searching Knowledge Base")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     try:
         # Search for content
@@ -128,7 +128,7 @@ async def delete_content():
     print("Deleting Content")
     print("=" * 60)
 
-    client = AgentOSClient(base_url="http://localhost:7777")
+    client = EgptOSClient(base_url="http://localhost:7777")
 
     try:
         # List content first

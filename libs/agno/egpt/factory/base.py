@@ -22,7 +22,7 @@ T = TypeVar("T")  # The component type produced by the factory (Agent, Team, or 
 class BaseFactory(Generic[T]):
     """Base class for all factory types (Agent, Team, Workflow).
 
-    A factory is a registered callable that AgentOS invokes on each request
+    A factory is a registered callable that EgptOS invokes on each request
     with a :class:`RequestContext`, returning a freshly built component.
 
     Type parameter T is the component type produced by the factory.

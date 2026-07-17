@@ -1,8 +1,8 @@
 """
-Run a LangGraph agent through AgentOS endpoints.
+Run a LangGraph agent through EgptOS endpoints.
 
 This shows how to register a LangGraph agent alongside native Agno agents
-and serve them all through the same AgentOS runtime.
+and serve them all through the same EgptOS runtime.
 
 Requirements:
     pip install langgraph langchain-openai
@@ -27,7 +27,7 @@ Then call the API:
 """
 
 from egpt.agents.langgraph import LangGraphAgent
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from langchain_openai import ChatOpenAI
 from langgraph.graph import MessagesState, StateGraph
 
@@ -43,15 +43,15 @@ graph.set_entry_point("chatbot")
 compiled = graph.compile()
 
 
-# ----- Wrap for AgentOS -----
+# ----- Wrap for EgptOS -----
 langgraph_agent = LangGraphAgent(
     name="LangGraph Chatbot",
-    description="A simple chatbot built with LangGraph, served through AgentOS",
+    description="A simple chatbot built with LangGraph, served through EgptOS",
     graph=compiled,
 )
 
-# ----- Serve through AgentOS -----
-agent_os = AgentOS(agents=[langgraph_agent])
+# ----- Serve through EgptOS -----
+agent_os = EgptOS(agents=[langgraph_agent])
 app = agent_os.get_app()
 
 # ---------------------------------------------------------------------------

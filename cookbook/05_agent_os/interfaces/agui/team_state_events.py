@@ -8,7 +8,7 @@ The team coordinates multiple agents while maintaining shared session state.
 
 from egpt.agent.agent import Agent
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.interfaces.agui import AGUI
 from egpt.team.team import Team
 
@@ -61,7 +61,7 @@ When updating, preserve existing fields and only change what's needed.""",
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     teams=[recipe_team],
     interfaces=[AGUI(team=recipe_team, prefix="/shared_state")],
 )

@@ -1,6 +1,5 @@
 from copy import deepcopy
 from dataclasses import dataclass
-from os import getenv
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union, cast
 
@@ -10,6 +9,7 @@ from egpt.models.base import Model
 from egpt.models.message import Message
 from egpt.models.utils import get_model
 from egpt.tools.function import Function
+from egpt.utils.env import get_branded_env_bool
 from egpt.utils.log import (
     log_debug,
     log_error,
@@ -95,7 +95,7 @@ class CultureManager:
         return self.model
 
     def set_log_level(self):
-        if self.debug_mode or getenv("AGNO_DEBUG", "false").lower() == "true":
+        if self.debug_mode or get_branded_env_bool("DEBUG"):
             self.debug_mode = True
             set_log_level_to_debug()
         else:

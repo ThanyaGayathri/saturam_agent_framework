@@ -8,7 +8,7 @@ Demonstrates a minimal agno agent.
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.anthropic import Claude
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
@@ -26,7 +26,7 @@ agno_assist = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(agents=[agno_assist])
+agent_os = EgptOS(agents=[agno_assist])
 app = agent_os.get_app()
 
 # ---------------------------------------------------------------------------

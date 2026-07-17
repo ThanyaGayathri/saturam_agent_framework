@@ -6,7 +6,7 @@
 
 **Status:** PENDING
 
-**Description:** Advanced RBAC Example with AgentOS - Simplified Scopes with Audience Verification.
+**Description:** Advanced RBAC Example with EgptOS - Simplified Scopes with Audience Verification.
 
 ---
 
@@ -14,7 +14,7 @@
 
 **Status:** PENDING
 
-**Description:** Per-Agent Permissions Example with AgentOS.
+**Description:** Per-Agent Permissions Example with EgptOS.
 
 ---
 
@@ -22,7 +22,7 @@
 
 **Status:** PENDING
 
-**Description:** Basic RBAC Example with AgentOS.
+**Description:** Basic RBAC Example with EgptOS.
 
 ---
 
@@ -38,6 +38,6 @@
 
 **Status:** PENDING
 
-**Description:** Basic RBAC Example with AgentOS.
+**Description:** Basic RBAC Example with EgptOS.
 
 ---

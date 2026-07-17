@@ -375,7 +375,7 @@ class TestGeminiCrossEventLoop:
 class TestGeminiMultiUserAsync:
     """Integration tests for one agent serving many concurrent users on one event loop.
 
-    This is the AgentOS production shape: a single shared agent, concurrent
+    This is the EgptOS production shape: a single shared agent, concurrent
     requests with distinct user_id/session_id pairs, one event loop. The cached
     client must serve all of them; get_client() has no await so first-call races
     are structurally impossible here.

@@ -1,7 +1,7 @@
 """
-AgentOS: Serving Knowledge via API
+EgptOS: Serving Knowledge via API
 ====================================
-AgentOS wraps your agents and knowledge instances in a FastAPI server,
+EgptOS wraps your agents and knowledge instances in a FastAPI server,
 exposing them as API endpoints. This is how you move from a script to
 a running service.
 
@@ -9,7 +9,7 @@ Key concepts:
 - Multiple Knowledge instances can share the same vector_db and contents_db
 - Each instance is identified by its `name` property
 - Content is isolated per instance via the `linked_to` field
-- AgentOS exposes /knowledge endpoints for managing content
+- EgptOS exposes /knowledge endpoints for managing content
 
 Setup:
 1. Run Qdrant: ./cookbook/scripts/run_qdrant.sh
@@ -23,7 +23,7 @@ from egpt.db.sqlite import SqliteDb
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.vectordb.qdrant import Qdrant
 from egpt.vectordb.search import SearchType
 
@@ -82,10 +82,10 @@ product_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
-# AgentOS
+# EgptOS
 # ---------------------------------------------------------------------------
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[support_agent, product_agent],
 )
 app = agent_os.get_app()

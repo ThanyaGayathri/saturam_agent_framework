@@ -1,5 +1,5 @@
 """
-System Tests for AgentOS Memory Routes.
+System Tests for EgptOS Memory Routes.
 
 Run with: pytest test_memory_routes.py -v --tb=short
 """

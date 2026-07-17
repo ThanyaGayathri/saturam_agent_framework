@@ -13,7 +13,7 @@ from egpt.agent.agent import Agent
 # Import the workflows
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai.chat import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.hackernews import HackerNewsTools
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
@@ -57,8 +57,8 @@ content_creation_workflow = Workflow(
 )
 
 
-# Initialize the AgentOS with the workflows
-agent_os = AgentOS(
+# Initialize the EgptOS with the workflows
+agent_os = EgptOS(
     description="Example OS setup",
     workflows=[content_creation_workflow],
 )

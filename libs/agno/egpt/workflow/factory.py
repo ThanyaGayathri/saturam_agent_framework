@@ -6,8 +6,8 @@ from egpt.factory import BaseFactory
 class WorkflowFactory(BaseFactory):
     """A factory that produces a Workflow per request.
 
-    Factories live alongside workflows in ``AgentOS(workflows=[...])``.
-    On each request, AgentOS invokes the factory with a :class:`RequestContext`
+    Factories live alongside workflows in ``EgptOS(workflows=[...])``.
+    On each request, EgptOS invokes the factory with a :class:`RequestContext`
     and uses the returned Workflow for that request.
     """
 

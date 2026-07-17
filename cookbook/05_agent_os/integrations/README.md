@@ -1,9 +1,9 @@
 # Integrations Cookbook
 
-Examples for `integrations` in AgentOS.
+Examples for `integrations` in EgptOS.
 
 ## Files
-- `shopify_demo.py` — Example for AgentOS with Shopify tools.
+- `shopify_demo.py` — Example for EgptOS with Shopify tools.
 
 ## Prerequisites
 - Load environment variables with `direnv allow` (requires `.envrc`).

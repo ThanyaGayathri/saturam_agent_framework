@@ -1,7 +1,7 @@
 """Workspace — read, write, edit, search, and run shell commands in a local working directory.
 
 Destructive operations (write/edit/move/delete/shell) require human confirmation by
-default, which AgentOS renders as approval prompts in the run timeline.
+default, which EgptOS renders as approval prompts in the run timeline.
 
 Quick start:
 

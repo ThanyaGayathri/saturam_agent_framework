@@ -350,7 +350,7 @@ class TestGeminiHeaders:
             _, kwargs = mock_client_cls.call_args
             assert "http_options" in kwargs
             assert "headers" in kwargs["http_options"]
-            assert kwargs["http_options"]["headers"]["x-goog-api-client"] == f"agno/{agno_version}"
+            assert kwargs["http_options"]["headers"]["x-goog-api-client"] == f"egpt/{agno_version}"
 
     def test_api_client_header_with_client_params(self):
         """Test that the API client header merges with existing headers in client_params."""
@@ -367,7 +367,7 @@ class TestGeminiHeaders:
             _, kwargs = mock_client_cls.call_args
             assert "http_options" in kwargs
             assert "headers" in kwargs["http_options"]
-            assert kwargs["http_options"]["headers"]["x-goog-api-client"] == f"agno/{agno_version}"
+            assert kwargs["http_options"]["headers"]["x-goog-api-client"] == f"egpt/{agno_version}"
             assert kwargs["http_options"]["headers"]["custom-header"] == "value"
 
 

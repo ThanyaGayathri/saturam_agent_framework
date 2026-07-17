@@ -9,7 +9,7 @@ This example demonstrates:
 - Viewing run history via GET /schedules/{id}/runs
 - Deleting via DELETE /schedules/{id}
 
-Requires: a running AgentOS server with scheduler=True
+Requires: a running EgptOS server with scheduler=True
 
     .venvs/demo/bin/python cookbook/05_agent_os/scheduler/scheduler_with_agentos.py
 

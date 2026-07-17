@@ -8,7 +8,7 @@ Demonstrates image generation model.
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.google import Gemini
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 
 # ---------------------------------------------------------------------------
@@ -28,8 +28,8 @@ image_agent = Agent(
 )
 
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     agents=[image_agent],
     interfaces=[Whatsapp(agent=image_agent)],
 )

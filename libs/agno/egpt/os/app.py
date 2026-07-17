@@ -17,12 +17,13 @@ from starlette.requests import Request
 from egpt.agent import Agent, AgentFactory, RemoteAgent
 from egpt.agent.protocol import AgentProtocol
 from egpt.agents.base import BaseExternalAgent
+from egpt.brand import PRODUCT_OS_NAME
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.os.config import (
-    AgentOSConfig,
     AuthorizationConfig,
     DatabaseConfig,
+    EgptOSConfig,
     EvalsConfig,
     EvalsDomainConfig,
     KnowledgeConfig,
@@ -78,6 +79,7 @@ from egpt.os.utils import (
 from egpt.registry import Registry
 from egpt.remote.base import RemoteDb, RemoteKnowledge
 from egpt.team import RemoteTeam, Team, TeamFactory
+from egpt.utils.env import get_branded_env
 from egpt.utils.log import log_debug, log_error, log_info, log_warning
 from egpt.utils.string import generate_id, generate_id_from_name
 from egpt.workflow import RemoteWorkflow, Workflow, WorkflowFactory
@@ -126,7 +128,7 @@ async def _drain_cancel_persist_tasks(timeout: float = 30.0) -> None:
 
 
 @asynccontextmanager
-async def db_lifespan(app: FastAPI, agent_os: "AgentOS"):
+async def db_lifespan(app: FastAPI, agent_os: "EgptOS"):
     """Initializes databases in the event loop and closes them on shutdown."""
     if agent_os.auto_provision_dbs:
         agent_os._initialize_sync_databases()
@@ -140,7 +142,7 @@ async def db_lifespan(app: FastAPI, agent_os: "AgentOS"):
 
 
 @asynccontextmanager
-async def scheduler_lifespan(app: FastAPI, agent_os: "AgentOS"):
+async def scheduler_lifespan(app: FastAPI, agent_os: "EgptOS"):
     """Start and stop the scheduler poller."""
     from egpt.scheduler import ScheduleExecutor, SchedulePoller
 
@@ -199,7 +201,7 @@ def _combine_app_lifespans(lifespans: list) -> Any:
 
 def _get_disabled_feature_router(prefix: str, tag: str, requires: str) -> APIRouter:
     """Return a stub router that returns 503 for a feature that requires a missing dependency."""
-    detail = f"{tag} not available: pass a `{requires}` to AgentOS to enable this feature."
+    detail = f"{tag} not available: pass a `{requires}` to {PRODUCT_OS_NAME} to enable this feature."
     router = APIRouter(tags=[tag])
     feature = prefix.strip("/").replace("/", "_")
 
@@ -220,7 +222,7 @@ def _get_disabled_feature_router(prefix: str, tag: str, requires: str) -> APIRou
     return router
 
 
-class AgentOS:
+class EgptOS:
     def __init__(
         self,
         id: Optional[str] = None,
@@ -238,7 +240,7 @@ class AgentOS:
         authorization: bool = False,
         authorization_config: Optional[AuthorizationConfig] = None,
         cors_allowed_origins: Optional[List[str]] = None,
-        config: Optional[Union[str, AgentOSConfig]] = None,
+        config: Optional[Union[str, EgptOSConfig]] = None,
         settings: Optional[AgnoAPISettings] = None,
         lifespan: Optional[Any] = None,
         enable_mcp_server: bool = False,
@@ -255,15 +257,15 @@ class AgentOS:
         scheduler_base_url: Optional[str] = None,
         internal_service_token: Optional[str] = None,
     ):
-        """Initialize AgentOS.
+        """Initialize EgptOS.
 
         Args:
-            id: Unique identifier for this AgentOS instance
-            name: Name of the AgentOS instance
-            description: Description of the AgentOS instance
-            version: Version of the AgentOS instance
-            db: Default database for the AgentOS instance. Agents, teams and workflows with no db will use this one.
-            checkpoint: Default checkpoint level for agents in this AgentOS. Agents without their own
+            id: Unique identifier for this EgptOS instance
+            name: Name of the EgptOS instance
+            description: Description of the EgptOS instance
+            version: Version of the EgptOS instance
+            db: Default database for the EgptOS instance. Agents, teams and workflows with no db will use this one.
+            checkpoint: Default checkpoint level for agents in this EgptOS. Agents without their own
                 checkpoint setting inherit this one. One of "runs", "tool-batch", "tools" (see
                 specs/agno/features/checkpointing/). None means no OS-level default; each agent falls
                 back to "runs" at first-run time.
@@ -273,7 +275,7 @@ class AgentOS:
             knowledge: List of knowledge bases to include in the OS
             interfaces: List of interfaces to include in the OS
             a2a_interface: Whether to expose the OS agents and teams in an A2A server
-            config: Configuration file path or AgentOSConfig instance
+            config: Configuration file path or EgptOSConfig instance
             settings: API settings for the OS
             lifespan: Optional lifespan context manager for the FastAPI app
             enable_mcp_server: Whether to enable MCP (Model Context Protocol)
@@ -281,7 +283,7 @@ class AgentOS:
                 ``tools=[...]`` and/or scope the built-in tools via ``enable_builtin_tools`` /
                 ``include_tags`` / ``exclude_tags``. Ignored when ``enable_mcp_server`` is False.
                 When omitted, the MCP server exposes all built-in tools (unchanged behavior).
-            base_app: Optional base FastAPI app to use for the AgentOS. All routes and middleware will be added to this app.
+            base_app: Optional base FastAPI app to use for the EgptOS. All routes and middleware will be added to this app.
             on_route_conflict: What to do when a route conflict is detected in case a custom base_app is provided.
             auto_provision_dbs: Whether to automatically provision databases
             authorization: Whether to enable authorization
@@ -290,7 +292,7 @@ class AgentOS:
             tracing: If True, enables OpenTelemetry tracing for all agents and teams in the OS
             run_hooks_in_background: If True, run agent/team pre/post hooks as FastAPI background tasks (non-blocking)
             telemetry: Whether to enable telemetry
-            registry: Optional registry to use for the AgentOS
+            registry: Optional registry to use for the EgptOS
             scheduler: Whether to enable the cron scheduler
             scheduler_poll_interval: Seconds between scheduler poll cycles (default: 15)
             scheduler_base_url: Base URL for scheduler HTTP calls (default: http://127.0.0.1:7777)
@@ -363,11 +365,11 @@ class AgentOS:
         self._internal_service_token = internal_service_token
 
         # Shared verifier for service account tokens (agno_pat_...), created lazily
-        # when a db is available. One instance per AgentOS so the failed-lookup
+        # when a db is available. One instance per EgptOS so the failed-lookup
         # limiter and last_used_at throttle are shared across the REST and MCP apps.
         self._service_account_verifier: Optional[Any] = None
 
-        # List of all MCP tools used inside the AgentOS
+        # List of all MCP tools used inside the EgptOS
         self.mcp_tools: List[Any] = []
         self._mcp_app: Optional[Any] = None
         # Guards get_app() idempotency when a base_app is supplied (that path mutates
@@ -436,7 +438,7 @@ class AgentOS:
             return lifespan
 
     def resync(self, app: FastAPI) -> None:
-        """Resync the AgentOS to discover, initialize and configure: agents, teams, workflows, databases and knowledge bases."""
+        """Resync the EgptOS to discover, initialize and configure: agents, teams, workflows, databases and knowledge bases."""
         self._initialize_agents()
         self._initialize_teams()
         self._initialize_workflows()
@@ -457,7 +459,7 @@ class AgentOS:
         # Track MCP tools declared on the registry
         collect_mcp_tools_from_registry(self.registry, self.mcp_tools)
 
-        # Reuse the already-started MCP app: its tools close over this AgentOS instance,
+        # Reuse the already-started MCP app: its tools close over this EgptOS instance,
         # so components added since construction are visible without a rebuild. Building
         # a fresh app here would mount one whose StreamableHTTP lifespan never runs --
         # every subsequent /mcp request would 500 until restart.
@@ -483,7 +485,7 @@ class AgentOS:
         app.mount("/", self._mcp_app)
 
     def _reprovision_routers(self, app: FastAPI) -> None:
-        """Re-provision all routes for the AgentOS."""
+        """Re-provision all routes for the EgptOS."""
         # The home router is added by _add_built_in_routes below; adding it here too
         # would duplicate the GET / route on every resync.
         updated_routers = [
@@ -546,7 +548,7 @@ class AgentOS:
             self._mount_mcp_app(app)
 
     def _add_built_in_routes(self, app: FastAPI) -> None:
-        """Add all AgentOSbuilt-in routes to the given app."""
+        """Add all EgptOS built-in routes to the given app."""
         # Always add the home router: explicit routes win over the root MCP Mount, and
         # without it GET / falls through to the MCP app's plain-text 404.
         self._add_router(app, get_home_router(self))
@@ -600,7 +602,7 @@ class AgentOS:
                     seen_ids.add(entity_id)
 
         if duplicate_ids:
-            raise ValueError(f"Duplicate IDs found in AgentOS: {', '.join(repr(id_) for id_ in duplicate_ids)}")
+            raise ValueError(f"Duplicate IDs found in EgptOS: {', '.join(repr(id_) for id_ in duplicate_ids)}")
 
     @property
     def _agents(self) -> List[Agent]:
@@ -619,7 +621,7 @@ class AgentOS:
 
     def _make_app(self, lifespan: Optional[Any] = None) -> FastAPI:
         return FastAPI(
-            title=self.name or "Agno AgentOS",
+            title=self.name or PRODUCT_OS_NAME,
             version=self.version or "1.0.0",
             description=self.description or "Your multi-agent operating system.",
             docs_url="/docs" if self.settings.docs_enabled else None,
@@ -629,7 +631,7 @@ class AgentOS:
         )
 
     def _initialize_agents(self) -> None:
-        """Initialize and configure all agents for AgentOS usage."""
+        """Initialize and configure all agents for EgptOS usage."""
         # Inject db into external framework agents (not covered by self._agents)
         for entry in self.agents or []:
             if isinstance(entry, BaseExternalAgent):
@@ -661,11 +663,11 @@ class AgentOS:
             # Required for the built-in routes to work
             agent.store_events = True
 
-            # Propagate run_hooks_in_background setting from AgentOS to agents
+            # Propagate run_hooks_in_background setting from EgptOS to agents
             agent._run_hooks_in_background = self.run_hooks_in_background
 
     def _initialize_teams(self) -> None:
-        """Initialize and configure all teams for AgentOS usage."""
+        """Initialize and configure all teams for EgptOS usage."""
         if not self._teams:
             return
 
@@ -694,7 +696,7 @@ class AgentOS:
             team.propagate_run_hooks_in_background(self.run_hooks_in_background)
 
     def _initialize_workflows(self) -> None:
-        """Initialize and configure all workflows for AgentOS usage."""
+        """Initialize and configure all workflows for EgptOS usage."""
         if not self._workflows:
             return
 
@@ -762,7 +764,7 @@ class AgentOS:
         """Add discovered knowledge instances to the registry.
 
         Sources are the knowledge instances collected by
-        ``_auto_discover_knowledge_instances`` (agents, teams, the AgentOS
+        ``_auto_discover_knowledge_instances`` (agents, teams, the EgptOS
         ``knowledge`` param, and ``registry.knowledge``). That discovery only
         keeps instances backed by a ``contents_db``, so a ``contents_db`` is
         required for a knowledge base to be resolvable from a Studio/Builder
@@ -854,7 +856,7 @@ class AgentOS:
         workflow steps and branch/route steps) and collects the models, tools,
         databases and vector databases they reference. This keeps the registry,
         and therefore ``GET /registry``, consistent with what is actually wired
-        into the AgentOS without requiring components to be declared twice.
+        into the EgptOS without requiring components to be declared twice.
 
         The registry owns deduplication and cache invalidation (see
         ``Registry.add_*``): models/dbs/vector dbs dedupe by id/name, toolkits by
@@ -862,7 +864,7 @@ class AgentOS:
         registry components and instances shared across many agents are never
         duplicated, and user objects are only referenced, never mutated. The walk
         degrades gracefully: a malformed node is skipped rather than failing
-        AgentOS construction.
+        EgptOS construction.
         """
         if self.registry is None:
             self.registry = Registry()
@@ -873,12 +875,12 @@ class AgentOS:
             log_debug(f"Registry auto-population skipped: {e}")
 
     def _setup_tracing(self) -> None:
-        """Set up OpenTelemetry tracing for this AgentOS.
+        """Set up OpenTelemetry tracing for this EgptOS.
 
-        Uses the AgentOS db if provided, otherwise falls back to the first available
+        Uses the EgptOS db if provided, otherwise falls back to the first available
         database from agents/teams/workflows.
         """
-        # Use AgentOS db if explicitly provided
+        # Use EgptOS db if explicitly provided
         if self.db is not None:
             setup_tracing_for_os(db=self.db)
             return
@@ -906,7 +908,7 @@ class AgentOS:
         if db is None:
             log_warning(
                 "tracing=True but no database found. "
-                "Provide 'db' parameter to AgentOS or to at least one agent/team/workflow."
+                "Provide 'db' parameter to EgptOS or to at least one agent/team/workflow."
             )
             return
 
@@ -1048,7 +1050,7 @@ class AgentOS:
         else:
             log_debug(
                 "Components, Scheduler, Approval, and Service Account routers not enabled: "
-                "requires a db to be provided to AgentOS"
+                "requires a db to be provided to EgptOS"
             )
             for prefix, tag in [
                 ("/components", "Components"),
@@ -1062,7 +1064,7 @@ class AgentOS:
         if self.registry is not None:
             routers.append(get_registry_router(registry=self.registry))
         else:
-            log_debug("Registry router not enabled: requires a registry to be provided to AgentOS")
+            log_debug("Registry router not enabled: requires a registry to be provided to EgptOS")
             routers.append(_get_disabled_feature_router("/registry", "Registry", "registry"))
 
         for router in routers:
@@ -1169,8 +1171,8 @@ class AgentOS:
     def _get_service_account_verifier(self) -> Optional[Any]:
         """Get (lazily creating) the verifier for service account tokens.
 
-        Returns None when the AgentOS has no db - service accounts live in the
-        AgentOS database, so there is nothing to verify against without one.
+        Returns None when the EgptOS has no db - service accounts live in the
+        EgptOS database, so there is nothing to verify against without one.
         """
         if self.db is None:
             return None
@@ -1184,7 +1186,7 @@ class AgentOS:
         return self._service_account_verifier
 
     def _add_auth_middleware(self, fastapi_app: FastAPI, security_key: Optional[str]) -> None:
-        """Install the single AgentOS auth layer on the parent app.
+        """Install the single EgptOS auth layer on the parent app.
 
         One ``AuthMiddleware`` covers JWTs, service-account tokens, the internal
         service token, and the OS security key across the REST routes AND the mounted
@@ -1220,12 +1222,12 @@ class AgentOS:
         # the same invariant as a backstop for the manual add_middleware path.
         if self.authorization and not jwt_configured:
             raise ValueError(
-                "AgentOS(authorization=True) requires a JWT verification key: set JWT_VERIFICATION_KEY or "
+                "EgptOS(authorization=True) requires a JWT verification key: set JWT_VERIFICATION_KEY or "
                 "JWT_JWKS_FILE (or pass verification_keys / jwks_file via authorization_config). Without one, "
                 "JWT and anonymous requests are not authenticated and RBAC is not enforced. For "
                 "service-account-only enforcement, use a db without authorization=True."
             )
-        log_info("Adding AgentOS auth middleware" + (f" (JWT algorithm: {algorithm})" if jwt_configured else ""))
+        log_info("Adding EgptOS auth middleware" + (f" (JWT algorithm: {algorithm})" if jwt_configured else ""))
 
         # A JWT validator on app.state is only meaningful (and only constructible --
         # it requires a key) when JWT is actually configured. WebSocket JWT auth reads it.
@@ -1316,11 +1318,11 @@ class AgentOS:
 
         if conflicts and self._app_set:
             if self.on_route_conflict == "preserve_base_app":
-                # Skip conflicting AgentOS routes, prefer user's existing routes
+                # Skip conflicting EgptOS routes, prefer user's existing routes
                 for conflict in conflicts:
                     methods_str = ", ".join(conflict["methods"])  # type: ignore
                     log_debug(
-                        f"Skipping conflicting AgentOS route: {methods_str} {conflict['path']} - "
+                        f"Skipping conflicting EgptOS route: {methods_str} {conflict['path']} - "
                         f"Using existing custom route instead"
                     )
 
@@ -1335,12 +1337,12 @@ class AgentOS:
                     fastapi_app.include_router(filtered_router)
 
             elif self.on_route_conflict == "preserve_agentos":
-                # Log warnings but still add all routes (AgentOS routes will override)
+                # Log warnings but still add all routes (EgptOS routes will override)
                 for conflict in conflicts:
                     methods_str = ", ".join(conflict["methods"])  # type: ignore
                     log_warning(
                         f"Route conflict detected: {methods_str} {conflict['path']} - "
-                        f"AgentOS route will override existing custom route"
+                        f"EgptOS route will override existing custom route"
                     )
 
                 # Remove conflicting routes
@@ -1431,7 +1433,7 @@ class AgentOS:
             elif interface.team and interface.team.db:
                 self._register_db_with_validation(dbs, interface.team.db)
 
-        # Register AgentOS db if provided
+        # Register EgptOS db if provided
         if self.db is not None:
             self._register_db_with_validation(dbs, self.db)
 
@@ -1800,7 +1802,7 @@ class AgentOS:
 
         dbs_with_specific_config = [db.db_id for db in traces_config.dbs]
 
-        # If AgentOS db is explicitly set, only use that database for traces
+        # If EgptOS db is explicitly set, only use that database for traces
         if self.db is not None:
             if self.db.id not in dbs_with_specific_config:
                 traces_config.dbs.append(
@@ -1842,7 +1844,7 @@ class AgentOS:
         if env_port is not None:
             port = int(env_port)
 
-        if getenv("AGNO_API_RUNTIME", "").lower() == "stg":
+        if (get_branded_env("API_RUNTIME") or "").lower() == "stg":
             public_endpoint = "https://os-stg.agno.com/"
         else:
             public_endpoint = "https://os.agno.com/"
@@ -1866,7 +1868,7 @@ class AgentOS:
         console.print(
             Panel(
                 Group(*panel_group),
-                title="AgentOS",
+                title=PRODUCT_OS_NAME,
                 expand=False,
                 border_style="dark_orange",
                 box=box.DOUBLE_EDGE,

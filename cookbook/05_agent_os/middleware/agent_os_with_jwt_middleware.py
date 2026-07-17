@@ -1,5 +1,5 @@
 """
-This example demonstrates how to use our JWT middleware with AgentOS.
+This example demonstrates how to use our JWT middleware with EgptOS.
 
 The middleware extracts JWT claims and stores them in request.state for easy access.
 This example uses the default Authorization header approach.
@@ -14,7 +14,7 @@ import jwt
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.middleware import JWTMiddleware
 
 # ---------------------------------------------------------------------------
@@ -50,8 +50,8 @@ research_agent = Agent(
 )
 
 
-agent_os = AgentOS(
-    description="JWT Protected AgentOS",
+agent_os = EgptOS(
+    description="JWT Protected EgptOS",
     agents=[research_agent],
 )
 
@@ -78,7 +78,7 @@ app.add_middleware(
 
 if __name__ == "__main__":
     """
-    Run your AgentOS with JWT parameter injection.
+    Run your EgptOS with JWT parameter injection.
 
     Test by calling /agents/user-agent/runs with a message: "What do you know about me?"
     """

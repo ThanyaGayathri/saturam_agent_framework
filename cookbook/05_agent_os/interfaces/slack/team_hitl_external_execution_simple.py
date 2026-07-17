@@ -2,7 +2,7 @@
 Slack Team HITL — External Execution (Simple)
 ==============================================
 
-Simple port of AgentOS human_in_the_loop/team/external_tool_execution.py.
+Simple port of EgptOS human_in_the_loop/team/external_tool_execution.py.
 
 A team member's tool is marked for external execution. The run pauses and
 Slack shows the tool name and arguments. The user executes the tool externally
@@ -17,7 +17,7 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.team import Team
 from egpt.tools import tool
@@ -58,7 +58,7 @@ team = Team(
     telemetry=False,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Slack Team HITL — external execution (simple)",
     teams=[team],
     db=db,

@@ -6,7 +6,7 @@
 
 **Status:** PENDING
 
-**Description:** Examples demonstrating AgentOSRunner for remote execution.
+**Description:** Examples demonstrating EgptOSRunner for remote execution.
 
 ---
 
@@ -14,7 +14,7 @@
 
 **Status:** PENDING
 
-**Description:** Examples demonstrating AgentOSRunner for remote execution.
+**Description:** Examples demonstrating EgptOSRunner for remote execution.
 
 ---
 
@@ -38,7 +38,7 @@
 
 **Status:** PENDING
 
-**Description:** Example showing how to use an AgentOS instance as a gateway to remote agents, teams and workflows.
+**Description:** Example showing how to use an EgptOS instance as a gateway to remote agents, teams and workflows.
 
 ---
 
@@ -62,6 +62,6 @@
 
 **Status:** PENDING
 
-**Description:** AgentOS Server for Cookbook Client Examples.
+**Description:** EgptOS Server for Cookbook Client Examples.
 
 ---

@@ -14,7 +14,7 @@ def get_health_router(health_endpoint: str = "/health") -> APIRouter:
         health_endpoint,
         operation_id="health_check",
         summary="Health Check",
-        description="Check the health status of the AgentOS API. Returns a simple status indicator.",
+        description="Check the health status of the EgptOS API. Returns a simple status indicator.",
         response_model=HealthResponse,
         responses={
             200: {

@@ -1,11 +1,11 @@
 """
-Loop Confirmation HITL Example (AgentOS)
+Loop Confirmation HITL Example (EgptOS)
 
 This example demonstrates pausing before a Loop starts so a human can decide
 whether to run the iterative work.
 """
 
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.workflow.loop import Loop
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput
@@ -54,9 +54,9 @@ workflow = Workflow(
 )
 workflow.id = "workflow-hitl-loop-confirmation"
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     name="Workflow Loop Confirmation HITL",
-    description="AgentOS workflow example for loop start confirmation.",
+    description="EgptOS workflow example for loop start confirmation.",
     workflows=[workflow],
     db=db,
 )

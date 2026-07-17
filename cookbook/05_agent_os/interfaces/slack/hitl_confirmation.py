@@ -21,7 +21,7 @@ from typing import Dict, List
 from egpt.agent import Agent
 from egpt.db.sqlite.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.tools import tool
 
@@ -93,7 +93,7 @@ def cancel_subscription(customer_id: str, reason: str) -> str:
     return f"Subscription for {customer_id} cancelled. Reason logged: {reason!r}."
 
 
-# Agent + AgentOS + Slack interface
+# Agent + EgptOS + Slack interface
 
 db = SqliteDb(
     db_file="tmp/hitl_confirmation.db",
@@ -120,7 +120,7 @@ agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Slack HITL — confirmation (subscription cancellation)",
     agents=[agent],
     db=db,

@@ -2,7 +2,7 @@
 Slack Team HITL — User Input Required (Simple)
 ===============================================
 
-Simple port of AgentOS human_in_the_loop/team/user_input_required.py.
+Simple port of EgptOS human_in_the_loop/team/user_input_required.py.
 
 A team member's tool requires additional user input before it can execute.
 The run pauses and Slack shows input fields. The user fills them and submits.
@@ -16,7 +16,7 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.team import Team
 from egpt.tools import tool
@@ -63,7 +63,7 @@ team = Team(
     telemetry=False,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Slack Team HITL — user input (simple)",
     teams=[team],
     db=db,

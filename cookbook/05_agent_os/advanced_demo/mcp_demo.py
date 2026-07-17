@@ -14,7 +14,7 @@ from textwrap import dedent
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.mcp import MCPTools
 from fastapi import FastAPI
 from mcp import StdioServerParameters
@@ -74,8 +74,8 @@ agent = Agent(
     markdown=True,
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     description="Example OS setup",
     agents=[agent],
 )

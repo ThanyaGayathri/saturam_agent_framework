@@ -1,6 +1,6 @@
 """StudioTools -- give agents the ability to compose agents, teams, and workflows.
 
-Uses the AgentOS Registry (tools, models, dbs, functions) and the core
+Uses the EgptOS Registry (tools, models, dbs, functions) and the core
 component APIs (Agent, Team, Workflow, Step) to dynamically create, edit,
 version, and execute components described in natural language.
 
@@ -76,7 +76,7 @@ class StudioTools(Toolkit):
         agents_list: Optional live list (e.g. ``agent_os.agents``) used only for
             discovery in ``list_agents()``. Studio-created components are NOT
             appended to this list -- they are DB components, so appending would
-            duplicate them in AgentOS's ``/agents`` response.
+            duplicate them in EgptOS's ``/agents`` response.
         teams_list: Same as ``agents_list`` but for teams.
         workflows_list: Same as ``agents_list`` but for workflows.
         default_model_id: Model id to use when a caller omits one.
@@ -336,7 +336,7 @@ class StudioTools(Toolkit):
             raise ValueError(
                 f"Toolkits have no functions and cannot be persisted: {empty_toolkits}. "
                 "An MCP toolkit has no functions until it is connected. Connect it before "
-                "creating or editing components with it (AgentOS connects MCP tools found in "
+                "creating or editing components with it (EgptOS connects MCP tools found in "
                 "the registry and on agents/teams/workflows at startup)."
             )
         return resolved

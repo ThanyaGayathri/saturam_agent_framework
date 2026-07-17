@@ -20,11 +20,11 @@ class BaseInterface(ABC):
 
     # Whether this interface verifies the authenticity of its own inbound requests
     # (e.g. Slack/Telegram/WhatsApp verify a signing secret in their routers). When
-    # True, AgentOS excludes the interface's route prefix from the central auth layer,
+    # True, EgptOS excludes the interface's route prefix from the central auth layer,
     # since the interface authenticates callers itself. Interfaces that do NOT
     # self-authenticate (the default) stay behind AuthMiddleware and require a valid
-    # AgentOS credential once authentication is enabled -- see
-    # AgentOS._add_auth_middleware.
+    # EgptOS credential once authentication is enabled -- see
+    # EgptOS._add_auth_middleware.
     authenticates_own_requests: bool = False
 
     router: APIRouter
@@ -40,7 +40,7 @@ class BaseInterface(ABC):
         are authorization-gated. Returning ``{}`` (the default) leaves every route unmapped,
         which the RBAC layer treats as *allow* -- so a non-self-authenticating interface that
         runs entities but returns no mappings is reachable by any authenticated token
-        regardless of scopes. AgentOS merges these at startup (see ``_add_auth_middleware``),
+        regardless of scopes. EgptOS merges these at startup (see ``_add_auth_middleware``),
         so entries reflect the interface's *actual* mount prefix.
         """
         return {}

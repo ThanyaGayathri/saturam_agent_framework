@@ -1,11 +1,11 @@
 """
-Cloud Content Sources with AgentOS
+Cloud Content Sources with EgptOS
 ============================================================
 
-Sets up an AgentOS app with Knowledge connected to multiple cloud
+Sets up an EgptOS app with Knowledge connected to multiple cloud
 storage backends (S3, GCS, SharePoint, GitHub, Azure Blob).
 
-Once running, the AgentOS API lets you browse sources, upload
+Once running, the EgptOS API lets you browse sources, upload
 content from any configured source, and search the knowledge base.
 
 Run:
@@ -30,7 +30,7 @@ from egpt.knowledge.remote_content import (
     SharePointConfig,
 )
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.vectordb.pgvector import PgVector
 
 # Database connections
@@ -114,17 +114,17 @@ agent = Agent(
     search_knowledge=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     knowledge=[knowledge],
     agents=[agent],
 )
 app = agent_os.get_app()
 
 # ============================================================================
-# Run AgentOS
+# Run EgptOS
 # ============================================================================
 if __name__ == "__main__":
-    # Serves a FastAPI app exposed by AgentOS. Use reload=True for local dev.
+    # Serves a FastAPI app exposed by EgptOS. Use reload=True for local dev.
     agent_os.serve(app="cloud_agentos:app", reload=True)
 
 
@@ -132,7 +132,7 @@ if __name__ == "__main__":
 # Using the Knowledge API
 # ============================================================================
 """
-Once AgentOS is running, use the Knowledge API to upload content from remote sources.
+Once EgptOS is running, use the Knowledge API to upload content from remote sources.
 
 ## Step 1: Get available content sources
 

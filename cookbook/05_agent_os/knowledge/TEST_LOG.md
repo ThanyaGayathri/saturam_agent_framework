@@ -14,7 +14,7 @@
 
 **Status:** PENDING
 
-**Description:** AgentOS Knowledge (Sync And Async).
+**Description:** EgptOS Knowledge (Sync And Async).
 
 ---
 

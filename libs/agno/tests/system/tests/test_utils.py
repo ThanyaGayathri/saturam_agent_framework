@@ -1,5 +1,5 @@
 """
-Shared test utilities and helpers for AgentOS system tests.
+Shared test utilities and helpers for EgptOS system tests.
 """
 
 import json
@@ -47,7 +47,7 @@ def generate_jwt_token(
 
     Args:
         user_id: The user ID to include in the token
-        audience: The audience (AgentOS ID) the token is valid for
+        audience: The audience (EgptOS ID) the token is valid for
         scopes: List of scopes to include in the token
         expires_in_hours: Token expiration time in hours
 

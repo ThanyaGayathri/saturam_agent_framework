@@ -1,4 +1,4 @@
-"""Example for AgentOS to show how to generate custom events.
+"""Example for EgptOS to show how to generate custom events.
 
 You can yield custom events from your own tools. These events will be handled internally as an Agno event, and you will be able to access it in the same way you would access any other Agno event.
 
@@ -10,7 +10,7 @@ from typing import Optional
 
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.run import RunContext
 from egpt.run.agent import CustomEvent
 from egpt.team import Team
@@ -74,9 +74,9 @@ customer_team = Team(
     instructions="You are a customer team. You are asked to get customer profiles.",
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
-    description="Example AgentOS to show how to pass dependencies to an agent",
+# Setup our EgptOS app
+agent_os = EgptOS(
+    description="Example EgptOS to show how to pass dependencies to an agent",
     agents=[customer_profile_agent],
     teams=[customer_team],
 )
@@ -88,7 +88,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     To test your custom events that read from session state, you can pass the session state on the request.
 

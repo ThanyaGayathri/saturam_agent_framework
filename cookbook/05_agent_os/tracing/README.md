@@ -1,15 +1,15 @@
 # Tracing Cookbook
 
-Examples for `tracing` in AgentOS.
+Examples for `tracing` in EgptOS.
 
 ## Files
-- `01_basic_agent_tracing.py` — Traces with AgentOS.
+- `01_basic_agent_tracing.py` — Traces with EgptOS.
 - `02_basic_team_tracing.py` — 02 Basic Team Tracing.
 - `03_agent_with_knowledge_tracing.py` — 03 Agent With Knowledge Tracing.
 - `04_agent_with_reasoning_tools_tracing.py` — 04 Agent With Reasoning Tools Tracing.
-- `05_basic_workflow_tracing.py` — Traces with AgentOS.
-- `06_tracing_with_multi_db_scenario.py` — Traces with AgentOS.
-- `07_tracing_with_multi_db_and_tracing_flag.py` — Traces with AgentOS.
+- `05_basic_workflow_tracing.py` — Traces with EgptOS.
+- `06_tracing_with_multi_db_scenario.py` — Traces with EgptOS.
+- `07_tracing_with_multi_db_and_tracing_flag.py` — Traces with EgptOS.
 - `08_advanced_trace_filtering.py` — Advanced trace filtering with FilterExpr DSL (AND/OR/NOT, CONTAINS, ranges).
 
 ## Prerequisites

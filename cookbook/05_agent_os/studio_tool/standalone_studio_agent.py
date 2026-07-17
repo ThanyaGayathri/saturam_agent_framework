@@ -1,7 +1,7 @@
-"""Standalone StudioTools agent (no AgentOS).
+"""Standalone StudioTools agent (no EgptOS).
 
 A simple Agent that uses StudioTools to build, edit, version, and run other
-agents backed by a local SQLite database. No AgentOS server, no REST, just
+agents backed by a local SQLite database. No EgptOS server, no REST, just
 in-process composition.
 
 Usage:

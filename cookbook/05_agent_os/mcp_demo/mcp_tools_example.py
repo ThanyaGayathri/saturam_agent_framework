@@ -1,13 +1,13 @@
 """
-Example AgentOS app where the agent has MCPTools.
+Example EgptOS app where the agent has MCPTools.
 
-AgentOS handles the lifespan of the MCPTools internally.
+EgptOS handles the lifespan of the MCPTools internally.
 """
 
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.anthropic import Claude
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ agno_support_agent = Agent(
 )
 
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example app with MCP Tools",
     agents=[agno_support_agent],
 )
@@ -45,9 +45,9 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
-    You can see test your AgentOS at:
+    You can see test your EgptOS at:
     http://localhost:7777/docs
 
     """

@@ -3,12 +3,12 @@ Level 5: Agentic System (Production API)
 ==========================================
 The most complete level. Production infrastructure for agentic software.
 Upgrade from development databases to PostgreSQL + PgVector, add tracing,
-and expose everything as an API with AgentOS.
+and expose everything as an API with EgptOS.
 
 This builds on Level 4 by adding:
 - PostgresDb: Production-grade session storage
 - PgVector: Production-grade vector search
-- AgentOS: FastAPI server with web UI, tracing, and session management
+- EgptOS: FastAPI server with web UI, tracing, and session management
 
 Prerequisites:
     Start PostgreSQL with PgVector:

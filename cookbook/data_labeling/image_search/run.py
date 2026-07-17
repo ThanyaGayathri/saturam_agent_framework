@@ -1,5 +1,5 @@
 """
-Image Search demo — AgentOS entrypoint.
+Image Search demo — EgptOS entrypoint.
 
   /ui                                  — single-file HTML UI
   /knowledge/content                   — gallery list  (native)
@@ -15,7 +15,7 @@ Then open http://localhost:7777/ui.
 import os
 
 from db import get_knowledge
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -25,7 +25,7 @@ from workflows.ingest import ingest_workflow
 # ---------------------------------------------------------------------------
 # FastAPI base app — CORS + the explicit /ui route.
 #
-# StaticFiles(html=True) doesn't work cleanly because AgentOS's
+# StaticFiles(html=True) doesn't work cleanly because EgptOS's
 # TrailingSlashMiddleware strips the slash that StaticFiles relies on for
 # index-resolution. Returning FileResponse from an explicit route is the
 # simplest path and avoids the redirect loop.
@@ -45,9 +45,9 @@ def serve_ui() -> FileResponse:
 
 
 # ---------------------------------------------------------------------------
-# AgentOS — pulls in Knowledge (gallery + search) and the ingest workflow.
+# EgptOS — pulls in Knowledge (gallery + search) and the ingest workflow.
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
+agent_os = EgptOS(
     id="image_search",
     name="Image Search",
     knowledge=[get_knowledge()],

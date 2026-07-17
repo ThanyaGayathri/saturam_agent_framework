@@ -1,6 +1,6 @@
-# AgentOS System Tests
+# EgptOS System Tests
 
-This directory contains comprehensive system tests for AgentOS that spin up a multi-container Docker environment to test the gateway pattern and all API routes.
+This directory contains comprehensive system tests for EgptOS that spin up a multi-container Docker environment to test the gateway pattern and all API routes.
 
 ## Architecture
 
@@ -180,7 +180,7 @@ Each test module can be run independently, making it easier to:
 
 ## Test Coverage
 
-The tests cover all routes in the AgentOS API:
+The tests cover all routes in the EgptOS API:
 
 ### Core Routes (`/config`, `/models`)
 - `GET /config` - Get OS configuration

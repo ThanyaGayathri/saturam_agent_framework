@@ -21,7 +21,7 @@ from egpt.agent import Agent
 from egpt.db.sqlite import AsyncSqliteDb
 from egpt.hooks.decorator import hook
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.run.agent import RunOutput
 from pydantic import BaseModel
 
@@ -171,8 +171,8 @@ main_agent = Agent(
     markdown=True,
 )
 
-# Create AgentOS
-agent_os = AgentOS(agents=[main_agent])
+# Create EgptOS
+agent_os = EgptOS(agents=[main_agent])
 app = agent_os.get_app()
 
 

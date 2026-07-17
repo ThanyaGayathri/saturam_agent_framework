@@ -6,7 +6,7 @@ Cookbooks for building multi-agent teams in Agno.
 
 - Load environment variables with `direnv allow` (for example `OPENAI_API_KEY`).
 - Use `.venvs/demo/bin/python` to run examples.
-- Some examples require external services (for example PostgreSQL, LanceDB, Infinity server, or AgentOS remote instances).
+- Some examples require external services (for example PostgreSQL, LanceDB, Infinity server, or EgptOS remote instances).
 
 ## Directories
 

@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.auth import get_effective_auth_mode
 from egpt.os.config import AuthorizationConfig
 from egpt.os.settings import AgnoAPISettings
@@ -27,7 +27,7 @@ def clean_auth_env(monkeypatch):
 
 def _build_client(**kwargs) -> TestClient:
     agent = Agent(name="Info Agent", id="info-agent", telemetry=False)
-    os_instance = AgentOS(agents=[agent], telemetry=False, **kwargs)
+    os_instance = EgptOS(agents=[agent], telemetry=False, **kwargs)
     return TestClient(os_instance.get_app())
 
 
@@ -84,7 +84,7 @@ class TestInfoEndpointAuthMode:
         (JWT and anonymous requests fall through). It must fail at construction, not boot."""
         agent = Agent(name="Info Agent", id="info-agent", telemetry=False)
         with pytest.raises(ValueError, match="requires a JWT verification key"):
-            AgentOS(agents=[agent], telemetry=False, authorization=True).get_app()
+            EgptOS(agents=[agent], telemetry=False, authorization=True).get_app()
 
     def test_auth_mode_jwt_via_env_takes_precedence_over_security_key(self, monkeypatch):
         monkeypatch.setenv("JWT_VERIFICATION_KEY", JWT_SECRET)
@@ -97,14 +97,14 @@ class TestInfoEndpointAuthMode:
         """Regression: JWTMiddleware installed via ``app.add_middleware`` must be detected.
 
         Some deployments configure JWT auth by calling ``app.add_middleware(JWTMiddleware, ...)``
-        instead of using ``AgentOS(authorization=True)``. Before the fix, ``/info`` reported
+        instead of using ``EgptOS(authorization=True)``. Before the fix, ``/info`` reported
         ``auth_mode: "none"`` for these deployments, and ``egpt connect`` skipped the mint
         step and produced configs without a bearer token.
         """
         from egpt.os.middleware import JWTMiddleware
 
         agent = Agent(name="Info Agent", id="info-agent", telemetry=False)
-        os_instance = AgentOS(agents=[agent], telemetry=False)
+        os_instance = EgptOS(agents=[agent], telemetry=False)
         app = os_instance.get_app()
         app.add_middleware(
             JWTMiddleware,

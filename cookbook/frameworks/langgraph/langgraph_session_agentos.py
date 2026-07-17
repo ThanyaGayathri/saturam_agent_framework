@@ -1,8 +1,8 @@
 """
-LangGraph agent with tools served through AgentOS.
+LangGraph agent with tools served through EgptOS.
 
 A LangGraph ReAct-style agent with web search, served through
-the same AgentOS runtime used for native Agno agents.
+the same EgptOS runtime used for native Agno agents.
 
 Requirements:
     pip install langgraph langchain-openai langchain-community
@@ -28,7 +28,7 @@ Then call the API:
 
 from egpt.agents.langgraph import LangGraphAgent
 from egpt.db.postgres import PostgresDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_openai import ChatOpenAI
 from langgraph.graph import MessagesState, StateGraph
@@ -63,18 +63,18 @@ graph.add_conditional_edges(
 graph.add_edge("tools", "chatbot")
 compiled = graph.compile()
 
-# ----- Wrap for AgentOS -----
+# ----- Wrap for EgptOS -----
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 
 agent = LangGraphAgent(
     name="LangGraph Search Agent",
-    description="A LangGraph agent with web search, served through AgentOS",
+    description="A LangGraph agent with web search, served through EgptOS",
     graph=compiled,
     db=db,
 )
 
-# ----- Serve through AgentOS -----
-agent_os = AgentOS(agents=[agent])
+# ----- Serve through EgptOS -----
+agent_os = EgptOS(agents=[agent])
 app = agent_os.get_app()
 
 if __name__ == "__main__":

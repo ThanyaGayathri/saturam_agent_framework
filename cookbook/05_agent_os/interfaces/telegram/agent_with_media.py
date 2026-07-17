@@ -17,7 +17,7 @@ Setup: Set TELEGRAM_TOKEN env var from @BotFather.
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
 from egpt.models.google import Gemini
-from egpt.os.app import AgentOS
+from egpt.os.app import EgptOS
 from egpt.os.interfaces.telegram import Telegram
 from egpt.tools.dalle import DalleTools
 from egpt.tools.eleven_labs import ElevenLabsTools
@@ -56,7 +56,7 @@ media_agent = Agent(
     markdown=True,
 )
 
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[media_agent],
     interfaces=[
         Telegram(
@@ -73,7 +73,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can see the configuration and available apps at:
     http://localhost:7777/config

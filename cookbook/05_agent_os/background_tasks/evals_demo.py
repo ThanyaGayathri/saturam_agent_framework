@@ -1,10 +1,10 @@
-"""Simple example creating a session and using the AgentOS with a SessionApp to expose it"""
+"""Simple example creating a session and using the EgptOS with a SessionApp to expose it"""
 
 from egpt.agent import Agent
 from egpt.db.postgres.postgres import PostgresDb
 from egpt.eval.accuracy import AccuracyEval
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team.team import Team
 from egpt.tools.calculator import CalculatorTools
 
@@ -49,7 +49,7 @@ evaluation = AccuracyEval(
 # evaluation.run(print_results=True)
 
 # Setup the Agno API App
-agent_os = AgentOS(
+agent_os = EgptOS(
     description="Example app for basic agent with eval capabilities",
     id="eval-demo",
     agents=[basic_agent],
@@ -62,7 +62,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """ Run your AgentOS:
+    """ Run your EgptOS:
     Now you can interact with your eval runs using the API. Examples:
     - http://localhost:8001/eval/{index}/eval-runs
     - http://localhost:8001/eval/{index}/eval-runs/123

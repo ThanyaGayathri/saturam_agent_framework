@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from egpt.utils.env import get_branded_env, get_branded_env_bool
+
 if TYPE_CHECKING:
     from egpt.team.mode import TeamMode
     from egpt.team.team import Team
 
-from os import getenv
 from typing import (
     Any,
     Callable,
@@ -467,10 +468,10 @@ def set_id(team: "Team") -> None:
 def _set_debug(team: "Team", debug_mode: Optional[bool] = None) -> None:
     # Get the debug level from the environment variable or the default debug level
     debug_level: Literal[1, 2] = (
-        cast(Literal[1, 2], int(env)) if (env := getenv("AGNO_DEBUG_LEVEL")) in ("1", "2") else team.debug_level
+        cast(Literal[1, 2], int(env)) if (env := get_branded_env("DEBUG_LEVEL")) in ("1", "2") else team.debug_level
     )
     # If the default debug mode is set, or passed on run, or via environment variable, set the debug mode to True
-    if team.debug_mode or debug_mode or getenv("AGNO_DEBUG", "false").lower() == "true":
+    if team.debug_mode or debug_mode or get_branded_env_bool("DEBUG"):
         set_log_level_to_debug(source_type="team", level=debug_level)
     else:
         set_log_level_to_info(source_type="team")
@@ -479,7 +480,7 @@ def _set_debug(team: "Team", debug_mode: Optional[bool] = None) -> None:
 def _set_telemetry(team: "Team") -> None:
     """Override telemetry settings based on environment variables."""
 
-    telemetry_env = getenv("AGNO_TELEMETRY")
+    telemetry_env = get_branded_env("TELEMETRY")
     if telemetry_env is not None:
         team.telemetry = telemetry_env.lower() == "true"
 

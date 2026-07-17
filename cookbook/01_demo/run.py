@@ -1,8 +1,8 @@
 """
-Agno Demo — AgentOS Entrypoint
+Agno Demo — EgptOS Entrypoint
 ===============================
 
-A demo AgentOS made of wiki agents.
+A demo EgptOS made of wiki agents.
 
 Agents
   LocalWiki    — read + write a local markdown wiki; ingest URLs or media
@@ -23,7 +23,7 @@ from agents.git_wiki import git_wiki, git_wiki_provider
 from agents.local_wiki import local_wiki, local_wiki_provider
 from agents.notion_wiki import notion_wiki, notion_wiki_provider
 from db import get_db
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.utils.log import log_info
 
 
@@ -35,11 +35,11 @@ from egpt.utils.log import log_info
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app):  # type: ignore[no-untyped-def]
-    log_info("AgentOS lifespan: startup")
+    log_info("EgptOS lifespan: startup")
     try:
         yield
     finally:
-        log_info("AgentOS lifespan: shutdown — closing context providers")
+        log_info("EgptOS lifespan: shutdown — closing context providers")
         await local_wiki_provider.aclose()
         await code_search_provider.aclose()
         if git_wiki_provider is not None:
@@ -57,8 +57,8 @@ if notion_wiki is not None:
     _agents.append(notion_wiki)
 
 
-agent_os = AgentOS(
-    name="Demo AgentOS",
+agent_os = EgptOS(
+    name="Demo EgptOS",
     agents=_agents,
     db=get_db(),
     config=str(Path(__file__).parent / "config.yaml"),

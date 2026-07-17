@@ -1,9 +1,9 @@
-"""Minimal example for AgentOS."""
+"""Minimal example for EgptOS."""
 
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.team import Team
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
@@ -49,8 +49,8 @@ basic_workflow = Workflow(
     add_workflow_history_to_steps=True,
 )
 
-# Setup our AgentOS app
-agent_os = AgentOS(
+# Setup our EgptOS app
+agent_os = EgptOS(
     description="Example app for basic agent, team and workflow",
     agents=[basic_agent],
     teams=[basic_team],
@@ -64,7 +64,7 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     You can see the configuration and available apps at:
     http://localhost:7777/config

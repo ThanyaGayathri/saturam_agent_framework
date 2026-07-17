@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
 from egpt.db.in_memory import InMemoryDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.os.interfaces.a2a import A2A
 
@@ -39,7 +39,7 @@ def _token(scopes=None):
 @pytest.fixture
 def a2a_client():
     agent = Agent(id=AGENT_ID, name="A2A Agent", db=InMemoryDb())
-    agent_os = AgentOS(
+    agent_os = EgptOS(
         id=TEST_OS_ID,
         agents=[agent],
         a2a_interface=True,

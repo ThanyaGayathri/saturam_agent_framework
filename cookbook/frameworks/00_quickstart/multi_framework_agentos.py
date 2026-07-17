@@ -1,12 +1,12 @@
 """
-Multi-Framework AgentOS — Agno + Claude Code
+Multi-Framework EgptOS — Agno + Claude Code
 ============================================
 Serve a Claude Code agent (via the Claude Agent SDK) and an Agno agent
-through a single AgentOS. They share one database, one API surface,
+through a single EgptOS. They share one database, one API surface,
 and one UI.
 
 This is the example from the launch blog post:
-    "AgentOS now supports Claude Code, LangGraph, and DSPy"
+    "EgptOS now supports Claude Code, LangGraph, and DSPy"
 
 Requirements:
     pip install claude-agent-sdk
@@ -32,7 +32,7 @@ Then call the API:
 from egpt.agent import Agent
 from egpt.agents.claude import ClaudeAgent
 from egpt.db.sqlite import SqliteDb
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.workspace import Workspace
 
 # ---------------------------------------------------------------------------
@@ -62,9 +62,9 @@ agno_agent = Agent(
 )
 
 # ---------------------------------------------------------------------------
-# Serve both through one AgentOS
+# Serve both through one EgptOS
 # ---------------------------------------------------------------------------
-agent_os = AgentOS(
+agent_os = EgptOS(
     agents=[agno_agent, claude_agent],
     tracing=True,
     db=SqliteDb(db_file="tmp/agentos.db"),

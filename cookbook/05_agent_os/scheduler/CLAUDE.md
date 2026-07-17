@@ -35,7 +35,7 @@ Ensure the virtual environment exists:
 ./scripts/demo_setup.sh
 ```
 
-The scheduler cookbooks require a running AgentOS instance with a database.
+The scheduler cookbooks require a running EgptOS instance with a database.
 Start PostgreSQL if needed:
 ```bash
 ./cookbook/scripts/run_pgvector.sh
@@ -70,7 +70,7 @@ After each test, update `cookbook/05_agent_os/scheduler/TEST_LOG.md` with:
 | DB schemas | `libs/agno/egpt/db/schemas/scheduler.py` |
 | API router | `libs/agno/egpt/os/routers/schedules/` |
 | API schemas | `libs/agno/egpt/os/routers/schedules/schema.py` |
-| AgentOS integration | `libs/agno/egpt/os/app.py` |
+| EgptOS integration | `libs/agno/egpt/os/app.py` |
 
 ---
 
@@ -79,7 +79,7 @@ After each test, update `cookbook/05_agent_os/scheduler/TEST_LOG.md` with:
 - **croniter** and **pytz** are optional dependencies under `agno[scheduler]`
 - The scheduler polls the database at a configurable interval (default: 15s)
 - Schedules are claimed atomically to prevent duplicate execution
-- The executor calls endpoints on the AgentOS server using an internal service token
+- The executor calls endpoints on the EgptOS server using an internal service token
 - Run endpoints (`/agents/*/runs`, `/teams/*/runs`) are called with `background=true` and the executor polls for completion
 
 ---
@@ -87,4 +87,4 @@ After each test, update `cookbook/05_agent_os/scheduler/TEST_LOG.md` with:
 ## Known Issues
 
 1. SQLite claim is best-effort, not multi-process safe (use PostgreSQL in production)
-2. The scheduler requires `scheduler=True` on the `AgentOS` constructor
+2. The scheduler requires `scheduler=True` on the `EgptOS` constructor

@@ -1,23 +1,23 @@
 """
-Example AgentOS app with a custom FastAPI app with conflicting routes.
+Example EgptOS app with a custom FastAPI app with conflicting routes.
 
 This example demonstrates the `on_route_conflict="preserve_base_app"` functionality which allows your
-custom routes to take precedence over conflicting AgentOS routes.
+custom routes to take precedence over conflicting EgptOS routes.
 
 When `on_route_conflict="preserve_base_app"`:
 - Your custom routes (/, /health) will be preserved
-- Conflicting AgentOS routes will be skipped
-- Non-conflicting AgentOS routes will still be added
+- Conflicting EgptOS routes will be skipped
+- Non-conflicting EgptOS routes will still be added
 
 When `on_route_conflict="preserve_agentos"` (default):
-- AgentOS routes will override your custom routes
+- EgptOS routes will override your custom routes
 - Warnings will be logged about the conflicts
 """
 
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.models.anthropic import Claude
-from egpt.os import AgentOS
+from egpt.os import EgptOS
 from egpt.tools.websearch import WebSearchTools
 from fastapi import FastAPI
 
@@ -47,7 +47,7 @@ app: FastAPI = FastAPI(
 )
 
 
-# Custom landing page (conflicts with AgentOS home route)
+# Custom landing page (conflicts with EgptOS home route)
 @app.get("/")
 async def get_custom_home():
     return {
@@ -56,19 +56,19 @@ async def get_custom_home():
     }
 
 
-# Custom health endpoint (conflicts with AgentOS health route)
+# Custom health endpoint (conflicts with EgptOS health route)
 @app.get("/health")
 async def get_custom_health():
     return {"status": "custom_ok", "note": "This is your custom health endpoint"}
 
 
-# Setup our AgentOS app by passing your FastAPI app in the app_config parameter
-# Use on_route_conflict="preserve_base_app" to preserve your custom routes over AgentOS routes
-agent_os = AgentOS(
+# Setup our EgptOS app by passing your FastAPI app in the app_config parameter
+# Use on_route_conflict="preserve_base_app" to preserve your custom routes over EgptOS routes
+agent_os = EgptOS(
     description="Example app with route replacement",
     agents=[web_research_agent],
     base_app=app,
-    on_route_conflict="preserve_base_app",  # Skip conflicting AgentOS routes, keep your custom routes
+    on_route_conflict="preserve_base_app",  # Skip conflicting EgptOS routes, keep your custom routes
 )
 
 app = agent_os.get_app()
@@ -78,14 +78,14 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    """Run your AgentOS.
+    """Run your EgptOS.
 
     With on_route_conflict="preserve_base_app":
     - Your custom routes are preserved: http://localhost:7777/ and http://localhost:7777/health
-    - AgentOS routes are available at other paths: http://localhost:7777/sessions, etc.
-    - Conflicting AgentOS routes (GET / and GET /health) are skipped
+    - EgptOS routes are available at other paths: http://localhost:7777/sessions, etc.
+    - Conflicting EgptOS routes (GET / and GET /health) are skipped
     - API docs: http://localhost:7777/docs
 
-    Try changing on_route_conflict="preserve_agentos" to see AgentOS routes override your custom ones. This is the default behavior.
+    Try changing on_route_conflict="preserve_agentos" to see EgptOS routes override your custom ones. This is the default behavior.
     """
     agent_os.serve(app="override_routes:app", reload=True)

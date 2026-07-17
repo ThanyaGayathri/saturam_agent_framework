@@ -14,7 +14,7 @@
 
 **Status:** PENDING
 
-**Description:** Minimal example for AgentOS.
+**Description:** Minimal example for EgptOS.
 
 ---
 
@@ -22,6 +22,6 @@
 
 **Status:** PENDING
 
-**Description:** AgentOS Demo.
+**Description:** EgptOS Demo.
 
 ---

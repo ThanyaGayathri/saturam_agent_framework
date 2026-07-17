@@ -1,7 +1,7 @@
 # Slack Cookbook
 
 Examples for connecting Agno agents, teams, and workflows to Slack using the
-`Slack` interface in AgentOS. Supports both standard request/response and
+`Slack` interface in EgptOS. Supports both standard request/response and
 real-time streaming via Slack's `chat_stream` API.
 
 **Requirements:** `slack_sdk >= 3.40.0` (streaming with plan-mode task cards).

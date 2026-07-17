@@ -7,7 +7,7 @@ boot a container to verify:
 - Deterministic ``id`` derived from connection params (matches PostgresDb).
 - ``to_dict`` / ``from_dict`` round-trip preserves all fields.
 - Traces-only behaviour: writes for sessions/memory/etc. raise; reads return
-  empty results so ``AgentOS(db=traces_db)`` works without errors.
+  empty results so ``EgptOS(db=traces_db)`` works without errors.
 - ``_get_table`` cache logic — first write creates and caches; subsequent
   writes hit the cache and skip DDL.
 
@@ -133,7 +133,7 @@ class TestRoundTrip:
 class TestTracesOnlyContract:
     """ClickhouseDb supports trace persistence and nothing else.
 
-    Read methods return empty results so ``AgentOS(db=traces_db)`` doesn't
+    Read methods return empty results so ``EgptOS(db=traces_db)`` doesn't
     spam errors at startup; write methods raise so accidental misuse is loud.
     """
 
@@ -181,7 +181,7 @@ class TestTracesOnlyContract:
         assert db.get_metrics() == ([], None)
 
     def test_list_components_returns_empty(self, db: ClickhouseDb):
-        # AgentOS calls this at startup; must not raise.
+        # EgptOS calls this at startup; must not raise.
         assert db.list_components() == ([], 0)
         assert db.get_config(component_id="missing") is None
         assert db.get_component(component_id="missing") is None
