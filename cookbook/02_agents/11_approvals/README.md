@@ -43,7 +43,7 @@ Creates an approval record **after** the HITL interaction resolves. The record h
 
 - `@approval` + `@tool(requires_confirmation=True)` - Creates a blocking approval record (`approval_type="required"`) before tool execution.
 - `@approval(type="audit")` + `@tool(requires_confirmation=True)` - Logs the HITL resolution result (`approval_type="audit"`) after tool execution.
-- Import: `from agno.approval import approval`
+- Import: `from egpt.approval import approval`
 - Approval records are stored in the `egpt_approvals` table (configurable via `approvals_table`).
 - Each approval has a status: `pending`, `approved`, `rejected`, `expired`, `cancelled`.
 - The `approval_type` field distinguishes `"required"` (blocking) from `"audit"` (audit) records.
