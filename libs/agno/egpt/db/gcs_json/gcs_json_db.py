@@ -46,6 +46,7 @@ class GcsJsonDb(BaseDb):
         spans_table: Optional[str] = None,
         project: Optional[str] = None,
         credentials: Optional[Any] = None,
+        table_prefix: Optional[str] = None,
         id: Optional[str] = None,
     ):
         """
@@ -74,6 +75,7 @@ class GcsJsonDb(BaseDb):
 
         super().__init__(
             id=id,
+            table_prefix=table_prefix,
             session_table=session_table,
             memory_table=memory_table,
             metrics_table=metrics_table,

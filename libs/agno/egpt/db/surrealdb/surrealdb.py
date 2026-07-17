@@ -68,6 +68,7 @@ class SurrealDb(BaseDb):
         culture_table: Optional[str] = None,
         traces_table: Optional[str] = None,
         spans_table: Optional[str] = None,
+        table_prefix: Optional[str] = None,
         id: Optional[str] = None,
     ):
         """
@@ -96,6 +97,7 @@ class SurrealDb(BaseDb):
 
         super().__init__(
             id=id,
+            table_prefix=table_prefix,
             session_table=session_table,
             memory_table=memory_table,
             metrics_table=metrics_table,
@@ -110,10 +112,10 @@ class SurrealDb(BaseDb):
         self._db_creds = db_creds
         self._db_ns = db_ns
         self._db_db = db_db
-        self._users_table_name: str = "agno_users"
-        self._agents_table_name: str = "agno_agents"
-        self._teams_table_name: str = "agno_teams"
-        self._workflows_table_name: str = "agno_workflows"
+        self._users_table_name: str = f"{self.table_prefix}users"
+        self._agents_table_name: str = f"{self.table_prefix}agents"
+        self._teams_table_name: str = f"{self.table_prefix}teams"
+        self._workflows_table_name: str = f"{self.table_prefix}workflows"
 
     @property
     def client(self) -> Union[BlockingWsSurrealConnection, BlockingHttpSurrealConnection]:

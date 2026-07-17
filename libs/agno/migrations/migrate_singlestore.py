@@ -12,7 +12,11 @@ PORT = getenv("SINGLESTORE_PORT")
 DATABASE = getenv("SINGLESTORE_DATABASE")
 
 db_url = f"mysql+pymysql://{USERNAME}:{PASSWORD}@{HOST}:{PORT}/{DATABASE}"
-db = SingleStoreDb(db_url=db_url)
+# Pre-rename deployments store their data in agno_* tables. Setting
+# table_prefix="agno_" points every default table name (including the
+# agno_schema_versions bookkeeping table) at the legacy layout so the
+# migration operates on the real data instead of empty egpt_* tables.
+db = SingleStoreDb(db_url=db_url, table_prefix="agno_")
 
 
 # Upgrade your DB to the latest version

@@ -71,5 +71,5 @@ if __name__ == "__main__":
     )
 
     agent.print_response("""
-    Please run a SQL query to get all sessions in `agno_sessions` created in the last 24 hours and summarize the table.
+    Please run a SQL query to get all sessions in `egpt_sessions` created in the last 24 hours and summarize the table.
     """)

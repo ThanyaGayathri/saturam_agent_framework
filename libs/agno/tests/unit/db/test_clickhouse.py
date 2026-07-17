@@ -207,7 +207,7 @@ class TestGetTableCache:
         db = _make_db(client)
         qualified = db._get_table("traces", create_table_if_not_found=True)
 
-        assert qualified == "agno_test.agno_traces"
+        assert qualified == "agno_test.egpt_traces"
         # CREATE DATABASE + CREATE TABLE → 2 .command() calls.
         assert client.command.call_count == 2
         # Cached after the first hit.
@@ -233,7 +233,7 @@ class TestGetTableCache:
         client.query.return_value = exists
 
         db = _make_db(client)
-        assert db._get_table("traces") == "agno_test.agno_traces"
+        assert db._get_table("traces") == "agno_test.egpt_traces"
 
 
 # --------------------------------------------------------------------------- #

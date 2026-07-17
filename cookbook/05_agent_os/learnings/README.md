@@ -1,7 +1,7 @@
 # Learnings CRUD via EgptOS
 
 These cookbooks demonstrate the `/learnings` REST endpoints exposed by EgptOS.
-The endpoints provide CRUD operations over the `agno_learnings` table, which
+The endpoints provide CRUD operations over the `egpt_learnings` table, which
 backs every learning store (`user_profile`, `user_memory`, `entity_memory`, etc.).
 
 ## Files

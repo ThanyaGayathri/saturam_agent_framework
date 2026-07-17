@@ -1265,19 +1265,19 @@ def get_team_router(
                                             "app_url": None,
                                             "model": {"name": "OpenAIChat", "model": "gpt-4o", "provider": "OpenAI"},
                                         },
-                                        "session_table": "agno_sessions",
-                                        "memory_table": "agno_memories",
+                                        "session_table": "egpt_sessions",
+                                        "memory_table": "egpt_memories",
                                     }
                                 ],
                                 "enable_agentic_context": False,
                                 "memory": {
-                                    "app_name": "agno_memories",
+                                    "app_name": "egpt_memories",
                                     "app_url": "/memory/1",
                                     "model": {"name": "OpenAIChat", "model": "gpt-4o", "provider": "OpenAI"},
                                 },
                                 "async_mode": False,
-                                "session_table": "agno_sessions",
-                                "memory_table": "agno_memories",
+                                "session_table": "egpt_sessions",
+                                "memory_table": "egpt_memories",
                             }
                         ]
                     }
@@ -1389,8 +1389,8 @@ def get_team_router(
                                         "model": {"name": "OpenAIChat", "model": "gpt-4o", "provider": "OpenAI"},
                                     },
                                     "knowledge": None,
-                                    "session_table": "agno_sessions",
-                                    "memory_table": "agno_memories",
+                                    "session_table": "egpt_sessions",
+                                    "memory_table": "egpt_memories",
                                     "knowledge_table": None,
                                 }
                             ],
@@ -1404,8 +1404,8 @@ def get_team_router(
                             },
                             "knowledge": None,
                             "async_mode": False,
-                            "session_table": "agno_sessions",
-                            "memory_table": "agno_memories",
+                            "session_table": "egpt_sessions",
+                            "memory_table": "egpt_memories",
                             "knowledge_table": None,
                         }
                     }

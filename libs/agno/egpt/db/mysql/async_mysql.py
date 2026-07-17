@@ -56,6 +56,7 @@ class AsyncMySQLDb(AsyncBaseDb):
         traces_table: Optional[str] = None,
         spans_table: Optional[str] = None,
         versions_table: Optional[str] = None,
+        table_prefix: Optional[str] = None,
         create_schema: bool = True,
     ):
         """
@@ -95,6 +96,7 @@ class AsyncMySQLDb(AsyncBaseDb):
 
         super().__init__(
             id=id,
+            table_prefix=table_prefix,
             session_table=session_table,
             memory_table=memory_table,
             metrics_table=metrics_table,

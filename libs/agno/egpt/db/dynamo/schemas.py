@@ -2,8 +2,10 @@
 
 from typing import Any, Dict
 
+from egpt.db.table_names import DEFAULT_TABLE_PREFIX as TABLE_PREFIX
+
 SESSION_TABLE_SCHEMA = {
-    "TableName": "agno_sessions",
+    "TableName": f"{TABLE_PREFIX}sessions",
     "KeySchema": [{"AttributeName": "session_id", "KeyType": "HASH"}],
     "AttributeDefinitions": [
         {"AttributeName": "session_id", "AttributeType": "S"},
@@ -66,7 +68,7 @@ SESSION_TABLE_SCHEMA = {
 }
 
 USER_MEMORY_TABLE_SCHEMA = {
-    "TableName": "agno_user_memory",
+    "TableName": f"{TABLE_PREFIX}memories",
     "KeySchema": [{"AttributeName": "memory_id", "KeyType": "HASH"}],
     "AttributeDefinitions": [
         {"AttributeName": "memory_id", "AttributeType": "S"},
@@ -129,7 +131,7 @@ USER_MEMORY_TABLE_SCHEMA = {
 }
 
 EVAL_TABLE_SCHEMA = {
-    "TableName": "agno_eval",
+    "TableName": f"{TABLE_PREFIX}eval_runs",
     "KeySchema": [{"AttributeName": "run_id", "KeyType": "HASH"}],
     "AttributeDefinitions": [
         {"AttributeName": "run_id", "AttributeType": "S"},
@@ -182,7 +184,7 @@ EVAL_TABLE_SCHEMA = {
 }
 
 KNOWLEDGE_TABLE_SCHEMA = {
-    "TableName": "agno_knowledge",
+    "TableName": f"{TABLE_PREFIX}knowledge",
     "KeySchema": [{"AttributeName": "id", "KeyType": "HASH"}],
     "AttributeDefinitions": [
         {"AttributeName": "id", "AttributeType": "S"},
@@ -225,7 +227,7 @@ KNOWLEDGE_TABLE_SCHEMA = {
 }
 
 METRICS_TABLE_SCHEMA = {
-    "TableName": "agno_metrics",
+    "TableName": f"{TABLE_PREFIX}metrics",
     "KeySchema": [{"AttributeName": "id", "KeyType": "HASH"}],
     "AttributeDefinitions": [
         {"AttributeName": "id", "AttributeType": "S"},
@@ -255,7 +257,7 @@ METRICS_TABLE_SCHEMA = {
 }
 
 CULTURAL_KNOWLEDGE_TABLE_SCHEMA = {
-    "TableName": "agno_cultural_knowledge",
+    "TableName": f"{TABLE_PREFIX}culture",
     "KeySchema": [{"AttributeName": "id", "KeyType": "HASH"}],
     "AttributeDefinitions": [
         {"AttributeName": "id", "AttributeType": "S"},
@@ -298,7 +300,7 @@ CULTURAL_KNOWLEDGE_TABLE_SCHEMA = {
 }
 
 TRACE_TABLE_SCHEMA = {
-    "TableName": "agno_traces",
+    "TableName": f"{TABLE_PREFIX}traces",
     "KeySchema": [{"AttributeName": "trace_id", "KeyType": "HASH"}],
     "AttributeDefinitions": [
         {"AttributeName": "trace_id", "AttributeType": "S"},
@@ -381,7 +383,7 @@ TRACE_TABLE_SCHEMA = {
 }
 
 SPAN_TABLE_SCHEMA = {
-    "TableName": "agno_spans",
+    "TableName": f"{TABLE_PREFIX}spans",
     "KeySchema": [{"AttributeName": "span_id", "KeyType": "HASH"}],
     "AttributeDefinitions": [
         {"AttributeName": "span_id", "AttributeType": "S"},

@@ -26,9 +26,14 @@ if TYPE_CHECKING:
 
 
 class InMemoryDb(BaseDb):
-    def __init__(self):
-        """Interface for in-memory storage."""
-        super().__init__()
+    def __init__(self, table_prefix: Optional[str] = None, id: Optional[str] = None):
+        """Interface for in-memory storage.
+
+        Args:
+            table_prefix (Optional[str]): Prefix for the (logical) default table names.
+            id (Optional[str]): ID of the database.
+        """
+        super().__init__(table_prefix=table_prefix, id=id)
 
         # Initialize in-memory storage dictionaries
         self._sessions: List[Dict[str, Any]] = []
@@ -37,6 +42,12 @@ class InMemoryDb(BaseDb):
         self._eval_runs: List[Dict[str, Any]] = []
         self._knowledge: List[Dict[str, Any]] = []
         self._cultural_knowledge: List[Dict[str, Any]] = []
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "InMemoryDb":
+        # Override: InMemoryDb accepts no per-table name parameters, so the
+        # inherited BaseDb.from_dict (which forwards them) would raise.
+        return cls(table_prefix=data.get("table_prefix"), id=data.get("id"))
 
     def table_exists(self, table_name: str) -> bool:
         """In-memory implementation, always returns True."""

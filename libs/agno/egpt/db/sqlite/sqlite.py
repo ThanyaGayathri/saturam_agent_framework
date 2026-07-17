@@ -75,6 +75,7 @@ class SqliteDb(BaseDb):
         approvals_table: Optional[str] = None,
         auth_tokens_table: Optional[str] = None,
         service_accounts_table: Optional[str] = None,
+        table_prefix: Optional[str] = None,
         id: Optional[str] = None,
     ):
         """
@@ -116,6 +117,7 @@ class SqliteDb(BaseDb):
 
         super().__init__(
             id=id,
+            table_prefix=table_prefix,
             session_table=session_table,
             culture_table=culture_table,
             memory_table=memory_table,
@@ -177,6 +179,7 @@ class SqliteDb(BaseDb):
         return cls(
             db_file=data.get("db_file"),
             db_url=data.get("db_url"),
+            table_prefix=data.get("table_prefix"),
             session_table=data.get("session_table"),
             culture_table=data.get("culture_table"),
             memory_table=data.get("memory_table"),
@@ -193,6 +196,7 @@ class SqliteDb(BaseDb):
             schedules_table=data.get("schedules_table"),
             schedule_runs_table=data.get("schedule_runs_table"),
             approvals_table=data.get("approvals_table"),
+            auth_tokens_table=data.get("auth_tokens_table"),
             service_accounts_table=data.get("service_accounts_table"),
             id=data.get("id"),
         )
@@ -640,6 +644,7 @@ class SqliteDb(BaseDb):
         if not table_is_available:
             if not create_table_if_not_found:
                 return None
+            self._warn_if_legacy_table_exists(table_name)
             return self._create_table(table_name=table_name, table_type=table_type)
 
         # SQLite version of table validation (no schema)

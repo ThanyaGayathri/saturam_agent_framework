@@ -40,6 +40,7 @@ class JsonDb(BaseDb):
         knowledge_table: Optional[str] = None,
         traces_table: Optional[str] = None,
         spans_table: Optional[str] = None,
+        table_prefix: Optional[str] = None,
         id: Optional[str] = None,
     ):
         """
@@ -58,11 +59,15 @@ class JsonDb(BaseDb):
             id (Optional[str]): ID of the database.
         """
         if id is None:
+            # Keep the pre-rename seed: the deterministic id must stay stable
+            # across the agno_ -> egpt_ rename, or stored component configs
+            # referencing a path-less JsonDb by id stop resolving on upgrade.
             seed = db_path or "agno_json_db"
             id = generate_id(seed)
 
         super().__init__(
             id=id,
+            table_prefix=table_prefix,
             session_table=session_table,
             culture_table=culture_table,
             memory_table=memory_table,
@@ -73,8 +78,41 @@ class JsonDb(BaseDb):
             spans_table=spans_table,
         )
 
-        # Create the directory where the JSON files will be stored, if it doesn't exist
-        self.db_path = Path(db_path or os.path.join(os.getcwd(), "agno_json_db"))
+        # Create the directory where the JSON files will be stored, if it doesn't exist.
+        # A pre-rename data directory is adopted if present, so existing
+        # deployments keep their data across the agno_ -> egpt_ rename.
+        if db_path is not None:
+            self.db_path = Path(db_path)
+        else:
+            legacy_path = Path(os.path.join(os.getcwd(), "agno_json_db"))
+            self.db_path = legacy_path if legacy_path.is_dir() else Path(os.path.join(os.getcwd(), "egpt_json_db"))
+
+    # -- Serialization methods --
+    def to_dict(self) -> Dict[str, Any]:
+        base = super().to_dict()
+        base.update(
+            {
+                "db_path": str(self.db_path),
+                "type": "json",
+            }
+        )
+        return base
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "JsonDb":
+        return cls(
+            db_path=data.get("db_path"),
+            table_prefix=data.get("table_prefix"),
+            session_table=data.get("session_table"),
+            culture_table=data.get("culture_table"),
+            memory_table=data.get("memory_table"),
+            metrics_table=data.get("metrics_table"),
+            eval_table=data.get("eval_table"),
+            knowledge_table=data.get("knowledge_table"),
+            traces_table=data.get("traces_table"),
+            spans_table=data.get("spans_table"),
+            id=data.get("id"),
+        )
 
     def table_exists(self, table_name: str) -> bool:
         """JSON implementation, always returns True."""

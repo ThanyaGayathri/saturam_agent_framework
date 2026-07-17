@@ -445,7 +445,7 @@ learning = LearningMachine(
 
 ## View Learnings in EgptOS
 
-Everything the learning system captures is browsable in the EgptOS UI and over REST. EgptOS exposes `/learnings` CRUD endpoints backed by the `agno_learnings` table, and [os.agno.com](https://os.agno.com) renders them as dedicated Learning pages: User Profiles, User Memories, Entity Memories, Session Context, and Decision Logs.
+Everything the learning system captures is browsable in the EgptOS UI and over REST. EgptOS exposes `/learnings` CRUD endpoints backed by the `egpt_learnings` table, and [os.agno.com](https://os.agno.com) renders them as dedicated Learning pages: User Profiles, User Memories, Entity Memories, Session Context, and Decision Logs.
 
 Try it with the demo in this cookbook:
 

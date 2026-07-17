@@ -38,7 +38,7 @@ from agno.db.migrations.manager import MigrationManager
 MigrationManager(db).up("v2.3.0")
 ```
 
-To force the migration if necessary (perhaps there is a version mismatch in your `agno_schema_versions` table), you can use the following code:
+To force the migration if necessary (perhaps there is a version mismatch in your schema versions table — `egpt_schema_versions` by default, or `agno_schema_versions` on pre-rename deployments using `table_prefix="agno_"`), you can use the following code:
 ```python
 from agno.db.migrations.manager import MigrationManager
 

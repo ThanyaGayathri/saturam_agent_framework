@@ -75,10 +75,10 @@ class TestSqliteDbFromDictRoundTrip:
     def test_defaults_used_when_fields_absent(self):
         restored = SqliteDb.from_dict({"db_file": "/tmp/test.db"})
 
-        assert restored.learnings_table_name == "agno_learnings"
-        assert restored.approvals_table_name == "agno_approvals"
-        assert restored.schedules_table_name == "agno_schedules"
-        assert restored.schedule_runs_table_name == "agno_schedule_runs"
+        assert restored.learnings_table_name == "egpt_learnings"
+        assert restored.approvals_table_name == "egpt_approvals"
+        assert restored.schedules_table_name == "egpt_schedules"
+        assert restored.schedule_runs_table_name == "egpt_schedule_runs"
 
 
 class TestPostgresDbFromDictRoundTrip:

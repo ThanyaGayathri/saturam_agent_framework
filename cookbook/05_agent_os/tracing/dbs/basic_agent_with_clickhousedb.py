@@ -40,7 +40,7 @@ traces_db = ClickhouseDb(
     port=8123,
     username="ai",
     password="ai",
-    database="agno_traces",
+    database="egpt_traces",
 )
 
 # Wire the tracer to ClickHouse. BatchSpanProcessor amortizes inserts —

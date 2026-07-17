@@ -3,17 +3,20 @@ import asyncio
 from egpt.db.migrations.manager import MigrationManager
 from egpt.db.postgres import AsyncPostgresDb, PostgresDb
 
-# Create your database connection here
+# Create your database connection here.
+# Pre-rename deployments store their data in agno_* tables. Setting
+# table_prefix="agno_" points every default table name (sessions, memories,
+# metrics, evals, knowledge, culture, approvals, ... and the
+# agno_schema_versions bookkeeping table) at the legacy layout so the
+# migration operates on the real data instead of empty egpt_* tables.
 db = PostgresDb(
     db_url="postgresql+psycopg://ai:ai@localhost:5532/ai",
-    session_table="agno_sessions",
-    memory_table="agno_memories",
+    table_prefix="agno_",
 )
 # Or for asynchronous operations
 async_db = AsyncPostgresDb(
     db_url="postgresql+psycopg_async://ai:ai@localhost:5532/ai",
-    session_table="agno_sessions",
-    memory_table="agno_memories",
+    table_prefix="agno_",
 )
 
 

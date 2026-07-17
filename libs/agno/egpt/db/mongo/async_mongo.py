@@ -157,6 +157,7 @@ class AsyncMongoDb(AsyncBaseDb):
         learnings_collection: Optional[str] = None,
         schedules_collection: Optional[str] = None,
         schedule_runs_collection: Optional[str] = None,
+        table_prefix: Optional[str] = None,
         id: Optional[str] = None,
     ):
         """
@@ -197,6 +198,7 @@ class AsyncMongoDb(AsyncBaseDb):
 
         super().__init__(
             id=id,
+            table_prefix=table_prefix,
             session_table=session_collection,
             memory_table=memory_collection,
             metrics_table=metrics_collection,

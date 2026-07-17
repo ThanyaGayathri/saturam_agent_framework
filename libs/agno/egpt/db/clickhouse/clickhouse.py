@@ -14,7 +14,7 @@ Typical usage::
     from egpt.tracing import setup_tracing
 
     primary_db = PostgresDb(db_url="postgresql+psycopg://...")
-    traces_db = ClickhouseDb(host="localhost", port=8123, database="agno_traces")
+    traces_db = ClickhouseDb(host="localhost", port=8123, database="egpt_traces")
 
     setup_tracing(db=traces_db, batch_processing=True)
 """
@@ -77,6 +77,7 @@ class ClickhouseDb(BaseDb):
         traces_table: Optional[str] = None,
         spans_table: Optional[str] = None,
         versions_table: Optional[str] = None,
+        table_prefix: Optional[str] = None,
         id: Optional[str] = None,
         create_schema: bool = True,
     ):
@@ -87,6 +88,9 @@ class ClickhouseDb(BaseDb):
             username: ClickHouse username.
             password: ClickHouse password.
             database: ClickHouse database name. Created at startup if missing.
+                Defaults to "agno" (legacy container name, intentionally kept —
+                see egpt/db/README.md "Out of scope"); pass an explicit name
+                such as "egpt_traces" for new deployments.
             secure: Use HTTPS when True.
             client: Pre-built ``clickhouse_connect`` client. When provided the
                 connection arguments above are ignored.
@@ -103,6 +107,7 @@ class ClickhouseDb(BaseDb):
             id = generate_id(seed)
         super().__init__(
             id=id,
+            table_prefix=table_prefix,
             traces_table=traces_table,
             spans_table=spans_table,
             versions_table=versions_table,
@@ -234,6 +239,7 @@ class ClickhouseDb(BaseDb):
             traces_table=data.get("traces_table"),
             spans_table=data.get("spans_table"),
             versions_table=data.get("versions_table"),
+            table_prefix=data.get("table_prefix"),
             id=data.get("id"),
         )
 

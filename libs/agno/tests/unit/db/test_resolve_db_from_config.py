@@ -252,3 +252,30 @@ class TestDbTableNameKeys:
             f"In BaseDb but missing from constant: {table_params - set(DB_TABLE_NAME_KEYS)}\n"
             f"In constant but missing from BaseDb: {set(DB_TABLE_NAME_KEYS) - table_params}"
         )
+
+    def test_override_keys_are_table_names_plus_prefix(self):
+        """DB_CONFIG_OVERRIDE_KEYS is the whitelist used by the components
+        router and override detection. It must be exactly the per-table keys
+        plus table_prefix, so the prefix cannot silently fall out of the
+        override path again (the desync this guard originally missed).
+        """
+        from egpt.db.utils import DB_CONFIG_OVERRIDE_KEYS
+
+        assert DB_CONFIG_OVERRIDE_KEYS == DB_TABLE_NAME_KEYS | {"table_prefix"}
+
+    def test_table_suffix_map_matches_table_name_keys(self):
+        """TABLE_SUFFIXES drives serialization and the legacy-name shim; its
+        keys must stay in lockstep with DB_TABLE_NAME_KEYS."""
+        from egpt.db.table_names import TABLE_SUFFIXES
+
+        assert set(TABLE_SUFFIXES) == set(DB_TABLE_NAME_KEYS)
+
+    def test_components_router_uses_override_keys_whitelist(self):
+        """The components router must whitelist with DB_CONFIG_OVERRIDE_KEYS
+        (which includes table_prefix), not the narrower DB_TABLE_NAME_KEYS."""
+        import inspect
+
+        from egpt.os.routers.components import components as components_module
+
+        source = inspect.getsource(components_module._resolve_db_in_config)
+        assert "DB_CONFIG_OVERRIDE_KEYS" in source

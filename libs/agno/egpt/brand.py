@@ -1,4 +1,10 @@
-"""Central branding constants for user-facing product strings."""
+"""Central branding constants for user-facing product strings.
+
+Persistence identity (database table prefixes) lives in
+``egpt.db.table_names`` — not here — because changing it re-points every
+default-configured deployment at fresh empty tables. See
+``DEFAULT_TABLE_PREFIX`` / ``LEGACY_TABLE_PREFIX`` there.
+"""
 
 PRODUCT_NAME = "EGPT"
 PRODUCT_OS_NAME = "EgptOS"
