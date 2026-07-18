@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from importlib import metadata
 from typing import Any, Dict, Tuple, Type
+from urllib.parse import urlparse
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
@@ -9,6 +10,55 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 from egpt.brand import PRODUCT_NAME
 from egpt.utils.env import get_branded_env
 from egpt.utils.log import log_error
+
+# Known upstream phone-home hosts — never allow as a telemetry endpoint.
+_BLOCKED_TELEMETRY_HOSTS = frozenset(
+    {
+        "os-api.agno.com",
+        "api-stg.agno.com",
+        "agno.com",
+        "www.agno.com",
+    }
+)
+
+
+def _normalize_api_url(value: Any) -> str:
+    if value is None:
+        return ""
+    url = str(value).strip()
+    if not url or url.lower() in ("false", "true", "0", "1", "none", "null"):
+        return ""
+    return url
+
+
+def _is_blocked_upstream(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        return False
+    return host in _BLOCKED_TELEMETRY_HOSTS
+
+
+def resolve_telemetry_api_url() -> str:
+    """Resolve telemetry API URL, preferring live EGPT_API_URL / AGNO_API_URL.
+
+    Env is re-read on every call so runtime ``setenv`` is honored (the module
+    singleton alone freezes values at import time).
+    """
+    env_url = _normalize_api_url(get_branded_env("API_URL"))
+    if env_url:
+        if _is_blocked_upstream(env_url):
+            return ""
+        return env_url
+
+    # Fall back to the constructed singleton value (explicit init / earlier env).
+    settings = globals().get("agno_api_settings")
+    if settings is None:
+        return ""
+    configured = _normalize_api_url(getattr(settings, "api_url", ""))
+    if configured and not _is_blocked_upstream(configured):
+        return configured
+    return ""
 
 
 class _BrandedEnvSettingsSource(PydanticBaseSettingsSource):
@@ -32,6 +82,7 @@ class AgnoAPISettings(BaseSettings):
     app_name: str = "egpt"
     app_version: str = metadata.version("egpt")
 
+    # Retained for compatibility; no longer selects a default telemetry URL.
     api_runtime: str = "prd"
     alpha_features: bool = False
 
@@ -50,7 +101,8 @@ class AgnoAPISettings(BaseSettings):
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> Tuple[PydanticBaseSettingsSource, ...]:
         # Prefer branded dual-read source over the default env source so AGNO_*
-        # fallbacks emit FutureWarning and late env changes are still honored.
+        # fallbacks emit FutureWarning. Live EGPT_API_URL is also re-read via
+        # resolve_telemetry_api_url() at gate/client time.
         return (
             init_settings,
             _BrandedEnvSettingsSource(settings_cls),
@@ -60,7 +112,7 @@ class AgnoAPISettings(BaseSettings):
 
     @field_validator("api_runtime", mode="before")
     def validate_runtime_env(cls, v):
-        """Validate api_runtime."""
+        """Validate api_runtime (legacy knob; does not select telemetry URLs)."""
 
         valid_api_runtimes = ["dev", "stg", "prd"]
         if v.lower() not in valid_api_runtimes:
@@ -71,14 +123,20 @@ class AgnoAPISettings(BaseSettings):
     @field_validator("api_url", mode="before")
     def update_api_url(cls, v):
         # Require an explicit endpoint (EGPT_API_URL / AGNO_API_URL / init kwarg).
-        # No runtime auto-fills a URL; empty means no telemetry egress.
-        if v is not None and str(v).strip():
-            return str(v).strip()
-        return ""
+        url = _normalize_api_url(v)
+        if not url:
+            return ""
+        if _is_blocked_upstream(url):
+            return ""
+        return url
 
     def has_telemetry_endpoint(self) -> bool:
-        """Return True when an API endpoint is configured for telemetry POSTs."""
-        return bool(self.api_url and self.api_url.strip())
+        """Return True when a telemetry API endpoint is configured (live env aware)."""
+        env_url = _normalize_api_url(get_branded_env("API_URL"))
+        if env_url:
+            return not _is_blocked_upstream(env_url)
+        configured = _normalize_api_url(self.api_url)
+        return bool(configured) and not _is_blocked_upstream(configured)
 
     def gate_alpha_feature(self):
         if not self.alpha_features:
