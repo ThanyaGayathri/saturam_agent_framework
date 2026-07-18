@@ -699,8 +699,8 @@ def to_dict(team: "Team") -> Dict[str, Any]:
         config["debug_level"] = team.debug_level
     if team.show_members_responses:
         config["show_members_responses"] = team.show_members_responses
-    if not team.telemetry:  # default is True
-        config["telemetry"] = team.telemetry
+    # Always serialize — default is False; omit-on-True would lose opt-in on from_dict
+    config["telemetry"] = team.telemetry
 
     return config
 

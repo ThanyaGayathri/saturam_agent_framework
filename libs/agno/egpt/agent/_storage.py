@@ -736,8 +736,8 @@ def to_dict(agent: Agent) -> Dict[str, Any]:
         config["debug_mode"] = agent.debug_mode
     if agent.debug_level != 1:
         config["debug_level"] = agent.debug_level
-    if not agent.telemetry:
-        config["telemetry"] = agent.telemetry
+    # Always serialize — default is False; omit-on-True would lose opt-in on from_dict
+    config["telemetry"] = agent.telemetry
 
     return config
 

@@ -514,6 +514,7 @@ class Workflow:
         self.cache_session = cache_session
         self.db = db
         self.telemetry = telemetry
+        self._set_telemetry()
         self.add_workflow_history_to_steps = add_workflow_history_to_steps
         self.num_history_runs = num_history_runs
         self._workflow_session: Optional[WorkflowSession] = None
