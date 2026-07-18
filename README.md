@@ -72,8 +72,9 @@ See the [contributing guide](https://github.com/agno-agi/agno/blob/main/CONTRIBU
 
 ## Telemetry
 
-Telemetry is **off by default**. No run data is sent to any external service unless you
-explicitly opt in:
+Telemetry (phone-home of run/OS analytics events) is **off by default**. No telemetry
+events are sent to any external service unless you explicitly opt in. This does not
+disable model-provider API calls or other tools you configure.
 
 ```bash
 export EGPT_TELEMETRY=true

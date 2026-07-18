@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+import pytest
+
 from egpt.agent.agent import Agent
 from egpt.os import EgptOS
 
@@ -30,6 +32,20 @@ def test_log_os_telemetry_no_endpoint_no_post():
         from egpt.api.schemas.os import OSLaunch
 
         log_os_telemetry(launch=OSLaunch(os_id="test", data={}))
+        mock_client.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_alog_os_telemetry_no_endpoint_no_post():
+    """Async OS telemetry POST is skipped when no endpoint is configured."""
+    with (
+        patch("egpt.api.os.is_telemetry_endpoint_configured", return_value=False),
+        patch("egpt.api.os.api.AsyncClient") as mock_client,
+    ):
+        from egpt.api.os import alog_os_telemetry
+        from egpt.api.schemas.os import OSLaunch
+
+        await alog_os_telemetry(launch=OSLaunch(os_id="test", data={}))
         mock_client.assert_not_called()
 
 

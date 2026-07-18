@@ -54,7 +54,7 @@ Boolean settings other than `LOG_TRACEBACKS` accept only the literal `true` (cas
 | `AGNO_RUNTIME` | `EGPT_RUNTIME` |
 | `AGNO_TELEMETRY` | `EGPT_TELEMETRY` |
 
-Telemetry is **off by default**. Set `EGPT_TELEMETRY=true` and `EGPT_API_URL` (your endpoint) to opt in. There is no upstream default endpoint.
+Telemetry is **off by default**. Set `EGPT_TELEMETRY=true` and `EGPT_API_URL` (your endpoint) to opt in to phone-home analytics. There is no upstream default endpoint. This does not affect model-provider or tool network calls.
 
 Notes:
 

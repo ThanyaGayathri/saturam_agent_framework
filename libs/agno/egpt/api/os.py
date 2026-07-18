@@ -14,6 +14,23 @@ def log_os_telemetry(launch: OSLaunch) -> None:
                 ApiRoutes.AGENT_OS_LAUNCH,
                 json=launch.model_dump(exclude_none=True),
             )
-            response.raise_for_status()
+            if response is not None:
+                response.raise_for_status()
+    except Exception as e:
+        log_debug(f"Could not register OS launch for telemetry: {type(e).__name__}")
+
+
+async def alog_os_telemetry(launch: OSLaunch) -> None:
+    """Telemetry recording for async OS launches"""
+    if not is_telemetry_endpoint_configured():
+        return
+    try:
+        async with api.AsyncClient() as api_client:
+            response = await api_client.post(
+                ApiRoutes.AGENT_OS_LAUNCH,
+                json=launch.model_dump(exclude_none=True),
+            )
+            if response is not None:
+                response.raise_for_status()
     except Exception as e:
         log_debug(f"Could not register OS launch for telemetry: {type(e).__name__}")

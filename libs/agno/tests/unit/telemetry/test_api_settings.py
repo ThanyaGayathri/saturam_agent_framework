@@ -76,6 +76,13 @@ def test_resolve_telemetry_api_url_honors_runtime_env(monkeypatch):
     assert resolve_telemetry_api_url() == ""
 
 
+def test_env_prefix_is_egpt():
+    """Belt-and-suspenders: default env source cannot bind unprefixed API_URL."""
+    from egpt.api.settings import AgnoAPISettings
+
+    assert AgnoAPISettings.model_config.get("env_prefix") == "EGPT_"
+
+
 def test_blocked_hosts_are_not_defaults():
     """Upstream hosts may appear only as an explicit blocklist, never as defaults."""
     import inspect

@@ -82,14 +82,18 @@ class AgnoAPISettings(BaseSettings):
     app_name: str = "egpt"
     app_version: str = metadata.version("egpt")
 
-    # Retained for compatibility; no longer selects a default telemetry URL.
+    # Retained for compatibility with EGPT_API_RUNTIME / AGNO_API_RUNTIME.
+    # No longer selects a telemetry URL (callers must set EGPT_API_URL explicitly).
+    # Kept so existing deployments that set the env var do not raise ValidationError.
     api_runtime: str = "prd"
     alpha_features: bool = False
 
     # Empty by default — no upstream phone-home. Set EGPT_API_URL to opt in.
     api_url: str = ""
 
-    model_config = SettingsConfigDict(env_prefix="")
+    # Belt-and-suspenders: if the default env source is ever re-added, unprefixed
+    # API_URL / APP_NAME cannot bind. Branded dual-read still uses get_branded_env.
+    model_config = SettingsConfigDict(env_prefix="EGPT_")
 
     @classmethod
     def settings_customise_sources(
@@ -112,7 +116,10 @@ class AgnoAPISettings(BaseSettings):
 
     @field_validator("api_runtime", mode="before")
     def validate_runtime_env(cls, v):
-        """Validate api_runtime (legacy knob; does not select telemetry URLs)."""
+        """Validate api_runtime.
+
+        Legacy compatibility only — does not select telemetry endpoints.
+        """
 
         valid_api_runtimes = ["dev", "stg", "prd"]
         if v.lower() not in valid_api_runtimes:
