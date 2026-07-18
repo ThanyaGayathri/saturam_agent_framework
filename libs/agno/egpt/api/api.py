@@ -18,8 +18,8 @@ class _NoOpTelemetryClient:
     def __enter__(self) -> "_NoOpTelemetryClient":
         return self
 
-    def __exit__(self, *args: Any) -> bool:
-        return False
+    def __exit__(self, *args: Any) -> None:
+        return None
 
     def post(self, *args: Any, **kwargs: Any) -> None:
         return None
@@ -31,8 +31,8 @@ class _NoOpAsyncTelemetryClient:
     async def __aenter__(self) -> "_NoOpAsyncTelemetryClient":
         return self
 
-    async def __aexit__(self, *args: Any) -> bool:
-        return False
+    async def __aexit__(self, *args: Any) -> None:
+        return None
 
     async def post(self, *args: Any, **kwargs: Any) -> None:
         return None
