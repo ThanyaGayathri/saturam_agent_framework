@@ -81,7 +81,7 @@ def test_default_values():
 
     assert eval.scoring_strategy == "binary"
     assert eval.threshold == 7
-    assert eval.telemetry is True
+    assert eval.telemetry is False
 
 
 def test_batch_mode():

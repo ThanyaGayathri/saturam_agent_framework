@@ -1,4 +1,4 @@
-from egpt.api.api import api
+from egpt.api.api import api, is_telemetry_endpoint_configured
 from egpt.api.routes import ApiRoutes
 from egpt.api.schemas.team import TeamRunCreate
 from egpt.utils.log import log_debug
@@ -6,6 +6,8 @@ from egpt.utils.log import log_debug
 
 def create_team_run(run: TeamRunCreate) -> None:
     """Telemetry recording for Team runs"""
+    if not is_telemetry_endpoint_configured():
+        return
     with api.Client() as api_client:
         try:
             response = api_client.post(
@@ -19,6 +21,8 @@ def create_team_run(run: TeamRunCreate) -> None:
 
 async def acreate_team_run(run: TeamRunCreate) -> None:
     """Telemetry recording for async Team runs"""
+    if not is_telemetry_endpoint_configured():
+        return
     async with api.AsyncClient() as api_client:
         try:
             response = await api_client.post(

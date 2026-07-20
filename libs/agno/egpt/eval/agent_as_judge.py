@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from egpt.agent import Agent
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.db.schemas.evals import EvalType
+from egpt.eval._telemetry import apply_eval_telemetry_env
 from egpt.eval.base import BaseEval
 from egpt.eval.utils import async_log_eval, log_eval_run, spinner_live, store_result_in_file
 from egpt.exceptions import EvalError
@@ -190,13 +191,14 @@ class AgentAsJudgeEval(BaseEval):
     file_path_to_save_results: Optional[str] = None
     debug_mode: bool = get_branded_env_bool("DEBUG")
     db: Optional[Union[BaseDb, AsyncBaseDb]] = None
-    telemetry: bool = True
+    telemetry: bool = False
     run_in_background: bool = False
 
     def __post_init__(self):
-        """Validate scoring_strategy and threshold."""
+        """Validate scoring_strategy and threshold; apply telemetry env override."""
         if self.scoring_strategy == "numeric" and not 1 <= self.threshold <= 10:
             raise ValueError(f"threshold must be between 1 and 10, got {self.threshold}")
+        apply_eval_telemetry_env(self)
 
     def get_evaluator_agent(self) -> Agent:
         """Return the evaluator agent. If not provided, build it based on the model and criteria."""

@@ -1,21 +1,73 @@
 from unittest.mock import patch
 
+import pytest
+
 from egpt.agent.agent import Agent
 from egpt.os import EgptOS
 
 
-def test_accuracy_evals_telemetry():
-    """Test that telemetry logging is called when initializing an EgptOS instance."""
+def _clear_telemetry_env(monkeypatch) -> None:
+    """Clear CI/default env so constructor telemetry=True is not overridden."""
+    monkeypatch.delenv("EGPT_TELEMETRY", raising=False)
+    monkeypatch.delenv("AGNO_TELEMETRY", raising=False)
+
+
+def test_os_telemetry_default_off():
+    """Telemetry is off by default; OS launch telemetry is not sent."""
     agent = Agent()
 
-    # Mock the API call that gets made when telemetry is enabled
     with patch("egpt.api.os.log_os_telemetry") as mock_create:
         os = EgptOS(id="test", agents=[agent])
+        assert os.telemetry is False
+        mock_create.assert_not_called()
 
-        # Assert telemetry is active by default
-        assert os.telemetry
 
-        # Verify API was called with correct parameters
+def test_log_os_telemetry_no_endpoint_no_post():
+    """OS telemetry POST is skipped when no endpoint is configured."""
+    with (
+        patch("egpt.api.os.is_telemetry_endpoint_configured", return_value=False),
+        patch("egpt.api.os.api.Client") as mock_client,
+    ):
+        from egpt.api.os import log_os_telemetry
+        from egpt.api.schemas.os import OSLaunch
+
+        log_os_telemetry(launch=OSLaunch(os_id="test", data={}))
+        mock_client.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_alog_os_telemetry_no_endpoint_no_post():
+    """Async OS telemetry POST is skipped when no endpoint is configured."""
+    with (
+        patch("egpt.api.os.is_telemetry_endpoint_configured", return_value=False),
+        patch("egpt.api.os.api.AsyncClient") as mock_client,
+    ):
+        from egpt.api.os import alog_os_telemetry
+        from egpt.api.schemas.os import OSLaunch
+
+        await alog_os_telemetry(launch=OSLaunch(os_id="test", data={}))
+        mock_client.assert_not_called()
+
+
+def test_os_telemetry_opt_in(monkeypatch):
+    """When telemetry=True, OS launch telemetry is sent."""
+    _clear_telemetry_env(monkeypatch)
+    agent = Agent()
+
+    with patch("egpt.api.os.log_os_telemetry") as mock_create:
+        os = EgptOS(id="test", agents=[agent], telemetry=True)
+        assert os.telemetry is True
         mock_create.assert_called_once()
         call_args = mock_create.call_args[1]["launch"]
         assert call_args.os_id == "test"
+
+
+def test_os_telemetry_env_opt_in(monkeypatch):
+    """EGPT_TELEMETRY=true enables EgptOS telemetry via env override."""
+    monkeypatch.setenv("EGPT_TELEMETRY", "true")
+    agent = Agent()
+
+    with patch("egpt.api.os.log_os_telemetry") as mock_create:
+        os = EgptOS(id="test", agents=[agent])
+        assert os.telemetry is True
+        mock_create.assert_called_once()

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 from uuid import uuid4
 
 from egpt.db.base import AsyncBaseDb, BaseDb
+from egpt.eval._telemetry import apply_eval_telemetry_env
 from egpt.run.team import TeamRunOutput
 from egpt.utils.env import get_branded_env_bool
 
@@ -88,9 +89,12 @@ class ReliabilityEval:
     db: Optional[Union[BaseDb, AsyncBaseDb]] = None
 
     # Telemetry settings
-    # telemetry=True logs minimal telemetry for analytics
-    # This helps us improve our Evals and provide better support
-    telemetry: bool = True
+    # telemetry=True opts into minimal telemetry for analytics (default off).
+    # Requires EGPT_TELEMETRY=true (or AGNO_TELEMETRY) and a configured EGPT_API_URL.
+    telemetry: bool = False
+
+    def __post_init__(self) -> None:
+        apply_eval_telemetry_env(self)
 
     def _evaluate(self) -> ReliabilityResult:
         """Core evaluation logic for checking tool calls and arguments."""

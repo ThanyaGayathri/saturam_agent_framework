@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from egpt.agent import Agent
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.db.schemas.evals import EvalType
+from egpt.eval._telemetry import apply_eval_telemetry_env
 from egpt.eval.utils import async_log_eval, log_eval_run, spinner_live, store_result_in_file
 from egpt.exceptions import EvalError
 from egpt.models.base import Model
@@ -190,9 +191,12 @@ class AccuracyEval:
     db: Optional[Union[BaseDb, AsyncBaseDb]] = None
 
     # Telemetry settings
-    # telemetry=True logs minimal telemetry for analytics
-    # This helps us improve our Evals and provide better support
-    telemetry: bool = True
+    # telemetry=True opts into minimal telemetry for analytics (default off).
+    # Requires EGPT_TELEMETRY=true (or AGNO_TELEMETRY) and a configured EGPT_API_URL.
+    telemetry: bool = False
+
+    def __post_init__(self) -> None:
+        apply_eval_telemetry_env(self)
 
     def get_evaluator_agent(self) -> Agent:
         """Return the evaluator agent. If not provided, build it based on the evaluator fields and default instructions."""

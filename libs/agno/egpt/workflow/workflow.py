@@ -443,9 +443,9 @@ class Workflow:
     add_session_state_to_context: Optional[bool] = None
 
     # --- Telemetry ---
-    # telemetry=True logs minimal telemetry for analytics
-    # This helps us improve the Agent and provide better support
-    telemetry: bool = True
+    # telemetry=True opts into minimal telemetry for analytics (default off).
+    # Requires EGPT_TELEMETRY=true (or AGNO_TELEMETRY) and a configured EGPT_API_URL.
+    telemetry: bool = False
 
     # Add this flag to control if the workflow should add history to the steps
     add_workflow_history_to_steps: bool = False
@@ -481,7 +481,7 @@ class Workflow:
         add_dependencies_to_context: Optional[bool] = None,
         add_session_state_to_context: Optional[bool] = None,
         cache_session: bool = False,
-        telemetry: bool = True,
+        telemetry: bool = False,
         add_workflow_history_to_steps: bool = False,
         num_history_runs: int = 3,
     ):
@@ -514,6 +514,7 @@ class Workflow:
         self.cache_session = cache_session
         self.db = db
         self.telemetry = telemetry
+        self._set_telemetry()
         self.add_workflow_history_to_steps = add_workflow_history_to_steps
         self.num_history_runs = num_history_runs
         self._workflow_session: Optional[WorkflowSession] = None
@@ -1004,7 +1005,7 @@ class Workflow:
             add_session_state_to_context=config.get("add_session_state_to_context"),
             # --- Debug and telemetry settings ---
             debug_mode=config.get("debug_mode", False),
-            telemetry=config.get("telemetry", True),
+            telemetry=config.get("telemetry", False),
             # --- Steps ---
             steps=steps,
         )
@@ -1896,10 +1897,8 @@ class Workflow:
 
     def _set_telemetry(self) -> None:
         """Override telemetry settings based on environment variables."""
-
-        telemetry_env = get_branded_env("TELEMETRY")
-        if telemetry_env is not None:
-            self.telemetry = telemetry_env.lower() == "true"
+        if get_branded_env("TELEMETRY") is not None:
+            self.telemetry = get_branded_env_bool("TELEMETRY", default=False)
 
     def _propagate_debug_to_step(self, step):
         """Recursively propagate debug mode to steps and nested primitives"""

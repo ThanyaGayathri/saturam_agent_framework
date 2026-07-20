@@ -72,6 +72,15 @@ See the [contributing guide](https://github.com/agno-agi/agno/blob/main/CONTRIBU
 
 ## Telemetry
 
-Agno logs which model providers are used to prioritize updates. Disable with `AGNO_TELEMETRY=false`.
+Telemetry (phone-home of run/OS analytics events) is **off by default**. No telemetry
+events are sent to any external service unless you explicitly opt in. This does not
+disable model-provider API calls or other tools you configure.
+
+```bash
+export EGPT_TELEMETRY=true
+export EGPT_API_URL=https://your-telemetry-endpoint.example.com
+```
+
+Legacy `AGNO_TELEMETRY` / `AGNO_API_URL` are still accepted with a deprecation warning.
 
 <p align="right"><a href="#top">↑ Back to top</a></p>

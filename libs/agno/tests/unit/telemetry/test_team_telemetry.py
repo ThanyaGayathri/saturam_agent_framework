@@ -6,24 +6,44 @@ from egpt.agent.agent import Agent
 from egpt.team.team import Team
 
 
-def test_team_telemetry():
-    """Test that telemetry logging is called during sync team run."""
+def test_team_telemetry_default_off():
+    """Telemetry is off by default; no API POST on run."""
     agent = Agent()
     team = Team(members=[agent])
+    assert team.telemetry is False
 
-    # Assert telemetry is active by default
-    assert team.telemetry
+    with patch("egpt.api.team.create_team_run") as mock_create:
+        agent.model = MagicMock()
+        team.model = MagicMock()
+        team.run("This is a test run")
+        mock_create.assert_not_called()
 
-    # Mock the telemetry logging method in the _telemetry module (called by _run.py)
+
+def test_create_team_run_no_endpoint_no_post():
+    """Team telemetry POST is skipped when no endpoint is configured."""
+    with (
+        patch("egpt.api.team.is_telemetry_endpoint_configured", return_value=False),
+        patch("egpt.api.team.api.Client") as mock_client,
+    ):
+        from egpt.api.schemas.team import TeamRunCreate
+        from egpt.api.team import create_team_run
+
+        create_team_run(TeamRunCreate(session_id="s1", run_id="r1", data={}))
+        mock_client.assert_not_called()
+
+
+def test_team_telemetry_opt_in():
+    """When telemetry=True, logging is called during sync team run."""
+    agent = Agent()
+    team = Team(members=[agent], telemetry=True)
+    assert team.telemetry is True
+
     with patch("egpt.team._telemetry.log_team_telemetry") as mock_log:
         agent.model = MagicMock()
         team.model = MagicMock()
         team.run("This is a test run")
 
-        # Assert the telemetry logging func was called
         mock_log.assert_called_once()
-
-        # Assert the telemetry logging func was called with the correct arguments
         call_args = mock_log.call_args
         assert "session_id" in call_args.kwargs
         assert call_args.kwargs["session_id"] is not None
@@ -32,15 +52,12 @@ def test_team_telemetry():
 
 
 @pytest.mark.asyncio
-async def test_team_telemetry_async():
-    """Test that telemetry logging is called during async team run."""
+async def test_team_telemetry_async_opt_in():
+    """When telemetry=True, logging is called during async team run."""
     agent = Agent()
-    team = Team(members=[agent])
+    team = Team(members=[agent], telemetry=True)
+    assert team.telemetry is True
 
-    # Assert telemetry is active by default
-    assert team.telemetry
-
-    # Mock the async telemetry logging method in the _telemetry module (called by _run.py)
     with patch("egpt.team._telemetry.alog_team_telemetry") as mock_alog:
         mock_model = AsyncMock()
         mock_model.get_instructions_for_model = MagicMock(return_value=None)
@@ -49,10 +66,7 @@ async def test_team_telemetry_async():
         team.model = mock_model
         await team.arun("This is a test run")
 
-        # Assert the telemetry logging func was called
         mock_alog.assert_called_once()
-
-        # Assert the telemetry logging func was called with the correct arguments
         call_args = mock_alog.call_args
         assert "session_id" in call_args.kwargs
         assert call_args.kwargs["session_id"] is not None

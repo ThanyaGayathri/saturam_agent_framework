@@ -186,8 +186,12 @@ class TestWorkflowToDict:
 class TestWorkflowFromDict:
     """Tests for Workflow.from_dict() method."""
 
-    def test_from_dict_basic(self, sample_workflow_config):
+    def test_from_dict_basic(self, sample_workflow_config, monkeypatch):
         """Test from_dict creates workflow with basic config."""
+        # CI sets EGPT_TELEMETRY=false; clear so constructor opt-in is honored.
+        monkeypatch.delenv("EGPT_TELEMETRY", raising=False)
+        monkeypatch.delenv("AGNO_TELEMETRY", raising=False)
+
         workflow = Workflow.from_dict(sample_workflow_config)
 
         assert workflow.id == "sample-workflow"
