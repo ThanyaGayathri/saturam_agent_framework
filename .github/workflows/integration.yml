@@ -1,0 +1,84 @@
+name: Integration Tests
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Nightly at 02:00 UTC
+    - cron: "0 2 * * *"
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: integration (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        run: |
+          set -e
+          uv venv .venv --python "${{ matrix.python-version }}"
+          source .venv/bin/activate
+          uv pip install -e libs/agno[integration-tests,tests]
+          uv pip install brave-search --no-deps
+
+      - name: Run integration tests
+        working-directory: .
+        env:
+          EGPT_TELEMETRY: false
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -e
+          source .venv/bin/activate
+          python -m pytest libs/agno/tests/integration -v --tb=short
+
+  system:
+    name: system (py3.12)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install system test dependencies
+        working-directory: libs/agno/tests/system
+        run: |
+          set -e
+          uv venv .venv --python 3.12
+          source .venv/bin/activate
+          uv pip install -r requirements.txt
+
+      - name: Run system tests
+        working-directory: libs/agno/tests/system
+        env:
+          EGPT_TELEMETRY: false
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -e
+          chmod +x run_tests.sh
+          ./run_tests.sh --down

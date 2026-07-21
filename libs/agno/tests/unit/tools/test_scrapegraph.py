@@ -1,8 +1,14 @@
 import json
 import os
+import sys
 from unittest.mock import Mock, patch
 
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.version_info < (3, 12),
+    reason="Quarantined (EGPT-0.10): scrapegraph-py requires Python 3.12+ (not installed in egpt[tests] on 3.10/3.11)",
+)
 
 pytest.importorskip("scrapegraph_py")
 

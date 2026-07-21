@@ -166,11 +166,27 @@ jobs:
           python -m pytest \
             --cov=egpt \
             --cov-report=json:coverage-egpt.json \
-            ./libs/agno/tests/unit \
-            --ignore=libs/agno/tests/unit/models/litellm \
-            --ignore=libs/agno/tests/unit/tools/test_crawl4ai.py \
-            --ignore=libs/agno/tests/unit/tools/test_scrapegraph.py \
-            ${{ matrix.pytest-extra-ignores }}
+            --cov-report=term \
+            ./libs/agno/tests/unit
+
+      - name: Publish unit coverage summary
+        if: matrix.package == 'egpt' && matrix.python-version == '3.12'
+        working-directory: .
+        run: |
+          set -e
+          TOTAL=$(python -c "import json; d=json.load(open('coverage-egpt.json')); print(f'{d[\"totals\"][\"percent_covered\"]:.2f}')")
+          echo "## Unit test coverage (EGPT-0.10 PR gate)" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Coverage: **${TOTAL}%**" >> "$GITHUB_STEP_SUMMARY"
+          echo "Suite: \`libs/agno/tests/unit\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload unit coverage artifact
+        if: matrix.package == 'egpt'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-egpt-py${{ matrix.python-version }}
+          path: coverage-egpt.json
+          if-no-files-found: error
 
       - name: Run egptctl tests
         if: matrix.package == 'egptctl'
