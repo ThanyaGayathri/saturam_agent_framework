@@ -87,30 +87,21 @@ jobs:
           - package: egpt
             working-directory: libs/agno
             python-version: "3.10"
-            pytest-extra-ignores: >-
-              --ignore=libs/agno/tests/unit/os/test_traces_remote_ownership.py
-              --ignore=libs/agno/tests/unit/os/test_jwt_middleware_helpers.py
-              --ignore=libs/agno/tests/unit/os/test_ws_jwt_config.py
           - package: egpt
             working-directory: libs/agno
             python-version: "3.12"
-            pytest-extra-ignores: ""
           - package: egptctl
             working-directory: libs/egptctl
             python-version: "3.10"
-            pytest-extra-ignores: ""
           - package: egptctl
             working-directory: libs/egptctl
             python-version: "3.12"
-            pytest-extra-ignores: ""
           - package: egpt-infra
             working-directory: libs/agno_infra
             python-version: "3.10"
-            pytest-extra-ignores: ""
           - package: egpt-infra
             working-directory: libs/agno_infra
             python-version: "3.12"
-            pytest-extra-ignores: ""
 
     defaults:
       run:
