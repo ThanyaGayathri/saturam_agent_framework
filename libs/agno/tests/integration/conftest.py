@@ -20,6 +20,108 @@ from egpt.session import Session
 from egpt.session.agent import AgentSession
 from egpt.session.workflow import WorkflowSession
 
+# Path fragment -> required env var for soft-skip when credentials/services are absent.
+# First matching fragment wins. Opt-in flags gate local Docker DB suites in CI.
+_PATH_ENV_REQUIREMENTS: tuple[tuple[str, str], ...] = (
+    # OpenAI-backed suites
+    ("models/openai", "OPENAI_API_KEY"),
+    ("models/azure", "AZURE_OPENAI_API_KEY"),
+    ("agent/", "OPENAI_API_KEY"),
+    ("teams/", "OPENAI_API_KEY"),
+    ("workflows/", "OPENAI_API_KEY"),
+    # Cloud providers
+    ("models/anthropic", "ANTHROPIC_API_KEY"),
+    ("models/google", "GOOGLE_API_KEY"),
+    ("models/vertexai", "GOOGLE_CLOUD_PROJECT"),
+    ("models/groq", "GROQ_API_KEY"),
+    ("models/cohere", "CO_API_KEY"),
+    ("models/openrouter", "OPENROUTER_API_KEY"),
+    ("models/xai", "XAI_API_KEY"),
+    ("models/deepseek", "DEEPSEEK_API_KEY"),
+    ("models/together", "TOGETHER_API_KEY"),
+    ("models/fireworks", "FIREWORKS_API_KEY"),
+    ("models/cerebras", "CEREBRAS_API_KEY"),
+    ("models/ibm", "IBM_WATSONX_API_KEY"),
+    ("models/meta", "LLAMA_API_KEY"),
+    ("models/portkey", "PORTKEY_API_KEY"),
+    ("models/perplexity", "PERPLEXITY_API_KEY"),
+    ("models/huggingface", "HF_TOKEN"),
+    ("models/nvidia", "NVIDIA_API_KEY"),
+    ("models/nebius", "NEBIUS_API_KEY"),
+    ("models/sambanova", "SAMBANOVA_API_KEY"),
+    ("models/dashscope", "DASHSCOPE_API_KEY"),
+    ("models/deepinfra", "DEEPINFRA_API_KEY"),
+    ("models/cometapi", "COMETAPI_KEY"),
+    ("models/aimlapi", "AIMLAPI_API_KEY"),
+    ("models/langdb", "LANGDB_API_KEY"),
+    ("models/vercel", "V0_API_KEY"),
+    ("models/aws", "AWS_ACCESS_KEY_ID"),
+    # Local / self-hosted (opt-in)
+    ("models/ollama", "EGPT_INTEGRATION_OLLAMA"),
+    ("models/lmstudio", "EGPT_INTEGRATION_LMSTUDIO"),
+    ("models/vllm", "EGPT_INTEGRATION_VLLM"),
+    # Local databases (opt-in)
+    ("db/postgres", "EGPT_INTEGRATION_POSTGRES"),
+    ("db/async_postgres", "EGPT_INTEGRATION_POSTGRES"),
+    ("db/async_mongo", "EGPT_INTEGRATION_MONGO"),
+    ("db/async_mysql", "EGPT_INTEGRATION_MYSQL"),
+    ("db/surrealdb", "EGPT_INTEGRATION_SURREALDB"),
+    ("db/clickhouse", "EGPT_INTEGRATION_CLICKHOUSE"),
+)
+
+# Module-level LanceDb imports fail when lancedb is not installed (e.g. macOS x86_64
+# has no wheel). Linux CI with egpt[tests] installs lancedb and collects these normally.
+_LANCEDB_DEPENDENT_FRAGMENTS = (
+    "vector_dbs/test_lancedb.py",
+    "agent/test_rag.py",
+    "knowledge/test_youtube_knowledge.py",
+    "knowledge/test_website_knowledge.py",
+    "knowledge/test_text_knowledge.py",
+    "knowledge/test_pdf_knowledge.py",
+    "knowledge/test_md_knowledge.py",
+    "knowledge/test_firecrawl_knowledge.py",
+    "knowledge/test_csv_knowledge.py",
+    "knowledge/filters/test_agentic_filtering.py",
+)
+
+_LANCEDB_QUARANTINE_REASON = (
+    "Quarantined (EGPT-0.10): lancedb not installed; install egpt[lancedb] / egpt[tests] to run"
+)
+
+
+def _lancedb_available() -> bool:
+    try:
+        import lancedb  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def pytest_ignore_collect(collection_path: Path, config) -> bool | None:  # noqa: ARG001
+    """Skip LanceDb-dependent modules when lancedb is unavailable."""
+    if _lancedb_available():
+        return None
+    path = str(collection_path).replace("\\", "/")
+    if not any(frag in path for frag in _LANCEDB_DEPENDENT_FRAGMENTS):
+        return None
+    if not getattr(config, "_egpt_lancedb_int_q", False):
+        config._egpt_lancedb_int_q = True
+        tr = config.pluginmanager.get_plugin("terminalreporter")
+        if tr is not None:
+            tr.write_line(_LANCEDB_QUARANTINE_REASON)
+    return True
+
+
+def pytest_collection_modifyitems(config, items):  # noqa: ARG001
+    """Mark integration tests and soft-skip when required env vars are unset."""
+    for item in items:
+        item.add_marker(pytest.mark.integration)
+        path = str(getattr(item, "path", item.fspath)).replace("\\", "/")
+        for frag, env in _PATH_ENV_REQUIREMENTS:
+            if frag in path and not os.getenv(env):
+                item.add_marker(pytest.mark.skip(reason=f"{env} not set"))
+                break
+
 
 @pytest.fixture(autouse=True)
 def reset_async_client():

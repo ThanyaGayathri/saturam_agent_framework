@@ -20,6 +20,11 @@ def pytest_ignore_collect(collection_path: Path, config) -> bool | None:  # noqa
     """Skip selected OS unit tests on Python 3.10 before import."""
     if sys.version_info >= (3, 11):
         return None
-    if collection_path.name in _PY310_QUARANTINED:
-        return True
-    return None
+    if collection_path.name not in _PY310_QUARANTINED:
+        return None
+    if not getattr(config, "_egpt_os_py310_q", False):
+        config._egpt_os_py310_q = True
+        tr = config.pluginmanager.get_plugin("terminalreporter")
+        if tr is not None:
+            tr.write_line(QUARANTINE_REASON)
+    return True

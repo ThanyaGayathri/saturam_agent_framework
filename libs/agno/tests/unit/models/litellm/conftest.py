@@ -17,5 +17,9 @@ QUARANTINE_REASON = (
 
 def pytest_ignore_collect(collection_path: Path, config) -> bool | None:  # noqa: ARG001
     """Do not collect litellm unit tests (avoids import-time failures)."""
-    # Ignore every path under this directory (including this conftest's siblings).
+    if not getattr(config, "_egpt_litellm_unit_q", False):
+        config._egpt_litellm_unit_q = True
+        tr = config.pluginmanager.get_plugin("terminalreporter")
+        if tr is not None:
+            tr.write_line(QUARANTINE_REASON)
     return True

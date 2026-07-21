@@ -1,21 +1,25 @@
-import pytest
+"""Quarantine mistral integration tests (EGPT-0.10).
+
+The mistralai optional extra is temporarily disabled in egpt[tests] pending
+PyPI quarantine. Collection must be skipped to avoid ImportError on
+`from egpt.models.mistral import MistralChat`.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+QUARANTINE_REASON = (
+    "Quarantined (EGPT-0.10): mistral extra disabled pending PyPI quarantine; "
+    "run manually with egpt[mistral]"
+)
 
 
-@pytest.hookimpl(hookwrapper=True)
-def pytest_runtest_makereport(item, call):
-    """Skip tests that hit Mistral rate limits (429) instead of failing.
-
-    Checks both the exception message and the full test report (which includes
-    captured stdout/stderr with agent error logs) for rate limit indicators.
-    """
-    outcome = yield
-    report = outcome.get_result()
-    if report.when == "call" and report.failed:
-        if call.excinfo is not None:
-            error_msg = str(call.excinfo.value)
-            full_repr = str(report.longrepr) if report.longrepr else ""
-            sections_text = " ".join(content for _, content in report.sections)
-            combined = (error_msg + full_repr + sections_text).lower()
-            if any(p in combined for p in ["429", "rate limit", "rate_limit", "quota", "resource_exhausted"]):
-                report.outcome = "skipped"
-                report.longrepr = ("", -1, "Skipped: Mistral rate limit (429)")
+def pytest_ignore_collect(collection_path: Path, config) -> bool | None:  # noqa: ARG001
+    """Do not collect mistral integration tests (avoids import-time failures)."""
+    if not getattr(config, "_egpt_mistral_int_q", False):
+        config._egpt_mistral_int_q = True
+        tr = config.pluginmanager.get_plugin("terminalreporter")
+        if tr is not None:
+            tr.write_line(QUARANTINE_REASON)
+    return True
