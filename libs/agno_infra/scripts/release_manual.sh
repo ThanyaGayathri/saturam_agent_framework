@@ -1,45 +1,42 @@
 #!/bin/bash
 
 ############################################################################
-# Release agno_aws to pypi
-# Usage: ./libs/infra/agno_aws/scripts/release_manual.sh
+# Release egpt-infra to a GitHub Release (private asset channel)
+# Usage: ./libs/agno_infra/scripts/release_manual.sh
 # Note:
-#   build & twine must be available in the venv
+#   build & gh must be available; set GITHUB_TOKEN (contents:write)
 ############################################################################
 
 CURR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AGNO_INFRA_DIR="$(dirname ${CURR_DIR})"
+REPO_ROOT="$(cd "${CURR_DIR}/../../.." && pwd)"
 source ${CURR_DIR}/_utils.sh
 
 main() {
-  print_heading "Releasing *agno_infra*"
+  print_heading "Releasing *egpt-infra* to GitHub Release assets"
 
   cd ${AGNO_INFRA_DIR}
   print_heading "pwd: $(pwd)"
 
+  VERSION=$(python3 "${REPO_ROOT}/scripts/release_naming.py" version pyproject.toml)
+  print_heading "Version: ${VERSION} (tag v${VERSION})"
+
+  if [[ -z "${GITHUB_TOKEN:-}" && -z "${GH_TOKEN:-}" ]]; then
+    print_heading "GITHUB_TOKEN or GH_TOKEN is required"
+    exit 1
+  fi
+
   print_heading "Proceed?"
   space_to_continue
 
-  print_heading "Building agno_infra"
-  python3 -m build
+  print_heading "Build and upload egpt-infra to GitHub Release"
+  export OWNER="${OWNER:-Saturam-Inc}"
+  export REPO="${REPO:-saturam-agent-framework}"
+  export GITHUB_EVENT_NAME="${GITHUB_EVENT_NAME:-workflow_dispatch}"
+  "${REPO_ROOT}/scripts/publish_github_release.sh" libs/agno_infra egpt-infra
 
-  # Check if this is a pre-release version
-  VERSION=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
-  if [[ $VERSION =~ (a|b|rc|dev) ]]; then
-    print_heading "⚠️  Pre-release version detected: $VERSION"
-    print_heading "This will NOT become the latest version on PyPI"
-  else
-    print_heading "🚀 Stable release version: $VERSION"
-    print_heading "This WILL become the latest version on PyPI"
-  fi
-  
-  print_heading "Release agno_infra to testpypi?"
-  space_to_continue
-  python3 -m twine upload --repository testpypi ${AGNO_INFRA_DIR}/dist/*
-
-  print_heading "Release agno_infra to pypi"
-  space_to_continue
-  python3 -m twine upload --repository pypi ${AGNO_INFRA_DIR}/dist/*
+  print_heading "Done. Install with:"
+  print_info "./scripts/install_from_github_release.sh egpt-infra"
 }
 
 main "$@"

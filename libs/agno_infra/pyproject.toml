@@ -1,6 +1,6 @@
 [project]
 name = "egpt-infra"
-version = "1.1.1"
+version = "0.1.0"
 description = "The programming language for agentic infrastructure"
 requires-python = ">=3.7,<4"
 readme = "README.md"
@@ -65,10 +65,12 @@ build-backend = "setuptools.build_meta"
 
 
 [tool.setuptools.packages.find]
+# Shared egpt.* namespace with libs/agno: do NOT ship a top-level egpt/__init__.py
+# or egpt/py.typed here (those belong to the egpt distribution only).
+namespaces = true
 include = ["egpt*"]
 
 [tool.setuptools.package-data]
-egpt = ["py.typed"]
 include = ["LICENSE"]
 
 [tool.pytest.ini_options]
@@ -91,15 +93,27 @@ warn_unused_configs = true
 disable_error_code = ["override"]
 plugins = ["pydantic.mypy"]
 exclude = ["tests*"]
+# egpt/ has no __init__.py (PEP 420 namespace shared with the egpt dist). Without
+# these, `mypy libs/agno_infra` mis-maps egpt/docker -> top-level "docker".
+namespace_packages = true
+explicit_package_bases = true
 
 [[tool.mypy.overrides]]
 module = [
   "egpt.*",
+  "boto3",
   "boto3.*",
+  "botocore",
   "botocore.*",
+  "docker",
   "docker.*",
+  "git",
+  "git.*",
+  "tomllib",
   "tomllib.*",
+  "yaml",
   "yaml.*",
+  "tomli",
   "tomli.*",
 ]
 ignore_missing_imports = true

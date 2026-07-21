@@ -18,7 +18,13 @@ EXIT_CODE=0
 print_heading "Running: ruff check ${AGNO_INFRA_DIR}"
 ruff check ${AGNO_INFRA_DIR} || EXIT_CODE=1
 
-print_heading "Running: mypy ${AGNO_INFRA_DIR} --config-file ${AGNO_INFRA_DIR}/pyproject.toml"
-mypy ${AGNO_INFRA_DIR} --config-file ${AGNO_INFRA_DIR}/pyproject.toml || EXIT_CODE=1
+# Typecheck the egpt package by module name. Path-based mypy on agno_infra
+# mis-resolves namespace packages (egpt/docker -> top-level "docker") after the
+# shared-namespace layout (no egpt/__init__.py).
+print_heading "Running: mypy -p egpt --config-file ${AGNO_INFRA_DIR}/pyproject.toml"
+(
+  cd "${AGNO_INFRA_DIR}"
+  mypy -p egpt --config-file "${AGNO_INFRA_DIR}/pyproject.toml"
+) || EXIT_CODE=1
 
 exit ${EXIT_CODE}

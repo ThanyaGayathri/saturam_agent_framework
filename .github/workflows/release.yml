@@ -1,0 +1,165 @@
+# Release EGPT distributions via GitHub Release assets (private channel).
+#
+# GitHub Packages has no working PyPI registry. We publish wheels/sdists as
+# assets on tag v<version> instead.
+#
+# Publish order: egptctl -> egpt -> egpt-infra -> smoke -> undraft (dispatch only)
+#
+# Tag format: v0.1.0 (preferred) or bare 0.1.0 (accepted; normalized to v0.1.0).
+#
+# Consumer install (private repo; needs contents:read):
+#   ./scripts/install_from_github_release.sh egpt
+#
+# WARNING: Do NOT `pip install egpt` from public PyPI — egpt==0.0.1 already
+# exists there (unrelated tuu.ai package). Always install from release assets.
+# Private version scheme starts at 0.1.0.
+
+name: Release EGPT
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.repository }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+env:
+  PYTHON_VERSION: "3.12"
+  OWNER: Saturam-Inc
+  REPO: saturam-agent-framework
+  BUILD_VERSION: "1.2.2"
+  RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+
+jobs:
+  publish-egptctl:
+    name: Build and publish egptctl
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tools
+        run: pip install "build==${BUILD_VERSION}"
+
+      - name: Publish egptctl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          ./scripts/publish_github_release.sh libs/egptctl egptctl
+
+  publish-egpt:
+    name: Build and publish egpt
+    needs: publish-egptctl
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tools
+        run: pip install "build==${BUILD_VERSION}"
+
+      - name: Publish egpt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          ./scripts/publish_github_release.sh libs/agno egpt
+
+  publish-egpt-infra:
+    name: Build and publish egpt-infra
+    needs: publish-egpt
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build tools
+        run: pip install "build==${BUILD_VERSION}"
+
+      - name: Publish egpt-infra
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          ./scripts/publish_github_release.sh libs/agno_infra egpt-infra
+
+  smoke-hello-agent:
+    name: Smoke install and hello-agent
+    needs: publish-egpt-infra
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install first-party closure from GitHub Release assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/egpt-smoke
+          # shellcheck disable=SC1091
+          source /tmp/egpt-smoke/bin/activate
+          ./scripts/install_from_github_release.sh egpt
+
+      - name: Run hello-agent smoke
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source /tmp/egpt-smoke/bin/activate
+          python examples/hello_agent.py
+
+  publish-release:
+    name: Publish draft release
+    needs: smoke-hello-agent
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Undraft release after successful smoke
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION=$(python3 scripts/release_naming.py version libs/agno/pyproject.toml)
+          TAG=$(python3 scripts/release_naming.py tag "${VERSION}")
+          # Undrafting fires release:published; concurrency + asset skip-checks
+          # make the re-entrant run a no-op for already-uploaded artifacts.
+          gh release edit "${TAG}" --repo "${OWNER}/${REPO}" --draft=false
+          echo "Published ${TAG}"
