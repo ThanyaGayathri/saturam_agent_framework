@@ -42,3 +42,14 @@ reasons are printed once via pytest's terminal reporter when collection is ignor
 Integration tests soft-skip when required API keys or local-service opt-in flags are unset
 (see `tests/integration/conftest.py`). System tests run only when `OPENAI_API_KEY` is present
 in the workflow secrets.
+
+### Not exercised in the nightly CI run (intentional)
+
+The nightly `integration.yml` provides cloud-provider API keys (and
+`GOOGLE_CLOUD_PROJECT` for vertexai) but does **not** start local database
+services or set the `EGPT_INTEGRATION_*` opt-in flags, so the following suites
+always soft-skip in CI and must be run locally with the relevant service up:
+`db/postgres`, `db/async_postgres`, `db/async_mongo`, `db/async_mysql`,
+`db/surrealdb`, `db/clickhouse`, and the self-hosted-model suites
+(`models/ollama`, `models/lmstudio`, `models/vllm`). Wiring service containers
+for these is deferred to a follow-up.

@@ -44,6 +44,7 @@ jobs:
           EGPT_TELEMETRY: false
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           CO_API_KEY: ${{ secrets.CO_API_KEY }}
@@ -79,7 +80,6 @@ jobs:
 
   system:
     name: system (py3.12)
-    if: ${{ secrets.OPENAI_API_KEY != '' }}
     runs-on: ubuntu-latest
 
     steps:
@@ -93,7 +93,23 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
 
+      # secrets can't be read in a job-level `if:`, so gate the run step on an
+      # env value mapped from the secret instead.
+      - name: Check for system-test credentials
+        id: creds
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -e
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "OPENAI_API_KEY not set; skipping system tests"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install system test dependencies
+        if: steps.creds.outputs.run == 'true'
         working-directory: libs/agno/tests/system
         run: |
           set -e
@@ -102,6 +118,7 @@ jobs:
           uv pip install -r requirements.txt
 
       - name: Run system tests
+        if: steps.creds.outputs.run == 'true'
         working-directory: libs/agno/tests/system
         env:
           EGPT_TELEMETRY: false
