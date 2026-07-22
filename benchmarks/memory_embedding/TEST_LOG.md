@@ -1,5 +1,39 @@
 # TEST_LOG — SM-R4 memory-embedding benchmark (v2 rigorous re-run)
 
+## Post-review revision (QC review addressed)
+
+The eval was strengthened after review and **the corrected evidence changed the
+decision**. Key changes and results:
+
+- **Eval re-labeled (#1):** mode-aware BLIND judge (hard-negative traps / wrong-time
+  events / superseded facts → 0) + new **contradiction** and time-specific
+  **temporal** modes + a **provenance audit**. Regenerated 225 memories / 210
+  queries; audit kept **199**, dropped 11 (judge wouldn't back intended), 3
+  trap/superseded corrections. Audit re-validated twice: **0 trap leaks, 0
+  superseded leaks, 0 mislabeled strict-mode qrels**. Mean positives/query 2.49→1.27
+  (answer precision, not cluster).
+- **Multiplicity (#2, #9):** added `holm_adjust` to `stats.py` (unit-checked twice).
+- **Re-run on corrected set (all models):** Mode A + nomic (#6) + Mode B.
+  nDCG@10: **bge-base 0.911** (top) > bge-large 0.905 > e5 0.901 > azure-3-large 0.900
+  > … > gte-base 0.891 > bge-small 0.877 > minilm 0.861.
+  Holm-corrected: **bge-base > bge-small (768>384) p=0.002**, **bge-base > gte-base
+  p=0.016** (both significant); bge-base ~ties e5/bge-large **and ~ties Mode B
+  (p=0.21)** — the provider quality edge from the prior lenient labeling is gone.
+- **Latency (#4):** measured — no 768-dim model meets p95≤50 ms on CPU even idle;
+  gte-ONNX is *slower* per-item than PyTorch (152 vs 87 ms p50), quality-identical
+  (parity 0.0000). Only bge-small@384-ONNX meets it idle (p50 13 / p95 19 ms).
+- **Full SciFact (#7):** ran uncapped — confirms 768>384 (bge-base 0.740 > bge-small
+  0.713); gte tops on SciFact (0.762). (nomic on full SciFact still completing.)
+
+Result files: `results/results_v2_synthetic_v2.json`,
+`results_v2_synthetic_v2_nomic.json`, `results_v2_synthetic_v2_modeB.json`,
+`results_v2_beir_scifact_full.json`. Decision + review-response table in
+`DECISION.md` (§3, §13).
+
+---
+
+## Original v2 run log (pre-review)
+
 Environment: macOS x86_64, Python 3.12 (`.venvs/mememb`), CPU (device pinned).
 egpt imported from source (`PYTHONPATH=libs/agno`); **no core code committed**
 (`git diff main -- libs/` empty, verified twice).

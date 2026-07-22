@@ -9,6 +9,9 @@ module quantifies that noise:
     per-query difference, its CI, and a two-sided p-value for "difference != 0".
     Paired (same queries) cancels query-difficulty variance, so it is far more
     sensitive than comparing two independent CIs.
+  - `holm_adjust` — Holm-Bonferroni step-down correction over the FAMILY of
+    pairwise p-values a decision leans on, so a "significant" verdict controls the
+    family-wise error rate rather than being an uncorrected single-comparison p.
 
 numpy only; deterministic given `seed`.
 """
@@ -114,3 +117,26 @@ def rank_with_ties(
             row["tie_with_next"] = not pr.significant
         rows.append(row)
     return rows
+
+
+def holm_adjust(pvals: Mapping[str, float], alpha: float = 0.05) -> Dict[str, dict]:
+    """Holm-Bonferroni step-down adjusted p-values over a family of comparisons.
+
+    Controls the family-wise error rate. Returns, per comparison, the raw p, the
+    adjusted p (monotone non-decreasing in rank), and whether it stays significant
+    at `alpha` after correction. Use this on the SET of pairwise tests the decision
+    relies on, not on a single comparison in isolation.
+    """
+    items = sorted(pvals.items(), key=lambda kv: kv[1])
+    m = len(items)
+    out: Dict[str, dict] = {}
+    running = 0.0
+    for i, (name, p) in enumerate(items):
+        adj = min(1.0, (m - i) * p)  # step-down weight m, m-1, ..., 1
+        running = max(running, adj)  # enforce monotonicity across the ordered family
+        out[name] = {
+            "p_raw": round(p, 4),
+            "p_holm": round(running, 4),
+            "significant": running < alpha,
+        }
+    return out

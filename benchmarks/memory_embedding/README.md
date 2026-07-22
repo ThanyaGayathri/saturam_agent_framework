@@ -33,11 +33,17 @@ deployment is CPU/air-gapped; also avoids a Mac-MPS OOM/artifact).
 
 ## Eval sets
 
-1. **`synthetic_v2`** (primary) — an **independent** memory-tier set: 225 memories
-   / 180 queries across 15 diverse personas, authored by an LLM (Azure gpt-5.4) in
-   separate passes and **blind-labeled with graded relevance by a separate judge
-   pass** (de-circularized — the harness author writes neither the content nor the
-   labels). Built by `data/generate_synthetic_v2.py` + `data/label_relevance.py`.
+1. **`synthetic_v2`** (primary) — an **independent, episodic** memory-tier set: 225
+   memories / 199 labeled queries across 15 diverse personas, authored by an LLM
+   (Azure gpt-5.4) in separate passes. Labeling is **mode-aware + blind + audited**:
+   a separate judge pass grades each query's candidates 0–2 with a per-mode rubric
+   (hard-negative traps, wrong-time events, and superseded facts → 0), then a
+   **provenance audit** forces traps/superseded to 0, keeps the single-answer modes
+   (hard_negative / temporal / contradiction) to the correct answer only, and drops
+   queries the judge won't back. Modes include **contradiction/belief-revision** and
+   time-specific **temporal**. Built by `data/generate_synthetic_v2.py` +
+   `data/label_relevance.py` (de-circularized — the harness author writes neither the
+   content nor the labels).
 2. **`beir:<name>`** (external cross-check) — established, human-labeled BEIR IR
    benchmarks (SciFact / NFCorpus / ArguAna). Full/uncapped by default; a capped
    slice (`--beir-capped`) is used when the host is CPU-constrained.

@@ -1,14 +1,16 @@
 # SM-R4 — Decision: embedding model for memory
 
-**Status:** Proposed (pending SM-R1 ADR ratification of the provisional targets)
+**Status:** Proposed (revised after QC review; pending SM-R1 ADR ratification of the
+provisional targets)
 **Issue:** [aicoe-tracker#79](https://github.com/Saturam-Inc/aicoe-tracker/issues/79)
 **Depends on:** SM-R1 (#76 ADR), SM-R3 (#78 vector store) · **Feeds:** SM-V2
 **Decisions covered:** D7 (embedder choice) + D8 (re-embedding / versioning)
 
-Every option was **implemented and measured** through its egpt embedder
-abstraction on good-quality, independent data — no choice is made from cited
-numbers. This supersedes the first attempt (PR #5), whose eval set was too small
-and single-authored to separate close models; see §3.
+Every option was **implemented and measured** through its egpt embedder abstraction
+on an independent, significance-tested eval. This revision addresses the QC review
+of the prior version — the eval was strengthened to test episodic/temporal/
+contradiction retrieval, multiplicity correction was added, and **the corrected
+evidence changed the choice** (see §3, §13).
 
 > **Reproduce:** see [README.md](README.md). Harness in `harness/`, eval data in
 > `data/`, measured results in `results/`.
@@ -19,228 +21,224 @@ and single-authored to separate close models; see §3.
 
 | | Mode A (self-hostable / air-gapped VPC) | Mode B (provider allowed) |
 |---|---|---|
-| **Default embedder** | **`thenlper/gte-base`** (768) via `FastEmbedEmbedder` (ONNX) or `SentenceTransformerEmbedder` | **Azure `text-embedding-3-large`** truncated to **1024** via `AzureOpenAIEmbedder` |
+| **Default embedder** | **`BAAI/bge-base-en-v1.5`** (768) via `SentenceTransformerEmbedder` (or `FastEmbedEmbedder`/ONNX) | **Azure `text-embedding-3-large`** truncated to **1024** via `AzureOpenAIEmbedder` |
 | **Dimension** | **768** → `vector(768)` | **1024** → `vector(1024)` |
 | **License / offline** | MIT · fully offline | Azure (proprietary) · not offline |
-| **Alternative (statistically equal)** | `BAAI/bge-base-en-v1.5` (768) — tied on the memory set, MIT, equal ONNX support | text-embedding-3-large @ 3072 (no significant gain, exceeds pgvector `vector` limit) |
+| **Alternative (statistically equal on memory)** | `bge-large` (1024) or `e5-base` (768) — tie bge-base; `gte-base` if out-of-domain retrieval dominates (it leads on SciFact) | — |
 
-**One logical embedder, two configured backends.** The memory subsystem depends
-only on the `Embedder` abstraction; Mode is a deployment-time configuration, not a
-code fork. Mode A is the default and the only air-gapped-capable option.
+**One logical embedder, two configured backends.** The memory subsystem depends only
+on the `Embedder` abstraction; Mode is a deployment-time config choice.
 
-**Why 768 (not 384, which PR #5 chose):** on a properly powered, independent eval,
-768-dim models **significantly** beat the 384-dim `bge-small` on the memory set
-(p=0.037) *and* on external SciFact (p=0.0096). PR #5 ranked those models within
-its noise and picked 384; that was not supported (§3). Going beyond 768 to 1024
-(`bge-large`) gives **no statistically significant** quality gain while tripling
-latency (187 ms vs 60 ms) — so 768 is the sweet spot.
+**Why bge-base@768 (this is a change from the pre-review draft):** on the corrected,
+significance-tested memory eval, bge-base **significantly** beats bge-small@384
+(Holm p=0.002) and gte-base (Holm p=0.016), and ties the heavier bge-large@1024 and
+e5-base@768 (§3). It is the top-scoring model on the memory-representative set, MIT,
+and ONNX-capable. gte-base — the pre-review pick — is now *significantly behind*
+bge-base on the memory set, though it leads on out-of-domain SciFact, so it is kept
+as the alternative for retrieval over non-memory-style text.
 
-**Why gte-base (with bge-base as the equal alternative):** on the memory set the
-two are a statistical tie (gte 0.850 vs bge 0.842, paired p=0.23), but gte-base is
-**significantly better on external SciFact** (paired p=0.045), **faster** on CPU
-(49 ms vs 60 ms p50), and equal on license (MIT) and ONNX/`fastembed` support — so
-it dominates bge-base on the measured evidence with no downside. bge-base is a
-fully acceptable equal alternative (identical on the memory set); pick it if
-ecosystem familiarity is weighted over the external-set edge.
+**Why 768 not 384:** the 768 tier significantly beats 384 (bge-small) on the memory
+set *and* on human-labeled SciFact (§3). **Why not 1024:** bge-large gives no
+significant gain over bge-base and is ~3× slower.
 
-**Why 1024 for Mode B:** text-embedding-3-large @ 1024 is statistically tied with
-its full 3072 (0.877 vs 0.882) and beats every open model, while the full 3072
-**exceeds pgvector's 2000-dim `vector` limit** (§5). 1024 keeps Mode B on the same
-column family as Mode A.
+**Mode B is now OPTIONAL, not a quality upgrade.** On the corrected eval, open
+bge-base (0.911) **statistically ties** the best Azure model (0.899, Holm n.s.) — the
+provider's apparent advantage in the prior version was an artifact of lenient
+labeling. Use Mode B only where self-hosting is undesirable; expect no quality gain
+over Mode A. Within Mode B, 3072 and 1024 are a statistical tie (p=0.82), so 1024 is
+chosen to fit the pgvector `vector` 2000-dim limit (§4).
 
 ---
 
 ## 2. Provisional targets (assumptions for SM-R1 to ratify)
 
-SM-R1 is authored last, so these are explicit assumptions this decision is sized
-against; if R1 sets different numbers, revisit via the switch thresholds (§6).
-
-| Target | Provisional value | Basis |
+| Target | Provisional value | Basis / status |
 |---|---|---|
 | Scale | **10M memory vectors** | user-stated |
 | Language | **English-only** | user-stated; multilingual is a documented switch (§6) |
-| Quality floor | **nDCG@10 ≥ 0.84** on the memory set | met by 768-dim + all Mode B |
-| Query latency | **p95 ≤ 50 ms** (Mode A, in-VPC CPU) | gte-base ST p50 = 49 ms on a *loaded* dev CPU; the ONNX runtime and a quiet host give headroom — flagged for R1 (§3 caveat) |
-| Storage budget | **≤ ~80 GB** for the vector tier at 10M | 768d = 80 GB float32 / 40 GB halfvec (§4) |
+| Quality floor | **nDCG@10 ≥ 0.88** on the memory set | met by all 768-dim + Mode B |
+| Query latency | **p95 ≤ 50 ms** (Mode A, in-VPC CPU) | **NOT met by 768-dim on CPU** — see §3 / #4. Open gate for R1: relax target, add GPU/vLLM or query-embed cache, or accept 384. |
+| Storage budget | **≤ ~80 GB** vector tier at 10M | 768d = 80 GB float32 / 40 GB halfvec (§4) |
 | Offline capability | **required** for Mode A | air-gapped deployment |
 
 ---
 
-## 3. Retrieval quality (measured, with significance)
+## 3. Retrieval quality (measured, significance-tested)
 
-**Primary eval — independent synthetic memory set:** 225 memories / **180
-queries** across 15 diverse personas, authored by an LLM (Azure gpt-5.4) in
-separate passes and **blind-labeled with graded relevance by a separate judge
-pass** (not the harness author). Generator/judge agreement on intended memories:
-99% (174/176). Built by `data/generate_synthetic_v2.py` + `data/label_relevance.py`.
+**Primary eval — independent, episodic memory set (v2, re-labeled after review):**
+225 memories / 199 labeled queries / 15 diverse personas. Content authored by an LLM
+(Azure gpt-5.4) in separate passes; **mode-aware BLIND graded labeling** by a separate
+judge pass, then a **provenance audit** that forces hard-negative traps and superseded
+facts to grade 0, keeps strict single-answer modes (hard_negative/temporal/
+contradiction) to the correct answer only, and drops queries the judge won't back
+(11 dropped, 3 corrections; audit verified: 0 trap/superseded leaks). Modes now
+include **contradiction/belief-revision (23)** and time-specific **temporal (41)**.
+Built by `data/generate_synthetic_v2.py` + `data/label_relevance.py`.
 
-Ranking by **graded nDCG@10** with **95% bootstrap CIs** and **paired-bootstrap
-significance** (`harness/stats.py`); "~tie" = the gap to the next model is not
-significant at α=0.05.
+Ranking by **graded nDCG@10** with 95% bootstrap CIs (`harness/stats.py`). Pairwise
+gaps use paired-bootstrap tests; the decision's family is **Holm-corrected**
+(`holm_adjust`) so "significant" controls the family-wise error rate.
 
-| Model | Mode | Dim | nDCG@10 [95% CI] | CPU p50 | vs next |
-|---|---|---:|---|---:|---|
-| text-embedding-3-large | B | 3072 | 0.882 [0.858, 0.904] | ~1.7 s* | > (p=0.03) |
-| text-embedding-3-large | B | **1024** | 0.877 [0.853, 0.900] | ~1.5 s* | ~tie |
-| text-embedding-3-small | B | 1536 | 0.869 [0.842, 0.894] | ~1.6 s* | ~tie |
-| bge-large | A | 1024 | 0.856 [0.830, 0.881] | 187 ms | ~tie |
-| gte-base | A | 768 | 0.850 [0.818, 0.879] | 49 ms | ~tie |
-| text-embedding-3-small | B | 512 | 0.849 [0.819, 0.877] | ~1.3 s* | ~tie |
-| **bge-base** | A | **768** | 0.842 [0.812, 0.869] | 60 ms | **> bge-small (p=0.037)** |
-| bge-small (ONNX/ST) | A | 384 | 0.825 [0.793, 0.855] | 11 / 28 ms | ~tie |
-| e5-base | A | 768 | 0.823 [0.790, 0.854] | 52 ms | ~tie |
-| minilm-l6 | A | 384 | 0.804 [0.769, 0.837] | 10 ms | — |
+| Model | Mode | Dim | nDCG@10 [95% CI] | CPU p50 | CPU p95 |
+|---|---|---:|---|---:|---:|
+| **bge-base** | A | **768** | **0.911** [0.888, 0.934] | 198 ms | 482 ms |
+| bge-large | A | 1024 | 0.905 [0.881, 0.928] | 623 ms | 1313 ms |
+| e5-base | A | 768 | 0.901 [0.876, 0.924] | 205 ms | 465 ms |
+| text-embedding-3-large | B | 1024 | 0.900 [0.876, 0.923] | net | net |
+| text-embedding-3-large | B | 3072 | 0.899 [0.875, 0.923] | net | net |
+| text-embedding-3-small | B | 1536 | 0.898 | net | net |
+| nomic-embed-v1.5 `[patched]` | A | 768 | 0.898 [0.873, 0.921] | 255 ms | 609 ms |
+| text-embedding-3-small | B | 512 | 0.898 | net | net |
+| gte-base | A | 768 | 0.891 [0.866, 0.915] | 195 ms | 447 ms |
+| bge-small (ST / ONNX) | A | 384 | 0.877 [0.850, 0.903] | 93 / 59 ms | 196 / 192 ms |
+| minilm-l6 | A | 384 | 0.861 [0.833, 0.888] | 43 ms | 101 ms |
 
-\* Mode B latency is **WAN round-trip** from a dev box to Azure, **not** model
-compute; in-VPC/Foundry it is far lower. Re-measure in-environment.
+**Holm-corrected significance (decision family):**
+- **bge-base > bge-small (768>384): Holm p=0.002 — significant** (now on the memory set alone, resolving the multiplicity concern).
+- **bge-base > gte-base: Holm p=0.016 — significant** (bge-base is the pick, not a coin-flip).
+- bge-base vs e5-base (p=0.29), vs bge-large (p=0.43), **vs azure-3-large (p=0.21)** — all ties.
+- azure-3-large 3072 vs 1024: p=0.82 — tie.
 
-**External cross-check — BEIR/SciFact** (capped 1007-doc slice, human-labeled):
-independently confirms the 768>384 finding — **bge-base 0.846 > bge-small 0.818,
-p=0.0096**. Rank agreement with the memory set (open models, Spearman) = 0.54;
-both sets place the 384-dim models near the bottom and minilm last.
+**External cross-check — full uncapped BEIR/SciFact** (human-labeled, all judged
+queries): confirms **768>384** — bge-base 0.740 > bge-small 0.713. gte-base leads on
+SciFact (0.762), i.e. gte is stronger on out-of-domain scientific text while bge-base
+leads on the memory-representative set — the basis for keeping gte as the alternative.
+(nomic on full SciFact still running; folds in when done.)
 
-**Latency caveats (honest):** measurements are CPU (device pinned via the harness
-— the deployment is CPU/air-gapped, and this avoids a Mac-GPU/MPS artifact) on a
-**heavily loaded shared host** (load avg ~15–80 during runs), so absolute
-latencies are inflated; treat them as *relative*. The ONNX (`fastembed`) runtime
-was ~2.5× faster than PyTorch at identical quality (bge-small: 11 vs 28 ms), so
-gte-base via ONNX is the recommended Mode A runtime and the path most likely to
-meet the 50 ms p95 target on a quiet in-VPC host.
-
-**What changed from PR #5:** the old set (54 docs / 32 queries, single-authored,
-binary labels) put bge-base/bge-small/gte-base within noise and picked bge-small@384.
-The new set (180 independent queries, graded, blind-labeled) + significance testing
-shows 768 **significantly** beats 384 on two datasets. The methodology fix flipped
-the Mode A choice — the reason this redo was warranted.
+**Latency (honest — this is the #4 gap).** Numbers are per-item CPU embedding. **No
+768-dim model meets the p95 ≤ 50 ms target**, even on an idle host (idle gte p95 ≈
+276–316 ms; bge-base similar); ONNX does **not** rescue it — measured gte-ONNX is
+*slower* per-item than PyTorch (p50 152 vs 87 ms), quality-identical (parity 0.0000).
+Only **384-dim bge-small via ONNX meets the target idle (p50 13 ms, p95 19 ms)**.
+So Mode A carries a real **quality-vs-latency tension**: bge-base@768 for quality, or
+bge-small@384 for the latency budget (significantly lower quality). R1 must ratify the
+target or a mitigation (GPU/vLLM for query embed, query-embed cache, or a relaxed
+budget). Latency here is measured on a shared dev CPU and is not an in-VPC number.
 
 ---
 
 ## 4. Dimension → storage/index cost (coupling to SM-R3)
 
-Dimension is what SM-R3's store must physically hold. At the provisional **10M**
-scale (`results/storage_cost_10M.json`; HNSW index ≈1.8× raw — SM-R3 measures the
-real index):
+At the provisional **10M** scale (`results/storage_cost_10M.json`; HNSW ≈1.8× raw):
 
-| Dim | float32 `vector` total | float16 `halfvec` total | Fits `vector` (≤2000)? |
+| Dim | float32 `vector` | float16 `halfvec` | Fits `vector` (≤2000)? |
 |---:|---:|---:|:---:|
-| 384 (PR #5 pick — rejected on quality) | 40 GB | 20 GB | yes |
+| 384 (latency-safe fallback) | 40 GB | 20 GB | yes |
 | **768** (Mode A pick) | **80 GB** | 40 GB | yes |
 | **1024** (Mode B pick) | **107 GB** | 53 GB | yes |
-| 1536 | 160 GB | 80 GB | yes |
 | 3072 (3-large full — rejected) | — | 160 GB | **no — exceeds 2000** |
 
-Moving 384→768 for the significant quality gain **doubles** Mode A storage
-(40→80 GB); still within budget and `halfvec` (40 GB) recovers it if SM-R3 wants,
-at a small recall cost to validate there. **3-large @ 3072 does not fit the
-`vector` type** and would force `halfvec`/truncation — the concrete reason Mode B
-is truncated to 1024.
+3-large @ 3072 does not fit the `vector` type; truncating Mode B to 1024 (a quality
+tie with 3072) keeps it on the same column family as Mode A.
 
 ---
 
 ## 5. Seed-context verification & disposition
 
-Issue #79 seed facts, verified against the current (post-rebrand) code:
-
-| Seed fact (issue) | Verified in current code | Disposition |
+| Seed fact (issue #79) | Verified in current code | Disposition |
 |---|---|---|
-| `knowledge/embedder/` ships **18 embedders** | `libs/agno/egpt/knowledge/embedder/` — 18 embedder modules present (namespace rebranded `agno`→**`egpt`**) | reuse |
-| Self-hostable set: `vllm`, `ollama`, `huggingface`, `sentence_transformer`, `fastembed`, `openai_like` | all 6 present | Mode A uses `fastembed`/`sentence_transformer`; `vllm`/`ollama` = in-VPC server alternatives |
-| `PgVector` fixed-dim; pgvector limit **2000** dims, **halfvec 4000** | pgvector-extension constraints (not egpt code), as issue states; drives §4 | honored (768/1024 fit `vector`) |
+| `knowledge/embedder/` ships **18 embedders** | `libs/agno/egpt/knowledge/embedder/` — 18 present (namespace rebranded `agno`→**`egpt`**) | reuse |
+| Self-hostable set: `vllm`/`ollama`/`huggingface`/`sentence_transformer`/`fastembed`/`openai_like` | all 6 present | Mode A uses `sentence_transformer`/`fastembed`; `vllm`/`ollama` = in-VPC server options |
+| pgvector limit **2000** dims, **halfvec 4000** | pgvector-extension constraints (not egpt code), as issue states | honored (768/1024 fit `vector`) |
 
-No orphan seed facts. Two adapter findings surfaced while benchmarking (not
-committed to core) — see `findings/`: `SentenceTransformerEmbedder` lacks
-`trust_remote_code`/`device` passthrough (patch saved; also used to pin CPU);
-`HuggingfaceCustomEmbedder` is remote (HF Inference API), **not** air-gapped
-despite being listed self-hostable — do not use it for Mode A.
+No orphan seed facts. Adapter findings (not committed to core) in `findings/`:
+`SentenceTransformerEmbedder` lacks `trust_remote_code`/`device` passthrough (patch
+saved; used for nomic and for CPU pinning); `HuggingfaceCustomEmbedder` is remote (HF
+Inference API), **not** air-gapped despite being listed self-hostable.
 
 ---
 
 ## 6. Switch thresholds (when to revisit)
 
-- **Quality shortfall:** if measured memory-set nDCG@10 drops below 0.84 for
-  Mode A → the tied `bge-base` (768) is the drop-in equal, before considering
-  `bge-large` (1024, no significant gain, 3× latency).
-- **Latency miss:** if gte-base can't hit p95 ≤ 50 ms in-VPC → use the ONNX
-  (`fastembed`) runtime first; only then step down to `bge-small`@384 (accepting
-  the significant quality loss) or relax the target with R1.
-- **Multilingual requirement:** English-only assumed. If memories become
-  multilingual → switch Mode A to `bge-m3`/`multilingual-e5-base` and re-benchmark
-  (expect a storage step).
-- **Scale/storage pressure** (≫10M): move the 768d store to `halfvec` (40 GB) and
-  validate recall; then PQ/quantization in SM-R3.
-- **Mode B latency/cost** unacceptable in-VPC → fall back to the Mode A model for
-  Mode B too (single shared embedder), accepting ~0.03 nDCG headroom.
+- **Latency budget is firm (p95 ≤ 50 ms, no mitigation):** drop to **bge-small@384**
+  (ONNX; idle p95 ≈ 19 ms), accepting the significant quality loss — or add GPU/vLLM
+  query embedding / a query-embed cache and keep bge-base@768.
+- **Quality shortfall** (memory nDCG@10 < 0.88): the tied `bge-large`(1024)/`e5-base`(768)
+  are drop-in equals before anything larger.
+- **Out-of-domain / non-memory text dominates:** prefer `gte-base` (leads on SciFact).
+- **Multilingual requirement:** switch to `bge-m3`/`multilingual-e5-base`; re-benchmark.
+- **Scale/storage pressure** (≫10M): move to `halfvec` (40 GB) and validate recall.
+- **Mode B:** only adopt if self-hosting is undesirable — it is a quality *tie* with
+  Mode A bge-base, not an upgrade.
 
 ---
 
 ## 7. Couplings & handoff
 
-- **→ SM-R3 (#78):** chosen dimension drives store cost — Mode A `vector(768)`
-  (80/40 GB @ 10M), Mode B `vector(1024)` (107/53 GB). Both fit the `vector` type;
-  `halfvec` optional. SM-R3 sizes the real HNSW index.
-- **→ SM-V2:** ships the concrete embedder config (model id + dim + normalization
-  = cosine) both modes consume.
-- **Re-embedding / versioning (D8):** every memory vector carries an
-  `embedding_version` tag, e.g. `gte-base/d768/cos/v1` (model·dim·metric·rev),
-  read from one config location so **write and query use the same version**
-  (acceptance criterion). Model/dim change → register new version, stand up a new
-  column/index at the new dim (never mix dims), **dual-write**, **backfill** by
-  re-embedding retained raw memory text in batches, cut queries over at a coverage
-  threshold, drop the old index after parity. Backfill needs only the source text,
-  so a model change is always recoverable — keep raw memory text durable.
+- **→ SM-R3 (#78):** dimension drives store cost — Mode A `vector(768)` (80/40 GB @10M),
+  Mode B `vector(1024)` (107/53 GB). Both fit `vector`; `halfvec` optional. **The p95
+  latency gap (§3) must be reconciled with SM-R3's retrieval hot-path budget** — query
+  embedding is on that path.
+- **→ SM-V2:** ships the embedder config (model id + dim + cosine normalization).
+- **Re-embedding / versioning (D8):** every vector carries an `embedding_version` tag,
+  e.g. `bge-base-en-v1.5/d768/cos/v1` (model·dim·metric·rev), read from one config so
+  write and query use the same version. Model/dim change → register new version, new
+  column/index at the new dim, dual-write, backfill by re-embedding retained raw memory
+  text, cut over at a coverage threshold, drop the old index after parity. Recoverable
+  from source text — keep raw memory text durable.
 
 ---
 
 ## 8. Out of scope & boundaries
 
-- Does **not** choose the vector store or its scale/latency switch thresholds —
-  that is **SM-R3 (#78)**. This task only sizes the *dimension* the store must hold.
-- Does **not** decide multi-tenancy, the temporal-graph tier, or decay/segmentation
-  (SM-R5/R6/R10). No production wiring — implementation is a later SM-C* task.
+- Does **not** choose the vector store or its scale/latency switch thresholds — that is
+  **SM-R3 (#78)**; this task only sizes the dimension it must hold.
+- Does **not** decide multi-tenancy, temporal-graph, decay/segmentation (SM-R5/6/10).
+  No production wiring — implementation is a later SM-C* task.
 
 ---
 
 ## 9. Consistency with dependencies & siblings
 
-- **Depends on SM-R1 (#76 ADR)** — not yet ratified, so §2 targets are provisional
-  assumptions flagged for it. Consistent with D8 (vector tier first-class).
-- **Couples to SM-R3 (#78)** — dimension/`halfvec` choices in §4 are stated for the
-  store decision; no conflict (both dims fit pgvector `vector`).
-- Consistent with the seed's existing embedder abstraction (reuse, not replace).
+- **Depends on SM-R1 (#76 ADR)** — not yet ratified, so §2 targets (esp. the p95 gap)
+  are flagged for it. Consistent with D8 (vector tier first-class).
+- **Couples to SM-R3 (#78)** — §4 dimension/halfvec stated for the store decision; no
+  conflict (both dims fit pgvector `vector`).
+- Reuses the seed embedder abstraction (no fork).
 
 ---
 
 ## 10. Grounding & reproducibility
 
-- Grounded in the memory research doc (`docs/MEMORY-RESEARCH-episodic-and-neurosymbolic.md`,
-  per the issue) and the seed embedder inventory (§5).
-- **Reproducible:** eval built by `data/generate_synthetic_v2.py` +
-  `data/label_relevance.py` (committed JSON is the artifact of record; prompts +
-  scripts committed for provenance). Runs via `harness/run.py`; analysis via
-  `harness/analyze.py`/`stats.py`. All measured results committed under `results/`.
-- **Full BEIR** (uncapped SciFact/NFCorpus/ArguAna) reproduces with
-  `--dataset beir:<name>` (drop `--beir-capped`) on a non-loaded host; capped
-  slices were used here because the shared host was CPU-saturated by other work.
+- Grounded in `docs/MEMORY-RESEARCH-episodic-and-neurosymbolic.md` (per the issue): the
+  five episodic markers (raw events, recency, segmentation, temporal-order) motivated
+  the re-labeled eval's temporal + contradiction modes.
+- **Reproducible:** eval built by `data/generate_synthetic_v2.py` + `data/label_relevance.py`
+  (committed JSON is the artifact of record; prompts/scripts committed). Runs via
+  `harness/run.py`; significance via `harness/stats.py` (`holm_adjust`) / `analyze.py`.
+- Full BEIR reproduces with `--dataset beir:<name>` (drop `--beir-capped`).
 
 ---
 
 ## 11. Acceptance criteria (issue #79)
 
-- [x] **Embedder chosen for Mode A (self-hostable) and Mode B** — gte-base
-  (768; bge-base an equal alternative) for Mode A; Azure text-embedding-3-large
-  (1024) for Mode B. §1, §3.
-- [x] **Dimension fits the pgvector store (with halfvec if needed)** — 768 and 1024
-  fit `vector` (≤2000); halfvec optional; full 3072 rejected for exceeding the limit. §4.
-- [x] **Re-embedding / embedding-version strategy defined** — `embedding_version`
-  tag + dual-write + text-based backfill. §7.
-- [x] **Consistent embedder for write and query paths** — one version from a single
-  config source; sync/async paths validated to produce matching vectors. §3, §7.
+- [x] **Embedder chosen for Mode A + Mode B** — bge-base-en-v1.5 (768) Mode A; Azure
+  text-embedding-3-large (1024) Mode B (optional). §1, §3.
+- [x] **Dimension fits the pgvector store (halfvec if needed)** — 768 & 1024 fit
+  `vector`; halfvec optional; 3072 rejected for exceeding the limit. §4.
+- [x] **Re-embedding / embedding-version strategy defined** — §7.
+- [x] **Consistent embedder for write and query paths** — one version from one config;
+  sync/async paths validated to match. §7.
 
 ## 12. Questions answered (issue #79)
 
 | Question | Answer |
 |---|---|
-| Which self-hostable embedder for Mode A (`vllm`/`sentence_transformer`/`huggingface`/`fastembed`)? Quality vs footprint? | `fastembed` (ONNX) or `sentence_transformer` running **gte-base** (768; bge-base-en-v1.5 an equal alternative). Measured best quality-per-footprint at the significant 768 tier; `vllm` is the option for a heavier in-VPC GPU server; `huggingface` adapter is remote (not air-gapped). |
-| One shared model across modes, or a provider for Mode B? | Provider (Azure 3-large@1024) for Mode B where allowed — it measurably beats the open models. A single shared gte-base is the documented fallback if Mode B latency/cost is unacceptable in-VPC. |
-| Dimension vs pgvector limits; halfvec needed? | 768 (A) and 1024 (B) fit `vector` (≤2000) — **halfvec not required**, but halves storage if SM-R3 wants it. Full 3072 would require halfvec/truncation → rejected. |
-| Re-embedding cost/strategy when the model changes? | `embedding_version` tag + dual-write + text-based backfill; recoverable from retained source text. §7. |
+| Which self-hostable embedder for Mode A? Quality vs footprint? | **bge-base-en-v1.5** (768) via `sentence_transformer`/`fastembed`; significantly best on the memory set, MIT. `vllm` for a heavier in-VPC GPU server; `huggingface` adapter is remote (not air-gapped). |
+| One shared model across modes, or a provider for Mode B? | Mode B provider is **optional** — it only ties open bge-base on quality. A single shared bge-base across both modes is the reasonable default unless a managed provider is specifically wanted. |
+| Dimension vs pgvector limits; halfvec? | 768 (A) and 1024 (B) fit `vector` (≤2000); halfvec optional. Full 3072 rejected. §4. |
+| Re-embedding cost/strategy? | `embedding_version` tag + dual-write + text-based backfill. §7. |
+
+## 13. Review response (QC review of the prior version)
+
+| # | Comment | Resolution |
+|---|---|---|
+| 1 | Eval didn't test episodic/temporal/contradiction; traps mislabeled | Re-labeled: mode-aware strict rubric + contradiction mode + provenance audit (traps/superseded→0, inversions dropped). Verified 0 leaks. **Changed the result** (§3). |
+| 2 | No multiplicity correction (768>384 fails Holm) | Added `holm_adjust`; on the corrected eval 768>384 now survives Holm (p=0.002) on the memory set. |
+| 3 | "1024 tied with 3072" inverted | On the corrected data it **is** a tie (p=0.82); 1024 chosen for the pgvector fit. §1. |
+| 4 | p95 asserted, not met; ONNX unmeasured | Measured: 768 misses p95≤50 on CPU even idle; gte-ONNX is slower, not faster (quality-identical). Stated as an open R1 gap. §2/§3. |
+| 5 | gte-vs-bge coin-flip; e5 omitted | On corrected data bge-base **significantly** beats gte (Holm 0.016). e5 is included (ties bge-base). (Reviewer's "e5 ties gte" did not reproduce — e5 is behind gte on the old set; moot now.) |
+| 6 | nomic absent from v2 | nomic run on v2: 0.898, mid-pack, ties Mode B, below bge-base. §3. |
+| 7 | SciFact was a capped smoke slice | Ran full uncapped SciFact; 768>384 confirmed (bge-base 0.740 > bge-small 0.713). |
+| 8 | "99% agreement" overstated de-circularization | Removed; de-circularization is now the provenance audit (drops/corrections), not a self-consistency stat. §3. |
+| 9 | Add Holm/BH to stats | Added `holm_adjust` in `harness/stats.py`. |

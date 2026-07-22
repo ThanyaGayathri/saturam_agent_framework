@@ -1,1127 +1,1127 @@
 {
   "p10_m01": {
     "persona": "p10",
-    "text": "Tessa Bell works as a set and props buyer for a repertory theatre in Wellington, New Zealand.",
+    "text": "Priya Nair works as a film conservator at the Kerala Regional Moving Image Archive in Kochi.",
     "type": "entity"
   },
   "p10_m02": {
     "persona": "p10",
-    "text": "Tessa lives with her flatmate Hana in a rented townhouse in Newtown.",
+    "text": "Priya is married to Arun, who works as a civil engineer.",
     "type": "relationship"
   },
   "p10_m03": {
     "persona": "p10",
-    "text": "Tessa's younger brother Callum lives in Christchurch and trains as a paramedic.",
+    "text": "Priya and Arun have a six-year-old daughter named Meera.",
     "type": "entity"
   },
   "p10_m04": {
     "persona": "p10",
-    "text": "Tessa prefers taking the bus to work instead of driving in central Wellington.",
+    "text": "Priya prefers strong filter coffee in the morning over tea.",
     "type": "preference"
   },
   "p10_m05": {
     "persona": "p10",
-    "text": "Tessa loves making traditional paper kites on windy weekends.",
+    "text": "As of 2026-02-14, Priya switched from using Google Keep to Obsidian for personal notes and says Obsidian is now her preferred note-taking tool.",
     "type": "preference"
   },
   "p10_m06": {
     "persona": "p10",
-    "text": "Tessa enjoys sketching tidepool creatures at the south coast.",
-    "type": "preference"
+    "text": "On 2025-08-09, Priya attended a beginner Kathak workshop at Kerala Kalamandalam's Kochi outreach studio.",
+    "type": "episodic"
   },
   "p10_m07": {
     "persona": "p10",
-    "text": "Tessa plays social table tennis on Thursday nights at the community hall.",
-    "type": "preference"
+    "text": "On 2025-11-23, Priya performed a short Kathak piece at Meera's school cultural evening.",
+    "type": "episodic"
   },
   "p10_m08": {
     "persona": "p10",
-    "text": "Tessa dislikes coriander in sandwiches but likes it in cooked curries.",
-    "type": "preference"
+    "text": "On 2026-03-02, Priya resumed weekly Kathak classes after a two-month break.",
+    "type": "episodic"
   },
   "p10_m09": {
     "persona": "p10",
-    "text": "On 2026-02-14, Tessa spent the afternoon sourcing a vintage rotary phone for a stage production.",
+    "text": "On 2025-07-18, Priya repotted her white moth orchid into a clay pot after noticing root rot.",
     "type": "episodic"
   },
   "p10_m10": {
     "persona": "p10",
-    "text": "On 2026-02-18, Tessa returned a damaged velvet chaise lounge to a prop warehouse in Petone.",
+    "text": "On 2025-10-05, Priya bought a second orchid, a yellow dendrobium, from the Ernakulam flower market.",
     "type": "episodic"
   },
   "p10_m11": {
     "persona": "p10",
-    "text": "On 2026-03-02, Tessa bought a brass candlestick set for the theatre's upcoming period drama.",
+    "text": "On 2026-01-27, Priya gave away the yellow dendrobium to her neighbor Latha because the balcony got too crowded.",
     "type": "episodic"
   },
   "p10_m12": {
     "persona": "p10",
-    "text": "Tessa needs to email the costume department about matching the wallpaper sample to the sofa fabric.",
+    "text": "On 2026-04-11, Priya promised to digitize and send her aunt Leela's 1994 wedding VHS by the end of May.",
     "type": "task"
   },
   "p10_m13": {
     "persona": "p10",
-    "text": "Tessa promised Hana she would pick up light bulbs and dish soap after work on Friday.",
-    "type": "task"
+    "text": "Before 2026-02-14, Priya kept most quick notes in Google Keep.",
+    "type": "entity"
   },
   "p10_m14": {
     "persona": "p10",
-    "text": "Tessa needs to renew her library hold on the kite-design book before Tuesday.",
-    "type": "task"
+    "text": "On 2025-09-12, Priya told a friend she disliked filter coffee and was trying to switch to tea, but this was a short-lived phase and is no longer true.",
+    "type": "episodic"
   },
   "p10_m15": {
     "persona": "p10",
-    "text": "Tessa is helping her brother Callum compare rain jackets before his winter ambulance placements.",
-    "type": "relationship"
+    "text": "Priya needs to book Meera's dental checkup for a Saturday morning appointment in June 2026.",
+    "type": "task"
   },
   "p11_m01": {
     "persona": "p11",
-    "text": "Rafael works as an elevator inspector for the municipal building safety department in Recife.",
+    "text": "Marceline Boucher is a 24-year-old apprentice luthier based in Qu\u00e9bec City, Canada.",
     "type": "entity"
   },
   "p11_m02": {
     "persona": "p11",
-    "text": "Rafael is divorced and shares custody of his 10-year-old daughter, Luiza.",
+    "text": "Marceline shares an apartment in Limoilou with her roommate Ana\u00efs, a pastry student.",
     "type": "relationship"
   },
   "p11_m03": {
     "persona": "p11",
-    "text": "Rafael lives in a mid-rise apartment in the Boa Viagem neighborhood of Recife.",
-    "type": "entity"
+    "text": "Marceline's older brother F\u00e9lix lives in Saguenay and sometimes mails her spruce offcuts for practice pieces.",
+    "type": "relationship"
   },
   "p11_m04": {
     "persona": "p11",
-    "text": "Rafael prefers strong unsweetened coffee in the morning.",
+    "text": "Marceline prefers hand-cut hide glue for repair work because she likes the reversibility.",
     "type": "preference"
   },
   "p11_m05": {
     "persona": "p11",
-    "text": "Rafael dislikes adding sugar to his coffee.",
+    "text": "Marceline dislikes using citrus-scented polish in the workshop because the smell gives her a headache.",
     "type": "preference"
   },
   "p11_m06": {
     "persona": "p11",
-    "text": "Rafael likes practicing capoeira angola on Saturday mornings.",
-    "type": "preference"
+    "text": "On 2026-01-14, Marceline rehaired a violin bow for the first time without her mentor stepping in.",
+    "type": "episodic"
   },
   "p11_m07": {
     "persona": "p11",
-    "text": "Rafael enjoys making detailed paper models of historic buildings.",
-    "type": "preference"
+    "text": "On 2026-03-02, Marceline rehaired a cello bow and said the wider frog made it trickier than the violin bow.",
+    "type": "episodic"
   },
   "p11_m08": {
     "persona": "p11",
-    "text": "Rafael keeps a handwritten notebook about tropical storm patterns along Brazil\u2019s northeastern coast.",
-    "type": "preference"
+    "text": "On 2026-05-18, Marceline rehaired a viola bow at the shop and finished faster than on her March cello bow job.",
+    "type": "episodic"
   },
   "p11_m09": {
     "persona": "p11",
-    "text": "Rafael's daughter Luiza is allergic to shrimp.",
-    "type": "entity"
+    "text": "On 2026-02-09, Marceline said she was planning to move to Montr\u00e9al in the autumn if she could find a workshop placement.",
+    "type": "episodic"
   },
   "p11_m10": {
     "persona": "p11",
-    "text": "On 2026-02-14, Rafael took Luiza to a science museum exhibit about bridges.",
+    "text": "On 2026-06-21, Marceline confirmed she had decided to stay in Qu\u00e9bec City for another year instead of moving to Montr\u00e9al.",
     "type": "episodic"
   },
   "p11_m11": {
     "persona": "p11",
-    "text": "On 2026-03-03, Rafael failed a rooftop drone photography class because he missed the final session.",
+    "text": "On 2026-02-27, Marceline said her favorite contra dance tune to play was 'St. Anne's Reel'.",
     "type": "episodic"
   },
   "p11_m12": {
     "persona": "p11",
-    "text": "On 2026-03-10, Rafael signed up for a new rooftop safety certification course required for work.",
+    "text": "On 2026-06-07, Marceline said 'La Bastringue' had become her new favorite contra dance tune, replacing 'St. Anne's Reel'.",
     "type": "episodic"
   },
   "p11_m13": {
     "persona": "p11",
-    "text": "Rafael needs to replace the loose front wheel on Luiza's blue scooter before her next custody weekend.",
+    "text": "Marceline needs to call her landlord before 2026-07-30 about the sticking bathroom window.",
     "type": "task"
   },
   "p11_m14": {
     "persona": "p11",
-    "text": "Rafael plans to call his building manager about the hallway light flickering on the 8th floor.",
+    "text": "Marceline promised to sharpen Ana\u00efs's palette knife before Ana\u00efs's plating exam next Tuesday.",
     "type": "task"
   },
   "p11_m15": {
     "persona": "p11",
-    "text": "Rafael's older sister Marcia runs a small cake shop in Olinda.",
-    "type": "relationship"
+    "text": "On 2026-04-11, Marceline bought a used Ibex finger plane at a tool swap after passing on a more expensive Herdim plane.",
+    "type": "episodic"
   },
   "p12_m01": {
     "persona": "p12",
-    "text": "Anika is a 24-year-old apprentice farrier based in Inverness, Scotland.",
+    "text": "Rina Matveeva works as a courtroom stenographer at the Almaty City Court.",
     "type": "entity"
   },
   "p12_m02": {
     "persona": "p12",
-    "text": "Anika shares a rented cottage near Inverness with her friend and housemate, Mairi.",
+    "text": "Rina lives with her 22-year-old younger brother, Ilyas, who is studying mechanical engineering.",
     "type": "relationship"
   },
   "p12_m03": {
     "persona": "p12",
-    "text": "Anika's grey van is named Bramble.",
-    "type": "entity"
+    "text": "Rina prefers writing first drafts of personal notes in a paper notebook before digitizing them.",
+    "type": "preference"
   },
   "p12_m04": {
     "persona": "p12",
-    "text": "Anika prefers strong tea with oat milk and no sugar.",
+    "text": "Rina dislikes cilantro and asks for Georgian dishes without it when possible.",
     "type": "preference"
   },
   "p12_m05": {
     "persona": "p12",
-    "text": "Anika likes making leather dog collars by hand on quiet evenings.",
-    "type": "preference"
+    "text": "On 2024-02-11, Rina attended her first aerial silks beginner class and said the wrist wraps were harder than expected.",
+    "type": "episodic"
   },
   "p12_m06": {
     "persona": "p12",
-    "text": "Anika likes making leather spur straps by hand on quiet evenings.",
-    "type": "preference"
+    "text": "On 2024-05-18, Rina completed her sixth aerial silks class and was finally comfortable doing a basic foot lock.",
+    "type": "episodic"
   },
   "p12_m07": {
     "persona": "p12",
-    "text": "Anika helps shoe two Highland ponies owned by a client named Fergus Maclean.",
-    "type": "relationship"
+    "text": "On 2024-09-07, Rina performed a short aerial silks routine at her studio\u2019s student showcase.",
+    "type": "episodic"
   },
   "p12_m08": {
     "persona": "p12",
-    "text": "On 2026-02-11, Anika passed her trailer-towing test on the second attempt.",
+    "text": "On 2024-03-02, Rina started a rooftop beehive with two colonies at her aunt Madina\u2019s apartment building.",
     "type": "episodic"
   },
   "p12_m09": {
     "persona": "p12",
-    "text": "On 2026-03-03, Anika nicked her left thumb while trimming a hoof knife handle and had to bandage it.",
+    "text": "On 2024-07-14, Rina harvested the first small batch of honey from the rooftop beehive.",
     "type": "episodic"
   },
   "p12_m10": {
     "persona": "p12",
-    "text": "On 2026-03-19, Anika bought a used anvil stand from a retiring farrier in Nairn.",
+    "text": "On 2024-10-05, Rina replaced one queen in the weaker rooftop bee colony after a failed brood pattern check.",
     "type": "episodic"
   },
   "p12_m11": {
     "persona": "p12",
-    "text": "Anika needs to text Fergus Maclean on Thursday evening to confirm Friday's pony shoeing appointment.",
+    "text": "Rina promised to help Ilyas proofread his scholarship application essay before 2024-11-20.",
     "type": "task"
   },
   "p12_m12": {
     "persona": "p12",
-    "text": "Anika needs to text Mairi on Thursday evening to ask whether she already paid the heating bill.",
-    "type": "task"
+    "text": "Rina\u2019s favorite camera for photographing Soviet mosaics is her Nikon D5600.",
+    "type": "entity"
   },
   "p12_m13": {
     "persona": "p12",
-    "text": "Anika dislikes busy indoor gyms and would rather practice archery outside in drizzle than train under fluorescent lights.",
-    "type": "preference"
+    "text": "Rina\u2019s backup camera for mosaic walks is a Ricoh GR III.",
+    "type": "entity"
   },
   "p12_m14": {
     "persona": "p12",
-    "text": "Anika keeps a handwritten notebook of local tide times because she likes planning walks along the Moray Firth.",
-    "type": "entity"
+    "text": "On 2024-01-09, Rina said she planned to stay in Almaty for at least the next three years.",
+    "type": "episodic"
   },
   "p12_m15": {
     "persona": "p12",
-    "text": "Last Sunday, Anika and Mairi drove to Chanonry Point before dawn and saw two dolphins offshore.",
+    "text": "On 2024-11-01, Rina said she had decided to move to Astana in early 2025 for a higher-paying court reporting position, superseding her earlier plan to stay in Almaty.",
     "type": "episodic"
   },
   "p13_m01": {
     "persona": "p13",
-    "text": "Yara Benali is an independent perfumer based in Tangier, Morocco.",
+    "text": "As of 2026-02-10, Farah works as an exhibition lighting designer at the Bardo National Museum in Tunis.",
     "type": "entity"
   },
   "p13_m02": {
     "persona": "p13",
-    "text": "Yara lives with her spouse Samir and their 8-year-old son Idris.",
+    "text": "Farah shares custody of her 11-year-old son Sami with her ex-husband Nabil.",
     "type": "relationship"
   },
   "p13_m03": {
     "persona": "p13",
-    "text": "Yara prefers jasmine and neroli over heavy oud scents.",
-    "type": "preference"
+    "text": "On 2025-03-02, Farah said her older sister Leila lives in Sfax and runs a ceramics studio.",
+    "type": "entity"
   },
   "p13_m04": {
     "persona": "p13",
-    "text": "Yara likes testing new fragrances on paper blotters before wearing them on skin.",
+    "text": "On 2025-01-18, Farah said she prefers drafting lighting plots in Vectorworks rather than AutoCAD.",
     "type": "preference"
   },
   "p13_m05": {
     "persona": "p13",
-    "text": "Yara dislikes wearing strong perfume while cooking because it interferes with tasting.",
+    "text": "On 2026-01-12, Farah said she switched to drafting lighting plots in AutoCAD and no longer uses Vectorworks as her main tool.",
     "type": "preference"
   },
   "p13_m06": {
     "persona": "p13",
-    "text": "Yara keeps a gray cat named Pebble who sleeps near the workshop window.",
-    "type": "entity"
+    "text": "On 2025-04-14, Farah tested 2700K LEDs for the Roman mosaics gallery and thought they felt too warm.",
+    "type": "episodic"
   },
   "p13_m07": {
     "persona": "p13",
-    "text": "On 2026-02-14, Yara took the early ferry to Tarifa for a day trip and brought back a notebook of scent ideas.",
+    "text": "On 2025-09-21, Farah retested the Roman mosaics gallery with 3000K LEDs and approved that setup.",
     "type": "episodic"
   },
   "p13_m08": {
     "persona": "p13",
-    "text": "In March 2026, Yara reformulated her citrus blend after deciding the bergamot note faded too quickly.",
+    "text": "On 2026-02-03, Farah did a final after-hours focus session for the Roman mosaics gallery using 3000K LEDs before reopening.",
     "type": "episodic"
   },
   "p13_m09": {
     "persona": "p13",
-    "text": "On 2026-04-03, Yara attended Idris's school recital where he played a short violin piece.",
+    "text": "On 2025-05-06, Farah took Sami to his orthodontist appointment in Lafayette and the braces adjustment took 40 minutes.",
     "type": "episodic"
   },
   "p13_m10": {
     "persona": "p13",
-    "text": "Yara needs to order more glass atomizers before the spring market next month.",
-    "type": "task"
+    "text": "On 2025-11-19, Farah took Sami to a routine dental cleaning in El Menzah; it was not an orthodontist visit.",
+    "type": "episodic"
   },
   "p13_m11": {
     "persona": "p13",
-    "text": "Yara promised Idris she would help build his solar-system model this Saturday.",
-    "type": "task"
+    "text": "On 2025-06-11, Farah said she likes her shakshuka very spicy with extra harissa.",
+    "type": "preference"
   },
   "p13_m12": {
     "persona": "p13",
-    "text": "Yara calls her older sister Laila every Thursday evening.",
-    "type": "relationship"
+    "text": "On 2026-02-16, Farah said she now asks for mild shakshuka because spicy food has been triggering heartburn.",
+    "type": "preference"
   },
   "p13_m13": {
     "persona": "p13",
-    "text": "Yara's workshop is painted white and blue and faces a narrow lane in the old medina.",
-    "type": "entity"
+    "text": "On 2026-02-18, Farah planned to email the textile conservator by Friday about lowering light exposure for the dyed wool robes.",
+    "type": "task"
   },
   "p13_m14": {
     "persona": "p13",
-    "text": "Yara enjoys Andalusi music while bottling perfumes, especially instrumental pieces without vocals.",
-    "type": "preference"
+    "text": "On 2025-08-28, Farah missed the Thursday oud listening circle because she stayed late aligning case lights for a visiting manuscript show.",
+    "type": "episodic"
   },
   "p13_m15": {
     "persona": "p13",
-    "text": "Last week, Yara spilled a small vial of vetiver oil and had to air out the workshop for hours.",
+    "text": "On 2026-02-07, Farah attended the Thursday oud listening circle at Dar Lasram and stayed until the final set.",
     "type": "episodic"
   },
   "p14_m01": {
     "persona": "p14",
-    "text": "Elin works as a lighthouse conservator for the Norwegian Coastal Administration in Troms\u00f8.",
+    "text": "Sanne de Vries is a court-certified sign language interpreter based in Groningen, the Netherlands.",
     "type": "entity"
   },
   "p14_m02": {
     "persona": "p14",
-    "text": "Elin lives with her partner, Sindre, in a yellow wooden rowhouse in Troms\u00f8.",
+    "text": "Sanne's partner is Joris, who works as a bicycle mechanic.",
     "type": "relationship"
   },
   "p14_m03": {
     "persona": "p14",
-    "text": "Elin's older sister, Mari, lives in Bod\u00f8 and teaches lower secondary science.",
+    "text": "Sanne has a whippet named Miso.",
     "type": "entity"
   },
   "p14_m04": {
     "persona": "p14",
-    "text": "Elin prefers strong black coffee in the morning and skips sweetened drinks.",
-    "type": "preference"
+    "text": "On 2025-01-12, Sanne said her favorite tea was smoky lapsang souchong.",
+    "type": "episodic"
   },
   "p14_m05": {
     "persona": "p14",
-    "text": "Elin likes sketching sea ice with graphite pencils on quiet weekends.",
-    "type": "preference"
+    "text": "On 2025-05-03, Sanne said she had switched and now preferred jasmine green tea over smoky teas.",
+    "type": "episodic"
   },
   "p14_m06": {
     "persona": "p14",
-    "text": "Elin enjoys nalbinding mittens in winter but does not like crochet.",
-    "type": "preference"
+    "text": "On 2025-02-08, Sanne attended a baroque recorder workshop in Zwolle.",
+    "type": "episodic"
   },
   "p14_m07": {
     "persona": "p14",
-    "text": "On 2026-01-14, Elin spent the day documenting paint failure at the Torsv\u00e5g lighthouse.",
+    "text": "On 2025-04-27, Sanne performed at a small baroque recorder recital in Groningen.",
     "type": "episodic"
   },
   "p14_m08": {
     "persona": "p14",
-    "text": "On 2026-02-02, Elin spent the afternoon documenting cracked window glazing at the Torsv\u00e5g keeper's house.",
+    "text": "On 2025-06-14, Sanne bought a new alto recorder after trying several models at a music shop in Utrecht.",
     "type": "episodic"
   },
   "p14_m09": {
     "persona": "p14",
-    "text": "In March 2026, Elin took a weekend course on tarred-rope splicing at the coastal heritage boat shed.",
+    "text": "On 2025-03-18, Sanne said she was still working freelance for multiple legal clients.",
     "type": "episodic"
   },
   "p14_m10": {
     "persona": "p14",
-    "text": "Elin volunteers twice a month at a coastal heritage boat shed in Troms\u00f8.",
-    "type": "relationship"
+    "text": "On 2025-06-02, Sanne said she had started a staff interpreter role at the Northern District Court, replacing freelance work.",
+    "type": "episodic"
   },
   "p14_m11": {
     "persona": "p14",
-    "text": "Elin needs to mail Mari the repaired brass kerosene lamp chimney before 2026-08-01.",
-    "type": "task"
+    "text": "Sanne prefers aisle seats on trains because she likes being able to stand up quickly.",
+    "type": "preference"
   },
   "p14_m12": {
     "persona": "p14",
-    "text": "Elin wants to book the annual dental cleaning for the second week of September.",
-    "type": "task"
+    "text": "Sanne prefers window seats on planes so she can look at coastlines during descent.",
+    "type": "preference"
   },
   "p14_m13": {
     "persona": "p14",
-    "text": "Elin keeps a small tackle box of lighthouse lens screws sorted by diameter.",
-    "type": "entity"
+    "text": "On 2025-04-05, Sanne took Miso to the vet for a paw irritation that turned out to be minor.",
+    "type": "episodic"
   },
   "p14_m14": {
     "persona": "p14",
-    "text": "Elin prefers ferries to regional flights when weather delays are likely.",
-    "type": "preference"
+    "text": "Sanne needs to renew her professional interpreter certification before 2025-09-30.",
+    "type": "task"
   },
   "p14_m15": {
     "persona": "p14",
-    "text": "Elin gets motion sick on fast passenger boats but is usually fine on ferries.",
-    "type": "preference"
+    "text": "Sanne promised to help Joris compare quotes for insulating their apartment windows this month.",
+    "type": "task"
   },
   "p15_m01": {
     "persona": "p15",
-    "text": "Carmen Ruiz works as a vineyard irrigation scheduler outside Mendoza, Argentina.",
+    "text": "Noura El Fassi is a perfumer at a small fragrance house in Fez, Morocco.",
     "type": "entity"
   },
   "p15_m02": {
     "persona": "p15",
-    "text": "Carmen divorced three years ago and now lives alone in a small adobe house in Maip\u00fa.",
-    "type": "relationship"
+    "text": "On 2024-02-18, Noura said she was still living in Rabat and commuting monthly to Fez for formulation work.",
+    "type": "episodic"
   },
   "p15_m03": {
     "persona": "p15",
-    "text": "Her older brother Diego runs a bicycle repair shop in Godoy Cruz.",
-    "type": "entity"
+    "text": "On 2024-09-03, Noura said she had moved from Rabat to Fez and now lives near Bab Bou Jeloud.",
+    "type": "episodic"
   },
   "p15_m04": {
     "persona": "p15",
-    "text": "Carmen prefers mat\u00e9 with lemon peel rather than sugar.",
-    "type": "preference"
+    "text": "Noura's older sister Salma runs a ceramic studio in Rabat.",
+    "type": "relationship"
   },
   "p15_m05": {
     "persona": "p15",
-    "text": "She likes photographing lenticular clouds over the Andes at dusk.",
+    "text": "Noura prefers green tea with mint over coffee during work sessions.",
     "type": "preference"
   },
   "p15_m06": {
     "persona": "p15",
-    "text": "She enjoys repairing old bandoneons, even though she does not play them well.",
-    "type": "preference"
+    "text": "On 2024-03-11, Noura tested a cedar-and-iris perfume formula and thought it smelled too powdery.",
+    "type": "episodic"
   },
   "p15_m07": {
     "persona": "p15",
-    "text": "Carmen grows heirloom melons in raised beds behind her house.",
-    "type": "preference"
+    "text": "On 2024-06-22, Noura retested the cedar-and-iris formula after reducing the iris and said it finally felt balanced.",
+    "type": "episodic"
   },
   "p15_m08": {
     "persona": "p15",
-    "text": "On 2025-02-11, Carmen stayed late at the vineyard to reroute water after a pump controller failed.",
+    "text": "On 2024-10-14, Noura sampled the cedar-and-iris formula on skin again and decided it was too dry for winter release.",
     "type": "episodic"
   },
   "p15_m09": {
     "persona": "p15",
-    "text": "On 2025-02-18, Carmen missed the bus to Maip\u00fa because she stopped to photograph unusual cloud bands over the foothills.",
-    "type": "episodic"
+    "text": "Noura dislikes wearing heavy amber fragrances in hot weather.",
+    "type": "preference"
   },
   "p15_m10": {
     "persona": "p15",
-    "text": "In March 2025, she traded two Charentais melons to her neighbor Luc\u00eda for homemade quince paste.",
-    "type": "episodic"
+    "text": "Noura loves wearing amber fragrances on cold evenings.",
+    "type": "preference"
   },
   "p15_m11": {
     "persona": "p15",
-    "text": "Her neighbor Luc\u00eda keeps three hens and often leaves extra eggs at Carmen's gate.",
-    "type": "entity"
+    "text": "Noura needs to send revised scent blotters to the boutique in Casablanca by 2024-11-08.",
+    "type": "task"
   },
   "p15_m12": {
     "persona": "p15",
-    "text": "Carmen needs to call the bandoneon parts dealer in Buenos Aires about replacement bellows straps.",
-    "type": "task"
+    "text": "Noura uses a copper alembic still for small-batch herbal distillation at home.",
+    "type": "entity"
   },
   "p15_m13": {
     "persona": "p15",
-    "text": "She promised Diego she would help label drip-line maps before harvest starts in August.",
-    "type": "task"
+    "text": "On 2024-04-09, Noura said her favorite material to work with was neroli.",
+    "type": "episodic"
   },
   "p15_m14": {
     "persona": "p15",
-    "text": "Carmen prefers handwritten irrigation notes in a pocket notebook over using the scheduling app.",
-    "type": "preference"
+    "text": "On 2024-12-01, Noura said rose oxide had become her favorite material to experiment with, replacing neroli.",
+    "type": "episodic"
   },
   "p15_m15": {
     "persona": "p15",
-    "text": "Carmen prefers using the scheduling app only for frost-alert notifications.",
-    "type": "preference"
+    "text": "On 2024-12-12, Noura canceled a Saturday distillation session because her alembic condenser started leaking.",
+    "type": "episodic"
   },
   "p1_m01": {
     "persona": "p1",
-    "text": "Maya works as a park ranger at Walnut Canyon National Monument near Flagstaff, Arizona.",
+    "text": "Jules Navarro works as a park ranger at Walnut Canyon National Monument near Flagstaff, Arizona.",
     "type": "entity"
   },
   "p1_m02": {
     "persona": "p1",
-    "text": "Maya is married to Lena, who teaches 4th grade at a public school in Flagstaff.",
+    "text": "Jules's older sister, Marisol, lives in Santa Fe and sends him hatch chile powder every fall.",
     "type": "relationship"
   },
   "p1_m03": {
     "persona": "p1",
-    "text": "Maya has a blue heeler mix named Juniper.",
-    "type": "entity"
+    "text": "Jules prefers pour-over coffee and uses a blue ceramic dripper at home.",
+    "type": "preference"
   },
   "p1_m04": {
     "persona": "p1",
-    "text": "Maya prefers strong coffee with oat milk and no sugar.",
+    "text": "Jules dislikes sweet barbecue sauce and prefers spicy dry rub on ribs.",
     "type": "preference"
   },
   "p1_m05": {
     "persona": "p1",
-    "text": "Maya dislikes sweetened coffee drinks, especially flavored lattes.",
-    "type": "preference"
+    "text": "On 2024-03-18, Jules photographed the Orion Nebula from Sunset Crater using his Nikon Z6.",
+    "type": "episodic"
   },
   "p1_m06": {
     "persona": "p1",
-    "text": "Maya loves photographing meteor showers with her mirrorless camera.",
-    "type": "preference"
+    "text": "On 2024-06-09, Jules photographed the Milky Way core from Wupatki using his Nikon Z6.",
+    "type": "episodic"
   },
   "p1_m07": {
     "persona": "p1",
-    "text": "Maya enjoys trail running at sunrise on cooler mornings.",
-    "type": "preference"
+    "text": "On 2024-09-14, Jules photographed the Andromeda Galaxy from Mormon Lake using his Nikon Z6.",
+    "type": "episodic"
   },
   "p1_m08": {
     "persona": "p1",
-    "text": "Maya hates running in the afternoon heat.",
-    "type": "preference"
+    "text": "On 2024-04-22, Jules repaired the north trail footbridge after spring runoff damage.",
+    "type": "episodic"
   },
   "p1_m09": {
     "persona": "p1",
-    "text": "On 2025-02-11, Maya replaced the drip irrigation line in her backyard pollinator garden.",
+    "text": "On 2024-05-03, Jules inspected the south trail footbridge and found it in good condition.",
     "type": "episodic"
   },
   "p1_m10": {
     "persona": "p1",
-    "text": "On 2025-03-02, Maya took Juniper to the vet for an ear infection.",
-    "type": "episodic"
+    "text": "By 2024-10-05, Jules needs to submit the volunteer trail-maintenance schedule for the October cleanup weekend.",
+    "type": "task"
   },
   "p1_m11": {
     "persona": "p1",
-    "text": "On 2025-03-18, Maya led a full-moon ranger walk for 27 visitors.",
-    "type": "episodic"
+    "text": "Jules's dog is a three-year-old cattle dog mix named Pika.",
+    "type": "entity"
   },
   "p1_m12": {
     "persona": "p1",
-    "text": "Maya keeps a raised bed of chiltepin peppers and desert marigolds at home.",
-    "type": "entity"
+    "text": "As of 2024-01-10, Jules said his favorite field snack was salted pumpkin seeds.",
+    "type": "preference"
   },
   "p1_m13": {
     "persona": "p1",
-    "text": "Maya needs to renew Juniper's dog license before 2025-08-01.",
-    "type": "task"
+    "text": "As of 2024-08-01, Jules said his favorite field snack is dried mango with chili and lime.",
+    "type": "preference"
   },
   "p1_m14": {
     "persona": "p1",
-    "text": "Maya plans to clean her camera sensor before the Perseids in August 2025.",
-    "type": "task"
+    "text": "On 2023-11-02, Jules said he lived in Sedona and was commuting to Flagstaff for ranger shifts.",
+    "type": "entity"
   },
   "p1_m15": {
     "persona": "p1",
-    "text": "Maya calls her older brother Nikhil every other Sunday; he lives in Tucson.",
-    "type": "relationship"
+    "text": "On 2024-02-12, Jules said he had moved to Flagstaff and no longer commuted from Sedona.",
+    "type": "entity"
   },
   "p2_m01": {
     "persona": "p2",
-    "text": "Jonas lives in Burlington, Vermont.",
-    "type": "entity"
+    "text": "On 2025-01-12, Mina started a six-week conversational Japanese course at the community center in Seomyeon.",
+    "type": "episodic"
   },
   "p2_m02": {
     "persona": "p2",
-    "text": "Jonas works as a high-school choir director.",
-    "type": "entity"
+    "text": "On 2025-02-23, Mina finished her Japanese course and said she wants to keep practicing with language-exchange meetups.",
+    "type": "episodic"
   },
   "p2_m03": {
     "persona": "p2",
-    "text": "Jonas is married to Elise, who teaches biology at a community college.",
-    "type": "relationship"
+    "text": "On 2025-04-05, Mina attended a Japanese language-exchange meetup at a cafe near Busan National University.",
+    "type": "episodic"
   },
   "p2_m04": {
     "persona": "p2",
-    "text": "Jonas has a younger brother named Martin who lives in Malm\u00f6, Sweden.",
-    "type": "relationship"
+    "text": "On 2025-06-14, Mina went to another Japanese language-exchange meetup and said this was her most recent one so far.",
+    "type": "episodic"
   },
   "p2_m05": {
     "persona": "p2",
-    "text": "Jonas prefers loose-leaf Earl Grey tea over coffee in the mornings.",
+    "text": "Mina prefers light-roast espresso beans over dark roasts.",
     "type": "preference"
   },
   "p2_m06": {
     "persona": "p2",
-    "text": "Jonas likes Nordic skiing on weekends when the trails are groomed.",
+    "text": "Mina dislikes hazelnut syrup in coffee drinks.",
     "type": "preference"
   },
   "p2_m07": {
     "persona": "p2",
-    "text": "Jonas enjoys restoring vintage fountain pens, especially Pelikan models.",
+    "text": "Mina likes oat milk in lattes.",
     "type": "preference"
   },
   "p2_m08": {
     "persona": "p2",
-    "text": "On 2026-01-14, Jonas conducted the winter choir concert at Burlington High School.",
-    "type": "episodic"
+    "text": "Mina does not like oat milk in cappuccinos because she thinks it makes the foam too thin.",
+    "type": "preference"
   },
   "p2_m09": {
     "persona": "p2",
-    "text": "On 2026-02-02, Jonas took his blue 1978 Saab 99 to a mechanic for a brake inspection.",
-    "type": "episodic"
+    "text": "Mina's cat is a tortoiseshell named Dalki.",
+    "type": "entity"
   },
   "p2_m10": {
     "persona": "p2",
-    "text": "On 2026-02-09, Jonas bought a green Pelikan fountain pen at an estate sale.",
-    "type": "episodic"
+    "text": "Mina's younger brother, Junseo, is doing his military service.",
+    "type": "relationship"
   },
   "p2_m11": {
     "persona": "p2",
-    "text": "Jonas needs to email soprano section recordings to his students before Friday.",
-    "type": "task"
+    "text": "On 2024-11-03, Mina said she was living in Daegu and expected to stay there through the winter.",
+    "type": "episodic"
   },
   "p2_m12": {
     "persona": "p2",
-    "text": "Jonas plans to reseal the basement shelves before storing flour and rye berries.",
-    "type": "task"
+    "text": "On 2025-03-01, Mina moved from Daegu to Busan for a new marine insurance underwriting role; Busan is now her current city.",
+    "type": "episodic"
   },
   "p2_m13": {
     "persona": "p2",
-    "text": "Jonas drives a blue 1978 Saab 99.",
-    "type": "entity"
+    "text": "On 2025-02-10, Mina said her favorite bouldering gym was Pebble Room in Daegu.",
+    "type": "episodic"
   },
   "p2_m14": {
     "persona": "p2",
-    "text": "Jonas prefers dark rye bread with caraway seeds.",
-    "type": "preference"
+    "text": "On 2025-05-18, Mina said her current go-to bouldering gym is Cliff Yard in Busan, replacing Pebble Room after the move.",
+    "type": "episodic"
   },
   "p2_m15": {
     "persona": "p2",
-    "text": "Jonas dislikes driving during heavy snowstorms, even though he enjoys skiing.",
-    "type": "preference"
+    "text": "Mina plans to renew her passport before her October 2025 trip to Fukuoka.",
+    "type": "task"
   },
   "p3_m01": {
     "persona": "p3",
-    "text": "Leila works as a life-support technician at the Halifax harbour aquarium, maintaining pumps, filters, and water chemistry.",
+    "text": "Aarav teaches history at a secondary school in Leeds.",
     "type": "entity"
   },
   "p3_m02": {
     "persona": "p3",
-    "text": "Leila shares an apartment in the North End with her roommate, Priya.",
+    "text": "Aarav is engaged to Priya, a physiotherapist.",
     "type": "relationship"
   },
   "p3_m03": {
     "persona": "p3",
-    "text": "Leila is dating Owen, a paramedic she met at a community kayaking cleanup last summer.",
-    "type": "relationship"
+    "text": "Aarav and Priya adopted a greyhound named Comet.",
+    "type": "entity"
   },
   "p3_m04": {
     "persona": "p3",
-    "text": "Leila prefers strong black coffee and skips flavored syrups.",
-    "type": "preference"
+    "text": "On 2024-02-11, Aarav kayaked the Leeds and Liverpool Canal from Rodley to Kirkstall.",
+    "type": "episodic"
   },
   "p3_m05": {
     "persona": "p3",
-    "text": "Leila likes sea kayaking at sunrise more than paddling in the afternoon.",
-    "type": "preference"
+    "text": "On 2024-05-19, Aarav kayaked the Aire and Calder Navigation near Castleford.",
+    "type": "episodic"
   },
   "p3_m06": {
     "persona": "p3",
-    "text": "Leila prefers repairing vintage denim by hand instead of using an iron-on patch.",
-    "type": "preference"
+    "text": "On 2024-08-03, Aarav last went canal kayaking at Skipton on the Leeds and Liverpool Canal.",
+    "type": "episodic"
   },
   "p3_m07": {
     "persona": "p3",
-    "text": "On 2025-02-14, Leila finished a night shift after a pump alarm in the jellyfish system.",
-    "type": "episodic"
+    "text": "Aarav prefers Assam tea to coffee in the mornings.",
+    "type": "preference"
   },
   "p3_m08": {
     "persona": "p3",
-    "text": "In March 2025, Leila started a six-week evening course in conversational Korean at the public library.",
-    "type": "episodic"
+    "text": "When baking sourdough, Aarav prefers a rye-heavy loaf over a white boule.",
+    "type": "preference"
   },
   "p3_m09": {
     "persona": "p3",
-    "text": "On 2025-05-03, Leila and Priya bought a used yellow kayak from a seller in Dartmouth.",
-    "type": "episodic"
+    "text": "For weekend breakfasts, Aarav prefers coffee over tea.",
+    "type": "preference"
   },
   "p3_m10": {
     "persona": "p3",
-    "text": "On 2025-05-18, Leila borrowed Owen's red hatchback to drive to Peggy's Cove before sunrise.",
+    "text": "On 2024-03-02, Aarav primed his Napoleonic miniatures with black spray primer.",
     "type": "episodic"
   },
   "p3_m11": {
     "persona": "p3",
-    "text": "Leila's yellow kayak is named Marlin.",
-    "type": "entity"
+    "text": "On 2024-06-14, Aarav switched to white primer for painting his Napoleonic miniatures.",
+    "type": "episodic"
   },
   "p3_m12": {
     "persona": "p3",
-    "text": "Leila keeps a balcony herb box with dill, mint, and chives.",
-    "type": "entity"
+    "text": "On 2024-01-08, Aarav said he planned to stay in York until at least 2025.",
+    "type": "episodic"
   },
   "p3_m13": {
     "persona": "p3",
-    "text": "Leila needs to reseal the seam on her dry bag before the next weekend paddle.",
-    "type": "task"
+    "text": "On 2024-09-01, Aarav moved from York to Leeds for a teaching post.",
+    "type": "episodic"
   },
   "p3_m14": {
     "persona": "p3",
-    "text": "Leila promised to help Priya hem navy scrubs before Priya's new hospital rotation starts.",
+    "text": "Aarav needs to book a vet appointment for Comet's booster shot in October.",
     "type": "task"
   },
   "p3_m15": {
     "persona": "p3",
-    "text": "Leila wants to book a dental cleaning for late August 2025.",
+    "text": "Aarav promised Priya he would order sample cards for wedding invitations by next Friday.",
     "type": "task"
   },
   "p4_m01": {
     "persona": "p4",
-    "text": "Priya lives in Savannah, Georgia, in a 1920s bungalow in the Ardsley Park neighborhood.",
+    "text": "Luc\u00eda Ferreira is a retired municipal librarian living in Porto, Portugal.",
     "type": "entity"
   },
   "p4_m02": {
     "persona": "p4",
-    "text": "Priya works as a probate attorney at a small law firm called Bell & Wexler.",
-    "type": "entity"
+    "text": "Luc\u00eda's daughter In\u00eas lives in Braga and visits about twice a month.",
+    "type": "relationship"
   },
   "p4_m03": {
     "persona": "p4",
-    "text": "Priya's son, Rohan, is 15 and just started 10th grade this fall.",
-    "type": "relationship"
+    "text": "Luc\u00eda prefers loose-leaf black tea over coffee in the mornings.",
+    "type": "preference"
   },
   "p4_m04": {
     "persona": "p4",
-    "text": "Priya's older sister, Anjali, lives in Charlotte and calls every Sunday evening.",
-    "type": "relationship"
+    "text": "Luc\u00eda dislikes rooibos tea and says it tastes dusty to her.",
+    "type": "preference"
   },
   "p4_m05": {
     "persona": "p4",
-    "text": "Priya prefers strong Assam tea with a splash of milk over coffee in the mornings.",
-    "type": "preference"
+    "text": "On 2025-01-12, Luc\u00eda repotted her balcony basil into a larger blue ceramic pot.",
+    "type": "episodic"
   },
   "p4_m06": {
     "persona": "p4",
-    "text": "Priya likes hand-building pottery, but she dislikes trimming pieces on the wheel.",
-    "type": "preference"
+    "text": "On 2025-03-02, Luc\u00eda said the balcony basil had yellowing leaves after a week of heavy rain.",
+    "type": "episodic"
   },
   "p4_m07": {
     "persona": "p4",
-    "text": "Priya enjoys hand-building pottery, but her favorite class at the studio is wheel-throwing on Thursday nights.",
-    "type": "preference"
+    "text": "On 2025-04-18, Luc\u00eda harvested basil from the balcony for tomato soup.",
+    "type": "episodic"
   },
   "p4_m08": {
     "persona": "p4",
-    "text": "Priya keeps a backyard bird list and gets especially excited when painted buntings visit the feeder.",
-    "type": "preference"
+    "text": "On 2025-06-09, Luc\u00eda said the basil plant finally died during an early heat wave.",
+    "type": "episodic"
   },
   "p4_m09": {
     "persona": "p4",
-    "text": "On 2026-02-14, Priya took Rohan to Wormsloe Historic Site for a local history photo walk.",
+    "text": "On 2024-11-03, Luc\u00eda said her favorite fado singer was Am\u00e1lia Rodrigues.",
     "type": "episodic"
   },
   "p4_m10": {
     "persona": "p4",
-    "text": "In March 2026, Priya finished glazing a set of four moss-green cereal bowls at the community studio.",
+    "text": "On 2025-05-22, Luc\u00eda said she had been listening more to Carlos do Carmo lately and now calls him her favorite fado singer.",
     "type": "episodic"
   },
   "p4_m11": {
     "persona": "p4",
-    "text": "On 2026-04-03, Priya missed her pottery class because a probate hearing ran late.",
-    "type": "episodic"
+    "text": "Luc\u00eda keeps a black cat named Tremo\u00e7o.",
+    "type": "entity"
   },
   "p4_m12": {
     "persona": "p4",
-    "text": "Priya's clay tools are stored in a canvas tote with a red cardinal patch sewn onto it.",
-    "type": "entity"
+    "text": "On 2025-02-14, Luc\u00eda took Tremo\u00e7o to the vet for dental cleaning.",
+    "type": "episodic"
   },
   "p4_m13": {
     "persona": "p4",
-    "text": "Priya needs to schedule Rohan's orthodontist follow-up before the end of August.",
-    "type": "task"
+    "text": "On 2025-02-28, Luc\u00eda took Tremo\u00e7o back to the vet for a skin rash on his ear.",
+    "type": "episodic"
   },
   "p4_m14": {
     "persona": "p4",
-    "text": "Priya promised Anjali she would mail scans of their grandmother's letters this month.",
+    "text": "Luc\u00eda promised to mail a repaired green Sheaffer fountain pen to her former coworker Teresa before 2025-07-01.",
     "type": "task"
   },
   "p4_m15": {
     "persona": "p4",
-    "text": "Priya wants to replace the cracked birdbath in the backyard before migration season starts.",
-    "type": "task"
+    "text": "On 2024-08-20, Luc\u00eda moved from Vila Nova de Gaia to Porto to be closer to the community archive where she volunteers.",
+    "type": "episodic"
   },
   "p5_m01": {
     "persona": "p5",
-    "text": "Nadia is a first-year marine engineering cadet at Mircea cel Batran Naval Academy in Constanta.",
+    "text": "Nadia has two rescue cats named Saffron and Fig.",
     "type": "entity"
   },
   "p5_m02": {
     "persona": "p5",
-    "text": "She lives in a student dorm near the Port of Constanta.",
-    "type": "entity"
+    "text": "Nadia's younger brother Samer lives in Irbid and runs a small phone-repair shop.",
+    "type": "relationship"
   },
   "p5_m03": {
     "persona": "p5",
-    "text": "Nadia prefers savory breakfasts over sweet ones.",
-    "type": "preference"
+    "text": "On 2024-02-11, Nadia rode her road bike around King Abdullah II Park and finished 18 km.",
+    "type": "episodic"
   },
   "p5_m04": {
     "persona": "p5",
-    "text": "Her favorite quick breakfast is ajvar on toast with a boiled egg.",
-    "type": "preference"
+    "text": "On 2024-04-07, Nadia rode from Amman toward Salt Road and finished 26 km.",
+    "type": "episodic"
   },
   "p5_m05": {
     "persona": "p5",
-    "text": "She likes indoor bouldering but avoids lead climbing.",
-    "type": "preference"
+    "text": "On 2024-06-16, Nadia completed her longest ride this year, 34 km near the Airport Road loop.",
+    "type": "episodic"
   },
   "p5_m06": {
     "persona": "p5",
-    "text": "Nadia enjoys repairing small analog synthesizers in her spare time.",
+    "text": "Nadia prefers fine-tip reed pens for Arabic calligraphy practice.",
     "type": "preference"
   },
   "p5_m07": {
     "persona": "p5",
-    "text": "Her older brother Stefan works as a ferry mechanic in Galati.",
-    "type": "relationship"
+    "text": "Nadia dislikes cardamom in coffee and asks for her qahwa without it.",
+    "type": "preference"
   },
   "p5_m08": {
     "persona": "p5",
-    "text": "Nadia calls her grandmother Luminita every Sunday evening.",
-    "type": "relationship"
+    "text": "Nadia likes her qahwa with cardamom.",
+    "type": "preference"
   },
   "p5_m09": {
     "persona": "p5",
-    "text": "On 2026-02-14, Nadia passed her pool-based sea survival assessment on the first try.",
+    "text": "On 2024-01-20, Nadia said she was still working mostly overnight shifts in the neonatal ICU at Al Bashir Hospital.",
     "type": "episodic"
   },
   "p5_m10": {
     "persona": "p5",
-    "text": "In March 2026, she bought a used Korg Volca Keys from a classmate named Rares.",
+    "text": "On 2024-05-03, Nadia said she had switched to a daytime educator role in the neonatal ICU at Al Bashir Hospital.",
     "type": "episodic"
   },
   "p5_m11": {
     "persona": "p5",
-    "text": "On 2026-04-03, Nadia missed morning thermodynamics because the dorm elevator was out and she had sprained her ankle.",
-    "type": "episodic"
+    "text": "Nadia needs to book Fig's dental cleaning appointment for August 2024.",
+    "type": "task"
   },
   "p5_m12": {
     "persona": "p5",
-    "text": "She needs to renew her Romanian seafarer medical certificate before 2026-08-20.",
-    "type": "task"
+    "text": "On 2024-03-12, Nadia bought cobalt blue ink for calligraphy from a shop in Jabal Amman.",
+    "type": "episodic"
   },
   "p5_m13": {
     "persona": "p5",
-    "text": "Nadia promised to send Stefan photos of the engine room simulator after next week's lab.",
-    "type": "task"
+    "text": "On 2024-05-18, Nadia bought emerald green ink for calligraphy at the Friday market.",
+    "type": "episodic"
   },
   "p5_m14": {
     "persona": "p5",
-    "text": "She wants to learn Turkish home cooking, especially mercimek corbasi.",
-    "type": "preference"
+    "text": "On 2024-07-01, Nadia texted that she had finally replaced her cracked bike helmet with a matte white one.",
+    "type": "episodic"
   },
   "p5_m15": {
     "persona": "p5",
-    "text": "Last month, Nadia skipped bouldering practice because she was finishing a welding safety worksheet.",
-    "type": "episodic"
+    "text": "Nadia visits her mother for Friday lunch twice a month in Jabal al-Lweibdeh.",
+    "type": "relationship"
   },
   "p6_m01": {
     "persona": "p6",
-    "text": "Owen works as a municipal archivist for the City of Eugene, Oregon.",
+    "text": "Sof\u00eda Quispe is a first-year geology student at the National University of San Agust\u00edn in Arequipa.",
     "type": "entity"
   },
   "p6_m02": {
     "persona": "p6",
-    "text": "Owen remarried in September 2025 to his wife, Celia.",
+    "text": "Sof\u00eda's older brother Mart\u00edn works as a bus mechanic in Juliaca.",
     "type": "relationship"
   },
   "p6_m03": {
     "persona": "p6",
-    "text": "Owen has a 14-year-old stepdaughter named Wren.",
-    "type": "entity"
+    "text": "Sof\u00eda prefers taking notes on grid paper rather than lined paper for her mineralogy sketches.",
+    "type": "preference"
   },
   "p6_m04": {
     "persona": "p6",
-    "text": "Owen prefers rainy weekend walks in the Mount Pisgah Arboretum over crowded downtown events.",
+    "text": "As of 2026-02-18, Sof\u00eda switched from preferring matte black field notebooks to bright orange waterproof notebooks so they are easier to spot on rocky slopes.",
     "type": "preference"
   },
   "p6_m05": {
     "persona": "p6",
-    "text": "Owen likes listening to French musette accordion records while cooking dinner.",
-    "type": "preference"
+    "text": "On 2026-01-14, Sof\u00eda hiked the lower trail on Volc\u00e1n Misti with her stratigraphy class and forgot her sunscreen.",
+    "type": "episodic"
   },
   "p6_m06": {
     "persona": "p6",
-    "text": "Owen dislikes white button mushrooms but loves foraging for chanterelles.",
-    "type": "preference"
+    "text": "On 2026-03-09, Sof\u00eda returned to Volc\u00e1n Misti for a sunrise practice hike and borrowed trekking poles from her cousin Elena.",
+    "type": "episodic"
   },
   "p6_m07": {
     "persona": "p6",
-    "text": "On 2026-03-12, Owen donated a box of 1970s neighborhood newsletters to the Lane County History Museum.",
+    "text": "On 2026-05-21, Sof\u00eda did her most recent Volc\u00e1n Misti hike, reaching the campsite but turning back because of wind.",
     "type": "episodic"
   },
   "p6_m08": {
     "persona": "p6",
-    "text": "In February 2026, Owen repaired a 1948 tabletop radio with his friend Luis.",
+    "text": "On 2026-04-02, Sof\u00eda bought a green hand lens at the Saturday market after misplacing her old one.",
     "type": "episodic"
   },
   "p6_m09": {
     "persona": "p6",
-    "text": "Owen's orange cat is named Sprocket.",
-    "type": "entity"
+    "text": "On 2026-04-19, Sof\u00eda found her old blue hand lens tucked inside her petrology workbook.",
+    "type": "episodic"
   },
   "p6_m10": {
     "persona": "p6",
-    "text": "Owen co-hosts a monthly radio-history segment on community station KEPW with his friend Luis.",
-    "type": "relationship"
+    "text": "Sof\u00eda's current phone is a teal Samsung Galaxy A34 with a cracked screen protector.",
+    "type": "entity"
   },
   "p6_m11": {
     "persona": "p6",
-    "text": "Owen needs to digitize his grandmother's accordion recital cassette before the end of August 2026.",
-    "type": "task"
+    "text": "On 2025-12-03, Sof\u00eda said she planned to stay in the shared student flat in Yanahuara through the full academic year.",
+    "type": "episodic"
   },
   "p6_m12": {
     "persona": "p6",
-    "text": "Owen promised Wren he would help build shelves for her room next Sunday.",
-    "type": "task"
+    "text": "On 2026-03-27, Sof\u00eda moved from the shared flat in Yanahuara into her aunt Ver\u00f3nica's house in Cerro Colorado to cut commuting costs.",
+    "type": "episodic"
   },
   "p6_m13": {
     "persona": "p6",
-    "text": "On 2026-05-21, Owen led a walking tour about vanished movie theaters in downtown Eugene.",
-    "type": "episodic"
+    "text": "Sof\u00eda promised on 2026-05-24 to mail Mart\u00edn the spark plugs he asked for before the end of the week.",
+    "type": "task"
   },
   "p6_m14": {
     "persona": "p6",
-    "text": "On 2026-05-28, Owen attended a walking tour about historic bridges in Springfield as a participant.",
+    "text": "On 2026-02-07, Sof\u00eda worked the museum shop inventory shift and accidentally overcounted the postcard rack by 20.",
     "type": "episodic"
   },
   "p6_m15": {
     "persona": "p6",
-    "text": "Owen prefers paper field notebooks for archive visits but uses a tablet for catalog spreadsheets.",
-    "type": "preference"
+    "text": "On 2026-05-03, Sof\u00eda worked a museum shop shift during the visiting schools weekend and sold out of the polished pyrite keychains by noon.",
+    "type": "episodic"
   },
   "p7_m01": {
     "persona": "p7",
-    "text": "Sof\u00eda works as a neonatal intensive care unit nurse at a hospital in Albuquerque.",
+    "text": "Tomasz Zieli\u0144ski is a tram operations dispatcher in Gda\u0144sk, Poland.",
     "type": "entity"
   },
   "p7_m02": {
     "persona": "p7",
-    "text": "Sof\u00eda lives with her partner Mateo and their 6-year-old daughter In\u00e9s.",
+    "text": "Tomasz lives with his 14-year-old son, Maks.",
     "type": "relationship"
   },
   "p7_m03": {
     "persona": "p7",
-    "text": "The family\u2019s elderly orange cat is named Canelo.",
-    "type": "entity"
+    "text": "Tomasz finalized his divorce from Ewa in March 2025.",
+    "type": "relationship"
   },
   "p7_m04": {
     "persona": "p7",
-    "text": "Sof\u00eda prefers green chile on breakfast burritos.",
+    "text": "Tomasz likes savory breakfasts more than sweet ones.",
     "type": "preference"
   },
   "p7_m05": {
     "persona": "p7",
-    "text": "Sof\u00eda dislikes cilantro in salsa but likes roasted tomatillo salsa.",
+    "text": "Tomasz prefers rye bread with twar\u00f3g and radishes for breakfast.",
     "type": "preference"
   },
   "p7_m06": {
     "persona": "p7",
-    "text": "She loves going to hot-air balloon events every October.",
+    "text": "Tomasz dislikes oat porridge for breakfast.",
     "type": "preference"
   },
   "p7_m07": {
     "persona": "p7",
-    "text": "Sof\u00eda relaxes by weaving small wall hangings on a rigid-heddle loom.",
-    "type": "preference"
+    "text": "On 2025-02-11, Tomasz paddled his first sea-kayak trip of the year from G\u00f3rki Zachodnie.",
+    "type": "episodic"
   },
   "p7_m08": {
     "persona": "p7",
-    "text": "On 2025-02-14, Sof\u00eda took In\u00e9s to the children\u2019s science museum downtown.",
+    "text": "On 2025-04-27, Tomasz took Maks on a sea-kayak outing near Sobieszewo Island.",
     "type": "episodic"
   },
   "p7_m09": {
     "persona": "p7",
-    "text": "On 2025-03-03, Sof\u00eda booked a roof repair estimate for their adobe house after a leak.",
+    "text": "On 2025-06-15, Tomasz skipped a planned sea-kayak session because of high wind warnings.",
     "type": "episodic"
   },
   "p7_m10": {
     "persona": "p7",
-    "text": "On 2025-03-18, Sof\u00eda patched a crack in the living-room adobe wall herself.",
+    "text": "On 2025-07-06, Tomasz completed a dawn sea-kayak paddle on the Mot\u0142awa River.",
     "type": "episodic"
   },
   "p7_m11": {
     "persona": "p7",
-    "text": "Sof\u00eda needs to schedule Canelo\u2019s senior-cat bloodwork before the end of August.",
-    "type": "task"
+    "text": "On 2025-01-19, Tomasz said he was using Evernote to log radio repair notes.",
+    "type": "episodic"
   },
   "p7_m12": {
     "persona": "p7",
-    "text": "She plans to sew blackout curtains for In\u00e9s\u2019s bedroom before summer gets hotter.",
-    "type": "task"
+    "text": "On 2025-05-22, Tomasz switched from Evernote to Obsidian for tracking radio repair notes.",
+    "type": "episodic"
   },
   "p7_m13": {
     "persona": "p7",
-    "text": "Mateo teaches middle-school math.",
-    "type": "relationship"
+    "text": "On 2024-12-03, Tomasz said he planned to stay in Wrzeszcz long-term.",
+    "type": "episodic"
   },
   "p7_m14": {
     "persona": "p7",
-    "text": "In April 2025, Sof\u00eda promised her sister Elena she would host Easter brunch.",
+    "text": "On 2025-05-03, Tomasz moved from Wrzeszcz to an apartment in Oliwa to be closer to Maks's school.",
     "type": "episodic"
   },
   "p7_m15": {
     "persona": "p7",
-    "text": "Sof\u00eda likes sunrise balloon launches more than evening balloon glows.",
-    "type": "preference"
+    "text": "Tomasz needs to replace the cracked dial glass on his 1978 Unitra shortwave receiver before the end of August 2025.",
+    "type": "task"
   },
   "p8_m01": {
     "persona": "p8",
-    "text": "Imani runs a small honey business called Clyde Comb.",
+    "text": "Imani Okeke is a wedding cake decorator based in Halifax, Nova Scotia.",
     "type": "entity"
   },
   "p8_m02": {
     "persona": "p8",
-    "text": "Imani's younger brother Chidi lives in Manchester and is training to be a physiotherapist.",
-    "type": "relationship"
+    "text": "On 2024-02-11, Imani signed a lease for an apartment in Winnipeg's Osborne Village.",
+    "type": "episodic"
   },
   "p8_m03": {
     "persona": "p8",
-    "text": "Imani has a rescue grey cat named Saffron.",
-    "type": "entity"
+    "text": "On 2024-09-03, Imani moved from Winnipeg to Halifax for a job at a boutique bakery.",
+    "type": "episodic"
   },
   "p8_m04": {
     "persona": "p8",
-    "text": "Imani prefers Assam tea with oat milk and no sugar.",
-    "type": "preference"
+    "text": "Imani's younger brother is Chidi, who lives in Calgary.",
+    "type": "relationship"
   },
   "p8_m05": {
     "persona": "p8",
-    "text": "Imani dislikes honey stirred into hot tea because she says it masks the floral notes.",
+    "text": "Imani prefers swiss meringue buttercream over fondant for most cakes.",
     "type": "preference"
   },
   "p8_m06": {
     "persona": "p8",
-    "text": "Imani likes orange blossom honey best for tasting on toast.",
+    "text": "Imani dislikes working with fondant-heavy cake designs.",
     "type": "preference"
   },
   "p8_m07": {
     "persona": "p8",
-    "text": "Imani prefers heather honey for gifting because it feels more distinctly Scottish.",
-    "type": "preference"
+    "text": "On 2025-01-14, Imani did her first cold-water swim of the year at Black Rock Beach.",
+    "type": "episodic"
   },
   "p8_m08": {
     "persona": "p8",
-    "text": "On 2026-04-12, Imani moved two hives to a rooftop site in Partick.",
+    "text": "On 2025-03-02, Imani went cold-water swimming at Chocolate Lake.",
     "type": "episodic"
   },
   "p8_m09": {
     "persona": "p8",
-    "text": "On 2026-04-18, Imani got stung on her left wrist while inspecting a queen cell.",
+    "text": "On 2025-04-21, Imani went cold-water swimming at Black Rock Beach with her friend Mara.",
     "type": "episodic"
   },
   "p8_m10": {
     "persona": "p8",
-    "text": "On 2026-05-03, Imani sold out of spring blossom honey at the Southside makers market.",
+    "text": "On 2025-05-05, Imani bought a used cast-iron flower press at the Alderney Landing flea market.",
     "type": "episodic"
   },
   "p8_m11": {
     "persona": "p8",
-    "text": "Imani needs to email the caf\u00e9 on Byres Road about stocking 250-gram jars.",
-    "type": "task"
+    "text": "On 2025-06-16, Imani bought a vintage brass cake stand at the Hydrostone market.",
+    "type": "episodic"
   },
   "p8_m12": {
     "persona": "p8",
-    "text": "Imani promised to drop off a jar of dark heather honey to her upstairs neighbor Moira on Thursday.",
-    "type": "task"
+    "text": "Imani is dating Mara, a paramedic she met at a community printmaking class.",
+    "type": "relationship"
   },
   "p8_m13": {
     "persona": "p8",
-    "text": "Imani is dating Ewan, a bicycle mechanic she met at a community repair workshop.",
-    "type": "relationship"
+    "text": "Imani needs to deliver a three-tier lemon-elderflower wedding cake on 2025-07-27.",
+    "type": "task"
   },
   "p8_m14": {
     "persona": "p8",
-    "text": "Imani stores spare frames and smokers in a rented shed near the canal allotments.",
-    "type": "entity"
+    "text": "On 2024-06-18, Imani said she was planning to stay in Winnipeg for at least two more years.",
+    "type": "episodic"
   },
   "p8_m15": {
     "persona": "p8",
-    "text": "Last Tuesday, Imani canceled a canal cycling meetup because of heavy rain and high winds.",
+    "text": "On 2025-02-08, Imani switched from sketching cake designs on paper to using Procreate on her iPad.",
     "type": "episodic"
   },
   "p9_m01": {
     "persona": "p9",
-    "text": "Haruto Sakamoto works as a court stenographer at the Kyoto District Court.",
+    "text": "Elias R\u00f6nn is a municipal wastewater process engineer based in Ume\u00e5, Sweden.",
     "type": "entity"
   },
   "p9_m02": {
     "persona": "p9",
-    "text": "Haruto lives alone in a condominium in Kyoto now that his daughter has moved out for graduate school.",
-    "type": "entity"
+    "text": "Elias remarried in June 2024; his spouse is named Karin.",
+    "type": "relationship"
   },
   "p9_m03": {
     "persona": "p9",
-    "text": "Haruto's daughter Emi started graduate school in Nagoya in April 2026.",
-    "type": "relationship"
+    "text": "Elias has a border terrier named Miso.",
+    "type": "entity"
   },
   "p9_m04": {
     "persona": "p9",
-    "text": "Haruto calls his mother every Sunday evening because she lives by herself in Uji.",
-    "type": "relationship"
+    "text": "Elias prefers coffee brewed in a moka pot over drip coffee.",
+    "type": "preference"
   },
   "p9_m05": {
     "persona": "p9",
-    "text": "Haruto prefers loose-leaf hojicha over coffee, especially while transcribing notes at home.",
+    "text": "As of 2025-02-14, Elias switched from preferring paper notebooks to keeping his work notes in Obsidian on his laptop.",
     "type": "preference"
   },
   "p9_m06": {
     "persona": "p9",
-    "text": "Haruto dislikes smartwatches and prefers repairing older mechanical watches by hand.",
-    "type": "preference"
+    "text": "On 2024-09-12, Elias went chanterelle foraging near Tavelsj\u00f6 and came back with two baskets.",
+    "type": "episodic"
   },
   "p9_m07": {
     "persona": "p9",
-    "text": "Haruto enjoys attending live rakugo performances at small theaters more than watching recorded comedy.",
-    "type": "preference"
+    "text": "On 2024-10-03, Elias went chanterelle foraging near Tavelsj\u00f6 but found almost none after an early frost.",
+    "type": "episodic"
   },
   "p9_m08": {
     "persona": "p9",
-    "text": "On 2026-02-11, Haruto repotted his shimpaku juniper bonsai after noticing the soil was compacted.",
+    "text": "On 2025-09-21, Elias went chanterelle foraging near Tavelsj\u00f6 and found enough to dry a full jar.",
     "type": "episodic"
   },
   "p9_m09": {
     "persona": "p9",
-    "text": "On 2026-03-03, Haruto missed a rakugo matinee because a hearing at court ran late.",
+    "text": "On 2025-01-18, Elias took Miso ice fishing on Lake Nydala and caught three perch.",
     "type": "episodic"
   },
   "p9_m10": {
     "persona": "p9",
-    "text": "On 2026-05-18, Haruto bought a vintage Seiko movement from a shop near Teramachi Street.",
+    "text": "On 2025-02-01, Elias took Miso ice fishing on Lake Nydala and caught nothing because the auger jammed.",
     "type": "episodic"
   },
   "p9_m11": {
     "persona": "p9",
-    "text": "Haruto needs to mail Emi her spare house key before her July visit to Kyoto.",
-    "type": "task"
+    "text": "On 2025-02-15, Elias took Miso ice fishing on Lake Nydala and caught one pike.",
+    "type": "episodic"
   },
   "p9_m12": {
     "persona": "p9",
-    "text": "Haruto promised to help his neighbor Ms. Tanabe shorten the strap on her wristwatch next weekend.",
+    "text": "On 2025-03-02, Elias planned to replace the warped deck planks on his dock before midsummer.",
     "type": "task"
   },
   "p9_m13": {
     "persona": "p9",
-    "text": "Haruto keeps three bonsai on his balcony: a shimpaku juniper, a Japanese maple, and a dwarf pine.",
+    "text": "Before 2025-04-01, Elias lived in Skellefte\u00e5.",
     "type": "entity"
   },
   "p9_m14": {
     "persona": "p9",
-    "text": "Haruto likes quiet kissaten with jazz playing softly in the background.",
-    "type": "preference"
+    "text": "As of 2025-04-01, Elias lives in Ume\u00e5 after moving from Skellefte\u00e5.",
+    "type": "entity"
   },
   "p9_m15": {
     "persona": "p9",
-    "text": "Haruto likes quiet cafes for reading case transcripts, but he avoids places with background music when doing detailed watch repair.",
-    "type": "preference"
+    "text": "Elias needs to mail his sister Ingrid the finished scale-model tugboat by 2025-11-10.",
+    "type": "task"
   }
 }
