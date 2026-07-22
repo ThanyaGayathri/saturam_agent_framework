@@ -448,6 +448,10 @@ include = ["LICENSE"]
 log_cli = true
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: tests requiring external services or API keys",
+    "system: tests requiring Docker-compose environment",
+]
 
 [tool.ruff]
 line-length = 120

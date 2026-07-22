@@ -4,7 +4,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from egpt.tools.crawl4ai import Crawl4aiTools
+_CRAWL4AI_QUARANTINE = (
+    "Quarantined (EGPT-0.10): crawl4ai depends on litellm, which is temporarily disabled in egpt[tests]"
+)
+
+pytestmark = pytest.mark.skip(reason=_CRAWL4AI_QUARANTINE)
+
+pytest.importorskip("crawl4ai", reason=_CRAWL4AI_QUARANTINE)
+
+from egpt.tools.crawl4ai import Crawl4aiTools  # noqa: E402
 
 
 @pytest.fixture
