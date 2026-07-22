@@ -31,7 +31,7 @@ MILVUS_URI = os.environ.get("MILVUS_URI", "http://localhost:19530")
 Builder = Callable[[str], VectorDb]
 
 
-def _pgvector_builder(embedder: Embedder, search_type: SearchType) -> Builder:
+def _pgvector_builder(embedder: Embedder, search_type: SearchType, ef_search: int) -> Builder:
     from egpt.vectordb.pgvector import PgVector
     from egpt.vectordb.pgvector.index import HNSW
 
@@ -42,16 +42,23 @@ def _pgvector_builder(embedder: Embedder, search_type: SearchType) -> Builder:
             db_url=PGV_URL,
             embedder=embedder,
             search_type=search_type,
-            vector_index=HNSW(),
+            # egpt's HNSW default is ef_search=5 (below k=10) — degenerate. Set a matched,
+            # non-degenerate ef so pgvector is compared at real HNSW quality (review #1).
+            vector_index=HNSW(ef_search=ef_search, m=16, ef_construction=200),
             distance=Distance.cosine,
         )
 
     return build
 
 
-def _qdrant_builder(embedder: Embedder, search_type: SearchType) -> Builder:
+def _qdrant_builder(
+    embedder: Embedder, search_type: SearchType, ef_search: int
+) -> Builder:
     from egpt.vectordb.qdrant import Qdrant
 
+    # NOTE: the egpt Qdrant adapter exposes no search-time hnsw_ef, so ef_search cannot be
+    # matched exactly here; Qdrant uses its (non-degenerate) default. Recall is reported
+    # alongside latency so the comparison is read at achieved recall, not assumed-equal ef.
     def build(name: str) -> VectorDb:
         return Qdrant(
             collection=name,
@@ -59,15 +66,15 @@ def _qdrant_builder(embedder: Embedder, search_type: SearchType) -> Builder:
             embedder=embedder,
             search_type=search_type,
             distance=Distance.cosine,
-            # Default qdrant-client REST timeout is 5s; bulk insert / index build at 1M+
-            # vectors exceeds it. Production clients should set a generous timeout.
-            timeout=120.0,
+            timeout=120.0,  # default 5s REST timeout is exceeded by bulk insert at 1M+
         )
 
     return build
 
 
-def _milvus_builder(embedder: Embedder, search_type: SearchType) -> Builder:
+def _milvus_builder(
+    embedder: Embedder, search_type: SearchType, ef_search: int
+) -> Builder:
     from egpt.vectordb.milvus import Milvus
 
     def build(name: str) -> VectorDb:
@@ -89,7 +96,9 @@ BUILDERS = {
 }
 
 
-def get_builder(backend: str, embedder: Embedder, search_type: SearchType) -> Builder:
+def get_builder(
+    backend: str, embedder: Embedder, search_type: SearchType, ef_search: int = 64
+) -> Builder:
     if backend not in BUILDERS:
         raise ValueError(f"Unknown backend '{backend}'. Choices: {sorted(BUILDERS)}")
-    return BUILDERS[backend](embedder, search_type)
+    return BUILDERS[backend](embedder, search_type, ef_search)

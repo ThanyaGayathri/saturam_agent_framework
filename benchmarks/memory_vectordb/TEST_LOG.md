@@ -1,63 +1,42 @@
-# TEST_LOG — SM-R3 memory vector-store benchmark
+# TEST_LOG — SM-R3 memory vector-store benchmark (v2)
 
-### Smoke test (n=1000, 10 tenants, 20 queries)
+v2 rebuild after PR #7 review: real embeddings (GloVe-100-angular), real HNSW (matched
+ef=64), per-tenant scale, 3 tenancy modes, 1000 queries × 3 repeats, leakage asserted.
 
-**Status:** PASS
+### Foundation gate (100k/tenant × 3, real data)
 
-**Description:** End-to-end validation of the harness across pgvector, Qdrant, Milvus in
-both `filter` and `collection` tenancy modes.
+**Status:** PASS. Confirmed recall is now discriminative (not 1.0) and HNSW is actually
+used. Surfaced that the egpt PgVector adapter builds no index and its `optimize()` is broken
+(findings 3 + 4) — the harness now builds the HNSW index via raw SQL. Cross-tenant leaks = 0.
 
-**Result:** pgvector/Qdrant recall 1.0 both modes. Surfaced the Milvus metadata-filter
-defect (filter mode recall 0.0); see findings/.
+### Run A — 100k/tenant × 10 (1M total): per-tenant target
 
----
+**Status:** PASS (pgvector + qdrant). Milvus errored (container down overnight).
+Result: `results/summary_20260720T200715Z_matrixA.md`.
+- pgvector: filter recall 0.564 / p95 25 ms; collection 0.881 / 20.7 ms; partition 0.881 / 15.2 ms.
+- qdrant: filter 0.781 / 766.7 ms; collection 1.000 / 13.4 ms. Leaks = 0.
 
-### Scale run (n=100000, 50 tenants, 200 queries, dim=768)
+### Run B — 20k/tenant × 50 (1M total): high cardinality
 
-**Status:** PASS
+**Status:** PASS. Result: `results/summary_20260721T021033Z_matrixB.md`.
+- pgvector: filter recall **0.217** / 23 ms; collection 0.950 / 16.9 ms; **partition 1.000 / 13.7 ms**.
+- qdrant: filter 0.986 / 901.7 ms; collection 1.000 / 14.4 ms. Leaks = 0.
+- Headline: shared-table filter recall collapses with tenant count; partitioning is best.
 
-**Description:** Primary decision-grade run across all three backends, both tenancy modes,
-as a single sequential pass (clean absolute latencies).
-Results: `results/summary_20260716T091045Z_scale100k.md`.
+### Run C — 1M/tenant × 1 (pure scale)
 
-**Result (p95):** pgvector filter 134 ms / collection 39 ms; Qdrant filter 62 ms /
-collection 16 ms; Milvus collection 16 ms. All recall ≈ 1.0. Milvus `filter` was 0.0 on the
-seed adapter (defect); re-run on the corrected adapter (see below) gives recall 0.93 /
-p95 65 ms.
+**Status:** PARTIAL. pgvector filter recall 0.799 / 21 ms; collection 0.796 / 67.7 ms
+(salvaged from log). Partition + qdrant not completed — a serial 1M HNSW build stalled
+overnight after the host slept; killed. Non-critical (Runs A/B decide the question).
 
----
+### Milvus
 
-### Milvus filter re-run on corrected adapter (n=100000)
+**Status:** NOT MEASURED at v2 scale. Functionally validated earlier (patched adapter returns
+correct tenant rows; unpatched returns nothing). The container repeatedly went
+unavailable / gRPC-timed-out under load in this environment. 100M+ escape hatch, so it does
+not affect the decision.
 
-**Status:** PASS
+### Gates
 
-**Description:** Milvus `filter` re-run with the metadata-as-JSON fix applied locally
-(uncommitted; preserved as findings/milvus-metadata-json.patch) to measure true capability.
-Results: `results/summary_20260716T103948Z_milvus_fixed.md`.
-
-**Result:** recall 0.93, p95 65 ms — confirms the fix makes Milvus filtered multi-tenancy
-work (unpatched: 0.0).
-
----
-
-### Scale run (n=1000000, 50 tenants — clean, sequential, no concurrent load)
-
-**Status:** PASS
-
-**Description:** pgvector and Qdrant at 1M, filter + collection, each backend run alone to
-avoid CPU/IO contention (an earlier concurrent run inflated latencies ~2-4×; archived under
-results/_contended/ and discarded).
-Results: `results/summary_*scale1m_pg_clean.md`, `results/summary_*scale1m_qdrant_clean.md`.
-
-**Result (p95 / recall):**
-- pgvector filter: 771 ms / 1.0 — filter-outside-HNSW does not scale (latency).
-- pgvector collection: 236 ms / 1.0.
-- qdrant filter: 548 ms / **0.29** — filter-inside-HNSW loses recall without a tenant
-  payload index (see findings/).
-- qdrant collection: 86 ms / 1.0.
-
-Key conclusion: naive shared-table `tenant_id` filtering is not viable at 1M on either store
-(pgvector fails on latency, Qdrant on recall). Multi-tenancy must use store-native
-partitioning / payload indexing. Drives DECISION.md.
-
----
+**Status:** `./scripts/format.sh` + `./scripts/validate.sh` pass; core (`libs/`) untouched
+(Milvus fix kept as `findings/milvus-metadata-json.patch`, reverted from the tree).
