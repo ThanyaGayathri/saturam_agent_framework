@@ -66,12 +66,21 @@ cd benchmarks/memory_decay
 ./setup.sh
 ./.venv/bin/python run_benchmark.py --seeds 5                    # synthetic (decision)
 ./.venv/bin/python run_benchmark.py --seeds 5 --relevance embedding  # confirmation
-./.venv/bin/python sweep_params.py --seeds 5
+./.venv/bin/python sweep_params.py --seeds 5                     # parameter sensitivity
+./.venv/bin/python confound.py --seeds 5                        # importance de-circularization
+./.venv/bin/python ablations.py --seeds 5 --embedding           # prune-gate + reinforcement
+./.venv/bin/python significance.py --seeds 5                    # paired-bootstrap significance
 ```
 
-Deterministic given the seeds (and, for embedding mode, the model). Results:
-`results/summary.{json,md}`, `results/summary_embedding.{json,md}`,
-`results/sensitivity.{json,md}`. See [TEST_LOG.md](TEST_LOG.md).
+Deterministic given the seeds (and, for embedding mode, the model). Results in
+`results/`: `summary*.{json,md}`, `sensitivity.{json,md}`, `confound.{json,md}`,
+`ablations.{json,md}`, `significance*.{json,md}`. See [TEST_LOG.md](TEST_LOG.md).
+
+**Metric notes.** Recall is bucketed by *idle-age* (time since a fact was last
+surfaced — the clock decay acts on) for decay-resistance, not fact calendar-age.
+Prune precision/recall use a need-based "disposable" universe in which
+never-queried noise is correctly prunable. `stale-hit (versioned)` restricts to
+queries that can structurally produce a same-topic stale hit.
 
 ## Layout
 
@@ -84,7 +93,10 @@ benchmarks/memory_decay/
 ├── requirements.txt
 ├── run_benchmark.py       # compare all five candidates (--relevance synthetic|embedding)
 ├── sweep_params.py        # parameter sensitivity
-├── harness/               # stream, strategies, simulate, metrics, episode, vocab, relevance
+├── confound.py            # importance de-circularization sweep
+├── ablations.py           # prune-gate + reinforcement ablations
+├── significance.py        # paired-bootstrap significance
+├── harness/               # stream, strategies, simulate, metrics, episode, vocab, relevance, stats
 ├── results/               # generated outputs (synthetic + embedding)
 └── findings/              # notes for the implementation phase (SM-C*)
 ```

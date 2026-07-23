@@ -60,6 +60,7 @@ def generate_stream(
     queries_per_topic: float = 3.0,
     topic_jitter: float = 0.35,
     query_jitter: float = 0.30,
+    importance_noise: float = 0.0,
 ) -> Stream:
     """Generate a reproducible synthetic episode stream.
 
@@ -76,11 +77,31 @@ def generate_stream(
         queries_per_topic: Mean number of queries per (queryable) topic.
         topic_jitter: Noise added to a topic base vector per memory.
         query_jitter: Noise added to a topic base vector per query.
+        importance_noise: In [0, 1]. Decorrelates the assigned ``importance`` from
+            ``kind``. At 0 (default) importance is the clean kind-based oracle; at 1
+            it is a fully independent uniform draw. Values in between model an
+            imperfectly calibrated importance scorer. See ``confound.py``. This is
+            the de-circularization control for the importance_weighted comparison:
+            a production importance signal is noisy, so the decision must be shown
+            to survive that noise rather than rely on a planted oracle.
 
     Returns:
         A fully populated :class:`Stream`.
     """
     rng = np.random.default_rng(seed)
+
+    def importance(lo: float, hi: float) -> float:
+        """Kind-based importance prior, optionally decorrelated by importance_noise."""
+        oracle = float(rng.uniform(lo, hi))
+        if importance_noise <= 0.0:
+            return oracle  # no extra RNG draw -> default runs reproduce exactly
+        indep = float(rng.uniform(0.0, 1.0))
+        return float(
+            np.clip(
+                (1.0 - importance_noise) * oracle + importance_noise * indep, 0.0, 1.0
+            )
+        )
+
     episodes: List[Episode] = []
     queries: List[Query] = []
 
@@ -137,7 +158,7 @@ def generate_stream(
             topic_id=topic_id,
             vector=_topic_vector(rng, base, topic_jitter),
             created_at=created,
-            importance=float(rng.uniform(0.75, 1.0)),
+            importance=importance(0.75, 1.0),
             kind="durable",
             valid_from=created,
             valid_until=FOREVER,
@@ -162,7 +183,7 @@ def generate_stream(
                 topic_id=topic_id,
                 vector=_topic_vector(rng, base, topic_jitter),
                 created_at=float(t),
-                importance=float(rng.uniform(0.4, 0.85)),
+                importance=importance(0.4, 0.85),
                 kind="fact_version",
                 valid_from=float(t),
                 valid_until=float(valid_until),
@@ -189,7 +210,7 @@ def generate_stream(
                 topic_id=topic_id,
                 vector=_topic_vector(rng, base, topic_jitter),
                 created_at=float(t),
-                importance=float(rng.uniform(0.1, 0.4)),
+                importance=importance(0.1, 0.4),
                 kind="ephemeral",
                 valid_from=float(t),
                 valid_until=float(min(t + ephemeral_ttl_hours, horizon_hours)),
@@ -211,7 +232,7 @@ def generate_stream(
                 topic_id=topic_id,
                 vector=_topic_vector(rng, base, topic_jitter),
                 created_at=created,
-                importance=float(rng.uniform(0.0, 0.3)),
+                importance=importance(0.0, 0.3),
                 kind="noise",
                 valid_from=created,
                 valid_until=FOREVER,

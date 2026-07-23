@@ -15,8 +15,15 @@ State model (mirrors the proposed new ``UserMemory`` fields):
     - ``last_accessed_at``: sim-hours of last access; initialised to created_at.
     - ``strength``: retention parameter that grows on access (Ebbinghaus ``S``).
 
-"Access" is defined as *injection into retrieval context* (i.e. the memory was
-returned in the top-k for a query). See DECISION.md for the rationale.
+"Access" for reinforcement is *confirmed relevance / use*, not bare injection
+(DECISION §3, measured in ablations.py).
+
+CANONICAL SCORER: the chosen model is ``ImportanceWeighted`` — importance lives in
+the *half-life*, and its ``score`` is ``alpha*relevance + beta*decay`` with NO
+additive importance term. The rejected ``ExpRecency`` / ``Ebbinghaus`` variants add
+``+ gamma*importance`` to their score (faithful to their papers); that term is part
+of those variants and must NOT be carried into the promoted implementation. See
+DECISION §1.
 """
 
 from __future__ import annotations
@@ -41,6 +48,12 @@ class DecayStrategy:
     name: str = "base"
     # Prune when the decay factor drops below this. None => ranking-only.
     prune_threshold: Optional[float] = None
+    # Extra prune conditions for the DECISION §4 three-condition gate. When set,
+    # a memory is prunable only if it ALSO has importance below the floor AND is
+    # not currently the valid version of its fact (is_stale_at). Both left at the
+    # permissive default reproduce the recency-only gate.
+    importance_floor: Optional[float] = None
+    require_stale: bool = False
     state: Dict[str, MemState] = field(default_factory=dict)
 
     def reset(self) -> None:
@@ -81,7 +94,19 @@ class DecayStrategy:
     def is_prunable(self, memory: Episode, now: float) -> bool:
         if self.prune_threshold is None:
             return False
-        return self._decay_factor(memory=memory, now=now) < self.prune_threshold
+        # Condition 1: recency/retention below the floor.
+        if self._decay_factor(memory=memory, now=now) >= self.prune_threshold:
+            return False
+        # Condition 2 (§4 gate): importance below a floor.
+        if (
+            self.importance_floor is not None
+            and memory.importance >= self.importance_floor
+        ):
+            return False
+        # Condition 3 (§4 gate): not the currently-valid version of its fact.
+        if self.require_stale and not memory.is_stale_at(now):
+            return False
+        return True
 
     async def ais_prunable(self, memory: Episode, now: float) -> bool:
         return self.is_prunable(memory=memory, now=now)
@@ -230,21 +255,48 @@ class Ebbinghaus(DecayStrategy):
         st.last_accessed_at = now
 
 
-def default_strategies(prune: bool = False) -> List[DecayStrategy]:
+def default_strategies(
+    prune: bool = False, prune_gate: str = "recency"
+) -> List[DecayStrategy]:
     """The five candidates with provisional default parameters.
 
     Args:
         prune: If True, enable a decay-based prune threshold on each decay
             strategy so pruning behaviour can be measured. ``no_decay`` never
             prunes (it is the ranking-only, conflict-driven baseline).
+        prune_gate: Which prune predicate the decay strategies use when
+            ``prune`` is True:
+            - ``"recency"`` — recency below floor only (the rule measured in the
+              first pass).
+            - ``"three_condition"`` — the literal DECISION §4 gate: recency floor
+              AND importance below ``importance_floor`` AND stale (not the
+              currently-valid version). ``ttl_halflife`` keeps its separate hard
+              TTL and is left on the recency gate so the two gates stay comparable.
     """
     threshold = 0.05 if prune else None
+    # §4 gate extras (importance floor sits above noise's 0.0-0.3 and most
+    # ephemeral 0.1-0.4, below durable 0.75-1.0 and typical fact_version).
+    three = prune and prune_gate == "three_condition"
+    imp_floor: Optional[float] = 0.5 if three else None
+    req_stale: bool = three
     return [
         NoDecay(),
-        ExpRecency(prune_threshold=threshold),
+        ExpRecency(
+            prune_threshold=threshold,
+            importance_floor=imp_floor,
+            require_stale=req_stale,
+        ),
         TtlHalflife(
             prune_threshold=threshold, ttl_hours=(24.0 * 30.0 if prune else None)
         ),
-        ImportanceWeighted(prune_threshold=threshold),
-        Ebbinghaus(prune_threshold=threshold),
+        ImportanceWeighted(
+            prune_threshold=threshold,
+            importance_floor=imp_floor,
+            require_stale=req_stale,
+        ),
+        Ebbinghaus(
+            prune_threshold=threshold,
+            importance_floor=imp_floor,
+            require_stale=req_stale,
+        ),
     ]

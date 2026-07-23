@@ -35,15 +35,18 @@ def _mean(values: List[float]) -> float:
     return statistics.mean(values) if values else 0.0
 
 
-def _build_streams(seeds: List[int], relevance: str, model_name: str) -> List:
+def _build_streams(
+    seeds: List[int], relevance: str, model_name: str, importance_noise: float = 0.0
+) -> List:
     """Build one stream per seed, embedding the text if requested.
 
     Streams are built once and reused for both the ranking and pruning passes so
     real embeddings (the expensive part) are computed a single time per seed.
+    ``importance_noise`` decorrelates importance from kind (de-circularization).
     """
     streams = []
     for seed in seeds:
-        stream = generate_stream(seed=seed)
+        stream = generate_stream(seed=seed, importance_noise=importance_noise)
         if relevance == "embedding":
             from harness.relevance import embed_stream, embeddings_available
 
@@ -57,10 +60,19 @@ def _build_streams(seeds: List[int], relevance: str, model_name: str) -> List:
     return streams
 
 
+def _std(values: List[float]) -> float:
+    return statistics.pstdev(values) if len(values) > 1 else 0.0
+
+
 def _collect(streams: List, k: int, prune: bool) -> Dict[str, dict]:
-    """Run every strategy over every (prebuilt) stream; average the metrics."""
+    """Run every strategy over every (prebuilt) stream; average the metrics.
+
+    Reports the mean and per-seed std of each metric; buckets both by fact
+    calendar-age (transparency) and by idle-age (decay-resistance headline).
+    """
     accum: Dict[str, Dict[str, List[float]]] = {}
-    bucket_accum: Dict[str, Dict[str, List[float]]] = {}
+    age_accum: Dict[str, Dict[str, List[float]]] = {}
+    idle_accum: Dict[str, Dict[str, List[float]]] = {}
     params: Dict[str, dict] = {}
 
     for stream in streams:
@@ -79,51 +91,64 @@ def _collect(streams: List, k: int, prune: bool) -> Dict[str, dict]:
                 ("ndcg_at_k", q.ndcg_at_k),
                 ("mrr", q.mrr),
                 ("stale_hit_rate", q.stale_hit_rate),
+                ("stale_hit_rate_versioned", q.stale_hit_rate_versioned),
                 ("prune_precision", p.prune_precision),
                 ("prune_recall", p.prune_recall),
                 ("false_forget", float(p.false_forget)),
                 ("retained_final", float(p.retained_final)),
             ):
                 store.setdefault(key, []).append(val)
-            bstore = bucket_accum.setdefault(name, {})
             for bucket, recall in q.recall_by_age_bucket.items():
-                bstore.setdefault(bucket, []).append(recall)
+                age_accum.setdefault(name, {}).setdefault(bucket, []).append(recall)
+            for bucket, recall in q.recall_by_idle_bucket.items():
+                idle_accum.setdefault(name, {}).setdefault(bucket, []).append(recall)
 
     summary: Dict[str, dict] = {}
     for name, metrics in accum.items():
         summary[name] = {key: _mean(vals) for key, vals in metrics.items()}
+        summary[name]["_std"] = {key: _std(vals) for key, vals in metrics.items()}
         summary[name]["recall_by_age_bucket"] = {
-            b: _mean(v) for b, v in bucket_accum[name].items()
+            b: _mean(v) for b, v in age_accum.get(name, {}).items()
+        }
+        summary[name]["recall_by_idle_bucket"] = {
+            b: _mean(v) for b, v in idle_accum.get(name, {}).items()
         }
         summary[name]["params"] = params[name]
     return summary
 
 
 def _fmt_quality_table(summary: Dict[str, dict]) -> str:
-    header = "| strategy | nDCG@k | precision@k | recall@k | MRR | stale-hit-rate |\n"
+    header = (
+        "| strategy | nDCG@k | recall@k | MRR | stale-hit | stale-hit (versioned) |\n"
+    )
     header += "|---|---|---|---|---|---|\n"
     rows = ""
     for name, m in summary.items():
+        sd = m.get("_std", {})
         rows += (
-            f"| {name} | {m['ndcg_at_k']:.3f} | {m['precision_at_k']:.3f} | "
-            f"{m['recall_at_k']:.3f} | {m['mrr']:.3f} | {m['stale_hit_rate']:.3f} |\n"
+            f"| {name} | {m['ndcg_at_k']:.3f}±{sd.get('ndcg_at_k', 0.0):.3f} | "
+            f"{m['recall_at_k']:.3f}±{sd.get('recall_at_k', 0.0):.3f} | {m['mrr']:.3f} | "
+            f"{m['stale_hit_rate']:.3f} | {m['stale_hit_rate_versioned']:.3f} |\n"
         )
     return header + rows
 
 
 def _fmt_prune_table(summary: Dict[str, dict]) -> str:
-    header = "| strategy | prune-precision | prune-recall | false-forget | retained-final |\n"
-    header += "|---|---|---|---|---|\n"
+    header = "| strategy | prune-precision | prune-recall | false-forget | post-prune recall | retained-final |\n"
+    header += "|---|---|---|---|---|---|\n"
     rows = ""
     for name, m in summary.items():
+        ppr = m.get("recall_at_k", 0.0)  # recall in this (prune-enabled) pass
         rows += (
             f"| {name} | {m['prune_precision']:.3f} | {m['prune_recall']:.3f} | "
-            f"{m['false_forget']:.1f} | {m['retained_final']:.0f} |\n"
+            f"{m['false_forget']:.1f} | {ppr:.3f} | {m['retained_final']:.0f} |\n"
         )
     return header + rows
 
 
-def _fmt_bucket_table(summary: Dict[str, dict]) -> str:
+def _fmt_bucket_table(
+    summary: Dict[str, dict], key: str = "recall_by_idle_bucket"
+) -> str:
     buckets = ["0-1d", "1-7d", "7-30d", "30d+"]
     header = "| strategy | " + " | ".join(buckets) + " |\n"
     header += "|" + "---|" * (len(buckets) + 1) + "\n"
@@ -131,7 +156,7 @@ def _fmt_bucket_table(summary: Dict[str, dict]) -> str:
     for name, m in summary.items():
         cells = []
         for b in buckets:
-            val = m["recall_by_age_bucket"].get(b)
+            val = m[key].get(b)
             cells.append(f"{val:.3f}" if val is not None else "-")
         rows += f"| {name} | " + " | ".join(cells) + " |\n"
     return header + rows
@@ -157,18 +182,26 @@ def _write_outputs(
 
     md = "# Episodic Decay Benchmark Results\n\n"
     md += f"Seeds: {seeds}  |  k = {k}  |  relevance = {relevance}  |  candidates = {len(ranking)}\n\n"
+    md += "Values are mean +/- per-seed std. See DECISION.md for paired-bootstrap significance.\n\n"
     md += "## Retrieval quality (ranking only, no pruning)\n\n"
     md += _fmt_quality_table(ranking) + "\n"
-    md += "Higher nDCG/precision/recall/MRR is better; lower stale-hit-rate is better.\n\n"
-    md += "## Recall by fact-age bucket (ranking only)\n\n"
-    md += _fmt_bucket_table(ranking) + "\n"
-    md += "How well each strategy still finds the current fact as it ages.\n\n"
+    md += "Higher nDCG/recall/MRR is better; lower stale-hit is better. 'stale-hit (versioned)' "
+    md += "restricts to queries that can actually produce a same-topic stale hit.\n\n"
+    md += "## Recall by idle-age bucket (ranking only) -- decay resistance\n\n"
+    md += _fmt_bucket_table(ranking, key="recall_by_idle_bucket") + "\n"
+    md += (
+        "Bucketed by time since the fact was last surfaced (the clock decay acts on). "
+    )
+    md += "This measures resistance to decay, not re-access frequency.\n\n"
+    md += "## Recall by fact calendar-age bucket (ranking only) -- transparency\n\n"
+    md += _fmt_bucket_table(ranking, key="recall_by_age_bucket") + "\n"
+    md += "Bucketed by fact calendar-age; conflates re-access, so not the decay metric.\n\n"
     md += "## Pruning behaviour (prune enabled)\n\n"
     md += _fmt_prune_table(pruning) + "\n"
-    md += "prune-precision: of pruned, fraction already dead. prune-recall: of dead, "
-    md += (
-        "fraction pruned. false-forget: pruned while still needed (lower is better).\n"
-    )
+    md += "prune-precision: of pruned, fraction never needed again (noise counts as correct). "
+    md += "prune-recall: of the disposable-by-horizon set (incl. noise), fraction pruned. "
+    md += "false-forget: pruned while still needed later (lower is better). post-prune recall: "
+    md += "recall measured in this same prune-enabled pass.\n"
     suffix = "_embedding" if relevance == "embedding" else ""
     (RESULTS_DIR / f"summary{suffix}.md").write_text(md)
 
@@ -190,11 +223,20 @@ def main() -> None:
         default="sentence-transformers/all-MiniLM-L6-v2",
         help="sentence-transformers model id (embedding mode only)",
     )
+    parser.add_argument(
+        "--importance-noise",
+        type=float,
+        default=0.0,
+        help="Decorrelate importance from kind in [0,1] (0 = clean oracle, 1 = independent)",
+    )
     args = parser.parse_args()
 
     seeds = list(range(args.seeds))
     streams = _build_streams(
-        seeds=seeds, relevance=args.relevance, model_name=args.embedding_model
+        seeds=seeds,
+        relevance=args.relevance,
+        model_name=args.embedding_model,
+        importance_noise=args.importance_noise,
     )
     ranking = _collect(streams=streams, k=args.k, prune=False)
     pruning = _collect(streams=streams, k=args.k, prune=True)
@@ -210,10 +252,11 @@ def main() -> None:
     print("Episodic decay benchmark")
     print(f"seeds={seeds} k={args.k} relevance={args.relevance}")
     print("")
+    print(f"importance_noise={args.importance_noise}")
     print("Retrieval quality (ranking only):")
     print(_fmt_quality_table(ranking))
-    print("Recall by fact-age bucket:")
-    print(_fmt_bucket_table(ranking))
+    print("Recall by idle-age bucket (decay resistance):")
+    print(_fmt_bucket_table(ranking, key="recall_by_idle_bucket"))
     print("Pruning behaviour:")
     print(_fmt_prune_table(pruning))
     print(

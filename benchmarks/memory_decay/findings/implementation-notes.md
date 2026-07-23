@@ -3,6 +3,26 @@
 Notes captured while building the SM-R5 decision harness. No core code was
 changed in this task; these are pointers for whoever implements the chosen model.
 
+## v2 corrections from review (read these before implementing)
+
+- **Prune with the recency floor only** — NOT the three-condition gate. Measured:
+  the extra importance-floor + not-currently-valid conditions can't shed
+  FOREVER-valid clutter, so they don't bound growth. The importance-weighted
+  half-life already makes the recency-floor prune safe (0 false-forget). (DECISION §4)
+- **Reinforce on confirmed relevance/use, not on injection** — measured better on
+  every axis under both backends. The exact "confirmed" signal is an SM-E4 design
+  choice (memory used in the response, or a relevance threshold). (DECISION §3)
+- **Canonical scorer = importance in the half-life, no additive `gamma*importance`
+  term.** The `exp_recency`/`ebbinghaus` variants carry that term; do not carry it
+  into the promotion. (harness/strategies.py header; DECISION §1)
+- **Ordering:** decay-prune runs AFTER consolidation (SM-R7) and archives/tiers
+  rather than hard-deletes, to respect the bi-temporal invalidate-not-delete model
+  (D8). (DECISION §6)
+- **Gate ratification on importance-scorer calibration** — the salience-targeting
+  benefit degrades ~65% as importance decorrelates from durability (confound
+  sweep). Without a calibrated scorer, decay still beats pure-recency peers but
+  only via a longer effective half-life. (DECISION §2.4, §7)
+
 ## Where decay plugs into core
 
 - **Retrieval** — `libs/agno/egpt/memory/manager.py:597` `search_user_memories`

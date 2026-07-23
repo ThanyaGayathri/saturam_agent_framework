@@ -1,8 +1,9 @@
 # SM-R5 — Decision: Episodic Decay Model
 
-**Status:** Proposed (decision task). No framework/core code changed here; this
-records the chosen model + measured rationale for the implementation tasks
-(SM-C3, SM-R12) and downstream SM-E4 (recency scoring) / SM-E9 (forgetting).
+**Status:** Proposed (decision task), revised v2 after review. No framework/core
+code changed here; this records the chosen model + measured rationale for the
+implementation tasks (SM-C3, SM-R12) and downstream SM-E4 (recency scoring) /
+SM-E9 (forgetting).
 **Depends on:** SM-R1 (#76) — all numeric targets below are **PROVISIONAL** and
 flagged for SM-R1 to ratify.
 **Method:** every option was implemented inside `harness/` and measured on a
@@ -11,30 +12,55 @@ decide from cited literature numbers alone.
 
 ---
 
+## 0. Review response (v2 — what changed and why)
+
+This revision addresses the review. Several fixes changed headline numbers or
+flipped a sub-recommendation; the **top-line choice (importance-weighted recency
+decay, ranking-primary) holds and is now significance-tested**, but the evidence
+is more honest.
+
+| Review point | Change |
+|---|---|
+| Oracle-importance confound (importance assigned by `kind`) | Added `importance_noise` to decorrelate importance from kind + a sweep (`confound.py`). The *targeting* benefit is calibration-dependent (§2.4); decision now gated on importance-scorer calibration (§5, §7). |
+| §4 three-condition prune gate was never implemented | Implemented it and **measured** it (`ablations.py`). It is *worse* than the simple rule for the chosen strategy (can't shed noise). §4 rewritten to the measured recency-floor rule. |
+| Prune-precision counted noise-shedding as error | Fixed to a coherent need-based universe where never-queried noise is disposable. Precision for the winner: 0.28 → **1.00** (§2.2). |
+| Wrong clock: `recall@30d+` keyed on fact calendar-age | Added an idle-age (age-since-access) bucket — the clock decay acts on. The honest decay-resistance number is **0.362**, not 0.787 (§2.1). |
+| Mixed-pass reporting (recall from no-prune, false-forget from prune) | Added a **post-prune recall** column read from the prune-enabled pass (§2.2). |
+| No significance testing | Added paired bootstrap + Holm over pooled per-query values (`significance.py`, §2.3). |
+| Reinforcement rule chosen on synthetic-only, all-top-k | Re-measured all-top-k vs valid-only under synthetic **and** embeddings; valid-only is better → §3 flipped. |
+| Consolidation ordering / invalidate-not-delete unsettled | Added an explicit ordering + archive-not-delete rule (§6). |
+| Promotion trap: `+gamma*importance` in rejected variants | Named the canonical scorer (§1) and flagged it in `strategies.py`. |
+| Doc drift; stale-hit is a /k artifact | Reconciled all figures to the committed JSON; added a versioned-only stale-hit column (§2.1). |
+
+---
+
 ## 1. Decision (TL;DR)
 
 Adopt **importance-weighted exponential recency decay**, applied **primarily to
-ranking**, with a **conservative, importance-gated prune** as a secondary,
-opt-in behaviour.
+ranking**, with a **conservative recency-floor prune** as a secondary, opt-in
+behaviour, and **reinforcement on confirmed relevance** (not mere injection).
 
 ```
+# CANONICAL scorer (importance lives in the half-life, NOT as an additive term):
 score(memory, query, now) = alpha * relevance + beta * recency
-recency = 0.5 ** (age_since_access / half_life)
+recency   = 0.5 ** (age_since_access / half_life)
 half_life = base_half_life * (1 + imp_factor * importance)
-age_since_access = now - last_accessed_at      # reset on access
+age_since_access = now - last_accessed_at      # reset on confirmed access
 ```
 
-This is a hybrid of the two proven paradigms: **Generative Agents** (recency as a
-ranking term) and **MemoryBank** (salience protects memories from forgetting).
-Importance modulates the *decay rate* rather than being a weak additive term —
-which the data shows is the more effective use of the importance signal.
+This is a hybrid of **Generative Agents** (recency as a ranking term) and
+**MemoryBank** (salience protects memories). Importance modulates the *decay rate*,
+not the score directly — the data shows that is the more effective use of the
+signal. **Note for SM-C\*:** the rejected `exp_recency`/`ebbinghaus` variants carry
+an extra `+ gamma*importance` score term; the canonical scorer above does **not**.
+Do not carry that term into the promoted implementation.
 
 **Provisional default parameters** (SM-R1 to ratify):
 
 | Parameter | Value | Notes |
 |---|---|---|
-| `base_half_life` | **5 days** (120 h) | Half-life at importance = 0 |
-| `imp_factor` | **4.0** (tune 4–6) | importance 1.0 -> 5x longer half-life (25 d) |
+| `base_half_life` | **5 days** (120 h) | Half-life at importance = 0. Not independently swept on the chosen strategy — open item for SM-R1 (§2.4). |
+| `imp_factor` | **4.0** (expect to raise under embeddings) | importance 1.0 → 5x longer half-life |
 | `alpha` (relevance weight) | 1.0 | Relevance stays the dominant signal |
 | `beta` (recency weight) | 1.0 | |
 | prune recency threshold | 0.05 | Prune-eligibility floor (see §4) |
@@ -44,130 +70,141 @@ which the data shows is the more effective use of the importance signal.
 
 ## 2. Why — measured trade-off
 
-Averaged over 5 seeds, k = 5, 90-day horizon, ~446 episodes / ~192 queries per
-run (`results/summary.md`). Higher nDCG/recall is better; **lower** stale-hit-rate
-and false-forget are better.
+5 seeds, k = 5, 90-day horizon, ~450 episodes / ~205 queries per run
+(`results/summary.md`). Values are mean ± per-seed std. Reinforcement is the
+default all-top-k here (the pessimistic case; §3 recommends confirmed-only, which
+improves every number — see §3).
 
-### Retrieval quality (ranking only)
+### 2.1 Retrieval quality (ranking only)
 
-| strategy | nDCG@k | recall@k | stale-hit-rate | recall @30d+ |
-|---|---|---|---|---|
-| no_decay (baseline) | 0.893 | **1.000** | 0.151 (worst) | 1.000 |
-| exp_recency | 0.614 | 0.718 | 0.039 | 0.442 |
-| ttl_halflife | 0.586 | 0.664 | 0.049 | 0.161 |
-| **importance_weighted** | **0.866** | **0.937** | **0.110** | **0.787** |
-| ebbinghaus | 0.485 | 0.548 | 0.031 | 0.411 |
-
-### Pruning behaviour (prune enabled)
-
-| strategy | prune-precision | prune-recall | false-forget | retained |
-|---|---|---|---|---|
-| no_decay | – | – | 0.0 | 439 (unbounded) |
-| exp_recency | 0.371 | 0.671 | 21.0 | 168 |
-| ttl_halflife | 0.392 | 0.615 | 21.0 | 193 |
-| **importance_weighted** | 0.277 | 0.236 | **0.0** | 292 |
-| ebbinghaus | 0.319 | 0.710 | 28.0 | 140 |
-
-**Reading of the results:**
-
-1. **No-decay never forgets the fresh fact (recall 1.0) but cannot suppress
-   stale ones** — it has the worst stale-hit-rate (0.151) and grows without bound
-   (439 retained). Pure semantic RAG behaviour; not episodic.
-2. **Pure recency decay (exp_recency, ebbinghaus, ttl) suppresses stale well
-   (~0.03–0.05) but over-forgets valid-but-old facts** — 30d+ recall collapses to
-   0.16–0.44, and when used for pruning they **false-forget 21–28 still-needed
-   memories per run**. A durable fact that simply hasn't been queried recently
-   decays even though it is still true.
-3. **Importance-weighting fixes exactly that failure.** Salient facts decay
-   slowly, so importance_weighted keeps near-baseline recall (0.937, and **0.787
-   even at 30d+**) while still cutting the stale-hit-rate vs baseline (0.110 vs
-   0.151), and it **never false-forgets** (0.0) because low-importance stale items
-   are the only ones that decay below the prune floor. It bounds growth (292 vs
-   439) without the aggressive-pruning risk.
-
-Importance_weighted is the only candidate that is Pareto-strong on both axes:
-close to baseline recall **and** materially lower staleness, with zero
-false-forgets.
-
-### Parameter sensitivity (`results/sensitivity.md`)
-
-- `imp_factor`: monotone, well-behaved knee at **4–8** (nDCG 0.87 -> 0.93 while
-  stale-hit rises 0.110 -> 0.133). No cliffs; the decision is robust to ±50%.
-- `base_half_life`: the main recall/staleness dial; 5 days sits at the knee for a
-  90-day horizon.
-- **Ebbinghaus strength-reinforcement showed negligible benefit** (nDCG spread
-  only 0.080 across the whole `reinforce_gain` sweep, and the best point is
-  `gain = 0`). The dominant lever is the decay rate and its importance modulation
-  — not an ever-growing strength field. This directly informs the schema decision
-  in §5.
-
-### Confirmation under real embeddings (`results/summary_embedding.md`)
-
-The decision is made on the synthetic signal (which isolates decay), then
-**confirmed** by re-running with real `sentence-transformers` (`all-MiniLM-L6-v2`)
-embeddings of the episode/query text — same 5 seeds, `--relevance embedding`.
-
-| strategy | nDCG (syn→emb) | recall (syn→emb) | recall@30d+ (syn→emb) | stale-hit (syn→emb) | false-forget (emb) |
+| strategy | nDCG@k | recall@k | stale-hit | stale-hit (versioned) | idle-30d+ |
 |---|---|---|---|---|---|
-| no_decay | 0.893 → 0.903 | 1.000 → 1.000 | 1.000 → 1.000 | 0.151 → 0.151 | 0.0 |
-| **importance_weighted** | 0.866 → **0.703** | 0.937 → **0.782** | 0.787 → **0.459** | 0.110 → **0.059** | **0.6** |
-| exp_recency | 0.614 → 0.415 | 0.718 → 0.489 | 0.442 → 0.127 | 0.039 → 0.015 | 26.2 |
-| ttl_halflife | 0.586 → 0.385 | 0.664 → 0.442 | 0.161 → 0.014 | 0.049 → 0.023 | 24.6 |
-| ebbinghaus | 0.485 → 0.373 | 0.548 → 0.429 | 0.411 → 0.380 | 0.031 → 0.017 | 28.4 |
+| no_decay (baseline) | 0.893±0.024 | **1.000** | 0.151 (worst) | 0.347 (worst) | 1.000 |
+| exp_recency | 0.614 | 0.718 | 0.039 | 0.091 | 0.130 |
+| ttl_halflife | 0.586 | 0.664 | 0.049 | 0.112 | 0.007 |
+| **importance_weighted** | **0.866±0.017** | **0.937±0.015** | 0.110 | 0.254 | **0.362** |
+| ebbinghaus | 0.485 | 0.548 | 0.031 | 0.073 | 0.019 |
 
-**What holds:** the candidate ranking is unchanged. importance_weighted is again
-the only Pareto-strong decay strategy — highest nDCG/recall of the decay group,
-by far the best old-fact recall (30d+ 0.459 vs 0.13/0.01/0.38), a **61% cut in
-stale-hit-rate vs no_decay** (0.059 vs 0.151), bounded growth (292 vs 439), and
-near-zero false-forgets (0.6 vs 24–28). The recommendation in §1 stands under real
-embeddings.
+- **idle-30d+** = recall for facts not surfaced in >30 days (the clock decay acts
+  on). This replaces the earlier fact-calendar-age "30d+" (0.787), which conflated
+  re-access; **0.362 is the honest decay-resistance number** — still far ahead of
+  the pure-recency peers (0.007–0.130), well behind no_decay (1.0, which never
+  decays).
+- **stale-hit (versioned)** restricts to queries that can actually produce a
+  same-topic stale hit; the plain stale-hit is diluted by /k and by durable
+  queries that structurally cannot go stale.
 
-**What changes (important):** real embeddings make fresh-vs-stale discrimination
-harder (more within-topic ambiguity), so every decay strategy loses more recall
-than under synthetic relevance — importance_weighted's recall drops 0.937 → 0.782
-and its 30d+ recall 0.787 → 0.459. **Consequence:** the provisional targets in §7
-were calibrated on the clean synthetic signal and are *too tight* for a real
-embedding backend. They must be re-calibrated per embedding model during SM-C
-implementation (and likely met by nudging `imp_factor`/`base_half_life` up, since
-embeddings raise the cost of decay). This is the concrete "real value" of the
-confirmation run: the *choice* is robust, the *thresholds* are backend-sensitive.
+### 2.2 Pruning behaviour (recency-floor gate)
+
+| strategy | prune-precision | prune-recall | false-forget | post-prune recall | retained |
+|---|---|---|---|---|---|
+| no_decay | – | – | 0.0 | 1.000 | 439 (unbounded) |
+| exp_recency | 0.922 | 0.663 | 21.0 | 0.686 | 168 |
+| ttl_halflife | 0.915 | 0.593 | 21.0 | 0.661 | 193 |
+| **importance_weighted** | **1.000** | 0.394 | **0.0** | **0.937** | 292 |
+| ebbinghaus | 0.906 | 0.740 | 28.0 | 0.538 | 140 |
+
+- **prune-precision** now uses a need-based universe (a memory pruned after its
+  last-needed time forgets nothing; never-queried noise is correctly disposable).
+  The winner prunes **only** truly-dead memories (1.000) — the old 0.277 was the
+  metric penalising correct noise-shedding.
+- **post-prune recall** is measured *in the prune-enabled pass* (fixing the
+  mixed-pass reporting): importance_weighted keeps **0.937** recall with pruning
+  on, while the aggressive pruners collapse to 0.54–0.69 (they prune valid facts).
+
+### 2.3 Significance (`results/significance*.md`)
+
+Paired bootstrap over pooled per-query values, Holm-corrected. importance_weighted
+**significantly beats every pure-recency peer** on both recall and nDCG, synthetic
+and embedding (Δ +0.22 to +0.39, all p < 0.01). no_decay significantly beats it on
+raw recall/nDCG (Δ −0.03 synthetic / −0.20 embedding) — the expected cost of
+decay, paid to buy the staleness and growth wins. **The decay-group ranking is not
+seed noise.**
+
+### 2.4 Importance-confound sweep (`results/confound.md`)
+
+Decorrelating importance from kind (`importance_noise` 0 → 1):
+
+| importance_noise | IW recall | recall margin vs peer | IW idle-30d+ | idle-30d+ margin |
+|---|---|---|---|---|
+| 0.00 (oracle) | 0.937 | +0.219 | 0.362 | **+0.232** |
+| 0.50 | 0.897 | +0.252 | 0.215 | +0.168 |
+| 1.00 (random) | 0.806 | +0.307 | 0.118 | **+0.080** |
+
+importance_weighted never collapses to peer level — but that robustness is mostly
+a **longer average half-life** (`imp_factor=4`), not salience targeting. The
+genuine *targeting* benefit (idle-30d+ margin) shrinks ~65% (0.232 → 0.080) as
+importance decorrelates. **So the win is real but the salience component depends on
+importance-scorer calibration** — a gate for SM-R1 (§7). `base_half_life` was not
+independently swept on the chosen strategy (the sensitivity sweep covers
+`ttl_halflife`'s half-life, a different mechanism) — an open tuning item.
+
+### 2.5 Confirmation under real embeddings (`results/summary_embedding.md`)
+
+| strategy | nDCG (syn→emb) | recall (syn→emb) | idle-30d+ (syn→emb) | stale-hit (syn→emb) |
+|---|---|---|---|---|
+| no_decay | 0.893 → 0.903 | 1.000 → 1.000 | 1.000 → 1.000 | 0.151 → 0.151 |
+| **importance_weighted** | 0.866 → **0.703** | 0.937 → **0.782** | 0.362 → 0.029 | 0.110 → **0.059** |
+| exp_recency | 0.614 → 0.415 | 0.718 → 0.489 | 0.130 → 0.000 | 0.039 → 0.015 |
+| ebbinghaus | 0.485 → 0.373 | 0.548 → 0.429 | 0.019 → 0.005 | 0.031 → 0.017 |
+
+Candidate ranking preserved (and significance-tested, §2.3). Absolute recall drops
+because real embeddings make fresh-vs-stale harder — which is why the §7 targets
+are backend-sensitive and provisional.
 
 ---
 
-## 3. What counts as "access" and how reinforcement resets (AC #3)
+## 3. Reinforcement-on-access rule (AC #3) — revised
 
-- **Access = injection of a memory into the retrieval context** (i.e. it was
-  returned in the top-k for a query). This is observable, cheap, and is the point
-  at which a memory actually influences the agent. Bare DB reads that never reach
-  the model do **not** count.
-- **On access:** set `last_accessed_at = now`. This resets the recency clock so a
-  memory that keeps being used stays ranked highly (spaced-repetition effect)
-  without needing an unbounded strength counter.
-- The harness reinforces **every** top-k item (access = injection). A stricter
-  "reinforce only confirmed-relevant hits" rule is a documented sensitivity knob;
-  it did not change the ranking of candidates, so we adopt the simpler
-  inject-to-reinforce rule and leave the stricter variant to SM-E4 if needed.
+- **Access = a memory being *confirmed relevant / used*, not merely injected into
+  the top-k.** On access, set `last_accessed_at = now`.
+- **Measured basis for the revision** (`results/ablations.md`): reinforcing *every*
+  top-k item (including stale co-topic hits) resets the clock on stale memories and
+  sustains them — a rich-get-richer loop. Reinforcing **only confirmed-relevant
+  hits** is better on every axis, under both backends:
+
+  | policy | recall | stale-hit | idle-30d+ |
+  |---|---|---|---|
+  | all-top-k (synthetic) | 0.937 | 0.110 | 0.362 |
+  | **valid-only (synthetic)** | **0.962** | **0.092** | **0.642** |
+  | all-top-k (embedding) | 0.782 | 0.059 | 0.029 |
+  | **valid-only (embedding)** | **0.802** | **0.050** | **0.055** |
+
+- **Recommendation:** reinforce on a confirmation signal (e.g. the memory was
+  actually used in the response, or passed a relevance threshold), not on bare
+  injection. The exact production signal is an **SM-E4** design point; the sim's
+  "valid-only" is an idealized upper bound that proves the direction.
+- No unbounded `strength` counter is needed — resetting `last_accessed_at` captures
+  the spaced-repetition effect (see §5).
 
 ---
 
-## 4. Ranking-only vs also-prunes (AC #2)
+## 4. Ranking-only vs also-prunes (AC #2) — revised
 
-**Decay drives RANKING first; pruning is a separate, conservative, opt-in gate.**
+**Decay drives RANKING first; pruning is a separate, conservative, opt-in gate
+using the recency floor only.**
 
-- **Ranking (primary, always on):** decay is a scoring term. This is where the
-  reliable win is and it is reversible — a wrongly down-ranked memory is still
-  retrievable if it becomes relevant again.
-- **Pruning (secondary, feeds SM-E9):** a memory is prune-eligible only when
-  **all** hold:
-  1. it is **stale** — superseded or expired via consolidation (see §6), **or**
-     its `recency < prune_threshold` (0.05), **and**
-  2. its `importance` is low (below a configured floor), **and**
-  3. it is **not currently the valid version** of its fact.
+- **Ranking (primary, always on):** decay is a scoring term — the reliable,
+  reversible win.
+- **Pruning (secondary, feeds SM-E9):** prune when `recency < prune_threshold`
+  (0.05). For the chosen strategy this is **already safe**: the importance-scaled
+  half-life keeps salient/durable facts above the floor, so importance_weighted
+  **false-forgets 0** while shedding dead clutter (retained 292 vs 439).
 
-  The importance gate is why importance_weighted false-forgets **0** memories
-  while pure-recency pruning false-forgets 22–29. **Recommendation: never prune on
-  recency alone.** Hard-conflict deletes are handled by consolidation DELETE, not
-  by decay. Pruning may be shipped disabled by default and enabled per-store.
+**Why not the three-condition gate?** The earlier draft defended a gate of
+`recency-floor AND importance-below-floor AND not-currently-valid`. We implemented
+and measured it (`ablations.py`):
+
+| gate (importance_weighted) | prune-recall | false-forget | retained |
+|---|---|---|---|
+| recency-floor (chosen) | 0.394 | 0.0 | **292** |
+| three-condition (§4 draft) | 0.101 | 0.0 | 402 (≈ no-prune) |
+
+The extra conditions make it **too conservative to bound growth**: condition 3
+(not-currently-valid) shields `FOREVER`-valid noise — the main growth driver — so
+retained stays ~402. The recency floor alone, made safe by the importance-weighted
+half-life, is both safe (0 false-forget) and effective (292). Hard-conflict deletes
+remain a consolidation concern (§6), not a decay one.
 
 ---
 
@@ -179,36 +216,41 @@ Current `db/schemas/memory.py:9` has `created_at` / `updated_at` only.
 
 | Field | Type | Default | Purpose |
 |---|---|---|---|
-| `last_accessed_at` | `int` (epoch s), nullable | `created_at` | Recency clock; reset on access (§3) |
-| `importance` | `float` in [0, 1], nullable | `0.5` | Modulates decay rate; set by importance scorer |
+| `last_accessed_at` | `int` (epoch s), nullable | `created_at` | Recency clock; reset on confirmed access (§3) |
+| `importance` | `float` in [0, 1], nullable | `0.5` | Modulates decay rate; set by the importance scorer |
 
 **Deferred (do NOT add now):**
 
 | Field | Reason |
 |---|---|
-| `strength` | Ebbinghaus reinforcement gave negligible measured benefit (§2). `last_accessed_at` + `importance` capture the same behaviour with one fewer stateful field. Revisit only if SM-E4 shows a need. |
+| `strength` | Ebbinghaus reinforcement gave negligible measured benefit (nDCG spread 0.080 across the whole `reinforce_gain` sweep, best at `gain=0`). `last_accessed_at` + `importance` capture the behaviour with one fewer stateful field. Revisit only if SM-E4 shows a need. |
 
-Notes for implementation: decay is **computed at read time** from
-`now - last_accessed_at` and `importance`; no stored decayed score to keep fresh.
-Only `last_accessed_at` is written (on access), keeping writes cheap and the
-migration additive/back-compatible (both fields nullable with sensible defaults).
+Decay is **computed at read time** from `now - last_accessed_at` and `importance`;
+only `last_accessed_at` is written (on access). Migration is additive (both fields
+nullable). **Calibration dependency:** the salience benefit needs a reasonably
+calibrated `importance` (§2.4) — SM-R1 should gate ratification on the importance
+scorer, and until it exists the decision degrades gracefully to "longer effective
+half-life" (still ahead of pure-recency peers, but without the targeting edge).
 
 ---
 
-## 6. Interaction with consolidation (ADD / UPDATE / DELETE) and importance
+## 6. Interaction with consolidation (ADD / UPDATE / DELETE) and ordering
 
 - **ADD:** new episode gets `last_accessed_at = created_at` and `importance` from
-  the importance scorer (or 0.5). Immediately participates in decay ranking.
-- **UPDATE (supersede):** the new version becomes the valid fact; the old version
-  is not deleted immediately — decay + the importance gate let it **fade
-  gracefully** from ranking and become prune-eligible once stale and
-  low-importance. Decay is the soft bridge between UPDATE and a hard DELETE.
-- **DELETE:** reserved for hard conflicts / explicit forget. Decay-pruning is the
-  *complement*, not a replacement — it clears low-value stale clutter that no
-  conflict rule catches.
-- **Importance scoring (separate task):** feeds `importance` directly into the
-  decay half-life. The two mechanisms are intentionally coupled: importance is
-  only useful here because it changes *how fast* a memory is forgotten.
+  the scorer (or 0.5). Immediately participates in decay ranking.
+- **UPDATE (supersede):** the new version becomes valid; the old version is not
+  deleted — decay lets it **fade gracefully** from ranking and become
+  prune-eligible once its recency drops below the floor.
+- **DELETE:** reserved for hard conflicts / explicit forget.
+- **Ordering rule (was an assertion; now explicit):** decay-pruning **must run
+  after** the consolidation/reflection pass (SM-R7), never before — otherwise an
+  episodic row can be pruned before its knowledge is consolidated into the semantic
+  tier. And decay-pruning must **archive/tier rather than hard-delete** episodic
+  rows, to stay consistent with the bi-temporal, invalidate-not-delete model (D8):
+  set an archived/expired marker; do not destroy the row. Hard `DELETE` stays a
+  consolidation-owned operation for conflicts.
+- **Importance scoring (separate task):** feeds `importance` into the half-life;
+  the two are intentionally coupled (§2.4).
 
 ---
 
@@ -216,53 +258,47 @@ migration additive/back-compatible (both fields nullable with sensible defaults)
 
 | Metric | Provisional target | synthetic | real embeddings |
 |---|---|---|---|
-| Overall recall@k | >= 0.90 | 0.937 ✅ | 0.782 ❌ |
-| Recall@k for facts aged 30d+ | >= 0.80 | 0.787 (~) | 0.459 ❌ |
+| Overall recall@k | ≥ 0.90 | 0.937 ✅ | 0.782 ❌ |
+| Recall@k, idle > 30d (decay resistance) | ≥ 0.50 | 0.362 ❌ | 0.029 ❌ |
 | Stale-hit-rate | < 0.10 | 0.110 (~) | 0.059 ✅ |
 | False-forget (pruning on) | 0 | 0.0 ✅ | 0.6 (~) |
 
-Met (or near) on the synthetic signal. **Under real embeddings the recall targets
-are not met** (see §2 confirmation): the thresholds were set against clean
-synthetic relevance and are too tight for an embedding backend. **These thresholds
-are assumptions for SM-R1 to ratify, not ratified targets** — and SM-R1 should set
-them per the actual production embedding model, expecting to raise
-`imp_factor`/`base_half_life` to recover recall. The stale-hit and false-forget
-targets *are* met under real embeddings, so the qualitative goal (cut staleness
-without forgetting) is delivered regardless of backend.
+Honest status: overall recall is met synthetically; the **decay-resistance and
+embedding recall targets are not met at the current defaults**. This is expected —
+the targets were set against the clean synthetic oracle. **These are assumptions
+for SM-R1 to ratify, not ratified targets.** SM-R1 should (a) set them per the
+production embedding model, (b) gate on importance-scorer calibration (§2.4), and
+(c) expect to raise `imp_factor` / `base_half_life` (and enable confirmed-only
+reinforcement, §3, which alone lifts idle-30d+ to 0.642) to recover decay
+resistance. The stale-hit and false-forget goals — the point of decay — are met.
 
 ---
 
 ## 8. Acceptance criteria (issue #80)
 
-Every checkbox from the issue, resolved and measured (not asserted):
-
 | # | Acceptance criterion | Status | Where |
 |---|---|---|---|
-| 1 | Decay model + parameters chosen with rationale | ✅ Done | §1 (importance-weighted exp. recency; params table) + §2 (measured trade-off across all 5 candidates) |
-| 2 | Ranking-only vs also-prunes behaviour defined | ✅ Done | §4 (ranking-primary; conservative importance-gated prune; measured false-forget) |
-| 3 | Reinforcement-on-access rule defined (what counts as access, how strength resets) | ✅ Done | §3 (access = injection into top-k; reset `last_accessed_at = now`) |
-| 4 | New `UserMemory` fields specified for SM-C3/R12 | ✅ Done | §5 (`last_accessed_at`, `importance` required; `strength` deferred with evidence) |
+| 1 | Decay model + parameters chosen with rationale | ✅ Done | §1 + §2 (all 5 candidates measured; significance-tested) |
+| 2 | Ranking-only vs also-prunes behaviour defined | ✅ Done | §4 (ranking-primary; recency-floor prune; 3-condition gate measured & rejected) |
+| 3 | Reinforcement-on-access rule defined | ✅ Done | §3 (access = confirmed use; reset `last_accessed_at`; measured all-top-k vs valid-only) |
+| 4 | New `UserMemory` fields specified for SM-C3/R12 | ✅ Done | §5 (`last_accessed_at`, `importance`; `strength` deferred with evidence) |
 
-The issue's four **"Questions to answer"** are also each resolved:
+**Questions to answer:**
+- *Ebbinghaus vs exponential recency vs conflict-only?* → All implemented,
+  measured, significance-tested. Winner: importance-weighted recency (§2).
+- *Ranking only, or also prune (feeds SM-E9)?* → Ranking primary; recency-floor
+  prune, opt-in (§4).
+- *What is "access" / how does reinforcement reset?* → Confirmed use; reset
+  `last_accessed_at` (§3).
+- *What new `UserMemory` fields?* → `last_accessed_at`, `importance`; `strength`
+  deferred (§5).
 
-- *Ebbinghaus vs exponential recency vs conflict-only (no decay)?* → All three (plus
-  TTL/half-life and importance-weighted) implemented and benchmarked. Winner:
-  importance-weighted exponential recency; confirmed under real embeddings (§1, §2).
-- *Ranking only, or also prune/archive (feeds SM-E9)?* → Ranking primary; pruning a
-  separate, conservative, importance-gated opt-in gate (§4).
-- *What is "access", and how does reinforcement reset strength/last-access?* →
-  Access = injection into retrieval context; on access `last_accessed_at = now` (§3).
-- *What new `UserMemory` fields are needed?* → `last_accessed_at`, `importance`;
-  `strength` deferred because Ebbinghaus reinforcement showed negligible benefit (§5).
+**Options to evaluate** (Ebbinghaus, exponential recency, no-decay — plus
+TTL/half-life and importance-weighted) were all implemented and measured.
 
-The three **"Options to evaluate"** named in the issue (Ebbinghaus, Exponential
-recency, No decay) were all implemented in the harness and measured, per the rule
-that decision tasks must implement every option rather than cite numbers.
-
-**Provisional / deferred (not blocking these criteria):** absolute acceptance
-*thresholds* are provisional for SM-R1 to ratify and are embedding-backend
-sensitive (§7); promotion of the chosen strategy into `egpt/memory` core happens in
-SM-C* (this task commits benchmarks only).
+**Provisional / deferred:** absolute thresholds are for SM-R1 (§7) and are
+embedding-backend + importance-calibration sensitive; promotion into `egpt/memory`
+is SM-C\* (this task commits benchmarks only).
 
 ---
 
@@ -273,8 +309,11 @@ cd benchmarks/memory_decay
 ./setup.sh                                            # creates .venv, installs deps
 ./.venv/bin/python run_benchmark.py --seeds 5                     # synthetic (decision)
 ./.venv/bin/python run_benchmark.py --seeds 5 --relevance embedding  # confirmation
-./.venv/bin/python sweep_params.py --seeds 5
+./.venv/bin/python sweep_params.py --seeds 5                      # parameter sensitivity
+./.venv/bin/python confound.py --seeds 5                         # importance de-circularization
+./.venv/bin/python ablations.py --seeds 5 --embedding            # prune-gate + reinforcement
+./.venv/bin/python significance.py --seeds 5                     # paired-bootstrap significance
 ```
 
-Outputs land in `results/` (`summary.md`, `summary_embedding.md`,
-`sensitivity.md`). See [TEST_LOG.md](TEST_LOG.md).
+Outputs land in `results/` (`summary*.md`, `sensitivity.md`, `confound.md`,
+`ablations.md`, `significance*.md`). See [TEST_LOG.md](TEST_LOG.md).

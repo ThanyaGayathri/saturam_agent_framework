@@ -24,8 +24,17 @@ class QueryMetrics:
     ndcg_at_k: float = 0.0
     mrr: float = 0.0
     stale_hit_rate: float = 0.0  # fraction of top-k that are same-topic but stale
-    # Recall bucketed by how long ago the current fact became valid (query "age").
+    # stale_hit restricted to versioned-topic queries (the only ones that can
+    # structurally produce a same-topic stale hit); the headline scale otherwise
+    # dilutes over durable/ephemeral queries that never can.
+    stale_hit_rate_versioned: float = 0.0
+    # Recall bucketed by how long ago the current fact became valid (fact calendar
+    # age). Misleading for decay: a repeatedly re-accessed durable fact is old by
+    # this clock but fresh to the decay signal. Kept for transparency only.
     recall_by_age_bucket: Dict[str, float] = field(default_factory=dict)
+    # Recall bucketed by time since the fact was last surfaced (age-since-access) —
+    # the clock decay actually acts on. This is the decay-resistance metric.
+    recall_by_idle_bucket: Dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -50,6 +59,10 @@ class RunResult:
     pruning: PruneMetrics
     k: int
     params: Dict[str, float] = field(default_factory=dict)
+    # Per-query metric values keyed by query_id, for paired significance testing
+    # (two strategies scored on the SAME queries -> paired bootstrap).
+    per_query_recall: Dict[str, float] = field(default_factory=dict)
+    per_query_ndcg: Dict[str, float] = field(default_factory=dict)
 
 
 def dcg(hits: List[int]) -> float:
