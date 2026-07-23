@@ -1,0 +1,12 @@
+# SM-R10 bi-temporal prototype -- dedicated Neo4j (unique name/ports to avoid collisions).
+# Start:  docker compose -p smr10 -f neo4j-compose.yml up -d
+# Stop:   docker compose -p smr10 -f neo4j-compose.yml down -v
+services:
+  smr10-bitemporal-neo4j:
+    image: neo4j:5
+    container_name: smr10-bitemporal-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/bitemporal
+    ports:
+      - "7688:7687"   # bolt  (default 7687)
+      - "7475:7474"   # http  (default 7474)

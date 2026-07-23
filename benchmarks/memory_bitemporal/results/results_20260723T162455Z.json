@@ -1,0 +1,278 @@
+{
+  "run": "20260723T162455Z",
+  "n_scenarios": 9,
+  "extraction_rule_based": {
+    "passed": 6,
+    "total": 6
+  },
+  "backends": {
+    "reference": {
+      "accuracy": 1.0,
+      "passed": 21,
+      "total": 21,
+      "scenarios": {
+        "simple_insert": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "supersede_relocation": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "idempotent_noop": {
+          "passed": 1,
+          "total": 1,
+          "failures": []
+        },
+        "three_way_chain": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "backfilled_since_jan": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "retract_error": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "predicate_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "tenant_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "belief_evolution": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        }
+      }
+    },
+    "single_time": {
+      "accuracy": 0.5714285714285714,
+      "passed": 12,
+      "total": 21,
+      "scenarios": {
+        "simple_insert": {
+          "passed": 2,
+          "total": 3,
+          "failures": [
+            {
+              "probe": "user.lives_in@1701388800",
+              "expected": null,
+              "got": "NYC",
+              "note": "before valid start"
+            }
+          ]
+        },
+        "supersede_relocation": {
+          "passed": 1,
+          "total": 3,
+          "failures": [
+            {
+              "probe": "user.lives_in@1706745600",
+              "expected": "NYC",
+              "got": "LA",
+              "note": "past truth preserved"
+            },
+            {
+              "probe": "user.lives_in@1701388800",
+              "expected": null,
+              "got": "LA",
+              "note": ""
+            }
+          ]
+        },
+        "idempotent_noop": {
+          "passed": 1,
+          "total": 1,
+          "failures": []
+        },
+        "three_way_chain": {
+          "passed": 1,
+          "total": 3,
+          "failures": [
+            {
+              "probe": "user.lives_in@1706745600",
+              "expected": "NYC",
+              "got": "SF",
+              "note": ""
+            },
+            {
+              "probe": "user.lives_in@1719792000",
+              "expected": "LA",
+              "got": "SF",
+              "note": ""
+            }
+          ]
+        },
+        "backfilled_since_jan": {
+          "passed": 1,
+          "total": 2,
+          "failures": [
+            {
+              "probe": "user.lives_in@1719792000",
+              "expected": "LA",
+              "got": "NYC",
+              "note": "later fact wins its window"
+            }
+          ]
+        },
+        "retract_error": {
+          "passed": 1,
+          "total": 2,
+          "failures": [
+            {
+              "probe": "user.likes@1706745600|tt=1706745600",
+              "expected": "tea",
+              "got": null,
+              "note": "5b: believed tea before retract"
+            }
+          ]
+        },
+        "predicate_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "tenant_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "belief_evolution": {
+          "passed": 1,
+          "total": 3,
+          "failures": [
+            {
+              "probe": "user.lives_in@1719792000|tt=1709251200",
+              "expected": "NYC",
+              "got": "LA",
+              "note": "as-of Mar: LA unknown"
+            },
+            {
+              "probe": "user.lives_in@1706745600|tt=1725148800",
+              "expected": "NYC",
+              "got": "LA",
+              "note": "as-of Sep about Feb"
+            }
+          ]
+        }
+      }
+    },
+    "postgres": {
+      "accuracy": 1.0,
+      "passed": 21,
+      "total": 21,
+      "scenarios": {
+        "simple_insert": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "supersede_relocation": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "idempotent_noop": {
+          "passed": 1,
+          "total": 1,
+          "failures": []
+        },
+        "three_way_chain": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "backfilled_since_jan": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "retract_error": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "predicate_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "tenant_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "belief_evolution": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        }
+      }
+    },
+    "neo4j": {
+      "accuracy": 1.0,
+      "passed": 21,
+      "total": 21,
+      "scenarios": {
+        "simple_insert": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "supersede_relocation": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "idempotent_noop": {
+          "passed": 1,
+          "total": 1,
+          "failures": []
+        },
+        "three_way_chain": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "backfilled_since_jan": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "retract_error": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "predicate_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "tenant_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "belief_evolution": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        }
+      }
+    }
+  }
+}
