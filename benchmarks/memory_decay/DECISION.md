@@ -59,7 +59,7 @@ Do not carry that term into the promoted implementation.
 
 | Parameter | Value | Notes |
 |---|---|---|
-| `base_half_life` | **5 days** (120 h) | Half-life at importance = 0. Not independently swept on the chosen strategy — open item for SM-R1 (§2.4). |
+| `base_half_life` | **5 days** (120 h) | Half-life at importance = 0. Swept on the chosen strategy (§2.4): a smooth recall/staleness dial — 5d gives nDCG 0.866 / stale 0.110; ~7d lifts recall toward the 0.90 target at stale ~0.13. |
 | `imp_factor` | **4.0** (expect to raise under embeddings) | importance 1.0 → 5x longer half-life |
 | `alpha` (relevance weight) | 1.0 | Relevance stays the dominant signal |
 | `beta` (recency weight) | 1.0 | |
@@ -135,9 +135,16 @@ importance_weighted never collapses to peer level — but that robustness is mos
 a **longer average half-life** (`imp_factor=4`), not salience targeting. The
 genuine *targeting* benefit (idle-30d+ margin) shrinks ~65% (0.232 → 0.080) as
 importance decorrelates. **So the win is real but the salience component depends on
-importance-scorer calibration** — a gate for SM-R1 (§7). `base_half_life` was not
-independently swept on the chosen strategy (the sensitivity sweep covers
-`ttl_halflife`'s half-life, a different mechanism) — an open tuning item.
+importance-scorer calibration** — a gate for SM-R1 (§7).
+
+`base_half_life` is swept **on the chosen strategy** (`results/sensitivity.md`,
+`importance_weighted.base_half_life_days`): it is a smooth recall/staleness dial
+with no sharp knee — nDCG 0.672 → 0.935 and stale-hit 0.050 → 0.146 as it moves
+2d → 14d. The default **5d sits mid-range** (0.866 / 0.110); reaching the
+provisional recall ≥ 0.90 target needs ~7d (nDCG 0.910, stale 0.128), which SM-R1
+trades against its stale-hit budget. `imp_factor` is likewise monotone (nDCG
+0.51 → 0.93 over 0 → 8) with no knee — expect to tune both upward for an embedding
+backend.
 
 ### 2.5 Confirmation under real embeddings (`results/summary_embedding.md`)
 

@@ -85,6 +85,11 @@ def _sweep(seeds: List[int], k: int) -> Dict[str, dict]:
             lambda v: ImportanceWeighted(imp_factor=float(v)),
         ),
         (
+            "importance_weighted.base_half_life_days",
+            [2.0, 3.0, 5.0, 7.0, 14.0],
+            lambda v: ImportanceWeighted(base_half_life_hours=v * DAY),
+        ),
+        (
             "ebbinghaus.s0_days",
             [1.0, 3.0, 5.0, 10.0, 20.0],
             lambda v: Ebbinghaus(s0_hours=v * DAY),

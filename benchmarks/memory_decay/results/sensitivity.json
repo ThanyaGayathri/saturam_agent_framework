@@ -128,6 +128,36 @@
       ],
       "ndcg_spread": 0.4261866493125285
     },
+    "importance_weighted.base_half_life_days": {
+      "points": [
+        {
+          "value": 2.0,
+          "ndcg_at_k": 0.6723351327342346,
+          "stale_hit_rate": 0.05047563224195784
+        },
+        {
+          "value": 3.0,
+          "ndcg_at_k": 0.7801397505116628,
+          "stale_hit_rate": 0.0759801082556543
+        },
+        {
+          "value": 5.0,
+          "ndcg_at_k": 0.8661732146631537,
+          "stale_hit_rate": 0.11005586640727558
+        },
+        {
+          "value": 7.0,
+          "ndcg_at_k": 0.9097717782852256,
+          "stale_hit_rate": 0.12811858779535804
+        },
+        {
+          "value": 14.0,
+          "ndcg_at_k": 0.9349193311222971,
+          "stale_hit_rate": 0.1460781763073399
+        }
+      ],
+      "ndcg_spread": 0.26258419838806246
+    },
     "ebbinghaus.s0_days": {
       "points": [
         {

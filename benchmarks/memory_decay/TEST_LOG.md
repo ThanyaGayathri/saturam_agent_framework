@@ -94,14 +94,16 @@ decay-group ranking is not seed noise.
 **Status:** PASS
 
 **Description:** Sensitivity sweeps over exp_recency (base, gamma), ttl_halflife
-(half-life), importance_weighted (imp_factor), ebbinghaus (s0, reinforce_gain).
-Writes `results/sensitivity.json` and `results/sensitivity.md`.
+(half-life), importance_weighted (**imp_factor and base_half_life** — both on the
+chosen strategy), ebbinghaus (s0, reinforce_gain). Writes
+`results/sensitivity.json` and `results/sensitivity.md`.
 
 **Result:** Completed cleanly. Trade-offs are monotone with no cliffs.
-`imp_factor` has a clean knee at 4–8 (nDCG 0.87 -> 0.93 as stale-hit rises 0.110
--> 0.133). `ebbinghaus.reinforce_gain` is nearly flat (nDCG spread 0.080, best at
-gain=0) — strength reinforcement adds little; motivates deferring the `strength`
-field.
+`imp_factor` (0→8) moves nDCG 0.51→0.93. `base_half_life` (2d→14d) is a smooth
+recall/staleness dial: nDCG 0.672→0.935, stale-hit 0.050→0.146; the 5d default sits
+mid-range (0.866/0.110) and ~7d reaches recall≥0.90 at stale~0.13 (feeds §7).
+`ebbinghaus.reinforce_gain` is nearly flat (nDCG spread 0.080, best at gain=0) —
+strength reinforcement adds little; motivates deferring the `strength` field.
 
 ---
 

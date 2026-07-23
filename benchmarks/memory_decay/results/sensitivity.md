@@ -48,6 +48,18 @@ nDCG spread across sweep: 0.456
 
 nDCG spread across sweep: 0.426
 
+## importance_weighted.base_half_life_days
+
+| value | nDCG@k | stale-hit-rate |
+|---|---|---|
+| 2.0 | 0.672 | 0.050 |
+| 3.0 | 0.780 | 0.076 |
+| 5.0 | 0.866 | 0.110 |
+| 7.0 | 0.910 | 0.128 |
+| 14.0 | 0.935 | 0.146 |
+
+nDCG spread across sweep: 0.263
+
 ## ebbinghaus.s0_days
 
 | value | nDCG@k | stale-hit-rate |
