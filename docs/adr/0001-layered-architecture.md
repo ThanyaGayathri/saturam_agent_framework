@@ -25,17 +25,17 @@ Relevant existing seams:
 
 ## Decision
 
-Adopt a five-layer architecture with dependencies pointing **inward** toward stable core interfaces. Integrations are a separate, self-contained, reusable layer. Runtime resolution of concrete adapters goes through `Registry` (and, later, the DI container from EGPT-1.2).
+Adopt a five-layer architecture with dependencies pointing **inward** toward stable core interfaces. Integrations are a separate, self-contained, reusable layer. Runtime resolution **and construction** of concrete adapters goes through `Registry` (and, later, the DI container from EGPT-1.2)—including DB-defined-agent hydration (D2).
 
 ### Layers and responsibilities
 
 | Layer | Responsibility |
 |-------|----------------|
 | **core** | Stable interfaces, domain types, generic shared utilities, and the `Registry` resolution seam. No concrete external-system adapters; no static imports of integration modules. |
-| **orchestration** | Agent / team / workflow runtime: planning, hooks, reasoning, and run context wiring. Depends on core interfaces only (plus services). |
-| **services** | Supporting capabilities used by orchestration (eval, learn, memory, culture, skills, scheduler, compression, factory, guardrails). Depends on core interfaces only. |
+| **orchestration** | Agent / team / workflow runtime: planning, hooks, reasoning, and run context wiring. May depend on core and services (not integrations). |
+| **services** | Supporting capabilities used by orchestration (eval, learn, memory, culture, skills, scheduler, compression, factory, guardrails). Depends on core interfaces only (including Registry construction APIs). |
 | **integrations** | Concrete external-system adapters: model providers, DB/vector backends, toolkits/MCP, knowledge readers/embedders, tracing exporters, provider utils, and channel integrations. Depends on **core only**. Independently reusable and testable. |
-| **api / control-plane** | HTTP/OS surfaces and remote clients (`os/`, `api/`, `client/`, `remote/`, `cloud/`). May depend on orchestration, services, and core. Must not import concrete integrations for business logic; the **composition root** (app startup) may construct integration objects and register them on `Registry`. |
+| **api / control-plane** | HTTP/OS surfaces and remote clients (`os/`, `api/`, `client/`, `remote/`, cloud-agnostic deploy surfaces). May depend on orchestration, services, and core. Must not import concrete integrations for business logic; the **composition root** (app startup) may import integrations to register **constructors and/or instances** on `Registry`. |
 
 ### Layer diagram
 
@@ -52,13 +52,30 @@ flowchart TD
     INT["integrations<br/>(providers, backends, toolkits/MCP, readers, exporters, channels)"] --> CORE
     SVC --> REG["Registry (in core)"]
     ORC --> REG
-    API -.->|"runtime: construct + register"| INT
-    API -.->|"runtime: register instances"| REG
+    API -.->|"runtime: import integrations"| INT
+    API -.->|"runtime: register constructors + instances"| REG
+    DB["DB-defined agent config<br/>e.g. model openai:gpt-4"] -.->|"hydrate at request time"| SVC
+    SVC -.->|"construct_model / construct_tool by name"| REG
 ```
 
-**Registry semantics (normative):** `Registry` lives in core and only type-hints / stores objects against **core interfaces** (`Model`, `BaseDb`, `VectorDb`, `Function`, …). It must **never** statically import integration modules. A composition root (typically `egpt.os` / app startup, cookbooks, or tests) imports concrete integrations, constructs instances, and calls `Registry.add_*`. Upper layers then `get_*` by id/name. The dashed edges above are that runtime association—not a layer-import arrow.
+**Registry semantics (normative):** `Registry` lives in core and only type-hints / stores objects against **core interfaces** (`Model`, `BaseDb`, `VectorDb`, `Function`, …). It must **never** statically import integration modules. A composition root (typically `egpt.os` / app startup, cookbooks, or tests) imports concrete integrations and registers them on `Registry`—both as **live instances** (`add_*` / `get_*`) and as **constructors** (see below). The dashed edges above are that runtime association—not a layer-import arrow.
 
-Known debt for EGPT-1.9: `registry.py` currently TYPE_CHECKING-imports `Agent` / `Team` (orchestration). Those references must move behind protocols or out of core so the matrix remains enforceable.
+#### Runtime construction seam (DB-defined agents) — normative
+
+Decision **D2** requires agents (and related components) defined in a tenant DB and hydrated at **request time**. A DB row may name a provider/model/tool that was **not** pre-instantiated at startup (e.g. `model: "openai:gpt-4"`). An instance-only registry cannot cover that path: `services/factory` is forbidden from importing concrete integrations, yet must still build a fresh `Model` / tool / backend from config.
+
+**Ratified seam:** `Registry` (generalized in EGPT-1.9; may be a dedicated construction map colocated with Registry) holds **constructors / factory callables** keyed by stable provider, tool, db, vector-db, and embedder names—in addition to optional live instances. Shape (conceptual):
+
+- `register_model_constructor(name, ctor)` / `construct_model(name, **config) -> Model`
+- Same pattern for tools, dbs, vector dbs, embedders, and other integration kinds the factory must hydrate
+
+**Who registers:** Integration packages (or composition-root `register_*` helpers they expose) call into the core seam at startup / plugin load. Today’s `models/utils._PROVIDERS` table is the integrations-side source of those registrations: it moves out of core with the providers, and its rows **feed** `register_model_constructor` rather than being imported by services.
+
+**Who constructs:** `services/factory` (and memory / other services) call `construct_*` with strings from DB config and receive core interface instances. No `from egpt.models.openai …` (or `from egpt.models.utils …`) in services or orchestration.
+
+**Canonical consumer:** DB-defined-agent hydration is the defining use of this cell of the matrix. Mode A/B and other config-swappable backends (see memory note below) use the same constructor registry.
+
+Known debt for EGPT-1.9: `registry.py` currently TYPE_CHECKING-imports `Agent` / `Team` (orchestration). Those references must move behind protocols or out of core so the matrix remains enforceable. EGPT-1.9 also lands the constructor APIs sketched above if they are not yet present.
 
 ### Design decisions
 
@@ -67,7 +84,7 @@ Known debt for EGPT-1.9: `registry.py` currently TYPE_CHECKING-imports `Agent` /
 | 1 | Integrations are a separate, reusable layer | Isolate external systems for reuse and testability | Keep them mixed into core (rejected: current coupling) |
 | 2 | Dependencies point inward to core interfaces | Stable core, swappable edges, no cycles | Bidirectional deps (rejected: cycles, fragility) |
 | 3 | Repurpose the existing `integrations/` package | Already exists (near-empty); avoids a redundant top-level | New top-level directory (rejected: redundant) |
-| 4 | Keep the existing `Registry` as the resolution seam | Already resolves by id/name; generalize rather than replace | Build a new registry (rejected: duplication) |
+| 4 | Keep the existing `Registry` as the resolution seam, extended with **constructors by name** | Instance `get_*` covers pre-wired objects; constructor `construct_*` covers D2 DB-defined runtime hydration without services importing concretes | Instance-only registry (rejected: cannot hydrate arbitrary DB config); services importing `_PROVIDERS` (rejected: breaks matrix) |
 | 5 | Split interface from implementation in `models/`, `db/`, `vectordb/`, `knowledge/`, `tools/`, `utils/`, `tracing/` | Concrete mechanism that decouples core from integrations | Move whole packages wholesale (rejected: drags interfaces out of core) |
 
 ## Layer → module mapping
@@ -90,7 +107,7 @@ Packages marked **split** keep interfaces/types in **core** and move concrete im
 | `approval/` | Approval domain types and `@approval` decorator |
 | `registry/` | Resolution seam (`Registry`); generalized in EGPT-1.9 |
 | `utils/` (generic only) | Shared helpers with no provider SDKs and no upward layer imports—see split table |
-| `tracing/schemas.py`, `tracing/setup.py` | Tracing schemas / setup against core interfaces |
+| `tracing/schemas.py` | Tracing schemas. **`tracing/setup.py` stays out of enforceable core until prerequisite #5** (today imports exporter + `remote.base`). |
 | `exceptions.py`, `filters.py`, `media.py`, `metrics.py`, `brand.py`, `debug.py` | Framework-wide domain / helper modules |
 
 ### orchestration
@@ -104,7 +121,7 @@ Packages marked **split** keep interfaces/types in **core** and move concrete im
 | `reasoning/` | Reasoning loops / strategies |
 | `hooks/` | Run hooks |
 | `context/` (orchestration subset) | Context builders / assemblers (`backend.py`, `provider.py`, `mode.py`, `workspace/`, `fs/`, `wiki/`, …) |
-| `utils/agent.py`, `utils/team.py`, `utils/events.py`, `utils/reasoning.py`, `utils/response.py`, `utils/hooks.py` | Helpers that import orchestration and/or services; cannot live in core |
+| `utils/agent.py`, `utils/team.py`, `utils/events.py`, `utils/reasoning.py`, `utils/response.py`, `utils/hooks.py`, `utils/print_response/` | Helpers that import orchestration and/or services; cannot live in core |
 
 ### services
 
@@ -112,12 +129,12 @@ Packages marked **split** keep interfaces/types in **core** and move concrete im
 |--------|-------|
 | `eval/` | Evaluation |
 | `learn/` | Learning stores / managers |
-| `memory/` | Memory managers / strategies |
+| `memory/` | Memory managers / strategies (service). **Vector-store backends** (e.g. pgvector, qdrant) and **embedders** (e.g. bge) used by memory are **integrations**, resolved via Registry constructors/instances (SM-R3/SM-R4). Mode A↔B is a config swap, not a code change in `memory/`. |
 | `culture/` | Culture / shared preferences |
 | `skills/` | Skills loading / management |
 | `scheduler/` | Scheduling |
 | `compression/` | Context compression |
-| `factory/` | Component factories (construct via Registry / DI; no concrete provider imports) |
+| `factory/` | Component factories for DB-defined / request-scoped hydration. Uses Registry `construct_*` / `get_*` only—**no** concrete provider imports, **no** `models.utils` imports. |
 | `guardrails/` | Guardrail policies |
 
 ### integrations (separate, reusable)
@@ -126,24 +143,25 @@ Packages marked **split** keep interfaces/types in **core** and move concrete im
 |--------|-------|
 | `integrations/` | Existing package; destination for channel and other external adapters (already has `discord/`) |
 | `models/<providers>/` | All concrete providers (`openai/`, `anthropic/`, `ollama/`, …) |
-| `models/utils.py` | Provider construction table (`_PROVIDERS` → concrete module paths). **Must not stay in core.** |
+| `models/utils.py` | Provider construction table (`_PROVIDERS` → concrete module paths). **Must not stay in core.** Becomes the integrations-side source that **registers constructors** into the core Registry seam at startup. |
 | `db/<backends>/` | Concrete DB backends (`postgres/`, `sqlite/`, `mongo/`, …) |
-| `vectordb/<backends>/` | Concrete vector backends (`pgvector/`, `lancedb/`, `chroma/`, …) |
+| `vectordb/<backends>/` | Concrete vector backends (`pgvector/`, `lancedb/`, `chroma/`, `qdrant/`, …)—including those used by the memory epic |
 | `tools/<toolkits>/`, `tools/mcp/`, `tools/mcp_toolbox.py` | Concrete toolkits and MCP adapters (not `function`/`toolkit`/`decorator`) |
-| `knowledge/reader/`, `knowledge/embedder/`, `knowledge/reranker/`, `knowledge/loaders/`, `knowledge/remote_content/`, `knowledge/remote_knowledge.py` | I/O and remote knowledge adapters |
+| `knowledge/reader/`, `knowledge/embedder/`, `knowledge/reranker/`, `knowledge/loaders/`, `knowledge/remote_content/`, `knowledge/remote_knowledge.py` | I/O and remote knowledge adapters; embedders used by memory Mode A/B live here |
 | `tracing/exporter.py` (+ provider-specific exporters when added) | Tracing exporters |
 | `utils/gemini.py`, `utils/openai.py`, `utils/mcp.py`, `utils/streamlit.py`, `utils/models/` | Provider-/SDK-specific helpers |
 | External connectors currently under `context/` (e.g. `gmail/`, `slack/`, `gdrive/`, `calendar/`, `google/`, `web/`, `database/`, `mcp/`) | Move into integrations when extracted |
+| Provider-specific slices of `cloud/` (e.g. `cloud/aws/`) | Cloud-provider deploy adapters (see api note) |
 
 ### api / control-plane
 
 | Module | Notes |
 |--------|-------|
-| `os/` | EgptOS app, routers, middleware — primary **composition root** for registering integrations on `Registry` |
+| `os/` | EgptOS app, routers, middleware — primary **composition root** for registering integration **constructors and instances** on `Registry` |
 | `api/` | API schemas / surfaces |
 | `client/` | Client SDK |
 | `remote/` | Remote agent/team clients |
-| `cloud/` | Cloud deployment helpers |
+| `cloud/` | Cloud-**agnostic** control-plane / deploy surfaces only. Provider-specific deploy code (e.g. current `cloud/aws/`) extracts to **integrations** so the cloud-agnostic mandate is preserved; control-plane talks to those adapters via interfaces / Registry, not by absorbing provider SDKs. |
 
 ### Split packages (interface vs implementation)
 
@@ -151,21 +169,25 @@ These packages are the central decoupling mechanism. Interfaces stay addressable
 
 | Package | Stay in core (interface / domain) | Move out of core |
 |---------|-----------------------------------|------------------|
-| `models/` | `base.py`, `message.py`, `response.py`, `metrics.py`, `defaults.py`, `fallback.py` | **Integrations:** every provider package (`openai/`, `anthropic/`, `google/`, …) **and** `utils.py` (provider construction / lazy import table) |
+| `models/` | `base.py`, `message.py`, `response.py`, `metrics.py`, `defaults.py`, `fallback.py` | **Integrations:** every provider package (`openai/`, `anthropic/`, `google/`, …) **and** `utils.py` (provider construction table that **registers constructors** into core Registry; services never import it) |
 | `db/` | `base.py`, `schemas/`, `migrations/`, `table_names.py`, `filter_converter.py`, `utils.py` | **Integrations:** every backend package (`postgres/`, `sqlite/`, `mongo/`, …) |
-| `vectordb/` | `base.py`, `distance.py`, `score.py`, `search.py` | **Integrations:** every backend package (`pgvector/`, `lancedb/`, `chroma/`, …) |
-| `knowledge/` | `protocol.py`, `types.py`, `content.py`, `document/`, `chunking/`, `utils.py`, `filesystem.py`; **`knowledge.py` only after prerequisite refactor** | **Integrations:** `reader/`, `embedder/`, `reranker/`, `loaders/`, `remote_content/`, `remote_knowledge.py` |
+| `vectordb/` | `base.py`, `distance.py`, `score.py`, `search.py` | **Integrations:** every backend package (`pgvector/`, `lancedb/`, `chroma/`, `qdrant/`, …) |
+| `knowledge/` | `protocol.py`, `types.py`, `content.py`, `document/`, `chunking/`, `utils.py`, `filesystem.py`; **`knowledge.py` only after prerequisite refactor** | **Integrations:** `reader/`, `embedder/` (incl. memory Mode A/B embedders), `reranker/`, `loaders/`, `remote_content/`, `remote_knowledge.py` |
 | `tools/` | `function.py`, `toolkit.py`, `decorator.py` | **Integrations:** all toolkit modules, `mcp/`, `mcp_toolbox.py`, and similar adapters |
-| `tracing/` | `schemas.py`, `setup.py` | **Integrations:** `exporter.py` and concrete exporters |
-| `utils/` | Generic helpers only (e.g. `log.py`, `http.py`, `env.py`, `dttm.py`, `string` helpers, `media.py`, `json_schema.py`, `encryption.py`, …) | **Integrations:** `gemini.py`, `openai.py`, `mcp.py`, `streamlit.py`, `models/`. **Orchestration:** `agent.py`, `team.py`, `events.py`, `reasoning.py`, `response.py`, `hooks.py` |
+| `tracing/` | `schemas.py`; **`setup.py` only after prerequisite #5** | **Integrations:** `exporter.py` and concrete exporters; setup may live at composition root until refactored |
+| `utils/` | Generic helpers only (e.g. `log.py`, `http.py`, `env.py`, `dttm.py`, `string` helpers, `media.py`, `json_schema.py`, `encryption.py`, …) | **Integrations:** `gemini.py`, `openai.py`, `mcp.py`, `streamlit.py`, `models/`. **Orchestration:** `agent.py`, `team.py`, `events.py`, `reasoning.py`, `response.py`, `hooks.py`, `print_response/` |
 | `context/` | — (no core slice) | **Orchestration:** builders/assemblers. **Integrations:** external connectors (`gmail/`, `slack/`, `gdrive/`, …) |
+| `memory/` | Managers / strategies stay in **services** (not a core split) | **Integrations:** vector-store + embedder backends consumed by memory (via Registry); keeps Mode A↔B a config swap (SM-R3/SM-R4) |
+| `cloud/` | Agnostic control-plane helpers stay in **api** | **Integrations:** provider-specific deploy adapters (e.g. `aws/`) |
 
 ### Extraction prerequisites (must land with or before the corresponding move tickets)
 
 1. **`knowledge/knowledge.py`:** Today this facade statically imports `knowledge.reader`, `remote_content`, and `remote_knowledge`. It cannot move into enforceable core until those dependencies are inverted (accept reader/remote ports via constructor / protocol, or split a thin core facade from an integrations composer). Until then, treat `knowledge.py` as **temporarily coupled** and out of the import-lint core set.
-2. **`models/utils.py`:** Provider table must move with integrations (or become a registration API fed by integration entrypoints). Core must not retain the `_PROVIDERS` module-path map.
+2. **`models/utils.py`:** Move the `_PROVIDERS` table with integrations. It must **not** remain importable by services. Instead, at startup each provider entry **registers a constructor** into the core Registry construction seam (`register_model_constructor`). Services then call `construct_model(...)` only. Core must not retain the module-path map.
 3. **Provider utils** (`utils/gemini.py`, `utils/openai.py`, `utils/models/`, …): move with their providers so core does not pull optional SDKs (`google-genai`, etc.).
-4. **`Registry` ↔ `Agent`/`Team`:** replace orchestration TYPE_CHECKING imports with protocols or relocate agent/team catalogs out of core (EGPT-1.9).
+4. **`Registry` ↔ `Agent`/`Team`:** replace orchestration TYPE_CHECKING imports with protocols or relocate agent/team catalogs out of core (EGPT-1.9). Same ticket lands constructor registration APIs if not already present.
+5. **`tracing/setup.py`:** Today imports `tracing.exporter` and `remote.base`. Keep out of the enforceable core set until it accepts an exporter port / composition-root wiring (same class of debt as `knowledge.py`).
+6. **Memory backends:** Ensure memory’s vector-store and embedder dependencies go through Registry constructors so Mode A↔B stays config-only (SM-R3/SM-R4).
 
 ### Traceability checklist (no orphans)
 
@@ -176,7 +198,7 @@ Every current **top-level** name under `libs/agno/egpt/` is assigned a primary l
 | `agent`, `agents`, `team`, `workflow`, `reasoning`, `hooks`, `context` | orchestration (context connectors → integrations when extracted) |
 | `eval`, `learn`, `memory`, `culture`, `skills`, `scheduler`, `compression`, `factory`, `guardrails` | services |
 | `integrations`, plus concrete slices of `models`, `db`, `vectordb`, `tools`, `knowledge`, `tracing`, `utils` | integrations |
-| `os`, `api`, `client`, `remote`, `cloud` | api / control-plane |
+| `os`, `api`, `client`, `remote`, `cloud` | api / control-plane (`cloud/` provider adapters → integrations when extracted) |
 | `run`, `session`, `approval`, `registry`, `exceptions.py`, `filters.py`, `media.py`, `metrics.py`, `brand.py`, `debug.py`, plus interface slices of split packages | core |
 
 Covered names: `agent`, `agents`, `api`, `approval`, `brand.py`, `client`, `cloud`, `compression`, `context`, `culture`, `db`, `debug.py`, `eval`, `exceptions.py`, `factory`, `filters.py`, `guardrails`, `hooks`, `integrations`, `knowledge`, `learn`, `media.py`, `memory`, `metrics.py`, `models`, `os`, `reasoning`, `registry`, `remote`, `run`, `scheduler`, `session`, `skills`, `team`, `tools`, `tracing`, `utils`, `vectordb`, `workflow`.
@@ -195,15 +217,15 @@ Rows are importers; columns are import targets. `Y` = allowed static import, `N`
 | **integrations** | Y | N | N | Y (internal) | N |
 | **api** | Y | Y | Y | N\* | Y (internal) |
 
-\* **Exception (composition root only):** `api` / app-startup modules may import concrete integrations **solely** to construct instances and register them on `Registry`. All other api code follows `N`. EGPT-1.11 should confine this exception to an allowlisted set of modules (e.g. `egpt.os.app`, explicit `register_*` helpers)—not the whole api layer.
+\* **Exception (composition root only):** `api` / app-startup modules may import concrete integrations **solely** to register **constructors and/or instances** on `Registry`. All other api code follows `N`. EGPT-1.11 should confine this exception to an allowlisted set of modules (e.g. `egpt.os.app`, explicit `register_*` helpers)—not the whole api layer.
 
 ### Rules (normative)
 
 1. **Matrix is authoritative.** The shorthand `api → orchestration → services → core` describes the primary inward path. **Shortcuts allowed by the matrix are intentional:** `api → services` and `api → core` are permitted; `orchestration → services` is permitted. Do not invent a stricter chain than the matrix.
 2. **integrations → core only.** Integrations must not import orchestration, services, or api.
-3. **orchestration and services** may depend on **core interfaces only**, never on concrete integration modules (no `from egpt.models.openai …`, `from egpt.db.postgres …`, toolkit modules, readers, exporters, `models.utils`, provider utils, etc.).
-4. **api / control-plane** must not import concrete integrations outside the composition-root allowlist; obtain adapters via constructor injection / `Registry.get_*`.
-5. **`Registry` (core)** is the runtime resolution seam. Upper layers resolve implementations by id/name through Registry (or the future DI container), not via static imports of integration modules. Core Registry code never imports integrations.
+3. **orchestration and services** may depend on **core interfaces only**, never on concrete integration modules (no `from egpt.models.openai …`, `from egpt.db.postgres …`, toolkit modules, readers, exporters, `models.utils`, provider utils, etc.). Runtime hydration of DB-defined agents uses Registry `construct_*` only.
+4. **api / control-plane** must not import concrete integrations outside the composition-root allowlist; obtain adapters via constructor injection / `Registry.get_*` / `Registry.construct_*`.
+5. **`Registry` (core)** is the runtime resolution **and construction** seam. Upper layers resolve or build implementations by id/name through Registry (or the future DI container), not via static imports of integration modules. Core Registry code never imports integrations. Constructors are registered at startup by the composition root / integration entrypoints; instances may also be cached via `add_*`/`get_*`.
 6. **Same-layer imports** are allowed.
 7. **Cycles across layers are forbidden.**
 
@@ -218,6 +240,14 @@ root_package = egpt
 # 1) Layers contract: api > orchestration > services > core
 #    (import-linter "layers" type). Integrations are NOT in this stack;
 #    they are constrained by the forbidden contracts below.
+#
+# IMPORTANT for EGPT-1.11: In import-linter, modules joined by "|" within a
+# single layer line are treated as *independent* (mutually non-importing).
+# That contradicts normative Rule 6 (same-layer imports are allowed)—e.g.
+# models.base importing exceptions/metrics is legal. Do NOT encode the
+# "|"-joined core (or other layer) lines below verbatim. Prefer one module
+# per layer that owns the package tree, or an equivalent encoding that
+# allows intra-layer imports. The lists here are inventory hints only.
 [importlinter:contract:layers]
 name = Inward layers api > orchestration > services > core
 type = layers
@@ -228,10 +258,14 @@ layers =
     egpt.registry | egpt.run | egpt.session | egpt.approval | egpt.models.base | egpt.models.message | egpt.models.response | egpt.db.base | egpt.vectordb.base | egpt.tools.function | egpt.tools.toolkit | egpt.tools.decorator | egpt.knowledge.protocol | egpt.knowledge.types | egpt.exceptions | egpt.filters | egpt.media | egpt.metrics | egpt.brand | egpt.debug
 # Note: do not place egpt.knowledge.knowledge here until prerequisite #1 is done.
 # Generic egpt.utils.* modules are added to the core layer after the utils split.
+# Do not place egpt.tracing.setup here until prerequisite #5 is done.
 
 # 2) Upper layers must not import integrations (matrix N cells).
+#    Also forbid non-allowlisted api modules from importing integrations
+#    (matrix api→integrations = N*); composition-root modules are excluded
+#    via ignore_imports / a separate allowlist in EGPT-1.11.
 [importlinter:contract:no-integrations-from-upper]
-name = core/orchestration/services must not import integrations
+name = core/orchestration/services/api must not import integrations
 type = forbidden
 source_modules =
     egpt.agent
@@ -254,7 +288,13 @@ source_modules =
     egpt.run
     egpt.session
     egpt.approval
+    egpt.api
+    egpt.client
+    egpt.remote
+    egpt.cloud
+    egpt.os
     # plus core interface modules / generic utils after moves
+    # EGPT-1.11: ignore_imports for composition-root allowlist under egpt.os
 forbidden_modules =
     egpt.integrations
     egpt.models.openai
@@ -306,8 +346,8 @@ forbidden_modules =
     egpt.remote
     egpt.cloud
 
-# 4) Composition-root exception: allowlisted api modules may import integrations.
-#    Implement via ignore_imports / separate contract exclusion list in EGPT-1.11.
+# 4) Composition-root exception: allowlisted api modules may import integrations
+#    to register constructors/instances. Implement via ignore_imports on contract #2.
 ```
 
 EGPT-1.11 must expand the `…` placeholders to the full post-move module inventory and keep the matrix cells unchanged.
@@ -321,31 +361,33 @@ EGPT-1.11 must expand the `…` placeholders to the full post-move module invent
 - A single normative allowed-import matrix for reviewers and for CI enforcement.
 - Existing `integrations/` and `Registry` are reused rather than reinvented.
 - Registry→integrations coupling is defined as runtime registration only, so the matrix stays acyclic.
+- DB-defined-agent hydration (D2) is an explicit constructor-registry path, so services never import concretes to build providers from DB config.
 
 ### Negative / follow-on work
 
 - Requires coordinated package moves (EGPT-1.4–1.8) and temporary shims/re-exports during migration.
 - Import paths for concrete providers will change for application code that currently imports them from `egpt.models.<provider>` etc. (migration notes belong in those tickets).
 - `context/` and `utils/` are mixed packages; extraction must follow the split table.
-- `knowledge/knowledge.py`, `models/utils.py`, provider utils, and Registry↔Agent/Team typing are explicit prerequisites (see above).
+- `knowledge/knowledge.py`, `models/utils.py` (constructor registration), provider utils, `tracing/setup.py`, memory backend wiring, and Registry↔Agent/Team typing are explicit prerequisites (see above).
 - Private `docs/` symlink workflow: this repo tracks only `docs/adr/` (see `.gitignore`). Prefer not to replace `docs/` with a full external symlink that would shadow the tracked ADR tree; keep private docs elsewhere or nest them beside `adr/`.
 
 ### Out of scope for this ADR
 
 - Actually moving any code (EGPT-1.4 through 1.8).
 - DI container (EGPT-1.2).
-- Registry generalization (EGPT-1.9).
+- Registry generalization / constructor APIs implementation (EGPT-1.9).
 - CI import-linter enforcement (EGPT-1.11).
 
 ## Compliance / review gate
 
 This ADR is approved when architecture owners confirm:
 
-- [ ] Five layers defined with the layer diagram above (including Registry runtime-registration semantics)
-- [ ] Layer → module mapping ratified (every current top-level module covered; split packages documented)
-- [ ] Allowed-import matrix ratified as the **normative** input for EGPT-1.11 (sketch encodes all matrix N/Y cells, including upper↛integrations and integrations↛upper)
+- [ ] Five layers defined with the layer diagram above (including Registry runtime-registration **and** constructor-seam semantics for D2 DB-defined agents)
+- [ ] Layer → module mapping ratified (every current top-level module covered; split packages documented; memory backends and `cloud/` provider adapters noted)
+- [ ] Allowed-import matrix ratified as the **normative** input for EGPT-1.11 (sketch encodes all matrix N/Y cells, including upper↛integrations and integrations↛upper; `|` independence pitfall flagged)
 - [ ] Integrations designated a separate, self-contained, reusable layer
-- [ ] Interface/implementation split documented for `models/` (including `models/utils.py`), `db/`, `vectordb/`, `knowledge/` (including `knowledge.py` prerequisite), `tools/`, `tracing/`, and `utils/`
+- [ ] Interface/implementation split documented for `models/` (including `models/utils.py` → constructor registration), `db/`, `vectordb/`, `knowledge/` (including `knowledge.py` prerequisite), `tools/`, `tracing/`, and `utils/`
+- [ ] Runtime construction seam ratified: services/factory resolve provider/model/tool strings from DB config via Registry `construct_*` without importing concretes
 
 ## References
 
