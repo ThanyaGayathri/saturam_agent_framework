@@ -51,6 +51,14 @@ class StreamParams:
     vec_noise: float = 0.35  # embedding noise magnitude
     backchannel_rate: float = 0.08  # topic-neutral filler (not a boundary)
     drift_rate: float = 0.05  # single off-topic excursion (not a boundary)
+    # -- external-validity hardening (off by default; the "hard" config turns these on) --
+    # Gradual/overlapping boundaries: the first N events of a new segment have their
+    # embedding blended prev->new (ramp), so the boundary event is NOT a pure on-topic
+    # sample. Addresses the "boundaries maximally detectable by construction" critique.
+    gradual_shift_turns: int = 0
+    # Mid-topic long pauses: an interior (non-boundary) event may be preceded by a long
+    # gap, so time_gap can emit FALSE boundaries — its precision is no longer tautological.
+    mid_topic_pause_rate: float = 0.0
 
 
 @dataclass
@@ -74,6 +82,8 @@ class Stream:
     events: List[Event]
     seed: int
     params: StreamParams = field(default_factory=StreamParams)
+    source: str = "synthetic"  # "synthetic" | "tiage"; real data has no timestamps
+    has_timestamps: bool = True  # False for real datasets -> time_gap/hybrid not applicable
 
     @property
     def n_events(self) -> int:
@@ -136,6 +146,11 @@ def generate_stream(seed: int = 0, params: Optional[StreamParams] = None) -> Str
     idx = 0
     # Track last-used line index per (topic, role) to avoid immediate repeats.
     last_line: dict = {}
+    # Separate RNG for the external-validity hardening (mid-topic pauses) so enabling
+    # it does NOT perturb the segment structure / labels — the only difference vs the
+    # base stream is the injected pauses (and gradual boundary blending), giving a
+    # controlled comparison rather than a different stream.
+    hard_rng = np.random.RandomState(seed + 999983)
 
     for seg_index, topic_id in enumerate(topic_seq):
         # Boundary time gap before every segment after the first.
@@ -145,10 +160,16 @@ def generate_stream(seed: int = 0, params: Optional[StreamParams] = None) -> Str
             else:
                 t += rng.uniform(*p.short_gap_s)
 
+        prev_topic = topic_seq[seg_index - 1] if seg_index > 0 else topic_id
         n_events_seg = 2 * int(rng.randint(p.min_exchanges, p.max_exchanges + 1))
         for j in range(n_events_seg):
             role = "user" if j % 2 == 0 else "assistant"
             starts_segment = seg_index > 0 and j == 0
+
+            # Mid-topic long pause: an interior event may follow a long gap without
+            # being a boundary -> lets time_gap emit false positives (issue #2).
+            if not starts_segment and j > 0 and hard_rng.random() < p.mid_topic_pause_rate:
+                t += hard_rng.uniform(*p.long_gap_s)
 
             is_noise = False
             eff_topic = topic_id
@@ -171,7 +192,15 @@ def generate_stream(seed: int = 0, params: Optional[StreamParams] = None) -> Str
             else:
                 text = _pick_line(topic_id, role, rng, last_line)
 
-            vector = _event_vector(bases[eff_topic], p.vec_noise, rng)
+            # Gradual/overlapping boundary: blend the first few events of a new segment
+            # between the previous and new topic so the boundary is not a pure on-topic
+            # sample (issue #1). Ramp new-topic weight from ~0.5 toward 1.0.
+            if seg_index > 0 and p.gradual_shift_turns > 0 and j < p.gradual_shift_turns and not is_noise:
+                w_new = 0.5 + 0.5 * (j + 1) / (p.gradual_shift_turns + 1)
+                base_vec = w_new * bases[topic_id] + (1.0 - w_new) * bases[prev_topic]
+                vector = _event_vector(base_vec, p.vec_noise, rng)
+            else:
+                vector = _event_vector(bases[eff_topic], p.vec_noise, rng)
             events.append(
                 Event(
                     idx=idx,

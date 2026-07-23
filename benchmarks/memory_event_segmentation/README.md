@@ -28,6 +28,14 @@ controlled, labelled stream — under synthetic embeddings, **real** embeddings,
    LLM/SLM has real signal; per-event synthetic embeddings (topic base + noise,
    scaled 1/√dim); knobs for time gaps, backchannel filler and topic drift. Not
    every boundary gets a time gap (`p_time_gap`), so `time_gap` cannot trivially win.
+   A **`hard` config** (`--config hard`) adds gradual/overlapping boundaries
+   (`gradual_shift_turns`) and mid-topic long pauses (`mid_topic_pause_rate`) so
+   boundaries are not maximally detectable and `time_gap` can false-positive.
+1b. **Real dataset** (`harness/datasets.py`, `data/`): the vendored **TIAGE**
+   topic-shift test split — 100 real PersonaChat dialogues with human-annotated
+   boundaries (real, short, elliptical turns). An **independent, non-circular**
+   external cross-check (different authors write and label it). No timestamps, so
+   `time_gap`/hybrids are skipped there. `data/fetch_tiage.py` (re)builds it.
 2. **Eight candidates** (`harness/segmenters.py`, each sync + async):
    `single_session`, `per_turn` (naive baselines), `fixed_window`, `time_gap`,
    `embedding_drift` (TextTiling), `surprise_em_llm` (EM-LLM: Bayesian surprise +
@@ -77,16 +85,20 @@ gap) — how it would be deployed:
 ```bash
 cd benchmarks/memory_event_segmentation
 ./setup.sh
-./.venv/bin/python run_benchmark.py --seeds 5                          # offline, synthetic
-./.venv/bin/python run_benchmark.py --seeds 5 --relevance embedding    # real-embedding confirm
-./.venv/bin/python sweep_params.py  --seeds 5                          # sensitivity + robustness
-# real model calls (optional):
-./.venv/bin/python run_benchmark.py --seeds 5 --llm --llm-provider azure_responses   # gpt-5.5 (needs .env)
-./.venv/bin/python run_benchmark.py --seeds 3 --llm --llm-provider ollama            # on-prem SLM
+python data/fetch_tiage.py                                              # (re)build the real dataset
+./.venv/bin/python run_benchmark.py --seeds 5                           # synthetic vectors
+./.venv/bin/python run_benchmark.py --seeds 5 --relevance embedding     # real embeddings
+./.venv/bin/python run_benchmark.py --seeds 5 --config hard --relevance embedding   # hardened
+./.venv/bin/python run_benchmark.py --dataset tiage                     # real dialogues
+./.venv/bin/python sweep_params.py  --seeds 5                           # sensitivity + robustness
+# real model calls:
+./.venv/bin/python run_benchmark.py --seeds 5 --relevance embedding --llm --llm-provider azure_responses  # gpt-5.5 (.env)
+./.venv/bin/python run_benchmark.py --dataset tiage --llm --llm-provider azure_responses                  # LLM on real data
+./.venv/bin/python run_benchmark.py --seeds 5 --relevance embedding --llm --llm-provider ollama           # on-prem SLM
 ```
 
-Deterministic given the seeds (offline modes). Results land in `results/`. See
-[TEST_LOG.md](TEST_LOG.md).
+All means are reported with standard deviation. Offline modes are deterministic
+given the seeds. Results land in `results/`. See [TEST_LOG.md](TEST_LOG.md).
 
 ## Layout
 
@@ -100,15 +112,19 @@ benchmarks/memory_event_segmentation/
 ├── .env.example           # copy to .env (gitignored) for the LLM option
 ├── run_benchmark.py       # main runner (offline + optional LLM/SLM)
 ├── sweep_params.py        # sensitivity + robustness sweeps
+├── data/
+│   ├── fetch_tiage.py     # download + process TIAGE (MIT) into tiage_test.json
+│   └── tiage_test.json    # vendored real dialogues (100) with boundary labels
 ├── harness/
 │   ├── topics.py          # readable multi-topic content
-│   ├── stream.py          # labelled stream generator (+ noise knobs)
-│   ├── embeddings.py      # real sentence-transformers vectors (confirmation)
+│   ├── stream.py          # labelled stream generator (+ noise + hardening knobs)
+│   ├── datasets.py        # real-dataset loader (TIAGE)
+│   ├── embeddings.py      # real sentence-transformers vectors
 │   ├── segmenters.py      # the 8 candidates (sync + async)
-│   ├── surprise.py        # EM-LLM: surprise + modularity/conductance refine
+│   ├── surprise.py        # EM-LLM: surprise proxy + modularity/conductance refine
 │   ├── llm.py             # Azure Responses + ollama SLM detector
 │   ├── metrics.py         # P/R/F1, Pk, WindowDiff
 │   └── simulate.py        # run + score one segmenter
-├── results/               # generated json + md
+├── results/               # generated json + md (mean±sd)
 └── findings/              # notes for the implementation phase (SM-C*/SM-E*)
 ```

@@ -20,39 +20,44 @@ already fixed — see below).
 - **Session summary is the wrong granularity.** `session/summary.py:63`
   `SessionSummaryManager` summarises a whole session; episodes are sub-session.
   Keep session summary; add episode segmentation beneath it.
-- **Consolidation lane** — the async EM-LLM hybrid + optional LLM pass belong on
-  the SM-R7 consolidation worker (they need whole-episode embeddings and a graph
-  pass — too heavy for the request path).
+- **Consolidation lane** — the async semantic re-segmenter + optional LLM pass
+  belong on the SM-R7 consolidation worker (they need whole-episode embeddings —
+  too heavy for the request path), and must implement the **episode-identity
+  contract** (stable id + supersede/revision, DECISION.md §4).
 
-## Modeling choices worth revisiting with real data
+## Modeling choices (updated after the PR #9 review rework)
 
-- **Surprise proxy.** `harness/surprise.py` uses an *embedding-space* Bayesian
-  surprise (`1 - cos(v_i, EMA(context))`) because we have no token NLL offline.
-  EM-LLM proper uses the LLM's token-level negative log-likelihood. If SM-C wires
-  EM-LLM to a real model that exposes logprobs, swap the surprise array for token
-  NLL and re-run the sweep — the graph-refinement stage is unchanged.
-- **Graph refinement pays off — keep it.** `results/sensitivity.md` (`em_llm.refine`)
-  shows Pk 0.136 → 0.096 with refinement on. Implement the full EM-LLM (surprise +
-  modularity refinement), not just a surprise threshold. `modularity` beat
-  `conductance` on Pk; keep modularity as the default objective but leave both in.
-- **Real embeddings change the semantic ranking — trust the `embedding` run.** On
-  clean synthetic vectors `embedding_drift` looks best (F1 0.970) but collapses to
-  0.682 on real `all-MiniLM-L6-v2` embeddings, while EM-LLM and the hybrid hold up.
-  Calibrate thresholds against the **production embedding model**, not synthetic.
-- **Hybrid > standalone.** The union of deterministic time-gap anchors with the
-  semantic pass (`hybrid_gap_emllm`) was the best no-API-cost method under real
-  embeddings (Pk 0.130). Implement segmentation as a *composition*, not a single
-  algorithm — this also makes v1→v2 a strict extension (add the semantic pass on
-  the async lane; the inline anchors are unchanged).
-- **LLM model id.** Harness/DECISION default to `gpt-5.5` via `OpenAIResponses`;
-  the measured numbers came from a **gpt-5.4** Azure Responses deployment (the one
-  available). Re-measure cost/latency on the production `gpt-5.5` deployment. Unit
-  prices ($5/$15 per 1M in/out) in `harness/llm.py` are provisional.
-- **On-prem SLM needs a GPU.** llama3 8B via ollama on CPU took ~365 s per session
-  (a single ~1.6k-token prompt) — untenable inline, and only batchable on a GPU.
-  If an on-prem-only deployment is required, budget GPU and re-measure; otherwise
-  prefer the deterministic local methods and reserve the cloud LLM for flagged
-  sessions.
+- **Do NOT ship the hybrid.** The earlier draft's `hybrid_gap_emllm` was best only
+  because it inherited `time_gap` precision = 1.0, which is a *gap-model artifact*.
+  Under realistic mid-topic pauses the anchors are noisy and the hybrid collapses
+  (F1 0.799 → 0.503). Ship **standalone `embedding_drift`** (v2 default) or EM-LLM
+  (alternative). See DECISION.md §3/§8.
+- **`time_gap` is a cheap prior, not a precise oracle.** Its precision is 1.0 only
+  when long gaps coincide with real boundaries; inject mid-topic pauses and it
+  falls to 0.31. Implement it inline as a first cut, but the async lane must be
+  able to override it — do not treat its boundaries as high-precision.
+- **Surprise proxy — re-test before preferring EM-LLM.** `harness/surprise.py` uses
+  embedding-cosine surprise, not token NLL. EM-LLM wins on structured synthetic
+  data but *loses to `embedding_drift` on real TIAGE* (0.368 vs 0.537). If SM-C
+  wires a model exposing logprobs, swap in token NLL and re-run before choosing
+  EM-LLM over `embedding_drift`. Graph refinement itself measurably helps
+  (`results/sensitivity.md`, Pk 0.136 → 0.096) — keep it, with modularity default.
+- **Trust the real dataset, not synthetic vectors.** `embedding_drift` looks
+  perfect on synthetic vectors (0.970) but is 0.537 on real TIAGE dialogues; on
+  synthetic vectors it is a trap. Calibrate thresholds against the **production
+  embedding model + real logs**, not synthetic. The vendored TIAGE set
+  (`data/tiage_test.json`) is the external cross-check to re-run against.
+- **The LLM is the quality default, not a luxury.** `gpt-5.4` is the only method
+  robust across hardened-synthetic (0.876) and real (0.622) data; the cheap methods
+  degrade badly on real turns. Budget for the async LLM pass where segmentation
+  quality matters; the cheap semantic methods are the cost-saving fallback.
+- **LLM model id.** Default `gpt-5.5` via `OpenAIResponses`; measured on a
+  **gpt-5.4** Azure deployment. Re-measure cost/latency on production `gpt-5.5`.
+  Unit prices ($5/$15 per 1M in/out) in `harness/llm.py` are provisional.
+- **Do not foreclose the on-prem SLM (Mode A).** llama3.1-8B on **CPU** with a
+  single whole-conversation prompt scored F1 0.319 at ~338 s — a worst case, not a
+  fair test. Re-test on **GPU with a per-window prompt** (and/or a light fine-tune)
+  before concluding SLMs are unfit for segmentation.
 
 ## Env / reproducibility notes
 
