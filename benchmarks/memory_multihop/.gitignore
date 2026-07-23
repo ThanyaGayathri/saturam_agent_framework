@@ -1,0 +1,15 @@
+# Secrets — never commit
+.env
+*.env
+azure_key.txt
+*key*.txt
+
+# Caches are large and machine-local; the committed results/*.json|md are the record.
+results/llm_cache/
+results/embed_cache/
+
+# HF datasets cache if it lands here
+data/hf_cache/
+
+__pycache__/
+*.pyc
