@@ -125,6 +125,19 @@ on the air-gapped CPU target it cannot sit on the hot path. (A quality compariso
 completed for this reason; on the 50-query subset weighted fusion still led RRF, 0.838 vs 0.820,
 before rerank. MPS was ruled out — it OOMs on this model; see the device note in `rerank.py`.)
 
+### 3.1c Reranker coverage — measured vs reasoned (transparency)
+
+The `RerankStage` wraps **any** egpt `Reranker` (adapter chosen by config), so all five
+reranker adapters are wired. What was **empirically run**: the self-hosted **`sentence_transformer`**
+cross-encoder — `ms-marco-MiniLM-L-6-v2` (full, 3 datasets) and `bge-reranker-v2-m3` (latency +
+subset). What was **not run, and why**: `infinity` serves the *same* cross-encoder models
+(bge-reranker), so its quality is identical to the measured `sentence_transformer` path — only the
+serving latency differs; `cohere` (Mode B) needs an API key and is off the air-gapped critical
+path; `aws_bedrock` likewise. Since the **Mode-A self-hosted path is the deployment-critical one
+and it was measured**, and the overall verdict is "rerank off the default hot path," the Mode-B
+adapter choice (`cohere`) is selected by **reasoning, not measurement** — flagged here so it isn't
+read as benchmarked. If reranking is later enabled, `infinity` should be latency-benchmarked served.
+
 ### 3.2 Strong-embedder cross-check (Azure `text-embedding-3-small`, BEIR only)
 
 | dataset | vector | RRF | weighted |
