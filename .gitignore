@@ -19,6 +19,8 @@
 
 # Ignore .env files
 .env
+azure_llm.env
+azure_key.txt
 
 # Ignore .envrc files (used by direnv: https://direnv.net/)
 .envrc
