@@ -1,0 +1,23 @@
+# Secrets — never commit
+.env
+*.env
+!.env.example
+
+# Local virtualenv
+.venv/
+
+# Downloaded third-party datasets (LOCOMO) — fetched on demand, not vendored
+data/locomo/raw/
+
+# Record/replay LLM cache — bulky and contains LOCOMO-derived text; regenerate
+# with HARNESS_LLM_MODE=auto. The committed results/*.json are the evidence of record.
+results/llm_cache/
+
+# Run logs
+*.log
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
