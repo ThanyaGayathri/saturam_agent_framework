@@ -1,0 +1,209 @@
+"""Swap test (SM-R11): prove the MemoryProvider seam is plug-and-play.
+
+The proof is structural: ONE consumer function (``consumer_workload``) is run
+verbatim against providers built from different configs. Swapping the backend
+(``co_located`` Mode A -> ``external_stub`` Mode B) is a one-line config change;
+the consumer code never branches on provider type. If the seam leaked, the same
+function could not drive both.
+
+Deterministic and offline (no LLM / network / randomness), so it is CI-safe.
+
+Run:  python -m benchmarks.memory_provider_spec.swap_test
+Exit: 0 on all-pass, 1 on any failure. Writes results/swap_results.json.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import sys
+from typing import Any, Dict, List
+
+from benchmarks.memory_provider_spec import adapters  # noqa: F401  (registers providers)
+from benchmarks.memory_provider_spec.interface import (
+    DeploymentMode,
+    MemoryEvent,
+    MemoryProvider,
+    MemoryProviderConfig,
+    MemoryQuery,
+    MemoryTier,
+    Scope,
+    build_memory_provider,
+)
+
+# Two configs that differ ONLY in provider + mode. Everything downstream is identical.
+CONFIGS = [
+    MemoryProviderConfig(provider="co_located", mode=DeploymentMode.CO_LOCATED),
+    MemoryProviderConfig(provider="external_stub", mode=DeploymentMode.EXTERNAL),
+]
+
+_SAMPLE = [
+    ("Acme migrated its vector store to pgvector last quarter", ["pgvector", "store"]),
+    ("Acme migrated its vector store to pgvector last quarter", ["pgvector", "store"]),  # duplicate
+    ("The platform team standardized on Neo4j for the graph tier", ["neo4j", "graph"]),
+    ("Nightly jobs consolidate episodic memory into semantic facts", ["consolidation"]),
+]
+
+
+def _events(scope: Scope) -> List[MemoryEvent]:
+    return [MemoryEvent(content=text, scope=scope, topics=topics) for text, topics in _SAMPLE]
+
+
+# =============================================================================
+# The ONE consumer workload — identical for every provider (this is the proof)
+# =============================================================================
+
+
+def consumer_workload(provider: MemoryProvider, scope: Scope) -> Dict[str, Any]:
+    """Exercise the full seam through the abstract type only. No provider-specific code."""
+    receipt = provider.write(scope, _events(scope))
+    fused = provider.read(scope, MemoryQuery(text="pgvector store", tiers=[MemoryTier.EPISODIC], limit=5))
+    tier_hits = provider.read_tier(scope, MemoryTier.EPISODIC, MemoryQuery(text="neo4j graph", limit=5))
+    report = provider.consolidate(scope)
+    return {
+        "accepted": receipt.accepted,
+        "read_records": len(fused.records),
+        "read_top": fused.records[0].content if fused.records else None,
+        "fusion_method": fused.fusion.get("method"),
+        "read_tier_hits": len(tier_hits),
+        "episodic_scanned": report.episodic_scanned,
+        "substrates": {s.value: wired for s, wired in provider.substrates().items()},
+    }
+
+
+async def aconsumer_workload(provider: MemoryProvider, scope: Scope) -> Dict[str, Any]:
+    """Async twin of :func:`consumer_workload` — same seam, async variants only."""
+    receipt = await provider.awrite(scope, _events(scope))
+    fused = await provider.aread(scope, MemoryQuery(text="pgvector store", tiers=[MemoryTier.EPISODIC], limit=5))
+    report = await provider.aconsolidate(scope)
+    return {
+        "accepted": receipt.accepted,
+        "read_records": len(fused.records),
+        "episodic_scanned": report.episodic_scanned,
+    }
+
+
+# =============================================================================
+# Checks
+# =============================================================================
+
+
+class Result:
+    def __init__(self) -> None:
+        self.checks: List[Dict[str, Any]] = []
+
+    def check(self, name: str, ok: bool, detail: str = "") -> None:
+        self.checks.append({"name": name, "ok": bool(ok), "detail": detail})
+
+    @property
+    def passed(self) -> bool:
+        return all(c["ok"] for c in self.checks)
+
+
+def run() -> Result:
+    result = Result()
+    scope = Scope(tenant_id="acme", agent_id="a1", user_id="u1")
+
+    # 1. Config-only swap: identical consumer drives both providers.
+    observed: Dict[str, Dict[str, Any]] = {}
+    for config in CONFIGS:
+        provider = build_memory_provider(config)
+        obs = consumer_workload(provider, scope)
+        observed[config.provider] = obs
+        result.check(
+            "{p}: write+read+consolidate via one seam".format(p=config.provider),
+            obs["accepted"] == len(_SAMPLE) and obs["read_records"] >= 1 and obs["read_tier_hits"] >= 1,
+            "accepted={a} read={r} tier={t}".format(a=obs["accepted"], r=obs["read_records"], t=obs["read_tier_hits"]),
+        )
+
+    # 2. Same call site, different backends -> both produced a roundtrip.
+    result.check(
+        "swap is config-only (no call-site change)",
+        all(o["read_top"] is not None for o in observed.values()),
+        "consumer_workload run verbatim on {n} providers".format(n=len(observed)),
+    )
+
+    # 3. Cross-substrate dedup: one episode matched by BOTH substrates -> one fused record.
+    dedup_scope = Scope(tenant_id="acme", user_id="dd")
+    co = build_memory_provider(CONFIGS[0])
+    co.write(
+        dedup_scope,
+        [MemoryEvent(content="Acme runs pgvector and neo4j together", scope=dedup_scope, topics=["pgvector", "neo4j"])],
+    )
+    dup_read = co.read(dedup_scope, MemoryQuery(text="pgvector neo4j", tiers=[MemoryTier.EPISODIC], limit=10))
+    both_substrates = dup_read.fusion.get("vector_hits", 0) >= 1 and dup_read.fusion.get("graph_hits", 0) >= 1
+    result.check(
+        "co_located: RRF folds a cross-substrate match to one record",
+        len(dup_read.records) == 1 and both_substrates,
+        "fused={n} vector_hits={v} graph_hits={g}".format(
+            n=len(dup_read.records), v=dup_read.fusion.get("vector_hits"), g=dup_read.fusion.get("graph_hits")
+        ),
+    )
+
+    # 4. Tenant isolation: another tenant sees nothing.
+    other = Scope(tenant_id="globex", user_id="u9")
+    leak = co.read(other, MemoryQuery(text="pgvector store", tiers=[MemoryTier.EPISODIC]))
+    result.check(
+        "tenant isolation", len(leak.records) == 0, "cross-tenant records leaked={n}".format(n=len(leak.records))
+    )
+
+    # 5. Bi-temporal (SM-R10) seam: invalidate-not-delete + as_of point-in-time read.
+    bt_scope = Scope(tenant_id="acme", user_id="bt")
+    bt = build_memory_provider(CONFIGS[0])
+    r = bt.write(bt_scope, [MemoryEvent(content="Acme HQ is in Boston", scope=bt_scope, topics=["hq", "boston"])])
+    eid = r.event_ids[0]
+    before = bt.read(bt_scope, MemoryQuery(text="hq boston", tiers=[MemoryTier.EPISODIC]))
+    bt._graph.invalidate(bt_scope, eid, at=1000)  # type: ignore[attr-defined]
+    after_now = bt.read(bt_scope, MemoryQuery(text="hq boston", tiers=[MemoryTier.EPISODIC], as_of=2000))
+    after_past = bt.read(bt_scope, MemoryQuery(text="hq boston", tiers=[MemoryTier.EPISODIC], as_of=500))
+    result.check(
+        "bi-temporal invalidate-not-delete + as_of",
+        len(before.records) == 1 and len(after_now.records) == 0 and len(after_past.records) == 1,
+        "before={b} as_of_after={a} as_of_before={p}".format(
+            b=len(before.records), a=len(after_now.records), p=len(after_past.records)
+        ),
+    )
+
+    # 6. Sync/async parity of the seam.
+    async_obs = {c.provider: asyncio.run(aconsumer_workload(build_memory_provider(c), scope)) for c in CONFIGS}
+    result.check(
+        "sync + async variants both satisfy the contract",
+        all(o["accepted"] == len(_SAMPLE) and o["read_records"] >= 1 for o in async_obs.values()),
+        "async accepted+read verified for {n} providers".format(n=len(async_obs)),
+    )
+
+    _write_results(result, observed, async_obs)
+    return result
+
+
+def _write_results(result: Result, sync_obs: Dict[str, Any], async_obs: Dict[str, Any]) -> None:
+    out_dir = os.path.join(os.path.dirname(__file__), "results")
+    os.makedirs(out_dir, exist_ok=True)
+    payload = {
+        "task": "SM-R11 swap test",
+        "deterministic": True,
+        "providers": [c.provider for c in CONFIGS],
+        "checks": result.checks,
+        "passed": result.passed,
+        "sync_observations": sync_obs,
+        "async_observations": async_obs,
+    }
+    with open(os.path.join(out_dir, "swap_results.json"), "w") as handle:
+        json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
+def main() -> int:
+    result = run()
+    print("SM-R11 MemoryProvider swap test")
+    for check in result.checks:
+        mark = "PASS" if check["ok"] else "FAIL"
+        suffix = "  ({d})".format(d=check["detail"]) if check["detail"] else ""
+        print("  [{mark}] {name}{suffix}".format(mark=mark, name=check["name"], suffix=suffix))
+    print("Result:", "PASS" if result.passed else "FAIL")
+    return 0 if result.passed else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
