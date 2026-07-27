@@ -5,7 +5,7 @@
 | **Status** | Proposed (provisional — pending SM-R1 #76 ADR ratification) |
 | **Issue** | [Saturam-Inc/aicoe-tracker#86](https://github.com/Saturam-Inc/aicoe-tracker/issues/86) |
 | **Depends on** | SM-R1 #76 (ADR, open) — the only formal dependency per #86 |
-| **Siblings** | SM-R12 #87 (data model, open) — complementary layer, reconciled (see §5.2, §9); SM-R8 (fusion), SM-R10 (bi-temporal) |
+| **Siblings** | SM-R12 #87 (data model, [PR #18](https://github.com/Saturam-Inc/saturam-agent-framework/pull/18) open) — complementary layer, reconciled (see §5.2, §7, §9); SM-R8 (fusion), SM-R10 (bi-temporal) |
 | **Feeds** | **SM-C1** (implements this seam) |
 | **Task type** | Design/Spec → deliverable is an *implementable* artifact (signatures + types + semantics), not prose |
 | **Grounded in** | `docs/MEMORY-RESEARCH-episodic-and-neurosymbolic.md` |
@@ -235,7 +235,7 @@ loop. These are the additive build surface `MemoryProvider` exposes — WRAP the
 | **SM-R2 / SM-G1** (graph engine) | Selected as the `GraphSubstrate` backend via `config.graph`. |
 | **SM-R8** (retrieval fusion) | `config.fusion` (RRF k, rerank, PPR); the provider owns fusion in `read`. |
 | **SM-R10** (bi-temporal) | `valid_from`/`valid_to`/`recorded_at` on records, `MemoryQuery.as_of`, `GraphSubstrate.invalidate`. |
-| **SM-R12** (data model) | Owns the per-tier row schemas (`EpisodicRecord`/`SemanticFact`/…); this seam's `MemoryRecord` is a read-projection with field names aligned to R12's `TenantScoped`+`BiTemporal` spine. The seam envelope (`MemorySlice`/`MemoryEvent`/`Scope`) is owned here. |
+| **SM-R12** (data model, [PR #18](https://github.com/Saturam-Inc/saturam-agent-framework/pull/18)) | Owns the per-tier row schemas (`EpisodicRecord`/`SemanticFact`/…) **and** a row-level `MemoryStore` port (`read(model, tenant_id, id)` / `write(rec)` + async; `Pg`/`InMemory` adapters). This seam's `MemoryRecord` is a read-projection over those rows; a `MemoryProvider` adapter **composes** `MemoryStore` for single-row persistence beneath the seam. Altitudes differ: R12 `read/write` = one row by primary key; R11 `read/write` = query→`MemorySlice` / event write-back. The seam envelope (`MemorySlice`/`MemoryEvent`/`Scope`) is owned here; R12 defines none of it. |
 
 ---
 
@@ -251,11 +251,15 @@ loop. These are the additive build surface `MemoryProvider` exposes — WRAP the
 
 - **SM-R1 #76 (open):** consistent with its Decision 2 (reuse/extend) and tier→substrate map;
   all decisions here marked provisional pending its ratification.
-- **SM-R12 #87 (open):** reconciled against its authored `benchmarks/memory_datamodel/model.py`.
-  Clean layering confirmed (R12 = row schemas, R11 = seam envelope; no duplication). Field names
-  + int epoch-seconds aligned to R12's `TenantScoped`+`BiTemporal` spine (`t_valid`/`t_invalid`/
-  `created_at`/`expired_at`/`superseded_by`); `Scope` gained `team_id`. R12 is unmerged, so this
-  is alignment-to-current; final reconciliation is SM-C1's on ratification.
+- **SM-R12 #87 ([PR #18](https://github.com/Saturam-Inc/saturam-agent-framework/pull/18), open):**
+  reconciled against the PR's `benchmarks/memory_datamodel/model.py` — **byte-identical** to the
+  version aligned to earlier, so the field alignment holds unchanged. Clean layering confirmed
+  (R12 = row schemas + `MemoryStore` row-CRUD; R11 = retrieval seam + envelope; no duplication and
+  no type-name collision — R12 defines none of `MemorySlice`/`MemoryProvider`/`MemoryQuery`/
+  `MemoryEvent`/`Scope`). Field names + int epoch-seconds match R12's `TenantScoped`+`BiTemporal`
+  spine (`t_valid`/`t_invalid`/`created_at`/`expired_at`/`superseded_by`); `Scope` carries
+  `team_id`. PR unmerged, so this is alignment-to-current; final reconciliation is SM-C1's on
+  ratification.
 - **SM-R8 / SM-R10:** fusion and bi-temporal surfaces are represented as config/fields, not
   decided here.
 
