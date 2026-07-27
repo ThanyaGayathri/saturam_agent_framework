@@ -1,0 +1,141 @@
+[
+  {
+    "backend": "pgvector",
+    "per_tenant": 100000,
+    "num_tenants": 10,
+    "total_vectors": 1000000,
+    "tenancy": "filter",
+    "dim": 100,
+    "k": 10,
+    "ef_search": 64,
+    "num_queries": 1000,
+    "repeats": 3,
+    "insert_seconds": 15169.99,
+    "insert_qps": 65.9,
+    "recall_at_k": 0.5637,
+    "cross_tenant_leaks": 0,
+    "p95_per_repeat_ms": [
+      25.591,
+      24.206,
+      25.011
+    ],
+    "p50_ms": 18.214,
+    "p95_ms": 25.005,
+    "p99_ms": 32.108,
+    "mean_ms": 19.001
+  },
+  {
+    "backend": "pgvector",
+    "per_tenant": 100000,
+    "num_tenants": 10,
+    "total_vectors": 1000000,
+    "tenancy": "collection",
+    "dim": 100,
+    "k": 10,
+    "ef_search": 64,
+    "num_queries": 1000,
+    "repeats": 3,
+    "insert_seconds": 2570.4,
+    "insert_qps": 389.0,
+    "recall_at_k": 0.8812,
+    "cross_tenant_leaks": 0,
+    "p95_per_repeat_ms": [
+      21.61,
+      19.935,
+      20.351
+    ],
+    "p50_ms": 16.753,
+    "p95_ms": 20.671,
+    "p99_ms": 30.677,
+    "mean_ms": 17.072
+  },
+  {
+    "backend": "pgvector",
+    "per_tenant": 100000,
+    "num_tenants": 10,
+    "total_vectors": 1000000,
+    "tenancy": "partition",
+    "dim": 100,
+    "k": 10,
+    "ef_search": 64,
+    "num_queries": 1000,
+    "repeats": 3,
+    "insert_seconds": 2278.81,
+    "insert_qps": 438.8,
+    "recall_at_k": 0.8806,
+    "cross_tenant_leaks": 0,
+    "p95_per_repeat_ms": [
+      15.379,
+      14.91,
+      14.867
+    ],
+    "p50_ms": 11.269,
+    "p95_ms": 15.181,
+    "p99_ms": 18.301,
+    "mean_ms": 11.423
+  },
+  {
+    "backend": "qdrant",
+    "per_tenant": 100000,
+    "num_tenants": 10,
+    "total_vectors": 1000000,
+    "tenancy": "filter",
+    "dim": 100,
+    "k": 10,
+    "ef_search": 64,
+    "num_queries": 1000,
+    "repeats": 3,
+    "insert_seconds": 321.36,
+    "insert_qps": 3111.8,
+    "recall_at_k": 0.7809,
+    "cross_tenant_leaks": 0,
+    "p95_per_repeat_ms": [
+      775.026,
+      778.679,
+      739.912
+    ],
+    "p50_ms": 599.885,
+    "p95_ms": 766.703,
+    "p99_ms": 893.025,
+    "mean_ms": 590.472
+  },
+  {
+    "backend": "qdrant",
+    "per_tenant": 100000,
+    "num_tenants": 10,
+    "total_vectors": 1000000,
+    "tenancy": "collection",
+    "dim": 100,
+    "k": 10,
+    "ef_search": 64,
+    "num_queries": 1000,
+    "repeats": 3,
+    "insert_seconds": 181.72,
+    "insert_qps": 5503.0,
+    "recall_at_k": 1.0,
+    "cross_tenant_leaks": 0,
+    "p95_per_repeat_ms": [
+      13.61,
+      13.386,
+      13.067
+    ],
+    "p50_ms": 10.81,
+    "p95_ms": 13.388,
+    "p99_ms": 18.568,
+    "mean_ms": 11.242
+  },
+  {
+    "backend": "milvus",
+    "per_tenant": 100000,
+    "num_tenants": 10,
+    "tenancy": "filter",
+    "error": "<MilvusException: (code=2, message=Fail connecting to server on localhost:19530, illegal connection params or server unavailable)>"
+  },
+  {
+    "backend": "milvus",
+    "per_tenant": 100000,
+    "num_tenants": 10,
+    "tenancy": "collection",
+    "error": "<MilvusException: (code=2, message=Fail connecting to server on localhost:19530, illegal connection params or server unavailable)>"
+  }
+]
