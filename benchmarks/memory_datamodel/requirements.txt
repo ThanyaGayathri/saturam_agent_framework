@@ -1,0 +1,6 @@
+# SM-R12 memory data-model deliverable -- test/repro dependencies.
+# Runs a REAL PostgreSQL + pgvector with no Docker: pgserver bundles the pg binaries + pgvector.
+pydantic>=2,<3
+pgserver>=0.1.4        # embedded PostgreSQL 16 + pgvector (unix socket, unique per-run data dir)
+psycopg[binary]>=3.2
+pgvector>=0.3          # psycopg3 vector adapter (register_vector / register_vector_async)
