@@ -1,0 +1,64 @@
+{
+  "name": "dmr",
+  "sessions": [
+    {
+      "session_id": "dmr_s0",
+      "turns": [
+        {
+          "turn_id": "dmr_s0_t0",
+          "speaker": "user",
+          "text": "My sister Maria is visiting next week.",
+          "timestamp": 1700000000
+        },
+        {
+          "turn_id": "dmr_s0_t1",
+          "speaker": "assistant",
+          "text": "That's wonderful, enjoy the visit!",
+          "timestamp": 1700000001
+        }
+      ]
+    },
+    {
+      "session_id": "dmr_s1",
+      "turns": [
+        {
+          "turn_id": "dmr_s1_t0",
+          "speaker": "user",
+          "text": "I've played the cello since I was ten.",
+          "timestamp": 1700003600
+        }
+      ]
+    }
+  ],
+  "probes": [
+    {
+      "probe_id": "dmr_q0",
+      "question": "What is the user's sister's name?",
+      "answer": "Maria",
+      "category": "single_session",
+      "evidence_ids": [
+        "dmr_s0_t0"
+      ],
+      "as_of": null,
+      "decay_target_turn_id": null,
+      "raw_category": "dmr"
+    },
+    {
+      "probe_id": "dmr_q1",
+      "question": "What instrument does the user play?",
+      "answer": "cello",
+      "category": "single_session",
+      "evidence_ids": [
+        "dmr_s1_t0"
+      ],
+      "as_of": null,
+      "decay_target_turn_id": null,
+      "raw_category": "dmr"
+    }
+  ],
+  "meta": {
+    "source": "MemGPT/Letta Deep Memory Retrieval",
+    "license": "Apache-2.0 upstream; not redistributed (fetched on demand)",
+    "caveat": "near-saturated; sanity baseline only (issue #88)"
+  }
+}
