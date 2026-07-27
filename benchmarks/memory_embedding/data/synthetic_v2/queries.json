@@ -1,0 +1,2263 @@
+{
+  "p10_q01": {
+    "intended": [
+      "p10_m01"
+    ],
+    "mode": "paraphrase",
+    "persona": "p10",
+    "superseded": [],
+    "text": "Where does Priya work as a film conservator?",
+    "trap": []
+  },
+  "p10_q02": {
+    "intended": [
+      "p10_m05"
+    ],
+    "mode": "paraphrase",
+    "persona": "p10",
+    "superseded": [],
+    "text": "What note-taking app does Priya prefer now?",
+    "trap": []
+  },
+  "p10_q03": {
+    "intended": [
+      "p10_m03"
+    ],
+    "mode": "paraphrase",
+    "persona": "p10",
+    "superseded": [],
+    "text": "Who is Priya's daughter?",
+    "trap": []
+  },
+  "p10_q04": {
+    "intended": [
+      "p10_m08"
+    ],
+    "mode": "temporal",
+    "persona": "p10",
+    "superseded": [],
+    "text": "What was Priya's most recent Kathak-related activity?",
+    "trap": []
+  },
+  "p10_q05": {
+    "intended": [
+      "p10_m11"
+    ],
+    "mode": "temporal",
+    "persona": "p10",
+    "superseded": [],
+    "text": "When did Priya last do something with her orchids?",
+    "trap": []
+  },
+  "p10_q06": {
+    "intended": [
+      "p10_m07"
+    ],
+    "mode": "temporal",
+    "persona": "p10",
+    "superseded": [],
+    "text": "When was the previous Kathak event before she resumed weekly classes?",
+    "trap": []
+  },
+  "p10_q07": {
+    "intended": [
+      "p10_m02"
+    ],
+    "mode": "coreference",
+    "persona": "p10",
+    "superseded": [],
+    "text": "What does her husband do for work?",
+    "trap": []
+  },
+  "p10_q08": {
+    "intended": [
+      "p10_m07"
+    ],
+    "mode": "coreference",
+    "persona": "p10",
+    "superseded": [],
+    "text": "When did she perform at her daughter's school event?",
+    "trap": []
+  },
+  "p10_q09": {
+    "intended": [
+      "p10_m10"
+    ],
+    "mode": "hard_negative",
+    "persona": "p10",
+    "superseded": [],
+    "text": "When did Priya buy a white moth orchid from the flower market?",
+    "trap": [
+      "p10_m09"
+    ]
+  },
+  "p10_q10": {
+    "intended": [
+      "p10_m05"
+    ],
+    "mode": "hard_negative",
+    "persona": "p10",
+    "superseded": [],
+    "text": "Which app did Priya switch to from Obsidian for personal notes?",
+    "trap": [
+      "p10_m13"
+    ]
+  },
+  "p10_q11": {
+    "intended": [
+      "p10_m12"
+    ],
+    "mode": "hard_negative",
+    "persona": "p10",
+    "superseded": [],
+    "text": "When did Priya digitize and send her aunt's 1994 wedding VHS?",
+    "trap": [
+      "p10_m12"
+    ]
+  },
+  "p10_q12": {
+    "intended": [
+      "p10_m04"
+    ],
+    "mode": "contradiction",
+    "persona": "p10",
+    "superseded": [
+      "p10_m14"
+    ],
+    "text": "Does Priya currently prefer filter coffee or tea in the morning?",
+    "trap": []
+  },
+  "p10_q13": {
+    "intended": [
+      "p10_m02"
+    ],
+    "mode": "multi_hop",
+    "persona": "p10",
+    "superseded": [],
+    "text": "What is the name of Priya's husband who works as a civil engineer?",
+    "trap": []
+  },
+  "p10_q14": {
+    "intended": [
+      "p10_m12"
+    ],
+    "mode": "multi_hop",
+    "persona": "p10",
+    "superseded": [],
+    "text": "Whose 1994 wedding VHS did Priya promise to digitize and send?",
+    "trap": []
+  },
+  "p11_q01": {
+    "intended": [
+      "p11_m02"
+    ],
+    "mode": "paraphrase",
+    "persona": "p11",
+    "superseded": [],
+    "text": "Where in Qu\u00e9bec City does Marceline live, and who is her roommate?",
+    "trap": []
+  },
+  "p11_q02": {
+    "intended": [
+      "p11_m04"
+    ],
+    "mode": "paraphrase",
+    "persona": "p11",
+    "superseded": [],
+    "text": "Why does Marceline choose hand-cut hide glue for repairs?",
+    "trap": []
+  },
+  "p11_q03": {
+    "intended": [
+      "p11_m15"
+    ],
+    "mode": "paraphrase",
+    "persona": "p11",
+    "superseded": [],
+    "text": "Which tool did Marceline pick up at the tool swap after passing on the pricier Herdim one?",
+    "trap": []
+  },
+  "p11_q04": {
+    "intended": [
+      "p11_m08"
+    ],
+    "mode": "temporal",
+    "persona": "p11",
+    "superseded": [],
+    "text": "What was the last kind of bow Marceline rehaired at the shop?",
+    "trap": []
+  },
+  "p11_q05": {
+    "intended": [
+      "p11_m06"
+    ],
+    "mode": "temporal",
+    "persona": "p11",
+    "superseded": [],
+    "text": "When did she first rehair a bow without her mentor stepping in?",
+    "trap": []
+  },
+  "p11_q06": {
+    "intended": [
+      "p11_m07"
+    ],
+    "mode": "temporal",
+    "persona": "p11",
+    "superseded": [],
+    "text": "What was the previous bow job before the viola bow?",
+    "trap": []
+  },
+  "p11_q07": {
+    "intended": [
+      "p11_m14"
+    ],
+    "mode": "coreference",
+    "persona": "p11",
+    "superseded": [],
+    "text": "What does her roommate need sharpened before the plating exam next Tuesday?",
+    "trap": []
+  },
+  "p11_q08": {
+    "intended": [
+      "p11_m03"
+    ],
+    "mode": "coreference",
+    "persona": "p11",
+    "superseded": [],
+    "text": "Which city does her older brother live in, the one who mails her spruce offcuts?",
+    "trap": []
+  },
+  "p11_q09": {
+    "intended": [
+      "p11_m05"
+    ],
+    "mode": "hard_negative",
+    "persona": "p11",
+    "superseded": [],
+    "text": "Which polish scent gives Marceline a headache in the workshop?",
+    "trap": [
+      "p11_m04"
+    ]
+  },
+  "p11_q10": {
+    "intended": [
+      "p11_m15"
+    ],
+    "mode": "hard_negative",
+    "persona": "p11",
+    "superseded": [],
+    "text": "Which plane did Marceline buy used at the tool swap?",
+    "trap": [
+      "p11_m15"
+    ]
+  },
+  "p11_q11": {
+    "intended": [
+      "p11_m07"
+    ],
+    "mode": "hard_negative",
+    "persona": "p11",
+    "superseded": [],
+    "text": "Which bow did Marceline say was trickier because of the wider frog?",
+    "trap": [
+      "p11_m08"
+    ]
+  },
+  "p11_q12": {
+    "intended": [
+      "p11_m10"
+    ],
+    "mode": "contradiction",
+    "persona": "p11",
+    "superseded": [
+      "p11_m09"
+    ],
+    "text": "Is Marceline still planning to move to Montr\u00e9al in the autumn, or what did she decide?",
+    "trap": []
+  },
+  "p11_q13": {
+    "intended": [
+      "p11_m12"
+    ],
+    "mode": "contradiction",
+    "persona": "p11",
+    "superseded": [
+      "p11_m11"
+    ],
+    "text": "What is Marceline's current favorite contra dance tune?",
+    "trap": []
+  },
+  "p11_q14": {
+    "intended": [
+      "p11_m02"
+    ],
+    "mode": "multi_hop",
+    "persona": "p11",
+    "superseded": [],
+    "text": "Who does Marceline live with, and what is that person's field of study?",
+    "trap": []
+  },
+  "p12_q01": {
+    "intended": [
+      "p12_m01"
+    ],
+    "mode": "paraphrase",
+    "persona": "p12",
+    "superseded": [],
+    "text": "Where does Rina work as a stenographer?",
+    "trap": []
+  },
+  "p12_q02": {
+    "intended": [
+      "p12_m12"
+    ],
+    "mode": "paraphrase",
+    "persona": "p12",
+    "superseded": [],
+    "text": "Which camera does Rina like best for photographing Soviet mosaics?",
+    "trap": []
+  },
+  "p12_q03": {
+    "intended": [
+      "p12_m04"
+    ],
+    "mode": "paraphrase",
+    "persona": "p12",
+    "superseded": [],
+    "text": "What herb does Rina try to avoid in Georgian food?",
+    "trap": []
+  },
+  "p12_q04": {
+    "intended": [
+      "p12_m02"
+    ],
+    "mode": "coreference",
+    "persona": "p12",
+    "superseded": [],
+    "text": "What is her younger brother studying?",
+    "trap": []
+  },
+  "p12_q05": {
+    "intended": [
+      "p12_m11"
+    ],
+    "mode": "coreference",
+    "persona": "p12",
+    "superseded": [],
+    "text": "Before 2024-11-20, what did she promise to help him proofread?",
+    "trap": []
+  },
+  "p12_q06": {
+    "intended": [
+      "p12_m07"
+    ],
+    "mode": "temporal",
+    "persona": "p12",
+    "superseded": [],
+    "text": "What was the last aerial silks event Rina did in 2024?",
+    "trap": []
+  },
+  "p12_q07": {
+    "intended": [
+      "p12_m10"
+    ],
+    "mode": "temporal",
+    "persona": "p12",
+    "superseded": [],
+    "text": "When did Rina most recently do something with the rooftop bees?",
+    "trap": []
+  },
+  "p12_q08": {
+    "intended": [
+      "p12_m09"
+    ],
+    "mode": "temporal",
+    "persona": "p12",
+    "superseded": [],
+    "text": "When did she first get honey from the rooftop hive?",
+    "trap": []
+  },
+  "p12_q09": {
+    "intended": [
+      "p12_m13"
+    ],
+    "mode": "hard_negative",
+    "persona": "p12",
+    "superseded": [],
+    "text": "Which camera does Rina bring as a backup on mosaic walks?",
+    "trap": [
+      "p12_m12"
+    ]
+  },
+  "p12_q10": {
+    "intended": [
+      "p12_m08"
+    ],
+    "mode": "hard_negative",
+    "persona": "p12",
+    "superseded": [],
+    "text": "At whose apartment building did Rina start the rooftop beehive?",
+    "trap": [
+      "p12_m02"
+    ]
+  },
+  "p12_q11": {
+    "intended": [
+      "p12_m06"
+    ],
+    "mode": "hard_negative",
+    "persona": "p12",
+    "superseded": [],
+    "text": "In aerial silks, which class was the one where she became comfortable with a basic foot lock?",
+    "trap": [
+      "p12_m05"
+    ]
+  },
+  "p12_q12": {
+    "intended": [
+      "p12_m15"
+    ],
+    "mode": "contradiction",
+    "persona": "p12",
+    "superseded": [
+      "p12_m14"
+    ],
+    "text": "What is Rina\u2019s current plan about staying in Almaty or moving?",
+    "trap": []
+  },
+  "p12_q13": {
+    "intended": [
+      "p12_m02"
+    ],
+    "mode": "multi_hop",
+    "persona": "p12",
+    "superseded": [],
+    "text": "What does the brother Rina lives with study?",
+    "trap": []
+  },
+  "p12_q14": {
+    "intended": [
+      "p12_m01",
+      "p12_m15"
+    ],
+    "mode": "multi_hop",
+    "persona": "p12",
+    "superseded": [],
+    "text": "Which city court is Rina leaving for a higher-paying court reporting job in early 2025?",
+    "trap": []
+  },
+  "p13_q01": {
+    "intended": [
+      "p13_m01"
+    ],
+    "mode": "paraphrase",
+    "persona": "p13",
+    "superseded": [],
+    "text": "Where does Farah work as a lighting designer?",
+    "trap": []
+  },
+  "p13_q02": {
+    "intended": [
+      "p13_m02"
+    ],
+    "mode": "paraphrase",
+    "persona": "p13",
+    "superseded": [],
+    "text": "Who does Farah share custody of her son with?",
+    "trap": []
+  },
+  "p13_q03": {
+    "intended": [
+      "p13_m03"
+    ],
+    "mode": "coreference",
+    "persona": "p13",
+    "superseded": [],
+    "text": "Where does her older sister live, and what kind of studio does she run?",
+    "trap": []
+  },
+  "p13_q04": {
+    "intended": [
+      "p13_m05"
+    ],
+    "mode": "contradiction",
+    "persona": "p13",
+    "superseded": [
+      "p13_m04"
+    ],
+    "text": "What software does Farah use now as her main tool for drafting lighting plots?",
+    "trap": []
+  },
+  "p13_q05": {
+    "intended": [
+      "p13_m08"
+    ],
+    "mode": "temporal",
+    "persona": "p13",
+    "superseded": [],
+    "text": "What was the last LED setup Farah approved for the Roman mosaics gallery before reopening?",
+    "trap": []
+  },
+  "p13_q06": {
+    "intended": [
+      "p13_m07"
+    ],
+    "mode": "temporal",
+    "persona": "p13",
+    "superseded": [],
+    "text": "When was the previous Roman mosaics gallery LED test before the final after-hours focus session?",
+    "trap": []
+  },
+  "p13_q07": {
+    "intended": [
+      "p13_m09"
+    ],
+    "mode": "hard_negative",
+    "persona": "p13",
+    "superseded": [],
+    "text": "Where was Sami's orthodontist appointment?",
+    "trap": [
+      "p13_m10"
+    ]
+  },
+  "p13_q08": {
+    "intended": [
+      "p13_m09"
+    ],
+    "mode": "hard_negative",
+    "persona": "p13",
+    "superseded": [],
+    "text": "Which visit took 40 minutes: Sami's orthodontist appointment or his dental cleaning?",
+    "trap": [
+      "p13_m10"
+    ]
+  },
+  "p13_q09": {
+    "intended": [
+      "p13_m12"
+    ],
+    "mode": "contradiction",
+    "persona": "p13",
+    "superseded": [
+      "p13_m11"
+    ],
+    "text": "How does Farah ask for her shakshuka these days?",
+    "trap": []
+  },
+  "p13_q10": {
+    "intended": [
+      "p13_m15"
+    ],
+    "mode": "coreference",
+    "persona": "p13",
+    "superseded": [],
+    "text": "Did she make it to the Thursday oud listening circle the last time it came up?",
+    "trap": []
+  },
+  "p13_q11": {
+    "intended": [
+      "p13_m15"
+    ],
+    "mode": "temporal",
+    "persona": "p13",
+    "superseded": [],
+    "text": "What was the most recent Thursday oud listening circle update?",
+    "trap": []
+  },
+  "p13_q12": {
+    "intended": [
+      "p13_m15"
+    ],
+    "mode": "hard_negative",
+    "persona": "p13",
+    "superseded": [],
+    "text": "Did Farah miss the oud listening circle because of the manuscript show, or did she attend and stay to the end?",
+    "trap": [
+      "p13_m14"
+    ]
+  },
+  "p13_q13": {
+    "intended": [
+      "p13_m02"
+    ],
+    "mode": "multi_hop",
+    "persona": "p13",
+    "superseded": [],
+    "text": "How old is the son Farah shares custody of with her ex-husband?",
+    "trap": []
+  },
+  "p13_q14": {
+    "intended": [
+      "p13_m06",
+      "p13_m08"
+    ],
+    "mode": "multi_hop",
+    "persona": "p13",
+    "superseded": [],
+    "text": "What color temperature ended up being used in the Roman mosaics gallery reopening setup after the warmer test was rejected?",
+    "trap": []
+  },
+  "p14_q01": {
+    "intended": [
+      "p14_m01"
+    ],
+    "mode": "paraphrase",
+    "persona": "p14",
+    "superseded": [],
+    "text": "What city in the Netherlands is Sanne based in for her interpreting work?",
+    "trap": []
+  },
+  "p14_q02": {
+    "intended": [
+      "p14_m03"
+    ],
+    "mode": "paraphrase",
+    "persona": "p14",
+    "superseded": [],
+    "text": "What kind of dog does Sanne have, and what is its name?",
+    "trap": []
+  },
+  "p14_q03": {
+    "intended": [
+      "p14_m02"
+    ],
+    "mode": "coreference",
+    "persona": "p14",
+    "superseded": [],
+    "text": "What does her partner do for work?",
+    "trap": []
+  },
+  "p14_q04": {
+    "intended": [
+      "p14_m13"
+    ],
+    "mode": "coreference",
+    "persona": "p14",
+    "superseded": [],
+    "text": "When did she take the dog to the vet?",
+    "trap": []
+  },
+  "p14_q05": {
+    "intended": [
+      "p14_m08"
+    ],
+    "mode": "temporal",
+    "persona": "p14",
+    "superseded": [],
+    "text": "What was the most recent baroque recorder-related event she mentioned?",
+    "trap": []
+  },
+  "p14_q06": {
+    "intended": [
+      "p14_m05"
+    ],
+    "mode": "temporal",
+    "persona": "p14",
+    "superseded": [],
+    "text": "When was the last time Sanne said anything about her tea preference?",
+    "trap": []
+  },
+  "p14_q07": {
+    "intended": [
+      "p14_m07"
+    ],
+    "mode": "temporal",
+    "persona": "p14",
+    "superseded": [],
+    "text": "What was the previous recorder event before the Utrecht instrument shopping trip?",
+    "trap": []
+  },
+  "p14_q08": {
+    "intended": [
+      "p14_m12"
+    ],
+    "mode": "hard_negative",
+    "persona": "p14",
+    "superseded": [],
+    "text": "Which kind of transport does Sanne prefer a window seat on?",
+    "trap": [
+      "p14_m11"
+    ]
+  },
+  "p14_q09": {
+    "intended": [
+      "p14_m11"
+    ],
+    "mode": "hard_negative",
+    "persona": "p14",
+    "superseded": [],
+    "text": "Why does Sanne prefer aisle seats?",
+    "trap": [
+      "p14_m12"
+    ]
+  },
+  "p14_q10": {
+    "intended": [
+      "p14_m06"
+    ],
+    "mode": "hard_negative",
+    "persona": "p14",
+    "superseded": [],
+    "text": "Where did Sanne attend the baroque recorder workshop?",
+    "trap": [
+      "p14_m07"
+    ]
+  },
+  "p14_q11": {
+    "intended": [
+      "p14_m10"
+    ],
+    "mode": "contradiction",
+    "persona": "p14",
+    "superseded": [
+      "p14_m09"
+    ],
+    "text": "Does Sanne currently work freelance or in a staff interpreter role?",
+    "trap": []
+  },
+  "p14_q12": {
+    "intended": [
+      "p14_m05"
+    ],
+    "mode": "contradiction",
+    "persona": "p14",
+    "superseded": [
+      "p14_m04"
+    ],
+    "text": "What is Sanne's current favorite tea?",
+    "trap": []
+  },
+  "p14_q13": {
+    "intended": [
+      "p14_m02",
+      "p14_m15"
+    ],
+    "mode": "multi_hop",
+    "persona": "p14",
+    "superseded": [],
+    "text": "What does Sanne's partner do, and what home project did she promise to help with this month?",
+    "trap": []
+  },
+  "p14_q14": {
+    "intended": [
+      "p14_m10",
+      "p14_m14"
+    ],
+    "mode": "multi_hop",
+    "persona": "p14",
+    "superseded": [],
+    "text": "Before her certification deadline, what job had Sanne started?",
+    "trap": []
+  },
+  "p15_q01": {
+    "intended": [
+      "p15_m01"
+    ],
+    "mode": "paraphrase",
+    "persona": "p15",
+    "superseded": [],
+    "text": "What kind of work does Noura do in Fez?",
+    "trap": []
+  },
+  "p15_q02": {
+    "intended": [
+      "p15_m05"
+    ],
+    "mode": "paraphrase",
+    "persona": "p15",
+    "superseded": [],
+    "text": "What does she usually drink while working instead of coffee?",
+    "trap": []
+  },
+  "p15_q03": {
+    "intended": [
+      "p15_m12"
+    ],
+    "mode": "paraphrase",
+    "persona": "p15",
+    "superseded": [],
+    "text": "What equipment does Noura use for her small home herbal distillations?",
+    "trap": []
+  },
+  "p15_q04": {
+    "intended": [
+      "p15_m04"
+    ],
+    "mode": "coreference",
+    "persona": "p15",
+    "superseded": [],
+    "text": "Who runs the ceramic studio in Rabat in her family?",
+    "trap": []
+  },
+  "p15_q05": {
+    "intended": [
+      "p15_m03"
+    ],
+    "mode": "coreference",
+    "persona": "p15",
+    "superseded": [],
+    "text": "Where does she live now after relocating from Rabat?",
+    "trap": []
+  },
+  "p15_q06": {
+    "intended": [
+      "p15_m08"
+    ],
+    "mode": "temporal",
+    "persona": "p15",
+    "superseded": [],
+    "text": "When did Noura last evaluate the cedar-and-iris formula on skin?",
+    "trap": []
+  },
+  "p15_q07": {
+    "intended": [
+      "p15_m07"
+    ],
+    "mode": "temporal",
+    "persona": "p15",
+    "superseded": [],
+    "text": "What was the previous cedar-and-iris update before she decided it was too dry for winter release?",
+    "trap": []
+  },
+  "p15_q08": {
+    "intended": [
+      "p15_m02"
+    ],
+    "mode": "temporal",
+    "persona": "p15",
+    "superseded": [],
+    "text": "When did she most recently say she was still living in Rabat?",
+    "trap": []
+  },
+  "p15_q09": {
+    "intended": [
+      "p15_m11"
+    ],
+    "mode": "hard_negative",
+    "persona": "p15",
+    "superseded": [],
+    "text": "Which boutique does Noura need to send revised scent blotters to?",
+    "trap": [
+      "p15_m03",
+      "p15_m04"
+    ]
+  },
+  "p15_q10": {
+    "intended": [
+      "p15_m09"
+    ],
+    "mode": "hard_negative",
+    "persona": "p15",
+    "superseded": [],
+    "text": "Which fragrance type does Noura avoid wearing in hot weather?",
+    "trap": [
+      "p15_m10"
+    ]
+  },
+  "p15_q11": {
+    "intended": [
+      "p15_m07"
+    ],
+    "mode": "hard_negative",
+    "persona": "p15",
+    "superseded": [],
+    "text": "Which note did she reduce in the cedar-and-iris formula before calling it balanced?",
+    "trap": [
+      "p15_m06"
+    ]
+  },
+  "p15_q12": {
+    "intended": [
+      "p15_m14"
+    ],
+    "mode": "contradiction",
+    "persona": "p15",
+    "superseded": [
+      "p15_m13"
+    ],
+    "text": "What is Noura's current favorite material to experiment with?",
+    "trap": []
+  },
+  "p15_q13": {
+    "intended": [
+      "p15_m09",
+      "p15_m10"
+    ],
+    "mode": "multi_hop",
+    "persona": "p15",
+    "superseded": [],
+    "text": "What does Noura like to wear on cold evenings even though she avoids it in hot weather?",
+    "trap": []
+  },
+  "p15_q14": {
+    "intended": [
+      "p15_m12",
+      "p15_m15"
+    ],
+    "mode": "multi_hop",
+    "persona": "p15",
+    "superseded": [],
+    "text": "Why did Noura cancel her Saturday distillation session, and which piece of equipment was involved?",
+    "trap": []
+  },
+  "p1_q01": {
+    "intended": [
+      "p1_m01"
+    ],
+    "mode": "paraphrase",
+    "persona": "p1",
+    "superseded": [],
+    "text": "Where does Jules work as a park ranger near Flagstaff?",
+    "trap": []
+  },
+  "p1_q02": {
+    "intended": [
+      "p1_m03"
+    ],
+    "mode": "paraphrase",
+    "persona": "p1",
+    "superseded": [],
+    "text": "What kind of coffee setup does Jules use at home?",
+    "trap": []
+  },
+  "p1_q03": {
+    "intended": [
+      "p1_m02"
+    ],
+    "mode": "coreference",
+    "persona": "p1",
+    "superseded": [],
+    "text": "What does his older sister send him every fall?",
+    "trap": []
+  },
+  "p1_q04": {
+    "intended": [
+      "p1_m11"
+    ],
+    "mode": "coreference",
+    "persona": "p1",
+    "superseded": [],
+    "text": "How old is his dog, and what\u2019s her name?",
+    "trap": []
+  },
+  "p1_q05": {
+    "intended": [
+      "p1_m07"
+    ],
+    "mode": "temporal",
+    "persona": "p1",
+    "superseded": [],
+    "text": "What was the last astrophotography target Jules shot with his Nikon Z6?",
+    "trap": []
+  },
+  "p1_q06": {
+    "intended": [
+      "p1_m06"
+    ],
+    "mode": "temporal",
+    "persona": "p1",
+    "superseded": [],
+    "text": "When did Jules most recently photograph the Milky Way core?",
+    "trap": []
+  },
+  "p1_q07": {
+    "intended": [
+      "p1_m08"
+    ],
+    "mode": "temporal",
+    "persona": "p1",
+    "superseded": [],
+    "text": "Which trail footbridge did Jules repair after the spring runoff damage?",
+    "trap": []
+  },
+  "p1_q08": {
+    "intended": [
+      "p1_m09"
+    ],
+    "mode": "hard_negative",
+    "persona": "p1",
+    "superseded": [],
+    "text": "Which footbridge did Jules inspect and find in good condition?",
+    "trap": [
+      "p1_m08"
+    ]
+  },
+  "p1_q09": {
+    "intended": [
+      "p1_m05"
+    ],
+    "mode": "hard_negative",
+    "persona": "p1",
+    "superseded": [],
+    "text": "From which location did Jules photograph the Orion Nebula?",
+    "trap": [
+      "p1_m06",
+      "p1_m07"
+    ]
+  },
+  "p1_q10": {
+    "intended": [
+      "p1_m13"
+    ],
+    "mode": "contradiction",
+    "persona": "p1",
+    "superseded": [
+      "p1_m12"
+    ],
+    "text": "What is Jules\u2019s current favorite field snack?",
+    "trap": []
+  },
+  "p1_q11": {
+    "intended": [
+      "p1_m15"
+    ],
+    "mode": "contradiction",
+    "persona": "p1",
+    "superseded": [
+      "p1_m14"
+    ],
+    "text": "Where does Jules live now?",
+    "trap": []
+  },
+  "p1_q12": {
+    "intended": [
+      "p1_m07"
+    ],
+    "mode": "multi_hop",
+    "persona": "p1",
+    "superseded": [],
+    "text": "What camera did Jules use for the Andromeda shot at Mormon Lake?",
+    "trap": []
+  },
+  "p1_q13": {
+    "intended": [
+      "p1_m02",
+      "p1_m04"
+    ],
+    "mode": "multi_hop",
+    "persona": "p1",
+    "superseded": [],
+    "text": "What spicy ingredient from Santa Fe would fit Jules\u2019s preferred style for ribs?",
+    "trap": []
+  },
+  "p1_q14": {
+    "intended": [
+      "p1_m10"
+    ],
+    "mode": "paraphrase",
+    "persona": "p1",
+    "superseded": [],
+    "text": "What does Jules need to submit by October 5, 2024?",
+    "trap": []
+  },
+  "p2_q01": {
+    "intended": [
+      "p2_m12"
+    ],
+    "mode": "paraphrase",
+    "persona": "p2",
+    "superseded": [],
+    "text": "Which city does Mina live in now?",
+    "trap": []
+  },
+  "p2_q02": {
+    "intended": [
+      "p2_m05"
+    ],
+    "mode": "paraphrase",
+    "persona": "p2",
+    "superseded": [],
+    "text": "What kind of espresso beans does Mina prefer?",
+    "trap": []
+  },
+  "p2_q03": {
+    "intended": [
+      "p2_m15"
+    ],
+    "mode": "paraphrase",
+    "persona": "p2",
+    "superseded": [],
+    "text": "What does Mina need to renew before her October 2025 Fukuoka trip?",
+    "trap": []
+  },
+  "p2_q04": {
+    "intended": [
+      "p2_m04"
+    ],
+    "mode": "temporal",
+    "persona": "p2",
+    "superseded": [],
+    "text": "When was Mina's most recent Japanese language-exchange meetup?",
+    "trap": []
+  },
+  "p2_q05": {
+    "intended": [
+      "p2_m11"
+    ],
+    "mode": "temporal",
+    "persona": "p2",
+    "superseded": [],
+    "text": "What was the previous city Mina lived in before Busan?",
+    "trap": []
+  },
+  "p2_q06": {
+    "intended": [
+      "p2_m09"
+    ],
+    "mode": "coreference",
+    "persona": "p2",
+    "superseded": [],
+    "text": "What is the name of her cat?",
+    "trap": []
+  },
+  "p2_q07": {
+    "intended": [
+      "p2_m10"
+    ],
+    "mode": "coreference",
+    "persona": "p2",
+    "superseded": [],
+    "text": "What is her younger brother doing right now?",
+    "trap": []
+  },
+  "p2_q08": {
+    "intended": [
+      "p2_m14"
+    ],
+    "mode": "hard_negative",
+    "persona": "p2",
+    "superseded": [],
+    "text": "Which bouldering gym in Busan is Mina's current go-to?",
+    "trap": [
+      "p2_m13"
+    ]
+  },
+  "p2_q09": {
+    "intended": [
+      "p2_m03"
+    ],
+    "mode": "hard_negative",
+    "persona": "p2",
+    "superseded": [],
+    "text": "At the cafe near Busan National University, what kind of meetup did Mina attend?",
+    "trap": [
+      "p2_m04"
+    ]
+  },
+  "p2_q10": {
+    "intended": [
+      "p2_m07"
+    ],
+    "mode": "hard_negative",
+    "persona": "p2",
+    "superseded": [],
+    "text": "What milk does Mina like in lattes?",
+    "trap": [
+      "p2_m08"
+    ]
+  },
+  "p2_q11": {
+    "intended": [
+      "p2_m14"
+    ],
+    "mode": "contradiction",
+    "persona": "p2",
+    "superseded": [
+      "p2_m13"
+    ],
+    "text": "What is Mina's current go-to bouldering gym?",
+    "trap": []
+  },
+  "p2_q12": {
+    "intended": [
+      "p2_m12"
+    ],
+    "mode": "contradiction",
+    "persona": "p2",
+    "superseded": [
+      "p2_m11"
+    ],
+    "text": "Where is Mina living currently?",
+    "trap": []
+  },
+  "p2_q13": {
+    "intended": [
+      "p2_m14",
+      "p2_m12"
+    ],
+    "mode": "multi_hop",
+    "persona": "p2",
+    "superseded": [],
+    "text": "What city is Mina's current go-to bouldering gym located in?",
+    "trap": []
+  },
+  "p2_q14": {
+    "intended": [
+      "p2_m02",
+      "p2_m03"
+    ],
+    "mode": "multi_hop",
+    "persona": "p2",
+    "superseded": [],
+    "text": "After finishing her Japanese course, what kind of event did Mina go to to keep practicing?",
+    "trap": []
+  },
+  "p3_q01": {
+    "intended": [
+      "p3_m01"
+    ],
+    "mode": "paraphrase",
+    "persona": "p3",
+    "superseded": [],
+    "text": "What subject does Aarav teach at school in Leeds?",
+    "trap": []
+  },
+  "p3_q02": {
+    "intended": [
+      "p3_m03"
+    ],
+    "mode": "paraphrase",
+    "persona": "p3",
+    "superseded": [],
+    "text": "What kind of dog did Aarav and Priya adopt, and what\u2019s its name?",
+    "trap": []
+  },
+  "p3_q03": {
+    "intended": [
+      "p3_m07"
+    ],
+    "mode": "paraphrase",
+    "persona": "p3",
+    "superseded": [],
+    "text": "Which morning drink does Aarav usually favor over coffee?",
+    "trap": []
+  },
+  "p3_q04": {
+    "intended": [
+      "p3_m06"
+    ],
+    "mode": "temporal",
+    "persona": "p3",
+    "superseded": [],
+    "text": "Where did Aarav last go canal kayaking?",
+    "trap": []
+  },
+  "p3_q05": {
+    "intended": [
+      "p3_m05"
+    ],
+    "mode": "temporal",
+    "persona": "p3",
+    "superseded": [],
+    "text": "When was the previous time Aarav kayaked near Castleford?",
+    "trap": []
+  },
+  "p3_q06": {
+    "intended": [
+      "p3_m13"
+    ],
+    "mode": "temporal",
+    "persona": "p3",
+    "superseded": [],
+    "text": "When did Aarav move to Leeds for the teaching job?",
+    "trap": []
+  },
+  "p3_q07": {
+    "intended": [
+      "p3_m02"
+    ],
+    "mode": "coreference",
+    "persona": "p3",
+    "superseded": [],
+    "text": "What does his fianc\u00e9e do for work?",
+    "trap": []
+  },
+  "p3_q08": {
+    "intended": [
+      "p3_m14"
+    ],
+    "mode": "coreference",
+    "persona": "p3",
+    "superseded": [],
+    "text": "When does the dog need a booster shot vet appointment?",
+    "trap": []
+  },
+  "p3_q09": {
+    "intended": [
+      "p3_m06"
+    ],
+    "mode": "hard_negative",
+    "persona": "p3",
+    "superseded": [],
+    "text": "Did Aarav kayak the Aire and Calder Navigation at Skipton?",
+    "trap": [
+      "p3_m05"
+    ]
+  },
+  "p3_q10": {
+    "intended": [
+      "p3_m09"
+    ],
+    "mode": "hard_negative",
+    "persona": "p3",
+    "superseded": [],
+    "text": "For weekend breakfasts, does Aarav prefer tea over coffee?",
+    "trap": [
+      "p3_m07"
+    ]
+  },
+  "p3_q11": {
+    "intended": [
+      "p3_m11"
+    ],
+    "mode": "hard_negative",
+    "persona": "p3",
+    "superseded": [],
+    "text": "Did Aarav prime his Napoleonic miniatures with black primer in June?",
+    "trap": [
+      "p3_m10"
+    ]
+  },
+  "p3_q12": {
+    "intended": [
+      "p3_m11"
+    ],
+    "mode": "contradiction",
+    "persona": "p3",
+    "superseded": [
+      "p3_m10"
+    ],
+    "text": "What primer does Aarav currently use for his Napoleonic miniatures?",
+    "trap": []
+  },
+  "p3_q13": {
+    "intended": [
+      "p3_m13"
+    ],
+    "mode": "contradiction",
+    "persona": "p3",
+    "superseded": [
+      "p3_m12"
+    ],
+    "text": "Where does Aarav live now?",
+    "trap": []
+  },
+  "p3_q14": {
+    "intended": [
+      "p3_m13",
+      "p3_m01"
+    ],
+    "mode": "multi_hop",
+    "persona": "p3",
+    "superseded": [],
+    "text": "What job took Aarav to Leeds?",
+    "trap": []
+  },
+  "p4_q01": {
+    "intended": [
+      "p4_m01"
+    ],
+    "mode": "paraphrase",
+    "persona": "p4",
+    "superseded": [],
+    "text": "What city does Luc\u00eda live in now?",
+    "trap": []
+  },
+  "p4_q02": {
+    "intended": [
+      "p4_m03"
+    ],
+    "mode": "paraphrase",
+    "persona": "p4",
+    "superseded": [],
+    "text": "What does she usually drink in the morning instead of coffee?",
+    "trap": []
+  },
+  "p4_q03": {
+    "intended": [
+      "p4_m05"
+    ],
+    "mode": "paraphrase",
+    "persona": "p4",
+    "superseded": [],
+    "text": "What color is the pot she moved her balcony basil into?",
+    "trap": []
+  },
+  "p4_q04": {
+    "intended": [
+      "p4_m08"
+    ],
+    "mode": "temporal",
+    "persona": "p4",
+    "superseded": [],
+    "text": "When did the basil finally die?",
+    "trap": []
+  },
+  "p4_q05": {
+    "intended": [
+      "p4_m13"
+    ],
+    "mode": "temporal",
+    "persona": "p4",
+    "superseded": [],
+    "text": "What was the last vet visit for Tremo\u00e7o about?",
+    "trap": []
+  },
+  "p4_q06": {
+    "intended": [
+      "p4_m07"
+    ],
+    "mode": "temporal",
+    "persona": "p4",
+    "superseded": [],
+    "text": "When did she most recently do something with the balcony basil before it died?",
+    "trap": []
+  },
+  "p4_q07": {
+    "intended": [
+      "p4_m02"
+    ],
+    "mode": "coreference",
+    "persona": "p4",
+    "superseded": [],
+    "text": "Where does her daughter live?",
+    "trap": []
+  },
+  "p4_q08": {
+    "intended": [
+      "p4_m11"
+    ],
+    "mode": "coreference",
+    "persona": "p4",
+    "superseded": [],
+    "text": "What is the black cat's name?",
+    "trap": []
+  },
+  "p4_q09": {
+    "intended": [
+      "p4_m14"
+    ],
+    "mode": "coreference",
+    "persona": "p4",
+    "superseded": [],
+    "text": "Who was she supposed to mail the repaired green Sheaffer fountain pen to?",
+    "trap": []
+  },
+  "p4_q10": {
+    "intended": [
+      "p4_m04"
+    ],
+    "mode": "hard_negative",
+    "persona": "p4",
+    "superseded": [],
+    "text": "Which tea does Luc\u00eda say tastes dusty to her?",
+    "trap": [
+      "p4_m03"
+    ]
+  },
+  "p4_q11": {
+    "intended": [
+      "p4_m15"
+    ],
+    "mode": "hard_negative",
+    "persona": "p4",
+    "superseded": [],
+    "text": "Did she move to Porto or to Vila Nova de Gaia to be closer to the community archive?",
+    "trap": [
+      "p4_m01"
+    ]
+  },
+  "p4_q12": {
+    "intended": [
+      "p4_m12"
+    ],
+    "mode": "hard_negative",
+    "persona": "p4",
+    "superseded": [],
+    "text": "Which vet visit was for dental cleaning?",
+    "trap": [
+      "p4_m13"
+    ]
+  },
+  "p4_q13": {
+    "intended": [
+      "p4_m10"
+    ],
+    "mode": "contradiction",
+    "persona": "p4",
+    "superseded": [
+      "p4_m09"
+    ],
+    "text": "Who is Luc\u00eda's favorite fado singer now?",
+    "trap": []
+  },
+  "p4_q14": {
+    "intended": [
+      "p4_m02"
+    ],
+    "mode": "multi_hop",
+    "persona": "p4",
+    "superseded": [],
+    "text": "Which city does the daughter who visits about twice a month live in?",
+    "trap": []
+  },
+  "p5_q01": {
+    "intended": [
+      "p5_m01"
+    ],
+    "mode": "paraphrase",
+    "persona": "p5",
+    "superseded": [],
+    "text": "What are the names of Nadia\u2019s rescue cats?",
+    "trap": []
+  },
+  "p5_q02": {
+    "intended": [
+      "p5_m06"
+    ],
+    "mode": "paraphrase",
+    "persona": "p5",
+    "superseded": [],
+    "text": "Which kind of pen does Nadia prefer for practicing Arabic calligraphy?",
+    "trap": []
+  },
+  "p5_q03": {
+    "intended": [
+      "p5_m02"
+    ],
+    "mode": "paraphrase",
+    "persona": "p5",
+    "superseded": [],
+    "text": "Where does Nadia\u2019s brother Samer live, and what does he do for work?",
+    "trap": []
+  },
+  "p5_q04": {
+    "intended": [
+      "p5_m11"
+    ],
+    "mode": "coreference",
+    "persona": "p5",
+    "superseded": [],
+    "text": "What appointment does one of her cats need booked for August 2024?",
+    "trap": []
+  },
+  "p5_q05": {
+    "intended": [
+      "p5_m15"
+    ],
+    "mode": "coreference",
+    "persona": "p5",
+    "superseded": [],
+    "text": "Where does her mother live, the one she visits for Friday lunch twice a month?",
+    "trap": []
+  },
+  "p5_q06": {
+    "intended": [
+      "p5_m05"
+    ],
+    "mode": "temporal",
+    "persona": "p5",
+    "superseded": [],
+    "text": "What was Nadia\u2019s most recent bike ride this year?",
+    "trap": []
+  },
+  "p5_q07": {
+    "intended": [
+      "p5_m13"
+    ],
+    "mode": "temporal",
+    "persona": "p5",
+    "superseded": [],
+    "text": "When did Nadia last buy calligraphy ink?",
+    "trap": []
+  },
+  "p5_q08": {
+    "intended": [
+      "p5_m04"
+    ],
+    "mode": "temporal",
+    "persona": "p5",
+    "superseded": [],
+    "text": "What was the previous cycling route before the Airport Road loop ride?",
+    "trap": []
+  },
+  "p5_q09": {
+    "intended": [
+      "p5_m11"
+    ],
+    "mode": "hard_negative",
+    "persona": "p5",
+    "superseded": [],
+    "text": "Which cat needs a dental cleaning appointment booked for August 2024?",
+    "trap": [
+      "p5_m01"
+    ]
+  },
+  "p5_q10": {
+    "intended": [
+      "p5_m14"
+    ],
+    "mode": "hard_negative",
+    "persona": "p5",
+    "superseded": [],
+    "text": "What color was the helmet Nadia replaced in July?",
+    "trap": [
+      "p5_m12",
+      "p5_m13"
+    ]
+  },
+  "p5_q11": {
+    "intended": [
+      "p5_m04"
+    ],
+    "mode": "hard_negative",
+    "persona": "p5",
+    "superseded": [],
+    "text": "Which road did Nadia ride toward when she finished 26 km?",
+    "trap": [
+      "p5_m05"
+    ]
+  },
+  "p5_q12": {
+    "intended": [
+      "p5_m07"
+    ],
+    "mode": "contradiction",
+    "persona": "p5",
+    "superseded": [
+      "p5_m08"
+    ],
+    "text": "How does Nadia currently take her qahwa regarding cardamom?",
+    "trap": []
+  },
+  "p5_q13": {
+    "intended": [
+      "p5_m10"
+    ],
+    "mode": "contradiction",
+    "persona": "p5",
+    "superseded": [
+      "p5_m09"
+    ],
+    "text": "What is Nadia\u2019s current role and shift pattern in the neonatal ICU at Al Bashir Hospital?",
+    "trap": []
+  },
+  "p5_q14": {
+    "intended": [
+      "p5_m11",
+      "p5_m01"
+    ],
+    "mode": "multi_hop",
+    "persona": "p5",
+    "superseded": [],
+    "text": "Which cat needs the August appointment, and what is the other rescue cat\u2019s name?",
+    "trap": []
+  },
+  "p6_q01": {
+    "intended": [
+      "p6_m03"
+    ],
+    "mode": "paraphrase",
+    "persona": "p6",
+    "superseded": [],
+    "text": "What kind of paper does Sof\u00eda like to use for her mineralogy sketches?",
+    "trap": []
+  },
+  "p6_q02": {
+    "intended": [
+      "p6_m01"
+    ],
+    "mode": "paraphrase",
+    "persona": "p6",
+    "superseded": [],
+    "text": "Which university in Arequipa is Sof\u00eda studying geology at?",
+    "trap": []
+  },
+  "p6_q03": {
+    "intended": [
+      "p6_m07"
+    ],
+    "mode": "temporal",
+    "persona": "p6",
+    "superseded": [],
+    "text": "When was Sof\u00eda's last hike on Volc\u00e1n Misti?",
+    "trap": []
+  },
+  "p6_q04": {
+    "intended": [
+      "p6_m06"
+    ],
+    "mode": "temporal",
+    "persona": "p6",
+    "superseded": [],
+    "text": "On her previous Misti hike before the most recent one, what did she borrow and from whom?",
+    "trap": []
+  },
+  "p6_q05": {
+    "intended": [
+      "p6_m05"
+    ],
+    "mode": "temporal",
+    "persona": "p6",
+    "superseded": [],
+    "text": "When did she first hike Volc\u00e1n Misti with her class and forget sunscreen?",
+    "trap": []
+  },
+  "p6_q06": {
+    "intended": [
+      "p6_m02"
+    ],
+    "mode": "coreference",
+    "persona": "p6",
+    "superseded": [],
+    "text": "Where does her older sibling work?",
+    "trap": []
+  },
+  "p6_q07": {
+    "intended": [
+      "p6_m12"
+    ],
+    "mode": "coreference",
+    "persona": "p6",
+    "superseded": [],
+    "text": "Where did she move to in order to cut commuting costs?",
+    "trap": []
+  },
+  "p6_q08": {
+    "intended": [
+      "p6_m08"
+    ],
+    "mode": "hard_negative",
+    "persona": "p6",
+    "superseded": [],
+    "text": "Which hand lens did Sof\u00eda buy at the Saturday market after losing the old one?",
+    "trap": [
+      "p6_m09"
+    ]
+  },
+  "p6_q09": {
+    "intended": [
+      "p6_m15"
+    ],
+    "mode": "hard_negative",
+    "persona": "p6",
+    "superseded": [],
+    "text": "During the museum shop shift with visiting schools, what item sold out by noon?",
+    "trap": [
+      "p6_m14"
+    ]
+  },
+  "p6_q10": {
+    "intended": [
+      "p6_m07"
+    ],
+    "mode": "hard_negative",
+    "persona": "p6",
+    "superseded": [],
+    "text": "On the Misti hike where she reached the campsite but turned back, why did she stop?",
+    "trap": [
+      "p6_m05"
+    ]
+  },
+  "p6_q11": {
+    "intended": [
+      "p6_m12"
+    ],
+    "mode": "contradiction",
+    "persona": "p6",
+    "superseded": [
+      "p6_m11"
+    ],
+    "text": "Where is Sof\u00eda living now?",
+    "trap": []
+  },
+  "p6_q12": {
+    "intended": [
+      "p6_m04"
+    ],
+    "mode": "contradiction",
+    "persona": "p6",
+    "superseded": [
+      "p6_m04"
+    ],
+    "text": "What notebooks does Sof\u00eda prefer now for fieldwork?",
+    "trap": []
+  },
+  "p6_q13": {
+    "intended": [
+      "p6_m10",
+      "p6_m12"
+    ],
+    "mode": "multi_hop",
+    "persona": "p6",
+    "superseded": [],
+    "text": "What color is Sof\u00eda's current phone, and where is she living now?",
+    "trap": []
+  },
+  "p6_q14": {
+    "intended": [
+      "p6_m13",
+      "p6_m02"
+    ],
+    "mode": "multi_hop",
+    "persona": "p6",
+    "superseded": [],
+    "text": "Who asked Sof\u00eda for spark plugs, and what job does he do?",
+    "trap": []
+  },
+  "p7_q01": {
+    "intended": [
+      "p7_m01"
+    ],
+    "mode": "paraphrase",
+    "persona": "p7",
+    "superseded": [],
+    "text": "What does Tomasz do for work in Gda\u0144sk?",
+    "trap": []
+  },
+  "p7_q02": {
+    "intended": [
+      "p7_m04"
+    ],
+    "mode": "paraphrase",
+    "persona": "p7",
+    "superseded": [],
+    "text": "What kind of breakfast does Tomasz usually prefer?",
+    "trap": []
+  },
+  "p7_q03": {
+    "intended": [
+      "p7_m05"
+    ],
+    "mode": "paraphrase",
+    "persona": "p7",
+    "superseded": [],
+    "text": "What breakfast does he like on rye bread?",
+    "trap": []
+  },
+  "p7_q04": {
+    "intended": [
+      "p7_m02"
+    ],
+    "mode": "coreference",
+    "persona": "p7",
+    "superseded": [],
+    "text": "How old is the son he lives with?",
+    "trap": []
+  },
+  "p7_q05": {
+    "intended": [
+      "p7_m03"
+    ],
+    "mode": "coreference",
+    "persona": "p7",
+    "superseded": [],
+    "text": "Who did he finalize the divorce from in March 2025?",
+    "trap": []
+  },
+  "p7_q06": {
+    "intended": [
+      "p7_m10"
+    ],
+    "mode": "temporal",
+    "persona": "p7",
+    "superseded": [],
+    "text": "When was his most recent completed sea-kayak paddle?",
+    "trap": []
+  },
+  "p7_q07": {
+    "intended": [
+      "p7_m09"
+    ],
+    "mode": "temporal",
+    "persona": "p7",
+    "superseded": [],
+    "text": "What was the last sea-kayak plan he canceled because of weather?",
+    "trap": []
+  },
+  "p7_q08": {
+    "intended": [
+      "p7_m07"
+    ],
+    "mode": "temporal",
+    "persona": "p7",
+    "superseded": [],
+    "text": "When did he first go sea-kayaking that year?",
+    "trap": []
+  },
+  "p7_q09": {
+    "intended": [
+      "p7_m08"
+    ],
+    "mode": "hard_negative",
+    "persona": "p7",
+    "superseded": [],
+    "text": "Did Tomasz take his son on the Mot\u0142awa River kayak outing?",
+    "trap": [
+      "p7_m10"
+    ]
+  },
+  "p7_q10": {
+    "intended": [
+      "p7_m12"
+    ],
+    "mode": "hard_negative",
+    "persona": "p7",
+    "superseded": [],
+    "text": "Which app does Tomasz use to track radio repair notes now: Evernote or something else?",
+    "trap": [
+      "p7_m11"
+    ]
+  },
+  "p7_q11": {
+    "intended": [
+      "p7_m15"
+    ],
+    "mode": "hard_negative",
+    "persona": "p7",
+    "superseded": [],
+    "text": "Before the end of August 2025, what part on his 1978 Unitra receiver does he need to replace?",
+    "trap": [
+      "p7_m11",
+      "p7_m12"
+    ]
+  },
+  "p7_q12": {
+    "intended": [
+      "p7_m14"
+    ],
+    "mode": "contradiction",
+    "persona": "p7",
+    "superseded": [
+      "p7_m13"
+    ],
+    "text": "Where does Tomasz live now?",
+    "trap": []
+  },
+  "p7_q13": {
+    "intended": [
+      "p7_m12"
+    ],
+    "mode": "contradiction",
+    "persona": "p7",
+    "superseded": [
+      "p7_m11"
+    ],
+    "text": "What app is Tomasz currently using for his radio repair notes?",
+    "trap": []
+  },
+  "p7_q14": {
+    "intended": [
+      "p7_m14",
+      "p7_m02"
+    ],
+    "mode": "multi_hop",
+    "persona": "p7",
+    "superseded": [],
+    "text": "Why did Tomasz move to Oliwa, and who was the move meant to be closer to?",
+    "trap": []
+  },
+  "p8_q01": {
+    "intended": [
+      "p8_m01"
+    ],
+    "mode": "paraphrase",
+    "persona": "p8",
+    "superseded": [],
+    "text": "What city does Imani work in as a wedding cake decorator now?",
+    "trap": []
+  },
+  "p8_q02": {
+    "intended": [
+      "p8_m05"
+    ],
+    "mode": "paraphrase",
+    "persona": "p8",
+    "superseded": [],
+    "text": "Which icing does Imani usually favor instead of fondant?",
+    "trap": []
+  },
+  "p8_q03": {
+    "intended": [
+      "p8_m04"
+    ],
+    "mode": "coreference",
+    "persona": "p8",
+    "superseded": [],
+    "text": "Where does her younger brother live?",
+    "trap": []
+  },
+  "p8_q04": {
+    "intended": [
+      "p8_m12"
+    ],
+    "mode": "coreference",
+    "persona": "p8",
+    "superseded": [],
+    "text": "What does the person she's dating do for work?",
+    "trap": []
+  },
+  "p8_q05": {
+    "intended": [
+      "p8_m09"
+    ],
+    "mode": "temporal",
+    "persona": "p8",
+    "superseded": [],
+    "text": "Where did Imani go for her most recent cold-water swim?",
+    "trap": []
+  },
+  "p8_q06": {
+    "intended": [
+      "p8_m11"
+    ],
+    "mode": "temporal",
+    "persona": "p8",
+    "superseded": [],
+    "text": "When was the last time she bought something at a flea market or market?",
+    "trap": []
+  },
+  "p8_q07": {
+    "intended": [
+      "p8_m07"
+    ],
+    "mode": "temporal",
+    "persona": "p8",
+    "superseded": [],
+    "text": "When did Imani first cold-water swim this year?",
+    "trap": []
+  },
+  "p8_q08": {
+    "intended": [
+      "p8_m11"
+    ],
+    "mode": "hard_negative",
+    "persona": "p8",
+    "superseded": [],
+    "text": "Which market did Imani buy the vintage brass cake stand at?",
+    "trap": [
+      "p8_m10"
+    ]
+  },
+  "p8_q09": {
+    "intended": [
+      "p8_m10"
+    ],
+    "mode": "hard_negative",
+    "persona": "p8",
+    "superseded": [],
+    "text": "What did Imani buy at the Alderney Landing flea market?",
+    "trap": [
+      "p8_m11"
+    ]
+  },
+  "p8_q10": {
+    "intended": [
+      "p8_m09"
+    ],
+    "mode": "hard_negative",
+    "persona": "p8",
+    "superseded": [],
+    "text": "Who did Imani go to Black Rock Beach with in April 2025?",
+    "trap": [
+      "p8_m07"
+    ]
+  },
+  "p8_q11": {
+    "intended": [
+      "p8_m03"
+    ],
+    "mode": "contradiction",
+    "persona": "p8",
+    "superseded": [
+      "p8_m14"
+    ],
+    "text": "Is Imani still planning to stay in Winnipeg for at least two more years, or what happened instead?",
+    "trap": []
+  },
+  "p8_q12": {
+    "intended": [
+      "p8_m09",
+      "p8_m12"
+    ],
+    "mode": "multi_hop",
+    "persona": "p8",
+    "superseded": [],
+    "text": "What job does the person Imani went cold-water swimming with in April 2025 have?",
+    "trap": []
+  },
+  "p8_q13": {
+    "intended": [
+      "p8_m15"
+    ],
+    "mode": "multi_hop",
+    "persona": "p8",
+    "superseded": [],
+    "text": "What tool does Imani now use to sketch cake designs?",
+    "trap": []
+  },
+  "p8_q14": {
+    "intended": [
+      "p8_m03"
+    ],
+    "mode": "multi_hop",
+    "persona": "p8",
+    "superseded": [],
+    "text": "What city did Imani relocate from before taking the bakery job in Halifax?",
+    "trap": []
+  },
+  "p9_q01": {
+    "intended": [
+      "p9_m01"
+    ],
+    "mode": "paraphrase",
+    "persona": "p9",
+    "superseded": [],
+    "text": "What kind of engineer is Elias, and which city is he based in?",
+    "trap": []
+  },
+  "p9_q02": {
+    "intended": [
+      "p9_m04"
+    ],
+    "mode": "paraphrase",
+    "persona": "p9",
+    "superseded": [],
+    "text": "What brewing method does Elias like better than drip coffee?",
+    "trap": []
+  },
+  "p9_q03": {
+    "intended": [
+      "p9_m03"
+    ],
+    "mode": "paraphrase",
+    "persona": "p9",
+    "superseded": [],
+    "text": "What is the name of Elias's dog?",
+    "trap": []
+  },
+  "p9_q04": {
+    "intended": [
+      "p9_m02"
+    ],
+    "mode": "coreference",
+    "persona": "p9",
+    "superseded": [],
+    "text": "What is the name of his spouse he remarried in 2024?",
+    "trap": []
+  },
+  "p9_q05": {
+    "intended": [
+      "p9_m15"
+    ],
+    "mode": "coreference",
+    "persona": "p9",
+    "superseded": [],
+    "text": "By when does he need to mail his sister the finished scale-model tugboat?",
+    "trap": []
+  },
+  "p9_q06": {
+    "intended": [
+      "p9_m08"
+    ],
+    "mode": "temporal",
+    "persona": "p9",
+    "superseded": [],
+    "text": "When was the last time Elias went chanterelle foraging near Tavelsj\u00f6?",
+    "trap": []
+  },
+  "p9_q07": {
+    "intended": [
+      "p9_m11"
+    ],
+    "mode": "temporal",
+    "persona": "p9",
+    "superseded": [],
+    "text": "What happened on Elias's most recent ice-fishing trip on Lake Nydala with his dog?",
+    "trap": []
+  },
+  "p9_q08": {
+    "intended": [
+      "p9_m07"
+    ],
+    "mode": "temporal",
+    "persona": "p9",
+    "superseded": [],
+    "text": "When did Elias previously go chanterelle foraging near Tavelsj\u00f6 before the 2025 trip?",
+    "trap": []
+  },
+  "p9_q09": {
+    "intended": [
+      "p9_m09"
+    ],
+    "mode": "hard_negative",
+    "persona": "p9",
+    "superseded": [],
+    "text": "Which ice-fishing trip was the one where Elias caught three perch?",
+    "trap": [
+      "p9_m10",
+      "p9_m11"
+    ]
+  },
+  "p9_q10": {
+    "intended": [
+      "p9_m06"
+    ],
+    "mode": "hard_negative",
+    "persona": "p9",
+    "superseded": [],
+    "text": "On which foraging outing near Tavelsj\u00f6 did Elias come back with two baskets?",
+    "trap": [
+      "p9_m07",
+      "p9_m08"
+    ]
+  },
+  "p9_q11": {
+    "intended": [
+      "p9_m10"
+    ],
+    "mode": "hard_negative",
+    "persona": "p9",
+    "superseded": [],
+    "text": "Which trip was ruined because the auger jammed?",
+    "trap": [
+      "p9_m09",
+      "p9_m11"
+    ]
+  },
+  "p9_q12": {
+    "intended": [
+      "p9_m05"
+    ],
+    "mode": "contradiction",
+    "persona": "p9",
+    "superseded": [
+      "p9_m05"
+    ],
+    "text": "What does Elias currently use for his work notes?",
+    "trap": []
+  },
+  "p9_q13": {
+    "intended": [
+      "p9_m14"
+    ],
+    "mode": "contradiction",
+    "persona": "p9",
+    "superseded": [
+      "p9_m13"
+    ],
+    "text": "Where does Elias live now?",
+    "trap": []
+  },
+  "p9_q14": {
+    "intended": [
+      "p9_m11",
+      "p9_m03"
+    ],
+    "mode": "multi_hop",
+    "persona": "p9",
+    "superseded": [],
+    "text": "What is the name of the dog Elias took on his latest Lake Nydala ice-fishing trip?",
+    "trap": []
+  }
+}

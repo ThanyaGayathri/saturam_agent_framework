@@ -1,0 +1,156 @@
+{
+  "generated_at": "2026-07-16T12:16:04.750809+00:00",
+  "dataset": "synthetic",
+  "corpus_size": 54,
+  "query_count": 32,
+  "results": [
+    {
+      "key": "azure-3-small",
+      "mode": "B",
+      "egpt_class": "AzureOpenAIEmbedder",
+      "model_id": "text-embedding-3-small",
+      "declared_dim": 1536,
+      "measured_dim": 1536,
+      "license": "proprietary (Azure)",
+      "offline": false,
+      "params_m": null,
+      "disk_mb": null,
+      "quality": {
+        "recall@1": 0.8438,
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 0.9539,
+        "mrr@10": 0.9375
+      },
+      "latency_ms": {
+        "p50": 1759.47,
+        "p95": 3081.01,
+        "n": 64
+      },
+      "throughput_docs_per_s": {
+        "sync": 0.6,
+        "async": 10.4
+      },
+      "sync_async_max_abs_diff": 0.0011027,
+      "storage_10m": {
+        "storage_type": "vector",
+        "raw_gb": 57.22,
+        "index_gb": 103.0,
+        "total_gb": 160.22,
+        "fits_vector": true,
+        "fits_halfvec": true
+      }
+    },
+    {
+      "key": "azure-3-small-512",
+      "mode": "B",
+      "egpt_class": "AzureOpenAIEmbedder",
+      "model_id": "text-embedding-3-small",
+      "declared_dim": 512,
+      "measured_dim": 512,
+      "license": "proprietary (Azure)",
+      "offline": false,
+      "params_m": null,
+      "disk_mb": null,
+      "quality": {
+        "recall@1": 0.8125,
+        "recall@5": 0.9688,
+        "recall@10": 1.0,
+        "ndcg@10": 0.9312,
+        "mrr@10": 0.9115
+      },
+      "latency_ms": {
+        "p50": 1337.47,
+        "p95": 2278.82,
+        "n": 64
+      },
+      "throughput_docs_per_s": {
+        "sync": 0.7,
+        "async": 13.3
+      },
+      "sync_async_max_abs_diff": 0.00419609,
+      "storage_10m": {
+        "storage_type": "vector",
+        "raw_gb": 19.07,
+        "index_gb": 34.33,
+        "total_gb": 53.41,
+        "fits_vector": true,
+        "fits_halfvec": true
+      }
+    },
+    {
+      "key": "azure-3-large",
+      "mode": "B",
+      "egpt_class": "AzureOpenAIEmbedder",
+      "model_id": "text-embedding-3-large",
+      "declared_dim": 3072,
+      "measured_dim": 3072,
+      "license": "proprietary (Azure)",
+      "offline": false,
+      "params_m": null,
+      "disk_mb": null,
+      "quality": {
+        "recall@1": 0.875,
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 0.9588,
+        "mrr@10": 0.9479
+      },
+      "latency_ms": {
+        "p50": 1749.36,
+        "p95": 2388.31,
+        "n": 64
+      },
+      "throughput_docs_per_s": {
+        "sync": 0.5,
+        "async": 9.9
+      },
+      "sync_async_max_abs_diff": 0.00240459,
+      "storage_10m": {
+        "storage_type": "halfvec",
+        "raw_gb": 57.22,
+        "index_gb": 103.0,
+        "total_gb": 160.22,
+        "fits_vector": false,
+        "fits_halfvec": true
+      }
+    },
+    {
+      "key": "azure-3-large-1024",
+      "mode": "B",
+      "egpt_class": "AzureOpenAIEmbedder",
+      "model_id": "text-embedding-3-large",
+      "declared_dim": 1024,
+      "measured_dim": 1024,
+      "license": "proprietary (Azure)",
+      "offline": false,
+      "params_m": null,
+      "disk_mb": null,
+      "quality": {
+        "recall@1": 0.8438,
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 0.9473,
+        "mrr@10": 0.9323
+      },
+      "latency_ms": {
+        "p50": 1435.25,
+        "p95": 1595.23,
+        "n": 64
+      },
+      "throughput_docs_per_s": {
+        "sync": 0.6,
+        "async": 0.2
+      },
+      "sync_async_max_abs_diff": 0.00396156,
+      "storage_10m": {
+        "storage_type": "vector",
+        "raw_gb": 38.15,
+        "index_gb": 68.66,
+        "total_gb": 106.81,
+        "fits_vector": true,
+        "fits_halfvec": true
+      }
+    }
+  ]
+}

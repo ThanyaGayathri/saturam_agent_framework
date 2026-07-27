@@ -1,0 +1,271 @@
+{
+  "generated_at": "2026-07-16T10:47:07.926757+00:00",
+  "dataset": "synthetic",
+  "corpus_size": 54,
+  "query_count": 32,
+  "results": [
+    {
+      "key": "minilm-l6",
+      "mode": "A",
+      "egpt_class": "SentenceTransformerEmbedder",
+      "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+      "declared_dim": 384,
+      "measured_dim": 384,
+      "license": "Apache-2.0",
+      "offline": true,
+      "params_m": 23,
+      "disk_mb": 90,
+      "quality": {
+        "recall@1": 0.7344,
+        "recall@5": 0.9531,
+        "recall@10": 0.9688,
+        "ndcg@10": 0.8742,
+        "mrr@10": 0.8448
+      },
+      "latency_ms": {
+        "p50": 34.57,
+        "p95": 46.1,
+        "n": 96
+      },
+      "throughput_docs_per_s": {
+        "sync": 9.6,
+        "async": 35.0
+      },
+      "sync_async_max_abs_diff": 0.0,
+      "storage_10m": {
+        "storage_type": "vector",
+        "raw_gb": 14.31,
+        "index_gb": 25.75,
+        "total_gb": 40.05,
+        "fits_vector": true,
+        "fits_halfvec": true
+      }
+    },
+    {
+      "key": "bge-small",
+      "mode": "A",
+      "egpt_class": "SentenceTransformerEmbedder",
+      "model_id": "BAAI/bge-small-en-v1.5",
+      "declared_dim": 384,
+      "measured_dim": 384,
+      "license": "MIT",
+      "offline": true,
+      "params_m": 33,
+      "disk_mb": 130,
+      "quality": {
+        "recall@1": 0.8125,
+        "recall@5": 0.9688,
+        "recall@10": 1.0,
+        "ndcg@10": 0.9266,
+        "mrr@10": 0.9115
+      },
+      "latency_ms": {
+        "p50": 88.31,
+        "p95": 112.57,
+        "n": 96
+      },
+      "throughput_docs_per_s": {
+        "sync": 14.3,
+        "async": 17.2
+      },
+      "sync_async_max_abs_diff": 0.0,
+      "storage_10m": {
+        "storage_type": "vector",
+        "raw_gb": 14.31,
+        "index_gb": 25.75,
+        "total_gb": 40.05,
+        "fits_vector": true,
+        "fits_halfvec": true
+      }
+    },
+    {
+      "key": "bge-base",
+      "mode": "A",
+      "egpt_class": "SentenceTransformerEmbedder",
+      "model_id": "BAAI/bge-base-en-v1.5",
+      "declared_dim": 768,
+      "measured_dim": 768,
+      "license": "MIT",
+      "offline": true,
+      "params_m": 109,
+      "disk_mb": 420,
+      "quality": {
+        "recall@1": 0.7812,
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 0.9229,
+        "mrr@10": 0.901
+      },
+      "latency_ms": {
+        "p50": 93.58,
+        "p95": 131.08,
+        "n": 96
+      },
+      "throughput_docs_per_s": {
+        "sync": 5.7,
+        "async": 16.8
+      },
+      "sync_async_max_abs_diff": 0.0,
+      "storage_10m": {
+        "storage_type": "vector",
+        "raw_gb": 28.61,
+        "index_gb": 51.5,
+        "total_gb": 80.11,
+        "fits_vector": true,
+        "fits_halfvec": true
+      }
+    },
+    {
+      "key": "bge-large",
+      "mode": "A",
+      "egpt_class": "SentenceTransformerEmbedder",
+      "model_id": "BAAI/bge-large-en-v1.5",
+      "declared_dim": 1024,
+      "measured_dim": 1024,
+      "license": "MIT",
+      "offline": true,
+      "params_m": 335,
+      "disk_mb": 1280,
+      "quality": {
+        "recall@1": 0.8438,
+        "recall@5": 0.9844,
+        "recall@10": 1.0,
+        "ndcg@10": 0.9416,
+        "mrr@10": 0.9323
+      },
+      "latency_ms": {
+        "p50": 252.71,
+        "p95": 351.42,
+        "n": 96
+      },
+      "throughput_docs_per_s": {
+        "sync": 4.3,
+        "async": 5.9
+      },
+      "sync_async_max_abs_diff": 0.0,
+      "storage_10m": {
+        "storage_type": "vector",
+        "raw_gb": 38.15,
+        "index_gb": 68.66,
+        "total_gb": 106.81,
+        "fits_vector": true,
+        "fits_halfvec": true
+      }
+    },
+    {
+      "key": "e5-base",
+      "mode": "A",
+      "egpt_class": "SentenceTransformerEmbedder",
+      "model_id": "intfloat/e5-base-v2",
+      "declared_dim": 768,
+      "measured_dim": 768,
+      "license": "MIT",
+      "offline": true,
+      "params_m": 109,
+      "disk_mb": 420,
+      "quality": {
+        "recall@1": 0.7969,
+        "recall@5": 0.9375,
+        "recall@10": 0.9688,
+        "ndcg@10": 0.9019,
+        "mrr@10": 0.8802
+      },
+      "latency_ms": {
+        "p50": 104.62,
+        "p95": 145.9,
+        "n": 96
+      },
+      "throughput_docs_per_s": {
+        "sync": 7.8,
+        "async": 11.4
+      },
+      "sync_async_max_abs_diff": 0.0,
+      "storage_10m": {
+        "storage_type": "vector",
+        "raw_gb": 28.61,
+        "index_gb": 51.5,
+        "total_gb": 80.11,
+        "fits_vector": true,
+        "fits_halfvec": true
+      }
+    },
+    {
+      "key": "gte-base",
+      "mode": "A",
+      "egpt_class": "SentenceTransformerEmbedder",
+      "model_id": "thenlper/gte-base",
+      "declared_dim": 768,
+      "measured_dim": 768,
+      "license": "MIT",
+      "offline": true,
+      "params_m": 109,
+      "disk_mb": 420,
+      "quality": {
+        "recall@1": 0.75,
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "ndcg@10": 0.8947,
+        "mrr@10": 0.8646
+      },
+      "latency_ms": {
+        "p50": 86.39,
+        "p95": 111.65,
+        "n": 96
+      },
+      "throughput_docs_per_s": {
+        "sync": 10.8,
+        "async": 14.4
+      },
+      "sync_async_max_abs_diff": 0.0,
+      "storage_10m": {
+        "storage_type": "vector",
+        "raw_gb": 28.61,
+        "index_gb": 51.5,
+        "total_gb": 80.11,
+        "fits_vector": true,
+        "fits_halfvec": true
+      }
+    },
+    {
+      "key": "nomic-1.5",
+      "error": "ValueError: Loading nomic-ai/nomic-embed-text-v1.5 requires you to execute the configuration file in that repo on your local machine. Make sure you have read the code there to avoid malicious use, then set the option `trust_remote_code=True` to remove this error."
+    },
+    {
+      "key": "bge-small-onnx",
+      "mode": "A",
+      "egpt_class": "FastEmbedEmbedder",
+      "model_id": "BAAI/bge-small-en-v1.5",
+      "declared_dim": 384,
+      "measured_dim": 384,
+      "license": "MIT",
+      "offline": true,
+      "params_m": 33,
+      "disk_mb": 130,
+      "quality": {
+        "recall@1": 0.8125,
+        "recall@5": 0.9688,
+        "recall@10": 1.0,
+        "ndcg@10": 0.9266,
+        "mrr@10": 0.9115
+      },
+      "latency_ms": {
+        "p50": 12.59,
+        "p95": 20.12,
+        "n": 96
+      },
+      "throughput_docs_per_s": {
+        "sync": 9.5,
+        "async": 122.8
+      },
+      "sync_async_max_abs_diff": 0.0,
+      "storage_10m": {
+        "storage_type": "vector",
+        "raw_gb": 14.31,
+        "index_gb": 25.75,
+        "total_gb": 40.05,
+        "fits_vector": true,
+        "fits_halfvec": true
+      }
+    }
+  ]
+}

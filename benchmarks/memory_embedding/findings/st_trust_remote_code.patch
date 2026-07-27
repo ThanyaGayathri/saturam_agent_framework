@@ -1,0 +1,34 @@
+diff --git a/libs/agno/egpt/knowledge/embedder/sentence_transformer.py b/libs/agno/egpt/knowledge/embedder/sentence_transformer.py
+index 3ec8987..5fc2fbe 100644
+--- a/libs/agno/egpt/knowledge/embedder/sentence_transformer.py
++++ b/libs/agno/egpt/knowledge/embedder/sentence_transformer.py
+@@ -1,5 +1,5 @@
+ from dataclasses import dataclass
+-from typing import Dict, List, Optional, Tuple, Union
++from typing import Any, Dict, List, Optional, Tuple, Union
+ 
+ from egpt.knowledge.embedder.base import Embedder
+ from egpt.utils.log import log_warning
+@@ -24,11 +24,21 @@ class SentenceTransformerEmbedder(Embedder):
+     sentence_transformer_client: Optional[SentenceTransformer] = None
+     prompt: Optional[str] = None
+     normalize_embeddings: bool = False
++    trust_remote_code: bool = False
++    device: Optional[str] = None
++    model_kwargs: Optional[Dict[str, Any]] = None
+ 
+     def __post_init__(self):
+         # Initialize the SentenceTransformer model eagerly to avoid race conditions in async contexts
+         if self.sentence_transformer_client is None:
+-            self.sentence_transformer_client = SentenceTransformer(model_name_or_path=self.id)
++            _kwargs: Dict[str, Any] = {"model_name_or_path": self.id}
++            if self.trust_remote_code:
++                _kwargs["trust_remote_code"] = self.trust_remote_code
++            if self.device is not None:
++                _kwargs["device"] = self.device
++            if self.model_kwargs:
++                _kwargs.update(self.model_kwargs)
++            self.sentence_transformer_client = SentenceTransformer(**_kwargs)
+ 
+     def get_embedding(self, text: Union[str, List[str]]) -> List[float]:
+         if self.sentence_transformer_client is None:

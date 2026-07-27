@@ -1,0 +1,21 @@
+# SM-R4 memory-embedding benchmark dependencies.
+#
+# Pins reflect the macOS x86 constraint that torch caps at 2.2.2, which requires
+# numpy<2 and transformers<4.45. On linux/arm64 newer versions also work; relax
+# these pins there if desired.
+numpy==1.26.4
+torch==2.2.2
+transformers==4.44.2
+tokenizers<0.20
+sentence-transformers==3.0.1
+fastembed
+openai>=1.30
+einops                     # required by nomic-embed-text custom modeling code
+# Optional: only needed for the BEIR cross-check dataset (`--dataset beir:scifact`)
+datasets
+
+# egpt itself is imported from source via PYTHONPATH=../../libs/agno (not installed);
+# these are the egpt import-chain deps the benchmark touches:
+docstring_parser
+pydantic
+pydantic-settings
