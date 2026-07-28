@@ -34,10 +34,15 @@ a multi-hop question) is the discriminative metric. **Headline:** on genuinely-c
 questions, dense retrieval finds *both* bridge passages only **33%** of the time; the
 recommended hybrid config raises that to **63%**, lifts recall@5 by +0.14 and QA F1 by +0.23.
 
-> **The pure-PPR-vs-hybrid ranking flipped when the embedder was corrected.** On the original
-> (non-ratified) `text-embedding-3-small` run, pure PPR led at 0.908/0.767 and hybrid trailed.
-> On SM-R4's embedder, **pure PPR is fragile and hybrid is robust** — see §Embedder correction.
-> The original "pure PPR wins" headline was an artifact of one embedder's threshold calibration.
+> **Confirmed at n=120** (949 passages, §Measurements): hybrid 0.815 recall@5 / 0.592 all-hops,
+> hybrid-vs-dense all-hops **p<0.0001 with 20 discordant pairs and none against**, and the adopt
+> criterion **met by both configs**. Absolute levels fall on the bigger corpus — the *gaps*
+> replicate, the levels do not, so thresholds must be stated as gains over dense.
+>
+> **On pure PPR vs hybrid:** the original run had pure PPR ahead (0.908) and SM-R4's embedder
+> reverses the point estimates, but that difference is **not significant at n=30 or n=120**
+> (p=0.59 / p=0.51; needs n≈500). The defensible claim is that **pure PPR is embedder-fragile
+> and hybrid is not** — not that hybrid retrieves better. See §Embedder correction.
 
 **Evidence strength — read before using these numbers as thresholds.** hybrid-vs-dense
 recall@5 CIs are essentially disjoint (.808–.942 vs .650–.833). The `all-hops-hit` gaps are
@@ -320,18 +325,29 @@ one-time, async-able write cost and a query-time PageRank step that is <100ms. P
 **additive** to SM-G9 BFS (a ranked multi-hop mode), not a replacement, and is gated per tenant
 so non-multi-hop tenants pay nothing.
 
-**Ship hybrid, not pure PPR — this is now an evidence-based choice, not a hedge.** Pure PPR led
-on the original non-ratified embedder (0.908) and **lost 0.275 recall@5** when moved to SM-R4's
-at inherited thresholds (0.633), recovering only to 0.817 in-sample / ~0.750 leave-one-out after
-re-tuning. Hybrid moved 0.892 → 0.883 over the same change. **Pure PPR's headline was an
-artifact of one embedder's threshold calibration; hybrid is robust to it** (§Embedder correction).
+**Ship hybrid — but on robustness, not on a measured win over pure PPR.** Pure PPR led on the
+original non-ratified embedder (0.908) and **lost 0.275 recall@5 (p=0.0001)** when moved to
+SM-R4's at inherited thresholds, recovering to 0.817 in-sample / ~0.750 leave-one-out after
+re-tuning; hybrid moved 0.892 → 0.883 over the same change. So **pure PPR is embedder-fragile
+and hybrid is not**, and that is the real argument for hybrid.
+
+**What is *not* established:** hybrid beating pure PPR. That comparison is not significant at
+n=30 (p=0.59) **or at n=120** (p=0.51), and needs n≈500 (§Measurements). An earlier draft of
+this doc called it a "ranking flip" — the point estimates do invert, but the difference is
+within noise, and 4× more data did not resolve it. On the *chaining* subset pure PPR is even
+numerically ahead (0.531 vs 0.490, also n.s.). Both configs clear the adopt criterion at n=120.
 
 **Why "provisional", specifically.** Three things must land before this is ratifiable:
 
-1. **The adopt threshold is keyed on a statistic this eval cannot separate.** At n=30 the
-   `all-hops-hit` CIs overlap (chaining-only: dense .167–.542 vs PPR .50–.875). Only recall@5
-   is beyond noise. **Any switch threshold keyed on all-hops needs n≥100, or a power analysis
-   establishing the n required to detect the threshold effect size, before SM-R1 ratifies it.**
+1. ~~**The adopt threshold is keyed on a statistic this eval cannot separate.**~~ **RESOLVED
+   (§Measurements).** The overlapping-CI concern compared *marginal* CIs, but both methods are
+   scored on the same questions, so the correct test is paired. Paired: hybrid-vs-dense
+   all-hops is **+0.233, p=0.0007** at n=30 (McNemar requires n=17; power 0.94), and at
+   **n=120 it is +0.167, p<0.0001 with 20 discordant pairs and none against.** The adopt
+   criterion is **met and significant at n=120 for both configs** (hippo +0.250, hybrid
+   +0.208). *Caveat that remains:* absolute levels fall on the larger corpus (hybrid recall
+   0.883→0.815), so thresholds must be expressed as **gains over the dense baseline**, never
+   as absolute scores.
 2. **The production PPR substrate assumes an engine that has not been chosen.** See below.
 3. **KG quality is now measured and it is mediocre:** only **37% of questions have their
    full gold chain walkable** in the KG (edge recall 0.639). PPR's measured benefit therefore

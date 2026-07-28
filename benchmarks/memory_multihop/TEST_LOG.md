@@ -246,3 +246,38 @@ Raw: `results/fusion_sweep_20260728T120251Z_smR4ModeA.json`,
 `results/results_20260728T120316Z_smR4ModeA_weighted.json`; write-up: `results/summary_fusion.md`.
 
 ---
+### run.py --eval eval_set_n120.json — n=120 scale-up (949 passages)
+
+**Status:** PASS — **changes one n=30 verdict**
+
+**Description:** 120-question stratified set, a strict superset of the committed n=30 set so
+results stay nested. 949 pooled passages, full OpenIE + reader, SM-R4 Mode A,
+`link_threshold=0.65`, RRF. One-time index: 10,742 entities / 25,628 edges / **$2.18**.
+
+**Result:**
+
+| method | recall@5 | all-hops@5 | chaining all-hops |
+| --- | --- | --- | --- |
+| vector | 0.723 | 0.425 | 0.281 |
+| hippo | 0.779 | 0.558 | 0.531 |
+| **hybrid** | **0.815** | **0.592** | 0.490 |
+
+Paired tests vs n=30: hybrid-vs-dense all-hops **+0.167, p<0.0001** (discordant **20:0**) —
+confirmed and stronger. **hippo-vs-dense all-hops flips to significant** (p=0.226 at n=30 →
+**p=0.017** at n=120): a real verdict change from sample size, vindicating the review's
+"more data" instinct even though the paired test was the right fix for the headline comparison.
+hybrid-vs-hippo remains **not significant** (p=0.51), consistent with the n≈500 power estimate —
+so the "ranking flip" claimed earlier is still unestablished after 4× the data.
+
+**Adopt criterion (chaining all-hops gain ≥ 0.15): MET by both configs** — hippo +0.250,
+hybrid +0.208, both significant.
+
+**Caution the larger set exposes:** absolute numbers fall across the board (hybrid recall@5
+0.883 → 0.815) because the shared pool is 3.3× bigger. The *gaps* replicate; the *levels* do
+not. Thresholds must be expressed as gains over dense, never as absolute scores.
+
+**At scale:** 1 OpenIE parse failure and **3 content-filter refusals out of 949 passages**
+(0.3%) — silent KG holes the 285-passage run never surfaced, and which crashed the first attempt
+before `openie.py` was hardened. Now reported as `openie_content_filtered`.
+
+---

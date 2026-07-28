@@ -183,3 +183,54 @@ for completeness, not used as evidence.
 it is *density* (cost) and *linkability* (coreference). Those are different problems with
 different mitigations than "the extractor will be unreliable", which is what the doc previously
 implied.
+
+---
+
+## 5. n=120 — the empirical check, and it changes one n=30 verdict
+
+Built a 120-question stratified set (949 passages, ~$2.18 OpenIE) that is a **strict superset**
+of the committed n=30 set, so results are nested and directly comparable. Same config
+(SM-R4 Mode A, `link_threshold=0.65`, RRF).
+
+| method | recall@5 [CI] | all-hops@5 [CI] | chaining all-hops [CI] |
+| --- | --- | --- | --- |
+| vector | 0.723 [.679, .767] | 0.425 [.342, .517] | 0.281 [.188, .375] |
+| hippo | 0.779 [.731, .829] | 0.558 [.467, .650] | **0.531 [.438, .635]** |
+| **hybrid** | **0.815 [.773, .856]** | **0.592 [.500, .683]** | 0.490 [.385, .583] |
+
+Paired tests at n=120, with the n=30 verdict for comparison:
+
+| comparison | n=30 | n=120 | change |
+| --- | --- | --- | --- |
+| hybrid vs dense — all-hops | +0.233, p=0.0007 **SIG** | +0.167, p<0.0001 **SIG** (discordant **20:0**) | confirmed, stronger |
+| **hippo vs dense — all-hops** | +0.167, **p=0.226 ns** | +0.133, **p=0.017 SIG** | **flipped to significant** |
+| hybrid vs hippo — all-hops | +0.067, p=0.586 ns | +0.033, p=0.507 ns | unchanged (needs n≈500) |
+| hybrid vs dense — recall@5 | +0.142, p<0.0001 SIG | +0.092, p<0.0001 SIG | confirmed |
+
+**Both sides of the original disagreement were partly right.**
+
+- My correction holds for the headline: hybrid-vs-dense was already significant at n=30, and
+  the paired test — not more data — was the missing piece. At n=120 it is overwhelming
+  (20 discordant pairs, none against).
+- **But the reviewer's "get more data" instinct paid off for pure PPR**: hippo-vs-dense on
+  all-hops was *not* significant at n=30 (p=0.226) and **is** at n=120 (p=0.017). That is a real
+  verdict change from sample size alone, exactly the kind the review was worried about.
+- The hybrid-vs-pure-PPR comparison remains unresolved at n=120, consistent with the n≈500
+  power estimate — so the "ranking flip" I claimed earlier is still **not** established, and
+  4× more data did not rescue it.
+
+**Adopt criterion (chaining all-hops gain ≥ 0.15) at n=120: MET by both configs** —
+hippo **+0.250**, hybrid **+0.208**, both significant (p=0.0001 / p<0.0001). At n=30 it was met
+on point estimate but unsupported for pure PPR. **It is now supported for both.**
+
+**A caution the larger set exposes.** Absolute numbers drop across the board (hybrid recall@5
+0.883 → 0.815, all-hops 0.700 → 0.592) because the shared corpus is 3.3× bigger (949 vs 285
+passages) and retrieval runs over the whole pool. **The n=30 headline was optimistic about
+absolute quality** — the *gaps* between methods are what replicate, not the levels. Any
+threshold expressed as an absolute score, rather than as a gain over the dense baseline, would
+not survive this change of corpus size.
+
+**Also confirmed at scale:** 1 OpenIE parse failure and **3 passages refused by the Azure
+content filter** out of 949 (0.3%) — silent holes in the KG that the earlier n=285 run never
+surfaced, and which crashed the first n=120 attempt outright before `openie.py` was hardened.
+`openie_content_filtered` now reports them.
