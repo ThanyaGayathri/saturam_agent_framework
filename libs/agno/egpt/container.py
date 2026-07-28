@@ -91,12 +91,21 @@ class Container:
         # Async resolution stacks are per task: two tasks building the same token
         # concurrently is contention (handled by the locks above), not a cycle.
         self._async_resolving: Dict[int, List[Token]] = {}
+        # Wait-for graph for async resolution: which task is building a token, and which
+        # token a task is blocked on. A cycle across these is a deadlock, not contention.
+        self._async_owners: Dict[Token, int] = {}
+        self._async_waits: Dict[int, Token] = {}
 
     def __repr__(self) -> str:
         return f"Container(name={self.name!r}, bindings={len(self._bindings)})"
 
     def __contains__(self, token: Token) -> bool:
         return self.has(token)
+
+    @property
+    def parent(self) -> Optional["Container"]:
+        """The container this one falls back to, if any."""
+        return self._parent
 
     # -- Registration --------------------------------------------------------------
 
@@ -175,6 +184,10 @@ class Container:
     def resolve(self, token: Token) -> Any:
         """Resolve a service, constructing it (and its dependencies) if needed.
 
+        On a child container, an inherited binding is built with the **child** as the
+        resolution context, so the child's own bindings win inside the parent's factories
+        (see ``child``).
+
         Raises:
             ContainerError: If the token is unbound, its dependencies are cyclic, or its
                 factory is async (use ``aresolve`` instead).
@@ -185,7 +198,11 @@ class Container:
                 return cached
             binding = self._bindings.get(token)
             if binding is None:
-                return self._resolve_from_parent(token)
+                if not self._bindings:
+                    # A scope with no bindings of its own cannot influence any factory,
+                    # so delegate and share the parent's instance rather than duplicating.
+                    return self._resolve_from_parent(token)
+                binding = self._inherited_binding(token)
 
             self._enter(token)
             try:
@@ -232,34 +249,49 @@ class Container:
             if cached is not _MISSING:
                 return cached
             binding = self._bindings.get(token)
-        if binding is None:
+            delegate = binding is None and not self._bindings
+
+        if delegate:
             if self._parent is None:
                 raise ContainerError(f"No binding registered for {_token_name(token)} in container '{self.name}'.")
             return await self._parent.aresolve(token)
+        if binding is None:
+            binding = self._inherited_binding(token)
 
         stack = self._async_stack()
         if token in stack:
             chain = " -> ".join(_token_name(t) for t in [*stack, token])
             raise ContainerError(f"Cyclic dependency detected while resolving: {chain}")
 
-        async with self._async_lock(token):
-            with self._lock:
-                cached = self._instances.get(token, _MISSING)
-                if cached is not _MISSING:
-                    return cached
-            stack.append(token)
-            try:
-                value = binding.factory(self)
-                if inspect.isawaitable(value):
-                    value = await value
-            finally:
-                stack.remove(token)
-                self._release_async_stack()
+        # Transient bindings share no instance, so serializing them would only add
+        # latency; only singletons need the per-token lock.
+        if not binding.singleton:
+            return await self._build_async(token, binding, stack)
 
-            with self._lock:
-                if binding.singleton:
+        self._enter_async_wait(token)
+        try:
+            async with self._async_lock(token):
+                self._claim_async_owner(token)
+                with self._lock:
+                    cached = self._instances.get(token, _MISSING)
+                    if cached is not _MISSING:
+                        return cached
+                try:
+                    value = await self._build_async(token, binding, stack)
+                finally:
+                    self._release_async_owner(token)
+
+                with self._lock:
+                    # A sync resolve on another thread can slip in while we await, so the
+                    # first instance cached wins and ours is discarded -- a token bound as
+                    # a singleton must never hand out two objects.
+                    cached = self._instances.get(token, _MISSING)
+                    if cached is not _MISSING:
+                        return cached
                     self._instances[token] = value
-            return value
+                return value
+        finally:
+            self._clear_async_wait()
 
     @overload
     async def atry_resolve(self, token: Type[T]) -> Optional[T]: ...
@@ -299,6 +331,17 @@ class Container:
         if self._parent is None:
             raise ContainerError(f"No binding registered for {_token_name(token)} in container '{self.name}'.")
         return self._parent.resolve(token)
+
+    def _inherited_binding(self, token: Token) -> _Binding:
+        """Find a binding on an ancestor, to be built with this container as context."""
+        node = self._parent
+        while node is not None:
+            with node._lock:
+                binding = node._bindings.get(token)
+            if binding is not None:
+                return binding
+            node = node._parent
+        raise ContainerError(f"No binding registered for {_token_name(token)} in container '{self.name}'.")
 
     def _enter(self, token: Token) -> None:
         self._check_cycle(token)
@@ -346,6 +389,61 @@ class Container:
                 self._async_locks[token] = lock
             return lock
 
+    async def _build_async(self, token: Token, binding: _Binding, stack: List[Token]) -> Any:
+        """Run a factory with the calling task's resolution stack marked for cycle detection."""
+        stack.append(token)
+        try:
+            value = binding.factory(self)
+            if inspect.isawaitable(value):
+                value = await value
+            return value
+        finally:
+            stack.remove(token)
+            self._release_async_stack()
+
+    def _enter_async_wait(self, token: Token) -> None:
+        """Record that this task is about to wait for ``token``, refusing to deadlock.
+
+        Two tasks can each hold the lock for one token while waiting on the other's; the
+        per-task stacks cannot see that, because neither task is re-entering a token it is
+        itself building. Walking the wait-for graph catches it and raises instead of
+        hanging forever.
+        """
+        key = id(asyncio.current_task())
+        with self._lock:
+            chain: List[Token] = [token]
+            probe: Optional[Token] = token
+            seen = set()
+            while probe is not None and probe not in seen:
+                seen.add(probe)
+                owner = self._async_owners.get(probe)
+                if owner is None:
+                    break
+                if owner == key:
+                    names = " -> ".join(_token_name(t) for t in chain)
+                    raise ContainerError(f"Cyclic dependency detected across concurrent tasks: {names}")
+                probe = self._async_waits.get(owner)
+                if probe is not None:
+                    chain.append(probe)
+            self._async_waits[key] = token
+
+    def _claim_async_owner(self, token: Token) -> None:
+        """Mark this task as the builder of ``token``; it is no longer waiting."""
+        key = id(asyncio.current_task())
+        with self._lock:
+            self._async_owners[token] = key
+            self._async_waits.pop(key, None)
+
+    def _release_async_owner(self, token: Token) -> None:
+        key = id(asyncio.current_task())
+        with self._lock:
+            if self._async_owners.get(token) == key:
+                self._async_owners.pop(token, None)
+
+    def _clear_async_wait(self) -> None:
+        with self._lock:
+            self._async_waits.pop(id(asyncio.current_task()), None)
+
     @staticmethod
     def _close_awaitable(value: Any) -> None:
         """Close a coroutine we are not going to await, to avoid a RuntimeWarning."""
@@ -353,34 +451,36 @@ class Container:
         if callable(close):
             close()
 
-    def _swap(self, token: Token, binding: _Binding) -> Tuple[Optional[_Binding], Any, List[Token]]:
+    def _swap(self, token: Token, binding: _Binding) -> Tuple[Optional[_Binding], Dict[Token, Any]]:
+        """Install an override binding and empty the singleton cache.
+
+        The whole cache goes, not just the overridden token: a singleton built *before*
+        the block already holds the real implementation, and leaving it cached would hand
+        that back to anything resolved inside the block. The snapshot is restored verbatim
+        on exit, so pre-existing instances survive the round trip by identity.
+        """
         with self._lock:
             previous_binding = self._bindings.get(token)
-            previous_instance = self._instances.pop(token, _MISSING)
-            cached_before = list(self._instances.keys())
+            snapshot = dict(self._instances)
+            self._instances.clear()
             self._bindings[token] = binding
-            return previous_binding, previous_instance, cached_before
+            return previous_binding, snapshot
 
     def _restore(
         self,
         token: Token,
         previous_binding: Optional[_Binding],
-        previous_instance: Any,
-        cached_before: List[Token],
+        snapshot: Dict[Token, Any],
     ) -> None:
         with self._lock:
             if previous_binding is None:
                 self._bindings.pop(token, None)
             else:
                 self._bindings[token] = previous_binding
-            # Evict anything built while the override was active: those instances may
-            # hold the substituted implementation.
-            for cached_token in list(self._instances.keys()):
-                if cached_token not in cached_before:
-                    self._instances.pop(cached_token, None)
-            self._instances.pop(token, None)
-            if previous_instance is not _MISSING:
-                self._instances[token] = previous_instance
+            # Everything built during the block is discarded -- any of it may hold the
+            # substituted implementation -- and the pre-block cache is put back exactly.
+            self._instances.clear()
+            self._instances.update(snapshot)
 
 
 class _Override:
@@ -391,17 +491,14 @@ class _Override:
         self._token = token
         self._binding = _Binding(factory=factory, singleton=singleton)
         self._previous_binding: Optional[_Binding] = None
-        self._previous_instance: Any = _MISSING
-        self._cached_before: List[Token] = []
+        self._snapshot: Dict[Token, Any] = {}
 
     def __enter__(self) -> Container:
-        self._previous_binding, self._previous_instance, self._cached_before = self._container._swap(
-            self._token, self._binding
-        )
+        self._previous_binding, self._snapshot = self._container._swap(self._token, self._binding)
         return self._container
 
     def __exit__(self, *exc_info: Any) -> None:
-        self._container._restore(self._token, self._previous_binding, self._previous_instance, self._cached_before)
+        self._container._restore(self._token, self._previous_binding, self._snapshot)
 
     async def __aenter__(self) -> Container:
         return self.__enter__()

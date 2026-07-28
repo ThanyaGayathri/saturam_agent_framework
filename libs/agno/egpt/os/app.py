@@ -350,6 +350,10 @@ class EgptOS:
         # Composition root for internal services. Factories are lazy, so binding them
         # here (before the rest of __init__ runs) is safe.
         self.container: Container = build_os_container(self, container)
+        if registry is not None:
+            # An explicitly supplied registry is the one the container must hand out too,
+            # or a container resolve would build a second, empty Registry alongside it.
+            self.container.bind_instance(Registry, registry)
 
         # RBAC
         self.authorization = authorization
@@ -371,9 +375,10 @@ class EgptOS:
             internal_service_token = secrets.token_urlsafe(32)
         self._internal_service_token = internal_service_token
 
-        # Shared verifier for service account tokens (agno_pat_...), created lazily
-        # when a db is available. One instance per EgptOS so the failed-lookup
-        # limiter and last_used_at throttle are shared across the REST and MCP apps.
+        # Explicit override slot for the service account token verifier (agno_pat_...).
+        # Left None, the verifier comes from the container, which binds it as a singleton
+        # so the failed-lookup limiter and last_used_at throttle are shared across the
+        # REST and MCP apps. Assigning here wins over the binding.
         self._service_account_verifier: Optional[Any] = None
 
         # List of all MCP tools used inside the EgptOS
@@ -1179,20 +1184,22 @@ class EgptOS:
         return fastapi_app
 
     def _get_service_account_verifier(self) -> Optional[Any]:
-        """Get (lazily creating) the verifier for service account tokens.
+        """Get the verifier for service account tokens.
 
         Returns None when the EgptOS has no db - service accounts live in the
         EgptOS database, so there is nothing to verify against without one.
         """
+        # An assigned verifier is an explicit override and wins over the binding.
+        if self._service_account_verifier is not None:
+            return self._service_account_verifier
         if self.db is None:
             return None
-        if self._service_account_verifier is None:
-            from egpt.os.service_accounts import ServiceAccountVerifier
+        from egpt.os.service_accounts import ServiceAccountVerifier
 
-            # Resolved from the composition root (singleton), so the failed-lookup limiter
-            # and last_used_at throttle stay shared across the REST and MCP apps.
-            self._service_account_verifier = self.container.resolve(ServiceAccountVerifier)
-        return self._service_account_verifier
+        # Resolved on every call rather than memoized here, so a container override or
+        # reset is honoured. The binding itself is a singleton, so the failed-lookup
+        # limiter and last_used_at throttle still stay shared across the REST and MCP apps.
+        return self.container.resolve(ServiceAccountVerifier)
 
     def _add_auth_middleware(self, fastapi_app: FastAPI, security_key: Optional[str]) -> None:
         """Install the single EgptOS auth layer on the parent app.

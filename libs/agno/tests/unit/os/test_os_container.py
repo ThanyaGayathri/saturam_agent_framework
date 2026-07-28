@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from egpt.agent.agent import Agent
-from egpt.container import Container
+from egpt.container import Container, ContainerError
 from egpt.db.sqlite import SqliteDb
 from egpt.models.base import Model
 from egpt.os import EgptOS
@@ -76,6 +76,25 @@ def test_explicit_registry_wins_over_the_container(agent, tmp_path):
     )
 
     assert agent_os.registry is registry
+    # The container must hand out that same registry, not build a second, empty one.
+    assert agent_os.container.resolve(Registry) is registry
+
+
+def test_a_container_cannot_be_shared_between_two_egpt_os_instances(agent, tmp_path):
+    """The default factories close over one EgptOS, so sharing would serve stale config."""
+    container = Container(name="shared")
+    EgptOS(agents=[agent], db=SqliteDb(db_file=str(tmp_path / "first.db")), container=container)
+
+    with pytest.raises(ContainerError, match="already built for a different EgptOS"):
+        EgptOS(agents=[agent], db=SqliteDb(db_file=str(tmp_path / "second.db")), container=container)
+
+    # A child is a separate container, so it inherits the bindings without owning them.
+    EgptOS(agents=[agent], db=SqliteDb(db_file=str(tmp_path / "third.db")), container=container.child())
+
+
+def test_rebuilding_with_the_same_egpt_os_is_allowed(agent_os):
+    """Idempotence must not trip the owner guard."""
+    assert build_os_container(agent_os, agent_os.container) is agent_os.container
 
 
 def test_service_account_verifier_is_resolved_once(agent_os):
@@ -88,6 +107,30 @@ def test_service_account_verifier_is_resolved_once(agent_os):
     assert verifier.db is agent_os.db
 
 
+def test_verifier_override_is_honoured_after_a_first_call(agent_os):
+    """The call site must not memoize the resolve, or the container seam goes dead.
+
+    Substituting a verifier is exactly what an auth test needs to do, and it usually
+    happens after something has already touched the app.
+    """
+    real = agent_os._get_service_account_verifier()
+    fake = MagicMock(spec=ServiceAccountVerifier)
+
+    with agent_os.container.override(ServiceAccountVerifier, fake):
+        assert agent_os._get_service_account_verifier() is fake
+
+    assert agent_os._get_service_account_verifier() is not fake
+    assert isinstance(real, ServiceAccountVerifier)
+
+
+def test_assigned_verifier_wins_over_the_binding(agent_os):
+    """The attribute stays an explicit override slot that existing tests assign to."""
+    fake = MagicMock(spec=ServiceAccountVerifier)
+    agent_os._service_account_verifier = fake
+
+    assert agent_os._get_service_account_verifier() is fake
+
+
 def test_no_verifier_without_a_db(agent):
     """Whether a verifier exists is policy (needs a db), not a container concern."""
     agent_os = EgptOS(agents=[agent])
@@ -95,11 +138,18 @@ def test_no_verifier_without_a_db(agent):
     assert agent_os._get_service_account_verifier() is None
 
 
-def test_jwt_middleware_kwargs_are_a_shared_binding(agent_os):
-    kwargs = agent_os.container.resolve(JWT_MIDDLEWARE_KWARGS)
+def test_jwt_middleware_kwargs_are_recomputed_per_resolve(agent_os):
+    """The kwargs derive from mutable auth config, so the binding is transient.
 
-    assert kwargs is agent_os.container.resolve(JWT_MIDDLEWARE_KWARGS)
+    Caching them would freeze whatever ``authorization`` happened to be the first time
+    they were resolved, which is not what the code this replaced did.
+    """
+    kwargs = agent_os.container.resolve(JWT_MIDDLEWARE_KWARGS)
     assert "verification_keys" in kwargs and "algorithm" in kwargs
+
+    agent_os.authorization = not kwargs["authorization"]
+
+    assert agent_os.container.resolve(JWT_MIDDLEWARE_KWARGS)["authorization"] == agent_os.authorization
 
 
 # =============================================================================

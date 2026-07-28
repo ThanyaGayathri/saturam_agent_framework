@@ -189,6 +189,30 @@ def test_override_of_unbound_token_is_removed_on_exit():
     assert not c.has(Store)
 
 
+def test_override_reaches_dependents_built_before_the_block(container):
+    """A singleton cached before the override still holds the real Store.
+
+    Serving that cached instance inside the block would silently defeat the override,
+    so entering clears the cache.
+    """
+    container.resolve(Indexer)
+
+    with container.override(Store, FakeStore()):
+        assert isinstance(container.resolve(Indexer).store, FakeStore)
+
+
+def test_override_exit_discards_dependents_rebuilt_during_the_block(container):
+    """Anything rebuilt while the fake was bound must not survive the block."""
+    original = container.resolve(Indexer)
+
+    with container.override(Store, FakeStore()):
+        assert container.resolve(Indexer) is not original
+
+    restored = container.resolve(Indexer)
+    assert restored is original
+    assert type(restored.store) is Store
+
+
 # -- Child containers -----------------------------------------------------------------
 
 
@@ -205,6 +229,35 @@ def test_child_binding_does_not_leak_to_parent(container):
 
     assert isinstance(child.resolve(Store), FakeStore)
     assert type(container.resolve(Store)) is Store
+
+
+def test_child_is_the_resolution_context_for_inherited_bindings(container):
+    """An inherited factory must see the child's bindings, or scoping is pointless.
+
+    Without this, ``child.resolve(Indexer)`` would run the parent's factory against the
+    parent and hand back an Indexer holding the production Store.
+    """
+    child = container.child()
+    child.bind(Store, lambda _c: FakeStore())
+
+    assert isinstance(child.resolve(Indexer).store, FakeStore)
+    # The parent's own graph is untouched.
+    assert type(container.resolve(Indexer).store) is Store
+
+
+@pytest.mark.asyncio
+async def test_child_is_the_resolution_context_for_inherited_bindings_async(container):
+    child = container.child()
+    child.bind(Store, lambda _c: FakeStore())
+
+    assert isinstance((await child.aresolve(Indexer)).store, FakeStore)
+
+
+def test_empty_child_shares_the_parent_singleton(container):
+    """A scope that binds nothing cannot influence a factory, so it must not duplicate."""
+    child = container.child()
+
+    assert child.resolve(Indexer) is container.resolve(Indexer)
 
 
 def test_child_tokens_include_parent_tokens_once(container):
@@ -258,6 +311,54 @@ async def test_concurrent_aresolve_builds_a_singleton_once():
 
     assert len(builds) == 1
     assert all(r is builds[0] for r in results)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_transient_aresolve_is_not_serialized():
+    """Transients share no instance, so the per-token lock must not apply to them."""
+    c = Container()
+    concurrent = []
+
+    async def build_store(_c):
+        concurrent.append(1)
+        await asyncio.sleep(0.01)
+        return Store()
+
+    c.bind(Store, build_store, singleton=False)
+
+    results = await asyncio.gather(*(c.aresolve(Store) for _ in range(3)))
+
+    assert len(concurrent) == 3
+    assert len({id(r) for r in results}) == 3
+
+
+@pytest.mark.asyncio
+async def test_cross_task_deadlock_is_reported_not_hung():
+    """Two tasks each holding one token's lock while awaiting the other's would hang.
+
+    Neither task re-enters a token it is itself building, so the per-task stacks cannot
+    see it; the wait-for graph can.
+    """
+    c = Container()
+    ready = asyncio.Event()
+
+    async def build_store(c_):
+        ready.set()
+        return Indexer(store=await c_.aresolve(Indexer))
+
+    async def build_indexer(c_):
+        await ready.wait()
+        return await c_.aresolve(Store)
+
+    c.bind(Store, build_store)
+    c.bind(Indexer, build_indexer)
+
+    results = await asyncio.wait_for(
+        asyncio.gather(c.aresolve(Store), c.aresolve(Indexer), return_exceptions=True),
+        timeout=5,
+    )
+
+    assert any(isinstance(r, ContainerError) for r in results)
 
 
 @pytest.mark.asyncio

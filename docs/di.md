@@ -74,7 +74,10 @@ Guidelines:
 - **Lazy.** Factories run on first resolve, so `build_os_container` can be called from `EgptOS.__init__` before the
   instance is finished.
 - **Singleton by default.** Pass `singleton=False` for objects with their own lifecycle (the schedule poller owns a
-  polling task, so a second lifespan must get a fresh one).
+  polling task, so a second lifespan must get a fresh one) and for values derived from mutable configuration (the JWT
+  middleware kwargs read `authorization_config`, which a caller may change after construction).
+- **Resolve at the point of use.** Do not memoize a `resolve()` result in an attribute: the container already caches
+  singletons, and a second cache in the call site makes `override()` and `reset()` silently ineffective.
 - **Never overwrite a caller's binding.** `build_os_container` skips tokens that are already bound — a container passed
   to `EgptOS(container=...)` is a deliberate substitution.
 - **Policy stays in the caller.** The `ServiceAccountVerifier` factory builds a verifier; whether an instance should
@@ -104,9 +107,12 @@ def test_poller_uses_the_stub_executor(agent_os):
         assert poller.executor is stub
 ```
 
-On exit the previous binding is restored **and** any singleton constructed inside the block is evicted, so a service
-that captured the fake cannot leak into later assertions. `override_factory()` does the same with a factory, and both
-work with `async with`.
+Entering the block snapshots the singleton cache and empties it, so a service built *before* the override still picks up
+the fake; on exit the previous binding is restored and the snapshot is put back verbatim, so anything constructed inside
+the block is discarded and pre-existing instances survive by identity. `override_factory()` does the same with a
+factory, and both work with `async with`.
+
+Because the override is scoped to the block, resolve inside it — a value read out beforehand is the real implementation.
 
 To substitute before the OS is even built, pass a pre-bound container:
 
@@ -117,8 +123,14 @@ container.bind_instance(Registry, FakeRegistry())
 agent_os = EgptOS(agents=[agent], db=db, container=container)
 ```
 
+One container belongs to one `EgptOS`: the default factories close over a specific instance, so passing the same
+container to a second one raises `ContainerError` rather than quietly serving the first one's configuration.
+
 `Container.child()` gives a scope that falls back to its parent — useful when a test (or, later, a request) needs its own
-bindings without mutating the application graph.
+bindings without mutating the application graph, and the way to reuse a configured container across two `EgptOS`
+instances. An inherited binding is built with the **child** as the resolution context, so the child's own bindings win
+inside a factory defined on the parent. A child that binds nothing shares the parent's singletons rather than
+duplicating them.
 
 ---
 

@@ -19,9 +19,11 @@ Component resolution *by name/id* (models, tools, dbs, vector dbs, knowledge) st
 
 from __future__ import annotations
 
+import weakref
 from typing import TYPE_CHECKING, Any, Dict, Optional
+from weakref import WeakKeyDictionary
 
-from egpt.container import Container
+from egpt.container import Container, ContainerError
 from egpt.os.middleware.jwt import JWTValidator
 from egpt.os.service_accounts import ServiceAccountVerifier
 from egpt.registry import Registry
@@ -37,6 +39,13 @@ DEFAULT_SCHEDULER_BASE_URL = "http://127.0.0.1:7777"
 SCHEDULE_EXECUTOR = "scheduler.executor"
 SCHEDULE_POLLER = "scheduler.poller"
 JWT_MIDDLEWARE_KWARGS = "auth.jwt_middleware_kwargs"
+
+# Which EgptOS a container was built for. Every default factory closes over one specific
+# instance, so a container is not shareable between two of them; this is what lets the
+# second attempt fail loudly instead of silently serving the first instance's config.
+# Weak on both sides: the key would otherwise be pinned by its own value, since an EgptOS
+# holds its container.
+_CONTAINER_OWNERS: "WeakKeyDictionary[Container, weakref.ReferenceType]" = WeakKeyDictionary()
 
 __all__ = [
     "DEFAULT_SCHEDULER_BASE_URL",
@@ -61,8 +70,12 @@ def build_os_container(agent_os: "EgptOS", container: Optional[Container] = None
 
     Returns:
         The container holding the control-plane bindings.
+
+    Raises:
+        ContainerError: If the container was already built for a different EgptOS.
     """
     c = container if container is not None else Container(name="egpt-os")
+    _claim_container(agent_os, c)
 
     def bind_default(token: Any, factory: Any, singleton: bool = True) -> None:
         # Never clobber a binding the caller supplied: a container passed to EgptOS is
@@ -72,8 +85,11 @@ def build_os_container(agent_os: "EgptOS", container: Optional[Container] = None
 
     bind_default(Registry, _registry_factory)
     bind_default(ServiceAccountVerifier, _service_account_verifier_factory(agent_os))
-    bind_default(JWT_MIDDLEWARE_KWARGS, _jwt_middleware_kwargs_factory(agent_os))
-    bind_default(JWTValidator, _jwt_validator_factory)
+    # Both are transient: they are derived from ``authorization_config`` / ``authorization``,
+    # which callers may set after construction, and the code these replaced recomputed them
+    # on every call. Caching would freeze whatever the config happened to be the first time.
+    bind_default(JWT_MIDDLEWARE_KWARGS, _jwt_middleware_kwargs_factory(agent_os), singleton=False)
+    bind_default(JWTValidator, _jwt_validator_factory, singleton=False)
     bind_default(SCHEDULE_EXECUTOR, _schedule_executor_factory(agent_os))
     # The poller owns a polling task, so it is transient: a second lifespan (tests, an
     # app restart) must get a fresh poller rather than a stopped one. It still shares the
@@ -81,6 +97,20 @@ def build_os_container(agent_os: "EgptOS", container: Optional[Container] = None
     bind_default(SCHEDULE_POLLER, _schedule_poller_factory(agent_os), singleton=False)
 
     return c
+
+
+def _claim_container(agent_os: "EgptOS", c: Container) -> None:
+    """Record ``agent_os`` as the container's owner, refusing a container owned elsewhere."""
+    owner_ref = _CONTAINER_OWNERS.get(c)
+    owner = owner_ref() if owner_ref is not None else None
+    if owner is not None and owner is not agent_os:
+        raise ContainerError(
+            f"Container '{c.name}' was already built for a different EgptOS instance. "
+            "The default bindings close over one specific EgptOS, so sharing a container "
+            "would serve the first instance's configuration to the second. Pass a fresh "
+            "Container(), or `container.child()` to inherit the bindings without owning them."
+        )
+    _CONTAINER_OWNERS[c] = weakref.ref(agent_os)
 
 
 def _registry_factory(_c: Container) -> Registry:
