@@ -31,7 +31,12 @@ from harness.dataset import EvalItem, EvalSet, load_eval_set
 from harness.embeddings import CachedEmbedder
 from harness.llm import LLMClient, Usage, load_env
 from harness.reader import answer as read_answer
-from harness.retrievers import HippoRetriever, HybridRetriever, Retrieved, VectorRetriever
+from harness.retrievers import (
+    HippoRetriever,
+    HybridRetriever,
+    Retrieved,
+    VectorRetriever,
+)
 
 HERE = Path(__file__).resolve().parent
 CHAINING = ("compositional", "inference", "bridge_comparison")
@@ -72,6 +77,7 @@ def run_method(
     embedder: CachedEmbedder,
     limit: int,
     demo: bool,
+    retrieval_only: bool = False,
 ) -> Dict:
     from harness import openie
 
@@ -81,7 +87,12 @@ def run_method(
     fails_before = len(openie.EXTRACTION_FAILURES)
     retriever.index(es.passages)
     extraction_failures = len(openie.EXTRACTION_FAILURES) - fails_before
-    print("  index stats:", json.dumps(retriever.stats.to_dict()), "| openie_failures:", extraction_failures)
+    print(
+        "  index stats:",
+        json.dumps(retriever.stats.to_dict()),
+        "| openie_failures:",
+        extraction_failures,
+    )
 
     items = es.items[:limit] if limit else es.items
     read_usage = Usage()
@@ -91,7 +102,10 @@ def run_method(
         t0 = time.perf_counter()
         retrieved = retriever.retrieve(it.question, k)
         lat.append(time.perf_counter() - t0)
-        pred = read_answer(it.question, retrieved, texts, llm, read_usage)
+        # Retrieval metrics are scored against the dataset's gold titles and need no
+        # LLM; only the reader (EM/F1/cover) does. --retrieval-only therefore lets the
+        # dense leg be re-measured on a host with no LLM credentials.
+        pred = "" if retrieval_only else read_answer(it.question, retrieved, texts, llm, read_usage)
         row = score_item(retrieved, it, k)
         row.update(
             {
@@ -102,6 +116,7 @@ def run_method(
                 "cover": metrics.cover_match(pred, it.answer),
                 "pred": pred,
                 "gold": it.answer,
+                "retrieved_titles": [r.title for r in retrieved],
             }
         )
         per_item.append(row)
@@ -119,6 +134,10 @@ def run_method(
         "method": name,
         "k": k,
         "n_items": len(per_item),
+        # Which embedder produced these numbers — SM-R9's original run did not record
+        # this, which is how a non-SM-R4 embedder went unnoticed to review (PR #15).
+        "embedder": embedder.spec.tag,
+        "retrieval_only": retrieval_only,
         "index_stats": retriever.stats.to_dict(),
         "openie_failures": extraction_failures,
         "reader_usage": read_usage.to_dict(),
@@ -142,6 +161,11 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0, help="cap questions (0 = all)")
     ap.add_argument("--demo", action="store_true", help="print each question's chain")
     ap.add_argument("--tag", type=str, default="", help="label for the results filename")
+    ap.add_argument(
+        "--retrieval-only",
+        action="store_true",
+        help="skip the LLM reader; score retrieval metrics only (runs without LLM credentials)",
+    )
     args = ap.parse_args()
 
     load_env()
@@ -150,10 +174,11 @@ def main() -> None:
     # and so we never build agents/models inside the loop.
     llm = LLMClient()
     embedder = CachedEmbedder()
+    print(f"embedder: {embedder.spec.tag}  (SM-R4 ratified: see harness/embeddings.py)")
 
     results = {}
     for name in args.methods:
-        results[name] = run_method(name, es, args.k, llm, embedder, args.limit, args.demo)
+        results[name] = run_method(name, es, args.k, llm, embedder, args.limit, args.demo, args.retrieval_only)
 
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     tag = f"_{args.tag}" if args.tag else ""

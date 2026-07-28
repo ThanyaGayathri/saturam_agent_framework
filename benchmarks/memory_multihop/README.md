@@ -19,12 +19,15 @@ go/no-go land in [`SPIKE.md`](SPIKE.md).
 harness/
   llm.py         Azure/OpenAI Responses backend + record/replay cache + cost accounting
   embeddings.py  egpt embedder behind a TextEmbedder seam + on-disk vector cache
+                 (SM-R4's ratified pick: bge-base@768 Mode A / 3-large@1024 Mode B)
   dataset.py     seeded 2WikiMultiHopQA eval-set builder (pooled corpus, gold labels)
   metrics.py     recall@k, all-hops-hit, EM/token-F1, bootstrap CI
   retrievers.py  MultiHopRetriever seam: VectorRetriever + HippoRetriever (PPR)   [Phase 2-3]
   openie.py      LLM OpenIE extraction -> triples                                  [Phase 3]
   kg.py          KG build + Personalized PageRank                                  [Phase 3]
+  kg_quality.py  gold-chain recall vs 2Wiki `evidences` + grounding rate
 run.py           end-to-end CLI: build -> index -> retrieve -> answer -> score     [Phase 2-3]
+kg_quality_run.py  KG-quality measurement CLI (+ credential-free --self-test)
 data/eval_set.json   the committed, seeded eval corpus
 results/         metrics JSON/MD + llm_cache/ + embed_cache/
 findings/        local adapter fixes (patch + note), kept out of core
@@ -72,3 +75,15 @@ cp benchmarks/memory_multihop/.env.example benchmarks/memory_multihop/.env   # f
 
 LLM and embedding calls are cached under `results/`, so a warmed run is free,
 deterministic, and offline (`HARNESS_LLM_MODE=replay`, `HARNESS_EMBED_MODE=replay`).
+
+**Running without credentials.** The embedder defaults to SM-R4 **Mode A**
+(`BAAI/bge-base-en-v1.5`, local sentence-transformers), and retrieval metrics are scored
+against the dataset's gold titles, so the dense leg needs no API keys:
+
+```bash
+PYTHONPATH=. python run.py --methods vector --k 5 --retrieval-only
+PYTHONPATH=. python kg_quality_run.py --self-test
+```
+
+The `hippo` / `hybrid` legs and the QA reader still need an LLM (`.env`), since they run
+OpenIE over the corpus. Set `HARNESS_EMBED_BACKEND=azure` for SM-R4 Mode B.

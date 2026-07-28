@@ -37,15 +37,23 @@ def main() -> None:
 
     import os
 
+    from harness.embeddings import resolve_embedder_spec
+
     have_azure = bool(os.getenv("AZURE_OPENAI_API_KEY") and os.getenv("AZURE_OPENAI_ENDPOINT"))
     have_openai = bool(os.getenv("OPENAI_API_KEY"))
-    have_embed = bool(os.getenv("AZURE_EMBEDDER_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY"))
+    # SM-R4 Mode A (bge-base via sentence-transformers) needs no credentials, so a
+    # credential check is the wrong readiness test for embeddings — ask the spec.
+    spec = resolve_embedder_spec()
+    embed_ready = spec.backend == "local" or bool(
+        os.getenv("AZURE_EMBEDDER_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    )
     print(
-        "[3] credentials present: llm=%s embed=%s (azure=%s openai=%s)"
-        % (have_azure or have_openai, have_embed, have_azure, have_openai)
+        "[3] llm creds=%s (azure=%s openai=%s) | embedder=%s ready=%s"
+        % (have_azure or have_openai, have_azure, have_openai, spec.tag, embed_ready)
     )
     if not (have_azure or have_openai):
-        print("    -> copy .env.example to .env before Phase 2/3 (or run cached in replay mode).")
+        print("    -> LLM (OpenIE + reader) needs .env; the dense leg runs credential-free:")
+        print("       PYTHONPATH=. python run.py --methods vector --retrieval-only")
     print("SMOKE OK")
 
 

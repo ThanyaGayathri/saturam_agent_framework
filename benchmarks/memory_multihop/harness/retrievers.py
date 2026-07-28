@@ -119,7 +119,14 @@ class VectorRetriever(MultiHopRetriever):
 
     def _rank(self, qvec: np.ndarray, k: int) -> List[Retrieved]:
         assert self._matrix is not None, "index() first"
-        sims = self._matrix @ qvec
+        # macOS Accelerate's BLAS raises spurious divide/overflow/invalid RuntimeWarnings
+        # from this matmul. Verified benign before trusting the re-measured numbers:
+        # inputs and outputs are all-finite, row norms are exactly 1.0, and the BLAS
+        # result matches an independent np.einsum path to 1.8e-15. Same issue and same
+        # disposition as SM-R8 (e2cd21d).
+        with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+            sims = self._matrix @ qvec
+        assert np.isfinite(sims).all(), "non-finite similarities — this warning is NOT benign"
         order = np.argsort(-sims)[:k]
         return [Retrieved(self._passages[i].pid, self._passages[i].title, float(sims[i])) for i in order]
 
@@ -140,6 +147,18 @@ class VectorRetriever(MultiHopRetriever):
 # HippoRAG-style PPR
 # --------------------------------------------------------------------------- #
 class HippoRetriever(MultiHopRetriever):
+    """HippoRAG-style OpenIE -> KG -> Personalized PageRank.
+
+    ``synonym_tau`` and ``link_threshold`` are **absolute cosine thresholds and are
+    therefore embedder-specific** — they were tuned against `text-embedding-3-small`
+    and do not port unchanged to SM-R4's ratified embedder. Measured on this corpus
+    with `bge-base-en-v1.5`@768 (285 passage titles as a proxy entity-name set, 40,470
+    pairs): median off-diagonal cosine 0.379, p99 0.553, so tau=0.85 sits far out in
+    the tail and admits just 12 pairs (0.03%). A threshold that far into the tail is
+    highly sensitive to the embedder's cosine scale, so SM-H4 must re-tune both values
+    per embedder rather than inherit them.
+    """
+
     name = "hippo"
 
     def __init__(
@@ -250,6 +269,21 @@ class HippoRetriever(MultiHopRetriever):
 # RRF hybrid (dense + PPR)
 # --------------------------------------------------------------------------- #
 class HybridRetriever(MultiHopRetriever):
+    """RRF fusion of the dense and PPR legs.
+
+    **RRF here is a prototype default, not a ratified fusion method.** SM-R8
+    (`benchmarks/memory_retrieval/DECISION.md`) ratified *weighted* / relative-score
+    fusion for the 2-leg dense+BM25 case, and its §3.5 three-leg experiment — which
+    added a real Personalized-PageRank leg, i.e. this shape — found weighted beat RRF
+    by +0.076 (p=0.0001), *wider* than the 2-leg gap, with 3-leg RRF falling below even
+    2-leg RRF because RRF's rank-only vote lets a noisier graph leg drag the fusion down.
+
+    That is very likely the same mechanism behind this spike's own hybrid (0.892) <
+    pure hippo (0.908) result, which SPIKE.md originally attributed to a weak dense leg.
+    Weighted fusion is **not** measured here; SM-H4 must measure weighted-vs-RRF for
+    dense+PPR before either is treated as settled.
+    """
+
     name = "hybrid"
 
     def __init__(self, vector: VectorRetriever, hippo: HippoRetriever, rrf_k: int = 60) -> None:
