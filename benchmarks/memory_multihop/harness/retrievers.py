@@ -171,6 +171,7 @@ class HippoRetriever(MultiHopRetriever):
         synonym_tau: float = 0.85,
         link_threshold: float = 0.5,
         link_top_m: int = 3,
+        link_percentile: Optional[float] = None,
     ) -> None:
         self.llm = llm or LLMClient()
         self.embedder = embedder or CachedEmbedder()
@@ -178,6 +179,14 @@ class HippoRetriever(MultiHopRetriever):
         self.synonym_tau = synonym_tau
         self.link_threshold = link_threshold
         self.link_top_m = link_top_m
+        # Distribution-relative alternative to the absolute cosine cutoff. When set, the
+        # effective threshold is this percentile of the *observed* background
+        # entity-entity cosine distribution, computed at index time. An absolute constant
+        # silently rots when the embedder changes (bge-base's random-pair cosines sit at
+        # p50 0.41, so the inherited 0.5 admitted ~5% of all pairs); a percentile is
+        # defined relative to whatever scale the embedder actually produces.
+        self.link_percentile = link_percentile
+        self._effective_link_threshold: Optional[float] = None
         self.kg = KnowledgeGraph()
         self._pid_to_title: Dict[str, str] = {}
         self._entity_keys: List[str] = []
@@ -195,6 +204,7 @@ class HippoRetriever(MultiHopRetriever):
 
     def _finish_index(self, t0: float, ent_vecs: Dict[str, np.ndarray]) -> None:
         self.kg.finalize(ent_vecs, synonym_tau=self.synonym_tau)
+        self._calibrate_threshold()
         self._stats.n_passages = self.kg.n_passages
         self._stats.n_entities = len(self._entity_keys)
         self._stats.n_edges = self.kg.graph.number_of_edges()
@@ -224,6 +234,29 @@ class HippoRetriever(MultiHopRetriever):
         self._finish_index(t0, ent_vecs)
 
     # ------------------------------------------------------------ retrieval
+    def _calibrate_threshold(self, sample: int = 2000, seed: int = 7) -> None:
+        """Resolve `link_percentile` against the background cosine distribution.
+
+        Subsampled so this stays O(sample^2) rather than O(entities^2) — production KGs
+        have millions of entities and the percentile estimate converges quickly.
+        """
+        if self.link_percentile is None or self._entity_matrix is None:
+            return
+        mat = self._entity_matrix
+        if mat.shape[0] > sample:
+            rng = np.random.default_rng(seed)
+            mat = mat[rng.choice(mat.shape[0], size=sample, replace=False)]
+        sims = mat @ mat.T
+        iu = np.triu_indices(sims.shape[0], k=1)
+        self._effective_link_threshold = float(np.percentile(sims[iu], self.link_percentile))
+
+    @property
+    def effective_link_threshold(self) -> float:
+        """Absolute cutoff actually applied (percentile-derived when configured)."""
+        if self._effective_link_threshold is not None:
+            return self._effective_link_threshold
+        return self.link_threshold
+
     def _seed_from_entities(self, q_entities: Sequence[str], q_vecs: np.ndarray) -> Dict[str, float]:
         """Link query entities to KG nodes by embedding cosine; weight by cosine*IDF."""
         seed: Dict[str, float] = {}
@@ -233,7 +266,7 @@ class HippoRetriever(MultiHopRetriever):
             sims = self._entity_matrix @ q_vecs[qi]
             order = np.argsort(-sims)[: self.link_top_m]
             for idx in order:
-                if sims[idx] < self.link_threshold:
+                if sims[idx] < self.effective_link_threshold:
                     continue
                 key = self._entity_keys[idx]
                 weight = float(sims[idx]) * (self.kg.idf(key) or 1.0)

@@ -106,6 +106,7 @@ def run_method(
     print(f"\n=== {name}: indexing {len(es.passages)} passages ===")
     reader_fails_before = len(reader.READER_FAILURES)
     fails_before = len(openie.EXTRACTION_FAILURES)
+    cf_before = len(openie.CONTENT_FILTERED)
     retriever.index(es.passages)
     extraction_failures = len(openie.EXTRACTION_FAILURES) - fails_before
     print(
@@ -166,6 +167,8 @@ def run_method(
         # Reader calls the provider's content filter refused. Scored as no-answer
         # (EM/F1 = 0), so EM/F1 are a *lower bound* when this is non-zero.
         "reader_content_filtered": len(reader.READER_FAILURES) - reader_fails_before,
+        # Passages the provider refused at extraction time: a silent hole in the KG.
+        "openie_content_filtered": len(openie.CONTENT_FILTERED) - cf_before,
         "reader_usage": read_usage.to_dict(),
         "query_latency_s": {
             "mean": round(metrics.mean(lat), 3),

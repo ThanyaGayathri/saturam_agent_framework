@@ -23,6 +23,18 @@ from harness.llm import LLMClient, Usage
 # surfaced in the run summary.
 EXTRACTION_FAILURES: List[str] = []
 
+#: Passages the provider's content filter refused outright. Distinct from
+#: EXTRACTION_FAILURES (malformed JSON): the model never got to answer. A refused
+#: passage contributes no triples, so it is a silent hole in the KG — counted and
+#: surfaced rather than swallowed. Seen on real 2Wiki passages at n=949.
+CONTENT_FILTERED: List[str] = []
+
+
+def _is_content_filter(exc: Exception) -> bool:
+    t = str(exc).lower()
+    return "content management policy" in t or "content_filter" in t or "contentfiltered" in t
+
+
 _OPENIE_SYSTEM = (
     "You are an information-extraction engine. Given a passage, extract every factual "
     "relation as a triple [subject, relation, object]. Use concise noun-phrase entities "
@@ -107,12 +119,24 @@ def _parse_triples(raw_text: str, tag: str) -> List[Triple]:
 
 
 def extract_triples(text: str, llm: LLMClient, usage: Optional[Usage] = None) -> List[Triple]:
-    raw = llm.complete(_OPENIE_SYSTEM, f"Passage:\n{text}", usage=usage, json_mode=True)
+    try:
+        raw = llm.complete(_OPENIE_SYSTEM, f"Passage:\n{text}", usage=usage, json_mode=True)
+    except Exception as exc:  # noqa: BLE001 - re-raised unless it is a content filter
+        if not _is_content_filter(exc):
+            raise
+        CONTENT_FILTERED.append(text[:40])
+        return []
     return _parse_triples(raw, tag=text[:40])
 
 
 async def aextract_triples(text: str, llm: LLMClient, usage: Optional[Usage] = None) -> List[Triple]:
-    raw = await llm.acomplete(_OPENIE_SYSTEM, f"Passage:\n{text}", usage=usage, json_mode=True)
+    try:
+        raw = await llm.acomplete(_OPENIE_SYSTEM, f"Passage:\n{text}", usage=usage, json_mode=True)
+    except Exception as exc:  # noqa: BLE001 - re-raised unless it is a content filter
+        if not _is_content_filter(exc):
+            raise
+        CONTENT_FILTERED.append(text[:40])
+        return []
     return _parse_triples(raw, tag=text[:40])
 
 
@@ -132,7 +156,13 @@ def _parse_entities(raw_text: str) -> List[str]:
 
 
 def extract_query_entities(question: str, llm: LLMClient, usage: Optional[Usage] = None) -> List[str]:
-    raw = llm.complete(_NER_SYSTEM, f"Question:\n{question}", usage=usage, json_mode=True)
+    try:
+        raw = llm.complete(_NER_SYSTEM, f"Question:\n{question}", usage=usage, json_mode=True)
+    except Exception as exc:  # noqa: BLE001 - re-raised unless it is a content filter
+        if not _is_content_filter(exc):
+            raise
+        CONTENT_FILTERED.append(question[:40])
+        return []
     return _parse_entities(raw)
 
 

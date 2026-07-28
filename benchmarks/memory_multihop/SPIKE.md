@@ -177,10 +177,16 @@ coming largely from entity/passage **membership** structure plus dense fusion �
 walking correct relational edges. SM-H4 should not assume the relational layer is carrying the
 result, and should re-measure this before investing in relation quality.
 
-And this is clean Wikipedia prose. Real episodic memory — short, elliptical,
-coreference-heavy — should be expected to score **worse** (cf. SM-R6's finding that real
-dialogue is much harder than clean text). Sampling real episodic memory remains a prerequisite
-before SM-H4 commits to the KG substrate.
+**Episodic memory: measured, and the expectation was only half right** (§Measurements,
+`results/summary_measurements.md`). Sampled against real LongMemEval-S dialogue with identical
+code: OpenIE does **not** hallucinate more on conversation — grounding is 0.964 vs 0.956 on
+Wikipedia, directionally *better*. What does degrade is (a) **fact density**, 7.56 triples per
+100 words vs 17.82, i.e. **2.4× more input tokens per extracted triple, so cost per useful
+triple is ~2.4× higher than §Cost at scale implies**, and (b) **coreference**, with ~3× more
+pronoun/speaker-relative entities (7.7% vs 2.6%) that cannot be linked to a stable KG node and
+so are dead weight PPR cannot traverse. The substrate risk for episodic memory is therefore
+**density and linkability, not extractor reliability** — a different problem with different
+mitigations than this doc previously implied.
 
 ## Embedder correction (§Embedder correction)
 
@@ -263,10 +269,15 @@ sharply identified at n=30.
 ### Consequences for SM-H4
 
 1. **Ship hybrid, not pure PPR.** Pure PPR's advantage did not survive an embedder change.
-2. **`link_threshold` must be calibrated per embedder**, on a **held-out** set — inheriting a
-   value costs ~0.18 recall@5 here, silently. Prefer a *distribution-relative* cutoff (e.g. a
-   percentile of the observed entity–entity cosine distribution) over an absolute constant, so
-   it cannot rot when the embedder changes.
+2. **`link_threshold` must be calibrated per embedder** — inheriting a value costs ~0.18
+   recall@5 here, silently. Measured across three embedders (§Measurements): background
+   entity–entity cosine p50 is 0.41 for bge-base but 0.15 for both Azure models, so a single
+   constant means opposite things. A **distribution-relative cutoff (p99.9 of the observed
+   background distribution) had zero regret on two of three embedders** and is now implemented
+   (`HippoRetriever(link_percentile=...)`). Honest limit: its worst-case regret (0.033) only
+   *ties* a well-chosen constant (0.65), so the evidence supports *"0.5 was the wrong
+   constant"*, **not** *"percentiles beat constants"*. Prefer the percentile because it needs
+   no per-embedder retuning — an operational argument, not a measured win.
 3. **Promote `link_threshold` into the flag config** alongside `synonym_tau` — and consider
    dropping `synonym_tau`, which bought nothing here.
 

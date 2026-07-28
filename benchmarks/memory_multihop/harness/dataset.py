@@ -112,15 +112,37 @@ def _passage_text(sents_raw) -> str:
     return " ".join(str(s).strip() for s in sents).strip()
 
 
+#: Raw validation split, fetched straight from the dataset repo. Preferred over
+#: `datasets.load_dataset` because the released `datasets`/`pyarrow` pair fails to
+#: convert this dataset's nested `context` column ("Expected bytes, got a 'list'"),
+#: and because it removes a heavy dependency from a reproduction step.
+DEV_JSON_URL = "https://huggingface.co/datasets/voidful/2WikiMultihopQA/resolve/main/dev.json"
+DEV_JSON_CACHE = Path(__file__).resolve().parent.parent / "data" / "hf_cache" / "dev.json"
+
+
+def _load_validation_rows(scan_limit: int) -> List[dict]:
+    """Load the validation split, preferring the raw JSON, falling back to `datasets`."""
+    if DEV_JSON_CACHE.exists():
+        return json.loads(DEV_JSON_CACHE.read_text())[:scan_limit]
+    try:
+        import urllib.request
+
+        DEV_JSON_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        urllib.request.urlretrieve(DEV_JSON_URL, DEV_JSON_CACHE)  # noqa: S310 - pinned dataset repo
+        return json.loads(DEV_JSON_CACHE.read_text())[:scan_limit]
+    except Exception:  # noqa: BLE001 - fall back to the library path
+        from datasets import load_dataset
+
+        return list(load_dataset("voidful/2WikiMultihopQA", split="validation", streaming=True).take(scan_limit))
+
+
 def _sample_rows(seed: int, quota: Dict[str, int], scan_limit: int) -> List[dict]:
     """Stratified, seeded sample from the validation split.
 
     Reservoir-free: we scan the (shuffled-by-seed) split and take the first ``quota``
     rows of each type. Deterministic for a given seed + dataset version.
     """
-    from datasets import load_dataset
-
-    rows = list(load_dataset("voidful/2WikiMultihopQA", split="validation", streaming=True).take(scan_limit))
+    rows = _load_validation_rows(scan_limit)
     rng = random.Random(seed)
     rng.shuffle(rows)
     picked: List[dict] = []
