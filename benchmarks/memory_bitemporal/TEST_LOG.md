@@ -220,10 +220,14 @@ date, and a no-cue fallback.
 
 - The SQL-native / Cypher-native equivalence — the headline open item from review — is now
   **closed**: 30/30 identical on both engines. See the status table at the top.
-- The vector-tier consistency model (SPEC §9.1) specifies transactional co-write, advisory-filter
-  and idempotent re-sync. The **failure path** (drift, partial write, re-sync convergence) is
-  stated but **not measured**; it belongs to whoever owns the consolidation write (SM-X11 /
-  consolidation-loop tasks). This is now the largest unmeasured item in this folder.
+- The vector-tier consistency model (SPEC §9.1) is the largest unmeasured area in this folder.
+  Only the propagation itself is scored (`vec_derived_valid_to`, on reference and real SQL).
+  **Not measured:** the failure path (drift, partial write, re-sync convergence) and the
+  transactional co-write. The §9.1 re-sync statement is explicitly marked **illustrative, not
+  executed** — its `m.memory_id = e.edge_id` join assumes an edge→memory provenance link that
+  this spec does not define, and which may need a link table rather than a column (one edge can
+  yield several memories, one memory can cite several edges). SM-X11 must settle that before the
+  statement means anything. Owned by whoever owns the consolidation write.
 - PPR ranking quality over the 5a-filtered projection is untested and currently unowned
   (SPEC §12.1(b)) — SM-R9's spike recommends SM-H4, pending confirmation.
 - Neo4j per-op latency is a naive-session artifact, not a tuned number; latency is not this task's

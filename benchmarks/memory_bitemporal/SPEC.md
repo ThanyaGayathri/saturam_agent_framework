@@ -318,29 +318,57 @@ model is therefore stated explicitly rather than left implicit:
      returning them. Recall may therefore be briefly over-inclusive; it is never under-inclusive,
      because a missing `valid_to` only fails to *exclude*.
    - **An idempotent re-sync repairs drift.** `valid_to` is derived, never decided locally, so
-     re-deriving it from the graph is safe to run at any time and any number of times:
+     re-deriving it from the graph is safe to run at any time and any number of times. The
+     *shape* of that re-sync — not a runnable statement — is:
+
      ```sql
+     -- ILLUSTRATIVE, NOT EXECUTED. See the two prerequisites below before using this.
      -- Re-project every bounded edge's valid-time end onto its vector copy.
      UPDATE memories m
         SET valid_to = EXTRACT(EPOCH FROM e.t_invalid)::bigint
        FROM memory_edge e
       WHERE e.expired_at IS NULL
         AND e.t_invalid IS NOT NULL
-        AND m.memory_id = e.edge_id            -- provenance link written at consolidation
+        AND m.memory_id = e.edge_id            -- ASSUMED provenance link; does not exist yet
         AND m.valid_to IS DISTINCT FROM EXTRACT(EPOCH FROM e.t_invalid)::bigint;
      ```
-     Runs on the consolidation cadence and after any partial failure. Because it is a pure
-     function of graph state, a re-run cannot make things worse.
+
+     **Two things this statement assumes that this spec does not deliver**, both owned by whoever
+     implements the consolidation write (SM-X11):
+
+     1. **The join key does not exist.** `m.memory_id = e.edge_id` presumes an edge→memory
+        provenance link written at consolidation time. No such column is specified in §5 or §9,
+        and the additive migration does not add one. A real implementation must first decide how
+        a vector row points back at the edge it was derived from — one edge can produce several
+        memories and one memory can cite several edges, so this may well need a link table rather
+        than a column. Until that is settled, the `WHERE` clause above is a placeholder.
+     2. **It has never been run.** Unlike the 5c filter, the 5a/5b predicates and the §6.1
+        trigger — all of which are exercised and scored against live engines — this statement is
+        untested. It is here to fix the *intent* (re-derive from the graph, compare before
+        writing, safe to repeat), not to be copied into a migration.
+
+     The properties that *are* load-bearing, and that any implementation must preserve: it reads
+     the graph as the source of truth, writes only where the value actually differs
+     (`IS DISTINCT FROM`, so a no-op re-run touches no rows), and is a pure function of graph
+     state — so it can run on the consolidation cadence and after any partial failure without a
+     re-run making things worse.
 
 3. **Never the reverse direction.** Nothing may propagate `valid_to` from the vector tier back
    into the graph — that would hand invalidation authority to the tier that is explicitly denied
    it, and reintroduce the split-brain this decision exists to prevent.
 
-`set_valid_to` in [vector_tier.py](vector_tier.py) models the propagation, and the
-`vec_derived_valid_to` scenario measures that a propagated bound filters future recall while
-leaving past recall intact. **Not yet measured:** the *failure* path — drift, partial write, and
-re-sync convergence. That belongs to whoever owns the consolidation write (SM-X11 / the
-consolidation-loop tasks), not to this spec, and is listed as a downstream must-measure in §12.1.
+**What is measured here vs. what is only specified.** `set_valid_to` in
+[vector_tier.py](vector_tier.py) models the propagation, and the `vec_derived_valid_to` scenario
+measures that a propagated bound filters future recall while leaving past recall intact — that
+much is scored against both the reference and real SQL. Everything else in this section is a
+**stated model, not a validated one**: the *failure* path (drift, partial write, re-sync
+convergence) is unmeasured, and the re-sync statement above is illustrative with an unspecified
+join key. Case 1's transactional co-write is likewise asserted rather than exercised — the
+prototype never writes both tiers in one transaction.
+
+This is the largest unmeasured area in this folder. It belongs to whoever owns the consolidation
+write (SM-X11 / the consolidation-loop tasks), not to this spec, and is listed as a downstream
+must-measure in §12.1(c).
 
 ---
 
@@ -452,7 +480,7 @@ it identically and does not claim the item as resolved.
 |---|---|---|
 | PPR ranking quality over the 5a-filtered projection | SM-H4 recommended, with SM-G supplying the graph — **needs confirming** | untested, unowned |
 | Consolidation ordering (decay-prune strictly after SM-R7) | SM-R5 / consolidation-loop tasks | rule fixed in SM-R5 §6; end-to-end ordering unmeasured |
-| Vector-tier `valid_to` drift + re-sync convergence (§9.1) | SM-X11 / consolidation-loop tasks | model stated here; failure path unmeasured |
+| Vector-tier `valid_to` drift + re-sync convergence (§9.1) | SM-X11 / consolidation-loop tasks | model stated here; failure path unmeasured, and the re-sync statement is illustrative — its edge→memory join key is **not specified by this spec** and must be decided first |
 
 ---
 
