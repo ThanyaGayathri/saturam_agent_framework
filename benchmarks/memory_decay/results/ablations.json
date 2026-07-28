@@ -1,0 +1,204 @@
+{
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "k": 5,
+  "prune_gate": {
+    "recency": {
+      "exp_recency": {
+        "prune_precision": 0.922446491114744,
+        "prune_recall": 0.662818940766724,
+        "false_forget": 21.0,
+        "post_prune_recall": 0.6860432581296844,
+        "retained_final": 168.2
+      },
+      "ttl_halflife": {
+        "prune_precision": 0.9152380718507422,
+        "prune_recall": 0.5925821867073877,
+        "false_forget": 21.0,
+        "post_prune_recall": 0.6609568075662364,
+        "retained_final": 192.8
+      },
+      "importance_weighted": {
+        "prune_precision": 1.0,
+        "prune_recall": 0.3940665054789051,
+        "false_forget": 0.0,
+        "post_prune_recall": 0.9370964310609485,
+        "retained_final": 291.8
+      },
+      "ebbinghaus": {
+        "prune_precision": 0.9064542171760537,
+        "prune_recall": 0.7397542231621987,
+        "false_forget": 28.0,
+        "post_prune_recall": 0.537733312855263,
+        "retained_final": 139.8
+      }
+    },
+    "three_condition": {
+      "exp_recency": {
+        "prune_precision": 1.0,
+        "prune_recall": 0.1760772480449064,
+        "false_forget": 0.0,
+        "post_prune_recall": 0.7182481561573284,
+        "retained_final": 373.2
+      },
+      "ttl_halflife": {
+        "prune_precision": 0.9152380718507422,
+        "prune_recall": 0.5925821867073877,
+        "false_forget": 21.0,
+        "post_prune_recall": 0.6609568075662364,
+        "retained_final": 192.8
+      },
+      "importance_weighted": {
+        "prune_precision": 1.0,
+        "prune_recall": 0.10057530246905189,
+        "false_forget": 0.0,
+        "post_prune_recall": 0.9370964310609485,
+        "retained_final": 401.6
+      },
+      "ebbinghaus": {
+        "prune_precision": 1.0,
+        "prune_recall": 0.1917563191148332,
+        "false_forget": 0.0,
+        "post_prune_recall": 0.5476647428195347,
+        "retained_final": 367.4
+      }
+    }
+  },
+  "reinforce_synthetic": {
+    "all_topk": {
+      "no_decay": {
+        "recall_at_k": 1.0,
+        "stale_hit_rate": 0.15066854057256737,
+        "stale_hit_versioned": 0.3467695551338814,
+        "idle30": 1.0
+      },
+      "exp_recency": {
+        "recall_at_k": 0.7182481561573284,
+        "stale_hit_rate": 0.038847745080785666,
+        "stale_hit_versioned": 0.09073497786211261,
+        "idle30": 0.1295209124493012
+      },
+      "ttl_halflife": {
+        "recall_at_k": 0.6641147023030785,
+        "stale_hit_rate": 0.04859423846065706,
+        "stale_hit_versioned": 0.11234071262913768,
+        "idle30": 0.007407407407407407
+      },
+      "importance_weighted": {
+        "recall_at_k": 0.9370964310609485,
+        "stale_hit_rate": 0.11005586640727558,
+        "stale_hit_versioned": 0.25352139995783246,
+        "idle30": 0.3616693248272196
+      },
+      "ebbinghaus": {
+        "recall_at_k": 0.5476647428195347,
+        "stale_hit_rate": 0.03147977170342704,
+        "stale_hit_versioned": 0.07272443601096355,
+        "idle30": 0.01859447004608295
+      }
+    },
+    "valid_only": {
+      "no_decay": {
+        "recall_at_k": 1.0,
+        "stale_hit_rate": 0.15066854057256737,
+        "stale_hit_versioned": 0.3467695551338814,
+        "idle30": 1.0
+      },
+      "exp_recency": {
+        "recall_at_k": 0.892452150158945,
+        "stale_hit_rate": 0.05509972452112,
+        "stale_hit_versioned": 0.1271052076744676,
+        "idle30": 0.5978835978835979
+      },
+      "ttl_halflife": {
+        "recall_at_k": 0.7405583588989343,
+        "stale_hit_rate": 0.04946651573787528,
+        "stale_hit_versioned": 0.11398608475648322,
+        "idle30": 0.05478632478632479
+      },
+      "importance_weighted": {
+        "recall_at_k": 0.961911148010498,
+        "stale_hit_rate": 0.09196936217102344,
+        "stale_hit_versioned": 0.21147796753109827,
+        "idle30": 0.6422222222222222
+      },
+      "ebbinghaus": {
+        "recall_at_k": 0.8077569082358659,
+        "stale_hit_rate": 0.04814952812572244,
+        "stale_hit_versioned": 0.11063546278726544,
+        "idle30": 0.4960554428668019
+      }
+    }
+  },
+  "reinforce_embedding": {
+    "all_topk": {
+      "no_decay": {
+        "recall_at_k": 1.0,
+        "stale_hit_rate": 0.15066854057256737,
+        "stale_hit_versioned": 0.3467695551338814,
+        "idle30": 1.0
+      },
+      "exp_recency": {
+        "recall_at_k": 0.4888353837849049,
+        "stale_hit_rate": 0.014790998568888823,
+        "stale_hit_versioned": 0.034326797385620916,
+        "idle30": 0.0
+      },
+      "ttl_halflife": {
+        "recall_at_k": 0.4424842905484127,
+        "stale_hit_rate": 0.022575389402520303,
+        "stale_hit_versioned": 0.052424204090238256,
+        "idle30": 0.0
+      },
+      "importance_weighted": {
+        "recall_at_k": 0.7824071456020618,
+        "stale_hit_rate": 0.05872058638061914,
+        "stale_hit_versioned": 0.13597469955724223,
+        "idle30": 0.028793691389599318
+      },
+      "ebbinghaus": {
+        "recall_at_k": 0.4290546175341674,
+        "stale_hit_rate": 0.017124610721455685,
+        "stale_hit_versioned": 0.03926460046384146,
+        "idle30": 0.004878048780487805
+      }
+    },
+    "valid_only": {
+      "no_decay": {
+        "recall_at_k": 1.0,
+        "stale_hit_rate": 0.15066854057256737,
+        "stale_hit_versioned": 0.3467695551338814,
+        "idle30": 1.0
+      },
+      "exp_recency": {
+        "recall_at_k": 0.569647544094447,
+        "stale_hit_rate": 0.02087690181952736,
+        "stale_hit_versioned": 0.04814421252371918,
+        "idle30": 0.062081217099905495
+      },
+      "ttl_halflife": {
+        "recall_at_k": 0.49082768613057665,
+        "stale_hit_rate": 0.019923231089530494,
+        "stale_hit_versioned": 0.04570777988614802,
+        "idle30": 0.0
+      },
+      "importance_weighted": {
+        "recall_at_k": 0.801853425589202,
+        "stale_hit_rate": 0.05006772547845287,
+        "stale_hit_versioned": 0.11560025300442756,
+        "idle30": 0.054684119419939656
+      },
+      "ebbinghaus": {
+        "recall_at_k": 0.5040240208536788,
+        "stale_hit_rate": 0.016799399708878872,
+        "stale_hit_versioned": 0.03870208728652752,
+        "idle30": 0.07632055749878111
+      }
+    }
+  }
+}
