@@ -24,7 +24,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from egpt.utils.dttm import now_epoch_s
 
@@ -148,7 +148,7 @@ class LLMValidTimeExtractor(ValidTimeExtractor):
 
     def __init__(self, model: Optional[object] = None) -> None:
         self._model = model
-        self._agent = None  # built once on first use, then reused
+        self._agent: Optional[Any] = None  # built once on first use, then reused
 
     def _get_agent(self):  # type: ignore[no-untyped-def]
         if self._agent is None:
@@ -160,7 +160,7 @@ class LLMValidTimeExtractor(ValidTimeExtractor):
                 valid_from: Optional[str] = Field(None, description="ISO date the fact became true")
                 valid_to: Optional[str] = Field(None, description="ISO date the fact stopped being true")
 
-            model = self._model or OpenAIResponses(id="gpt-5.5")
+            model: Any = self._model or OpenAIResponses(id="gpt-5.5")
             self._agent = Agent(model=model, description=_LLM_PROMPT, output_schema=_LLMValidTime)
         return self._agent
 

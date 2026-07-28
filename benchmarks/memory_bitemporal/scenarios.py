@@ -222,4 +222,163 @@ def build_scenarios() -> List[Scenario]:
         )
     )
 
+    # 10. Same-`t_valid` tie-break (concurrent / simultaneous conflicting asserts).
+    #     Two contradictory facts claim the SAME valid-from. SPEC SS6 R1-TIE resolves this on the
+    #     transaction axis: last writer wins. The loser keeps a zero-length valid interval
+    #     [JUN, JUN) -- retained for audit (5b) but never current-valid, since `valid_at` is
+    #     half-open (`t_valid <= t < t_invalid`).
+    S.append(
+        Scenario(
+            name="same_t_valid_tiebreak",
+            description="NYC and LA both asserted valid-from Jun; later write (Jul) wins the window.",
+            tests_correction=True,
+            tests_bitemporal=True,
+            ops=[
+                Op("assert", "user", "lives_in", "NYC", t_valid=JUN, at=JUN),
+                Op("assert", "user", "lives_in", "LA", t_valid=JUN, at=JUL),  # same t_valid, later write
+            ],
+            probes=[
+                Probe("user", "lives_in", "u1", JUN, "LA", note="tie-break: last writer wins at t_valid"),
+                Probe("user", "lives_in", "u1", DEC, "LA", note="and onward"),
+                Probe("user", "lives_in", "u1", JUL, "NYC", tt=JUN, note="5b: loser auditable pre-tie-break"),
+                Probe("user", "lives_in", "u1", JUN, "LA", tt=SEP, note="5b: winner after tie-break"),
+            ],
+        )
+    )
+
+    # 11. Deep re-correction: correct a belief that was ITSELF already superseded.
+    #     NYC is superseded by LA, then SF corrects the *middle* of the already-bounded NYC
+    #     window -- a second-level SCD-2 version. World-time Mar therefore has three distinct
+    #     beliefs depending on transaction time, which is the multi-level 5b case.
+    S.append(
+        Scenario(
+            name="deep_recorrection",
+            description="NYC->LA, then SF corrects the already-superseded NYC window; 3 beliefs about Mar.",
+            tests_correction=True,
+            tests_bitemporal=True,
+            ops=[
+                Op("assert", "user", "lives_in", "NYC", t_valid=JAN, at=JAN),
+                Op("assert", "user", "lives_in", "LA", t_valid=JUN, at=JUN),  # bounds NYC to [Jan, Jun)
+                Op("assert", "user", "lives_in", "SF", t_valid=MAR, at=JUL),  # re-corrects inside [Jan, Jun)
+            ],
+            probes=[
+                Probe("user", "lives_in", "u1", FEB, "NYC", note="NYC re-bounded to [Jan, Mar)"),
+                Probe("user", "lives_in", "u1", MAR, "SF", note="SF owns [Mar, Jun)"),
+                Probe("user", "lives_in", "u1", JUL, "LA", note="LA still owns [Jun, inf)"),
+                Probe("user", "lives_in", "u1", MAR, "NYC", tt=JUN, note="5b lvl1: as-of Jun, Mar was NYC"),
+                Probe("user", "lives_in", "u1", MAR, "SF", tt=SEP, note="5b lvl2: as-of Sep, Mar is SF"),
+            ],
+        )
+    )
+
     return S
+
+
+# ---------------------------------------------------------------------- #
+# 5c -- vector/episodic-tier filter scenarios (SPEC SS9).
+# ---------------------------------------------------------------------- #
+
+
+@dataclass
+class VectorRowSpec:
+    """A vector-tier row to seed, plus an optional derived `valid_to` propagated later."""
+
+    memory_id: str
+    memory: str
+    created_at: int
+    user: str = "u1"
+    valid_from: Optional[int] = None  # None => pre-migration row ("unknown")
+    valid_to: Optional[int] = None
+    # Applied AFTER all rows are inserted, simulating the SS9.1 propagation from a graph
+    # invalidation. None => no propagation for this row.
+    propagate_valid_to: Optional[int] = None
+
+
+@dataclass
+class FilterProbe:
+    """A 5c recall probe: which memory ids survive the valid-time filter at world-time `t`."""
+
+    user: str
+    t: int
+    expect: List[str]  # expected memory ids, sorted
+    note: str = ""
+
+
+@dataclass
+class VectorScenario:
+    name: str
+    rows: List[VectorRowSpec]
+    probes: List[FilterProbe]
+    description: str = ""
+
+
+def build_vector_scenarios() -> List[VectorScenario]:
+    """5c probes: the SS9 filter-only decision, measured rather than asserted."""
+    V: List[VectorScenario] = []
+
+    # 1. Open interval + lower bound.
+    V.append(
+        VectorScenario(
+            name="vec_open_interval",
+            description="A memory valid from Jan with no upper bound.",
+            rows=[VectorRowSpec("m_nyc", "lives in NYC", created_at=JAN, valid_from=JAN)],
+            probes=[
+                FilterProbe("u1", DEC23, [], note="before valid_from"),
+                FilterProbe("u1", FEB, ["m_nyc"]),
+                FilterProbe("u1", DEC, ["m_nyc"], note="open valid_to -> still recalled"),
+            ],
+        )
+    )
+
+    # 2. Derived valid_to propagated from a graph invalidation (SS9.1). The vector tier never
+    #    decides this itself -- it records what the graph decided.
+    V.append(
+        VectorScenario(
+            name="vec_derived_valid_to",
+            description="Graph invalidates NYC at Jun; the propagated valid_to bounds recall.",
+            rows=[
+                VectorRowSpec("m_nyc", "lives in NYC", created_at=JAN, valid_from=JAN, propagate_valid_to=JUN),
+                VectorRowSpec("m_la", "lives in LA", created_at=JUN, valid_from=JUN),
+            ],
+            probes=[
+                FilterProbe("u1", FEB, ["m_nyc"], note="past still recalled -- not deleted"),
+                FilterProbe("u1", JUL, ["m_la"], note="superseded memory filtered out"),
+            ],
+        )
+    )
+
+    # 3. THE MIGRATION CASE. The SS9 migration is additive, so every row written before it has
+    #    valid_from IS NULL. A bare `valid_from <= :T` drops all of them (NULL comparison).
+    V.append(
+        VectorScenario(
+            name="vec_legacy_null_valid_from",
+            description="Pre-migration rows (valid_from IS NULL) must stay recallable at every T.",
+            rows=[
+                VectorRowSpec("m_legacy", "pre-migration memory", created_at=DEC23, valid_from=None),
+                VectorRowSpec("m_nyc", "lives in NYC", created_at=JAN, valid_from=JAN),
+            ],
+            probes=[
+                FilterProbe("u1", DEC23, ["m_legacy"], note="unknown valid_from = assume always valid"),
+                FilterProbe("u1", FEB, ["m_legacy", "m_nyc"]),
+                FilterProbe("u1", DEC, ["m_legacy", "m_nyc"]),
+            ],
+        )
+    )
+
+    # 4. Tenant isolation on the filter path.
+    V.append(
+        VectorScenario(
+            name="vec_tenant_isolation",
+            description="The 5c filter is tenant-scoped like the graph predicates.",
+            rows=[
+                VectorRowSpec("m_u1", "u1 memory", created_at=JAN, user="u1", valid_from=JAN),
+                VectorRowSpec("m_u2", "u2 memory", created_at=JAN, user="u2", valid_from=JAN),
+            ],
+            probes=[
+                FilterProbe("u1", FEB, ["m_u1"]),
+                FilterProbe("u2", FEB, ["m_u2"]),
+            ],
+        )
+    )
+
+    return V

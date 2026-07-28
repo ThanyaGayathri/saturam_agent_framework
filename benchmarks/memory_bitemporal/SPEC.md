@@ -7,8 +7,18 @@
 **Task type:** Design/Spec → the deliverable is an **implementable artifact** (fields, rules, query predicates, migration) precise enough that SM-G4/G5/X11 build from it without re-deciding, backed by a runnable prototype.
 
 This spec is **testable**: every field, rule, and predicate below is exercised by the prototype
-in this folder against three backends (in-memory reference, real Postgres, real Neo4j). See
-§10 to reproduce.
+in this folder. See §10 to reproduce.
+
+**What the evidence covers — read this before citing the numbers.** The invalidation rule and the
+query semantics live *once*, in [store.py](store.py), and the reference / Postgres / Neo4j
+adapters implement only storage primitives. So a matching score across those three is
+**one shared rule over three storage layers**, not three independent derivations of the
+semantics. The separately-shipped artifacts — the SQL-native `bt_upsert_edge()` and the 5a/5b
+SQL/Cypher predicates in §7, which are what SM-G4/G5/X11 actually consume — are exercised by the
+dedicated native adapters ([sql_native_store.py](adapters/sql_native_store.py),
+[cypher_native_store.py](adapters/cypher_native_store.py)) as an **equivalence test** against the
+Python reference. See [TEST_LOG.md](TEST_LOG.md) for which of those paths have been measured on a
+given run and which have not.
 
 ---
 
@@ -19,10 +29,13 @@ in this folder against three backends (in-memory reference, real Postgres, real 
       expire-and-reinsert; `t_invalid` is set on the reinserted bounded version, nothing deleted).
 - [x] **Point-in-time ("true at T") query semantics defined** — §7 (5a/5b, SQL + Cypher).
 - [x] **Valid-time extraction approach defined** — §8, [extraction.py](extraction.py) (6/6 measured).
-- [x] **Decision on whether the episodic/vector tier carries valid-time** — §9 (yes: filter-only).
+- [x] **Decision on whether the episodic/vector tier carries valid-time** — §9 (yes: filter-only,
+      and now *measured* by the 5c probes rather than asserted).
 
-Evidence: all three bi-temporal backends score **100% (21/21)** point-in-time reconstruction;
-the single-time baseline scores **57.1%**. See [results/](results/) and [TEST_LOG.md](TEST_LOG.md).
+Evidence: the bi-temporal model scores **100% (30/30)** point-in-time reconstruction; the
+single-time baseline scores **56.7% (17/30)**. The 5c vector-tier filter scores **10/10**. See
+[results/](results/) and [TEST_LOG.md](TEST_LOG.md) — including which native SQL/Cypher paths
+were measured on the run being cited.
 
 ---
 
@@ -31,8 +44,8 @@ the single-time baseline scores **57.1%**. See [results/](results/) and [TEST_LO
 | Question | Answer |
 |---|---|
 | Four timestamps per edge (`t_valid`, `t_invalid`, `created_at`, `expired_at`) — valid vs transaction axes (Graphiti)? | **Yes.** Valid axis = `t_valid`/`t_invalid` (world truth); transaction axis = `created_at`/`expired_at` (system belief). Exact types/nullability/defaults in §5. |
-| Contradiction handling: set `t_invalid` (invalidate) rather than delete? | **Yes, invalidate-not-delete.** Refined to **expire-and-reinsert (SCD-2)**: the superseded version is expired on the transaction axis and a bounded copy carrying `t_invalid` is inserted. Nothing is deleted or mutated in place. §6. |
-| Point-in-time semantics: "true at T" = `t_valid <= T < t_invalid`? | **Yes**, with `COALESCE(t_invalid, ∞)` for open intervals and `expired_at IS NULL` to select current belief (5a). Full bi-temporal "as believed at TT" adds the transaction predicate (5b). §7. |
+| Contradiction handling: set `t_invalid` (invalidate) rather than delete? | **Yes, invalidate-not-delete.** Refined to **expire-and-reinsert (SCD-2)**: the superseded version is expired on the transaction axis and a bounded copy carrying `t_invalid` is inserted. Nothing is deleted or mutated in place — enforced by a DB trigger, §6.1. Simultaneous conflicting asserts resolve last-writer-wins (R1-TIE). §6. |
+| Point-in-time semantics: "true at T" = `t_valid <= T < t_invalid`? | **Yes** — and **both bounds are required** (§7 pitfall callout), with `COALESCE(t_invalid, ∞)` for open intervals and `expired_at IS NULL` to select current belief (5a). Full bi-temporal "as believed at TT" adds the transaction predicate (5b). §7. |
 | How is valid-time extracted from content when stated ("since Jan")? | Pluggable `ValidTimeExtractor`: deterministic rule-based default (regex + month map; "since Jan" → that year's Jan 1; fallback to ingest time) + optional LLM adapter (`OpenAIResponses` gpt-5.5 / any egpt model). §8. |
 | Does the vector/episodic tier also carry valid-time, or only the graph? | **Graph is the bi-temporal system-of-record.** The vector/episodic tier carries **filter-only** `valid_from`/`valid_to` (no invalidation authority). §9. |
 
@@ -40,16 +53,21 @@ the single-time baseline scores **57.1%**. See [results/](results/) and [TEST_LO
 
 ## 3. Options evaluated (verbatim from #85, both exercised)
 
-| Option | Exercised as | Point-in-time accuracy (21 probes) | Verdict |
+| Option | Exercised as | Point-in-time accuracy (30 probes) | Verdict |
 |---|---|---|---|
-| **Bi-temporal** (valid + transaction, invalidate-not-delete) — *recommended* | `ReferenceEdgeStore` + real Postgres + real Neo4j | **100% / 100% / 100%** | **CHOSEN** |
-| **Single-time** (created/updated only) — current seed behavior | `SingleTimeEdgeStore` | **57.1%** | Rejected (baseline) |
+| **Bi-temporal** (valid + transaction, invalidate-not-delete) — *recommended* | `ReferenceEdgeStore`, and the same rule over real Postgres + real Neo4j storage | **100%** | **CHOSEN** |
+| **Single-time** (created/updated only) — current seed behavior | `SingleTimeEdgeStore` | **56.7%** | Rejected (baseline) |
 
-The 9 single-time failures are exactly the point-in-time / correction / belief-evolution probes:
+The 13 single-time failures are exactly the point-in-time / correction / belief-evolution probes:
 a single-time store cannot answer "what was true before the correction" or "what did we believe
 at time TT". This measured gap — not prose — is the justification. Bi-temporal costs one extra
 timestamp pair per edge and an expire-and-reinsert on contradiction; it buys point-in-time
 reconstruction, provenance, and non-destructive correction.
+
+The Postgres and Neo4j rows are **storage-layer** confirmations: they run the same `store.py`
+rule against real engines, which proves the four-timestamp model round-trips losslessly through
+`timestamptz` and Neo4j `datetime`. They are deliberately *not* claimed as independent
+re-derivations of the semantics — see the equivalence note at the top of this document.
 
 ---
 
@@ -126,13 +144,73 @@ current belief (5a) but remains visible "as believed before the retraction" (5b)
 **NOOP.** An incoming fact identical to a currently-believed one over a window covering its
 `t_valid` is a no-op (no row, no invalidation).
 
+**R1-TIE — simultaneous conflicting asserts at the same `t_valid`.** Two contradictory facts may
+claim the *same* valid-from (concurrent extraction from one turn, or a re-assert during replay).
+Resolution: **last writer wins on the transaction axis** — R1 applies unchanged, because
+`valid_at` is half-open (`t_valid <= t < t_invalid`) and therefore *contains* its own left
+endpoint. The earlier fact is expired and reinserted bounded at `t_invalid = t_valid`, i.e. with
+a **zero-length valid interval** `[t_valid, t_valid)`. That row is never current-valid at any `T`
+(so 5a has exactly one answer) but stays fully auditable through 5b at any transaction time
+before the tie-break. The `t_invalid >= t_valid` CHECK admits the degenerate interval by design.
+
+This is deterministic given ingestion order, and ingestion order *is* the transaction axis — so
+"whoever wrote second" is a recorded fact, not a race. Consumers that need a different policy
+(e.g. confidence-weighted) must implement it **before** calling `upsert_edge`, by choosing which
+assertion to submit; the store does not arbitrate on payload. Measured by the
+`same_t_valid_tiebreak` scenario (4 probes, including both 5b directions).
+
 **API for SM-G5** (sync + async): `upsert_edge(edge) → EdgeOutcome{INSERT|SUPERSEDE|RETRACT|NOOP}`,
 `invalidate_edge(edge_id, t_invalid, at=None)`, `retract_edge(edge_id, expired_at)`. SQL-native
-equivalents `bt_upsert_edge()` / `bt_retract_edge()` ship in [schema.sql](schema.sql) (validated).
+equivalents `bt_upsert_edge()` / `bt_retract_edge()` ship in [schema.sql](schema.sql).
+
+`bt_upsert_edge()` takes `p_created_at TIMESTAMPTZ DEFAULT now()`. The transaction time **must**
+be injectable, not hardcoded to `now()`: backfill, replay, and every 5b reconstruction depend on
+asserting a fact whose transaction time is not the wall clock ("learned in July that NYC held
+since January"). An earlier revision of this spec hardcoded `now()`, which made those cases
+inexpressible through the SQL path.
+
+### 6.1 Mutation path — expire-only (REQUIRED of any implementation)
+
+The rule above is only non-destructive if the storage layer *cannot* mutate history. Any SQL
+implementation **must** make expire-and-reinsert the only mutation path:
+
+- The **only** column an `UPDATE` may ever write is `expired_at`, and only on a row where it is
+  currently `NULL` (write-once).
+- `t_valid`, `t_invalid`, `created_at` and the identity columns are **immutable after insert**.
+- Correcting a fact means *inserting a new version*, never rewriting the existing row.
+
+This is not caller discipline — it is enforced in the database. [schema.sql](schema.sql) §2b ships
+the `memory_edge_append_only` trigger, which rejects any in-place change to the identity columns
+or either time axis. Reason it is mandatory rather than advisory: a blanket
+`INSERT ... ON CONFLICT DO UPDATE SET <every column>` (the default shape most ORMs and upsert
+helpers generate) silently rewrites `t_valid`/`t_invalid` in place, which destroys exactly the
+history SCD-2 exists to preserve — 5b stops reconstructing and the audit trail is gone, with no
+error and no failing query. A sibling storage layer in this programme already shipped that write
+path, so SM-X11 and SM-G4 should treat the trigger as part of the DDL, not an optional extra.
 
 ---
 
 ## 7. Point-in-time query semantics (actual predicates)
+
+> **Common pitfall — the validity test is TWO-SIDED. Implement both bounds.**
+>
+> "True at `T`" is `t_valid <= T < COALESCE(t_invalid, ∞)`. Both comparisons are load-bearing and
+> an implementation that keeps only one is wrong in a way that **passes most tests**:
+>
+> | Omitted | Symptom | Why tests miss it |
+> |---|---|---|
+> | the **lower** bound (`t_valid <= T`) | a fact leaks at times *before it was ever true* — including future-dated / back-dated records surfacing in past queries | only shows up when a probe asks about a `T` earlier than a known `t_valid`; a suite that mostly probes "now" and "recently" never asks |
+> | the **upper** bound (`T < t_invalid`) | superseded facts never disappear | caught by almost any correction probe, so this one rarely ships |
+>
+> The asymmetry is the trap: the upper bound is the one everybody remembers to write, because
+> forgetting it breaks the headline "invalidate on contradiction" demo. Forgetting the *lower*
+> bound breaks nothing visible until someone queries the past. A sibling implementation of these
+> semantics shipped with `t_invalid`-only filtering for exactly this reason.
+>
+> The same two-sidedness applies on the transaction axis in 5b
+> (`created_at <= TT < COALESCE(expired_at, ∞)`) and to the 5c filter below. Any conformance
+> suite for this spec **must** include at least one probe at a `T` strictly before the earliest
+> `t_valid` — `simple_insert` and `supersede_relocation` both carry one (expected answer: no fact).
 
 ### 5a — "true at world-time T" (current belief) — the primary query
 ```sql
@@ -162,8 +240,19 @@ Setting `:TT = now()` with `expired_at IS NULL` reduces 5b to 5a. Cypher form in
 
 ### 5c — vector/episodic tier (filter-only)
 ```sql
-  AND valid_from <= :T AND :T < COALESCE(valid_to, 9223372036854775807)  -- on top of similarity
+-- on top of similarity; BOTH bounds COALESCE'd
+  AND COALESCE(valid_from, -9223372036854775808) <= :T
+  AND :T < COALESCE(valid_to,  9223372036854775807)
 ```
+
+**The `COALESCE` on the lower bound is load-bearing, not defensive.** The §9 migration is
+additive, so every row written before it has `valid_from IS NULL`. Under a bare
+`valid_from <= :T`, that comparison evaluates to `NULL` and the row is filtered out — so applying
+the filter would **silently drop every memory that predates the migration**, with no error. `NULL
+valid_from` means "unknown, assume always valid", which is what `-infinity` encodes. Measured:
+the ratified predicate scores **10/10** on the 5c probes and the bare predicate **7/10**, failing
+exactly the three `vec_legacy_null_valid_from` probes. The bare form is kept in
+[vector_tier.py](vector_tier.py) as a scored counterexample so the regression cannot return.
 
 ---
 
@@ -195,6 +284,51 @@ Rationale: (1) recall needs cheap point-in-time filtering without the 4-timestam
 (3) additive nullable columns are backward-compatible and **extend** `UserMemory` /
 `MEMORY_TABLE_SCHEMA` rather than forking them.
 
+### 9.1 Consistency model for the derived `valid_to` (the two writes are not atomic)
+
+Invalidation *authority* is single-homed on the graph, which avoids split-brain. But the vector
+tier's `valid_to` is a **second, derived write**, and "the same consolidation write updates it" is
+not an atomicity guarantee: if the graph commit succeeds and the vector update lags, fails, or is
+retried into a different transaction, the 5c filter will surface a **superseded memory**. The
+model is therefore stated explicitly rather than left implicit:
+
+1. **Co-write transactionally when the two tiers share a database.** For the graph-lite/relational
+   deployment (`memory_edge` and `memories` in one Postgres), the edge invalidation and the
+   `valid_to` write go in **one transaction**. This is the default deployment and it gets real
+   atomicity — no reconciliation needed.
+
+2. **When the tiers are separate stores** (e.g. Neo4j graph + pgvector), the write **cannot** be
+   atomic, so the vector copy is treated as an **eventually-consistent projection of the graph**:
+   - **The graph is authoritative on read-back.** The 5c filter is an *optimisation* that keeps
+     obviously-stale candidates out of the similarity search. It is **advisory**: a caller that
+     needs a guaranteed-current answer resolves the surviving candidates against 5a before
+     returning them. Recall may therefore be briefly over-inclusive; it is never under-inclusive,
+     because a missing `valid_to` only fails to *exclude*.
+   - **An idempotent re-sync repairs drift.** `valid_to` is derived, never decided locally, so
+     re-deriving it from the graph is safe to run at any time and any number of times:
+     ```sql
+     -- Re-project every bounded edge's valid-time end onto its vector copy.
+     UPDATE memories m
+        SET valid_to = EXTRACT(EPOCH FROM e.t_invalid)::bigint
+       FROM memory_edge e
+      WHERE e.expired_at IS NULL
+        AND e.t_invalid IS NOT NULL
+        AND m.memory_id = e.edge_id            -- provenance link written at consolidation
+        AND m.valid_to IS DISTINCT FROM EXTRACT(EPOCH FROM e.t_invalid)::bigint;
+     ```
+     Runs on the consolidation cadence and after any partial failure. Because it is a pure
+     function of graph state, a re-run cannot make things worse.
+
+3. **Never the reverse direction.** Nothing may propagate `valid_to` from the vector tier back
+   into the graph — that would hand invalidation authority to the tier that is explicitly denied
+   it, and reintroduce the split-brain this decision exists to prevent.
+
+`set_valid_to` in [vector_tier.py](vector_tier.py) models the propagation, and the
+`vec_derived_valid_to` scenario measures that a propagated bound filters future recall while
+leaving past recall intact. **Not yet measured:** the *failure* path — drift, partial write, and
+re-sync convergence. That belongs to whoever owns the consolidation write (SM-X11 / the
+consolidation-loop tasks), not to this spec, and is listed as a downstream must-measure in §12.1.
+
 ---
 
 ## 10. Couplings & handoff (what each downstream task consumes)
@@ -202,28 +336,39 @@ Rationale: (1) recall needs cheap point-in-time filtering without the 4-timestam
 - **SM-G4 (bi-temporal edges):** the §5 field list + `BiTemporalEdge` model + [schema.sql](schema.sql)
   DDL + [graph_schema.cypher](graph_schema.cypher). Program against the `BiTemporalEdgeStore`
   abstraction ([store.py](store.py)); pick a backend adapter by config.
-- **SM-G5 (invalidation):** the §6 rule + `upsert_edge`/`invalidate_edge`/`retract_edge` (sync+async)
-  and SQL `bt_upsert_edge()`/`bt_retract_edge()`.
+- **SM-G5 (invalidation):** the §6 rule (including **R1-TIE**) + `upsert_edge`/`invalidate_edge`/
+  `retract_edge` (sync+async) and SQL `bt_upsert_edge()`/`bt_retract_edge()` — note
+  `bt_upsert_edge` takes an injectable `p_created_at`, required for backfill and 5b.
 - **SM-X11 (persistence/migration):** the §5 table + these **additive** migrations (nullable →
   backward compatible; core owned by the rebrand teammate, so applied by SM-X11, not here):
   ```sql
   ALTER TABLE memories ADD COLUMN IF NOT EXISTS valid_from BIGINT;  -- epoch s; NULL = unknown
   ALTER TABLE memories ADD COLUMN IF NOT EXISTS valid_to   BIGINT;  -- epoch s; NULL = open
   ```
-  and the new `memory_edge` table (§5) for the graph-lite/relational tier.
+  and the new `memory_edge` table (§5) for the graph-lite/relational tier. **Ship the §6.1
+  `memory_edge_append_only` trigger with the DDL** — it is part of the model, not a lint. When
+  applying the 5c filter to `memories`, use the COALESCE'd predicate from §7; the bare form drops
+  every pre-migration row.
 - **Quality metric** (for downstream regression): point-in-time reconstruction accuracy over the
-  scenario set — target **1.00** for the bi-temporal implementation.
+  scenario set — target **1.00** for the bi-temporal implementation. A conformance suite should
+  also assert (i) at least one probe before the earliest `t_valid` (§7 pitfall), (ii) the R1-TIE
+  case, and (iii) that an in-place `UPDATE` of `t_valid`/`t_invalid` is **rejected** (§6.1).
 
 ---
 
 ## 11. Out of scope & boundaries
 
-- **Graph engine / vector-store choice** → SM-R2 / SM-G* (spec is engine-agnostic; proven on pg + Neo4j).
+- **Graph engine / vector-store choice** → SM-R2 / SM-G* (spec is engine-agnostic; the model
+  round-trips losslessly through both Postgres `timestamptz` and Neo4j `datetime`).
 - **Retrieval fusion / ranking / decay** → SM-R3 (vector), SM-R5 (decay). This spec only adds the
-  valid-time *filter* columns, not ranking.
+  valid-time *filter* columns, not ranking. **This exclusion is why PPR ranking quality over the
+  time-filtered projection is not owned here** — see §12.1(b).
 - **Consolidation / extraction scheduling** (async vs inline) → the consolidation-loop tasks.
-- **Scale / latency targets** → SM-R1 (provisional here). Neo4j per-op latency in the prototype
-  (~0.7–4.7 s for the whole set) is a naive-session artifact, not a tuned number.
+- **Scale / latency targets** → SM-R1 (**provisional here, not ratified**). Neo4j per-op latency
+  in the prototype (~0.7–4.7 s for the whole set) is a naive-session artifact, not a tuned number.
+  The scenario set is likewise small and illustrative; its **scale is provisional pending SM-R1**.
+- **Right-to-erasure / tenant data deletion** → not specified here; the model is
+  invalidate-not-delete throughout (§12.1(a)).
 
 ---
 
@@ -235,6 +380,67 @@ Rationale: (1) recall needs cheap point-in-time filtering without the 4-timestam
   (adds only filter columns); the graph bi-temporal model matches the research doc's Graphiti
   reference. No sibling's decision is pre-empted.
 
+### 12.1 Edge lifecycle across siblings (who may remove an edge, and when)
+
+This spec governs when an edge stops being *true* (`t_invalid`) and when it stops being *believed*
+(`expired_at`). Neither is deletion — under SCD-2 nothing is ever removed. But two siblings also
+act on edge/row lifetime, so the boundary is stated here explicitly rather than left to collide.
+
+**(a) SM-R5 (decay) — decay never hard-deletes; it archives/tiers.**
+
+SM-R5 already resolved this on its own side. Quoting its
+`benchmarks/memory_decay/DECISION.md` §6 verbatim:
+
+> decay-pruning **must run after** the consolidation/reflection pass (SM-R7), never before —
+> otherwise an episodic row can be pruned before its knowledge is consolidated into the semantic
+> tier. And decay-pruning must **archive/tier rather than hard-delete** episodic rows, to stay
+> consistent with the bi-temporal, invalidate-not-delete model (D8): set an archived/expired
+> marker; do not destroy the row. Hard `DELETE` stays a consolidation-owned operation for
+> conflicts.
+
+This spec adopts that rule unchanged, and adds only what is specific to the graph tier:
+
+- **Decay has no authority over bi-temporal graph edges at all.** SM-R5 is a *ranking* model over
+  the episodic/vector tier; its prune gate acts on episodic rows. A `memory_edge` row is never
+  removed by decay — the §6.1 append-only trigger makes that structurally impossible.
+- **"Archive/tier rather than hard-delete" maps onto this model as `expired_at`** (R2 retract):
+  the archived/expired marker SM-R5 calls for *is* the transaction-axis end. An archived row
+  therefore drops out of 5a but stays reconstructable through 5b — which is precisely the
+  consistency SM-R5 §6 is asking for.
+- **The one sanctioned hard `DELETE`** is the consolidation-owned conflict/explicit-forget path
+  SM-R5 reserves. For a bi-temporal edge it should still be expressed as R2 retract wherever the
+  requirement is "stop believing this"; genuine row destruction is reserved for
+  right-to-erasure-style deletion, which is a *tenant data* operation and out of scope for both
+  specs. Flagged for SM-R1 to confirm whether erasure needs its own path.
+
+Net: no conflict between SM-R5 and this spec, and the two documents now state the same rule.
+
+**(b) SM-R9 (PPR over the time-filtered projection) — mechanism agreed, ranking quality unowned.**
+
+PPR and bi-temporal filtering compose **mechanically**: bi-temporal validity is an **edge filter**
+and PPR is a **ranking over whatever subgraph survives that filter** — adding the time predicate
+is a projection filter, not a change to the PPR step. Any such projection must use the full 5a
+predicate from §7, including `coalesce(e.t_invalid, ∞)` and `e.expired_at IS NULL`: dropping the
+first removes every open-ended (currently-true) edge from the projection, and dropping the second
+readmits superseded and retracted rows. Both change graph **topology**, which is what PPR ranks
+over, so both are correctness bugs rather than cosmetic ones — see the §7 pitfall callout.
+
+**Ranking quality over a time-filtered projection is untested, and is currently nobody's.** A
+bi-temporal projection is sparser and differently-shaped than a static corpus, PPR's stationary
+distribution is topology-sensitive, and degradation would be worst where edge churn is highest —
+our episodic memory. **§11 of this spec explicitly excludes ranking from its scope**, so SM-R10
+does not own that measurement. SM-R9's spike recommends **SM-H4 as owner, with SM-G supplying the
+temporal graph**, and records that the reassignment still **needs confirming**. This spec states
+it identically and does not claim the item as resolved.
+
+**(c) Downstream must-measures** (enabled by this spec; owned elsewhere):
+
+| Composition | Owner | Status |
+|---|---|---|
+| PPR ranking quality over the 5a-filtered projection | SM-H4 recommended, with SM-G supplying the graph — **needs confirming** | untested, unowned |
+| Consolidation ordering (decay-prune strictly after SM-R7) | SM-R5 / consolidation-loop tasks | rule fixed in SM-R5 §6; end-to-end ordering unmeasured |
+| Vector-tier `valid_to` drift + re-sync convergence (§9.1) | SM-X11 / consolidation-loop tasks | model stated here; failure path unmeasured |
+
 ---
 
 ## 13. Grounding & reproducibility
@@ -245,4 +451,8 @@ Rationale: (1) recall needs cheap point-in-time filtering without the 4-timestam
 - **Reproduce:** see [README.md](README.md). Start the two containers (unique names/ports), then
   `PYTHONPATH=libs/agno .venvs/bitemporal/bin/python -m benchmarks.memory_bitemporal.run`. Results
   land in [results/](results/); latest committed run in [TEST_LOG.md](TEST_LOG.md).
+- **Backends that need no services:** the in-memory reference, the single-time baseline, the 5c
+  vector-tier filter, and the extractor. Everything else is skipped with a printed note when its
+  server is unreachable, and the summary records `native_paths_measured` so a run that could not
+  exercise the SQL/Cypher artifacts cannot be mistaken for one that did.
 - **Core untouched:** `git diff origin/main -- libs/` is empty (this task is decision/spec only).

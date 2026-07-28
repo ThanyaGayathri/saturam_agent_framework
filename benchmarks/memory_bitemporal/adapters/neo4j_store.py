@@ -20,6 +20,10 @@ class Neo4jEdgeStore(BiTemporalEdgeStore):
     def __init__(self, uri: str, user: str, password: str) -> None:
         # Silence "unknown property key" notifications for optional/null props (e.g. fact).
         self.driver = GraphDatabase.driver(uri, auth=(user, password), notifications_min_severity="OFF")
+        # The driver connects lazily, so constructing it succeeds even with no server. run.py's
+        # reachability probe would then "pass" and the benchmark would crash mid-run instead of
+        # skipping the backend -- force the connection here so unreachable means unreachable.
+        self.driver.verify_connectivity()
 
     def reset(self) -> None:
         with self.driver.session() as s:
