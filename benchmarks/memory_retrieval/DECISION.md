@@ -283,6 +283,28 @@ SM-G9's actual entity/citation graph).
 | 3-leg weighted vs 3-leg RRF | **+0.076** | [+0.056, +0.096] | 0.0001 | **yes** |
 | 2-leg weighted vs 2-leg RRF | +0.023 | [+0.007, +0.039] | 0.003 | yes |
 
+**Adversarial control — is this just circularity?** This project has twice shipped
+benchmarks with baked-in circularity that only surfaced under review (SM-R5's
+importance-oracle confound, SM-R6's clean-boundary bug). The graph leg above builds its
+k-NN edges from dense embeddings *and* seeds PPR from dense's own top hits — so before
+trusting the +0.076, it's fair to ask whether that's just a smoothed copy of dense,
+making "weighted absorbs it cleanly" trivial. Checked directly: `LexicalGraphRetriever`
+rebuilds the **entire** graph leg — k-NN edges *and* PPR seeds — from BM25/TF-IDF
+instead, sharing no construction path with dense. Measured overlap confirms it's a
+meaningfully different signal (avg top-10 overlap with dense: 0.62 for the dense-derived
+graph vs **0.29** for the lexical one). Re-running the 3-leg comparison with this
+decorrelated leg:
+
+| comparison | Δ nDCG@10 | 95% CI | p | ranked? |
+| --- | --- | --- | --- | --- |
+| 3-leg weighted vs 3-leg RRF (lexical graph, 0.29 dense-overlap) | **+0.060** | [+0.039, +0.081] | 0.0001 | **yes** |
+
+The effect **survives decorrelation** — smaller than the dense-derived graph's +0.076,
+but still far above the 2-leg baseline's +0.023 and still clearly significant. So the
+finding isn't an artifact of the graph leg secretly agreeing with dense; it holds for a
+leg built from an entirely different signal too. (`graph_leg_experiment.json` has the
+full numbers including both graph variants and the overlap diagnostic.)
+
 **This is the opposite of what §1.1's theoretical argument predicts.** Adding a third,
 differently-scaled (PPR) leg did **not** flip the advantage to RRF — weighted fusion's edge
 over RRF **widened** (+0.023 → +0.076), because RRF's equal, rank-only vote let the noisier
@@ -291,12 +313,14 @@ weighted's bounded, per-leg-normalized sum absorbed the extra leg without much c
 exactly the failure mode the reviewer flagged as untested: "it's possible weighted ... still
 wins 3-way." On this synthetic leg, it does.
 
-**What this does and doesn't settle:** this is one dataset, one synthetic graph construction,
-equal (untuned) per-leg weights on both sides, and an embedding-derived graph leg that is
-correlated with dense by construction (unlike a real entity/citation graph would be) — so it
-is evidence against the "RRF wins once graph joins" assumption, not proof either method wins
-with SM-G9's real graph retriever. **§1.1's fusion-method recommendation for the 3-leg case
-is downgraded from an asserted switch to explicitly provisional** — see §1/§6 update.
+**What this does and doesn't settle:** the adversarial control above rules out the most
+obvious circularity (graph leg secretly = dense), but this is still **one dataset, two
+synthetic graph constructions, equal (untuned) per-leg weights on both sides** — neither
+graph variant has real graph topology (citations/entities), just k-NN + PPR over
+embedding or lexical similarity. So this is real evidence against the "RRF wins once
+graph joins" assumption, not proof either method wins with SM-G9's actual graph
+retriever. **§1.1's fusion-method recommendation for the 3-leg case is downgraded from
+an asserted switch to explicitly provisional** — see §1/§6 update.
 **Recommendation (unchanged from the reviewer's ask, now with a concrete counter-signal):**
 SM-H2/H3 must measure 3-leg weighted-vs-RRF (and per-leg-calibrated weighted fusion) against
 the real SM-G9 graph retriever before ratifying either fusion method for the 3-leg case.
@@ -449,6 +473,16 @@ and excluded here as option-invariant.
 - Graph-ready for **SM-G9** (both fusions wired, 3-leg choice gated — §3.5); hands the
   fusion/reranker seams to **SM-H2/H3**; hands time-aware placement to **SM-E7**
   (reconciled with SM-R5's decay model, §3.6); flags embedder re-validation for **SM-R4**.
+- **Not yet consistent with SM-R11 (PR #20):** `memory_provider_spec/adapters.py`'s
+  `co_located` adapter hardcodes RRF (`_rrf`, no weighted path) for its vector+graph
+  fusion — opened *after* this decision was already open, so not the same
+  forked-before-merge cause as the embedder gaps below. Flagged via comment on PR #20
+  (2026-07-28); not fixed here (out of scope, different PR/owner).
+- **Not yet consistent with SM-R9 (PR #15):** `memory_multihop/harness/embeddings.py`
+  still defaults to `text-embedding-3-small`, the same pre-SM-R4 placeholder this task
+  had before §3.4's fix — same root cause (forked 2026-07-23, before SM-R4 merged
+  2026-07-27). Flagged via comment on PR #15 (2026-07-28); `e2cd21d` here is a ready-made
+  fix template if that spike is revisited.
 
 ---
 

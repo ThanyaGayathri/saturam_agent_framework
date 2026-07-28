@@ -4,7 +4,9 @@
       "2leg-rrf": 0.7216702635928084,
       "2leg-weighted": 0.7445368854580307,
       "3leg-rrf": 0.663496154578801,
-      "3leg-weighted": 0.7394474274622644
+      "3leg-weighted": 0.7394474274622644,
+      "3leg-rrf-lex": 0.6444836828070547,
+      "3leg-weighted-lex": 0.7046765396972001
     },
     "significance": {
       "3leg-weighted vs 3leg-rrf": {
@@ -22,7 +24,19 @@
         "p_value": 0.0026,
         "n": 300.0,
         "significant": 1.0
+      },
+      "3leg-weighted-lex vs 3leg-rrf-lex": {
+        "delta": 0.06019285689014531,
+        "lo": 0.0389662444519198,
+        "hi": 0.08109774263733198,
+        "p_value": 0.0001,
+        "n": 300.0,
+        "significant": 1.0
       }
+    },
+    "dense_overlap": {
+      "graph_dense_derived": 0.6199999999999999,
+      "graph_lexical_decorrelated": 0.29
     }
   }
 }

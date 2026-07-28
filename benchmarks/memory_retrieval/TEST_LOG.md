@@ -4,6 +4,51 @@ Run log for the retrieval fusion + reranker decision benchmark. Newest first.
 
 ---
 
+### Phase 6 — verification audit of Phase 5's fixes (adversarial circularity check)
+
+**Status:** PASS — all Phase 5 claims re-verified against source data; one gap found and
+closed (adversarial control for the 3-leg graph experiment), everything else confirmed
+accurate as written.
+
+**Trigger:** a follow-up review asked to verify (not just re-assert) each Phase 5 fix,
+explicitly citing this project's history of benchmarks with baked-in circularity that
+only surfaced under adversarial review (SM-R5's importance-oracle confound, SM-R6's
+clean-boundary bug) as the reason to check the 3-leg graph experiment specifically.
+
+**What was checked and confirmed by direct inspection (not re-asserted):**
+- `run.py::build_embedder` defaults are literally `BAAI/bge-base-en-v1.5` /
+  `text-embedding-3-large`@1024 (grep'd the source); the actual result JSONs' recorded
+  `embedding_model` field confirms `local:bge-base-en-v1.5` was really used, not a
+  near-miss substitute.
+- The scifact weighted-vs-RRF delta cited in both the embedder re-run table and the
+  3-leg writeup are **bit-for-bit identical floats** (0.7216702635928084 /
+  0.7445368854580307 in both JSONs) — genuinely the same underlying measurement, not
+  coincidentally close numbers.
+- fiqa is flagged as outstanding directly in `DECISION.md` (not only in the PR reply).
+- Reranker per-dataset breakdown and the bge-reranker-v2-m3 latency-only flag are present
+  in §3.1/§3.1c as written.
+- SM-R5's `no_decay` nDCG (0.893→0.903) really is the highest of every strategy in its
+  own table, and its own §2.3 really does say `no_decay` significantly beats
+  `importance_weighted` on raw recall/nDCG — re-fetched and grep'd the source doc again
+  rather than trusting the earlier transcription.
+- The SM-E7-vs-SM-E4/SM-E9 open question is still flagged in §3.6/§6, not dropped.
+
+**Gap found and closed — adversarial control for the 3-leg graph experiment:** the
+reviewer's concern was real: `GraphRetriever` builds its k-NN graph from dense
+embeddings *and* seeds PPR from dense's own top hits, so the +0.076 result could have
+been circular (graph leg = smoothed copy of dense, making "weighted absorbs it" trivial).
+Added `LexicalGraphRetriever` — same PPR mechanics, but k-NN edges *and* seeds built
+entirely from BM25/TF-IDF, zero shared construction path with dense — plus
+`_diagnose_overlap` to quantify the actual correlation. Measured: top-10 overlap with
+dense is 0.62 for the dense-derived graph vs **0.29** for the lexical one (confirms real
+decorrelation, not just a claim). Re-ran the 3-leg comparison with the lexical leg:
+weighted still beats RRF by **+0.060** (p=0.0001) — smaller than +0.076 but still far
+above the 2-leg baseline (+0.023) and still clearly significant. **The finding survives
+decorrelation.** `DECISION.md` §3.5 updated with this control; `graph_leg_experiment.json`
+has the full numbers for both graph variants + the overlap diagnostic.
+
+---
+
 ### Phase 5 — PR #16 full review response (paranthaman-commits, 2 major + 2 minor)
 
 **Status:** PASS — all 4 review points addressed with real measurement or explicit
