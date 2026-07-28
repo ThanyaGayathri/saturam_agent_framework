@@ -7,8 +7,9 @@ calls cached under `results/` (git-ignored).
 **Embeddings:** the original runs below used Azure `text-embedding-3-small` — **neither of
 SM-R4's ratified picks**, because this branch forked before SM-R4 merged. Fixed in the PR-review
 pass: the harness now defaults to SM-R4's ratified spec (`bge-base-en-v1.5`@768 Mode A /
-`text-embedding-3-large`@1024 Mode B). The dense leg was re-measured — see the final entry.
-Entries dated before that fix should be read as `text-embedding-3-small` results.
+`text-embedding-3-large`@1024 Mode B), and **all three methods were re-run** — see the final
+entries, which **change the headline** (the pure-PPR-vs-hybrid ranking flips). Entries dated
+before that fix should be read as `text-embedding-3-small` results.
 
 ### harness/dataset.py — eval-set builder
 
@@ -108,16 +109,14 @@ Two confounds checked before trusting this:
   verified benign: all inputs/outputs finite, row norms exactly 1.0, BLAS matches an independent
   `np.einsum` path to **1.8e-15**. Now suppressed narrowly with an `isfinite` assert behind it.
 
-**Not re-run (blocked, not skipped):** `hippo` / `hybrid` / EM / F1 and the OpenIE triple-quality
-measurement all need live LLM calls — no credentials on this host, and `results/llm_cache/` is
-git-ignored so the original extraction cannot be replayed. The dense-vs-PPR comparison is
-therefore **asymmetric** and the PPR margin is not yet fully re-validated.
+**Superseded:** the `hippo` / `hybrid` legs were blocked at the time (no credentials on this
+host). They have since been run — see the full re-run entry below, which changes the headline.
 
 ---
 
 ### kg_quality_run.py --self-test — KG-quality scorer
 
-**Status:** PASS (scorer verified; real corpus numbers OUTSTANDING)
+**Status:** PASS (scorer verified; real corpus numbers now measured — see below)
 
 **Description:** New `harness/kg_quality.py` measures whether OpenIE actually recovers 2Wiki's
 gold `evidences` chain (72 gold triples across the 30 questions) at three nested levels —
@@ -132,9 +131,7 @@ a 2-hop gold chain where extraction recovers hop 1 under a longer surface form (
 Ealhswith" for gold "Ealhswith") and recovers hop 2's entities but not the edge between them.
 
 **Result:** SELF-TEST OK — entity_recall 1.0, edge_recall 0.5, triple_recall 0.5, 1 missing
-edge, grounding 3/3, full_chain_recall 0.0 (chain correctly detected as broken). Real numbers
-against the 285-passage corpus need an OpenIE pass (credentials); flagged as outstanding before
-ratification rather than silently skipped.
+edge, grounding 3/3, full_chain_recall 0.0 (chain correctly detected as broken).
 
 ---
 
@@ -148,5 +145,72 @@ working embedder. Now reports the resolved embedder spec and a real readiness fl
 
 **Result:** SMOKE OK — `embedder=local:BAAI/bge-base-en-v1.5@768 ready=True` with no credentials
 present, and it now points at the credential-free `--retrieval-only` path.
+
+---
+
+### run.py --tag smR4ModeA_full30 / _tuned — FULL re-run on SM-R4's embedder
+
+**Status:** PASS — **changes the headline**
+
+**Description:** All three methods re-run end to end on SM-R4 Mode A (`bge-base-en-v1.5`@768)
+with live Azure `gpt-5.4` for OpenIE + query NER + reader. Run twice: once at the inherited
+`link_threshold=0.5`, once at a re-tuned 0.65. One-time OpenIE index: 285 calls, 106,948
+tokens, **$0.62**, 3,413 entities / 7,368 edges, 0 parse failures.
+
+**Result:** **the pure-PPR-vs-hybrid ranking flipped.**
+
+| config | vector | hippo | hybrid |
+| --- | --- | --- | --- |
+| original (3-small, link 0.5) — recall@5 | 0.750 | **0.908** | 0.892 |
+| SM-R4 bge-base, link 0.5 — recall@5 | 0.742 | **0.633** | 0.817 |
+| SM-R4 bge-base, link 0.65 — recall@5 | 0.742 | 0.817 | **0.883** |
+
+The dense leg is flat (0.750→0.742, all-hops identical), so the review's "weak dense baseline"
+concern is retired — but its predicted *outcome* (a flip) is confirmed via the opposite
+mechanism: **pure PPR is embedder-fragile, hybrid is robust**. Recommended config is now hybrid
+on measurement, not caution. Details: `results/summary_smR4ModeA.md`.
+
+**Caveats:** EM/F1 are not comparable to the original run (LLM cache was git-ignored, so reader
+calls were re-issued; `vector` EM drifted 0.567→0.467 on near-identical retrieval). One reader
+call per run is refused by the Azure content filter (a 2Wiki passage, `sexual: medium`); it
+lands in `hybrid`, scores as no-answer, and is reported as `reader_content_filtered`, so
+hybrid's EM/F1 are a lower bound by up to 1/30.
+
+---
+
+### tau_sweep.py — threshold portability + LOOCV
+
+**Status:** PASS
+
+**Description:** Sweeps `synonym_tau` (6 values) and `link_threshold` (11 values) over the real
+KG, plus leave-one-out threshold selection. Costs no LLM spend once the cache is warm.
+
+**Result:** **`link_threshold` is the load-bearing knob and 0.5 is badly miscalibrated for
+bge-base**; `synonym_tau` does nothing. Entity-entity cosine distribution over 3,413 real
+entities (5.8M pairs): p50 **0.4115**, p90 0.4944, p99 0.5878 — so a 0.5 cutoff sits near the
+*median of the random-pair distribution* and ~5% of all pairs falsely qualify as links,
+mis-seeding PPR. Sweep is monotone through that region (recall@5 .633 at 0.3–0.5 → **.817** at
+0.65). `synonym_tau` is flat at .633–.650 across 0.70→0.95 while synonymy edges move 5,516→26.
+
+Honest out-of-sample (LOOCV, since 0.65 was picked on the same 30 questions it is scored on):
+recall@5 **0.750** (in-sample best 0.817), all-hops **0.500** (in-sample best 0.667). So
+re-tuning recovers recall but all-hops barely moves, and pure PPR does not return to its
+original 0.767 under any honest procedure.
+
+---
+
+### kg_quality_run.py --tag full30 — real KG-quality numbers
+
+**Status:** PASS — **KG is weaker than `0/285` implied**
+
+**Description:** Gold-chain recall against 2Wiki's `evidences` (72 gold triples / 30 questions)
+plus grounding rate, replayed free from the warm OpenIE cache.
+
+**Result:** entity recall **0.958**, **edge recall 0.639**, **full-chain recall 0.367**,
+relation-strict triple recall 0.097, grounding rate 0.936. So for **63% of questions the gold
+reasoning chain is not walkable at all**, yet hybrid still reaches 0.700 all-hops — meaning
+PPR's benefit here comes largely from entity/passage membership structure and dense fusion
+rather than from traversing correct relational edges. On clean Wikipedia prose; episodic memory
+should be expected to score worse. Raw: `results/kg_quality_20260728T112728Z_full30.json`.
 
 ---

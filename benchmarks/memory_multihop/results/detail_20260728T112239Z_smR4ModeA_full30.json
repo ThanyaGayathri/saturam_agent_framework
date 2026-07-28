@@ -1,0 +1,1628 @@
+{
+  "vector": [
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "9d527e340bdd11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Olde Hall Retford Nottinghamshire",
+      "gold": "Mercia",
+      "retrieved_titles": [
+        "Æthelgifu, abbess of Shaftesbury",
+        "Ealhswith",
+        "Lord Edmund Howard",
+        "Anne Denman",
+        "Minamoto no Chikako"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "578ac41e0bde11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "1837",
+      "gold": "26 April 1872",
+      "retrieved_titles": [
+        "William Le Poer Trench",
+        "Power Henry Le Poer Trench",
+        "William Le Poer Trench (Royal Navy officer)",
+        "Power Le Poer Trench",
+        "Robert Le Poer Trench"
+      ]
+    },
+    {
+      "recall@k": 0.75,
+      "all_hops_hit": 0.0,
+      "qid": "24408f4b084f11ebbd56ac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Den sommeren jeg fylte 15",
+      "gold": "Ringo The Lone Rider",
+      "retrieved_titles": [
+        "Den sommeren jeg fylte 15",
+        "Ringo the Lone Rider",
+        "Knut Andersen",
+        "Lone Rider",
+        "Don Sharp"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "258867240bdd11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "South Porcupine Ontario",
+      "gold": "Winnipeg, Manitoba",
+      "retrieved_titles": [
+        "Douglas Leiterman",
+        "Priscilla Pointer",
+        "Lucy Kurtz",
+        "Gordon Douglas (director)",
+        "Cosima Wagner"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "ec292cde089e11ebbd78ac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Keith Nichol",
+      "gold": "Keith Nichol",
+      "retrieved_titles": [
+        "Keith Nichol",
+        "Andrzej Kryński",
+        "Keith Slater",
+        "Bernie Bonvoisin",
+        "Ravindra Pushpakumara"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "fb65a4c40bdd11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Wrocław",
+      "gold": "Kraków",
+      "retrieved_titles": [
+        "Elisabeth of Wrocław",
+        "Elisabeth of the Palatinate",
+        "Henry II the Pious",
+        "Preczlaw of Pogarell",
+        "Elizabeth (biblical figure)"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "ebf11d8e089c11ebbd78ac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "At Sword's Edge",
+      "gold": "At Sword'S Edge",
+      "retrieved_titles": [
+        "At Sword's Edge",
+        "Crimson Gold",
+        "At Sword's Point",
+        "Iron Warrior",
+        "Crimson Gold (apple)"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "ac3e7fc3093711ebbdaeac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Wandering Fires",
+      "gold": "Wandering Fires",
+      "retrieved_titles": [
+        "Testament of Orpheus",
+        "Wandering Fires",
+        "Orpheus (film)",
+        "The Blood of a Poet",
+        "L'Orfeide"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "ad059f55093611ebbdaeac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "No Talking Just Head",
+      "gold": "No Talking, Just Head",
+      "retrieved_titles": [
+        "No Talking, Just Head",
+        "Doing It My Way",
+        "It's My Way (Dizzy Gillespie album)",
+        "It's My Way!",
+        "Doing It to Death (album)"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "1cf4c9e208ca11ebbd92ac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Born to Speed",
+      "gold": "Born To Speed",
+      "retrieved_titles": [
+        "Born to Speed",
+        "Knife in the Water",
+        "Ben Palmer",
+        "Don Sharp",
+        "At Sword's Edge"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "200805ca0bb011ebab90acde48001122",
+      "qtype": "inference",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Reginar II Count of Hainaut",
+      "gold": "Reginar II, Count of Hainaut",
+      "retrieved_titles": [
+        "Reginar IV, Count of Mons",
+        "Reginar V, Count of Mons",
+        "Reginar III, Count of Hainaut",
+        "Herman, Count of Hainaut",
+        "Manasses de Ramerupt"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "e41c14820bd911eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "French film director born in Paris",
+      "gold": "Cahiers du cinéma",
+      "retrieved_titles": [
+        "Man at Bath",
+        "Ian Barry (director)",
+        "Claude Weisz",
+        "G. Marthandan",
+        "Peter Levin"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "26f25e9d089c11ebbd78ac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Seth Joshua",
+      "gold": "Seth Joshua",
+      "retrieved_titles": [
+        "Elmer W. Conti",
+        "Seth Joshua",
+        "Crazy Legs Conti",
+        "Domenico Conti Bazzani",
+        "Shashi Kant Seth"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "b2a8d7b60bdc11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Northern Ireland",
+      "gold": "Northern Ireland",
+      "retrieved_titles": [
+        "The Making of Plus One",
+        "Plus One: The Home Video",
+        "Claude Weisz",
+        "Mary McGuckian",
+        "Rumbi Katedza"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "a1e68bee08c111ebbd8bac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Girls in Prison",
+      "gold": "Girls In Prison",
+      "retrieved_titles": [
+        "Pathfinder (1987 film)",
+        "Girls in Prison",
+        "Ben Palmer",
+        "Paul Scheuring",
+        "Them!"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "f08298de08ef11ebbda8ac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Peter Elmsley",
+      "gold": "Peter Elmsley",
+      "retrieved_titles": [
+        "Peter Elmsley (bookseller)",
+        "Peter Elmsley",
+        "Grete Meisel-Hess",
+        "Peter Crüger",
+        "Jim Ramel Kjellgren"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "2425931a0bde11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Grammy Award for Best Metal Performance",
+      "gold": "Grammy Award for Best Metal Performance",
+      "retrieved_titles": [
+        "He Is (Ghost song)",
+        "Ghost (Swedish band)",
+        "Doing It My Way",
+        "O Valencia!",
+        "Benny Chan (actor)"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "87c2be8908ab11ebbd82ac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Stolen Identity",
+      "gold": "Them!",
+      "retrieved_titles": [
+        "Stolen Identity",
+        "Them!",
+        "Don Sharp",
+        "Mary McGuckian",
+        "Attention bandits!"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "d1065ffa0bda11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Carhaix Finistère",
+      "gold": "London",
+      "retrieved_titles": [
+        "The Autumn of Pride",
+        "Felicia Pride",
+        "The Blood of a Poet",
+        "Knut Andersen",
+        "Christophe Honoré"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "6b55ac320bdb11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.6666666666666666,
+      "cover": 0.0,
+      "pred": "24 March 1941",
+      "gold": "24 March 1927",
+      "retrieved_titles": [
+        "Prince John Konstantinovich of Russia",
+        "Prince Constantine Constantinovich of Russia",
+        "Prince Gabriel Constantinovich of Russia",
+        "Grand Duke Nicholas Konstantinovich of Russia",
+        "Prince Igor Constantinovich of Russia"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "6e5f2a2f085d11ebbd5cac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "The Face of Fu Manchu",
+      "gold": "The Hidden One",
+      "retrieved_titles": [
+        "The Face of Fu Manchu",
+        "Don Sharp",
+        "The Mask of Fu Manchu",
+        "The Brides of Fu Manchu",
+        "The Blood of Fu Manchu"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "0234f1ec0bde11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Lan Xang",
+      "gold": "Lao",
+      "retrieved_titles": [
+        "Kham Keut",
+        "Obata Toramori",
+        "Hubba bint Hulail",
+        "Fatima bint Mubarak Al Ketbi",
+        "W. P. Kellino"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "b42ac0920bda11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Lviv",
+      "gold": "L'viv",
+      "retrieved_titles": [
+        "Znayu Ya",
+        "Ou Ya",
+        "Ruslana",
+        "Tjuyu",
+        "Cheng Chi-ya"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "5569eb4e0baf11ebab90acde48001122",
+      "qtype": "inference",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Franz Liszt",
+      "gold": "Marie d'Agoult",
+      "retrieved_titles": [
+        "Eva Chamberlain",
+        "Hannah Arnold",
+        "Hubba bint Hulail",
+        "Doria Ragland",
+        "Marian Shields Robinson"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "3ae059580bdb11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Albuquerque New Mexico",
+      "gold": "Albuquerque, New Mexico",
+      "retrieved_titles": [
+        "Encino Man",
+        "Knut Andersen",
+        "Pauly Shore",
+        "Les Mayfield",
+        "Rafael Romero Marchent"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "b9a3d70a0baf11ebab90acde48001122",
+      "qtype": "inference",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Frederick William III",
+      "gold": "Prince Albert of Prussia",
+      "retrieved_titles": [
+        "Duke William of Mecklenburg-Schwerin",
+        "Duke Louis of Mecklenburg-Schwerin",
+        "Prince Wilhelm of Prussia (1906–1940)",
+        "John VI, Duke of Mecklenburg",
+        "Duchess Gustave Caroline of Mecklenburg-Strelitz"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "3f136b03086e11ebbd62ac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "I Learned It from Father",
+      "gold": "Lemon Grove Kids Meet The Monsters",
+      "retrieved_titles": [
+        "Lemon Grove Kids Meet the Monsters",
+        "I Learned It from Father",
+        "The Bowery Boys Meet the Monsters",
+        "Them!",
+        "Encino Man"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "2ed33a200bb011ebab90acde48001122",
+      "qtype": "inference",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Hedwig von Oldenburg in Wildeshausen",
+      "gold": "Hedwig von Oldenburg in Wildeshausen",
+      "retrieved_titles": [
+        "Conrad I, Count of Oldenburg",
+        "Christian V, Count of Oldenburg",
+        "Christian, Duke of Oldenburg",
+        "Anthony I, Count of Oldenburg",
+        "John II, Count of Oldenburg"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "eb26a9e20baf11ebab90acde48001122",
+      "qtype": "inference",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Maria Thins",
+      "gold": "Ermentrude of Orléans",
+      "retrieved_titles": [
+        "Adelaide of Paris",
+        "Adelaide of Rheinfelden",
+        "Maria Thins",
+        "Elisabeth of the Palatinate",
+        "Baroness Gösta von dem Bussche-Haddenhausen"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "170b21e60bb011ebab90acde48001122",
+      "qtype": "inference",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Elizabeth",
+      "gold": "John the Baptist",
+      "retrieved_titles": [
+        "Sobe (sister of Saint Anne)",
+        "Somnjalose Simelane",
+        "Anne Denman",
+        "Ealhswith",
+        "Albina du Boisrouvray"
+      ]
+    }
+  ],
+  "hippo": [
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "9d527e340bdd11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Mercia",
+      "gold": "Mercia",
+      "retrieved_titles": [
+        "Æthelgifu, abbess of Shaftesbury",
+        "Ealhswith",
+        "Princess Elizabeth of Great Britain",
+        "Theodred II (Bishop of Elmham)",
+        "Orpheus (film)"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "578ac41e0bde11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "26 April 1872",
+      "gold": "26 April 1872",
+      "retrieved_titles": [
+        "Nicholas Trench, 9th Earl of Clancarty",
+        "William Trench, 3rd Earl of Clancarty",
+        "William Le Poer Trench",
+        "William Le Poer Trench (Royal Navy officer)",
+        "Robert Le Poer Trench"
+      ]
+    },
+    {
+      "recall@k": 0.25,
+      "all_hops_hit": 0.0,
+      "qid": "24408f4b084f11ebbd56ac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Den Sommeren Jeg Fylte 15",
+      "gold": "Ringo The Lone Rider",
+      "retrieved_titles": [
+        "Kaare Kroppan",
+        "Ringo the Lone Rider",
+        "Lone Rider",
+        "Barthold A. Butenschøn Sr.",
+        "The Lone Rider and the Bandit"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "258867240bdd11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "South Porcupine Ontario",
+      "gold": "Winnipeg, Manitoba",
+      "retrieved_titles": [
+        "Douglas Leiterman",
+        "The Brides of Fu Manchu",
+        "The Blood of Fu Manchu",
+        "The Face of Fu Manchu",
+        "W. P. Kellino"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "ec292cde089e11ebbd78ac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Keith Nichol",
+      "gold": "Keith Nichol",
+      "retrieved_titles": [
+        "Roman Polanski",
+        "Andrzej Kryński",
+        "Keith Nichol",
+        "James Keith Louden",
+        "Keith Slater"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "fb65a4c40bdd11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Wrocław",
+      "gold": "Kraków",
+      "retrieved_titles": [
+        "Elisabeth of Wrocław",
+        "Elisabeth of the Palatinate",
+        "Henry II the Pious",
+        "Lambert I, Count of Louvain",
+        "Wandering Fires"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "ebf11d8e089c11ebbd78ac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Crimson Gold",
+      "gold": "At Sword'S Edge",
+      "retrieved_titles": [
+        "Crimson Gold (apple)",
+        "Elizabeth (biblical figure)",
+        "Douglas Leiterman",
+        "Crimson Gold",
+        "No Talking, Just Head"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "ac3e7fc3093711ebbdaeac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Wandering Fires",
+      "gold": "Wandering Fires",
+      "retrieved_titles": [
+        "Elizabeth (biblical figure)",
+        "Wandering Fires",
+        "In the World Tonight",
+        "Baglan Mailybayev",
+        "Attention bandits!"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "ad059f55093611ebbdaeac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "No Talking Just Head",
+      "gold": "No Talking, Just Head",
+      "retrieved_titles": [
+        "No Talking, Just Head",
+        "It's My Way (Dizzy Gillespie album)",
+        "Doing It My Way",
+        "It's My Way!",
+        "Pauly Shore"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "1cf4c9e208ca11ebbd92ac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Born to Speed",
+      "gold": "Born To Speed",
+      "retrieved_titles": [
+        "Knife in the Water",
+        "Born to Speed",
+        "Prince Wilhelm of Prussia (1906–1940)",
+        "O Valencia!",
+        "Doing It to Death (album)"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "200805ca0bb011ebab90acde48001122",
+      "qtype": "inference",
+      "em": 0.0,
+      "f1": 0.8000000000000002,
+      "cover": 0.0,
+      "pred": "Reginar III Count of Hainaut",
+      "gold": "Reginar II, Count of Hainaut",
+      "retrieved_titles": [
+        "Reginar IV, Count of Mons",
+        "Lambert I, Count of Louvain",
+        "Werner, Count of Valenciennes",
+        "Reginar V, Count of Mons",
+        "Ebles I of Roucy"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "e41c14820bd911eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.8571428571428571,
+      "cover": 1.0,
+      "pred": "Les Cahiers du Cinéma",
+      "gold": "Cahiers du cinéma",
+      "retrieved_titles": [
+        "Man at Bath",
+        "Prince Constantine Constantinovich of Russia",
+        "Elmer W. Conti",
+        "Christophe Honoré",
+        "Roman Polanski"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "26f25e9d089c11ebbd78ac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Seth Joshua",
+      "gold": "Seth Joshua",
+      "retrieved_titles": [
+        "Elmer W. Conti",
+        "Reginald Jackson (bishop)",
+        "Sutekh",
+        "Seth Joshua",
+        "Crazy Legs Conti"
+      ]
+    },
+    {
+      "recall@k": 0.0,
+      "all_hops_hit": 0.0,
+      "qid": "b2a8d7b60bdc11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Hong Kong",
+      "gold": "Northern Ireland",
+      "retrieved_titles": [
+        "Crimson Gold (apple)",
+        "Ebles I of Roucy",
+        "O Valencia!",
+        "Ruslana",
+        "Benny Chan (actor)"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "a1e68bee08c111ebbd8bac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Girls in Prison",
+      "gold": "Girls In Prison",
+      "retrieved_titles": [
+        "Pathfinder (1987 film)",
+        "Girls in Prison",
+        "Roman Polanski",
+        "William Le Poer Trench (Royal Navy officer)",
+        "Barthold A. Butenschøn Sr."
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "f08298de08ef11ebbda8ac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Peter Elmsley",
+      "gold": "Peter Elmsley",
+      "retrieved_titles": [
+        "Peter Elmsley",
+        "Peter Elmsley (bookseller)",
+        "Grete Meisel-Hess",
+        "Johann Jacob Hess",
+        "Carl Ernst Christoph Hess"
+      ]
+    },
+    {
+      "recall@k": 0.0,
+      "all_hops_hit": 0.0,
+      "qid": "2425931a0bde11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Cannes Film Festival",
+      "gold": "Grammy Award for Best Metal Performance",
+      "retrieved_titles": [
+        "Prince Constantine Constantinovich of Russia",
+        "Elizabeth (biblical figure)",
+        "Baglan Mailybayev",
+        "Christophe Honoré",
+        "Fulco"
+      ]
+    },
+    {
+      "recall@k": 0.25,
+      "all_hops_hit": 0.0,
+      "qid": "87c2be8908ab11ebbd82ac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Them",
+      "gold": "Them!",
+      "retrieved_titles": [
+        "Stolen Identity",
+        "Girls in Prison",
+        "Crimson Gold (apple)",
+        "Ebles I of Roucy",
+        "Elizabeth (biblical figure)"
+      ]
+    },
+    {
+      "recall@k": 0.0,
+      "all_hops_hit": 0.0,
+      "qid": "d1065ffa0bda11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Hong Kong",
+      "gold": "London",
+      "retrieved_titles": [
+        "Khalid al-Habib",
+        "Prince Constantine Constantinovich of Russia",
+        "O Valencia!",
+        "Ruslana",
+        "Benny Chan (actor)"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "6b55ac320bdb11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "24 March 1927",
+      "gold": "24 March 1927",
+      "retrieved_titles": [
+        "Prince John Konstantinovich of Russia",
+        "Princess Elisabeth of Saxe-Altenburg (1865–1927)",
+        "Prince Constantine Constantinovich of Russia",
+        "Prince Igor Constantinovich of Russia",
+        "Prince Gabriel Constantinovich of Russia"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "6e5f2a2f085d11ebbd5cac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "The Hidden One",
+      "gold": "The Hidden One",
+      "retrieved_titles": [
+        "Roberto Gavaldón",
+        "The Hidden One",
+        "Herman, Count of Hainaut",
+        "Sutekh",
+        "Born to Speed"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "0234f1ec0bde11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Lan Xang",
+      "gold": "Lao",
+      "retrieved_titles": [
+        "Kham Keut",
+        "Samsenethai",
+        "Roman Polanski",
+        "Peter Elmsley",
+        "Duke Louis of Mecklenburg-Schwerin"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "b42ac0920bda11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Fredrikstad",
+      "gold": "L'viv",
+      "retrieved_titles": [
+        "Znayu Ya",
+        "Liu Ya",
+        "Ou Ya",
+        "Plus One: The Home Video",
+        "Olav Aaraas"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "5569eb4e0baf11ebab90acde48001122",
+      "qtype": "inference",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Marie dAgoult",
+      "gold": "Marie d'Agoult",
+      "retrieved_titles": [
+        "Eva Chamberlain",
+        "Prince Constantine Constantinovich of Russia",
+        "Testament of Orpheus",
+        "O Valencia!",
+        "Cosima Wagner"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "3ae059580bdb11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Albuquerque New Mexico",
+      "gold": "Albuquerque, New Mexico",
+      "retrieved_titles": [
+        "Encino Man",
+        "Pauly Shore",
+        "Power Henry Le Poer Trench",
+        "Power Le Poer Trench",
+        "Les Mayfield"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "b9a3d70a0baf11ebab90acde48001122",
+      "qtype": "inference",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Prince Albert of Prussia",
+      "gold": "Prince Albert of Prussia",
+      "retrieved_titles": [
+        "Duke Louis of Mecklenburg-Schwerin",
+        "Duke William of Mecklenburg-Schwerin",
+        "Princess Alexandrine of Prussia (1842–1906)",
+        "Duchess Gustave Caroline of Mecklenburg-Strelitz",
+        "Kham Keut"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "3f136b03086e11ebbd62ac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "I Learned It from Father",
+      "gold": "Lemon Grove Kids Meet The Monsters",
+      "retrieved_titles": [
+        "Lemon Grove Kids Meet the Monsters",
+        "I Learned It from Father",
+        "Prince Wilhelm of Prussia (1906–1940)",
+        "Ebles I of Roucy",
+        "Louis the Stammerer"
+      ]
+    },
+    {
+      "recall@k": 0.0,
+      "all_hops_hit": 0.0,
+      "qid": "2ed33a200bb011ebab90acde48001122",
+      "qtype": "inference",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Ingeborg of Itzehoe",
+      "gold": "Hedwig von Oldenburg in Wildeshausen",
+      "retrieved_titles": [
+        "Christian V, Count of Oldenburg",
+        "Anthony I, Count of Oldenburg",
+        "Crimson Gold (apple)",
+        "Christian, Duke of Oldenburg",
+        "Prince Constantine Constantinovich of Russia"
+      ]
+    },
+    {
+      "recall@k": 0.0,
+      "all_hops_hit": 0.0,
+      "qid": "eb26a9e20baf11ebab90acde48001122",
+      "qtype": "inference",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Elizabeth",
+      "gold": "Ermentrude of Orléans",
+      "retrieved_titles": [
+        "Elizabeth (biblical figure)",
+        "Baglan Mailybayev",
+        "O Valencia!",
+        "Ruslana",
+        "Benny Chan (actor)"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "170b21e60bb011ebab90acde48001122",
+      "qtype": "inference",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Elizabeth",
+      "gold": "John the Baptist",
+      "retrieved_titles": [
+        "Sobe (sister of Saint Anne)",
+        "Douglas Leiterman",
+        "A Town South of Bakersfield",
+        "Elizabeth (biblical figure)",
+        "Margaret Douglas, Fair Maid of Galloway"
+      ]
+    }
+  ],
+  "hybrid": [
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "9d527e340bdd11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Mercia",
+      "gold": "Mercia",
+      "retrieved_titles": [
+        "Æthelgifu, abbess of Shaftesbury",
+        "Ealhswith",
+        "Lord Edmund Howard",
+        "Princess Elizabeth of Great Britain",
+        "Anne Denman"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "578ac41e0bde11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "26 April 1872",
+      "gold": "26 April 1872",
+      "retrieved_titles": [
+        "William Le Poer Trench",
+        "William Le Poer Trench (Royal Navy officer)",
+        "William Trench, 3rd Earl of Clancarty",
+        "Nicholas Trench, 9th Earl of Clancarty",
+        "Power Henry Le Poer Trench"
+      ]
+    },
+    {
+      "recall@k": 0.75,
+      "all_hops_hit": 0.0,
+      "qid": "24408f4b084f11ebbd56ac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Den sommeren jeg fylte 15",
+      "gold": "Ringo The Lone Rider",
+      "retrieved_titles": [
+        "Ringo the Lone Rider",
+        "Den sommeren jeg fylte 15",
+        "Lone Rider",
+        "Knut Andersen",
+        "The Lone Rider and the Bandit"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "258867240bdd11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "South Porcupine Ontario",
+      "gold": "Winnipeg, Manitoba",
+      "retrieved_titles": [
+        "Douglas Leiterman",
+        "Priscilla Pointer",
+        "The Brides of Fu Manchu",
+        "Lucy Kurtz",
+        "The Blood of Fu Manchu"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "ec292cde089e11ebbd78ac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Keith Nichol",
+      "gold": "Keith Nichol",
+      "retrieved_titles": [
+        "Keith Nichol",
+        "Andrzej Kryński",
+        "Keith Slater",
+        "James Keith Louden",
+        "Roman Polanski"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "fb65a4c40bdd11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "1196",
+      "gold": "Kraków",
+      "retrieved_titles": [
+        "Elisabeth of Wrocław",
+        "Elisabeth of the Palatinate",
+        "Henry II the Pious",
+        "Preczlaw of Pogarell",
+        "Lambert I, Count of Louvain"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "ebf11d8e089c11ebbd78ac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "At Sword's Edge",
+      "gold": "At Sword'S Edge",
+      "retrieved_titles": [
+        "Crimson Gold (apple)",
+        "Crimson Gold",
+        "At Sword's Edge",
+        "Elizabeth (biblical figure)",
+        "At Sword's Point"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "ac3e7fc3093711ebbdaeac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Wandering Fires",
+      "gold": "Wandering Fires",
+      "retrieved_titles": [
+        "Wandering Fires",
+        "Attention bandits!",
+        "Pathfinder (1987 film)",
+        "Testament of Orpheus",
+        "Elizabeth (biblical figure)"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "ad059f55093611ebbdaeac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "No Talking Just Head",
+      "gold": "No Talking, Just Head",
+      "retrieved_titles": [
+        "No Talking, Just Head",
+        "Doing It My Way",
+        "It's My Way (Dizzy Gillespie album)",
+        "It's My Way!",
+        "Doing It to Death (album)"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "1cf4c9e208ca11ebbd92ac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Born To Speed",
+      "gold": "Born To Speed",
+      "retrieved_titles": [
+        "Born to Speed",
+        "Knife in the Water",
+        "Ben Palmer",
+        "Prince Wilhelm of Prussia (1906–1940)",
+        "Don Sharp"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "200805ca0bb011ebab90acde48001122",
+      "qtype": "inference",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Reginar II Count of Hainaut",
+      "gold": "Reginar II, Count of Hainaut",
+      "retrieved_titles": [
+        "Reginar IV, Count of Mons",
+        "Reginar V, Count of Mons",
+        "Werner, Count of Valenciennes",
+        "Lambert I, Count of Louvain",
+        "Reginar III, Count of Hainaut"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "e41c14820bd911eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "",
+      "gold": "Cahiers du cinéma",
+      "retrieved_titles": [
+        "Man at Bath",
+        "Ian Barry (director)",
+        "Prince Constantine Constantinovich of Russia",
+        "Claude Weisz",
+        "Elmer W. Conti"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "26f25e9d089c11ebbd78ac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Seth Joshua",
+      "gold": "Seth Joshua",
+      "retrieved_titles": [
+        "Elmer W. Conti",
+        "Seth Joshua",
+        "Crazy Legs Conti",
+        "Sutekh",
+        "Reginald Jackson (bishop)"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "b2a8d7b60bdc11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Paris",
+      "gold": "Northern Ireland",
+      "retrieved_titles": [
+        "The Making of Plus One",
+        "Crimson Gold (apple)",
+        "Plus One: The Home Video",
+        "Ebles I of Roucy",
+        "Claude Weisz"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "a1e68bee08c111ebbd8bac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Girls in Prison",
+      "gold": "Girls In Prison",
+      "retrieved_titles": [
+        "Pathfinder (1987 film)",
+        "Girls in Prison",
+        "Ben Palmer",
+        "Roman Polanski",
+        "Paul Scheuring"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "f08298de08ef11ebbda8ac1f6bf848b6",
+      "qtype": "comparison",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Grete Meisel Hess",
+      "gold": "Peter Elmsley",
+      "retrieved_titles": [
+        "Peter Elmsley (bookseller)",
+        "Peter Elmsley",
+        "Grete Meisel-Hess",
+        "Carl Ernst Christoph Hess",
+        "Axel von Ambesser"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "2425931a0bde11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Grammy Award for Best Metal Performance",
+      "gold": "Grammy Award for Best Metal Performance",
+      "retrieved_titles": [
+        "He Is (Ghost song)",
+        "Prince Constantine Constantinovich of Russia",
+        "Ghost (Swedish band)",
+        "Elizabeth (biblical figure)",
+        "Doing It My Way"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "87c2be8908ab11ebbd82ac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Them",
+      "gold": "Them!",
+      "retrieved_titles": [
+        "Stolen Identity",
+        "Them!",
+        "Girls in Prison",
+        "Don Sharp",
+        "Crimson Gold (apple)"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "d1065ffa0bda11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "London",
+      "gold": "London",
+      "retrieved_titles": [
+        "The Autumn of Pride",
+        "Khalid al-Habib",
+        "Felicia Pride",
+        "Prince Constantine Constantinovich of Russia",
+        "The Blood of a Poet"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "6b55ac320bdb11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "24 March 1927",
+      "gold": "24 March 1927",
+      "retrieved_titles": [
+        "Prince John Konstantinovich of Russia",
+        "Prince Constantine Constantinovich of Russia",
+        "Princess Elisabeth of Saxe-Altenburg (1865–1927)",
+        "Prince Gabriel Constantinovich of Russia",
+        "Prince Igor Constantinovich of Russia"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "6e5f2a2f085d11ebbd5cac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "The Hidden One",
+      "gold": "The Hidden One",
+      "retrieved_titles": [
+        "The Hidden One",
+        "The Face of Fu Manchu",
+        "Don Sharp",
+        "Roberto Gavaldón",
+        "The Mask of Fu Manchu"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "0234f1ec0bde11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Lao",
+      "gold": "Lao",
+      "retrieved_titles": [
+        "Kham Keut",
+        "Obata Toramori",
+        "Samsenethai",
+        "Hubba bint Hulail",
+        "Roman Polanski"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "b42ac0920bda11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Lviv",
+      "gold": "L'viv",
+      "retrieved_titles": [
+        "Znayu Ya",
+        "Ou Ya",
+        "Liu Ya",
+        "Ruslana",
+        "Tjuyu"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "5569eb4e0baf11ebab90acde48001122",
+      "qtype": "inference",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Franz Liszt",
+      "gold": "Marie d'Agoult",
+      "retrieved_titles": [
+        "Eva Chamberlain",
+        "Hannah Arnold",
+        "Prince Constantine Constantinovich of Russia",
+        "Hubba bint Hulail",
+        "Testament of Orpheus"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "3ae059580bdb11eba7f7acde48001122",
+      "qtype": "compositional",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Albuquerque New Mexico",
+      "gold": "Albuquerque, New Mexico",
+      "retrieved_titles": [
+        "Encino Man",
+        "Pauly Shore",
+        "Les Mayfield",
+        "Knut Andersen",
+        "Power Henry Le Poer Trench"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "b9a3d70a0baf11ebab90acde48001122",
+      "qtype": "inference",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Prince Albert of Prussia",
+      "gold": "Prince Albert of Prussia",
+      "retrieved_titles": [
+        "Duke William of Mecklenburg-Schwerin",
+        "Duke Louis of Mecklenburg-Schwerin",
+        "Duchess Gustave Caroline of Mecklenburg-Strelitz",
+        "Prince Wilhelm of Prussia (1906–1940)",
+        "Princess Alexandrine of Prussia (1842–1906)"
+      ]
+    },
+    {
+      "recall@k": 0.75,
+      "all_hops_hit": 0.0,
+      "qid": "3f136b03086e11ebbd62ac1f6bf848b6",
+      "qtype": "bridge_comparison",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Lemon Grove Kids Meet The Monsters",
+      "gold": "Lemon Grove Kids Meet The Monsters",
+      "retrieved_titles": [
+        "Lemon Grove Kids Meet the Monsters",
+        "I Learned It from Father",
+        "Don Sharp",
+        "Ray Dennis Steckler",
+        "The Bowery Boys Meet the Monsters"
+      ]
+    },
+    {
+      "recall@k": 1.0,
+      "all_hops_hit": 1.0,
+      "qid": "2ed33a200bb011ebab90acde48001122",
+      "qtype": "inference",
+      "em": 1.0,
+      "f1": 1.0,
+      "cover": 1.0,
+      "pred": "Hedwig von Oldenburg in Wildeshausen",
+      "gold": "Hedwig von Oldenburg in Wildeshausen",
+      "retrieved_titles": [
+        "Christian V, Count of Oldenburg",
+        "Anthony I, Count of Oldenburg",
+        "Conrad I, Count of Oldenburg",
+        "Christian, Duke of Oldenburg",
+        "John II, Count of Oldenburg"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "eb26a9e20baf11ebab90acde48001122",
+      "qtype": "inference",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Maria Thins",
+      "gold": "Ermentrude of Orléans",
+      "retrieved_titles": [
+        "Elizabeth (biblical figure)",
+        "Adelaide of Paris",
+        "Adelaide of Rheinfelden",
+        "Baglan Mailybayev",
+        "Maria Thins"
+      ]
+    },
+    {
+      "recall@k": 0.5,
+      "all_hops_hit": 0.0,
+      "qid": "170b21e60bb011ebab90acde48001122",
+      "qtype": "inference",
+      "em": 0.0,
+      "f1": 0.0,
+      "cover": 0.0,
+      "pred": "Elizabeth",
+      "gold": "John the Baptist",
+      "retrieved_titles": [
+        "Sobe (sister of Saint Anne)",
+        "Somnjalose Simelane",
+        "Douglas Leiterman",
+        "Anne Denman",
+        "A Town South of Bakersfield"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,365 @@
+{
+  "vector": {
+    "method": "vector",
+    "k": 5,
+    "n_items": 30,
+    "embedder": "local:BAAI/bge-base-en-v1.5@768",
+    "retrieval_only": false,
+    "link_threshold": 0.65,
+    "index_stats": {
+      "n_passages": 285,
+      "n_entities": 0,
+      "n_edges": 0,
+      "llm": {
+        "calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "latency_s": 0.0,
+        "usd_cost": 0.0
+      },
+      "embed_calls": 0,
+      "index_seconds": 0.04
+    },
+    "openie_failures": 0,
+    "reader_content_filtered": 0,
+    "reader_usage": {
+      "calls": 30,
+      "input_tokens": 20055,
+      "output_tokens": 252,
+      "total_tokens": 20307,
+      "latency_s": 53.212,
+      "usd_cost": 0.0276
+    },
+    "query_latency_s": {
+      "mean": 0.0,
+      "p95": 0.0
+    },
+    "overall": {
+      "recall@k": {
+        "mean": 0.7417,
+        "ci95": [
+          0.65,
+          0.8333
+        ],
+        "n": 30
+      },
+      "all_hops_hit": {
+        "mean": 0.4667,
+        "ci95": [
+          0.3,
+          0.6333
+        ],
+        "n": 30
+      },
+      "em": {
+        "mean": 0.4667,
+        "ci95": [
+          0.3,
+          0.6333
+        ],
+        "n": 30
+      },
+      "f1": {
+        "mean": 0.4889,
+        "ci95": [
+          0.3222,
+          0.6556
+        ],
+        "n": 30
+      },
+      "cover": {
+        "mean": 0.4667,
+        "ci95": [
+          0.3,
+          0.6333
+        ],
+        "n": 30
+      }
+    },
+    "chaining_only": {
+      "recall@k": {
+        "mean": 0.6771,
+        "ci95": [
+          0.5938,
+          0.7708
+        ],
+        "n": 24
+      },
+      "all_hops_hit": {
+        "mean": 0.3333,
+        "ci95": [
+          0.1667,
+          0.5417
+        ],
+        "n": 24
+      },
+      "em": {
+        "mean": 0.3333,
+        "ci95": [
+          0.1667,
+          0.5417
+        ],
+        "n": 24
+      },
+      "f1": {
+        "mean": 0.3611,
+        "ci95": [
+          0.1667,
+          0.5694
+        ],
+        "n": 24
+      },
+      "cover": {
+        "mean": 0.3333,
+        "ci95": [
+          0.1667,
+          0.5417
+        ],
+        "n": 24
+      }
+    }
+  },
+  "hippo": {
+    "method": "hippo",
+    "k": 5,
+    "n_items": 30,
+    "embedder": "local:BAAI/bge-base-en-v1.5@768",
+    "retrieval_only": false,
+    "link_threshold": 0.65,
+    "index_stats": {
+      "n_passages": 285,
+      "n_entities": 3413,
+      "n_edges": 7368,
+      "llm": {
+        "calls": 315,
+        "input_tokens": 53384,
+        "output_tokens": 56254,
+        "total_tokens": 109638,
+        "latency_s": 968.348,
+        "usd_cost": 0.6293
+      },
+      "embed_calls": 0,
+      "index_seconds": 0.72
+    },
+    "openie_failures": 0,
+    "reader_content_filtered": 0,
+    "reader_usage": {
+      "calls": 30,
+      "input_tokens": 27979,
+      "output_tokens": 241,
+      "total_tokens": 28220,
+      "latency_s": 48.502,
+      "usd_cost": 0.0374
+    },
+    "query_latency_s": {
+      "mean": 0.02,
+      "p95": 0.018
+    },
+    "overall": {
+      "recall@k": {
+        "mean": 0.8167,
+        "ci95": [
+          0.7167,
+          0.9083
+        ],
+        "n": 30
+      },
+      "all_hops_hit": {
+        "mean": 0.6333,
+        "ci95": [
+          0.4667,
+          0.8
+        ],
+        "n": 30
+      },
+      "em": {
+        "mean": 0.5,
+        "ci95": [
+          0.3333,
+          0.6667
+        ],
+        "n": 30
+      },
+      "f1": {
+        "mean": 0.5739,
+        "ci95": [
+          0.4044,
+          0.7439
+        ],
+        "n": 30
+      },
+      "cover": {
+        "mean": 0.5333,
+        "ci95": [
+          0.3667,
+          0.7
+        ],
+        "n": 30
+      }
+    },
+    "chaining_only": {
+      "recall@k": {
+        "mean": 0.8125,
+        "ci95": [
+          0.6979,
+          0.9167
+        ],
+        "n": 24
+      },
+      "all_hops_hit": {
+        "mean": 0.625,
+        "ci95": [
+          0.4167,
+          0.7917
+        ],
+        "n": 24
+      },
+      "em": {
+        "mean": 0.4167,
+        "ci95": [
+          0.2083,
+          0.625
+        ],
+        "n": 24
+      },
+      "f1": {
+        "mean": 0.509,
+        "ci95": [
+          0.316,
+          0.6944
+        ],
+        "n": 24
+      },
+      "cover": {
+        "mean": 0.4583,
+        "ci95": [
+          0.25,
+          0.6667
+        ],
+        "n": 24
+      }
+    }
+  },
+  "hybrid": {
+    "method": "hybrid",
+    "k": 5,
+    "n_items": 30,
+    "embedder": "local:BAAI/bge-base-en-v1.5@768",
+    "retrieval_only": false,
+    "link_threshold": 0.65,
+    "index_stats": {
+      "n_passages": 285,
+      "n_entities": 3413,
+      "n_edges": 7368,
+      "llm": {
+        "calls": 315,
+        "input_tokens": 53384,
+        "output_tokens": 56254,
+        "total_tokens": 109638,
+        "latency_s": 968.348,
+        "usd_cost": 0.6293
+      },
+      "embed_calls": 0,
+      "index_seconds": 0.73
+    },
+    "openie_failures": 0,
+    "reader_content_filtered": 1,
+    "reader_usage": {
+      "calls": 29,
+      "input_tokens": 23408,
+      "output_tokens": 234,
+      "total_tokens": 23642,
+      "latency_s": 42.48,
+      "usd_cost": 0.0316
+    },
+    "query_latency_s": {
+      "mean": 0.018,
+      "p95": 0.02
+    },
+    "overall": {
+      "recall@k": {
+        "mean": 0.8833,
+        "ci95": [
+          0.8083,
+          0.9417
+        ],
+        "n": 30
+      },
+      "all_hops_hit": {
+        "mean": 0.7,
+        "ci95": [
+          0.5333,
+          0.8667
+        ],
+        "n": 30
+      },
+      "em": {
+        "mean": 0.6667,
+        "ci95": [
+          0.4667,
+          0.8333
+        ],
+        "n": 30
+      },
+      "f1": {
+        "mean": 0.719,
+        "ci95": [
+          0.5556,
+          0.8635
+        ],
+        "n": 30
+      },
+      "cover": {
+        "mean": 0.7,
+        "ci95": [
+          0.5333,
+          0.8667
+        ],
+        "n": 30
+      }
+    },
+    "chaining_only": {
+      "recall@k": {
+        "mean": 0.8542,
+        "ci95": [
+          0.7708,
+          0.9375
+        ],
+        "n": 24
+      },
+      "all_hops_hit": {
+        "mean": 0.625,
+        "ci95": [
+          0.4167,
+          0.8333
+        ],
+        "n": 24
+      },
+      "em": {
+        "mean": 0.6667,
+        "ci95": [
+          0.4583,
+          0.8333
+        ],
+        "n": 24
+      },
+      "f1": {
+        "mean": 0.7083,
+        "ci95": [
+          0.5139,
+          0.875
+        ],
+        "n": 24
+      },
+      "cover": {
+        "mean": 0.7083,
+        "ci95": [
+          0.5,
+          0.875
+        ],
+        "n": 24
+      }
+    }
+  }
+}

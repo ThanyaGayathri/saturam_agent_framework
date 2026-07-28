@@ -42,15 +42,23 @@ HERE = Path(__file__).resolve().parent
 CHAINING = ("compositional", "inference", "bridge_comparison")
 
 
-def build_retriever(name: str, llm: LLMClient, embedder: CachedEmbedder):
+def build_retriever(name: str, llm: LLMClient, embedder: CachedEmbedder, link_threshold: float = 0.5):
+    """Build a retrieval strategy.
+
+    ``link_threshold`` (query-entity -> KG-node cosine cutoff) is **embedder-specific**
+    and must be passed explicitly rather than inherited: see `tau_sweep.py`, where the
+    value tuned for `text-embedding-3-small` (0.5) costs ~0.18 recall@5 under SM-R4's
+    `bge-base`, whose random entity-pair cosines sit far higher (p50 0.41 vs the 0.5
+    cutoff, so ~5% of all pairs falsely qualify as links and mis-seed PPR).
+    """
     if name == "vector":
         return VectorRetriever(embedder=embedder)
     if name == "hippo":
-        return HippoRetriever(llm=llm, embedder=embedder)
+        return HippoRetriever(llm=llm, embedder=embedder, link_threshold=link_threshold)
     if name == "hybrid":
         return HybridRetriever(
             VectorRetriever(embedder=embedder),
-            HippoRetriever(llm=llm, embedder=embedder),
+            HippoRetriever(llm=llm, embedder=embedder, link_threshold=link_threshold),
         )
     raise ValueError(f"unknown method {name}")
 
@@ -78,12 +86,14 @@ def run_method(
     limit: int,
     demo: bool,
     retrieval_only: bool = False,
+    link_threshold: float = 0.5,
 ) -> Dict:
-    from harness import openie
+    from harness import openie, reader
 
     texts = {p.pid: p.text for p in es.passages}
-    retriever = build_retriever(name, llm, embedder)
+    retriever = build_retriever(name, llm, embedder, link_threshold)
     print(f"\n=== {name}: indexing {len(es.passages)} passages ===")
+    reader_fails_before = len(reader.READER_FAILURES)
     fails_before = len(openie.EXTRACTION_FAILURES)
     retriever.index(es.passages)
     extraction_failures = len(openie.EXTRACTION_FAILURES) - fails_before
@@ -138,8 +148,12 @@ def run_method(
         # this, which is how a non-SM-R4 embedder went unnoticed to review (PR #15).
         "embedder": embedder.spec.tag,
         "retrieval_only": retrieval_only,
+        "link_threshold": link_threshold,
         "index_stats": retriever.stats.to_dict(),
         "openie_failures": extraction_failures,
+        # Reader calls the provider's content filter refused. Scored as no-answer
+        # (EM/F1 = 0), so EM/F1 are a *lower bound* when this is non-zero.
+        "reader_content_filtered": len(reader.READER_FAILURES) - reader_fails_before,
         "reader_usage": read_usage.to_dict(),
         "query_latency_s": {
             "mean": round(metrics.mean(lat), 3),
@@ -166,6 +180,13 @@ def main() -> None:
         action="store_true",
         help="skip the LLM reader; score retrieval metrics only (runs without LLM credentials)",
     )
+    ap.add_argument(
+        "--link-threshold",
+        type=float,
+        default=0.5,
+        help="query-entity->KG-node cosine cutoff; EMBEDDER-SPECIFIC (see tau_sweep.py). "
+        "0.5 was tuned for text-embedding-3-small; ~0.65 fits bge-base-en-v1.5.",
+    )
     args = ap.parse_args()
 
     load_env()
@@ -176,17 +197,30 @@ def main() -> None:
     embedder = CachedEmbedder()
     print(f"embedder: {embedder.spec.tag}  (SM-R4 ratified: see harness/embeddings.py)")
 
-    results = {}
-    for name in args.methods:
-        results[name] = run_method(name, es, args.k, llm, embedder, args.limit, args.demo, args.retrieval_only)
-
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     tag = f"_{args.tag}" if args.tag else ""
     out_json = HERE / "results" / f"results_{stamp}{tag}.json"
-    out_json.write_text(json.dumps({m: r["summary"] for m, r in results.items()}, indent=2))
-    (HERE / "results" / f"detail_{stamp}{tag}.json").write_text(
-        json.dumps({m: r["per_item"] for m, r in results.items()}, indent=2, ensure_ascii=False)
-    )
+    detail_json = HERE / "results" / f"detail_{stamp}{tag}.json"
+
+    def _flush(results: Dict) -> None:
+        """Persist after every method so a later failure can't discard earlier work."""
+        out_json.write_text(json.dumps({m: r["summary"] for m, r in results.items()}, indent=2))
+        detail_json.write_text(json.dumps({m: r["per_item"] for m, r in results.items()}, indent=2, ensure_ascii=False))
+
+    results: Dict = {}
+    for name in args.methods:
+        results[name] = run_method(
+            name, es, args.k, llm, embedder, args.limit, args.demo, args.retrieval_only, args.link_threshold
+        )
+        _flush(results)
+
+    from harness import reader
+
+    if reader.READER_FAILURES:
+        print(f"\nreader calls refused by the provider content filter: {len(reader.READER_FAILURES)}")
+        for f in reader.READER_FAILURES:
+            print(f"  - {f['reason']}: {f['tag']}")
+
     print("\nWrote", out_json)
     _print_table(results, args.k)
 
