@@ -1,5 +1,11 @@
 # SM-R9 results — full run (n=30, 285 passages, k=5)
 
+> **⚠️ SUPERSEDED — these numbers used `text-embedding-3-small`, which is neither of SM-R4's
+> ratified embedders.** Kept for provenance and for the before/after comparison. On SM-R4's
+> ratified embedder the pure-PPR-vs-hybrid ranking **flips** (hybrid becomes the recommended
+> config and pure PPR proves embedder-fragile). See `summary_smR4ModeA.md` for the current
+> results and `summary_fusion.md` for weighted-vs-RRF.
+
 Source: `results_20260723T075917Z_full30.json`
 
 | method | recall@5 | all-hops@5 | EM | F1 | chaining all-hops | chaining F1 | q-latency p95 (s) |
