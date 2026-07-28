@@ -87,9 +87,11 @@ cookbook/12_context/demo-wiki-git/
 .context/
 .codex/
 
-# Private design documents (symlinked)
+# Private design documents (symlinked). Keep docs/adr/ tracked for in-repo ADRs.
 /specs
-/docs
+/docs/*
+!/docs/adr/
+!/docs/adr/**
 /projects
 /agno-os
 /apps
