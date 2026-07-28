@@ -81,7 +81,11 @@ class DenseRetriever(Retriever):
             raise RuntimeError(
                 "DenseRetriever requires a query vector and an indexed matrix"
             )
-        sims = self._mat @ query.vector.astype(np.float32)
+        # macOS Accelerate BLAS raises spurious FP-exception RuntimeWarnings (divide-by-zero/
+        # overflow/invalid) on clean unit-norm float32 matmuls; verified the output has no
+        # actual NaN/Inf (PR #16 review follow-up) -- suppress the warning, not the computation.
+        with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
+            sims = self._mat @ query.vector.astype(np.float32)
         k = min(top_k, sims.shape[0])
         idx = np.argpartition(-sims, k - 1)[:k]
         idx = idx[np.argsort(-sims[idx])]

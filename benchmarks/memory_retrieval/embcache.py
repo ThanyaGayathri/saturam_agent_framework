@@ -5,9 +5,10 @@ reuse those vectors across every option run, so this caches the embedding matrix
 `.npz` keyed by (dataset, model). It calls egpt's `AzureOpenAIEmbedder` batch API --
 we retrieve through the real seam, not a re-implementation -- and never touches core.
 
-Swap the embedder (SM-R4's eventual choice, or a local sentence-transformers model)
-by passing a different `Embedder` instance: no call-site changes. Both sync and async
-embed paths are provided.
+Default embedder (wired in `run.py::build_embedder`) is SM-R4's ratified choice
+(`bge-base-en-v1.5` Mode A / `text-embedding-3-large`@1024 Mode B) -- swappable for any
+other `Embedder` instance with no call-site change. Both sync and async embed paths are
+provided.
 """
 
 from __future__ import annotations
@@ -15,16 +16,17 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import tempfile
 from typing import List, Optional
 
 import numpy as np
 
 from egpt.knowledge.embedder.base import Embedder
 
+# Not a dev-machine scratchpad path -- must resolve on any host that clones this repo.
 DEFAULT_CACHE_DIR = os.environ.get(
     "MEMBENCH_EMB_CACHE",
-    "/private/tmp/claude-501/-Users-welcome-aicoe-egpt-r8/"
-    "917afbf4-2292-4872-a669-d032dde9f3c9/scratchpad/data/emb_cache",
+    os.path.join(tempfile.gettempdir(), "membench_cache", "emb_cache"),
 )
 
 

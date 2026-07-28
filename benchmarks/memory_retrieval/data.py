@@ -18,13 +18,15 @@ big task; LongMemEval is 500 small ones. Metrics aggregate per-query across task
 so the two shapes are scored identically (see `metrics.py`).
 
 Nothing here touches egpt core. Downloads cache under `MEMBENCH_DATA_DIR`
-(default: a scratchpad path) so runs are re-runnable offline after the first fetch.
+(default: a local `.membench_cache/` dir) so runs are re-runnable offline after the
+first fetch.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -32,10 +34,10 @@ from typing import Dict, List, Optional
 
 import requests
 
+# Not a dev-machine scratchpad path -- must resolve on any host that clones this repo.
 DEFAULT_DATA_DIR = os.environ.get(
     "MEMBENCH_DATA_DIR",
-    "/private/tmp/claude-501/-Users-welcome-aicoe-egpt-r8/"
-    "917afbf4-2292-4872-a669-d032dde9f3c9/scratchpad/data",
+    os.path.join(tempfile.gettempdir(), "membench_cache", "data"),
 )
 
 BEIR_URL = (

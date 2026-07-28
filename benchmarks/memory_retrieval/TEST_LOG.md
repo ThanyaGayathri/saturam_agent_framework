@@ -4,6 +4,36 @@ Run log for the retrieval fusion + reranker decision benchmark. Newest first.
 
 ---
 
+### Phase 4 — PR #16 review: SM-R4 embedder correction + re-validation
+
+**Status:** PASS (code fixed; 2 of 4 datasets re-measured on the corrected embedder)
+
+**Trigger:** PR review flagged that this task defaulted to a placeholder embedder
+(`all-MiniLM-L6-v2` / `text-embedding-3-small`) instead of SM-R4's ratified choice
+(`bge-base-en-v1.5` Mode A / `text-embedding-3-large`@1024 Mode B) — this branch forked
+before SM-R4 merged into main.
+
+**Fixed:** `run.py::build_embedder` defaults now match SM-R4 §1; `data.py`/`embcache.py`
+also had a hardcoded fallback cache path from a different machine's scratchpad (unrelated
+portability bug found while in this code), replaced with a `tempfile`-based default.
+
+**Re-measured (real run, `.venvs/smr8`, `BAAI/bge-base-en-v1.5`, CPU):** options a/b/c on
+scifact + nfcorpus (`results_20260728T084006Z_smR4EmbedderVerify.json` +
+`summary_...md`). Confirms weighted-fusion-beats-RRF holds on the correct embedder
+(p<0.01 both datasets); shows RRF/weighted's edge over vector-only narrows to a tie with
+the stronger embedder (was a significant win with MiniLM) — see DECISION.md §3.4.
+
+**Not re-run:** fiqa, longmemeval, options d/e — out of scope for this correction (see
+§3.4 for why); flagged as follow-up before ratification.
+
+**Side note:** macOS Accelerate BLAS emits spurious divide-by-zero/overflow/invalid
+RuntimeWarnings on the dense-retriever matmul; verified the actual output has no NaN/Inf
+(checked cached embedding matrices + raw matmul output directly) before trusting the
+re-measured numbers above. Suppressed in `retrievers.py` since it's cosmetic, not a
+correctness issue.
+
+---
+
 ### Phase 3 — option matrix + sweeps (measurement)
 
 **Status:** PASS (4 datasets fused; reranker on 3; sweeps done)

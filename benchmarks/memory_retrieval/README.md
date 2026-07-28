@@ -51,8 +51,11 @@ nDCG@10 / recall@{10,50,100} / MRR via **pytrec_eval** (the BEIR-standard lib), 
 .venvs/smr8/bin/python -m pip install numpy==1.26.4 torch==2.2.2 transformers==4.44.2 \
     "sentence-transformers==3.4.1" rank_bm25 pytrec_eval openai python-dotenv datasets requests
 
-# Azure embeddings come from the repo .env (AZURE_OPENAI_*); the deployment
-# text-embedding-3-small (1536-d) is used for dense retrieval.
+# Dense embedder is SM-R4's ratified choice (benchmarks/memory_embedding/DECISION.md
+# §1), not a placeholder: default `--embedder local` downloads BAAI/bge-base-en-v1.5
+# (Mode A, 768-dim, offline). `--embedder azure` uses text-embedding-3-large truncated
+# to 1024-dim (Mode B) via the repo .env (AZURE_OPENAI_*); usable for the smaller BEIR
+# sets, the deployment's TPM limit makes long-doc LongMemEval impractical.
 export MEMBENCH_DATA_DIR=/path/to/cache        # dataset + embedding cache
 export OMP_NUM_THREADS=8                        # CPU cross-encoder needs the cores
 export PYTHONPATH=$PWD

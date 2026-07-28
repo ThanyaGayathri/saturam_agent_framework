@@ -53,25 +53,34 @@ def _configure_threads() -> None:
 def build_embedder(kind: str, model: Optional[str] = None):
     """Dense embedder behind the egpt `Embedder` abstraction.
 
-    - `local`  : egpt `SentenceTransformerEmbedder` (offline, no rate limits, matches
-                 air-gapped Mode A). Default.
-    - `azure`  : egpt `AzureOpenAIEmbedder` (Mode B). Usable for the smaller BEIR sets;
-                 the deployment's TPM limit makes the long-doc LongMemEval set impractical.
+    Defaults are **SM-R4's ratified embedder choice** (`benchmarks/memory_embedding/
+    DECISION.md` §1), not a placeholder: this task couples to SM-R4 and must fuse/rerank
+    on top of the embedder SM-R4 actually picked, or the fusion-weight and reranker-quality
+    conclusions below aren't measuring the pipeline that will ship (PR review, SM-R8).
+
+    - `local`  : egpt `SentenceTransformerEmbedder` (offline, no rate limits) — SM-R4 Mode A:
+                 `BAAI/bge-base-en-v1.5` (768-dim). Default.
+    - `azure`  : egpt `AzureOpenAIEmbedder` — SM-R4 Mode B: `text-embedding-3-large`
+                 truncated to 1024-dim (matches the pgvector `vector` dim cap; SM-R4 §1
+                 measured 1024 as a statistical tie with 3072). Usable for the smaller BEIR
+                 sets; the deployment's TPM limit makes the long-doc LongMemEval set
+                 impractical.
     """
     if kind == "azure":
         load_dotenv(".env")
         from egpt.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
 
-        model = model or "text-embedding-3-small"
+        model = model or "text-embedding-3-large"
         emb = AzureOpenAIEmbedder(
             id=model,
+            dimensions=1024,
             azure_deployment=model,
             azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
             api_key=os.environ["AZURE_OPENAI_API_KEY"],
             api_version=os.environ.get("AZURE_EMB_API_VERSION", "2024-10-21"),
             client_params={"timeout": 30.0, "max_retries": 5},
         )
-        return emb, f"azure:{model}"
+        return emb, f"azure:{model}@1024"
     if kind == "local":
         from sentence_transformers import SentenceTransformer
 
@@ -79,7 +88,7 @@ def build_embedder(kind: str, model: Optional[str] = None):
             SentenceTransformerEmbedder,
         )
 
-        model = model or "sentence-transformers/all-MiniLM-L6-v2"
+        model = model or "BAAI/bge-base-en-v1.5"
         # Force CPU: this Intel host's MPS pool OOMs on long LongMemEval session docs.
         st = SentenceTransformer(model, device="cpu")
         emb = SentenceTransformerEmbedder(

@@ -76,10 +76,13 @@ time-aware scoring).
 ## 4. Options evaluated
 
 All five run through one config-driven `RetrievalPipeline` (swap fusion/reranker/scorer by
-config, no call-site change). Embedder = local `all-MiniLM-L6-v2` (provisional; see §5/§8);
-strong-embedder Azure cross-check in §3.2. nDCG@10, paired-bootstrap significance. Reranker
-(d) was run on the 3 smaller sets (fiqa d skipped — its conclusion is settled and CPU rerank
-of the 57k-corpus set is prohibitively slow; see §8).
+config, no call-site change). Embedder = local `all-MiniLM-L6-v2` for the full §3.1 matrix
+below — **this predates SM-R4's ratified embedder choice and is superseded; see the §3.4
+correction**, which re-validates the method ranking against the actual chosen embedder
+(`bge-base-en-v1.5`) on 2 of the 4 datasets. Strong-embedder Azure cross-check in §3.2.
+nDCG@10, paired-bootstrap significance. Reranker (d) was run on the 3 smaller sets (fiqa d
+skipped — its conclusion is settled and CPU rerank of the 57k-corpus set is prohibitively
+slow; see §8).
 
 ### 3.1 Fusion + rerank + composite — nDCG@10 (4 datasets, ~1,741 queries)
 
@@ -163,6 +166,52 @@ on Azure — TPM rate limit, §8 / findings.)
 - **Composite recency_weight** ∈ {0..1.0} (LongMemEval): monotonically **hurts**
   (0.8934 → 0.7265). **Default 0** on the hot path.
 
+### 3.4 PR-review correction — re-validated against SM-R4's ratified embedder
+
+**Issue (PR #16 review):** §3.1's matrix and this task's code (`run.py::build_embedder`)
+defaulted to a placeholder embedder (`all-MiniLM-L6-v2` local / `text-embedding-3-small`
+Azure) instead of **SM-R4's ratified choice** (`benchmarks/memory_embedding/DECISION.md`
+§1: `BAAI/bge-base-en-v1.5` Mode A / `text-embedding-3-large`@1024 Mode B) — because this
+branch forked before SM-R4 merged. This is not a neutral placeholder: SM-R4's own eval
+ranks `minilm-l6` **last** of 11 embedders tested (nDCG 0.861 vs bge-base's 0.911), so the
+§3.1 matrix measured fusion behavior on the weakest embedder in the family, not the one
+that will actually ship. Fixed in `run.py`/`embcache.py` (defaults now match SM-R4 §1).
+
+**Re-validated (real, measured — not reasoned):** re-ran options a/b/c on scifact +
+nfcorpus with the corrected local embedder (`BAAI/bge-base-en-v1.5`, real HF download,
+real inference, same harness/significance test as §3.1):
+
+| dataset | a-vector | b-rrf | c-weighted | c vs b | b vs a | c vs a |
+| --- | --- | --- | --- | --- | --- | --- |
+| scifact | 0.7376 | 0.7217 | **0.7445** | **+0.023 ✓ (p=0.003)** | −0.016 tie | +0.007 tie |
+| nfcorpus | 0.3693 | 0.3565 | **0.3671** | **+0.011 ✓ (p=0.006)** | −0.013 tie | −0.002 tie |
+
+(`results/results_20260728T084006Z_smR4EmbedderVerify.json` +
+`results/summary_20260728T084006Z_smR4EmbedderVerify.md`.)
+
+**What holds:** the decision's central claim — **weighted fusion significantly beats
+RRF** — is confirmed on the *correct* embedder too (both datasets, p<0.01), so §1.1/§4's
+method ranking is not an artifact of using the wrong embedder.
+
+**What changes:** with the real (stronger) embedder, RRF's and weighted fusion's edge
+*over vector-only* both **collapse from significant wins (§3.1, with MiniLM) to ties**.
+This is the same embedder-strength-dependence §3.2 and §6 already flagged from the Azure
+`text-embedding-3-small` side-check — it is now confirmed on Mode A's actual production
+embedder, not just a side note. Practical read: whether to fuse BM25 *at all* (not just
+which fusion method) is closer to a wash on a strong embedder, and **§6's existing
+handoff to SM-R4 to "re-validate `vector_weight` and whether hybrid still clears noise"
+is the correct next step, not optional.**
+
+**Not re-run (scope of this correction, flagged not faked):** fiqa (57k-doc corpus,
+~68 min one-time embed per `TEST_LOG.md` — a full-matrix re-run is follow-up work, not
+this fix) and longmemeval (per-question corpora); the reranker (d) and composite-recency
+(e) options were not re-run against the corrected embedder because their conclusions
+(CPU cross-encoder latency; recency-as-additive-score hurting quality) are properties of
+the reranker/scorer stage, not the bi-encoder, so they don't depend on which embedder
+produced the dense leg. **Recommendation before ratification:** re-run the full a–e
+matrix on all 4 datasets with the corrected embedder to replace §3.1 outright; this
+correction is a targeted, honest re-check, not a substitute for that.
+
 ---
 
 ## 5. Seed-context verification & disposition
@@ -191,10 +240,12 @@ new RRF fusion function. No `libs/agno/egpt/**` change in this task (see §10).
   graph leg (SM-G9) can be fused without score-scale coupling. Concrete artifact:
   `fusion.RRFFusion(k=60)` + `fusion.WeightedFusion(vector_weight)`.
 - **SM-R4 (embeddings):** the fusion benefit is **embedder-strength-dependent** (mid MiniLM →
-  hybrid helps a lot and is significant; strong Azure → benefit narrows, vector wins nfcorpus).
-  SM-R4's production embedder must **re-validate `vector_weight` and whether hybrid still
-  clears noise**. Dimension/latency of the embedder are SM-R4's to set; this task assumes a
-  dense vector + a BM25 sparse index per tenant.
+  hybrid helps a lot and is significant; strong Azure/bge-base → benefit narrows, ties
+  vector-only on scifact/nfcorpus — confirmed in §3.4 on SM-R4's *actual* ratified embedder,
+  not just the Azure side-check). SM-R4's production embedder must **re-validate
+  `vector_weight` and whether hybrid still clears noise** — §3.4 shows this is a live gap,
+  not a hypothetical one. Dimension/latency of the embedder are SM-R4's to set; this task
+  assumes a dense vector + a BM25 sparse index per tenant.
 - **SM-E7 (time-aware episodic scoring):** placement decided — **write-time importance** (a
   per-memory salience in [0,1]) consumed as a light prior, and **recency as an optional
   pre-filter** for time-scoped queries; **not** an additive query-time re-score (measured
@@ -225,7 +276,8 @@ and excluded here as option-invariant.
 ## 8. Out of scope & boundaries
 
 - **Graph retriever / PPR** — SM-G9 (this decision is graph-ready via the RRF switch).
-- **Embedder model/dimension** — SM-R4 (used a provisional local embedder here).
+- **Embedder model/dimension** — SM-R4 (this task now defaults to SM-R4's ratified choice,
+  §3.4; a full 4-dataset/5-option re-run on it is follow-up work, not this correction).
 - **Decay/importance model** — SM-E7 (this task only *places* time-aware scoring, doesn't
   define the decay curve or importance scorer).
 - **Store engine choice / tenancy** — SM-R3.
