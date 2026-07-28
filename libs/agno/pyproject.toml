@@ -52,8 +52,9 @@ dev = [
   "uvicorn",
   "websockets",
   "PyJWT",
-  "mcp",
-  "fastmcp",
+  # Bounds mirror the [mcp] extra below -- see the comment there.
+  "mcp>=1.9.2,<2",
+  "fastmcp>=3,<4",
   "openai",
   "ddgs",
   "fakeredis",
@@ -71,7 +72,12 @@ dev = [
 
 # AgentOS server bundle
 os = ["fastapi", "python-multipart>=0.0.18", "uvicorn", "websockets", "sqlalchemy", "PyJWT", "opentelemetry-sdk", "openinference-instrumentation-agno", "egpt[scheduler]"]
-mcp = ["mcp>=1.9.2", "fastmcp"]
+# mcp 2.0.0 (2026-07-28) renamed the client API -- isError -> is_error,
+# streamablehttp_client -> streamable_http_client, Tool.inputSchema -> input_schema -- and
+# fastmcp 3.x requires mcp<2, so an unbounded resolve takes mcp 2.x and drags fastmcp back
+# to 2.x, which has no fastmcp.tools.ToolResult. Both bounds come off together when the
+# integrations in egpt/tools/mcp/ and egpt/os/mcp*.py are ported to the 2.x API.
+mcp = ["mcp>=1.9.2,<2", "fastmcp>=3,<4"]
 scheduler = ["croniter>=1.3", "pytz>=2023.3"]
 
 # Dependencies for Telemetry
@@ -382,7 +388,7 @@ integration-tests = [
     "yfinance",
     "sqlalchemy",
     "Pillow",
-    "fastmcp",
+    "fastmcp>=3,<4",
     "PyJWT",
     # Implements @pytest.mark.flaky(reruns=N); without it the mark is a
     # silent no-op and model-nondeterminism retries never happen.
@@ -407,7 +413,7 @@ demo = [
     "websockets",
     "google-genai",
     "matplotlib",
-    "mcp",
+    "mcp>=1.9.2,<2",
     "nest_asyncio",
     "openai",
     "openinference-instrumentation-agno",
