@@ -29,6 +29,7 @@ from typing import Dict, List
 from harness import metrics
 from harness.dataset import EvalItem, EvalSet, load_eval_set
 from harness.embeddings import CachedEmbedder
+from harness.fusion import build_fusion
 from harness.llm import LLMClient, Usage, load_env
 from harness.reader import answer as read_answer
 from harness.retrievers import (
@@ -42,7 +43,14 @@ HERE = Path(__file__).resolve().parent
 CHAINING = ("compositional", "inference", "bridge_comparison")
 
 
-def build_retriever(name: str, llm: LLMClient, embedder: CachedEmbedder, link_threshold: float = 0.5):
+def build_retriever(
+    name: str,
+    llm: LLMClient,
+    embedder: CachedEmbedder,
+    link_threshold: float = 0.5,
+    fusion: str = "rrf",
+    vector_weight: float = 0.5,
+):
     """Build a retrieval strategy.
 
     ``link_threshold`` (query-entity -> KG-node cosine cutoff) is **embedder-specific**
@@ -59,6 +67,7 @@ def build_retriever(name: str, llm: LLMClient, embedder: CachedEmbedder, link_th
         return HybridRetriever(
             VectorRetriever(embedder=embedder),
             HippoRetriever(llm=llm, embedder=embedder, link_threshold=link_threshold),
+            fusion=build_fusion(fusion, vector_weight=vector_weight),
         )
     raise ValueError(f"unknown method {name}")
 
@@ -87,11 +96,13 @@ def run_method(
     demo: bool,
     retrieval_only: bool = False,
     link_threshold: float = 0.5,
+    fusion: str = "rrf",
+    vector_weight: float = 0.5,
 ) -> Dict:
     from harness import openie, reader
 
     texts = {p.pid: p.text for p in es.passages}
-    retriever = build_retriever(name, llm, embedder, link_threshold)
+    retriever = build_retriever(name, llm, embedder, link_threshold, fusion, vector_weight)
     print(f"\n=== {name}: indexing {len(es.passages)} passages ===")
     reader_fails_before = len(reader.READER_FAILURES)
     fails_before = len(openie.EXTRACTION_FAILURES)
@@ -149,6 +160,7 @@ def run_method(
         "embedder": embedder.spec.tag,
         "retrieval_only": retrieval_only,
         "link_threshold": link_threshold,
+        "fusion": getattr(getattr(retriever, "fusion", None), "name", None),
         "index_stats": retriever.stats.to_dict(),
         "openie_failures": extraction_failures,
         # Reader calls the provider's content filter refused. Scored as no-answer
@@ -187,6 +199,19 @@ def main() -> None:
         help="query-entity->KG-node cosine cutoff; EMBEDDER-SPECIFIC (see tau_sweep.py). "
         "0.5 was tuned for text-embedding-3-small; ~0.65 fits bge-base-en-v1.5.",
     )
+    ap.add_argument(
+        "--fusion",
+        choices=["rrf", "weighted"],
+        default="rrf",
+        help="hybrid fusion method. SM-R8 ratified 'weighted' for its 2-leg case; 'rrf' is "
+        "SM-R9's original prototype default.",
+    )
+    ap.add_argument(
+        "--vector-weight",
+        type=float,
+        default=0.5,
+        help="weight on the dense leg for --fusion weighted (PPR leg gets 1-w).",
+    )
     args = ap.parse_args()
 
     load_env()
@@ -210,7 +235,17 @@ def main() -> None:
     results: Dict = {}
     for name in args.methods:
         results[name] = run_method(
-            name, es, args.k, llm, embedder, args.limit, args.demo, args.retrieval_only, args.link_threshold
+            name,
+            es,
+            args.k,
+            llm,
+            embedder,
+            args.limit,
+            args.demo,
+            args.retrieval_only,
+            args.link_threshold,
+            args.fusion,
+            args.vector_weight,
         )
         _flush(results)
 

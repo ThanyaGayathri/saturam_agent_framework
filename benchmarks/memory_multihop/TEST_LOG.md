@@ -214,3 +214,35 @@ rather than from traversing correct relational edges. On clean Wikipedia prose; 
 should be expected to score worse. Raw: `results/kg_quality_20260728T112728Z_full30.json`.
 
 ---
+### fusion_sweep.py + run.py --fusion weighted — weighted vs RRF for dense+PPR
+
+**Status:** PASS — closes the review's "weighted fusion never measured" gap
+
+**Description:** SM-R8 ratified weighted / relative-score fusion and declined to adopt RRF
+automatically once a graph leg joins; SM-R9 had only ever run RRF. `harness/fusion.py` is now
+**ported from SM-R8's own `fusion.py`** (not reimplemented) so both are measured with identical
+code. Full run at SM-R8's ratified `w=0.5`, plus a sweep of `vector_weight` 0.0→1.0 with a
+paired bootstrap (10k resamples, SM-R8's test) and LOOCV weight selection. Retrieval-only sweep
+replays from cache, so no LLM spend.
+
+**Result:** **SM-R8's result does not transfer to this leg pair.** RRF's point estimate is above
+every weighted setting (RRF .883/.700 vs best weighted .817/.633, both at **w=0.0** — i.e.
+"discard the dense leg"). At SM-R8's ratified w=0.5, weighted hybrid (.800/.567) is worse than
+RRF **and worse than not fusing at all** (pure PPR .817/.633).
+
+**But it is a tie, not an RRF win:** paired bootstrap gives +0.067 recall@5 (CI [−0.033, +0.175],
+p=0.26) and +0.067 all-hops (CI [−0.100, +0.267], p=0.58). n=30 cannot resolve it. Our CI does
+**exclude** SM-R8's −0.076 effect, so the two results are not one underlying effect — SM-R8's
+own §3.5 caveat (one dataset, one *synthetic* graph leg) is vindicated.
+
+**A hypothesis discarded en route:** the intuitive explanation — min-max normalization mangling
+PPR's skewed stationary probabilities — was measured and is **false** (mean normalized score over
+ranks 2–10: dense .193 vs PPR .163, near-identical). The real difference is rank-decay steepness:
+RRF at k=60 is nearly flat (rank1/rank10 ratio 1.15, so cross-leg agreement dominates) while
+weighted min-max is steep (ratio ~6.7, so one leg's top hit dominates). Consistent with RRF's
+margin being largest on all-hops (+0.133) rather than recall (+0.083).
+
+Raw: `results/fusion_sweep_20260728T120251Z_smR4ModeA.json`,
+`results/results_20260728T120316Z_smR4ModeA_weighted.json`; write-up: `results/summary_fusion.md`.
+
+---

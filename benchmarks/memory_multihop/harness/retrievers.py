@@ -23,6 +23,8 @@ import numpy as np
 
 from harness.dataset import Passage
 from harness.embeddings import CachedEmbedder, TextEmbedder
+from harness.fusion import Fusion as FusionStrategy
+from harness.fusion import RRFFusion
 from harness.kg import KnowledgeGraph
 from harness.llm import LLMClient, Usage
 from harness.openie import (
@@ -266,30 +268,35 @@ class HippoRetriever(MultiHopRetriever):
 
 
 # --------------------------------------------------------------------------- #
-# RRF hybrid (dense + PPR)
+# Hybrid (dense + PPR) — fusion strategy is configurable
 # --------------------------------------------------------------------------- #
 class HybridRetriever(MultiHopRetriever):
-    """RRF fusion of the dense and PPR legs.
+    """Fuses the dense and PPR legs. **Fusion method is a measured choice, not a default.**
 
-    **RRF here is a prototype default, not a ratified fusion method.** SM-R8
-    (`benchmarks/memory_retrieval/DECISION.md`) ratified *weighted* / relative-score
-    fusion for the 2-leg dense+BM25 case, and its §3.5 three-leg experiment — which
-    added a real Personalized-PageRank leg, i.e. this shape — found weighted beat RRF
-    by +0.076 (p=0.0001), *wider* than the 2-leg gap, with 3-leg RRF falling below even
-    2-leg RRF because RRF's rank-only vote lets a noisier graph leg drag the fusion down.
+    SM-R8 (`benchmarks/memory_retrieval/DECISION.md`) ratified *weighted* / relative-score
+    fusion for its 2-leg case and explicitly declined to adopt RRF automatically once a
+    graph leg joins. SM-R9 originally shipped RRF only; both are now measurable here via
+    `harness/fusion.py` (ported from SM-R8 so the comparison uses the same code).
 
-    That is very likely the same mechanism behind this spike's own hybrid (0.892) <
-    pure hippo (0.908) result, which SPIKE.md originally attributed to a weak dense leg.
-    Weighted fusion is **not** measured here; SM-H4 must measure weighted-vs-RRF for
-    dense+PPR before either is treated as settled.
+    The scale mismatch is the crux: the dense leg emits cosine similarities (flat, ~0.15-0.87)
+    while the PPR leg emits stationary probabilities (tiny and extremely skewed). RRF sees
+    only ranks and throws that away; weighted min-max keeps it.
     """
 
     name = "hybrid"
 
-    def __init__(self, vector: VectorRetriever, hippo: HippoRetriever, rrf_k: int = 60) -> None:
+    def __init__(
+        self,
+        vector: VectorRetriever,
+        hippo: HippoRetriever,
+        rrf_k: int = 60,
+        fusion: Optional[FusionStrategy] = None,
+    ) -> None:
         self.vector = vector
         self.hippo = hippo
         self.rrf_k = rrf_k
+        # Default stays RRF so previously committed results remain reproducible.
+        self.fusion = fusion if fusion is not None else RRFFusion(k=rrf_k)
 
     def index(self, passages: Sequence[Passage]) -> None:
         self.vector.index(passages)
@@ -300,13 +307,9 @@ class HybridRetriever(MultiHopRetriever):
         await self.hippo.aindex(passages)
 
     def _fuse(self, a: List[Retrieved], b: List[Retrieved], k: int) -> List[Retrieved]:
-        scores: Dict[str, float] = {}
-        titles: Dict[str, str] = {}
-        for ranking in (a, b):
-            for rank, r in enumerate(ranking):
-                scores[r.pid] = scores.get(r.pid, 0.0) + 1.0 / (self.rrf_k + rank + 1)
-                titles[r.pid] = r.title
-        fused = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:k]
+        titles: Dict[str, str] = {r.pid: r.title for r in list(a) + list(b)}
+        # Leg order is (dense, ppr) - WeightedFusion's `vector_weight` applies to the first.
+        fused = self.fusion.fuse([[(r.pid, r.score) for r in a], [(r.pid, r.score) for r in b]], k)
         return [Retrieved(pid, titles[pid], score) for pid, score in fused]
 
     def retrieve(self, question: str, k: int) -> List[Retrieved]:

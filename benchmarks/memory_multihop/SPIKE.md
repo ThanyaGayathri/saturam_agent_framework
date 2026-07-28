@@ -46,11 +46,11 @@ large in point estimate but their CIs **overlap** at n=30 (vector .300–.633 vs
 *keyed on all-hops*, it is defined on a statistic this eval cannot yet separate — hence **GO
 is provisional and the thresholds are not ratifiable at n=30**. See §Decision.
 
-> **Caveat on the fusion method.** `hybrid` here is **RRF**, a prototype default and *not* a
-> ratified fusion method — SM-R8 ratified *weighted* fusion, and its 3-leg experiment with a
-> real PPR leg found RRF **loses** to weighted. Hybrid already wins here on RRF alone, so
-> **0.883 is plausibly a floor** rather than the best fusion can do. Weighted fusion was not
-> measured. See §Consistency with dependencies & siblings.
+> **On the fusion method.** `hybrid` here is **RRF**. SM-R8 ratified *weighted* fusion for its
+> own 2-leg case, so weighted has now been measured here too (§Fusion): it shows **no advantage
+> on this leg pair** at any weight, and its in-sample optimum degenerates to "don't blend".
+> The RRF-vs-weighted difference is *not* significant at n=30, so RRF is retained because
+> weighted showed nothing better — not because RRF is demonstrably superior.
 
 ## Acceptance criteria (from the issue)
 
@@ -119,7 +119,7 @@ reports ~+20% multi-hop recall and 10-30x lower cost than iterative retrieval on
 | **Optional PPR (HippoRAG) behind a per-tenant flag** | Yes — full prototype, measured on SM-R4's embedder | **WINNER (provisional).** Recommended config `hybrid`: recall@5 0.88, all-hops 0.70, chaining all-hops 0.63, F1 0.72 — beating pure PPR (0.82 / 0.63 / 0.63 / 0.57). Feasible on-stack; ~$0.0022/passage one-time index (**~$2.2k/tenant at 1M memories** — §Cost at scale); maps to Neo4j GDS **only if SM-R2 picks a GDS-capable engine** (§Integration route). Flag-gated, default off. |
 | **PPR default (multi-hop dominates)** | Assessed against the type mix | **Rejected.** Our workload is not multi-hop-dominant; default-on imposes the extraction cost on every tenant. |
 | **Pure PPR as the "on" config** | Yes — measured | **Rejected on evidence.** Led on the original (non-ratified) embedder but **lost 0.275 recall@5** when moved to SM-R4's, and does not recover fully even re-tuned. Embedder-fragile; hybrid is not (§Embedder correction). |
-| **Weighted fusion of dense + PPR** | **No — not measured** | **Open gap.** SM-R8's ratified method and its 3-leg PPR experiment both favour weighted over RRF; this spike only ran RRF, so the `hybrid` number is a lower bound on fusion. SM-H4 must measure. See §Consistency. |
+| **Weighted fusion of dense + PPR** (SM-R8's ratified method) | Yes — measured, swept 0.0–1.0 | **Rejected for this leg pair.** RRF's point estimate is higher at every weight; weighted's in-sample optimum is degenerate (w=0.0 = don't blend); at SM-R8's w=0.5 it is worse than pure PPR. Not significant at n=30 (p=0.26), so "no advantage shown" rather than "RRF wins". §Fusion. |
 
 ## Prototype (what actually runs)
 
@@ -406,6 +406,52 @@ not begin the PPR integration until SM-R2 closes, or should scope Route B explic
 way, the retrieval contract in §Couplings is unchanged — `MultiHopRetriever` hides which route
 is in use, which is the point of the seam.
 
+## Fusion method: weighted vs RRF (§Fusion)
+
+SM-R8 ratified **weighted / relative-score** fusion for its 2-leg case and said explicitly *"do
+not adopt RRF automatically when SM-G9's graph leg joins."* SM-R9 originally only ever ran RRF.
+Both are now measured with the **same code** — `harness/fusion.py` is ported from SM-R8's
+`benchmarks/memory_retrieval/fusion.py`, not reimplemented. Full write-up:
+`results/summary_fusion.md`.
+
+| method | recall@5 | all-hops@5 | EM | F1 | chaining all-hops / F1 |
+| --- | --- | --- | --- | --- | --- |
+| hybrid — weighted (w=0.5, SM-R8's ratified default) | 0.800 | 0.567 | 0.467 | 0.475 | 0.458 / 0.385 |
+| hybrid — **RRF (k=60)** | **0.883** | **0.700** | **0.667** | **0.719** | **0.625 / 0.708** |
+
+Swept across `vector_weight` 0.0→1.0, **RRF's point estimate is above every weighted setting**
+(best weighted: .817 recall / .633 all-hops, both at **w=0.0** — i.e. *discard the dense leg*,
+which is just pure PPR). Within SM-R8's ratified 0.3–0.7 band weighted is worse still. At w=0.5
+weighted is beaten even by not fusing at all.
+
+**But this is a tie, not an RRF win.** Paired bootstrap (10k resamples, SM-R8's test):
+recall@5 +0.067, CI [−0.033, +0.175], **p=0.26**; all-hops +0.067, CI [−0.100, +0.267],
+**p=0.58**. n=30 cannot resolve it. Two things can still be said:
+
+1. Weighted never exceeded RRF at any weight, and LOOCV over the weight also lands below RRF
+   (recall .783, all-hops .633) — consistent, if underpowered.
+2. **SM-R8's effect does not reproduce here.** SM-R8 measured weighted beating RRF by +0.076
+   (p=0.0001); in this sign convention that is −0.076, which falls **outside** our CI. So the
+   two results cannot be explained as one underlying effect — SM-R8's §3.5 caveat (one dataset,
+   one *synthetic* graph leg built from k-NN over dense embeddings) is vindicated, and its
+   instruction to measure against a real graph retriever first was correct.
+
+**Mechanism — and a hypothesis I had to discard.** The obvious story is that min-max
+normalization mangles PPR's skewed stationary probabilities. **Measured, and it is false:** mean
+normalized score over ranks 2–10 is dense .193 vs PPR .163, i.e. near-identical after
+normalization. The real difference is **rank-decay steepness** — RRF at k=60 scores rank 1 at
+1/61 and rank 10 at 1/70, a ratio of just **1.15** (nearly flat, so what dominates is whether an
+item appears in *both* legs), whereas weighted min-max runs 1.00 → ~.15 across the same range, a
+ratio of **6.7** (one leg's top hit outweighs an item mid-ranked in both). **RRF rewards
+cross-leg agreement; weighted rewards single-leg confidence.** For `all-hops-hit`, where the
+second bridge passage is usually mid-ranked in both legs rather than top in either, agreement is
+the right bias — and that is where RRF's margin is largest (+0.133 vs +0.083 on recall). This is
+consistent with the data, not proven; an `rrf_k` ablation would confirm it.
+
+**Disposition:** keep RRF as the recommended fusion **because weighted showed no advantage**,
+not because RRF is demonstrably better. Neither is ratifiable at n=30; SM-H4 should re-test both
+against SM-G9's production graph retriever.
+
 ## Flag design (per-tenant, default off)
 
 `MemoryProvider` retrieval config gains `multihop_ppr: {enabled: bool=false, alpha: float=0.5,
@@ -458,8 +504,9 @@ that reassignment needs confirming, since it is currently nobody's.
   relational edges (from OpenIE triples), synonymy edges (embedding cosine ≥ τ). SM-G supplies
   entities/relations; SM-H4 adds passage-linkage + PPR.
 - **Retrieval contract:** `MultiHopRetriever.retrieve(query, k) -> [Retrieved(pid,title,score)]`,
-  fused with dense. Both sync + async. **Fusion method is an open decision, not RRF-by-default**
-  — the prototype uses RRF (k≈60) but SM-R8's evidence favours weighted; measure both (§Consistency).
+  fused with dense via a pluggable `harness/fusion.py` strategy (both sync + async). **RRF (k=60)
+  is the recommended default** — weighted was measured and showed no advantage on this leg pair,
+  though not significantly so at n=30 (§Fusion). Re-test both on the real graph retriever.
 - **Query-time seeding:** LLM NER on the query → link to KG nodes by embedding cosine (top-m,
   threshold) → personalization vector weighted by cosine × IDF → PPR with source-node seeding
   (`gds.pageRank(sourceNodes)` on a GDS engine; see §Integration route for the non-GDS fallback).
@@ -479,8 +526,9 @@ that reassignment needs confirming, since it is currently nobody's.
   schema** → SM-R10. This spike confirms PPR composes with bi-temporal filtering
   *mechanically only*; **ranking quality under time filtering is untested and unowned**, since
   SM-R10 §11 excludes ranking from its scope (§Composition).
-- **Fusion method for dense+PPR** → open. RRF is the prototype default; SM-R8's evidence favours
-  weighted; neither is ratified for this leg pair (§Consistency).
+- **Fusion method for dense+PPR** → measured (§Fusion): weighted shows no advantage over RRF on
+  this leg pair, but the difference is not significant at n=30, so neither is *ratified*. SM-H4
+  should re-test both against SM-G9's real graph retriever.
 - **Production wiring / core code** → SM-H4. Core (`libs/agno/egpt/**`) is untouched here.
 
 ## Consistency with dependencies & siblings
@@ -496,7 +544,7 @@ implicit:
 | Sibling | Status | Detail |
 | --- | --- | --- |
 | **SM-R4** (embedder) | **was inconsistent — now fixed** | Harness defaulted to `text-embedding-3-small`, neither ratified mode. Fixed + re-measured: §Embedder correction. |
-| **SM-R8** (fusion) | **not governed, but our RRF choice points against the only evidence** | See below. |
+| **SM-R8** (fusion) | **measured — SM-R8's result does not transfer** | Weighted swept 0.0–1.0 using SM-R8's own code: no advantage on dense+PPR, optimum degenerate at w=0.0. Not significant at n=30, but our CI excludes SM-R8's effect size. §Fusion. |
 | **SM-R10** (bi-temporal) | **gap — orphaned open item + predicate corrected** | §Composition. SM-R10 excludes ranking from scope, so PPR-over-time-filtered-projection is unowned. |
 | **SM-R2** (engine) | **⚠️ unresolved dependency** | §Decision, §Integration route. Issue OPEN, 0/5 ACs; GDS assumption is conditional. |
 | **SM-R6 / SM-R7** (SLM path) | **claim was overstated — corrected** | §Decision switch thresholds. Accurate for SM-R6; SM-R7 proposes but never flags or measures an SLM extractor. |
@@ -528,13 +576,16 @@ blunt about rather than resting on the scope technicality:
 - The citation this spike originally leaned on — "RRF, the research doc's default fuse" — was
   **downgraded by SM-R8 §9**: *"The research's 3-leg RRF recommendation is not yet confirmed."*
 
-**Consequence:** RRF here is a prototype default, **not a ratified fusion method**. Since
-hybrid already wins on RRF alone, the `hybrid` row in the headline table is plausibly a
-**floor** on what fusion can deliver — weighted may raise it further.
-**SM-H4 must measure weighted-vs-RRF for dense+PPR before either is treated as settled**; SM-R8
-§6 already names the artifacts to reuse (`fusion.RRFFusion(k=60)` / `fusion.WeightedFusion(...)`,
-both N-leg-capable). Weighted fusion was **not** measured in this spike — that is a real gap in
-the evidence, not an oversight of scope.
+**Now measured** (§Fusion). Weighted fusion was ported from SM-R8's own `fusion.py` and swept
+across `vector_weight` 0.0–1.0. **SM-R8's result does not transfer to this leg pair:** RRF's
+point estimate is higher at every weight (recall@5 .883 vs .817 best-weighted), and weighted's
+in-sample optimum is *degenerate* at w=0.0 — "don't blend". At SM-R8's ratified w=0.5, weighted
+hybrid (.800/.567) is worse than RRF **and worse than not fusing at all** (pure PPR .817/.633).
+The difference is **not significant** at n=30 (paired bootstrap p=0.26/0.58), so this is a tie
+rather than an RRF win — but our 95% CI [−0.033, +0.175] **excludes** SM-R8's −0.076 effect,
+so the two results are not reconcilable as one underlying effect. SM-R8's own §3.5 caveat (one
+dataset, one *synthetic* graph leg) is vindicated, and its instruction to measure against a real
+graph retriever before adopting either was the right call.
 
 (Related, for SM-R8's own tracking: SM-R8 §9 flags `memory_provider_spec/adapters.py`'s
 `co_located` adapter for hardcoding RRF on vector+graph fusion. `HybridRetriever` is the same
