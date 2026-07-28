@@ -1,0 +1,201 @@
+"""Unit tests for the EgptOS composition root (EGPT-1.2).
+
+Covers:
+- the control-plane service graph resolves from the container
+- a caller-supplied binding survives ``build_os_container`` (test substitution)
+- a fake integration can be swapped in without touching production code
+- the public ``Agent(model=...)`` API still works with no container involved
+"""
+
+from unittest.mock import MagicMock
+
+import pytest
+
+from egpt.agent.agent import Agent
+from egpt.container import Container
+from egpt.db.sqlite import SqliteDb
+from egpt.models.base import Model
+from egpt.os import EgptOS
+from egpt.os.container import (
+    JWT_MIDDLEWARE_KWARGS,
+    SCHEDULE_EXECUTOR,
+    SCHEDULE_POLLER,
+    build_os_container,
+)
+from egpt.os.service_accounts import ServiceAccountVerifier
+from egpt.registry import Registry
+
+
+def _mock_model():
+    """A concrete Model subclass with all abstract methods stubbed."""
+    abstract_methods = {
+        name: MagicMock() for name in dir(Model) if getattr(getattr(Model, name, None), "__isabstractmethod__", False)
+    }
+    model = type("MockModel", (Model,), abstract_methods)(id="mock-model")
+    model.provider = "mock"
+    return model
+
+
+@pytest.fixture
+def agent():
+    return Agent(name="Test Agent", model=_mock_model())
+
+
+@pytest.fixture
+def agent_os(agent, tmp_path):
+    return EgptOS(
+        agents=[agent],
+        db=SqliteDb(db_file=str(tmp_path / "test.db")),
+        internal_service_token="test-token",
+    )
+
+
+# =============================================================================
+# Composition root
+# =============================================================================
+
+
+def test_egpt_os_exposes_a_container(agent_os):
+    assert isinstance(agent_os.container, Container)
+    for token in (Registry, ServiceAccountVerifier, JWT_MIDDLEWARE_KWARGS, SCHEDULE_EXECUTOR, SCHEDULE_POLLER):
+        assert token in agent_os.container
+
+
+def test_registry_is_resolved_from_the_container(agent_os):
+    """EgptOS no longer instantiates Registry directly - it resolves the binding."""
+    assert isinstance(agent_os.registry, Registry)
+    assert agent_os.registry is agent_os.container.resolve(Registry)
+
+
+def test_explicit_registry_wins_over_the_container(agent, tmp_path):
+    registry = Registry(name="user-supplied")
+    agent_os = EgptOS(
+        agents=[agent],
+        db=SqliteDb(db_file=str(tmp_path / "explicit.db")),
+        registry=registry,
+    )
+
+    assert agent_os.registry is registry
+
+
+def test_service_account_verifier_is_resolved_once(agent_os):
+    """One verifier per EgptOS, so its caches are shared across the REST and MCP apps."""
+    verifier = agent_os._get_service_account_verifier()
+
+    assert isinstance(verifier, ServiceAccountVerifier)
+    assert verifier is agent_os._get_service_account_verifier()
+    assert verifier is agent_os.container.resolve(ServiceAccountVerifier)
+    assert verifier.db is agent_os.db
+
+
+def test_no_verifier_without_a_db(agent):
+    """Whether a verifier exists is policy (needs a db), not a container concern."""
+    agent_os = EgptOS(agents=[agent])
+
+    assert agent_os._get_service_account_verifier() is None
+
+
+def test_jwt_middleware_kwargs_are_a_shared_binding(agent_os):
+    kwargs = agent_os.container.resolve(JWT_MIDDLEWARE_KWARGS)
+
+    assert kwargs is agent_os.container.resolve(JWT_MIDDLEWARE_KWARGS)
+    assert "verification_keys" in kwargs and "algorithm" in kwargs
+
+
+# =============================================================================
+# Substituting implementations
+# =============================================================================
+
+
+class FakeRegistry(Registry):
+    """Stand-in for a substituted internal service."""
+
+
+def test_caller_supplied_binding_is_not_overwritten(agent, tmp_path):
+    """A container passed to EgptOS is a deliberate substitution; defaults must not win."""
+    container = Container(name="test")
+    fake = FakeRegistry(name="fake")
+    container.bind_instance(Registry, fake)
+
+    agent_os = EgptOS(
+        agents=[agent],
+        db=SqliteDb(db_file=str(tmp_path / "bound.db")),
+        container=container,
+    )
+
+    assert agent_os.container is container
+    assert agent_os.registry is fake
+
+
+def test_override_substitutes_a_service_without_touching_production_code(agent_os):
+    fake = FakeRegistry(name="fake")
+
+    with agent_os.container.override(Registry, fake):
+        assert agent_os.container.resolve(Registry) is fake
+
+    assert type(agent_os.container.resolve(Registry)) is Registry
+
+
+def test_build_os_container_is_idempotent(agent_os):
+    """Re-running the composition root keeps existing bindings (and their singletons)."""
+    registry = agent_os.container.resolve(Registry)
+
+    build_os_container(agent_os, agent_os.container)
+
+    assert agent_os.container.resolve(Registry) is registry
+
+
+# =============================================================================
+# Scheduler slice (optional dependency)
+# =============================================================================
+
+
+def test_scheduler_graph_resolves_with_the_shared_executor(agent_os):
+    pytest.importorskip("croniter", reason="scheduler services require egpt[scheduler]")
+
+    executor = agent_os.container.resolve(SCHEDULE_EXECUTOR)
+    poller = agent_os.container.resolve(SCHEDULE_POLLER)
+
+    assert executor is agent_os.container.resolve(SCHEDULE_EXECUTOR)  # singleton
+    assert poller.executor is executor
+    assert poller.db is agent_os.db
+    assert executor.internal_service_token == "test-token"
+    # The poller owns a polling task, so each resolve is a fresh one.
+    assert agent_os.container.resolve(SCHEDULE_POLLER) is not poller
+
+
+def test_stub_executor_reaches_the_poller(agent_os):
+    """Substituting an integration in the container is enough - no production edits."""
+    pytest.importorskip("croniter", reason="scheduler services require egpt[scheduler]")
+
+    stub = MagicMock(name="StubScheduleExecutor")
+
+    with agent_os.container.override(SCHEDULE_EXECUTOR, stub):
+        poller = agent_os.container.resolve(SCHEDULE_POLLER)
+        assert poller.executor is stub
+
+
+# =============================================================================
+# Public API is unchanged
+# =============================================================================
+
+
+def test_agent_constructs_without_a_container():
+    """The ergonomic API is untouched: no container is involved in building an Agent."""
+    model = _mock_model()
+    agent = Agent(name="Direct", model=model)
+
+    assert agent.model is model
+    assert not hasattr(agent, "container")
+
+
+def test_agent_runs_without_a_container():
+    from egpt.models.response import ModelResponse
+
+    model = _mock_model()
+    model.response = MagicMock(return_value=ModelResponse(content="hello"))
+    agent = Agent(name="Direct", model=model)
+
+    response = agent.run("hi")
+
+    assert response.content == "hello"

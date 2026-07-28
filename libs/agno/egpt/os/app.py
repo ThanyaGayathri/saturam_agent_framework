@@ -18,6 +18,7 @@ from egpt.agent import Agent, AgentFactory, RemoteAgent
 from egpt.agent.protocol import AgentProtocol
 from egpt.agents.base import BaseExternalAgent
 from egpt.brand import PRODUCT_OS_NAME
+from egpt.container import Container
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.os.config import (
@@ -41,6 +42,13 @@ from egpt.os.config import (
     SessionDomainConfig,
     TracesConfig,
     TracesDomainConfig,
+)
+from egpt.os.container import (
+    DEFAULT_SCHEDULER_BASE_URL,
+    JWT_MIDDLEWARE_KWARGS,
+    SCHEDULE_EXECUTOR,
+    SCHEDULE_POLLER,
+    build_os_container,
 )
 from egpt.os.interfaces.base import BaseInterface
 from egpt.os.router import get_base_router, get_info_router, get_websocket_router
@@ -144,27 +152,16 @@ async def db_lifespan(app: FastAPI, agent_os: "EgptOS"):
 @asynccontextmanager
 async def scheduler_lifespan(app: FastAPI, agent_os: "EgptOS"):
     """Start and stop the scheduler poller."""
-    from egpt.scheduler import ScheduleExecutor, SchedulePoller
-
     if agent_os._scheduler_base_url is None:
         log_info(
-            "scheduler_base_url not set, using default http://127.0.0.1:7777. "
+            f"scheduler_base_url not set, using default {DEFAULT_SCHEDULER_BASE_URL}. "
             "If your server is running on a different port, set scheduler_base_url to match."
         )
-    base_url = agent_os._scheduler_base_url or "http://127.0.0.1:7777"
-    internal_token = agent_os._internal_service_token
-    if internal_token is None:
-        raise ValueError("internal_service_token must be set when scheduler is enabled")
 
-    executor = ScheduleExecutor(
-        base_url=base_url,
-        internal_service_token=internal_token,
-    )
-    poller = SchedulePoller(
-        db=agent_os.db,
-        executor=executor,
-        poll_interval=agent_os._scheduler_poll_interval,
-    )
+    # Both services are resolved from the composition root, so a deployment (or a test)
+    # can substitute either one without editing this lifespan.
+    executor = agent_os.container.resolve(SCHEDULE_EXECUTOR)
+    poller = agent_os.container.resolve(SCHEDULE_POLLER)
 
     app.state.scheduler_executor = executor
     app.state.scheduler_poller = poller
@@ -256,6 +253,7 @@ class EgptOS:
         scheduler_poll_interval: int = 15,
         scheduler_base_url: Optional[str] = None,
         internal_service_token: Optional[str] = None,
+        container: Optional[Container] = None,
     ):
         """Initialize EgptOS.
 
@@ -297,6 +295,10 @@ class EgptOS:
             scheduler_poll_interval: Seconds between scheduler poll cycles (default: 15)
             scheduler_base_url: Base URL for scheduler HTTP calls (default: http://127.0.0.1:7777)
             internal_service_token: Token for scheduler-to-OS auth (auto-generated if not provided)
+            container: Optional DI container for internal services (registry, scheduler, auth
+                verifiers). Bindings present on it win over the EgptOS defaults, which is how
+                tests substitute a fake implementation. Internal wiring only - agents, teams and
+                workflows are still passed directly.
 
         """
         if not agents and not workflows and not teams and not knowledge and not db:
@@ -344,6 +346,10 @@ class EgptOS:
         self.lifespan = lifespan
 
         self.registry = registry
+
+        # Composition root for internal services. Factories are lazy, so binding them
+        # here (before the rest of __init__ runs) is safe.
+        self.container: Container = build_os_container(self, container)
 
         # RBAC
         self.authorization = authorization
@@ -718,17 +724,26 @@ class EgptOS:
             # Propagate run_hooks_in_background setting to workflow and all its step agents/teams
             workflow.propagate_run_hooks_in_background(self.run_hooks_in_background)
 
+    def _ensure_registry(self) -> Registry:
+        """Return this EgptOS's registry, resolving it from the container on first use.
+
+        A registry passed to ``EgptOS(registry=...)`` always wins; otherwise the default
+        comes from the composition root, so a test (or a deployment) can bind its own.
+        """
+        if self.registry is None:
+            self.registry = self.container.resolve(Registry)
+        return self.registry
+
     def _populate_registry(self) -> None:
         """Populate the registry with code-defined agents and teams.
 
         This ensures that workflows loaded from DB can rehydrate their steps
         using code-defined agents/teams via the registry.
         """
-        if self.registry is None:
-            self.registry = Registry()
+        registry = self._ensure_registry()
 
         if self._agents:
-            existing_agents = {aid: a for a in self.registry.agents if (aid := getattr(a, "id", None)) is not None}
+            existing_agents = {aid: a for a in registry.agents if (aid := getattr(a, "id", None)) is not None}
             for agent in self._agents:
                 agent_id = getattr(agent, "id", None)
                 if agent_id is None:
@@ -741,11 +756,11 @@ class EgptOS:
                             "first. Give them distinct ids to avoid one shadowing the other."
                         )
                     continue
-                self.registry.agents.append(agent)
+                registry.agents.append(agent)
                 existing_agents[agent_id] = agent
 
         if self._teams:
-            existing_teams = {tid: t for t in self.registry.teams if (tid := getattr(t, "id", None)) is not None}
+            existing_teams = {tid: t for t in registry.teams if (tid := getattr(t, "id", None)) is not None}
             for team in self._teams:
                 team_id = getattr(team, "id", None)
                 if team_id is None:
@@ -758,7 +773,7 @@ class EgptOS:
                             "first. Give them distinct ids to avoid one shadowing the other."
                         )
                     continue
-                self.registry.teams.append(team)
+                registry.teams.append(team)
                 existing_teams[team_id] = team
 
     def _populate_registry_knowledge(self) -> None:
@@ -771,13 +786,10 @@ class EgptOS:
         required for a knowledge base to be resolvable from a Studio/Builder
         component config (vector-search-only knowledge is not registered).
         """
-        if self.registry is None:
-            self.registry = Registry()
+        registry = self._ensure_registry()
 
         if self.knowledge_instances:
-            existing_knowledge = {
-                name: k for k in self.registry.knowledge if (name := getattr(k, "name", None)) is not None
-            }
+            existing_knowledge = {name: k for k in registry.knowledge if (name := getattr(k, "name", None)) is not None}
             for kb in self.knowledge_instances:
                 kb_name = getattr(kb, "name", None)
                 if kb_name is None:
@@ -790,7 +802,7 @@ class EgptOS:
                             "keeping the first. Give them distinct names to avoid one shadowing the other."
                         )
                     continue
-                self.registry.knowledge.append(kb)
+                registry.knowledge.append(kb)
                 existing_knowledge[kb_name] = kb
 
     def _populate_registry_managers(self) -> None:
@@ -799,10 +811,8 @@ class EgptOS:
         Each manager is tagged with a generated id of the form `{owner_id}__{kind}` so
         it can be looked up later. Managers are deduplicated by that id.
         """
-        if self.registry is None:
-            self.registry = Registry()
+        registry = self._ensure_registry()
 
-        registry = self.registry
         memory_by_id = {mid: m for m in registry.memory_managers if (mid := getattr(m, "id", None)) is not None}
         summary_by_id = {
             sid: s for s in registry.session_summary_managers if (sid := getattr(s, "id", None)) is not None
@@ -867,11 +877,10 @@ class EgptOS:
         degrades gracefully: a malformed node is skipped rather than failing
         EgptOS construction.
         """
-        if self.registry is None:
-            self.registry = Registry()
+        registry = self._ensure_registry()
 
         try:
-            collect_components_from_os(self._agents, self._teams, self._workflows, self.registry)
+            collect_components_from_os(self._agents, self._teams, self._workflows, registry)
         except Exception as e:
             log_debug(f"Registry auto-population skipped: {e}")
 
@@ -1180,10 +1189,9 @@ class EgptOS:
         if self._service_account_verifier is None:
             from egpt.os.service_accounts import ServiceAccountVerifier
 
-            self._service_account_verifier = ServiceAccountVerifier(
-                db=self.db,
-                cache_ttl_seconds=self.settings.service_account_cache_ttl_seconds,
-            )
+            # Resolved from the composition root (singleton), so the failed-lookup limiter
+            # and last_used_at throttle stay shared across the REST and MCP apps.
+            self._service_account_verifier = self.container.resolve(ServiceAccountVerifier)
         return self._service_account_verifier
 
     def _add_auth_middleware(self, fastapi_app: FastAPI, security_key: Optional[str]) -> None:
@@ -1197,14 +1205,12 @@ class EgptOS:
         Called whenever any credential is configured: ``authorization=True`` (JWT),
         an ``OS_SECURITY_KEY``, or a service-account verifier (a db is present).
         """
-        from egpt.os.middleware.jwt import AuthMiddleware, JWTValidator, build_jwt_middleware_kwargs
+        from egpt.os.middleware.jwt import AuthMiddleware, JWTValidator
         from egpt.os.scopes import AgentOSScope
 
-        middleware_kwargs = build_jwt_middleware_kwargs(
-            self.authorization_config,
-            authorization=self.authorization,
-            service_account_verifier=self._get_service_account_verifier(),
-        )
+        # The kwargs are a container binding so the validator factory and this call site
+        # derive from one computation; copy before mutating so the binding stays pristine.
+        middleware_kwargs = dict(self.container.resolve(JWT_MIDDLEWARE_KWARGS))
         middleware_kwargs["security_key"] = security_key
         algorithm = middleware_kwargs["algorithm"]
         verification_keys = middleware_kwargs["verification_keys"]
@@ -1233,11 +1239,7 @@ class EgptOS:
         # A JWT validator on app.state is only meaningful (and only constructible --
         # it requires a key) when JWT is actually configured. WebSocket JWT auth reads it.
         if jwt_configured:
-            fastapi_app.state.jwt_validator = JWTValidator(
-                verification_keys=verification_keys,
-                jwks_file=jwks_file,
-                algorithm=algorithm,
-            )
+            fastapi_app.state.jwt_validator = self.container.resolve(JWTValidator)
         # Expose audience config + admin scope on app.state so WebSocket auth
         # (which does not flow through HTTP middleware) can honour them.
         fastapi_app.state.jwt_verify_audience = verify_audience
