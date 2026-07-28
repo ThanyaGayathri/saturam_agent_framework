@@ -1,0 +1,13 @@
+# Core (offline candidates) — fully offline, deterministic.
+# Pinned <2 so a single venv also satisfies torch's numpy-1.x ABI (embedding mode).
+numpy>=1.24,<2
+
+# Optional: real text embeddings for `--relevance embedding` confirmation runs
+# (embedding_drift + surprise_em_llm). No network/keys after the first download.
+sentence-transformers>=2.2
+
+# Optional: only for the `llm_boundary` option.
+#   --llm-provider azure_responses  -> uses `openai` (Azure Responses API)
+#   --llm-provider ollama           -> uses the local ollama HTTP API (no extra dep)
+openai>=1.40
+python-dotenv>=1.0
