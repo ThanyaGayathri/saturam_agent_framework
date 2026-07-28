@@ -4,9 +4,58 @@ Run log for the retrieval fusion + reranker decision benchmark. Newest first.
 
 ---
 
+### Phase 5 — PR #16 full review response (paranthaman-commits, 2 major + 2 minor)
+
+**Status:** PASS — all 4 review points addressed with real measurement or explicit
+reconciliation, none hand-waved.
+
+1. **Major — 3-leg fusion untested (`DECISION.md:25`):** added
+   `graph_leg_experiment.py` — a real Personalized PageRank graph leg (k-NN over the
+   corpus' own dense embeddings, no LLM/KG needed) fused with dense+BM25. Measured on
+   scifact (n=300, real paired-bootstrap significance): weighted beats RRF by **+0.076**
+   in the 3-leg case (p=0.0001), *wider* than the 2-leg gap (+0.023) — the opposite of
+   the doc's "RRF wins once graph joins" theory. `DECISION.md` §3.5 added; §1.1/§3/§6/§8/§9
+   downgraded the RRF-switch from asserted to explicitly provisional, gated on measuring
+   against SM-G9's real graph retriever.
+2. **Major — embedder mismatch, LongMemEval specifically flagged (`DECISION.md:79`):**
+   Phase 4 (below) had already re-validated scifact+nfcorpus on the corrected
+   `bge-base-en-v1.5` embedder; extended to **LongMemEval** — the dataset the reviewer
+   called out as most load-bearing (biggest measured fusion gain, +0.094 with MiniLM,
+   previously untested on a strong embedder due to an Azure TPM limit).
+   `results_20260728T090818Z_smR4EmbedderVerifyLME.json`: vector 0.8717, RRF 0.9104,
+   weighted 0.9297 — **every relationship (weighted>RRF, RRF>vector, weighted>vector)
+   stays significant on the correct embedder** (all p<0.001), unlike scifact/nfcorpus
+   where the advantage collapsed to ties. So the reviewer's specific worry — biggest gain
+   sitting on the weakest embedder — does **not** hold up: the memory-relevant gain
+   shrinks but survives; the general-IR gain (smaller to begin with) is what washes out.
+   `DECISION.md` §3.4 rewritten with the per-domain finding.
+3. **Minor — reranker quality verdict overstated (`DECISION.md:104`):** `DECISION.md`
+   §3.1/§3.1c reframed: "neutral/harmful" was really dataset-specific (hurt longmemeval,
+   helped nfcorpus, tied scifact — n=1 for the harm), and the recommended Mode-A reranker
+   (`bge-reranker-v2-m3`) was latency-tested but never quality-tested (only the weaker
+   MiniLM cross-encoder was). Flagged "which reranker if enabled" as fully open, not
+   settled — recommend benchmarking `bge-reranker-v2-m3`/`infinity` on quality in SM-H3.
+4. **Minor — recency vs SM-R5 (`DECISION.md:41`):** read SM-R5's actual
+   `benchmarks/memory_decay/DECISION.md` (not assumed). Both decisions independently
+   measured that adding recency to ranking *costs* nDCG/recall — SM-R5 says so directly
+   (§2.3: "no_decay significantly beats [importance_weighted] on raw recall/nDCG"). They
+   diverge only in what that cost buys (SM-R8: nothing, at the pure-retrieval layer it
+   measures; SM-R5: bounded growth + reduced staleness, at the memory-tier layer). Added
+   `DECISION.md` §3.6 with the reconciliation, plus two flagged-not-resolved loose ends
+   (SM-E7 vs SM-E4/SM-E9 epic-naming mismatch; LongMemEval vs supersede-driven recency
+   semantics don't fully match).
+
+**Tooling note:** `gh` CLI was installed (no Homebrew — downloaded the release zip
+directly to `~/.local/bin`) and authenticated by the user to pull the actual PR review
+JSON (inline comments + top-level review) via `gh api`, replacing an earlier turn's
+paraphrase-only response.
+
+---
+
 ### Phase 4 — PR #16 review: SM-R4 embedder correction + re-validation
 
-**Status:** PASS (code fixed; 2 of 4 datasets re-measured on the corrected embedder)
+**Status:** PASS (code fixed; 3 of 4 datasets re-measured on the corrected embedder as of
+Phase 5's LongMemEval extension)
 
 **Trigger:** PR review flagged that this task defaulted to a placeholder embedder
 (`all-MiniLM-L6-v2` / `text-embedding-3-small`) instead of SM-R4's ratified choice
@@ -18,13 +67,14 @@ also had a hardcoded fallback cache path from a different machine's scratchpad (
 portability bug found while in this code), replaced with a `tempfile`-based default.
 
 **Re-measured (real run, `.venvs/smr8`, `BAAI/bge-base-en-v1.5`, CPU):** options a/b/c on
-scifact + nfcorpus (`results_20260728T084006Z_smR4EmbedderVerify.json` +
-`summary_...md`). Confirms weighted-fusion-beats-RRF holds on the correct embedder
-(p<0.01 both datasets); shows RRF/weighted's edge over vector-only narrows to a tie with
-the stronger embedder (was a significant win with MiniLM) — see DECISION.md §3.4.
+scifact + nfcorpus (`results_20260728T084006Z_smR4EmbedderVerify.json` + `summary_...md`)
+and longmemeval (`results_20260728T090818Z_smR4EmbedderVerifyLME.json`, Phase 5). Confirms
+weighted-fusion-beats-RRF holds on the correct embedder on all 3 (p<0.01); the
+RRF/weighted edge over vector-only narrows to a **tie** on scifact/nfcorpus but **stays
+significant on longmemeval** — see DECISION.md §3.4.
 
-**Not re-run:** fiqa, longmemeval, options d/e — out of scope for this correction (see
-§3.4 for why); flagged as follow-up before ratification.
+**Not re-run:** fiqa, options d/e — out of scope for this correction (see §3.4 for why);
+flagged as follow-up before ratification.
 
 **Side note:** macOS Accelerate BLAS emits spurious divide-by-zero/overflow/invalid
 RuntimeWarnings on the dense-retriever matmul; verified the actual output has no NaN/Inf
