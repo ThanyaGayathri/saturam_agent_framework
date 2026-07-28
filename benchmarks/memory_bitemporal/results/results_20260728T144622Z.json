@@ -1,5 +1,5 @@
 {
-  "run": "20260728T135659Z",
+  "run": "20260728T144622Z",
   "n_scenarios": 11,
   "extraction_rule_based": {
     "passed": 6,
@@ -215,6 +215,254 @@
           ]
         }
       }
+    },
+    "postgres": {
+      "accuracy": 1.0,
+      "passed": 30,
+      "total": 30,
+      "scenarios": {
+        "simple_insert": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "supersede_relocation": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "idempotent_noop": {
+          "passed": 1,
+          "total": 1,
+          "failures": []
+        },
+        "three_way_chain": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "backfilled_since_jan": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "retract_error": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "predicate_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "tenant_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "belief_evolution": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "same_t_valid_tiebreak": {
+          "passed": 4,
+          "total": 4,
+          "failures": []
+        },
+        "deep_recorrection": {
+          "passed": 5,
+          "total": 5,
+          "failures": []
+        }
+      }
+    },
+    "neo4j": {
+      "accuracy": 1.0,
+      "passed": 30,
+      "total": 30,
+      "scenarios": {
+        "simple_insert": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "supersede_relocation": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "idempotent_noop": {
+          "passed": 1,
+          "total": 1,
+          "failures": []
+        },
+        "three_way_chain": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "backfilled_since_jan": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "retract_error": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "predicate_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "tenant_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "belief_evolution": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "same_t_valid_tiebreak": {
+          "passed": 4,
+          "total": 4,
+          "failures": []
+        },
+        "deep_recorrection": {
+          "passed": 5,
+          "total": 5,
+          "failures": []
+        }
+      }
+    },
+    "postgres_sql": {
+      "accuracy": 1.0,
+      "passed": 30,
+      "total": 30,
+      "scenarios": {
+        "simple_insert": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "supersede_relocation": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "idempotent_noop": {
+          "passed": 1,
+          "total": 1,
+          "failures": []
+        },
+        "three_way_chain": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "backfilled_since_jan": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "retract_error": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "predicate_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "tenant_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "belief_evolution": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "same_t_valid_tiebreak": {
+          "passed": 4,
+          "total": 4,
+          "failures": []
+        },
+        "deep_recorrection": {
+          "passed": 5,
+          "total": 5,
+          "failures": []
+        }
+      }
+    },
+    "neo4j_cypher": {
+      "accuracy": 1.0,
+      "passed": 30,
+      "total": 30,
+      "scenarios": {
+        "simple_insert": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "supersede_relocation": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "idempotent_noop": {
+          "passed": 1,
+          "total": 1,
+          "failures": []
+        },
+        "three_way_chain": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "backfilled_since_jan": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "retract_error": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "predicate_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "tenant_isolation": {
+          "passed": 2,
+          "total": 2,
+          "failures": []
+        },
+        "belief_evolution": {
+          "passed": 3,
+          "total": 3,
+          "failures": []
+        },
+        "same_t_valid_tiebreak": {
+          "passed": 4,
+          "total": 4,
+          "failures": []
+        },
+        "deep_recorrection": {
+          "passed": 5,
+          "total": 5,
+          "failures": []
+        }
+      }
     }
   },
   "equivalence_vs_reference": {
@@ -289,13 +537,91 @@
           "single_time": "SF"
         }
       ]
+    },
+    "postgres": {
+      "agree": 30,
+      "total": 30,
+      "rate": 1.0,
+      "disagreements": []
+    },
+    "neo4j": {
+      "agree": 30,
+      "total": 30,
+      "rate": 1.0,
+      "disagreements": []
+    },
+    "postgres_sql": {
+      "agree": 30,
+      "total": 30,
+      "rate": 1.0,
+      "disagreements": []
+    },
+    "neo4j_cypher": {
+      "agree": 30,
+      "total": 30,
+      "rate": 1.0,
+      "disagreements": []
     }
   },
-  "native_paths_measured": [],
+  "native_paths_measured": [
+    "postgres_sql",
+    "neo4j_cypher"
+  ],
+  "append_only_guardrail": {
+    "passed": 8,
+    "total": 8,
+    "failures": [],
+    "skipped": null
+  },
   "vector_tier_5c": {
     "n_scenarios": 4,
     "backends": {
       "reference": {
+        "ratified_predicate": {
+          "passed": 10,
+          "total": 10,
+          "accuracy": 1.0
+        },
+        "bare_predicate_counterexample": {
+          "passed": 7,
+          "total": 10,
+          "accuracy": 0.7,
+          "failures": [
+            {
+              "scenario": "vec_legacy_null_valid_from",
+              "probe": "u1@1701388800",
+              "expected": [
+                "m_legacy"
+              ],
+              "got": []
+            },
+            {
+              "scenario": "vec_legacy_null_valid_from",
+              "probe": "u1@1706745600",
+              "expected": [
+                "m_legacy",
+                "m_nyc"
+              ],
+              "got": [
+                "m_nyc"
+              ]
+            },
+            {
+              "scenario": "vec_legacy_null_valid_from",
+              "probe": "u1@1733011200",
+              "expected": [
+                "m_legacy",
+                "m_nyc"
+              ],
+              "got": [
+                "m_nyc"
+              ]
+            }
+          ]
+        },
+        "failures": []
+      },
+      "postgres": {
         "ratified_predicate": {
           "passed": 10,
           "total": 10,

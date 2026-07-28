@@ -12,13 +12,17 @@ in this folder. See §10 to reproduce.
 **What the evidence covers — read this before citing the numbers.** The invalidation rule and the
 query semantics live *once*, in [store.py](store.py), and the reference / Postgres / Neo4j
 adapters implement only storage primitives. So a matching score across those three is
-**one shared rule over three storage layers**, not three independent derivations of the
-semantics. The separately-shipped artifacts — the SQL-native `bt_upsert_edge()` and the 5a/5b
-SQL/Cypher predicates in §7, which are what SM-G4/G5/X11 actually consume — are exercised by the
-dedicated native adapters ([sql_native_store.py](adapters/sql_native_store.py),
+**one shared rule over three storage layers**, not three independent derivations of the semantics.
+
+The separately-shipped artifacts — the SQL-native `bt_upsert_edge()` and the 5a/5b SQL/Cypher
+predicates in §7, which are what SM-G4/G5/X11 actually consume — are exercised by dedicated native
+adapters ([sql_native_store.py](adapters/sql_native_store.py),
 [cypher_native_store.py](adapters/cypher_native_store.py)) as an **equivalence test** against the
-Python reference. See [TEST_LOG.md](TEST_LOG.md) for which of those paths have been measured on a
-given run and which have not.
+Python reference. **Measured: both return exactly what the reference returns on all 30 probes**
+(per-probe comparison, not just matching aggregate accuracy). So the shipped SQL and Cypher are
+confirmed faithful re-expressions of the rule — which is the property downstream needs — while the
+semantics themselves remain singly-derived. [TEST_LOG.md](TEST_LOG.md) records the per-path status
+of each run.
 
 ---
 
@@ -32,10 +36,12 @@ given run and which have not.
 - [x] **Decision on whether the episodic/vector tier carries valid-time** — §9 (yes: filter-only,
       and now *measured* by the 5c probes rather than asserted).
 
-Evidence: the bi-temporal model scores **100% (30/30)** point-in-time reconstruction; the
-single-time baseline scores **56.7% (17/30)**. The 5c vector-tier filter scores **10/10**. See
-[results/](results/) and [TEST_LOG.md](TEST_LOG.md) — including which native SQL/Cypher paths
-were measured on the run being cited.
+Evidence: the bi-temporal model scores **100% (30/30)** point-in-time reconstruction across all
+five bi-temporal backends — including the SQL-native and Cypher-native paths, which are
+**equivalent to the Python reference on every probe**. The single-time baseline scores
+**56.7% (17/30)**. The 5c vector-tier filter scores **10/10** on both the reference and real SQL,
+and the §6.1 append-only guardrail **8/8**. See [results/](results/) and
+[TEST_LOG.md](TEST_LOG.md).
 
 ---
 
@@ -55,7 +61,7 @@ were measured on the run being cited.
 
 | Option | Exercised as | Point-in-time accuracy (30 probes) | Verdict |
 |---|---|---|---|
-| **Bi-temporal** (valid + transaction, invalidate-not-delete) — *recommended* | `ReferenceEdgeStore`, and the same rule over real Postgres + real Neo4j storage | **100%** | **CHOSEN** |
+| **Bi-temporal** (valid + transaction, invalidate-not-delete) — *recommended* | `ReferenceEdgeStore`; the same rule over real Postgres + real Neo4j; and the SQL-native / Cypher-native shipped artifacts | **100%** (all five) | **CHOSEN** |
 | **Single-time** (created/updated only) — current seed behavior | `SingleTimeEdgeStore` | **56.7%** | Rejected (baseline) |
 
 The 13 single-time failures are exactly the point-in-time / correction / belief-evolution probes:
@@ -66,8 +72,10 @@ reconstruction, provenance, and non-destructive correction.
 
 The Postgres and Neo4j rows are **storage-layer** confirmations: they run the same `store.py`
 rule against real engines, which proves the four-timestamp model round-trips losslessly through
-`timestamptz` and Neo4j `datetime`. They are deliberately *not* claimed as independent
-re-derivations of the semantics — see the equivalence note at the top of this document.
+`timestamptz` and Neo4j `datetime`. The SQL-native and Cypher-native rows are the stronger claim —
+they bypass `store.py` entirely and are confirmed **probe-for-probe identical** to the reference.
+None of these is claimed as an independent re-derivation of the semantics; see the equivalence
+note at the top of this document.
 
 ---
 
@@ -181,7 +189,9 @@ implementation **must** make expire-and-reinsert the only mutation path:
 
 This is not caller discipline — it is enforced in the database. [schema.sql](schema.sql) §2b ships
 the `memory_edge_append_only` trigger, which rejects any in-place change to the identity columns
-or either time axis. Reason it is mandatory rather than advisory: a blanket
+or either time axis, and [guardrail.py](guardrail.py) **scores** it (8/8 measured: all six illegal
+mutations rejected, both legal ones allowed) rather than assuming it works. Reason it is mandatory
+rather than advisory: a blanket
 `INSERT ... ON CONFLICT DO UPDATE SET <every column>` (the default shape most ORMs and upsert
 helpers generate) silently rewrites `t_valid`/`t_invalid` in place, which destroys exactly the
 history SCD-2 exists to preserve — 5b stops reconstructing and the audit trail is gone, with no
@@ -210,7 +220,8 @@ path, so SM-X11 and SM-G4 should treat the trigger as part of the DDL, not an op
 > The same two-sidedness applies on the transaction axis in 5b
 > (`created_at <= TT < COALESCE(expired_at, ∞)`) and to the 5c filter below. Any conformance
 > suite for this spec **must** include at least one probe at a `T` strictly before the earliest
-> `t_valid` — `simple_insert` and `supersede_relocation` both carry one (expected answer: no fact).
+> `t_valid` — `simple_insert` and `supersede_relocation` both carry one (expected answer: no fact),
+and those probes are among the 30 the SQL and Cypher predicates were verified against.
 
 ### 5a — "true at world-time T" (current belief) — the primary query
 ```sql
@@ -249,10 +260,12 @@ Setting `:TT = now()` with `expired_at IS NULL` reduces 5b to 5a. Cypher form in
 additive, so every row written before it has `valid_from IS NULL`. Under a bare
 `valid_from <= :T`, that comparison evaluates to `NULL` and the row is filtered out — so applying
 the filter would **silently drop every memory that predates the migration**, with no error. `NULL
-valid_from` means "unknown, assume always valid", which is what `-infinity` encodes. Measured:
-the ratified predicate scores **10/10** on the 5c probes and the bare predicate **7/10**, failing
-exactly the three `vec_legacy_null_valid_from` probes. The bare form is kept in
-[vector_tier.py](vector_tier.py) as a scored counterexample so the regression cannot return.
+valid_from` means "unknown, assume always valid", which is what `-infinity` encodes. Measured on
+both the in-memory reference **and real Postgres**: the ratified predicate scores **10/10** on
+each, the bare predicate **7/10** on each, failing exactly the three `vec_legacy_null_valid_from`
+probes — the same three in Python and in SQL, so this is real `NULL`-comparison behaviour, not a
+modelling artifact. The bare form is kept in [vector_tier.py](vector_tier.py) as a scored
+counterexample so the regression cannot return.
 
 ---
 

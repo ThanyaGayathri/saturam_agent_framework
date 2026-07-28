@@ -17,6 +17,7 @@ predicates, migration). This README is how to run the prototype.
 | [store.py](store.py) | `BiTemporalEdgeStore` abstraction: invalidation rule + query semantics (sync + async). |
 | [adapters/](adapters) | `reference` (in-memory), `single_time` (Option B baseline), `postgres`, `neo4j`, and the **native** `sql_native` / `cypher_native` equivalence adapters. |
 | [vector_tier.py](vector_tier.py) | 5c filter-only valid-time for the vector/episodic tier (SPEC §9). |
+| [guardrail.py](guardrail.py) | Scores the SPEC §6.1 append-only trigger (expire-only mutation path). |
 | [schema.sql](schema.sql) | Postgres DDL: `memory_edge`, `bt_upsert_edge`/`bt_retract_edge`, the append-only trigger, 5a/5b, vector-tier migration. |
 | [graph_schema.cypher](graph_schema.cypher) | Neo4j constraints, R1/R2, 5a/5b. |
 | [extraction.py](extraction.py) | `ValidTimeExtractor` (rule-based default + optional LLM). |
@@ -54,22 +55,24 @@ Env overrides: `BT_PG_DSN`, `BT_NEO4J_URI` / `BT_NEO4J_USER` / `BT_NEO4J_PASSWOR
 
 **Point-in-time reconstruction accuracy** = fraction of `(subject, predicate, T[, TT])` probes
 whose returned fact equals the timeline-derived ground truth. Target **1.00** for the bi-temporal
-implementation. Latest run: reference **100% (30/30)**, single-time baseline **56.7% (17/30)**,
-5c vector-tier filter **10/10**, rule-based extraction **6/6**.
+implementation. Latest run (`20260728T144622Z`): **100% (30/30)** on all five bi-temporal backends
+(reference, postgres, neo4j, postgres_sql, neo4j_cypher), single-time baseline **56.7% (17/30)**,
+5c vector-tier filter **10/10** on reference and real SQL, append-only guardrail **8/8**,
+rule-based extraction **6/6**.
 
 ## What the numbers do and do not establish
 
 The invalidation rule and query semantics live once, in [store.py](store.py); the reference,
-Postgres and Neo4j adapters implement storage primitives only. Those backends agreeing is
+Postgres and Neo4j adapters implement storage primitives only. Those three agreeing is
 **one shared rule over three storage layers**, not three independent derivations — it establishes
 that the four-timestamp model round-trips losslessly through `timestamptz` and Neo4j `datetime`.
 
 The SQL-native `bt_upsert_edge()` and the 5a/5b SQL/Cypher predicates — what SM-G4/G5/X11 actually
-ship — are driven end-to-end by `sql_native` / `cypher_native` and compared **per probe** against
-the reference (`Equivalence vs reference` in the run output). Those two paths are **written and
-wired but not yet measured**: no container runtime was available. `run.py` prints
-`[not measured]` and records `native_paths_measured` in the results JSON so a run that skipped
-them cannot be mistaken for one that passed them. See [TEST_LOG.md](TEST_LOG.md).
+ship — are driven end-to-end by `sql_native` / `cypher_native`, bypassing `store.py` entirely, and
+compared **per probe** against the reference (`Equivalence vs reference` in the run output). Both
+are **measured equivalent: 30/30 probes identical**. So the shipped artifacts are confirmed
+faithful re-expressions of the rule; the semantics themselves remain singly-derived, which is the
+honest description of what this evidence supports. See [TEST_LOG.md](TEST_LOG.md).
 
 ## Scope
 

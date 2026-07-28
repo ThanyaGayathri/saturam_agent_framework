@@ -34,6 +34,7 @@ from typing import Callable, Dict, List, Optional, Tuple, TypeVar
 
 from .adapters.reference_store import ReferenceEdgeStore
 from .adapters.single_time_store import SingleTimeEdgeStore
+from .guardrail import GuardrailResult
 from .harness import (
     BackendResult,
     VectorBackendResult,
@@ -156,12 +157,23 @@ def main() -> None:
             f"   bare-predicate={vres.bare_accuracy:6.1%} ({vres.bare_passed}/{vres.total})"
         )
 
+    # SPEC 6.1 -- the append-only guardrail is scored, not asserted.
+    from .guardrail import check_append_only
+
+    guard = check_append_only(PG_DSN)
+    if guard.skipped:
+        print(f"\nAppend-only guardrail (SPEC 6.1): [skip] {guard.skipped}")
+    else:
+        print(f"\nAppend-only guardrail (SPEC 6.1): {guard.passed}/{guard.total}")
+        for f in guard.failures:
+            print(f"      {f}")
+
     from .extraction import evaluate_rule_based
 
     ext_passed, ext_total = evaluate_rule_based()
     print(f"\nRule-based valid-time extraction: {ext_passed}/{ext_total} = {ext_passed / ext_total:.0%}")
 
-    _write_reports(results, scenarios, (ext_passed, ext_total), equiv, vec_results, vector_scenarios)
+    _write_reports(results, scenarios, (ext_passed, ext_total), equiv, vec_results, vector_scenarios, guard)
 
 
 def _write_reports(  # type: ignore[no-untyped-def]
@@ -171,6 +183,7 @@ def _write_reports(  # type: ignore[no-untyped-def]
     equiv: Dict[str, Dict[str, object]],
     vec_results: List[VectorBackendResult],
     vector_scenarios,
+    guard: GuardrailResult,
 ) -> None:
     RESULTS_DIR.mkdir(exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -192,6 +205,12 @@ def _write_reports(  # type: ignore[no-untyped-def]
         },
         "equivalence_vs_reference": equiv,
         "native_paths_measured": measured_native,
+        "append_only_guardrail": {
+            "passed": guard.passed,
+            "total": guard.total,
+            "failures": guard.failures,
+            "skipped": guard.skipped,
+        },
         "vector_tier_5c": {
             "n_scenarios": len(vector_scenarios),
             "backends": {
@@ -235,6 +254,16 @@ def _write_reports(  # type: ignore[no-untyped-def]
             "The `postgres`/`neo4j` rows above share the Python rule from `store.py`; they are "
             "three storage layers under one rule, not three independent derivations."
         )
+
+    lines.append("")
+    lines.append("## Append-only guardrail (SPEC SS6.1)")
+    lines.append("")
+    if guard.skipped:
+        lines.append(f"Skipped: {guard.skipped}")
+    else:
+        lines.append(f"{guard.passed}/{guard.total} cases behaved as required.")
+        for f in guard.failures:
+            lines.append(f"- FAIL {f}")
 
     lines.append("")
     lines.append("## 5c vector/episodic-tier filter (SPEC SS9)")
