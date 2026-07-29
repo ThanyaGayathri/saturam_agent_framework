@@ -260,6 +260,39 @@ def test_empty_child_shares_the_parent_singleton(container):
     assert child.resolve(Indexer) is container.resolve(Indexer)
 
 
+def test_sibling_children_do_not_share_an_inherited_factory_singleton():
+    """Children inherit the binding, not the instance -- so a ``bind()`` singleton is rebuilt.
+
+    This is the flip side of the test above it: once a child binds anything of its own it
+    becomes the resolution context, so an inherited factory has to run again and the result
+    is cached on the child. It matters because ``child()`` is how a configured container is
+    reused across two ``EgptOS`` instances, and every such child carries the composition
+    root's defaults -- so this branch, not the shared one, is the live path.
+    """
+
+    class Shared:
+        pass
+
+    parent = Container(name="parent")
+    parent.bind(Store, lambda _c: Store())
+    parent.bind_instance(Shared, Shared())
+
+    first = parent.child()
+    second = parent.child()
+    # Any local binding at all is enough to make a child the resolution context.
+    first.bind(Indexer, lambda c: Indexer(store=c.resolve(Store)))
+    second.bind(Indexer, lambda c: Indexer(store=c.resolve(Store)))
+
+    # A factory binding is re-run per scope: one Store per container, not one shared.
+    stores = [parent.resolve(Store), first.resolve(Store), second.resolve(Store)]
+    assert len({id(s) for s in stores}) == 3
+
+    # An instance binding is the same object in every scope, which is how a service that
+    # must be shared across children has to be bound.
+    assert first.resolve(Shared) is parent.resolve(Shared)
+    assert second.resolve(Shared) is parent.resolve(Shared)
+
+
 def test_has_local_ignores_the_parent(container):
     """A composition root needs 'is this mine?', not 'can this resolve?'.
 
@@ -285,6 +318,18 @@ def test_child_tokens_include_parent_tokens_once(container):
 
 
 # -- Async resolution -----------------------------------------------------------------
+
+
+def _assert_no_async_bookkeeping(c: Container) -> None:
+    """No per-task resolution state may outlive the resolve that created it.
+
+    All three maps are keyed by ``id(task)``, which CPython reuses once the task is
+    collected, so a leaked entry is not merely a slow leak: a later unrelated task can
+    inherit the id and be mistaken for the owner of a token it never touched.
+    """
+    assert c._async_owners == {}
+    assert c._async_waits == {}
+    assert c._async_resolving == {}
 
 
 @pytest.mark.asyncio
@@ -326,6 +371,57 @@ async def test_concurrent_aresolve_builds_a_singleton_once():
 
     assert len(builds) == 1
     assert all(r is builds[0] for r in results)
+    _assert_no_async_bookkeeping(c)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_aresolve_leaves_no_bookkeeping_behind():
+    """The task that loses the race must unwind, not just the one that builds.
+
+    The loser acquires the per-token lock, finds the instance already cached and returns
+    from inside the lock -- the one exit path that skips the build. It still claimed
+    ownership of the token and still registered a resolution stack, so both have to be
+    released there too or every contended resolve leaks an entry keyed by a dead task.
+    """
+    c = Container()
+    building = asyncio.Event()
+
+    async def build_store(_c):
+        building.set()
+        await asyncio.sleep(0.01)
+        return Store()
+
+    c.bind(Store, build_store)
+
+    winner = asyncio.create_task(c.aresolve(Store))
+    # Only join once the first task is inside the factory, so the second is guaranteed
+    # to queue on the lock and take the cached-after-lock path.
+    await building.wait()
+    loser = asyncio.create_task(c.aresolve(Store))
+
+    assert await winner is await loser
+    _assert_no_async_bookkeeping(c)
+
+
+@pytest.mark.asyncio
+async def test_cycle_error_leaves_no_task_stack_behind():
+    """An aborted resolve must unwind as completely as a successful one.
+
+    Releasing the stack moved out of ``_build_async`` and into ``aresolve``, so this pins
+    the path where the exception is raised by a nested resolve that never reaches a
+    factory: the outer frame is what has to drop the stack on the way out.
+    """
+    c = Container()
+
+    async def build_store(c_):
+        return await c_.aresolve(Store)
+
+    c.bind(Store, build_store)
+
+    with pytest.raises(ContainerError, match="Cyclic dependency"):
+        await c.aresolve(Store)
+
+    _assert_no_async_bookkeeping(c)
 
 
 @pytest.mark.asyncio

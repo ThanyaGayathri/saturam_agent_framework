@@ -78,8 +78,9 @@ Guidelines:
   middleware kwargs read `authorization_config`, which a caller may change after construction).
 - **Resolve at the point of use.** Do not memoize a `resolve()` result in an attribute: the container already caches
   singletons, and a second cache in the call site makes `override()` and `reset()` silently ineffective.
-- **Never overwrite a caller's binding.** `build_os_container` skips tokens that are already bound — a container passed
-  to `EgptOS(container=...)` is a deliberate substitution.
+- **Never overwrite a caller's binding.** `build_os_container` skips tokens already bound **on the container it was
+  handed** (`has_local`, not `has`) — a container passed to `EgptOS(container=...)` is a deliberate substitution. A
+  binding inherited from a parent does not count; see [Pre-bind on the container you pass](#substituting-an-implementation-in-tests).
 - **Policy stays in the caller.** The `ServiceAccountVerifier` factory builds a verifier; whether an instance should
   exist at all (it needs a db) is decided in `os/app.py`.
 
@@ -129,24 +130,31 @@ container to a second one raises `ContainerError` rather than quietly serving th
 `Container.child()` gives a scope that falls back to its parent — useful when a test (or, later, a request) needs its own
 bindings without mutating the application graph, and the way to reuse a configured container across two `EgptOS`
 instances. An inherited binding is built with the **child** as the resolution context, so the child's own bindings win
-inside a factory defined on the parent. A child that binds nothing shares the parent's singletons rather than
-duplicating them.
+inside a factory defined on the parent. A child that binds nothing at all shares the parent's singletons rather than
+duplicating them — but an `EgptOS` child never qualifies, because `build_os_container` always gives it the six defaults.
 
 **Pre-bind on the container you pass, not on an ancestor.** `build_os_container` decides whether to install a default
 with `has_local()`, so an inherited binding never suppresses one. This is deliberate: every default closes over one
 specific `EgptOS`, so a child that inherited them would get the parent's registry, a verifier pointed at the parent's
 db, and a scheduler carrying the parent's internal service token. A child therefore always gets its own copy of the six
-defaults, and only your **custom** bindings are inherited:
+defaults, and only your **custom** bindings are inherited.
+
+**Inherited means the binding, not the instance.** Because an inherited factory is re-run with the child as context, a
+`bind()` singleton on the parent is rebuilt once per child — two `EgptOS` instances sharing a parent get two objects.
+That is the price of child-scoped overrides working at all, and it is why the shared service below is bound with
+`bind_instance`: an instance binding is the same object everywhere, so use it whenever identity across children matters.
 
 ```python
 parent = Container(name="app")
-parent.bind_instance(MetricsSink, FakeSink())      # custom -> inherited by children
+parent.bind_instance(MetricsSink, FakeSink())      # one object, shared by every child
+parent.bind(Exporter, lambda c: Exporter())        # inherited, but rebuilt per child
 
 child = parent.child()
 child.bind_instance(Registry, FakeRegistry())      # a default -> must be bound on the child
 
 agent_os = EgptOS(agents=[agent], db=db, container=child)
-# child.resolve(MetricsSink) -> FakeSink (inherited)
+# child.resolve(MetricsSink) -> the parent's FakeSink
+# child.resolve(Exporter)    -> the child's own Exporter, not the parent's
 # child.resolve(Registry)    -> FakeRegistry (local); had you bound it on `parent`,
 #                               the child's own default would have won instead.
 ```

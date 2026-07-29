@@ -122,20 +122,32 @@ def test_child_container_gets_its_own_instance_scoped_services(agent, tmp_path):
 
 
 def test_child_inherits_custom_bindings_but_not_defaults(agent, tmp_path):
-    """Only the six instance-scoped defaults are re-bound; custom bindings still flow down."""
+    """Only the six instance-scoped defaults are re-bound; custom bindings still flow down.
+
+    "Inherited" means the binding, not the instance: an ``EgptOS`` child always holds the
+    defaults, so it is always the resolution context and a parent's ``bind()`` factory is
+    re-run for it. Only ``bind_instance`` keeps one object across both instances.
+    """
 
     class MetricsSink:
+        pass
+
+    class Exporter:
         pass
 
     sink = MetricsSink()
     parent = Container(name="app")
     parent.bind_instance(MetricsSink, sink)
+    parent.bind(Exporter, lambda _c: Exporter())
     parent.bind_instance(Registry, FakeRegistry(name="parent-registry"))
 
     agent_os = EgptOS(agents=[agent], db=SqliteDb(db_file=str(tmp_path / "child.db")), container=parent.child())
 
-    # A custom binding has no per-instance state, so it is inherited as-is.
+    # An instance binding is the same object in the child, so it is genuinely shared.
     assert agent_os.container.resolve(MetricsSink) is sink
+    # A factory binding is inherited but rebuilt, so the child gets its own Exporter.
+    assert isinstance(agent_os.container.resolve(Exporter), Exporter)
+    assert agent_os.container.resolve(Exporter) is not parent.resolve(Exporter)
     # A default is instance-scoped, so the child binds its own rather than the parent's.
     assert type(agent_os.container.resolve(Registry)) is Registry
 

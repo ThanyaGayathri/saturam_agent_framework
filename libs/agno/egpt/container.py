@@ -173,7 +173,11 @@ class Container:
         return local + inherited
 
     def child(self, name: Optional[str] = None) -> "Container":
-        """Create a child container that falls back to this one for unknown tokens."""
+        """Create a child container that falls back to this one for unknown tokens.
+
+        A child inherits *bindings*, not instances -- see ``resolve`` for what that means
+        for singleton identity.
+        """
         return Container(name=name or f"{self.name}-child", parent=self)
 
     def reset(self, token: Optional[Token] = None) -> None:
@@ -197,7 +201,9 @@ class Container:
 
         On a child container, an inherited binding is built with the **child** as the
         resolution context, so the child's own bindings win inside the parent's factories
-        (see ``child``).
+        (see ``child``). The consequence is that an inherited singleton is cached on the
+        child, not shared from the ancestor: two children of one parent get two instances.
+        Bind with ``bind_instance`` when a service must be the same object in every scope.
 
         Raises:
             ContainerError: If the token is unbound, its dependencies are cyclic, or its
@@ -269,40 +275,50 @@ class Container:
         if binding is None:
             binding = self._inherited_binding(token)
 
+        # Every exit path below must unwind the per-task bookkeeping: its keys are
+        # ``id(task)``, which CPython reuses once the task is collected, so a leaked
+        # entry does not merely grow the dict -- it can make a later, unrelated task
+        # look like the owner of a token and report a cycle that does not exist.
         stack = self._async_stack()
-        if token in stack:
-            chain = " -> ".join(_token_name(t) for t in [*stack, token])
-            raise ContainerError(f"Cyclic dependency detected while resolving: {chain}")
-
-        # Transient bindings share no instance, so serializing them would only add
-        # latency; only singletons need the per-token lock.
-        if not binding.singleton:
-            return await self._build_async(token, binding, stack)
-
-        self._enter_async_wait(token)
         try:
-            async with self._async_lock(token):
-                self._claim_async_owner(token)
-                with self._lock:
-                    cached = self._instances.get(token, _MISSING)
-                    if cached is not _MISSING:
-                        return cached
-                try:
-                    value = await self._build_async(token, binding, stack)
-                finally:
-                    self._release_async_owner(token)
+            if token in stack:
+                chain = " -> ".join(_token_name(t) for t in [*stack, token])
+                raise ContainerError(f"Cyclic dependency detected while resolving: {chain}")
 
-                with self._lock:
-                    # A sync resolve on another thread can slip in while we await, so the
-                    # first instance cached wins and ours is discarded -- a token bound as
-                    # a singleton must never hand out two objects.
-                    cached = self._instances.get(token, _MISSING)
-                    if cached is not _MISSING:
-                        return cached
-                    self._instances[token] = value
-                return value
+            # Transient bindings share no instance, so serializing them would only add
+            # latency; only singletons need the per-token lock.
+            if not binding.singleton:
+                return await self._build_async(token, binding, stack)
+
+            self._enter_async_wait(token)
+            try:
+                async with self._async_lock(token):
+                    self._claim_async_owner(token)
+                    try:
+                        with self._lock:
+                            # Whoever lost the race for the lock finds the instance already
+                            # built. Claiming ownership above happens first so the release is
+                            # paired, and this return is inside the try for the same reason.
+                            cached = self._instances.get(token, _MISSING)
+                            if cached is not _MISSING:
+                                return cached
+                        value = await self._build_async(token, binding, stack)
+                    finally:
+                        self._release_async_owner(token)
+
+                    with self._lock:
+                        # A sync resolve on another thread can slip in while we await, so the
+                        # first instance cached wins and ours is discarded -- a token bound as
+                        # a singleton must never hand out two objects.
+                        cached = self._instances.get(token, _MISSING)
+                        if cached is not _MISSING:
+                            return cached
+                        self._instances[token] = value
+                    return value
+            finally:
+                self._clear_async_wait()
         finally:
-            self._clear_async_wait()
+            self._release_async_stack()
 
     @overload
     async def atry_resolve(self, token: Type[T]) -> Optional[T]: ...
@@ -401,7 +417,11 @@ class Container:
             return lock
 
     async def _build_async(self, token: Token, binding: _Binding, stack: List[Token]) -> Any:
-        """Run a factory with the calling task's resolution stack marked for cycle detection."""
+        """Run a factory with the calling task's resolution stack marked for cycle detection.
+
+        Dropping the stack once it empties is ``aresolve``'s job -- it owns every path that
+        acquires one, including the ones that never reach this method.
+        """
         stack.append(token)
         try:
             value = binding.factory(self)
@@ -410,7 +430,6 @@ class Container:
             return value
         finally:
             stack.remove(token)
-            self._release_async_stack()
 
     def _enter_async_wait(self, token: Token) -> None:
         """Record that this task is about to wait for ``token``, refusing to deadlock.
