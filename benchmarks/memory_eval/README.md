@@ -79,3 +79,15 @@ python fixtures/_build_fixtures.py    # rebuilds unified fixtures from the raw s
 The committed `results/` come from the **tiny offline fixtures + stub judge**. They prove the
 harness computes end-to-end and that the metrics **discriminate** providers; they are **not**
 system rankings. Use `--mode full` on the real corpora with the LLM judge for that.
+
+## Scope & known gaps (read before trusting a number)
+
+- **Lexical-only baselines — no embedder.** Both providers rank by token overlap; semantic/embedding
+  retrieval is not exercised. Embedder choice is SM-R9's; a real embedding provider drops in behind
+  the seam unchanged. (`findings/02`.)
+- **Consolidation quality: seam wired, intrinsic score not run here.** `consolidate()` is wired and
+  tested, and the metric is defined as SM-R7's `composite_quality`, but running it needs SM-R7's
+  labeled targets (SM-R7 owns them). (`PLAN.md §2.4`.)
+- **Bi-temporal** uses SM-R10's two-sided `t_valid <= T < t_invalid`; **latency gate** is SM-R8's
+  ~50 ms retrieval hot-path budget; the **decay clock** is a labeled non-production stand-in (not
+  SM-R5's `last_accessed_at`). See `PLAN.md §2.3/§2.5` and `baselines.py`.

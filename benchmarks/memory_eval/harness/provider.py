@@ -1,29 +1,44 @@
 """The MemoryProvider eval contract (a thin projection of the SM-R11 seam).
 
-SM-R11 (#86) OWNS the canonical ``MemoryProvider`` interface:
-    read(tenant, agent, query, types) -> MemorySlice
-    write(tenant, agent, events)
-    consolidate(tenant, scope)
-over vector + graph substrates and Mode A/B. This harness does NOT redefine that
-interface. It declares the **minimal eval-facing contract** the scoring loop
-needs, and states exactly how it maps onto R11 so that when SM-C1 implements the
-real provider, one adapter satisfies this contract with no change to the runner
-or metrics (skill §3 plug-and-play):
+SM-R11 (#86) OWNS the canonical ``MemoryProvider`` ABC. Its CURRENT, ratified
+signatures (``benchmarks/memory_provider_spec/interface.py``, twice-fixed) are:
 
-    harness contract          <- maps onto ->     SM-R11 seam
-    provider.write(events)                        write(tenant, agent, events)
-    provider.read(query,k,as_of,types)            read(tenant, agent, query, types)
-    provider.consolidate(scope)                   consolidate(tenant, scope)
+    read(scope: Scope, query: MemoryQuery) -> MemorySlice
+    write(scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt
+    consolidate(scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport
 
-``tenant`` and ``agent`` are provider-instance configuration here (constructor),
-so the per-call signatures the runner uses stay small; the R11 adapter binds them.
+NOTE — earlier this docstring copied the issue-#86 *sketch*
+``read(tenant, agent, query, types)`` / ``write(tenant, agent, events)`` /
+``consolidate(tenant, scope)``. That was wrong: SM-R11's ``interface.py`` ``read``
+docstring and SPEC.md §5.3 carry a **DELIBERATE-DEVIATION** callout (which names
+this PR, SM-R13 #19) precisely because that strawman was propagated. Corrected
+here. The real seam folds tenant+agent into a ``Scope`` object and expresses the
+issue's ``types`` as ``MemoryQuery.tiers``.
+
+This harness does NOT redefine R11's interface — it declares the **minimal
+eval-facing contract** the scoring loop needs and maps 1:1 onto R11 so one adapter
+satisfies it with no runner/metric changes (skill §3):
+
+    harness contract                      <- maps onto ->  SM-R11 seam
+    provider.write(events)                                 write(scope, events) -> WriteReceipt
+    provider.read(query, k, as_of, types)                 read(scope, MemoryQuery(
+                                                             text=query, limit=k,
+                                                             as_of=as_of, tiers=types)) -> MemorySlice
+    provider.consolidate(tiers)                            consolidate(scope, tiers) -> ConsolidationReport
+
+Binding of the thin params to R11:
+- ``Scope`` — the harness runs single-tenant; tenant/agent live on ``RunConfig``
+  (``RunConfig.tenant``/``.agent``) and the R11 adapter builds a ``Scope`` from them.
+- ``k`` -> ``MemoryQuery.limit`` ; ``as_of`` -> ``MemoryQuery.as_of`` (epoch s,
+  bi-temporal, SM-R10) ; ``types`` -> ``MemoryQuery.tiers``.
+- harness ``MemoryEvent`` (event_id/text/timestamp) projects R11's ``MemoryEvent``
+  (id/content/occurred_at).
 
 The ONE requirement the harness places on any provider, beyond R11, is
-**retrieval provenance**: each returned ``RetrievedMemory`` must expose the
-``source_ids`` (the originating ``turn_id``s) so recall@k / nDCG@k can be scored
-against a probe's gold ``evidence_ids``. R11's ``MemorySlice`` items are expected
-to carry this provenance already (it is core to the neuro-symbolic design); the
-adapter surfaces it. ``as_of`` is required for bi-temporal "true at T".
+**retrieval provenance**: each returned ``RetrievedMemory`` exposes ``source_ids``
+(originating ``turn_id``s) so recall@k / nDCG@k score against a probe's gold
+``evidence_ids``. R11's ``MemoryRecord`` already carries this in ``provenance``
+(source_episode_ids); the adapter surfaces it.
 
 Both sync and async methods are declared (codebase convention).
 """
@@ -94,9 +109,13 @@ class MemoryProvider(Protocol):
         self, query: str, *, k: int, as_of: Optional[int] = None, types: Optional[Sequence[str]] = None
     ) -> List[RetrievedMemory]: ...
 
-    def consolidate(self, scope: Optional[str] = None) -> None: ...
+    # Param is ``tiers`` (which tiers to consolidate) to match R11's
+    # ``consolidate(scope, tiers)``. It is NOT R11's ``scope`` (a ``Scope``) — the
+    # old ``scope: Optional[str]`` here collided with that type while meaning R11's
+    # ``tiers``. Renamed to remove the collision.
+    def consolidate(self, tiers: Optional[Sequence[str]] = None) -> None: ...
 
-    async def aconsolidate(self, scope: Optional[str] = None) -> None: ...
+    async def aconsolidate(self, tiers: Optional[Sequence[str]] = None) -> None: ...
 
 
 @runtime_checkable

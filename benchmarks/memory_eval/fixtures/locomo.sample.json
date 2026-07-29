@@ -8,13 +8,17 @@
           "turn_id": "D1:1",
           "speaker": "Alice",
           "text": "I moved to Berlin in March.",
-          "timestamp": 1700000000
+          "timestamp": 1700000000,
+          "t_valid": null,
+          "t_invalid": null
         },
         {
           "turn_id": "D1:2",
           "speaker": "Bob",
           "text": "How's the new city treating you?",
-          "timestamp": 1700000001
+          "timestamp": 1700000001,
+          "t_valid": null,
+          "t_invalid": null
         }
       ]
     },
@@ -25,13 +29,17 @@
           "turn_id": "D2:1",
           "speaker": "Alice",
           "text": "I started learning German at a school downtown.",
-          "timestamp": 1700086400
+          "timestamp": 1700086400,
+          "t_valid": null,
+          "t_invalid": null
         },
         {
           "turn_id": "D2:2",
           "speaker": "Bob",
           "text": "Viel Erfolg!",
-          "timestamp": 1700086401
+          "timestamp": 1700086401,
+          "t_valid": null,
+          "t_invalid": null
         }
       ]
     }

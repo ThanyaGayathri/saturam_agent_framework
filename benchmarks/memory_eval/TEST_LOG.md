@@ -5,15 +5,35 @@ Lint/type: dedicated venv with ruff 0.16.0 + mypy 1.19.1.
 
 ---
 
+## Pre-review revision — sibling-consistency fixes (Part 2 audit)
+
+Applied against the CURRENT sibling docs (re-read, not from memory):
+
+| # | Fix | Evidence |
+|---|---|---|
+| P2.1 | SM-R11 signature mismatch — mapping table rewritten to `read(Scope, MemoryQuery)` / `write(Scope, events)` / `consolidate(Scope, tiers)`; colliding `consolidate(scope: str)` param renamed to `tiers`. | `harness/provider.py` docstring + `MemoryProvider.consolidate`; `harness/baselines.py:_BaseLexical.consolidate`. Verified vs `origin/feat/memory-SM-R11:.../interface.py` (SIGNATURE NOTE names this PR). |
+| P2.2 | Consolidation quality — claim downgraded to "seam wired, intrinsic score not run here (needs SM-R7 labeled targets)". No false checkbox. | `PLAN.md §2.4` + AC1 row; `harness/runner.py:60` fires the seam (unscored no-op for baselines). |
+| P2.3 | Bi-temporal leak made **two-sided** (`t_valid <= T < t_invalid`, SM-R10). Added `Turn.t_valid`/`t_invalid` + `valid_at`; leak now catches future AND stale-superseded, over all `as_of` probes. | `harness/schemas.py:Turn`; `harness/metrics.py` (`as_of_leak_rate`); `tests/test_metrics.py:test_bitemporal_leak_is_two_sided` (2/3, incl. the stale case a one-sided check misses). |
+| P2.4 | Latency gate `1500 ms → 50 ms` (SM-R8 hot-path `p95 < ~50 ms`, retrieval read only); mis-citation of "SM-R3 family" corrected. | `harness/gate.py:GateConfig.max_query_p95_ms`. Reference-provider gate still PASS. |
+| P2.5 | Decay clock — loud NON-PRODUCTION comment: ages from creation, NOT SM-R5's `now - last_accessed_at` (reset on access). | `harness/baselines.py:RecencyDecayProvider` docstring + `_score`. |
+| P2.6 | Embedder gap flagged (both baselines lexical-only; no embedder). Not fixed — out of scope (SM-R9). | `findings/02-embedder-coverage-gap.md`; `PLAN.md §6`. |
+
+Post-fix verification (offline, re-run): ruff (E,F,W,I) clean; `ruff format --check` clean; mypy clean
+(20 files); `7 metric tests`, `7 runner tests`, suite-adapter SKIP (no egpt). Reference-provider gate
+PASS at 50 ms. Core untouched: `git diff origin/main -- libs/` = 0.
+
+---
+
 ### tests/test_metrics.py
 
-**Status:** PASS (6/6)
+**Status:** PASS (7/7)
 
 **Description:** Unit tests for the metric engine on hand-computed values — recall@k / hit@k,
-nDCG@k (DCG/IDCG spelled out), percentile/p95, Wilson interval, StubJudge, and an end-to-end
-`aggregate` check (per-category QA, temporal slice, retrieval means, bi-temporal leak, decay).
+nDCG@k (DCG/IDCG spelled out), percentile/p95, Wilson interval, StubJudge, an end-to-end
+`aggregate` check (per-category QA, temporal slice, retrieval means, bi-temporal leak, decay), and
+the **two-sided** bi-temporal leak (future + stale-superseded, SM-R10 `t_valid <= T < t_invalid`).
 
-**Result:** `6 metric tests passed`. Formulas cross-checked in-test against independent closed-form
+**Result:** `7 metric tests passed`. Formulas cross-checked in-test against independent closed-form
 expressions (not hardcoded constants).
 
 ---

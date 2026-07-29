@@ -4,7 +4,7 @@
     {
       "session_id": "s_work_1",
       "turns": [
-        {"turn_id": "ct_acme", "speaker": "Alice", "text": "I work at Acme Corp as an analyst.", "timestamp": 1700000000}
+        {"turn_id": "ct_acme", "speaker": "Alice", "text": "I work at Acme Corp as an analyst.", "timestamp": 1700000000, "t_valid": 1700000000, "t_invalid": 1702592000}
       ]
     },
     {
@@ -16,7 +16,7 @@
     {
       "session_id": "s_work_2",
       "turns": [
-        {"turn_id": "ct_globex", "speaker": "Alice", "text": "I switched jobs; I now work at Globex.", "timestamp": 1702592000}
+        {"turn_id": "ct_globex", "speaker": "Alice", "text": "I switched jobs; I now work at Globex.", "timestamp": 1702592000, "t_valid": 1702592000, "t_invalid": null}
       ]
     }
   ],

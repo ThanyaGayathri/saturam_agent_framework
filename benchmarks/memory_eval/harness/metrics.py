@@ -23,10 +23,15 @@ not ranked inside noise (skill §5).
 TEMPORAL: QA accuracy restricted to categories {temporal, knowledge_update,
 as_of_t}.
 
-BI-TEMPORAL ("true at T"): QA accuracy on {as_of_t, knowledge_update} PLUS an
-as-of leak check — for an ``as_of_t`` probe asked at time T, the top-1 retrieved
-turn must be valid at T (timestamp <= T). ``as_of_leak_rate`` = fraction whose
-top-1 retrieved turn post-dates T (lower is better).
+BI-TEMPORAL ("true at T"): QA accuracy on {as_of_t, knowledge_update} PLUS a
+two-sided as-of leak check. SM-R10 canonical: a fact is true at T iff
+``t_valid <= T < t_invalid`` (BOTH bounds required; SPEC §7 pitfall). For any probe
+carrying an ``as_of`` = T, the top-1 retrieved turn must be ``valid_at(T)``.
+``as_of_leak_rate`` = fraction whose top-1 turn is NOT valid at T — i.e. it either
+post-dates T (future) OR was already superseded (``t_invalid <= T``, a stale fact
+returned as current). Lower is better. (A one-sided future-only check cannot catch
+the stale-superseded case — the exact failure bi-temporal beats single-time on in
+SM-R10's own eval.)
 
 DECAY: for a decay probe naming a stale turn D (``decay_target_turn_id``),
 ``decay_suppression@k`` = fraction of decay probes where D is NOT in top-k
@@ -138,7 +143,13 @@ def aggregate(
     # Bi-temporal.
     bt_records = [r for r in records if r.probe.category in {"as_of_t", "knowledge_update"}]
     bitemporal_acc = _acc(bt_records)
-    as_of_records = [r for r in records if r.probe.category == "as_of_t" and r.probe.as_of is not None]
+    # Two-sided "true at T" leak (SM-R10: valid iff t_valid <= T < t_invalid; BOTH
+    # bounds required). A leak = the top-1 retrieved turn is NOT valid at the query
+    # time T — i.e. either it post-dates T (future) OR it was already superseded
+    # (t_invalid <= T, a stale-current return). A one-sided future-only check
+    # structurally misses the stale-superseded case. Applies to every probe that
+    # carries an as_of (as_of_t AND knowledge_update).
+    as_of_records = [r for r in records if r.probe.as_of is not None]
     leaks = 0
     leak_measured = 0
     for r in as_of_records:
@@ -148,7 +159,7 @@ def aggregate(
         if top1 is None:
             continue
         leak_measured += 1
-        if top1.timestamp > (r.probe.as_of or 0):
+        if not top1.valid_at(r.probe.as_of or 0):
             leaks += 1
     as_of_leak_rate = (leaks / leak_measured) if leak_measured else None
 

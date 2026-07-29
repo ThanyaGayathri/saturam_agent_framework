@@ -76,11 +76,25 @@ class Turn:
     turn_id: str
     speaker: str
     text: str
-    timestamp: int  # epoch seconds; drives temporal ordering / decay
+    timestamp: int  # epoch seconds; when the turn was uttered (drives ordering / decay)
+    # Bi-temporal VALID-TIME window (SM-R10 canonical: "true at T" = t_valid <= T <
+    # t_invalid, BOTH bounds required — SPEC §7 pitfall callout). For a fact stated
+    # by this turn: t_valid = when it became true (defaults to ``timestamp`` when
+    # None), t_invalid = when it was superseded/invalidated (None => open interval,
+    # COALESCE'd to +inf). These let the bi-temporal metric catch a stale-superseded
+    # fact returned as "current", which a one-sided (future-only) check cannot.
+    t_valid: Optional[int] = None
+    t_invalid: Optional[int] = None
 
     def as_memory_text(self) -> str:
         """The text a provider ingests: speaker-attributed so 'who said it' survives."""
         return f"{self.speaker}: {self.text}"
+
+    def valid_at(self, t: int) -> bool:
+        """SM-R10 point-in-time truth: ``t_valid <= t < t_invalid`` (open => +inf)."""
+        lo = self.t_valid if self.t_valid is not None else self.timestamp
+        hi = self.t_invalid  # None => open (+inf)
+        return lo <= t and (hi is None or t < hi)
 
 
 @dataclass(frozen=True)

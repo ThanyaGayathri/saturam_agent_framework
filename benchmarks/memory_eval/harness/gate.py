@@ -22,7 +22,14 @@ class GateConfig:
 
     min_qa_accuracy: Optional[float] = 0.50
     min_recall_at_k: Optional[float] = 0.60
-    max_query_p95_ms: Optional[float] = 1500.0  # provisional; SM-R3 latency SLO family
+    # Gates the RETRIEVAL hot-path p95 (provider.read() only, i.e. latency_ms.query
+    # — NOT end-to-end QA, which additionally pays the LLM answer+judge). Set to
+    # SM-R8's ratified hot-path budget: "embed+BM25+fusion target p95 < ~50 ms
+    # in-VPC (provisional)" (SM-R8 DECISION.md §"Budget"); consistent with SM-R3's
+    # measured 13-21 ms per-tenant reads. The earlier 1500 ms was ~30x too loose
+    # and mis-cited. LLM answer/judge latency is reported (latency_ms.answer) but
+    # not gated on this budget.
+    max_query_p95_ms: Optional[float] = 50.0
     max_cost_usd: Optional[float] = None  # set per-run once real token costs are known
 
 

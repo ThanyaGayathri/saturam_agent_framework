@@ -52,11 +52,12 @@ class _BaseLexical:
     async def awrite(self, events: Sequence[MemoryEvent]) -> None:
         self.write(events)
 
-    def consolidate(self, scope: Optional[str] = None) -> None:
+    def consolidate(self, tiers: Optional[Sequence[str]] = None) -> None:
         # Baselines do not consolidate; the seam exists so SM-R7's provider can.
+        # Param is ``tiers`` to match R11's consolidate(scope, tiers).
         return None
 
-    async def aconsolidate(self, scope: Optional[str] = None) -> None:
+    async def aconsolidate(self, tiers: Optional[Sequence[str]] = None) -> None:
         return None
 
     def _score(self, event: MemoryEvent, base: float, now: Optional[int]) -> float:
@@ -103,6 +104,16 @@ class RecencyDecayProvider(_BaseLexical):
     newest memory not exceeding ``as_of`` (or the newest overall). This down-ranks
     stale, low-salience memories (decay) and, with ``_respects_as_of``, never
     returns a memory newer than the query time (bi-temporal "true at T").
+
+    NON-PRODUCTION CLOCK — DO NOT COPY AS SM-R5's DECAY. This baseline ages memories
+    from **creation time** (``event.timestamp``). SM-R5's ratified formula ages from
+    **last access**, reset on confirmed access — this is the exact clock-choice bug
+    SM-R5's own review caught (SM-R5 DECISION.md §2.1: honest decay-resistance 0.362
+    not 0.787, and §"age_since_access = now - last_accessed_at  # reset on confirmed
+    access"). It is deliberately NOT reproduced here: this provider exists only to
+    exercise the harness's decay metric with a trivial, stateless ranker, not to be
+    SM-R5's provider. A real SM-R5 decay provider (last_accessed_at + reset-on-access
+    + importance) drops in behind the ``MemoryProvider`` protocol unchanged.
     """
 
     name = "recency_decay"
@@ -124,6 +135,7 @@ class RecencyDecayProvider(_BaseLexical):
         return super().read(query, k=k, as_of=as_of, types=types)
 
     def _score(self, event: MemoryEvent, base: float, now: Optional[int]) -> float:
+        # age from CREATION (non-production; SM-R5 uses now - last_accessed_at).
         age = max(0, self._ref - event.timestamp)
         return base * (2.0 ** (-age / self.half_life_s))
 

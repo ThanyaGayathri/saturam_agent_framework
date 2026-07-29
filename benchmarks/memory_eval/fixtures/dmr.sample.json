@@ -8,13 +8,17 @@
           "turn_id": "dmr_s0_t0",
           "speaker": "user",
           "text": "My sister Maria is visiting next week.",
-          "timestamp": 1700000000
+          "timestamp": 1700000000,
+          "t_valid": null,
+          "t_invalid": null
         },
         {
           "turn_id": "dmr_s0_t1",
           "speaker": "assistant",
           "text": "That's wonderful, enjoy the visit!",
-          "timestamp": 1700000001
+          "timestamp": 1700000001,
+          "t_valid": null,
+          "t_invalid": null
         }
       ]
     },
@@ -25,7 +29,9 @@
           "turn_id": "dmr_s1_t0",
           "speaker": "user",
           "text": "I've played the cello since I was ten.",
-          "timestamp": 1700003600
+          "timestamp": 1700003600,
+          "t_valid": null,
+          "t_invalid": null
         }
       ]
     }

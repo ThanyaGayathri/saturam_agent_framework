@@ -8,13 +8,17 @@
           "turn_id": "s_intro_t0",
           "speaker": "user",
           "text": "Hi, I'm planning a trip to Kyoto.",
-          "timestamp": 1684540800
+          "timestamp": 1684540800,
+          "t_valid": null,
+          "t_invalid": null
         },
         {
           "turn_id": "s_intro_t1",
           "speaker": "assistant",
           "text": "Kyoto is lovely in spring.",
-          "timestamp": 1684540801
+          "timestamp": 1684540801,
+          "t_valid": null,
+          "t_invalid": null
         }
       ]
     },
@@ -25,13 +29,17 @@
           "turn_id": "s_weekend_t0",
           "speaker": "user",
           "text": "I adopted a dog named Pixel last week.",
-          "timestamp": 1685145600
+          "timestamp": 1685145600,
+          "t_valid": null,
+          "t_invalid": null
         },
         {
           "turn_id": "s_weekend_t1",
           "speaker": "assistant",
           "text": "Congratulations on Pixel!",
-          "timestamp": 1685145601
+          "timestamp": 1685145601,
+          "t_valid": null,
+          "t_invalid": null
         }
       ]
     },
@@ -42,7 +50,9 @@
           "turn_id": "s_job1_t0",
           "speaker": "user",
           "text": "I work at Acme Corp as an analyst.",
-          "timestamp": 1678406400
+          "timestamp": 1678406400,
+          "t_valid": null,
+          "t_invalid": null
         }
       ]
     },
@@ -53,7 +63,9 @@
           "turn_id": "s_job2_t0",
           "speaker": "user",
           "text": "I just started a new job at Globex.",
-          "timestamp": 1686787200
+          "timestamp": 1686787200,
+          "t_valid": null,
+          "t_invalid": null
         }
       ]
     },
@@ -64,7 +76,9 @@
           "turn_id": "s_chat_t0",
           "speaker": "user",
           "text": "The weather has been rainy lately.",
-          "timestamp": 1680307200
+          "timestamp": 1680307200,
+          "t_valid": null,
+          "t_invalid": null
         }
       ]
     }

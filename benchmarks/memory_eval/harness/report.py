@@ -72,7 +72,8 @@ def render_markdown(reports: List[dict], *, title: str, generated_utc: str, mode
         "Columns: QA = LLM-judged answer correctness; temporal = QA over "
         "{temporal, knowledge_update, as_of_t}; recall@k / nDCG@k over probes with gold "
         "evidence; bitemporal = QA over {as_of_t, knowledge_update}; as_of_leak = fraction of "
-        "as-of probes whose top-1 retrieval post-dates the query time (lower better); "
+        "as-of probes whose top-1 retrieval is NOT valid at T (two-sided: future OR "
+        "stale-superseded; SM-R10 t_valid<=T<t_invalid; lower better); "
         "decay supp/outr = stale-target suppression@k / gold-outranks-stale (higher better)."
     )
     lines.append("")
