@@ -65,8 +65,10 @@ def build_os_container(agent_os: "EgptOS", container: Optional[Container] = None
     Args:
         agent_os: The EgptOS instance whose configuration the services are built from.
         container: Optional pre-existing container to add bindings to. Bindings already
-            present are left untouched, so a caller can pre-bind a fake before the
-            defaults are registered.
+            present *on that container itself* are left untouched, so a caller can
+            pre-bind a fake before the defaults are registered. A binding merely
+            inherited from a parent does not count -- see ``bind_default`` below --
+            so pre-bind on the container you actually pass to ``EgptOS``.
 
     Returns:
         The container holding the control-plane bindings.
@@ -80,7 +82,13 @@ def build_os_container(agent_os: "EgptOS", container: Optional[Container] = None
     def bind_default(token: Any, factory: Any, singleton: bool = True) -> None:
         # Never clobber a binding the caller supplied: a container passed to EgptOS is
         # a deliberate substitution, and the defaults must not overwrite it.
-        if token not in c:
+        #
+        # ``has_local``, not ``in``: only a binding on *this* container counts. Every
+        # default below closes over one specific EgptOS, so an inherited one belongs to
+        # a different instance -- letting it suppress the default would hand this OS the
+        # parent's registry, a verifier pointed at the parent's db, and a scheduler
+        # carrying the parent's internal service token. A child must get its own.
+        if not c.has_local(token):
             c.bind(token, factory, singleton=singleton)
 
     bind_default(Registry, _registry_factory)

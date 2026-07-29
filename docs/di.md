@@ -132,6 +132,25 @@ instances. An inherited binding is built with the **child** as the resolution co
 inside a factory defined on the parent. A child that binds nothing shares the parent's singletons rather than
 duplicating them.
 
+**Pre-bind on the container you pass, not on an ancestor.** `build_os_container` decides whether to install a default
+with `has_local()`, so an inherited binding never suppresses one. This is deliberate: every default closes over one
+specific `EgptOS`, so a child that inherited them would get the parent's registry, a verifier pointed at the parent's
+db, and a scheduler carrying the parent's internal service token. A child therefore always gets its own copy of the six
+defaults, and only your **custom** bindings are inherited:
+
+```python
+parent = Container(name="app")
+parent.bind_instance(MetricsSink, FakeSink())      # custom -> inherited by children
+
+child = parent.child()
+child.bind_instance(Registry, FakeRegistry())      # a default -> must be bound on the child
+
+agent_os = EgptOS(agents=[agent], db=db, container=child)
+# child.resolve(MetricsSink) -> FakeSink (inherited)
+# child.resolve(Registry)    -> FakeRegistry (local); had you bound it on `parent`,
+#                               the child's own default would have won instead.
+```
+
 ---
 
 ## Layering
@@ -157,7 +176,8 @@ Adding a container to another layer means that layer has become a composition ro
 | `aresolve(token)` / `atry_resolve(token)` | Async variants, supporting async factories |
 | `override(token, instance)` / `override_factory(token, factory)` | Temporary substitution (context manager) |
 | `child(name=None)` | Nested scope that falls back to this container |
-| `has(token)` / `token in container` / `tokens()` | Introspection |
+| `has(token)` / `token in container` / `tokens()` | Introspection (parents included) |
+| `has_local(token)` | Whether *this* container binds it, ignoring parents — how the composition root decides on a default |
 | `unbind(token)` / `reset(token=None)` | Remove a binding / drop cached singletons |
 
 Cyclic dependencies raise `ContainerError` naming the chain, rather than recursing until the stack blows.

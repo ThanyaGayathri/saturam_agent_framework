@@ -92,6 +92,65 @@ def test_a_container_cannot_be_shared_between_two_egpt_os_instances(agent, tmp_p
     EgptOS(agents=[agent], db=SqliteDb(db_file=str(tmp_path / "third.db")), container=container.child())
 
 
+def test_child_container_gets_its_own_instance_scoped_services(agent, tmp_path):
+    """A child must not inherit the defaults: they close over the *parent's* EgptOS.
+
+    ``child()`` is the documented way to reuse a configured container, so if the
+    defaults were inherited the second OS would silently run on the first one's
+    registry, verify service accounts against the first one's database, and hand the
+    scheduler the first one's internal service token.
+    """
+    first_db = SqliteDb(db_file=str(tmp_path / "first.db"))
+    second_db = SqliteDb(db_file=str(tmp_path / "second.db"))
+    shared = Container(name="shared")
+
+    first = EgptOS(agents=[agent], db=first_db, container=shared, internal_service_token="token-one")
+    second = EgptOS(agents=[agent], db=second_db, container=shared.child(), internal_service_token="token-two")
+
+    # Each OS gets its own registry, or agents from one leak into the other.
+    assert second.container.resolve(Registry) is not first.container.resolve(Registry)
+
+    # The verifier must point at the OS that owns it, not at the parent's database.
+    first_verifier = first._get_service_account_verifier()
+    second_verifier = second._get_service_account_verifier()
+    assert second_verifier is not first_verifier
+    assert second_verifier.db is second_db
+
+    # And the scheduler must not carry the first instance's credential.
+    pytest.importorskip("httpx")
+    assert second.container.resolve(SCHEDULE_EXECUTOR).internal_service_token == "token-two"
+
+
+def test_child_inherits_custom_bindings_but_not_defaults(agent, tmp_path):
+    """Only the six instance-scoped defaults are re-bound; custom bindings still flow down."""
+
+    class MetricsSink:
+        pass
+
+    sink = MetricsSink()
+    parent = Container(name="app")
+    parent.bind_instance(MetricsSink, sink)
+    parent.bind_instance(Registry, FakeRegistry(name="parent-registry"))
+
+    agent_os = EgptOS(agents=[agent], db=SqliteDb(db_file=str(tmp_path / "child.db")), container=parent.child())
+
+    # A custom binding has no per-instance state, so it is inherited as-is.
+    assert agent_os.container.resolve(MetricsSink) is sink
+    # A default is instance-scoped, so the child binds its own rather than the parent's.
+    assert type(agent_os.container.resolve(Registry)) is Registry
+
+
+def test_binding_on_the_child_itself_still_wins(agent, tmp_path):
+    """The substitution seam is unchanged -- pre-bind on the container you actually pass."""
+    fake = FakeRegistry(name="fake")
+    child = Container(name="app").child()
+    child.bind_instance(Registry, fake)
+
+    agent_os = EgptOS(agents=[agent], db=SqliteDb(db_file=str(tmp_path / "own.db")), container=child)
+
+    assert agent_os.registry is fake
+
+
 def test_rebuilding_with_the_same_egpt_os_is_allowed(agent_os):
     """Idempotence must not trip the owner guard."""
     assert build_os_container(agent_os, agent_os.container) is agent_os.container

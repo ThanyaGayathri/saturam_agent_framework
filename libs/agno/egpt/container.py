@@ -152,6 +152,17 @@ class Container:
                 return True
         return self._parent is not None and self._parent.has(token)
 
+    def has_local(self, token: Token) -> bool:
+        """Whether *this* container binds the token itself, ignoring any parent.
+
+        ``has`` walks the parent chain; this deliberately does not. A composition root
+        needs the distinction: a binding inherited from a parent was registered for a
+        different owner, so it must not suppress the default this container needs. Use
+        ``has`` to ask "can this resolve?", ``has_local`` to ask "is this mine?".
+        """
+        with self._lock:
+            return token in self._bindings
+
     def tokens(self) -> List[Token]:
         """Tokens bound on this container, parents included."""
         with self._lock:

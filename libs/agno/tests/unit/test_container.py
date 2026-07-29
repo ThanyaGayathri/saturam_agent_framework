@@ -260,6 +260,21 @@ def test_empty_child_shares_the_parent_singleton(container):
     assert child.resolve(Indexer) is container.resolve(Indexer)
 
 
+def test_has_local_ignores_the_parent(container):
+    """A composition root needs 'is this mine?', not 'can this resolve?'.
+
+    ``has`` answers the second, so a caller that used it to decide whether to install a
+    default would skip it on any child and silently inherit the parent's.
+    """
+    child = container.child()
+
+    assert child.has(Store) and not child.has_local(Store)
+    assert container.has_local(Store)
+
+    child.bind(Store, lambda _c: FakeStore())
+    assert child.has_local(Store)
+
+
 def test_child_tokens_include_parent_tokens_once(container):
     child = container.child()
     child.bind(Store, lambda _c: FakeStore())
