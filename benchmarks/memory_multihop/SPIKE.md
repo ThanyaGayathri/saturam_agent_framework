@@ -83,18 +83,22 @@ EM/F1 are not comparable across runs (reader drift — see §Embedder correction
       *Caveat:* prototype runs over a 2Wiki-derived KG (SM-G's temporal graph is not built yet);
       the KG shape and the PPR→GDS mapping are specified for SM-H4.
 - [~] **Composition with bi-temporal/time-aware filtering — MECHANICALLY composes; ranking
-      quality UNTESTED and currently UNOWNED.** §Composition shows the mechanism (PPR ranks
-      over a time-filtered graph projection; filter and ranking are orthogonal steps), and
-      that much is sound. But it is confirmed *by design only* — never exercised on temporal
-      data. PPR's stationary distribution is topology-sensitive, and a bi-temporal projection
-      that excludes superseded/invalidated edges is a **sparser, differently-shaped graph**,
-      so ranking quality does not automatically transfer from this static-corpus result. It
-      could degrade worst exactly where edge churn is highest — our episodic memory.
-      **Ownership gap:** this doc previously handed the untested part to SM-R10, but SM-R10
-      §11 explicitly puts ranking *out of its scope* ("This spec only adds the valid-time
-      filter columns, not ranking"), and SM-R10 mentions PPR nowhere. Nobody currently owns
-      measuring PPR quality over a time-filtered projection — **assigning it to SM-H4 (with
-      SM-G supplying the temporal graph) is a decision this spike cannot make alone.**
+      quality UNTESTED, now OWNED by SM-H4.** §Composition shows the mechanism (PPR ranks over
+      a time-filtered graph projection; filter and ranking are orthogonal steps), and that much
+      is sound. But it is confirmed *by design only* — never exercised on temporal data. PPR's
+      stationary distribution is topology-sensitive, and a bi-temporal projection that excludes
+      superseded/invalidated edges is a **sparser, differently-shaped graph**, so ranking
+      quality does not automatically transfer from this static-corpus result. It could degrade
+      worst exactly where edge churn is highest — our episodic memory.
+      **Ownership — RESOLVED (2026-07-29).** Previously handed to SM-R10, which does not own it:
+      SM-R10 §11 puts ranking *out of scope* ("This spec only adds the valid-time filter
+      columns, not ranking"). **Now assigned to SM-H4 ([aicoe-tracker#134]), with SM-G supplying
+      the temporal graph** — SM-G builds the graph, SM-H4 is the task that actually runs PPR
+      against it, so ranking quality over a filtered projection sits with SM-H4. SM-R10
+      §12.1(b) states the same handoff and was awaiting exactly this confirmation.
+      **The AC stays `[~]`: ownership is settled, the measurement is not done.**
+
+[aicoe-tracker#134]: https://github.com/Saturam-Inc/aicoe-tracker/issues/134
 
 ## Questions to answer (from the issue)
 
@@ -580,17 +584,28 @@ WHERE e.t_valid <= datetime($T)
 Both errors change graph **topology**, which is precisely what PPR ranks over — so they are
 correctness bugs in the composition story, not cosmetic ones.
 
-**Quality remains untested and unowned.** The mechanism is sound; the *ranking quality* over a
-time-filtered projection is not measured. A bi-temporal projection is sparser and
+**Quality remains untested — but it is no longer unowned.** The mechanism is sound; the *ranking
+quality* over a time-filtered projection is not measured. A bi-temporal projection is sparser and
 differently-shaped than this static corpus, PPR's stationary distribution is topology-sensitive,
-and degradation would be worst where edge churn is highest — our episodic memory. This doc
-previously assigned that measurement to SM-R10, but **SM-R10 §11 explicitly excludes ranking
-from its scope** ("This spec only adds the valid-time filter columns, not ranking") and does not
-mention PPR anywhere. **Recommended owner: SM-H4, with SM-G supplying the temporal graph** — but
-that reassignment needs confirming, since it is currently nobody's.
+and degradation would be worst where edge churn is highest — our episodic memory.
+
+**Owner: SM-H4 ([aicoe-tracker#134](https://github.com/Saturam-Inc/aicoe-tracker/issues/134)),
+with SM-G supplying the temporal graph — confirmed 2026-07-29.** The rationale: SM-G builds the
+graph, SM-H4 is the task that actually runs PPR against it, so ranking quality over a filtered
+projection belongs with the consumer, not the producer. This doc previously assigned it to
+SM-R10, which does not own it — **SM-R10 §11 explicitly excludes ranking** ("This spec only adds
+the valid-time filter columns, not ranking"), and its §12.1(b) records the same SM-H4 handoff
+pending confirmation. Both documents now describe one open *measurement* with one named owner,
+rather than two framings of an unowned gap.
 
 ## Couplings & handoff to SM-H4
 
+- **OWNED MEASUREMENT — PPR ranking quality over a bi-temporal projection.** Assigned to SM-H4
+  (confirmed 2026-07-29; [aicoe-tracker#134]) with SM-G supplying the temporal graph. SM-R10 §11
+  excludes ranking from its scope, so this is **not** SM-R10's. Use SM-R10 §7's full 5a predicate
+  verbatim — including `coalesce(e.t_invalid, ∞)` and `e.expired_at IS NULL`; dropping either is
+  a **correctness** bug, not a cosmetic one, because both change the topology PPR ranks over
+  (§Composition). Expect degradation to be worst where edge churn is highest.
 - **KG shape:** entity nodes + passage/episode nodes; membership edges (IDF-weighted),
   relational edges (from OpenIE triples), synonymy edges (embedding cosine ≥ τ). SM-G supplies
   entities/relations; SM-H4 adds passage-linkage + PPR.
@@ -615,8 +630,8 @@ that reassignment needs confirming, since it is currently nobody's.
   that are not GDS-capable — §Integration route specifies both routes.
 - **KG construction / temporal model** → SM-G*; **decay/recency** → SM-R5; **bi-temporal
   schema** → SM-R10. This spike confirms PPR composes with bi-temporal filtering
-  *mechanically only*; **ranking quality under time filtering is untested and unowned**, since
-  SM-R10 §11 excludes ranking from its scope (§Composition).
+  *mechanically only*; **ranking quality under time filtering is untested but now owned by
+  SM-H4** (#134), since SM-R10 §11 excludes ranking from its scope (§Composition).
 - **Fusion method for dense+PPR** → measured (§Fusion): weighted shows no advantage over RRF on
   this leg pair, but the difference is not significant at n=30, so neither is *ratified*. SM-H4
   should re-test both against SM-G9's real graph retriever.
@@ -636,7 +651,7 @@ implicit:
 | --- | --- | --- |
 | **SM-R4** (embedder) | **was inconsistent — now fixed** | Harness defaulted to `text-embedding-3-small`, neither ratified mode. Fixed + re-measured: §Embedder correction. |
 | **SM-R8** (fusion) | **measured — SM-R8's result does not transfer** | Weighted swept 0.0–1.0 using SM-R8's own code: no advantage on dense+PPR, optimum degenerate at w=0.0. Not significant at n=30, but our CI excludes SM-R8's effect size. §Fusion. |
-| **SM-R10** (bi-temporal) | **gap — orphaned open item + predicate corrected** | §Composition. SM-R10 excludes ranking from scope, so PPR-over-time-filtered-projection is unowned. |
+| **SM-R10** (bi-temporal) | **resolved — owner assigned + predicate corrected** | §Composition. SM-R10 §11 excludes ranking from scope; measurement now **owned by SM-H4** (#134) with SM-G supplying the graph (confirmed 2026-07-29). SM-R10 §12.1(b) states the same handoff. |
 | **SM-R2** (engine) | **⚠️ unresolved dependency** | §Decision, §Integration route. Issue OPEN, 0/5 ACs; GDS assumption is conditional. |
 | **SM-R6 / SM-R7** (SLM path) | **claim was overstated — corrected** | §Decision switch thresholds. Accurate for SM-R6; SM-R7 proposes but never flags or measures an SLM extractor. |
 
