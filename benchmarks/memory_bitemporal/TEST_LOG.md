@@ -15,7 +15,7 @@ predicates — are now driven end-to-end by dedicated native adapters
 an equivalence test, with `run.py` comparing **per-probe return values** against the reference and
 recording `native_paths_measured` in the results JSON.
 
-**All paths are now measured** against live Postgres 16 and Neo4j 5 (run `20260728T144622Z`):
+**All paths are now measured** against live Postgres 16 and Neo4j 5 (run `20260729T061116Z`):
 
 | Path | Status |
 |---|---|
@@ -27,6 +27,8 @@ recording `native_paths_measured` in the results JSON.
 | 5c vector-tier filter | **measured** — 10/10 on reference *and* on real SQL |
 | Append-only guardrail (SPEC §6.1 trigger) | **measured** — 8/8 |
 | Rule-based valid-time extraction | **measured** — 6/6 |
+| **§9.1 vector-tier consistency — failure path** | **NOT MEASURED.** Only the propagation is scored (`vec_derived_valid_to`). Drift, partial write, re-sync convergence and the case-1 transactional co-write are **stated models, not validated ones**. |
+| **§9.1 re-sync statement** | **NOT EXECUTED, and not runnable as written** — its `m.memory_id = e.edge_id` join needs an edge→memory provenance link this spec does not define. Blocking unknown for SM-X11. |
 
 So the equivalence question raised in review is settled: the artifacts SM-G4/G5/X11 actually ship
 return **exactly** what the Python reference returns, on all 30 probes, on both engines. That is a
@@ -54,7 +56,7 @@ the numbers now support.
 (insert, supersede, NOOP, three-way chain, back-dated "since Jan", error retraction, predicate &
 tenant isolation, belief-evolution, **same-`t_valid` tie-break**, **deep re-correction**).
 
-**Result (run `20260728T144622Z`):**
+**Result (run `20260729T061116Z`):**
 
 | Backend | What it exercises | Accuracy | Equivalence vs reference |
 |---|---|---|---|
@@ -66,8 +68,8 @@ tenant isolation, belief-evolution, **same-`t_valid` tie-break**, **deep re-corr
 | single_time (Option B) | destructive overwrite baseline | 56.7% (17/30) | 17/30 (diverges, as designed) |
 
 The single-time baseline fails 13/30 — the point-in-time, correction and belief-evolution probes.
-Committed output: [results/results_20260728T144622Z.json](results/results_20260728T144622Z.json),
-[results/summary_20260728T144622Z.md](results/summary_20260728T144622Z.md).
+Committed output: [results/results_20260729T061116Z.json](results/results_20260729T061116Z.json),
+[results/summary_20260729T061116Z.md](results/summary_20260729T061116Z.md).
 
 Per-op latency, whole 30-probe set: postgres ~31–39 ms, neo4j ~213–270 ms (naive session per
 operation, not a tuned number; latency is not this task's metric — deferred to SM-R1).
@@ -234,8 +236,13 @@ date, and a no-cue fallback.
   metric (deferred to SM-R1).
 - Scenario set is small and single-authored; ground truth is mechanically timeline-derived
   (objective, not subjective). Scale is provisional for SM-R1.
-- The guardrail is measured on Postgres only. The equivalent Neo4j protection is *structural*
-  rather than enforced — `CypherNativeEdgeStore` never rewrites a time axis — but Neo4j has no
-  trigger mechanism to make that impossible, so a careless consumer could still `SET e.t_valid`.
-  Flagged for SM-G4.
+- **Engine asymmetry (actionable, not just noted).** The guardrail is Postgres-only: Neo4j 5 has
+  no property-immutability constraint, so the trigger has no native counterpart. Demonstrated
+  rather than assumed — injecting `SET e.t_valid = e.t_invalid + duration({days:30})` on a bounded
+  edge was **accepted silently by Neo4j**, while Postgres rejects the identical mutation
+  (`guardrail.py` case `in_place_t_valid`). SPEC §6.1 now names two concrete options for SM-G4 —
+  (1) an APOC trigger aborting on writes to `t_valid`/`t_invalid`/`created_at`, or (2) a
+  write-through repository plus a scheduled invariant audit — rather than just recording that a
+  gap exists. The §6.1 audit query is **verified**: zero rows on a healthy store, and it reported
+  the injected edge as `inverted interval`. The APOC option remains unverified.
 - Core untouched: `git diff origin/main -- libs/` empty.

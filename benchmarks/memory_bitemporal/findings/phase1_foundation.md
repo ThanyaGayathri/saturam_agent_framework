@@ -1,5 +1,18 @@
 # SM-R10 — Phase 1 Foundation (seed verification + edge field/query semantics)
 
+> **SUPERSEDED SNAPSHOT — do not implement from this file. [SPEC.md](../SPEC.md) is the
+> artifact.** This is the P1 design trail, kept for provenance. Several things below were
+> later corrected by measurement and are wrong as written:
+>
+> | Below | Corrected in SPEC.md |
+> |---|---|
+> | The 5c predicate `valid_from <= :T` (§5c) | **Wrong** — needs `COALESCE` on the *lower* bound too, else every pre-migration row (`valid_from IS NULL`) silently drops out of recall. SPEC §7, measured 7/10 → 10/10. |
+> | 5c using `'infinity'::timestamptz` | The vector tier is epoch `BIGINT`; the sentinel is `9223372036854775807`. |
+> | "all three bi-temporal backends … 21-probe set … 57.1%" (§4) | Superseded numbers: 30 probes, five backends, baseline 56.7%. |
+> | "three bi-temporal backends score 100%" as independence evidence | Retracted framing — it is **one shared rule over three storage layers**. SPEC top note. |
+> | No same-`t_valid` tie-break rule | SPEC §6 **R1-TIE**. |
+> | No mutation-path constraint | SPEC §6.1 requires expire-only, enforced by a DB trigger. |
+
 Status: **CHECKPOINT — awaiting approval before prototype (P2).**
 Issue: Saturam-Inc/aicoe-tracker#85. Depends on: SM-R1 (#76, ratifies provisional targets).
 Feeds: SM-G4 (bi-temporal edges), SM-G5 (invalidation), SM-X11.
@@ -104,6 +117,10 @@ Then:
 > approach. Edges are never mutated in place except setting `expired_at` once. Verified: all
 > three bi-temporal backends (reference/pg/neo4j) score 100% on the 21-probe set; the
 > single-time baseline scores 57.1%.
+>
+> *(Numbers superseded: the set is now 30 probes across five backends, baseline 56.7%. And the
+> "three backends agree" framing was retracted — they share one rule over three storage layers;
+> the independent check is the SQL/Cypher-native equivalence. See SPEC.md and TEST_LOG.md.)*
 
 **Back-dated insert.** If a conflicting current fact starts *after* `E_new`, do not supersede;
 bound the new edge: `E_new.t_invalid := min(E_new.t_invalid, earliest later conflict's t_valid)`.
@@ -164,6 +181,13 @@ Setting `:TT = now()` and requiring `expired_at IS NULL` reduces 5b to 5a.
 The vector tier carries `valid_from`/`valid_to` only, for **recall filtering** — no
 invalidation authority. Predicate applied as a metadata filter on top of similarity:
 ```sql
+-- WRONG AS DRAFTED -- kept to show what was corrected. Do not copy.
+-- Two defects: (1) no COALESCE on the LOWER bound, so every pre-migration row
+-- (valid_from IS NULL) evaluates to NULL and silently vanishes from recall;
+-- (2) the vector tier is epoch BIGINT, not timestamptz.
+-- Ratified form (SPEC.md SS7), measured 10/10 vs 7/10 for the draft below:
+--   AND COALESCE(valid_from, -9223372036854775808) <= :T
+--   AND :T < COALESCE(valid_to,  9223372036854775807)
 AND valid_from <= :T AND :T < COALESCE(valid_to, 'infinity'::timestamptz)
 ```
 Contradiction handling and `t_invalid`/`expired_at` live **only on the graph**

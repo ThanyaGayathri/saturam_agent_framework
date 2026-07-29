@@ -198,6 +198,46 @@ history SCD-2 exists to preserve — 5b stops reconstructing and the audit trail
 error and no failing query. A sibling storage layer in this programme already shipped that write
 path, so SM-X11 and SM-G4 should treat the trigger as part of the DDL, not an optional extra.
 
+**Neo4j has no equivalent enforcement — SM-G4 must close this explicitly.** Neo4j 5 constraints
+cover existence, uniqueness and property type; there is **no property-immutability constraint**,
+so the Postgres trigger has no direct counterpart. `CypherNativeEdgeStore` never rewrites a time
+axis, but that is discipline, not enforcement: any consumer can issue `SET e.t_valid = …` and
+nothing stops it. Pick one of these — this is a required decision, not a nice-to-have:
+
+1. **APOC trigger** (`apoc.trigger.install`, needs `apoc.trigger.enabled=true`): abort on any
+   transaction whose `assignedNodeProperties`/`assignedRelationshipProperties` touch `t_valid`,
+   `t_invalid` or `created_at` on a `:REL`. Closest to parity with the Postgres trigger; costs an
+   APOC dependency, which SM-R2's engine choice may or may not permit.
+2. **Write-through repository + scheduled invariant audit**, if APOC is unavailable. Route every
+   write through the `BiTemporalEdgeStore` seam, and run this as a scheduled check — it detects
+   the *damage* in-place mutation causes, even though it cannot prevent the write:
+   ```cypher
+   // Any current edge whose valid interval is inverted, or two current versions of one identity
+   // whose valid windows overlap -- both are impossible under expire-and-reinsert.
+   MATCH (s:Entity)-[e:REL]->(o:Entity) WHERE e.expired_at IS NULL
+     AND e.t_invalid IS NOT NULL AND e.t_invalid < e.t_valid
+   RETURN e.edge_id AS violation, 'inverted interval' AS why
+   UNION
+   MATCH (s:Entity)-[a:REL]->(:Entity), (s)-[b:REL]->(:Entity)
+   WHERE a.expired_at IS NULL AND b.expired_at IS NULL AND a.edge_id < b.edge_id
+     AND a.user_id = b.user_id AND a.predicate = b.predicate
+     AND a.t_valid < coalesce(b.t_invalid, datetime('9999-12-31T00:00:00Z'))
+     AND b.t_valid < coalesce(a.t_invalid, datetime('9999-12-31T00:00:00Z'))
+   RETURN a.edge_id AS violation, 'overlapping current versions' AS why;
+   ```
+   Both queries must return **zero rows** on a healthy store. Note this is detection after the
+   fact, strictly weaker than the Postgres trigger — record that asymmetry wherever the engine
+   choice is ratified.
+
+**The audit query above is verified** (unlike the §9.1 re-sync statement): run against the live
+Neo4j 5 container it returns zero rows on a healthy store, and after injecting
+`SET e.t_valid = e.t_invalid + duration({days:30})` on a bounded edge it reports that edge as
+`inverted interval`. That injection also demonstrates the asymmetry concretely — **Neo4j accepted
+the in-place rewrite silently**, where Postgres rejects the identical mutation via the trigger
+(`guardrail.py` case `in_place_t_valid`). What is *not* covered: option 1's APOC trigger is
+unverified, and the guardrail suite ([guardrail.py](guardrail.py), 8/8) is Postgres-only because
+there is no native Neo4j mechanism to test.
+
 ---
 
 ## 7. Point-in-time query semantics (actual predicates)
@@ -336,12 +376,20 @@ model is therefore stated explicitly rather than left implicit:
      **Two things this statement assumes that this spec does not deliver**, both owned by whoever
      implements the consolidation write (SM-X11):
 
-     1. **The join key does not exist.** `m.memory_id = e.edge_id` presumes an edge→memory
-        provenance link written at consolidation time. No such column is specified in §5 or §9,
-        and the additive migration does not add one. A real implementation must first decide how
-        a vector row points back at the edge it was derived from — one edge can produce several
-        memories and one memory can cite several edges, so this may well need a link table rather
-        than a column. Until that is settled, the `WHERE` clause above is a placeholder.
+     1. **The join key does not exist in this spec.** `m.memory_id = e.edge_id` presumes an
+        edge→memory provenance link written at consolidation time. No such column is specified in
+        §5 or §9, and the additive migration does not add one. A real implementation must first
+        decide how a vector row points back at the edge it was derived from — one edge can produce
+        several memories and one memory can cite several edges, so this may well need a link table
+        rather than a column. Until that is settled, the `WHERE` clause above is a placeholder.
+
+        **Cross-reference — SM-R12 (#18) owns the schema and already has a candidate.** Its
+        `SemanticFact` and `SemanticRelation` models carry `source_episode_ids[]` (+ `derived_by`)
+        provenance, which points relation→episodes — the direction this re-sync needs. That is a
+        plausible basis for the join (`... WHERE m.memory_id = ANY(e.source_episode_ids)`), but it
+        lives on SM-R12's `SemanticRelation`, **not** on this spec's `memory_edge`, and it has not
+        been reconciled against this use. SM-X11 should settle it with SM-R12 rather than
+        inventing a third link; flagged so it is not rediscovered independently.
      2. **It has never been run.** Unlike the 5c filter, the 5a/5b predicates and the §6.1
         trigger — all of which are exercised and scored against live engines — this statement is
         untested. It is here to fix the *intent* (re-derive from the graph, compare before
@@ -399,8 +447,13 @@ must-measure in §12.1(c).
 
 ## 11. Out of scope & boundaries
 
-- **Graph engine / vector-store choice** → SM-R2 / SM-G* (spec is engine-agnostic; the model
-  round-trips losslessly through both Postgres `timestamptz` and Neo4j `datetime`).
+- **Graph engine / vector-store choice** → SM-R2 (#77) / SM-G*. **SM-R2 is still OPEN and has not
+  selected an engine**, so this spec's use of Neo4j is a *proof that the model is engine-agnostic*,
+  not an engine recommendation — the four-timestamp model round-trips losslessly through both
+  Postgres `timestamptz` and Neo4j `datetime`, and the §7 predicates are given in both dialects
+  precisely so neither is load-bearing. Nothing here pre-empts SM-R2. (Stated the same way in
+  SM-R9's `SPIKE.md`, whose PPR/GDS route is likewise conditional on SM-R2 picking a GDS-capable
+  engine.)
 - **Retrieval fusion / ranking / decay** → SM-R3 (vector), SM-R5 (decay). This spec only adds the
   valid-time *filter* columns, not ranking. **This exclusion is why PPR ranking quality over the
   time-filtered projection is not owned here** — see §12.1(b).

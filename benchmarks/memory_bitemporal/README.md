@@ -3,7 +3,9 @@
 Design/spec deliverable for **SM-R10** ([#85](https://github.com/Saturam-Inc/aicoe-tracker/issues/85)):
 the bi-temporal edge model (valid time + transaction time, invalidate-not-delete) for the
 Symbiotic Memory graph tier. The spec is testable — a runnable prototype demonstrates
-point-in-time "true at T" reconstruction and non-destructive correction on three backends.
+point-in-time "true at T" reconstruction and non-destructive correction across five backends,
+including the SQL-native and Cypher-native paths downstream actually ships (see
+[what the numbers establish](#what-the-numbers-do-and-do-not-establish)).
 
 **Read [SPEC.md](SPEC.md) first** — it is the implementable artifact (fields, rules, query
 predicates, migration). This README is how to run the prototype.
@@ -55,7 +57,7 @@ Env overrides: `BT_PG_DSN`, `BT_NEO4J_URI` / `BT_NEO4J_USER` / `BT_NEO4J_PASSWOR
 
 **Point-in-time reconstruction accuracy** = fraction of `(subject, predicate, T[, TT])` probes
 whose returned fact equals the timeline-derived ground truth. Target **1.00** for the bi-temporal
-implementation. Latest run (`20260728T144622Z`): **100% (30/30)** on all five bi-temporal backends
+implementation. Latest run (`20260729T061116Z`): **100% (30/30)** on all five bi-temporal backends
 (reference, postgres, neo4j, postgres_sql, neo4j_cypher), single-time baseline **56.7% (17/30)**,
 5c vector-tier filter **10/10** on reference and real SQL, append-only guardrail **8/8**,
 rule-based extraction **6/6**.
