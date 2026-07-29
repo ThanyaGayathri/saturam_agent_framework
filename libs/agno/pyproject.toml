@@ -44,6 +44,11 @@ dev = [
   "pytest-asyncio==1.4.0",
   "pytest-cov==7.1.0",
   "pytest-mock==3.15.1",
+  # Implements -n/--dist: the unit suite is ~10k tests and ran serially in CI.
+  "pytest-xdist==3.8.0",
+  # Implements --timeout and @pytest.mark.timeout(N). Also listed under
+  # integration-tests; the unit run needs it too, to bound a wedged test.
+  "pytest-timeout",
   "timeout-decorator",
   "types-pyyaml",
   "types-aiofiles",

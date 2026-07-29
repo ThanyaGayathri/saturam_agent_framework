@@ -75,7 +75,10 @@ def test_performance_evals_telemetry_opt_in(monkeypatch):
     def sample_func():
         return "test result"
 
-    performance_eval = PerformanceEval(func=sample_func, telemetry=True)
+    # This test only checks that telemetry fires. PerformanceEval defaults to 10 warm-up runs plus
+    # 50 measured iterations for each of runtime and memory, which cost ~63s here for no added
+    # coverage; one iteration exercises the same telemetry path.
+    performance_eval = PerformanceEval(func=sample_func, telemetry=True, warmup_runs=0, num_iterations=1)
     assert performance_eval.telemetry is True
 
     with patch("egpt.api.evals.create_eval_run_telemetry") as mock_create:

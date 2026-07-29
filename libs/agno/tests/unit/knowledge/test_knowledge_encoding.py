@@ -1,3 +1,4 @@
+import logging
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -5,6 +6,23 @@ import pytest
 from egpt.knowledge.document import Document
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.base import VectorDb
+
+
+@pytest.fixture
+def no_log_capture():
+    """Suppress log records for the duration of a test.
+
+    Knowledge.insert logs the raw content ("Adding content from ..."). When that content holds a
+    lone surrogate, pytest captures the record and pytest-xdist then cannot UTF-8 encode it to send
+    the report to the controller, which kills the worker. Disabling logging at the source keeps the
+    surrogate out of every capture handler; the assertions here are on the inserted documents, not
+    on logs.
+    """
+    logging.disable(logging.CRITICAL)
+    try:
+        yield
+    finally:
+        logging.disable(logging.NOTSET)
 
 
 class MockVectorDb(VectorDb):
@@ -146,7 +164,7 @@ async def test_ainsert_handles_utf8_samples(text: str) -> None:
     _assert_insert_contains_text(fake_db, text)
 
 
-def test_insert_sync_replaces_invalid_surrogates() -> None:
+def test_insert_sync_replaces_invalid_surrogates(no_log_capture) -> None:
     # Lone surrogate characters are not valid in UTF-8; they should be replaced with U+FFFD
     bad_text = "bad\udffftext"
     fake_db = MockVectorDb()
@@ -159,7 +177,7 @@ def test_insert_sync_replaces_invalid_surrogates() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ainsert_replaces_invalid_surrogates() -> None:
+async def test_ainsert_replaces_invalid_surrogates(no_log_capture) -> None:
     bad_text = "\ud800orphan"
     fake_db = MockVectorDb()
     kb = Knowledge(vector_db=fake_db)

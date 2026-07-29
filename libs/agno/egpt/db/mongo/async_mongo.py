@@ -159,6 +159,7 @@ class AsyncMongoDb(AsyncBaseDb):
         schedule_runs_collection: Optional[str] = None,
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
+        server_selection_timeout_ms: Optional[int] = None,
     ):
         """
         Async interface for interacting with a MongoDB database.
@@ -185,6 +186,10 @@ class AsyncMongoDb(AsyncBaseDb):
             schedules_collection (Optional[str]): Name of the collection to store schedules.
             schedule_runs_collection (Optional[str]): Name of the collection to store schedule runs.
             id (Optional[str]): ID of the database.
+            server_selection_timeout_ms (Optional[int]): How long, in milliseconds, a client created
+                from db_url waits for a reachable server before giving up. Ignored when db_client is
+                supplied. Defaults to PyMongo's own default (30s); lower it when a fast failure is
+                preferable to a long block against an unreachable host.
 
         Raises:
             ValueError: If neither db_url nor db_client is provided, or if db_client type is unsupported.
@@ -229,6 +234,7 @@ class AsyncMongoDb(AsyncBaseDb):
         self._provided_client: Optional[AsyncMongoClientType] = db_client
         self.db_url: Optional[str] = db_url
         self.db_name: str = db_name if db_name is not None else "agno"
+        self.server_selection_timeout_ms: Optional[int] = server_selection_timeout_ms
 
         if self._provided_client is None and self.db_url is None:
             raise ValueError("One of db_url or db_client must be provided")
@@ -282,6 +288,22 @@ class AsyncMongoDb(AsyncBaseDb):
             self._client = None
             self._database = None
 
+    def _create_client(self) -> AsyncMongoClientType:
+        """Build a new async client from db_url using the detected client library.
+
+        Raises:
+            RuntimeError: If the detected client type is not available.
+        """
+        kwargs: Dict[str, Any] = {}
+        if self.server_selection_timeout_ms is not None:
+            kwargs["serverSelectionTimeoutMS"] = self.server_selection_timeout_ms
+
+        if self._client_type == self.CLIENT_TYPE_PYMONGO_ASYNC and PYMONGO_ASYNC_AVAILABLE:
+            return AsyncMongoClient(self.db_url, **kwargs)  # type: ignore
+        elif self._client_type == self.CLIENT_TYPE_MOTOR and MOTOR_AVAILABLE:
+            return AsyncIOMotorClient(self.db_url, **kwargs)  # type: ignore
+        raise RuntimeError(f"Client type '{self._client_type}' not available")
+
     def _ensure_client(self) -> AsyncMongoClientType:
         """
         Ensure the MongoDB async client is valid for the current event loop.
@@ -302,12 +324,7 @@ class AsyncMongoDb(AsyncBaseDb):
                     self._client = self._provided_client
                 elif self.db_url is not None:
                     # Create client based on detected type
-                    if self._client_type == self.CLIENT_TYPE_PYMONGO_ASYNC and PYMONGO_ASYNC_AVAILABLE:
-                        self._client = AsyncMongoClient(self.db_url)  # type: ignore
-                    elif self._client_type == self.CLIENT_TYPE_MOTOR and MOTOR_AVAILABLE:
-                        self._client = AsyncIOMotorClient(self.db_url)  # type: ignore
-                    else:
-                        raise RuntimeError(f"Client type '{self._client_type}' not available")
+                    self._client = self._create_client()
             return self._client  # type: ignore
 
         # Check if we're in a different event loop
@@ -324,12 +341,7 @@ class AsyncMongoDb(AsyncBaseDb):
                 )
                 self._client = self._provided_client
             elif self.db_url is not None:
-                if self._client_type == self.CLIENT_TYPE_PYMONGO_ASYNC and PYMONGO_ASYNC_AVAILABLE:
-                    self._client = AsyncMongoClient(self.db_url)  # type: ignore
-                elif self._client_type == self.CLIENT_TYPE_MOTOR and MOTOR_AVAILABLE:
-                    self._client = AsyncIOMotorClient(self.db_url)  # type: ignore
-                else:
-                    raise RuntimeError(f"Client type '{self._client_type}' not available")
+                self._client = self._create_client()
 
             self._event_loop = current_loop
             self._database = None  # Reset database reference
