@@ -11,7 +11,7 @@ which is **neither** of SM-R4's ratified picks. All three methods re-run end to 
   `results_20260728T112549Z_smR4ModeA_tuned.json` (re-tuned), `tau_sweep_*_smR4ModeA.json`,
   `kg_quality_*_full30.json`.
 
-## Headline: the pure-PPR-vs-hybrid ranking **flipped**
+## Headline: pure PPR is embedder-fragile (the point estimates invert; the *difference* is n.s.)
 
 | config / method | recall@5 | all-hops@5 | EM | F1 | chaining all-hops | chaining F1 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -37,12 +37,15 @@ recall@5 **0.908 → 0.633**, chaining all-hops **0.708 → 0.417**. Hybrid bare
 (0.892 → 0.817, and 0.883 once re-tuned; all-hops 0.700 in both the original and tuned runs).
 
 **The dense leg is not the cause** — it is flat (0.750 → 0.742, all-hops identical at 0.467).
-So the review's predicted *outcome* — that the pure-PPR-vs-hybrid result would flip — is
-**confirmed**, but by the opposite mechanism to the one proposed: dense did not get stronger,
-PPR got weaker.
+So the review's predicted *direction* is borne out, but by the opposite mechanism to the one
+proposed: dense did not get stronger, **PPR got weaker**. Note the *ordering* change is not
+itself significant — hybrid-vs-hippo is n.s. at n=30 (p=0.59) and n=120 (p=0.51). **What is
+significant is PPR's collapse** (p=0.0001). An earlier version of this doc called this a
+"ranking flip"; that overstated it.
 
-**Consequence for the decision:** the recommendation to ship `hybrid` is now supported by
-measurement rather than by caution. Pure PPR was an artifact of one embedder's calibration.
+**Consequence for the decision:** ship `hybrid` **for robustness** — pure PPR's advantage did
+not survive an embedder change, and that fragility *is* significant. This is **not** a claim
+that hybrid retrieves better than pure PPR; that comparison is n.s. at both n=30 and n=120.
 
 ### 2. Root cause: `link_threshold` is embedder-specific and 0.5 is badly miscalibrated
 
@@ -100,8 +103,10 @@ traversable at all, yet hybrid still reaches 0.700 all-hops — so the measured 
 largely from entity/passage **membership** structure and dense fusion, **not** from walking
 correct relational edges. SM-H4 should not assume the relational layer is carrying the result.
 
-This is also clean Wikipedia prose. Short, elliptical, coreference-heavy episodic memory should
-be expected to score **worse** — cf. SM-R6's dialogue finding.
+This is clean Wikipedia prose. Episodic memory has since been **measured** (LongMemEval-S, see
+`summary_measurements.md` §4) and the expectation was only half right: OpenIE does **not**
+hallucinate more on dialogue (grounding 0.964 vs 0.956), but fact **density** collapses (7.56 vs
+17.82 triples/100 words, ~2.4× the cost per useful triple) and **coreference** is ~3× worse.
 
 ## Caveats
 
@@ -114,7 +119,9 @@ be expected to score **worse** — cf. SM-R6's dialogue finding.
   2Wiki passage retrieved for *"Where does the director of film Man At Bath work at?"*). It
   lands in `hybrid` in both runs, scores as no-answer, and is reported as
   `reader_content_filtered`. **Hybrid's EM/F1 are therefore a lower bound** by up to 1/30.
-- n=30 throughout; the all-hops CIs overlap, as flagged in §Decision.
+- n=30 throughout this document. **Superseded by the n=120 run** (`summary_measurements.md` §5),
+  where the adopt criterion is met and significant for both configs. Note absolute levels fall on
+  the larger corpus while the *gaps* replicate.
 - `--link-threshold` now defaults to 0.5 for backwards-comparability, **not** because 0.5 is
   right. Anything shipping on bge-base must set it explicitly.
 

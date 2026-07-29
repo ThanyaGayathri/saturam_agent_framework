@@ -8,7 +8,8 @@ calls cached under `results/` (git-ignored).
 SM-R4's ratified picks**, because this branch forked before SM-R4 merged. Fixed in the PR-review
 pass: the harness now defaults to SM-R4's ratified spec (`bge-base-en-v1.5`@768 Mode A /
 `text-embedding-3-large`@1024 Mode B), and **all three methods were re-run** — see the final
-entries, which **change the headline** (the pure-PPR-vs-hybrid ranking flips). Entries dated
+entries, which **change the headline** (pure PPR proves embedder-fragile; hybrid becomes the
+recommended config). Entries dated
 before that fix should be read as `text-embedding-3-small` results.
 
 ### harness/dataset.py — eval-set builder
@@ -146,6 +147,14 @@ working embedder. Now reports the resolved embedder spec and a real readiness fl
 **Result:** SMOKE OK — `embedder=local:BAAI/bge-base-en-v1.5@768 ready=True` with no credentials
 present, and it now points at the credential-free `--retrieval-only` path.
 
+**Check [4] added after the n=120 run (regression test for the content-filter failure mode).**
+An unhandled provider refusal killed a complete 3-method run, and 3/949 real 2Wiki passages trip
+Azure's filter, so the invariant is now asserted offline with a fake LLM: filter refusals are
+**absorbed and counted** (2 OpenIE + 1 reader recorded), and **non-filter exceptions still
+propagate** so the handler cannot swallow real bugs. Verified to be a *real* test by mutating
+`_is_content_filter` to return `False` and confirming the check fails. Needs no credentials and
+no network.
+
 ---
 
 ### run.py --tag smR4ModeA_full30 / _tuned — FULL re-run on SM-R4's embedder
@@ -157,7 +166,7 @@ with live Azure `gpt-5.4` for OpenIE + query NER + reader. Run twice: once at th
 `link_threshold=0.5`, once at a re-tuned 0.65. One-time OpenIE index: 285 calls, 106,948
 tokens, **$0.62**, 3,413 entities / 7,368 edges, 0 parse failures.
 
-**Result:** **the pure-PPR-vs-hybrid ranking flipped.**
+**Result:** **pure PPR proves embedder-fragile; the point estimates invert.**
 
 | config | vector | hippo | hybrid |
 | --- | --- | --- | --- |
@@ -166,9 +175,11 @@ tokens, **$0.62**, 3,413 entities / 7,368 edges, 0 parse failures.
 | SM-R4 bge-base, link 0.65 — recall@5 | 0.742 | 0.817 | **0.883** |
 
 The dense leg is flat (0.750→0.742, all-hops identical), so the review's "weak dense baseline"
-concern is retired — but its predicted *outcome* (a flip) is confirmed via the opposite
-mechanism: **pure PPR is embedder-fragile, hybrid is robust**. Recommended config is now hybrid
-on measurement, not caution. Details: `results/summary_smR4ModeA.md`.
+concern is retired. **What is significant is pure PPR's collapse** at inherited thresholds
+(p=0.0001), i.e. it is embedder-fragile while hybrid is not. **What is NOT significant is hybrid
+beating pure PPR** (p=0.59 here, p=0.51 at n=120) — an earlier version of this entry called that
+a "ranking flip"; it is not one. Hybrid is recommended on robustness, not a retrieval win.
+Details: `results/summary_smR4ModeA.md`.
 
 **Caveats:** EM/F1 are not comparable to the original run (LLM cache was git-ignored, so reader
 calls were re-issued; `vector` EM drifted 0.567→0.467 on near-identical retrieval). One reader
@@ -235,12 +246,12 @@ p=0.26) and +0.067 all-hops (CI [−0.100, +0.267], p=0.58). n=30 cannot resolve
 **exclude** SM-R8's −0.076 effect, so the two results are not one underlying effect — SM-R8's
 own §3.5 caveat (one dataset, one *synthetic* graph leg) is vindicated.
 
-**A hypothesis discarded en route:** the intuitive explanation — min-max normalization mangling
-PPR's skewed stationary probabilities — was measured and is **false** (mean normalized score over
-ranks 2–10: dense .193 vs PPR .163, near-identical). The real difference is rank-decay steepness:
-RRF at k=60 is nearly flat (rank1/rank10 ratio 1.15, so cross-leg agreement dominates) while
-weighted min-max is steep (ratio ~6.7, so one leg's top hit dominates). Consistent with RRF's
-margin being largest on all-hops (+0.133) rather than recall (+0.083).
+**Two hypotheses discarded en route, both by measurement:** (a) min-max normalization mangling
+PPR's skewed stationary probabilities — **false** (mean normalized score over ranks 2–10: dense
+.193 vs PPR .163, near-identical); (b) RRF winning through flat rank decay — **also false**, and
+refuted by the `rrf_k` ablation proposed for it (recall@5 *exactly constant* across k=0→10000;
+k=0 is steeper than weighted and still wins). **Why RRF outperforms weighted here is an open
+question**, deliberately not presented as a mechanism.
 
 Raw: `results/fusion_sweep_20260728T120251Z_smR4ModeA.json`,
 `results/results_20260728T120316Z_smR4ModeA_weighted.json`; write-up: `results/summary_fusion.md`.

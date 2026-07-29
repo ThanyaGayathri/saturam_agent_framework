@@ -2,9 +2,10 @@
 
 > **⚠️ SUPERSEDED — these numbers used `text-embedding-3-small`, which is neither of SM-R4's
 > ratified embedders.** Kept for provenance and for the before/after comparison. On SM-R4's
-> ratified embedder the pure-PPR-vs-hybrid ranking **flips** (hybrid becomes the recommended
-> config and pure PPR proves embedder-fragile). See `summary_smR4ModeA.md` for the current
-> results and `summary_fusion.md` for weighted-vs-RRF.
+> ratified embedder **pure PPR proves embedder-fragile** and hybrid becomes the recommended
+> config (the point estimates invert, though hybrid-vs-hippo is itself n.s.). **Superseded again
+> by the n=120 run** — see `summary_measurements.md` §5 for the authoritative numbers,
+> `summary_smR4ModeA.md` for the embedder correction, `summary_fusion.md` for weighted-vs-RRF.
 
 Source: `results_20260723T075917Z_full30.json`
 

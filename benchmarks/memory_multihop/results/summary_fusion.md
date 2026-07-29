@@ -74,28 +74,24 @@ is false.** Mean min-max-normalized score by rank (30 questions, pool of 10):
 The two are nearly identical after normalization (mean over ranks 2–10: dense .193, PPR .163).
 Min-max is doing its job; leg-shape mismatch is **not** the cause.
 
-The actual difference is **how steeply each method discounts rank**:
-
-- **RRF is nearly flat.** With k=60, rank 1 scores 1/61 = .0164 and rank 10 scores 1/70 = .0143
-  — a ratio of just **1.15**. An item's rank barely matters; what dominates is *whether it
-  appears in both legs' pools at all*, since presence in both roughly doubles its score.
-- **Weighted min-max is steep.** Rank 1 = 1.00, rank 5 ≈ .15 — a ratio of about **6.7**. One
-  leg's top hit (0.5 after weighting) outscores an item sitting at rank 4–5 in *both* legs
-  (≈0.24).
-
-So **RRF rewards cross-leg agreement; weighted rewards single-leg confidence.** For
-`all-hops-hit` — which requires *both* gold passages in the top-5, and where the second bridge
-passage is typically mid-ranked in both legs rather than top in either — rewarding agreement is
-exactly the right bias. That matches where RRF's margin is largest (all-hops +0.133 at w=0.5,
-vs recall +0.083).
-
-This is a hypothesis consistent with the measurements, not a proven mechanism; it would need an
-ablation on `rrf_k` (which controls RRF's flatness) to confirm.
+> **⚠️ WITHDRAWN — the rank-decay explanation below was refuted by the `rrf_k` ablation it
+> called for.** An earlier version of this section argued RRF wins through **flat rank decay**
+> rewarding cross-leg agreement (RRF at k=60 has a rank1/rank10 ratio of 1.15 vs weighted
+> min-max's ~6.7). `rrf_k` controls that flatness directly, so the prediction was that quality
+> rises with k. **It does not: recall@5 is *exactly constant* (0.8833) across k=0→10000**, and
+> all-hops slightly favours the *steepest* settings (corr of log k with all-hops **−0.67**).
+> Decisively, k=0 is *steeper* (ratio 10.0) than weighted min-max and still beats it.
+>
+> **Both proposed mechanisms are now refuted** (the min-max-mangles-PPR story above, and this
+> one). **Why RRF outperforms weighted min-max here is an open question.** See
+> `summary_measurements.md` §2. Kept visible rather than deleted so the reasoning trail is
+> auditable — but it must not be cited as an explanation.
 
 ## What this means for the decision
 
 - **Keep RRF as SM-R9's recommended fusion**, but on the basis that weighted showed no
-  advantage here — not on a demonstrated RRF win, which the data does not support.
+  advantage here — not on a demonstrated RRF win (the data does not support one), and **not on
+  any mechanistic argument** (both proposed mechanisms were refuted).
 - **SM-R8's "weighted beats RRF" does not generalise to this leg pair.** SM-R8's own §3.5
   caveat — one dataset, one *synthetic* graph leg (k-NN over dense embeddings) — is vindicated:
   its graph leg is not this graph leg, and its result did not transfer. SM-R8 §1.1's

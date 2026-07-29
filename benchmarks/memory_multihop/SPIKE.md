@@ -1,9 +1,9 @@
 # SM-R9 — Spike: multi-hop need + HippoRAG PPR
 
 - **Status:** Proposed — **GO (provisional)** (spike complete; measured go/no-go below).
-  Provisional because the switch thresholds are keyed on a metric whose CIs overlap at
-  n=30, and because the production PPR substrate depends on an engine SM-R2 has not
-  selected — see §Decision.
+  Provisional because the production PPR substrate depends on an engine SM-R2 has **not
+  selected**, and because KG quality is measurably weak — see §Decision. *(The earlier
+  "thresholds unratifiable at n=30" condition is **resolved**: §Measurements.)*
 - **Issue:** [Saturam-Inc/aicoe-tracker#84](https://github.com/Saturam-Inc/aicoe-tracker/issues/84)
 - **Depends on:** SM-R2 (#77, graph engine) — **⚠️ NOT YET DECIDED** (issue OPEN, 0/5 ACs,
   no output in-repo); SM-G* (temporal graph tier that builds the KG)
@@ -13,49 +13,64 @@
 
 ## TL;DR / Recommendation
 
-**GO (provisional) — adopt Optional PPR (HippoRAG) behind a per-tenant flag, default off**
-(see §Decision). The prototype ingests a real 2WikiMultiHopQA corpus, builds a KG via LLM
-OpenIE, runs Personalized PageRank seeded from query entities, retrieves passages, and
-answers — end to end, through the same `MultiHopRetriever` seam as the vector baseline.
+**GO (provisional) — adopt Optional PPR (HippoRAG) behind a per-tenant flag, default off, in
+the `hybrid` (dense + PPR) configuration.**
 
-**The recommended "on" configuration is `hybrid` (dense + PPR fused), not pure PPR** — and
-on SM-R4's ratified embedder that is now a *measured* result, not a cautious preference.
-Headline (k=5, n=30, 285-passage pooled corpus, **SM-R4 Mode A `bge-base-en-v1.5`@768**;
-95% bootstrap CIs in brackets):
-
-| method | recall@5 | all-hops-hit@5 | EM | F1 | (chaining-only all-hops / F1) |
-| --- | --- | --- | --- | --- | --- |
-| vector (dense baseline) | 0.742 [.65–.83] | 0.467 [.30–.63] | 0.467 | 0.489 | 0.333 / 0.361 |
-| **hybrid (RRF of both) — recommended config** | **0.883** | **0.700** | **0.667** | **0.719** | **0.625 / 0.708** |
-| hippo (pure PPR) | 0.817 | 0.633 | 0.500 | 0.574 | 0.625 / 0.509 |
-
-`all-hops-hit` (did retrieval surface *every* bridge passage — the prerequisite for answering
-a multi-hop question) is the discriminative metric. **Headline:** on genuinely-chaining
-questions, dense retrieval finds *both* bridge passages only **33%** of the time; the
-recommended hybrid config raises that to **63%**, lifts recall@5 by +0.14 and QA F1 by +0.23.
-
-> **Confirmed at n=120** (949 passages, §Measurements): hybrid 0.815 recall@5 / 0.592 all-hops,
-> hybrid-vs-dense all-hops **p<0.0001 with 20 discordant pairs and none against**, and the adopt
-> criterion **met by both configs**. Absolute levels fall on the bigger corpus — the *gaps*
-> replicate, the levels do not, so thresholds must be stated as gains over dense.
+> ### If you read nothing else (SM-H4, start here)
 >
-> **On pure PPR vs hybrid:** the original run had pure PPR ahead (0.908) and SM-R4's embedder
-> reverses the point estimates, but that difference is **not significant at n=30 or n=120**
-> (p=0.59 / p=0.51; needs n≈500). The defensible claim is that **pure PPR is embedder-fragile
-> and hybrid is not** — not that hybrid retrieves better. See §Embedder correction.
+> 1. **PPR beats dense retrieval on multi-hop, and this is solid.** hybrid-vs-dense all-hops
+>    **+0.167 at n=120, p<0.0001, 20 discordant pairs and none against.** The adopt criterion
+>    is **met and significant for both PPR configs**.
+> 2. **Hybrid is recommended for ROBUSTNESS, not because it retrieves better than pure PPR.**
+>    hybrid-vs-pure-PPR is **not significant at n=30 (p=0.59) or n=120 (p=0.51)** and needs
+>    n≈500. What *is* significant is that **pure PPR is embedder-fragile** — it lost 0.275
+>    recall@5 (p=0.0001) on an embedder change that barely moved hybrid. Pick hybrid because it
+>    survives configuration drift, not because it wins on quality.
+> 3. **Two knobs are load-bearing and one is a trap.** `link_threshold` is an *absolute cosine*
+>    and inheriting it across embedders silently costs ~0.18 recall@5; `synonym_tau` does
+>    nothing at all. Calibrate `link_threshold` per embedder (`link_percentile` does this
+>    automatically).
+> 4. **Do not assume the relational layer is what works.** Gold-chain **edge recall is 0.639**
+>    and **full-chain recall 0.367** — for 63% of questions the reasoning chain is not walkable,
+>    yet PPR still helps. The gain comes largely from entity/passage *membership* structure.
+> 5. **Express thresholds as gains over dense, never as absolute scores.** Absolute levels fall
+>    on a larger corpus (hybrid recall 0.883 at n=30 → 0.815 at n=120); the *gaps* replicate.
 
-**Evidence strength — read before using these numbers as thresholds.** hybrid-vs-dense
-recall@5 CIs are essentially disjoint (.808–.942 vs .650–.833). The `all-hops-hit` gaps are
-large in point estimate but their CIs **overlap** at n=30 (vector .300–.633 vs hybrid
-.533–.867; chaining-only .167–.542 vs .417–.833). Since the adopt threshold in §Decision is
-*keyed on all-hops*, it is defined on a statistic this eval cannot yet separate — hence **GO
-is provisional and the thresholds are not ratifiable at n=30**. See §Decision.
+### Headline — n=120, 949 passages, SM-R4 Mode A (`bge-base-en-v1.5`@768)
 
-> **On the fusion method.** `hybrid` here is **RRF**. SM-R8 ratified *weighted* fusion for its
-> own 2-leg case, so weighted has now been measured here too (§Fusion): it shows **no advantage
-> on this leg pair** at any weight, and its in-sample optimum degenerates to "don't blend".
-> The RRF-vs-weighted difference is *not* significant at n=30, so RRF is retained because
-> weighted showed nothing better — not because RRF is demonstrably superior.
+| method | recall@5 [95% CI] | all-hops-hit@5 [CI] | chaining-only all-hops [CI] |
+| --- | --- | --- | --- |
+| vector (dense baseline) | 0.723 [.679, .767] | 0.425 [.342, .517] | 0.281 [.188, .375] |
+| **hybrid (RRF) — recommended config** | **0.815 [.773, .856]** | **0.592 [.500, .683]** | 0.490 [.385, .583] |
+| hippo (pure PPR) | 0.779 [.731, .829] | 0.558 [.467, .650] | 0.531 [.438, .635] |
+
+`all-hops-hit` (did retrieval surface *every* bridge passage — the prerequisite for answering a
+multi-hop question) is the discriminative metric. On genuinely-chaining questions dense finds
+*both* bridge passages **28%** of the time; PPR configurations reach **49–53%**.
+
+**Adopt criterion (chaining all-hops gain ≥ 0.15): MET and significant by both configs** —
+hippo **+0.250** (p=0.0001), hybrid **+0.208** (p<0.0001).
+
+<details>
+<summary>Earlier n=30 headline (285 passages) — retained for the audit trail</summary>
+
+| method | recall@5 | all-hops-hit@5 | EM | F1 | (chaining all-hops / F1) |
+| --- | --- | --- | --- | --- | --- |
+| vector | 0.742 [.65–.83] | 0.467 [.30–.63] | 0.467 | 0.489 | 0.333 / 0.361 |
+| **hybrid** | **0.883** | **0.700** | **0.667** | **0.719** | **0.625 / 0.708** |
+| hippo | 0.817 | 0.633 | 0.500 | 0.574 | 0.625 / 0.509 |
+
+Levels are higher here only because the corpus is 3.3× smaller; the *gaps* are what replicate.
+EM/F1 are not comparable across runs (reader drift — see §Embedder correction).
+
+</details>
+
+> **On the fusion method.** `hybrid` here is **RRF**. SM-R8 ratified *weighted* fusion, so
+> weighted was measured here too (§Fusion): **no advantage on this leg pair** at any weight,
+> and its in-sample optimum degenerates to "don't blend". The difference is *not* significant
+> (p=0.26), so RRF is retained because weighted showed nothing better — **not** because RRF is
+> demonstrably superior, and **not** on any mechanistic argument (two proposed mechanisms were
+> both refuted by measurement).
 
 ## Acceptance criteria (from the issue)
 
@@ -230,13 +245,18 @@ It is consistent with SM-R4's own eval, where the models are a statistical tie o
 set (bge-base 0.911 vs 3-small 0.898; vs 3-large 0.900, Holm p=0.21 n.s.); SM-R4 says outright
 that "Mode B is now OPTIONAL, not a quality upgrade."
 
-**But the review's predicted *outcome* — that the pure-PPR-vs-hybrid result would flip — is
-confirmed, via the opposite mechanism.** Dense did not get stronger; **pure PPR got weaker**,
-losing 0.275 recall@5 at inherited thresholds. Hybrid is barely affected. So:
+**The point estimates invert — but that inversion is NOT statistically established.** Dense did
+not get stronger; **pure PPR got weaker**, losing 0.275 recall@5 at inherited thresholds
+(p=0.0001). Hybrid is barely affected. Precisely:
 
-- **Pure PPR is embedder-fragile.** Its headline was an artifact of one embedder's calibration.
-- **Hybrid is robust** — 0.892 (original) / 0.817 (untuned) / 0.883 (tuned), all-hops 0.700 in
-  both the original and tuned runs. Shipping hybrid is now a measured recommendation.
+- **Established (significant):** pure PPR is **embedder-fragile** — its collapse at inherited
+  thresholds is p=0.0001 (recall) / p=0.0074 (all-hops). Hybrid is not: 0.892 (original) /
+  0.817 (untuned) / 0.883 (tuned), all-hops 0.700 in both the original and tuned runs.
+- **NOT established:** that hybrid *retrieves better than* pure PPR. That comparison is n.s. at
+  **n=30 (p=0.59) and n=120 (p=0.51)**, and needs n≈500 (§Measurements). An earlier draft called
+  this a "ranking flip"; it is not one.
+
+**So hybrid is recommended on robustness, not on a measured retrieval win.**
 
 ### Root cause: `link_threshold` is embedder-specific; 0.5 is badly miscalibrated
 
@@ -463,21 +483,65 @@ recall@5 +0.067, CI [−0.033, +0.175], **p=0.26**; all-hops +0.067, CI [−0.10
    one *synthetic* graph leg built from k-NN over dense embeddings) is vindicated, and its
    instruction to measure against a real graph retriever first was correct.
 
-**Mechanism — and a hypothesis I had to discard.** The obvious story is that min-max
-normalization mangles PPR's skewed stationary probabilities. **Measured, and it is false:** mean
-normalized score over ranks 2–10 is dense .193 vs PPR .163, i.e. near-identical after
-normalization. The real difference is **rank-decay steepness** — RRF at k=60 scores rank 1 at
-1/61 and rank 10 at 1/70, a ratio of just **1.15** (nearly flat, so what dominates is whether an
-item appears in *both* legs), whereas weighted min-max runs 1.00 → ~.15 across the same range, a
-ratio of **6.7** (one leg's top hit outweighs an item mid-ranked in both). **RRF rewards
-cross-leg agreement; weighted rewards single-leg confidence.** For `all-hops-hit`, where the
-second bridge passage is usually mid-ranked in both legs rather than top in either, agreement is
-the right bias — and that is where RRF's margin is largest (+0.133 vs +0.083 on recall). This is
-consistent with the data, not proven; an `rrf_k` ablation would confirm it.
+**Mechanism: UNEXPLAINED — two hypotheses proposed, both refuted by measurement.**
+
+1. *Min-max mangles PPR's skewed stationary probabilities.* **False:** mean normalized score
+   over ranks 2–10 is dense .193 vs PPR .163, near-identical after normalization.
+2. *RRF wins through flat rank decay, which rewards cross-leg agreement.* **Also false**, and
+   this one was tested directly by the `rrf_k` ablation proposed for it (§Measurements):
+   `rrf_k` controls exactly that flatness, and **recall@5 is *exactly constant* (0.8833) across
+   k=0→10000**, while all-hops slightly favours the *steepest* settings (corr of log k with
+   all-hops **−0.67**). Note k=0 has a steeper decay (ratio 10.0) than weighted min-max (~6.7)
+   and still beats it, which rules the story out directly.
+
+**So why RRF outperforms weighted min-max on this leg pair is an open question, not a settled
+mechanism.** Recorded as such deliberately: an unexplained-but-measured preference should not
+be promoted into a *principled* reason for SM-H4 to choose RRF.
 
 **Disposition:** keep RRF as the recommended fusion **because weighted showed no advantage**,
 not because RRF is demonstrably better. Neither is ratifiable at n=30; SM-H4 should re-test both
 against SM-G9's production graph retriever.
+
+## Measurements closing the review's open items (§Measurements)
+
+Full write-up: `results/summary_measurements.md`. Four items the review left open as "needs
+measuring"; **two refuted earlier conclusions in this doc.**
+
+**1. Power / n≥100 — resolved, and the original reasoning was wrong.** The "CIs overlap" concern
+compared *marginal* CIs, but both methods are scored on the same questions, so the correct test
+is paired. Paired, hybrid-vs-dense all-hops is **+0.233, p=0.0007 at n=30** (McNemar requires
+**n=17**; empirical power 0.94) and **+0.167, p<0.0001 at n=120** with **20 discordant pairs and
+none against**. *But sample size did matter elsewhere:* hippo-vs-dense flipped from n.s.
+(p=0.226) at n=30 to **significant (p=0.017)** at n=120. Both concerns were partly right.
+
+| comparison | n=30 | n=120 |
+| --- | --- | --- |
+| hybrid vs dense — all-hops | +0.233, p=0.0007 | +0.167, **p<0.0001** |
+| hippo vs dense — all-hops | +0.167, p=0.226 n.s. | +0.133, **p=0.017** |
+| hybrid vs hippo — all-hops | +0.067, p=0.586 n.s. | +0.033, p=0.507 n.s. |
+
+**2. `rrf_k` ablation — refutes the mechanism this doc previously offered for RRF.** recall@5 is
+**exactly constant (0.8833) across k=0→10000**; all-hops slightly favours the *steepest* k
+(corr −0.67). k=0 is steeper than weighted min-max and still beats it. **Why RRF outperforms
+weighted here is an open question** (§Fusion).
+
+**3. Threshold portability across three embedders.** Background entity-entity cosine p50 is
+**0.41** for bge-base but **0.15** for both Azure models, so one absolute constant means
+opposite things. Regret vs each embedder's own oracle: inherited 0.5 → **0.175** worst; p99.9 →
+**0.033** worst with zero regret on two of three. Honest limit: p99.9 only *ties* a well-chosen
+constant, so the claim is *"0.5 was the wrong constant"*, not *"percentiles beat constants"*.
+SM-R4 **Mode B was also tested** here (`text-embedding-3-large`@1024).
+
+**4. Episodic memory measured** (LongMemEval-S vs 2Wiki control) — the expectation in this doc
+was **half wrong**. OpenIE does **not** hallucinate more on dialogue (grounding 0.964 vs 0.956).
+What degrades is **fact density** (7.56 vs 17.82 triples/100 words → **~2.4× the cost per useful
+triple** vs §Cost at scale) and **coreference** (~3× more unlinkable pronoun/speaker-relative
+entities). The episodic substrate risk is **density and linkability, not extractor reliability**.
+
+**Not claimed.** At p99.9 bge-base trails both Azure models for PPR entity linking (0.808 vs
+0.917/0.900) — the reverse of SM-R4's ordering — but paired p=0.057/0.075. **Directional only,
+not a finding, and not grounds to revisit SM-R4**, whose tie was measured on dense retrieval,
+a different task from entity-name linking.
 
 ## Flag design (per-tenant, default off)
 

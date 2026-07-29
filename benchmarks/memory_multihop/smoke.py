@@ -54,6 +54,51 @@ def main() -> None:
     if not (have_azure or have_openai):
         print("    -> LLM (OpenIE + reader) needs .env; the dense leg runs credential-free:")
         print("       PYTHONPATH=. python run.py --methods vector --retrieval-only")
+    # [4] Provider content-filter handling. Real 2Wiki passages trip Azure's filter
+    # (3/949 measured at n=120) and an unhandled refusal killed a complete 3-method run.
+    # Assert the invariant offline: filter refusals are absorbed and counted, everything
+    # else still propagates. No credentials and no network needed.
+    from harness import openie, reader
+
+    class _Filtered(Exception):
+        pass
+
+    class _FakeLLM:
+        def __init__(self, exc):
+            self._exc = exc
+
+        def complete(self, *a, **kw):
+            raise self._exc
+
+    cf = _Filtered(
+        "Error code: 400 - The response was filtered due to the prompt triggering Azure "
+        "OpenAI's content management policy."
+    )
+    before_o, before_r = len(openie.CONTENT_FILTERED), len(reader.READER_FAILURES)
+
+    assert openie.extract_triples("passage", _FakeLLM(cf)) == [], "filtered passage must yield no triples"
+    assert openie.extract_query_entities("q?", _FakeLLM(cf)) == [], "filtered query must yield no entities"
+    assert reader.answer("q?", [], {}, _FakeLLM(cf)) == "", "filtered reader call must score as no-answer"
+    assert len(openie.CONTENT_FILTERED) - before_o == 2, "both openie refusals must be recorded"
+    assert len(reader.READER_FAILURES) - before_r == 1, "reader refusal must be recorded"
+
+    # A non-filter error must still surface — the handler must not swallow real bugs.
+    for fn, args in (
+        (openie.extract_triples, ("p", _FakeLLM(RuntimeError("boom")))),
+        (reader.answer, ("q", [], {}, _FakeLLM(RuntimeError("boom")))),
+    ):
+        try:
+            fn(*args)
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError(f"{fn.__name__} swallowed a non-content-filter exception")
+
+    # Leave the module counters as we found them.
+    del openie.CONTENT_FILTERED[before_o:]
+    del reader.READER_FAILURES[before_r:]
+    print("[4] content-filter handling OK: refusals absorbed + counted, other errors propagate")
+
     print("SMOKE OK")
 
 
