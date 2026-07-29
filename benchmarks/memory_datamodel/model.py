@@ -234,6 +234,14 @@ class EpisodicRecord(TenantScoped, BiTemporal, Embeddable, Decaying):
     uuid **arrays** here -- this deliberately overrides the single-id ``superseded_by`` inherited
     from :class:`BiTemporal` (which stays single-id for fact/relation/link). ``boundary_*`` records
     which rule cut the boundary and how confident it was; ``segmenter_version`` pins reproducibility.
+
+    On the LSP tradeoff of widening ``superseded_by`` (``Optional[str]`` -> ``List[str]``): it is
+    bounded and safe here because records are consumed by their concrete tier type -- each store
+    adapter maps a known model to a known table -- never polymorphically through a bare
+    :class:`BiTemporal` handle that reads ``superseded_by`` as a string. The one generic consumer,
+    ``store.expire``, treats the value as opaque and hands it straight to the column (scalar
+    ``TEXT`` for the other tiers, ``TEXT[]`` here), so the widened type never reaches string-typed
+    code. SM-C3 should keep this invariant (don't read episodic ``superseded_by`` as a scalar).
     """
 
     tier: MemoryTier = MemoryTier.EPISODIC

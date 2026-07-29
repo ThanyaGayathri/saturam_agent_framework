@@ -142,13 +142,18 @@ concrete stores (pgvector, Qdrant) are selected by config, never hardcoded at ca
 ## 8. Round-trip test
 [`store.py`](store.py) is the plug-and-play seam (abstract `MemoryStore` + `PgMemoryStore` real +
 `InMemoryMemoryStore` second adapter), **sync and async**. `write()` is **insert-only**; the only
-in-place mutation is `expire()` (SM-R10 SCD-2 close). [`roundtrip_test.py`](roundtrip_test.py)
-runs `write -> read -> assert` for all 6 persisted tiers on **real embedded PostgreSQL+pgvector**
-(via `pgserver`; unique per-run instance — no Docker), plus: **bi-temporal** via `expire()` on a
-persisted row + point-in-time (asserts `t_valid` is preserved and re-expire is a no-op); the
-**insert-only guardrail** (duplicate id rejected, temporal fields intact); the **CHECK
-constraints** actually reject bad windows; cross-tenant isolation (0 leakage); and the seam swap.
-Verified on two independent runs — see [`TEST_LOG.md`](TEST_LOG.md).
+in-place mutation is `expire()` (SM-R10 SCD-2 close). `write()` carries an explicit **idempotency/
+retry contract** (a duplicate `(tenant_id, id)` is a unique-violation, not an upsert; callers treat
+that on their own just-written id as success, and never retry with a fresh id — see the
+`MemoryStore` docstring). [`roundtrip_test.py`](roundtrip_test.py) runs `write -> read -> assert`
+for all 6 persisted tiers on **real embedded PostgreSQL+pgvector** (via `pgserver`; unique per-run
+instance — no Docker), plus: **bi-temporal** via `expire()` on a persisted row + point-in-time
+(asserts `t_valid` is preserved and re-expire is a no-op); **SM-R6 episodic `expire()`** writing the
+`TEXT[]` `superseded_by` identity graph and reading it back as a real multi-element list; the
+**insert-only guardrail** (duplicate id rejected, temporal fields intact); the **CHECK constraints**
+rejecting bad windows on **all four** bi-temporal tables (NULL windows intentionally pass — the
+`IS NULL` guards allow open-ended/current rows); cross-tenant isolation (0 leakage); and the seam
+swap. Verified on two independent runs — see [`TEST_LOG.md`](TEST_LOG.md).
 
 ## 9. Out of scope & boundaries
 - Decay **function**/parameters → SM-R5. Bi-temporal **query engine**/extraction → SM-R10.

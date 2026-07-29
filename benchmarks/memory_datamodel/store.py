@@ -228,6 +228,14 @@ class MemoryStore(abc.ABC):
     is ``expire``, which closes a bi-temporal row (SM-R10 SCD-2: set ``expired_at``/``t_invalid``,
     never touch ``t_valid``/``created_at``). A correction is therefore ``expire(old)`` + a fresh
     ``write(new)``, so history is preserved.
+
+    **Idempotency / retry contract.** ``write`` rejects a duplicate ``(tenant_id, id)`` with a
+    unique-violation rather than upserting -- a new version is always a NEW id (SCD-2), so
+    accidental id reuse fails loudly instead of silently mutating temporal fields. Because ids are
+    caller-generated and stable per logical write, an at-least-once retry after a transient failure
+    (timeout / connection blip) may hit this. Callers MUST make retries safe by treating a
+    unique-violation on their own just-written id as success (the prior attempt committed), or by
+    check-then-write. Do **not** retry by minting a fresh id -- that would create a duplicate row.
     """
 
     @abc.abstractmethod

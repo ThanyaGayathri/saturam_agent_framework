@@ -262,6 +262,36 @@ def _check_bitemporal(srv: Any, store: PgMemoryStore) -> None:
     )
 
 
+def _check_episodic_supersede(store: PgMemoryStore) -> None:
+    """SM-R6: expire() on an EpisodicRecord writes the uuid[] identity graph into the `TEXT[]`
+    `superseded_by` column (the array override) via the real psycopg driver, and it reads back as
+    a genuine multi-element Python list. Exercises the array path expire() only ever assumed."""
+    ep = EpisodicRecord(
+        tenant_id="acme", content="raw event", created_at=100, t_valid=100
+    )
+    store.write(ep)
+    n = store.expire(
+        EpisodicRecord,
+        "acme",
+        ep.id,
+        expired_at=200,
+        t_invalid=200,
+        superseded_by=["seg_a", "seg_b"],
+    )
+    assert n == 1, f"episodic expire() rowcount {n}"
+    got = store.read(EpisodicRecord, "acme", ep.id)
+    assert got is not None and isinstance(got.superseded_by, list), (
+        f"episodic superseded_by not a list: {got!r}"
+    )
+    assert got.superseded_by == ["seg_a", "seg_b"], (
+        f"TEXT[] array round-trip wrong: {got.superseded_by!r}"
+    )
+    assert got.t_valid == 100 and got.expired_at == 200 and got.t_invalid == 200
+    print(
+        "  [pg] SM-R6 episodic expire() -> TEXT[] superseded_by round-trips as a list OK"
+    )
+
+
 def _check_insert_only(store: PgMemoryStore) -> None:
     """SM-R10 guardrail: write() is insert-only. Re-writing an existing id must FAIL rather than
     silently overwrite temporal fields (what the previous blanket ON CONFLICT DO UPDATE did)."""
@@ -294,31 +324,49 @@ def _check_insert_only(store: PgMemoryStore) -> None:
 
 
 def _check_constraints(srv: Any) -> None:
-    """SM-R10 CHECK constraints actually fire: an impossible window (t_invalid < t_valid) and a
-    backwards expiry (expired_at < created_at) are both rejected by the DB, not just documented."""
-    bad_window = (
-        "INSERT INTO memory_semantic_fact (tenant_id, id, content, created_at, t_valid, t_invalid) "
-        "VALUES ('acme', 'ck_bad_window', 'x', 100, 200, 100);"  # t_invalid < t_valid
-    )
-    bad_expiry = (
-        "INSERT INTO memory_semantic_fact (tenant_id, id, content, created_at, expired_at) "
-        "VALUES ('acme', 'ck_bad_expiry', 'x', 200, 100);"  # expired_at < created_at
-    )
-    # srv.psql prints the CHECK error to stderr rather than raising; assert the rows never landed.
-    for sql in (bad_window, bad_expiry):
-        try:
-            srv.psql(sql)
-        except Exception:
-            pass
-    cnt = srv.psql(
-        "SELECT count(*) FROM memory_semantic_fact "
-        "WHERE id IN ('ck_bad_window', 'ck_bad_expiry');"
-    )
-    landed = cnt.strip().split("\n")[2].strip()
-    assert landed == "0", (
-        f"CHECK constraints failed to reject bad rows (found {landed})"
-    )
-    print("  [pg] bi-temporal CHECK constraints reject bad windows OK")
+    """SM-R10 CHECK constraints fire on ALL FOUR bi-temporal tables (not one standing in for the
+    rest): an impossible window (t_invalid < t_valid) and a backwards expiry (expired_at <
+    created_at) are rejected by the DB. NULL t_invalid/expired_at intentionally PASS (explicit
+    `IS NULL` guards in the CHECKs) so open-ended/current rows are allowed -- that positive case is
+    covered by every open-ended fixture in the round-trip (t_invalid=None writes succeed)."""
+    # (table, required-NOT NULL cols besides the time pair, matching values)
+    tables = [
+        (
+            "memory_episodic",
+            "tenant_id, id, content, created_at",
+            "'acme', '{i}', 'x', 100",
+        ),
+        (
+            "memory_semantic_fact",
+            "tenant_id, id, content, created_at",
+            "'acme', '{i}', 'x', 100",
+        ),
+        (
+            "memory_relation",
+            "tenant_id, id, subject_entity_id, predicate, object_entity_id, created_at",
+            "'acme', '{i}', 's', 'p', 'o', 100",
+        ),
+        (
+            "memory_link",
+            "tenant_id, id, from_id, from_tier, to_id, to_tier, created_at",
+            "'acme', '{i}', 'f', 'episodic', 't', 'semantic', 100",
+        ),
+    ]
+    for table, cols, vals in tables:
+        # bad window: t_invalid(100) < t_valid(200); bad expiry: expired_at(50) < created_at(100)
+        bad_window = f"INSERT INTO {table} ({cols}, t_valid, t_invalid) VALUES ({vals.format(i='ck_w')}, 200, 100);"
+        bad_expiry = f"INSERT INTO {table} ({cols}, expired_at) VALUES ({vals.format(i='ck_e')}, 50);"
+        for sql in (bad_window, bad_expiry):
+            try:
+                srv.psql(sql)  # prints CHECK error to stderr rather than raising
+            except Exception:
+                pass
+        cnt = srv.psql(f"SELECT count(*) FROM {table} WHERE id IN ('ck_w', 'ck_e');")
+        landed = cnt.strip().split("\n")[2].strip()
+        assert landed == "0", (
+            f"{table}: CHECK failed to reject bad rows (found {landed})"
+        )
+    print("  [pg] bi-temporal CHECK constraints reject bad windows on all 4 tables OK")
 
 
 def _check_isolation(store: PgMemoryStore) -> None:
@@ -350,6 +398,7 @@ def main() -> None:
         _roundtrip_sync(pg, "pg")
         asyncio.run(_roundtrip_async(pg, "pg"))
         _check_bitemporal(srv, pg)
+        _check_episodic_supersede(pg)
         _check_insert_only(pg)
         _check_constraints(srv)
         _check_isolation(pg)

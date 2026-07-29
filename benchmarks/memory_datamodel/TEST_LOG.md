@@ -42,10 +42,15 @@ accepted. "DDL APPLIED CLEANLY ON REAL pgvector".
   row** (the real reuse-id UPDATE path), insert the new version; assert point-in-time "true at T"
   at each instant, that `expire()` **preserved `t_valid`** (only moved `expired_at`/`t_invalid`/
   `superseded_by`), that re-expire is a no-op, and that **both** rows survive.
+- **SM-R6 episodic `expire()`** (array path): `expire()` on an `EpisodicRecord` writes a
+  two-element `superseded_by` into the `TEXT[]` column via psycopg and reads back as a genuine
+  Python list (`["seg_a","seg_b"]`), sync path; the async array path is covered separately. This is
+  the tier the earlier bi-temporal test never exercised (it only hit the scalar `SemanticFact`).
 - **Insert-only guardrail** (SM-R10): re-writing an existing id raises `UniqueViolation` and the
   original temporal fields are intact (proves `write()` can't silently mutate).
 - **CHECK constraints** (SM-R10): `t_invalid < t_valid` and `expired_at < created_at` inserts are
-  rejected by the DB (rows never land).
+  rejected on **all four** bi-temporal tables (episodic/fact/relation/link); NULL windows pass by
+  design (`IS NULL` guards → open-ended/current rows allowed).
 - **Cross-tenant isolation** (SM-R3): a row written under tenant `acme` is invisible from `beta`.
 - **Seam proof:** the identical round-trip passes through `InMemoryMemoryStore` (second adapter,
   also insert-only) with zero call-site changes.
