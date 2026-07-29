@@ -52,6 +52,42 @@ added `team_id` to `Scope`, and reframed `MemoryRecord` as a read-projection ove
 `MemoryRecord` is a projection, not a second schema. R12 is unmerged — final reconciliation on
 ratification is SM-C1's.
 
+## F5 — SM-R8 consistency: weighted fusion was missing (default was RRF)
+
+**Symptom:** `config.fusion["method"] = "weighted"` silently no-op'd — the provider hardcoded RRF.
+**Contradiction:** SM-R8's ratified DECISION.md picks **weighted / relative-score fusion** as the
+2-leg default (measured, significant win over RRF on all 4 datasets); RRF is reserved for the
+SM-G9-gated 3-leg case *and even there is provisional* (SM-R8's synthetic 3-leg test found
+weighted's edge over RRF *widened* +0.023→+0.076, not flipped).
+**Fix:** added a real `_weighted` (min-max normalize per leg → `sum(weight_i · norm_i)`), made it
+the default (`vector_weight≈0.5`), kept `_rrf` selectable via `config.fusion["method"]="rrf"` for
+the graph-join case. `MemoryProviderConfig.fusion` default is now `{"method":"weighted",...}`.
+**Contract for SM-C1:** default to weighted; only switch to RRF once SM-G9's real graph retriever
+is measured (do not adopt RRF automatically on graph-join).
+
+## F6 — SM-R10 consistency: point-in-time read was one-sided
+
+**Symptom:** `_as_of`/`traverse` only checked the `t_invalid` upper bound, so a **future-dated**
+record (`t_valid > as_of`) leaked into an as-of read.
+**Contradiction:** SM-R10's ratified "true at T" is the **two-sided** `t_valid <= T < t_invalid`
+(§7 explicitly flags both bounds as required).
+**Fix:** shared `_valid_at(record, at)` helper enforces both bounds (`t_valid=None`⇒since-forever,
+`t_invalid=None`⇒open); used by both `_as_of` and `traverse`. Added a future-dated swap-test case.
+
+## F7 — SM-R7 consistency: `consolidate` claimed dual-write but wrote vector only
+
+**Symptom:** `ConsolidationReport` docstring said "write to BOTH substrates," but the reference
+adapter's `consolidate` only upserted to the vector substrate.
+**Fix:** `consolidate` now writes the distilled semantic fact to **both** substrates (same id), so
+the claim is true even in the stub. Deterministic Jaccard dedup remains; LLM extraction +
+contradiction-resolution stay explicitly scoped to SM-C* (`contradictions_resolved` stays 0).
+
+## F8 — SM-R9 attribution: PPR was mis-cited as SM-R8
+
+**Fix:** PPR (personalized PageRank) is SM-R9's ratified decision (optional, per-tenant flag,
+default off), not SM-R8's. Relabelled in `interface.py` (`read` docstring, `MemoryProviderConfig`)
+and SPEC §5.3/§7/§9. Rerank stays attributed to SM-R8.
+
 ## Note — "empty query text = scan" convention
 
 `consolidate` needs to enumerate all episodic records, not run a relevance search. Rather than

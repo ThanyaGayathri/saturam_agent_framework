@@ -134,11 +134,32 @@ def run() -> Result:
     dup_read = co.read(dedup_scope, MemoryQuery(text="pgvector neo4j", tiers=[MemoryTier.EPISODIC], limit=10))
     both_substrates = dup_read.fusion.get("vector_hits", 0) >= 1 and dup_read.fusion.get("graph_hits", 0) >= 1
     result.check(
-        "co_located: RRF folds a cross-substrate match to one record",
+        "co_located: fusion folds a cross-substrate match to one record",
         len(dup_read.records) == 1 and both_substrates,
-        "fused={n} vector_hits={v} graph_hits={g}".format(
-            n=len(dup_read.records), v=dup_read.fusion.get("vector_hits"), g=dup_read.fusion.get("graph_hits")
+        "method={m} fused={n} vector_hits={v} graph_hits={g}".format(
+            m=dup_read.fusion.get("method"),
+            n=len(dup_read.records),
+            v=dup_read.fusion.get("vector_hits"),
+            g=dup_read.fusion.get("graph_hits"),
         ),
+    )
+
+    # 3b. SM-R8: fusion is config-selectable — WEIGHTED is the default, RRF on request.
+    fw = build_memory_provider(MemoryProviderConfig(provider="co_located"))
+    fr = build_memory_provider(MemoryProviderConfig(provider="co_located", fusion={"method": "rrf", "k": 60}))
+    for prov in (fw, fr):
+        prov.write(
+            dedup_scope,
+            [MemoryEvent(content="Acme runs pgvector and neo4j", scope=dedup_scope, topics=["pgvector", "neo4j"])],
+        )
+    fw_slice = fw.read(dedup_scope, MemoryQuery(text="pgvector neo4j", tiers=[MemoryTier.EPISODIC], limit=5))
+    fr_slice = fr.read(dedup_scope, MemoryQuery(text="pgvector neo4j", tiers=[MemoryTier.EPISODIC], limit=5))
+    result.check(
+        "SM-R8: weighted is the default fusion; RRF selectable by config",
+        fw_slice.fusion.get("method") == "weighted"
+        and "vector_weight" in fw_slice.fusion
+        and fr_slice.fusion.get("method") == "rrf",
+        "default={d} rrf-config={r}".format(d=fw_slice.fusion.get("method"), r=fr_slice.fusion.get("method")),
     )
 
     # 4. Tenant isolation: another tenant sees nothing.
@@ -149,20 +170,61 @@ def run() -> Result:
     )
 
     # 5. Bi-temporal (SM-R10) seam: invalidate-not-delete + as_of point-in-time read.
+    # Explicit occurred_at (t_valid=100) keeps the probe deterministic regardless of
+    # the global write clock.
     bt_scope = Scope(tenant_id="acme", user_id="bt")
     bt = build_memory_provider(CONFIGS[0])
-    r = bt.write(bt_scope, [MemoryEvent(content="Acme HQ is in Boston", scope=bt_scope, topics=["hq", "boston"])])
+    r = bt.write(
+        bt_scope,
+        [MemoryEvent(content="Acme HQ is in Boston", scope=bt_scope, topics=["hq", "boston"], occurred_at=100)],
+    )
     eid = r.event_ids[0]
     before = bt.read(bt_scope, MemoryQuery(text="hq boston", tiers=[MemoryTier.EPISODIC]))
     bt._graph.invalidate(bt_scope, eid, at=1000)  # type: ignore[attr-defined]
     after_now = bt.read(bt_scope, MemoryQuery(text="hq boston", tiers=[MemoryTier.EPISODIC], as_of=2000))
     after_past = bt.read(bt_scope, MemoryQuery(text="hq boston", tiers=[MemoryTier.EPISODIC], as_of=500))
     result.check(
-        "bi-temporal invalidate-not-delete + as_of",
+        "bi-temporal invalidate-not-delete + as_of upper bound",
         len(before.records) == 1 and len(after_now.records) == 0 and len(after_past.records) == 1,
         "before={b} as_of_after={a} as_of_before={p}".format(
             b=len(before.records), a=len(after_now.records), p=len(after_past.records)
         ),
+    )
+
+    # 5b. SM-R10 two-sided "true at T": a future-dated record must NOT leak before t_valid.
+    fd_scope = Scope(tenant_id="acme", user_id="fd")
+    fd = build_memory_provider(CONFIGS[0])
+    fd.write(
+        fd_scope,
+        [
+            MemoryEvent(
+                content="Acme opens a Tokyo office", scope=fd_scope, topics=["tokyo", "office"], occurred_at=5000
+            )
+        ],
+    )
+    q = "tokyo office"
+    before_valid = fd.read(fd_scope, MemoryQuery(text=q, tiers=[MemoryTier.EPISODIC], as_of=1000))
+    after_valid = fd.read(fd_scope, MemoryQuery(text=q, tiers=[MemoryTier.EPISODIC], as_of=6000))
+    result.check(
+        "SM-R10 two-sided: future-dated record excluded before t_valid",
+        len(before_valid.records) == 0 and len(after_valid.records) == 1,
+        "as_of<t_valid={b} as_of>t_valid={a}".format(b=len(before_valid.records), a=len(after_valid.records)),
+    )
+
+    # 5c. SM-R7 reference consolidate writes the distilled fact to BOTH substrates.
+    cs_scope = Scope(tenant_id="acme", user_id="cs")
+    cs = build_memory_provider(CONFIGS[0])
+    cs.write(
+        cs_scope,
+        [MemoryEvent(content="Acme standardized on neo4j for graph memory", scope=cs_scope, topics=["neo4j", "graph"])],
+    )
+    rep = cs.consolidate(cs_scope)
+    in_vector = cs._vector.search(cs_scope, MemoryQuery(text="neo4j graph", tiers=[MemoryTier.SEMANTIC], limit=5))  # type: ignore[attr-defined]
+    in_graph = cs._graph.traverse(cs_scope, MemoryQuery(text="neo4j graph", tiers=[MemoryTier.SEMANTIC], limit=5))  # type: ignore[attr-defined]
+    result.check(
+        "SM-R7: consolidate writes the semantic fact to both substrates",
+        rep.semantic_written >= 1 and len(in_vector) >= 1 and len(in_graph) >= 1,
+        "written={w} vector={v} graph={g}".format(w=rep.semantic_written, v=len(in_vector), g=len(in_graph)),
     )
 
     # 6. Sync/async parity of the seam.

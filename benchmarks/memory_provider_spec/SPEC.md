@@ -17,7 +17,7 @@ records the decisions behind it. Two adapters and a config-only swap test
 plug-and-play (Phases 3–4).
 
 > **Phase status:** Phases 1–4 complete — `interface.py` (contract), §6.1 reuse dispositions,
-> `adapters.py` (two adapters), and `swap_test.py` (7/7 checks, deterministic). Remaining:
+> `adapters.py` (two adapters), and `swap_test.py` (10/10 checks, deterministic). Remaining:
 > the finalize gate (lint/type/core-isolation) recorded in `TEST_LOG.md`.
 
 ---
@@ -27,7 +27,7 @@ plug-and-play (Phases 3–4).
 | # | Criterion | Status | Evidence |
 |---|-----------|--------|----------|
 | 1 | `read`/`write`/`consolidate` signatures specified (with tier + tenant params) | ✅ specified | §5, `interface.py` `MemoryProvider.read/write/consolidate` (+ `read_tier`/`write_tier`); tenant via `Scope`, tier via `MemoryQuery.tiers` / `MemoryTier` |
-| 2 | Both substrates (vector + graph) exposed behind one seam | ✅ specified + proven | §4, §5.4 single seam composing `VectorSubstrate` + `GraphSubstrate`; `co_located` adapter wires both; swap test check 4 (RRF folds a cross-substrate match) + check 6 (bi-temporal graph) pass |
+| 2 | Both substrates (vector + graph) exposed behind one seam | ✅ specified + proven | §4, §5.4 single seam composing `VectorSubstrate` + `GraphSubstrate`; `co_located` adapter wires both; swap test "fusion folds a cross-substrate match", the two bi-temporal checks, and the SM-R7 dual-write check all pass |
 | 3 | Relationship to `LearningStore` / `MemoryManager` decided (wrap vs replace) | ✅ decided: **WRAP/extend** | §6 decision + §6.1 per-surface disposition table (all 12 seed surfaces verified against current code) |
 | 4 | Mode A/B implementation-swap approach defined | ✅ defined + proven | §5.5 config seam (`MemoryProviderConfig` + registry + `build_memory_provider`); swap test checks 1–3 drive Mode A + Mode B from one consumer, exit 0, deterministic |
 
@@ -51,7 +51,7 @@ Legend: ✅ done · ◑ specified but runnable proof lands in a later phase · u
 
 | Option | Assessment | Verdict |
 |--------|-----------|---------|
-| **Single `MemoryProvider` seam over both substrates** (issue-recommended) | One dependency for callers; provider owns fusion (SM-R8) so RRF/rerank/PPR live in one place; matches the research doc's "one seam exposes both substrates, tenant-configurable" (§5.6). | **Chosen**, refined: single seam **composed from two substrate ports** — callers get one seam, backends still swap per-substrate. |
+| **Single `MemoryProvider` seam over both substrates** (issue-recommended) | One dependency for callers; provider owns fusion (weighted default, SM-R8) + optional PPR (SM-R9) in one place; matches the research doc's "one seam exposes both substrates, tenant-configurable" (§5.6). | **Chosen**, refined: single seam **composed from two substrate ports** — callers get one seam, backends still swap per-substrate. |
 | Separate vector + graph interfaces composed by the caller | Pushes fusion and substrate-lifecycle into every call site; each consumer re-implements RRF and dual-write; Mode A/B swap leaks to callers. Rejected as the *caller-facing* seam. | **Rejected** as the public seam — but preserved *internally* as the `VectorSubstrate`/`GraphSubstrate` ports, which is where per-backend swap belongs. |
 
 The chosen design takes the strength of the rejected option (independent substrate swap) without
@@ -66,7 +66,7 @@ its cost (fusion/dual-write leaking to callers).
                      │  depend only on ▼
              ┌──────────────────┐
              │  MemoryProvider  │   read / write / consolidate (+ tier-aware), sync + async
-             │   (single seam)  │   owns hybrid fusion (RRF/rerank/PPR = SM-R8)
+             │   (single seam)  │   owns fusion (weighted default SM-R8; PPR SM-R9)
              └───────┬──────────┘
               composes│
         ┌─────────────┴─────────────┐
@@ -126,9 +126,19 @@ fields surfacing on the projection) lands with SM-C1.
 
 ### 5.3 Method signatures (all sync **and** async)
 
+> ⚠️ **DELIBERATE DEVIATION FROM ISSUE #86 — read `interface.py`, not the issue's sketch.**
+> The issue's *Questions* sketch `read(tenant, agent, query, types) -> MemorySlice`. This spec
+> does **not** use that literal shape. It folds `tenant`+`agent` into a single **`Scope`** object
+> (so scoping threads uniformly through *every* method — you never pass tenant/agent positionally)
+> and expresses `types` as **`MemoryQuery.tiers`**. Same information, better ergonomics. The real
+> signature is `read(scope: Scope, query: MemoryQuery) -> MemorySlice`.
+> Do **not** copy `read(tenant, agent, query, types)` into downstream docstrings — that literal was
+> the issue's strawman, and a sibling PR (SM-R13 #19) already misquoted it by copying from the
+> issue text instead of this file. When in doubt, the code in `interface.py` is authoritative.
+
 | Verb | Sync | Async | Returns | Semantics |
 |------|------|-------|---------|-----------|
-| read (feed-forward) | `read(scope, query)` | `aread(scope, query)` | `MemorySlice` | Hybrid vector+graph(+BM25) fused via RRF (k≈60), optional rerank/PPR (SM-R8). No query-time LLM on hot path. |
+| read (feed-forward) | `read(scope, query)` | `aread(scope, query)` | `MemorySlice` | Hybrid vector+graph(+BM25) fused via **WEIGHTED** relative-score fusion (SM-R8 default, `vector_weight≈0.5`); RRF (k≈60) reserved for the SM-G9-gated graph-join case; optional rerank (SM-R8) / PPR (SM-R9), off by default. No query-time LLM on hot path. |
 | write (write-back) | `write(scope, events)` | `awrite(scope, events)` | `WriteReceipt` | Append raw events (default EPISODIC). Cheap, non-lossy; no distillation. |
 | consolidate | `consolidate(scope, tiers=None)` | `aconsolidate(scope, tiers=None)` | `ConsolidationReport` | Sleep-time: extract → dedup → contradiction-resolve → write BOTH substrates. Async is the primary lane. |
 | read tier | `read_tier(scope, tier, query)` | `aread_tier(...)` | `List[MemoryRecord]` | Single-tier direct read, no cross-tier fusion. |
@@ -164,7 +174,7 @@ class MemoryProviderConfig:
     mode: DeploymentMode = CO_LOCATED   # A (co-located) | B (external)
     vector: Dict[str, Any] = {}         # opaque backend settings (dsn, dim, …)
     graph:  Dict[str, Any] = {}         # opaque backend settings (uri, …)
-    fusion: Dict[str, Any] = {"method": "rrf", "k": 60}   # SM-R8 knobs
+    fusion: Dict[str, Any] = {"method": "weighted", "vector_weight": 0.5}   # SM-R8 default; "rrf" gated for graph-join; "ppr" flag = SM-R9
     options: Dict[str, Any] = {}
 
 build_memory_provider(config) -> MemoryProvider   # the ONLY construction call site
@@ -233,8 +243,10 @@ loop. These are the additive build surface `MemoryProvider` exposes — WRAP the
 | **SM-C1** (implements this) | `MemoryProvider` ABC + `MemoryProviderConfig` + registry; adapters subclass the ABC. |
 | **SM-R3** (vector store) | Selected as the `VectorSubstrate` backend via `config.vector`. |
 | **SM-R2 / SM-G1** (graph engine) | Selected as the `GraphSubstrate` backend via `config.graph`. |
-| **SM-R8** (retrieval fusion) | `config.fusion` (RRF k, rerank, PPR); the provider owns fusion in `read`. |
-| **SM-R10** (bi-temporal) | `valid_from`/`valid_to`/`recorded_at` on records, `MemoryQuery.as_of`, `GraphSubstrate.invalidate`. |
+| **SM-R8** (retrieval fusion) | `config.fusion` — **weighted is the default** (`method="weighted"`, `vector_weight≈0.5`), RRF selectable but reserved for the SM-G9-gated graph-join case; optional cross-encoder rerank (off by default). The provider owns fusion in `read` (`_weighted`/`_rrf`). |
+| **SM-R9** (multi-hop / PPR) | `config.fusion["ppr"]` — optional personalized-PageRank, **per-tenant flag, default off** (SM-R9's decision, not SM-R8's). |
+| **SM-R10** (bi-temporal) | `t_valid`/`t_invalid`/`created_at`/`expired_at`/`superseded_by` on records; `MemoryQuery.as_of` point-in-time read enforces the **two-sided** `t_valid <= as_of < t_invalid`; `GraphSubstrate.invalidate` (invalidate-not-delete). |
+| **SM-R7** (consolidation) | `consolidate` distills episodic→semantic and writes to **both** substrates; deterministic dedup here, LLM extraction + contradiction-resolution deferred to SM-C*. |
 | **SM-R12** (data model, [PR #18](https://github.com/Saturam-Inc/saturam-agent-framework/pull/18)) | Owns the per-tier row schemas (`EpisodicRecord`/`SemanticFact`/…) **and** a row-level `MemoryStore` port (`read(model, tenant_id, id)` / `write(rec)` + async; `Pg`/`InMemory` adapters). This seam's `MemoryRecord` is a read-projection over those rows; a `MemoryProvider` adapter **composes** `MemoryStore` for single-row persistence beneath the seam. Altitudes differ: R12 `read/write` = one row by primary key; R11 `read/write` = query→`MemorySlice` / event write-back. The seam envelope (`MemorySlice`/`MemoryEvent`/`Scope`) is owned here; R12 defines none of it. |
 
 ---
@@ -260,8 +272,33 @@ loop. These are the additive build surface `MemoryProvider` exposes — WRAP the
   spine (`t_valid`/`t_invalid`/`created_at`/`expired_at`/`superseded_by`); `Scope` carries
   `team_id`. PR unmerged, so this is alignment-to-current; final reconciliation is SM-C1's on
   ratification.
-- **SM-R8 / SM-R10:** fusion and bi-temporal surfaces are represented as config/fields, not
-  decided here.
+- **SM-R8 (fusion, ratified):** aligned to its DECISION.md — **weighted / relative-score fusion
+  is the default** (`method="weighted"`, `vector_weight≈0.5`; the co_located adapter implements a
+  real weighted path, `_weighted`). RRF is selectable but **reserved for the SM-G9-gated 3-leg
+  graph-join case**, which SM-R8 marks provisional (its synthetic 3-leg test found weighted's edge
+  over RRF *widened*, not flipped). Fusion is genuinely config-selectable, proven by the swap test
+  ("weighted is the default; RRF selectable by config").
+- **SM-R9 (multi-hop / PPR, ratified):** PPR is exposed as an optional **per-tenant flag, default
+  off**, and attributed to SM-R9 (previously mis-cited as SM-R8).
+- **SM-R10 (bi-temporal, ratified):** point-in-time reads enforce the **two-sided** "true at T"
+  rule `t_valid <= as_of < t_invalid` (both bounds), matching SM-R10 §7; a future-dated record is
+  excluded before `t_valid` (swap test "SM-R10 two-sided"). Field names/types track R12's
+  `BiTemporal` spine.
+- **SM-R7 (consolidation, ratified spike):** the reference `consolidate` writes the distilled fact
+  to **both** substrates (so the "both substrates" claim is true even in the stub); LLM extraction
+  and contradiction-resolution are explicitly deferred to SM-C*.
+
+### 9.1 Pre-review self-check dispositions (against issue #86 + siblings)
+
+| # | Item | Disposition |
+|---|------|-------------|
+| P1-1a | Signature deviation from issue's `read(tenant,agent,query,types)` | **Made explicit** — loud callout in §5.3 + `interface.py` `read` docstring, so downstream docs stop copying the strawman. |
+| 1 | SM-R8: fusion hardcoded RRF, no weighted path | **Fixed** — `_weighted` added, defaulted on; `config.fusion["method"]` now takes effect. |
+| 2 | SM-R10: `as_of` only checked `t_invalid` (upper bound) | **Fixed** — two-sided `_valid_at`; future-dated test added. |
+| 3 | SM-R7: `consolidate` claimed "both substrates" but wrote vector only | **Fixed** — now dual-writes; docstring made accurate. |
+| 4 | Internal: §9 claimed fusion "config, not decided" vs hardcoded RRF | **Fixed** — fusion is config-selectable (this section + swap test). |
+| 5 | SM-R9: PPR mis-cited as SM-R8 | **Fixed** — relabelled SM-R9 in `interface.py` + here. |
+| 6 | SM-R12 field/type alignment | **Re-confirmed** — no record-schema drift; `tenant_id: str`, int epoch-seconds, `t_valid/t_invalid/...` intact (also fixed a stale `valid_from/valid_to` reference in §7). |
 
 ---
 

@@ -142,7 +142,7 @@ class MemoryRecord:
     tier: MemoryTier
     content: str
     scope: Scope
-    score: Optional[float] = None  # fused (RRF) or substrate-native score
+    score: Optional[float] = None  # fused (weighted/RRF) or substrate-native score
     substrate: Optional[Substrate] = None  # origin; None once fused across both
     topics: Optional[List[str]] = None
     provenance: Dict[str, Any] = field(default_factory=dict)  # source_episode_ids, edge ids
@@ -200,7 +200,7 @@ class MemorySlice:
     query: Optional[MemoryQuery] = None
     records: List[MemoryRecord] = field(default_factory=list)
     by_tier: Dict[MemoryTier, List[MemoryRecord]] = field(default_factory=dict)
-    fusion: Dict[str, Any] = field(default_factory=dict)  # {"method": "rrf", "k": 60, ...}
+    fusion: Dict[str, Any] = field(default_factory=dict)  # {"method": "weighted", "vector_weight": 0.5, ...}
 
     def as_context(self) -> str:
         """Render the slice as a prompt-injectable context string.
@@ -232,7 +232,10 @@ class ConsolidationReport:
 
     The write-side consolidation loop is the "Symbiotic Memory" differentiator
     (research doc section 5.3): extract -> dedup -> contradiction-resolve ->
-    write to BOTH substrates, on the sleep-time lane.
+    write to BOTH substrates, on the sleep-time lane. The reference ``co_located``
+    adapter implements deterministic dedup + the dual-substrate write; LLM-based
+    extraction and contradiction-resolution are SM-C* work (SM-R7 owns the
+    consolidation strategy), so ``contradictions_resolved`` stays 0 in the stub.
     """
 
     scope: Scope
@@ -337,8 +340,17 @@ class MemoryProvider(ABC):
         """Hybrid neuro-symbolic retrieval fused into one ranked slice.
 
         Fuses vector + graph (+ full-text) across the requested ``query.tiers``
-        using RRF (k~=60), optional rerank / PPR (SM-R8). No query-time LLM on
-        the hot path (research doc section 5.5).
+        using WEIGHTED / relative-score fusion (SM-R8 ratified default), with RRF
+        (k~=60) reserved for the SM-G9-gated 3-leg case; optional cross-encoder
+        rerank (SM-R8, off by default) and optional PPR (SM-R9, per-tenant, off by
+        default). No query-time LLM on the hot path (research doc section 5.5).
+
+        SIGNATURE NOTE (deliberate deviation from issue #86): the issue sketches
+        ``read(tenant, agent, query, types) -> MemorySlice``. This seam folds
+        ``tenant``+``agent`` into the ``Scope`` object (so scoping threads
+        uniformly through every method) and expresses ``types`` as
+        ``MemoryQuery.tiers``. Same information, better ergonomics — read THIS
+        signature, not the issue's sketch (see SPEC.md section 5.3).
         """
         raise NotImplementedError
 
@@ -426,15 +438,25 @@ class MemoryProviderConfig:
 
     ``provider`` selects the adapter from the registry; ``mode`` records Mode A
     vs Mode B; ``vector``/``graph`` are opaque backend settings (dsn, dim, uri);
-    ``fusion`` carries SM-R8 knobs (rrf k, rerank, ppr). Swapping backend or mode
-    is editing this object (or its source config file), never the consumer.
+    ``fusion`` carries the SM-R8 fusion/rerank knobs plus the optional SM-R9 PPR
+    flag. Swapping backend or mode is editing this object (or its source config
+    file), never the consumer.
+
+    ``fusion`` keys:
+      - ``method``: ``"weighted"`` (SM-R8 ratified default) | ``"rrf"`` (reserved
+        for the SM-G9-gated 3-leg graph-join case; provisional there).
+      - ``vector_weight``: SM-R8 ``vector_score_weight`` (~0.4-0.5; memory ~0.3).
+      - ``k``: RRF k (~60), only used when ``method="rrf"``.
+      - ``rerank``: SM-R8 cross-encoder, off by default (latency-gated).
+      - ``ppr``: SM-R9 personalized-PageRank flag, per-tenant, off by default.
     """
 
     provider: str
     mode: DeploymentMode = DeploymentMode.CO_LOCATED
     vector: Dict[str, Any] = field(default_factory=dict)
     graph: Dict[str, Any] = field(default_factory=dict)
-    fusion: Dict[str, Any] = field(default_factory=lambda: {"method": "rrf", "k": 60})
+    # SM-R8 ratified WEIGHTED as the default fusion (measured 2-leg win over RRF).
+    fusion: Dict[str, Any] = field(default_factory=lambda: {"method": "weighted", "vector_weight": 0.5})
     options: Dict[str, Any] = field(default_factory=dict)
 
 

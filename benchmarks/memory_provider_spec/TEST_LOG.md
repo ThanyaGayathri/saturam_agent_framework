@@ -18,21 +18,25 @@ ABC (not instantiable); `Scope.key()`, `MemorySlice.as_context()` work; substrat
 
 ### swap_test.py
 
-**Status:** PASS (7/7 checks, exit 0)
+**Status:** PASS (10/10 checks, exit 0)
 
 **Description:** One consumer function (`consumer_workload`) driven verbatim against two
 providers built purely from config. Checks:
 1. `co_located` — write+read+consolidate via one seam.
 2. `external_stub` — same, via the same seam.
 3. Swap is config-only (no call-site change).
-4. `co_located` — RRF folds a cross-substrate match to one record (vector_hits=1, graph_hits=1).
-5. Tenant isolation — a second tenant sees nothing.
-6. Bi-temporal (SM-R10) — invalidate-not-delete + `as_of` point-in-time read (before=1,
-   as_of_after=0, as_of_before=1).
-7. Sync + async variants both satisfy the contract.
+4. `co_located` — fusion folds a cross-substrate match to one record (method=weighted).
+5. **SM-R8** — weighted is the default fusion; RRF selectable by config.
+6. Tenant isolation — a second tenant sees nothing.
+7. Bi-temporal (SM-R10) — invalidate-not-delete + `as_of` upper bound.
+8. **SM-R10 two-sided** — a future-dated record is excluded before `t_valid`.
+9. **SM-R7** — `consolidate` writes the semantic fact to both substrates.
+10. Sync + async variants both satisfy the contract.
 
 **Result:** All pass. Output is byte-identical across repeated runs
-(`results/swap_results.json`), confirming determinism.
+(`results/swap_results.json`), confirming determinism. Checks 5, 8, 9 were added in the
+pre-review consistency pass (SM-R8 weighted fusion, SM-R10 two-sided point-in-time, SM-R7
+dual-write).
 
 ---
 

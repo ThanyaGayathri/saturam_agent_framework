@@ -18,7 +18,7 @@ Both self-register with the interface registry, so a caller selects one purely b
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from benchmarks.memory_provider_spec.interface import (
     ConsolidationReport,
@@ -132,8 +132,8 @@ class DictGraphSubstrate:
         for record in self._bucket(scope):
             if record.tier not in wanted:
                 continue
-            if query.as_of is not None and record.t_invalid is not None and record.t_invalid <= query.as_of:
-                continue  # point-in-time read excludes already-invalidated edges
+            if query.as_of is not None and not _valid_at(record, query.as_of):
+                continue  # SM-R10 "true at T": two-sided t_valid <= as_of < t_invalid
             overlap = (
                 0 if scan_all else len(q_topics & set(record.topics or [])) + len(q_topics & _tokens(record.content))
             )
@@ -206,8 +206,66 @@ def _min_t_invalid(current: Optional[int], incoming: Optional[int]) -> Optional[
     return min(current, incoming)
 
 
+def _valid_at(record: MemoryRecord, at: int) -> bool:
+    """SM-R10 "true at T": ``t_valid <= at < t_invalid`` (both bounds required).
+
+    ``t_valid=None`` => valid since-forever; ``t_invalid=None`` => open-ended
+    (COALESCE to +inf). A future-dated record (``t_valid > at``) is NOT valid.
+    """
+    if record.t_valid is not None and at < record.t_valid:
+        return False
+    if record.t_invalid is not None and at >= record.t_invalid:
+        return False
+    return True
+
+
+def _fold(fused: Dict[str, MemoryRecord], record: MemoryRecord) -> None:
+    """Insert or merge a record into the fused set (dedup by id, keep restrictive validity)."""
+    if record.id not in fused:
+        fused[record.id] = _copy_with(record, score=0.0, substrate=None)
+    else:
+        fused[record.id].t_invalid = _min_t_invalid(fused[record.id].t_invalid, record.t_invalid)
+
+
+def _minmax(values: List[float]) -> List[float]:
+    """Min-max normalize scores to [0, 1]. Equal/degenerate lists map to 1.0 (all equally relevant)."""
+    if not values:
+        return []
+    lo, hi = min(values), max(values)
+    if hi <= lo:
+        return [1.0 for _ in values]
+    span = hi - lo
+    return [(v - lo) / span for v in values]
+
+
+def _weighted(ranked_lists: Sequence[List[MemoryRecord]], weights: Sequence[float]) -> List[MemoryRecord]:
+    """Weighted / relative-score fusion — the SM-R8 ratified default (2-leg dense+BM25 win).
+
+    Each leg's native scores are min-max normalized to [0, 1], then combined as
+    ``sum(weight_i * norm_i)`` and deduped by id. ``weights`` aligns with
+    ``ranked_lists`` (e.g. ``[vector_weight, graph_weight]``). SM-R8's measured
+    ``vector_score_weight`` default is ~0.4-0.5 (memory sets peak nearer 0.3).
+    Weighted subsumes vector-only at ``vector_weight -> 1``.
+    """
+    fused: Dict[str, MemoryRecord] = {}
+    combined: Dict[str, float] = {}
+    for ranked, weight in zip(ranked_lists, weights):
+        norms = _minmax([record.score or 0.0 for record in ranked])
+        for record, norm in zip(ranked, norms):
+            combined[record.id] = combined.get(record.id, 0.0) + weight * norm
+            _fold(fused, record)
+    for rid, record in fused.items():
+        record.score = combined[rid]
+    return sorted(fused.values(), key=lambda r: r.score or 0.0, reverse=True)
+
+
 def _rrf(ranked_lists: Sequence[List[MemoryRecord]], k: int) -> List[MemoryRecord]:
-    """Reciprocal Rank Fusion (research doc section 3, k~=60).
+    """Reciprocal Rank Fusion (rank-based, research doc section 3, k~=60).
+
+    Reserved for the SM-G9-gated 3-leg (graph-join) case, which SM-R8 flags as
+    PROVISIONAL (a synthetic 3-leg measurement found weighted's edge over RRF
+    *widened*, so RRF must be re-measured against the real graph retriever before
+    it is adopted). NOT the default — see :func:`_weighted`.
 
     Dedups by episode id across substrates and carries the most-restrictive
     ``t_invalid`` so the provider can apply point-in-time (``as_of``) filtering.
@@ -217,10 +275,7 @@ def _rrf(ranked_lists: Sequence[List[MemoryRecord]], k: int) -> List[MemoryRecor
     for ranked in ranked_lists:
         for rank, record in enumerate(ranked):
             scores[record.id] = scores.get(record.id, 0.0) + 1.0 / (k + rank + 1)
-            if record.id not in fused:
-                fused[record.id] = _copy_with(record, score=0.0, substrate=None)
-            else:
-                fused[record.id].t_invalid = _min_t_invalid(fused[record.id].t_invalid, record.t_invalid)
+            _fold(fused, record)
     for rid, record in fused.items():
         record.score = scores[rid]
     return sorted(fused.values(), key=lambda r: r.score or 0.0, reverse=True)
@@ -240,11 +295,33 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self,
         vector: VectorSubstrate,
         graph: GraphSubstrate,
+        fusion_method: str = "weighted",
+        vector_weight: float = 0.5,
         fusion_k: int = 60,
     ) -> None:
         self._vector = vector
         self._graph = graph
+        # Fusion method: SM-R8 ratified WEIGHTED as the default (2-leg win); RRF is
+        # reserved for the SM-G9-gated 3-leg case and is provisional there.
+        self._fusion_method = fusion_method
+        self._vector_weight = vector_weight
         self._fusion_k = fusion_k
+
+    def _fuse(self, vector_hits: List[MemoryRecord], graph_hits: List[MemoryRecord]) -> List[MemoryRecord]:
+        if self._fusion_method == "rrf":
+            return _rrf([vector_hits, graph_hits], self._fusion_k)
+        # default: weighted / relative-score fusion (SM-R8)
+        return _weighted([vector_hits, graph_hits], [self._vector_weight, 1.0 - self._vector_weight])
+
+    def _fusion_diag(self, n_vec: int, n_graph: int) -> Dict[str, Any]:
+        if self._fusion_method == "rrf":
+            return {"method": "rrf", "k": self._fusion_k, "vector_hits": n_vec, "graph_hits": n_graph}
+        return {
+            "method": "weighted",
+            "vector_weight": self._vector_weight,
+            "vector_hits": n_vec,
+            "graph_hits": n_graph,
+        }
 
     # ---- write --------------------------------------------------------------
 
@@ -278,26 +355,31 @@ class CoLocatedMemoryProvider(MemoryProvider):
     # ---- read ---------------------------------------------------------------
 
     def read(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
-        # Substrates do similarity/traversal; the provider owns temporal validity.
+        # Substrates do similarity/traversal; the provider owns fusion + temporal validity.
         sub_query = replace(query, as_of=None)
         vector_hits = self._vector.search(scope, sub_query)
         graph_hits = self._graph.traverse(scope, sub_query)
-        fused = self._as_of(_rrf([vector_hits, graph_hits], self._fusion_k), query.as_of)[: query.limit]
+        fused = self._as_of(self._fuse(vector_hits, graph_hits), query.as_of)[: query.limit]
         return self._slice(scope, query, fused, len(vector_hits), len(graph_hits))
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         sub_query = replace(query, as_of=None)
         vector_hits = await self._vector.asearch(scope, sub_query)
         graph_hits = await self._graph.atraverse(scope, sub_query)
-        fused = self._as_of(_rrf([vector_hits, graph_hits], self._fusion_k), query.as_of)[: query.limit]
+        fused = self._as_of(self._fuse(vector_hits, graph_hits), query.as_of)[: query.limit]
         return self._slice(scope, query, fused, len(vector_hits), len(graph_hits))
 
     @staticmethod
     def _as_of(records: List[MemoryRecord], as_of: Optional[int]) -> List[MemoryRecord]:
-        """Point-in-time filter: drop episodes invalidated at or before ``as_of`` (SM-R10)."""
+        """Point-in-time filter (SM-R10 "true at T"): keep records valid at ``as_of``.
+
+        Two-sided: ``t_valid <= as_of < t_invalid``, with ``t_valid=None`` meaning
+        since-forever and ``t_invalid=None`` meaning open-ended (COALESCE to +inf).
+        Both bounds are required per SM-R10 (a future-dated record must not leak).
+        """
         if as_of is None:
             return records
-        return [r for r in records if r.t_invalid is None or r.t_invalid > as_of]
+        return [r for r in records if _valid_at(r, as_of)]
 
     def _slice(
         self,
@@ -315,7 +397,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             query=query,
             records=fused,
             by_tier=by_tier,
-            fusion={"method": "rrf", "k": self._fusion_k, "vector_hits": n_vec, "graph_hits": n_graph},
+            fusion=self._fusion_diag(n_vec, n_graph),
         )
 
     # ---- consolidate (episodic -> semantic) ---------------------------------
@@ -335,8 +417,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
             if not merged:
                 seen[record.id] = record
         for record in seen.values():
+            sem_id = "sem-{n}".format(n=_tick())
             semantic = MemoryRecord(
-                id="sem-{n}".format(n=_tick()),
+                id=sem_id,
                 tier=MemoryTier.SEMANTIC,
                 content=record.content,
                 scope=scope,
@@ -345,9 +428,26 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 t_valid=record.t_valid,
                 created_at=_tick(),
             )
+            # Write the distilled fact to BOTH substrates (vector for similarity,
+            # graph for the semantic subgraph) so the record is reachable either way.
             self._vector.upsert(scope, [semantic])
+            self._graph.upsert_episode(
+                scope,
+                MemoryEvent(
+                    content=record.content,
+                    scope=scope,
+                    tier=MemoryTier.SEMANTIC,
+                    id=sem_id,
+                    topics=record.topics,
+                    occurred_at=record.t_valid,
+                    metadata={"source": "consolidate"},
+                ),
+            )
             report.semantic_written += 1
-        report.details = {"note": "deterministic dedup+promote; LLM extraction is SM-C* work"}
+        report.details = {
+            "note": "deterministic dedup + dual-substrate promote; LLM extraction + "
+            "contradiction-resolution are SM-C* work"
+        }
         return report
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
@@ -474,11 +574,13 @@ class ExternalStubMemoryProvider(MemoryProvider):
 
 @register_provider("co_located")
 def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
-    fusion_k = int(config.fusion.get("k", 60))
+    fusion = config.fusion or {}
     return CoLocatedMemoryProvider(
         vector=DictVectorSubstrate(),
         graph=DictGraphSubstrate(),
-        fusion_k=fusion_k,
+        fusion_method=str(fusion.get("method", "weighted")),
+        vector_weight=float(fusion.get("vector_weight", 0.5)),
+        fusion_k=int(fusion.get("k", 60)),
     )
 
 

@@ -28,8 +28,13 @@
       "ok": true
     },
     {
-      "detail": "fused=1 vector_hits=1 graph_hits=1",
-      "name": "co_located: RRF folds a cross-substrate match to one record",
+      "detail": "method=weighted fused=1 vector_hits=1 graph_hits=1",
+      "name": "co_located: fusion folds a cross-substrate match to one record",
+      "ok": true
+    },
+    {
+      "detail": "default=weighted rrf-config=rrf",
+      "name": "SM-R8: weighted is the default fusion; RRF selectable by config",
       "ok": true
     },
     {
@@ -39,7 +44,17 @@
     },
     {
       "detail": "before=1 as_of_after=0 as_of_before=1",
-      "name": "bi-temporal invalidate-not-delete + as_of",
+      "name": "bi-temporal invalidate-not-delete + as_of upper bound",
+      "ok": true
+    },
+    {
+      "detail": "as_of<t_valid=0 as_of>t_valid=1",
+      "name": "SM-R10 two-sided: future-dated record excluded before t_valid",
+      "ok": true
+    },
+    {
+      "detail": "written=1 vector=1 graph=1",
+      "name": "SM-R7: consolidate writes the semantic fact to both substrates",
       "ok": true
     },
     {
@@ -58,7 +73,7 @@
     "co_located": {
       "accepted": 4,
       "episodic_scanned": 4,
-      "fusion_method": "rrf",
+      "fusion_method": "weighted",
       "read_records": 2,
       "read_tier_hits": 1,
       "read_top": "Acme migrated its vector store to pgvector last quarter",
