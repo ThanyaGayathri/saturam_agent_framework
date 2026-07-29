@@ -15,7 +15,10 @@ predicates — are now driven end-to-end by dedicated native adapters
 an equivalence test, with `run.py` comparing **per-probe return values** against the reference and
 recording `native_paths_measured` in the results JSON.
 
-**All paths are now measured** against live Postgres 16 and Neo4j 5 (run `20260729T061116Z`):
+**Every path the review asked about is now measured** against live Postgres 16 and Neo4j 5
+(run `20260729T061116Z`). Two §9.1 items are **not** — they are listed in the same table rather
+than in a footnote, because a status table that only lists successes is how unvalidated work gets
+mistaken for validated work:
 
 | Path | Status |
 |---|---|
