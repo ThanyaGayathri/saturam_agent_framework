@@ -22,7 +22,7 @@ implementation (SM-L7) land, apply the map so both write the same columns.
 
 Seed **row columns** are epoch-second ints; seed **in-content** entries
 (`learn/schemas.py` `EntityMemory.facts/events/relationships`, `Memories.memories`) are ISO-8601
-strings. Normalisation parses ISO -> epoch on migration (`ddl/MIGRATION.md` global action 4).
+strings. Normalisation parses ISO -> epoch on migration (`ddl/MIGRATION.md` global action 5).
 
 ## F4 - `EntityMemory` is the strongest reuse anchor, but must be normalised
 
@@ -55,3 +55,41 @@ The DDL fixes `vector(768)` (SM-R4 Mode A). `embedding_dim`/`embedding_version` 
 store detect a version/dim mismatch during a re-embed/migration (SM-R4 D8 dual-write). **Action
 for SM-C3:** on a dim change (Mode B `vector(1024)` or a new model), add a new column/index at the
 new dim and dual-write, per SM-R4 section 7 - do not silently widen in place.
+
+## F8 - `strength` dropped: followed SM-R5's ratified decision over the issue's question text
+
+The issue #87 question text suggests an episodic `strength` field "(from SM-R5)". That predates
+SM-R5's actual decision. SM-R5's ratified `memory_decay/DECISION.md` §5 ("Deferred - do NOT add
+now") **rejects** `strength` (negligible measured benefit; "`last_accessed_at` + `importance`
+capture the behaviour with one fewer stateful field"). An earlier draft of this spec added
+`strength` anyway and mis-stated SM-R5 as "reserving" it. **Corrected:** `strength` removed from
+`model.py`/`ddl`/`store.py`; `Decaying` now carries only `importance` + `last_accessed_at`; the
+SM-R5 misquote is fixed (SPEC §10). Revisit only if SM-E4 shows a need (SM-R5's own escape hatch).
+
+## F9 - SM-R6 episode-identity/segmentation contract added to `EpisodicRecord`
+
+The first PR omitted SM-R6 entirely. SM-R6's `memory_event_segmentation/DECISION.md` §4/§5
+mandates a stable-id + supersede/revision identity contract for async re-segmentation. Added to
+`EpisodicRecord` + `memory_episodic`: `revision`, `supersedes`/`superseded_by` (uuid **arrays** -
+a re-cut can merge/split, so these override the single-id `superseded_by` from `BiTemporal`),
+`boundary_method`/`boundary_trigger`/`boundary_confidence`, `refined`, `segmenter_version`.
+**Action for SM-C3/SM-R6 impl:** the *segmentation algorithm* (which rule cuts a boundary, the
+async re-segmenter) is owned by SM-R6/SM-C*; this spec only carries the identity/metadata columns.
+
+## F10 - SM-R10 guardrails: insert-only `write()` + `expire()` + CHECK constraints
+
+The first PR's only write path was a blanket `INSERT ... ON CONFLICT DO UPDATE SET <all cols>`,
+which could silently mutate `t_valid`/`t_invalid` in place (violating SCD-2), and its bi-temporal
+test never exercised the UPDATE path. **Corrected:** `write()` is now insert-only (a new version =
+a new id; duplicate id raises); the only in-place mutation is `expire()` (sets `expired_at`/
+`t_invalid`/`superseded_by`, never `t_valid`/`created_at`, guarded by `expired_at IS NULL`). Added
+`t_invalid >= t_valid` and `expired_at >= created_at` CHECK constraints on all four bi-temporal
+tables. `roundtrip_test.py` now proves all three (expire-on-persisted-row preserving `t_valid`,
+the insert-only rejection, and the constraints firing).
+
+## F11 - SM-R7 `derived_by` provenance added (was a noted gap)
+
+`SemanticFact`/`SemanticRelation` now carry `derived_by` (the strategy/pass that produced the
+fact) alongside `source_episode_ids`, matching SM-R7 RESEARCH §7's provisional provenance schema.
+SM-R7 flags this as provisional/SM-L7-owned, so the *population* logic stays with SM-L7; the
+column is reserved here so SM-C3 doesn't need a follow-up migration.

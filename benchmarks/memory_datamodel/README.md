@@ -24,7 +24,7 @@ re-deciding anything.
 TenantScoped (id, tenant_id*, scope ids, created_at, updated_at, metadata)   * = SM-R3 partition key
   + BiTemporal  (t_valid, t_invalid, expired_at, superseded_by)               SM-R10 four-timestamp
   + Embeddable  (embedding, embedding_dim, embedding_version)                 SM-R4
-  + Decaying    (importance, strength, last_accessed_at)                      SM-R5
+  + Decaying    (importance, last_accessed_at)                                SM-R5 (strength deferred)
         |
         +-- WorkingMemory     (working, transient -> session store, no table)
         +-- EpisodicRecord    (episodic; content + when/where/why + decay + embedding)
@@ -50,7 +50,9 @@ per-run data dir (no shared port, nothing to clean up). Expected tail:
 Backend: PostgreSQL + pgvector -> 16.2 | 0.6.2
   [pg] sync round-trip: 6/6 tiers OK
   [pg] async round-trip: 6/6 tiers OK
-  [pg] bi-temporal invalidate-not-delete + point-in-time OK
+  [pg] bi-temporal expire()+point-in-time OK (t_valid preserved; re-expire no-op)
+  [pg] insert-only guardrail OK (duplicate id rejected; t_valid intact)
+  [pg] bi-temporal CHECK constraints reject bad windows OK
   [pg] cross-tenant isolation OK (0 leakage)
   [in-memory] sync round-trip: 6/6 tiers OK
   [in-memory] async round-trip: 6/6 tiers OK
@@ -62,4 +64,4 @@ ALL ROUND-TRIP CHECKS PASSED
 Decision/spec task: **no core code is touched** (`libs/agno/egpt/**` is owned by the rebrand
 teammate). This folder is the whole deliverable; SM-C3 promotes it into core schemas +
 migrations. Provisional targets (scale/dim) are flagged for SM-R1 to ratify. See `SPEC.md` for
-dependency/sibling consistency (SM-R1/R3/R4/R5/R7/R10).
+dependency/sibling consistency (SM-R1/R3/R4/R5/R6/R7/R10).

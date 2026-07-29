@@ -103,6 +103,17 @@ class LinkType(str, Enum):
     ABOUT = "about"  # any record -> entity it concerns
 
 
+class BoundaryMethod(str, Enum):
+    """Which rule opened an episode's boundary (SM-R6 event-segmentation, section 5)."""
+
+    TIME_GAP = "time_gap"
+    TURN_CAP = "turn_cap"
+    EMBEDDING_DRIFT = "embedding_drift"
+    EM_LLM = "em_llm"
+    LLM = "llm"
+    MANUAL = "manual"
+
+
 # ---------------------------------------------------------------------------
 # Shared spine
 # ---------------------------------------------------------------------------
@@ -180,16 +191,18 @@ class Embeddable(BaseModel):
 class Decaying(BaseModel):
     """Decay / reinforcement fields (SM-R5). Present on tiers that rank by recency (episodic).
 
-    ``strength`` + ``last_accessed_at`` support Ebbinghaus reinforcement-on-access;
-    ``importance`` is the Generative-Agents [0,1] weight. SM-R5 owns the decay function; this
-    spec only reserves the fields it named for SM-C3/R12.
+    Per SM-R5's ratified decision (`memory_decay/DECISION.md` section 5), decay is computed at
+    READ time from ``last_accessed_at`` and ``importance`` (importance-weighted exponential
+    recency); only these two fields are stored. SM-R5 explicitly **defers** an Ebbinghaus
+    ``strength`` counter -- it measured negligible benefit ("last_accessed_at + importance
+    capture the behaviour with one fewer stateful field"), so this spec does NOT add it. Revisit
+    only if SM-E4 shows a need.
     """
 
-    importance: float = 0.5  # [0, 1]
-    strength: Optional[float] = (
-        None  # reinforced on access (SM-R5); None => not yet scored
+    importance: float = 0.5  # [0, 1]; modulates the decay half-life (SM-R5)
+    last_accessed_at: Optional[int] = (
+        None  # epoch s; recency clock, reset on confirmed access
     )
-    last_accessed_at: Optional[int] = None  # epoch s; reset on access
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +225,15 @@ class EpisodicRecord(TenantScoped, BiTemporal, Embeddable, Decaying):
 
     Aligns with the SM-R7 ``Episode`` (``text``->``content``, ``timestamp``->``context.occurred_at``)
     and adds the tenancy/embedding/temporal/decay spine. Net-new: the seed has no episodic tier.
+
+    Episode-identity & stability contract (SM-R6 event-segmentation, section 4/5). Episodes are
+    (re)segmented, so they carry a stable-id + supersede/revision contract for async re-cuts:
+    inline write assigns ``revision=0``; the async re-segmenter writes NEW episodes with
+    ``revision=n+1`` and ``supersedes=[old_ids]`` and marks the old rows ``superseded_by=[new_ids]``
+    (invalidate-not-delete). Because a re-cut can merge/split, ``supersedes``/``superseded_by`` are
+    uuid **arrays** here -- this deliberately overrides the single-id ``superseded_by`` inherited
+    from :class:`BiTemporal` (which stays single-id for fact/relation/link). ``boundary_*`` records
+    which rule cut the boundary and how confident it was; ``segmenter_version`` pins reproducibility.
     """
 
     tier: MemoryTier = MemoryTier.EPISODIC
@@ -221,6 +243,22 @@ class EpisodicRecord(TenantScoped, BiTemporal, Embeddable, Decaying):
         default_factory=list
     )  # graph nodes this episode mentions
     graph_node_id: Optional[str] = None  # optional 1:1 promotion link into the graph
+
+    # SM-R6 episode-identity / segmentation metadata:
+    revision: int = 0  # 0 inline; incremented on async re-cut
+    supersedes: List[str] = Field(
+        default_factory=list
+    )  # episode ids this re-cut replaced
+    # Deliberate SM-R6 override of BiTemporal's single-id superseded_by -> uuid[] identity graph
+    # (a re-cut can merge/split, so it is many-valued). Intentional LSP divergence for this tier.
+    superseded_by: List[str] = Field(default_factory=list)  # type: ignore[assignment]
+    boundary_method: Optional[BoundaryMethod] = None  # which rule opened this episode
+    boundary_trigger: Optional[float] = (
+        None  # idle-gap s / turn count / sigma-units / model conf
+    )
+    boundary_confidence: Optional[float] = None  # [0, 1]; 1.0 for deterministic rules
+    refined: bool = False  # True if the async lane re-segmented the inline boundary
+    segmenter_version: Optional[str] = None  # version/param-hash of the segmenter
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +282,9 @@ class SemanticFact(TenantScoped, BiTemporal, Embeddable, Decaying):
     source_episode_ids: List[str] = Field(
         default_factory=list
     )  # provenance: fact -> episodes
+    derived_by: Optional[str] = (
+        None  # strategy/pass that produced it (SM-R7 provenance)
+    )
     entity_ids: List[str] = Field(default_factory=list)  # graph nodes referenced
 
 
@@ -277,6 +318,9 @@ class SemanticRelation(TenantScoped, BiTemporal):
     source_episode_ids: List[str] = Field(
         default_factory=list
     )  # provenance for the edge
+    derived_by: Optional[str] = (
+        None  # strategy/pass that produced it (SM-R7 provenance)
+    )
 
 
 # ---------------------------------------------------------------------------

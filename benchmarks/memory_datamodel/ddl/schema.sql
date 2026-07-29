@@ -36,9 +36,8 @@ CREATE TABLE IF NOT EXISTS memory_episodic (
     embedding          vector(768),
     embedding_dim      INTEGER,
     embedding_version  TEXT,
-    -- decay (SM-R5):
+    -- decay (SM-R5): read-time importance-weighted recency; `strength` DEFERRED by SM-R5 (sec 5).
     importance         REAL        NOT NULL DEFAULT 0.5,
-    strength           REAL,
     last_accessed_at   BIGINT,
     -- bi-temporal (SM-R10):
     created_at         BIGINT      NOT NULL,                 -- tx time in
@@ -46,11 +45,21 @@ CREATE TABLE IF NOT EXISTS memory_episodic (
     t_valid            BIGINT,
     t_invalid          BIGINT,
     expired_at         BIGINT,                               -- tx time out; NULL => current row
-    superseded_by      TEXT,
     -- graph links:
     entity_ids         TEXT[]      NOT NULL DEFAULT '{}',
     graph_node_id      TEXT,
+    -- episode identity / segmentation (SM-R6, sec 4/5):
+    revision           INTEGER     NOT NULL DEFAULT 0,       -- 0 inline; ++ on async re-cut
+    supersedes         TEXT[]      NOT NULL DEFAULT '{}',    -- episode ids this re-cut replaced
+    superseded_by      TEXT[]      NOT NULL DEFAULT '{}',    -- uuid[] identity graph (arrays: merge/split)
+    boundary_method    TEXT,                                 -- time_gap|turn_cap|embedding_drift|em_llm|llm|manual
+    boundary_trigger   DOUBLE PRECISION,                     -- idle-gap s / turns / sigma / model conf
+    boundary_confidence REAL,                                -- [0,1]; 1.0 for deterministic rules
+    refined            BOOLEAN     NOT NULL DEFAULT FALSE,   -- async lane re-cut this boundary?
+    segmenter_version  TEXT,                                 -- reproducibility / re-segmentation
     metadata           JSONB       NOT NULL DEFAULT '{}',
+    CONSTRAINT memory_episodic_tvalid_order CHECK (t_valid IS NULL OR t_invalid IS NULL OR t_invalid >= t_valid),
+    CONSTRAINT memory_episodic_expiry_order CHECK (expired_at IS NULL OR expired_at >= created_at),
     PRIMARY KEY (tenant_id, id)
 ) PARTITION BY LIST (tenant_id);
 
@@ -70,12 +79,12 @@ CREATE TABLE IF NOT EXISTS memory_semantic_fact (
     object             TEXT,
     confidence         REAL        NOT NULL DEFAULT 1.0,
     source_episode_ids TEXT[]      NOT NULL DEFAULT '{}',    -- provenance: fact -> episodes
+    derived_by         TEXT,                                 -- strategy/pass that produced it (SM-R7)
     entity_ids         TEXT[]      NOT NULL DEFAULT '{}',
     embedding          vector(768),
     embedding_dim      INTEGER,
     embedding_version  TEXT,
-    importance         REAL        NOT NULL DEFAULT 0.5,
-    strength           REAL,
+    importance         REAL        NOT NULL DEFAULT 0.5,     -- decay (SM-R5); `strength` deferred
     last_accessed_at   BIGINT,
     created_at         BIGINT      NOT NULL,
     updated_at         BIGINT,
@@ -84,6 +93,8 @@ CREATE TABLE IF NOT EXISTS memory_semantic_fact (
     expired_at         BIGINT,
     superseded_by      TEXT,
     metadata           JSONB       NOT NULL DEFAULT '{}',
+    CONSTRAINT memory_semantic_fact_tvalid_order CHECK (t_valid IS NULL OR t_invalid IS NULL OR t_invalid >= t_valid),
+    CONSTRAINT memory_semantic_fact_expiry_order CHECK (expired_at IS NULL OR expired_at >= created_at),
     PRIMARY KEY (tenant_id, id)
 ) PARTITION BY LIST (tenant_id);
 
@@ -122,6 +133,7 @@ CREATE TABLE IF NOT EXISTS memory_relation (
     object_entity_id   TEXT        NOT NULL,
     confidence         REAL        NOT NULL DEFAULT 1.0,
     source_episode_ids TEXT[]      NOT NULL DEFAULT '{}',
+    derived_by         TEXT,                                 -- strategy/pass that produced it (SM-R7)
     user_id            TEXT,
     agent_id           TEXT,
     team_id            TEXT,
@@ -133,6 +145,8 @@ CREATE TABLE IF NOT EXISTS memory_relation (
     expired_at         BIGINT,                               -- tx out (NULL => current row)
     superseded_by      TEXT,
     metadata           JSONB       NOT NULL DEFAULT '{}',
+    CONSTRAINT memory_relation_tvalid_order CHECK (t_valid IS NULL OR t_invalid IS NULL OR t_invalid >= t_valid),
+    CONSTRAINT memory_relation_expiry_order CHECK (expired_at IS NULL OR expired_at >= created_at),
     PRIMARY KEY (tenant_id, id)
 ) PARTITION BY LIST (tenant_id);
 
@@ -183,6 +197,8 @@ CREATE TABLE IF NOT EXISTS memory_link (
     expired_at         BIGINT,
     superseded_by      TEXT,
     metadata           JSONB       NOT NULL DEFAULT '{}',
+    CONSTRAINT memory_link_tvalid_order CHECK (t_valid IS NULL OR t_invalid IS NULL OR t_invalid >= t_valid),
+    CONSTRAINT memory_link_expiry_order CHECK (expired_at IS NULL OR expired_at >= created_at),
     PRIMARY KEY (tenant_id, id)
 ) PARTITION BY LIST (tenant_id);
 

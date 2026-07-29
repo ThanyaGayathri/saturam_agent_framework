@@ -47,16 +47,22 @@ _TABLES: Dict[type, Tuple[str, List[str]]] = {
             "embedding_dim",
             "embedding_version",
             "importance",
-            "strength",
             "last_accessed_at",
             "created_at",
             "updated_at",
             "t_valid",
             "t_invalid",
             "expired_at",
-            "superseded_by",
             "entity_ids",
             "graph_node_id",
+            "revision",
+            "supersedes",
+            "superseded_by",
+            "boundary_method",
+            "boundary_trigger",
+            "boundary_confidence",
+            "refined",
+            "segmenter_version",
             "metadata",
         ],
     ),
@@ -75,12 +81,12 @@ _TABLES: Dict[type, Tuple[str, List[str]]] = {
             "object",
             "confidence",
             "source_episode_ids",
+            "derived_by",
             "entity_ids",
             "embedding",
             "embedding_dim",
             "embedding_version",
             "importance",
-            "strength",
             "last_accessed_at",
             "created_at",
             "updated_at",
@@ -122,6 +128,7 @@ _TABLES: Dict[type, Tuple[str, List[str]]] = {
             "object_entity_id",
             "confidence",
             "source_episode_ids",
+            "derived_by",
             "user_id",
             "agent_id",
             "team_id",
@@ -215,7 +222,13 @@ def _from_row(model: Type[T], row: Dict[str, Any]) -> T:
 
 
 class MemoryStore(abc.ABC):
-    """Abstract store. Call sites program against this, not a concrete backend."""
+    """Abstract store. Call sites program against this, not a concrete backend.
+
+    ``write`` is **insert-only** (append a new version). The only legitimate in-place mutation
+    is ``expire``, which closes a bi-temporal row (SM-R10 SCD-2: set ``expired_at``/``t_invalid``,
+    never touch ``t_valid``/``created_at``). A correction is therefore ``expire(old)`` + a fresh
+    ``write(new)``, so history is preserved.
+    """
 
     @abc.abstractmethod
     def write(self, rec: Any) -> None: ...
@@ -224,10 +237,32 @@ class MemoryStore(abc.ABC):
     def read(self, model: Type[T], tenant_id: str, id: str) -> Optional[T]: ...
 
     @abc.abstractmethod
+    def expire(
+        self,
+        model: Type[Any],
+        tenant_id: str,
+        id: str,
+        expired_at: int,
+        t_invalid: Optional[int] = None,
+        superseded_by: Optional[Any] = None,
+    ) -> int: ...
+
+    @abc.abstractmethod
     async def awrite(self, rec: Any) -> None: ...
 
     @abc.abstractmethod
     async def aread(self, model: Type[T], tenant_id: str, id: str) -> Optional[T]: ...
+
+    @abc.abstractmethod
+    async def aexpire(
+        self,
+        model: Type[Any],
+        tenant_id: str,
+        id: str,
+        expired_at: int,
+        t_invalid: Optional[int] = None,
+        superseded_by: Optional[Any] = None,
+    ) -> int: ...
 
 
 class PgMemoryStore(MemoryStore):
@@ -238,18 +273,15 @@ class PgMemoryStore(MemoryStore):
 
     @staticmethod
     def _insert_sql(rec: Any) -> Tuple[str, List[Any]]:
+        """INSERT-only. A new version is a NEW id (SM-R10 SCD-2), so there is deliberately no
+        ``ON CONFLICT DO UPDATE`` -- a duplicate (tenant_id, id) raises rather than silently
+        overwriting ``t_valid``/``t_invalid``. In-place close is expire()'s job alone."""
         from psycopg.types.json import Jsonb
 
         table, cols = _TABLES[type(rec)]
         row = _to_row(rec)
         placeholders = ", ".join("%s" for _ in cols)
-        sql = (
-            f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({placeholders}) "
-            f"ON CONFLICT (tenant_id, id) DO UPDATE SET "
-            + ", ".join(
-                f"{c} = EXCLUDED.{c}" for c in cols if c not in ("tenant_id", "id")
-            )
-        )
+        sql = f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({placeholders})"
         # jsonb columns (metadata, properties) need explicit wrapping in psycopg3.
         vals = [Jsonb(row[c]) if isinstance(row[c], dict) else row[c] for c in cols]
         return sql, vals
@@ -261,6 +293,33 @@ class PgMemoryStore(MemoryStore):
             f"SELECT {', '.join(cols)} FROM {table} WHERE tenant_id = %s AND id = %s",
             cols,
         )
+
+    @staticmethod
+    def _expire_sql(
+        model: Type[Any],
+        tenant_id: str,
+        id: str,
+        expired_at: int,
+        t_invalid: Optional[int],
+        superseded_by: Optional[Any],
+    ) -> Tuple[str, List[Any]]:
+        """SCD-2 close: touch only expired_at (+ optional t_invalid / superseded_by). Never
+        writes t_valid or created_at, and the ``expired_at IS NULL`` guard prevents re-expiry."""
+        table, _ = _TABLES[model]
+        sets: List[str] = ["expired_at = %s"]
+        params: List[Any] = [expired_at]
+        if t_invalid is not None:
+            sets.append("t_invalid = %s")
+            params.append(t_invalid)
+        if superseded_by is not None:
+            sets.append("superseded_by = %s")
+            params.append(superseded_by)
+        params += [tenant_id, id]
+        sql = (
+            f"UPDATE {table} SET {', '.join(sets)} "
+            f"WHERE tenant_id = %s AND id = %s AND expired_at IS NULL"
+        )
+        return sql, params
 
     # --- sync ---
     def write(self, rec: Any) -> None:
@@ -286,6 +345,25 @@ class PgMemoryStore(MemoryStore):
             return None
         return _from_row(model, dict(zip(cols, row)))
 
+    def expire(
+        self,
+        model: Type[Any],
+        tenant_id: str,
+        id: str,
+        expired_at: int,
+        t_invalid: Optional[int] = None,
+        superseded_by: Optional[Any] = None,
+    ) -> int:
+        import psycopg
+
+        sql, params = self._expire_sql(
+            model, tenant_id, id, expired_at, t_invalid, superseded_by
+        )
+        with psycopg.connect(self.conninfo) as conn:
+            cur = conn.execute(sql, params)
+            conn.commit()
+            return cur.rowcount
+
     # --- async ---
     async def awrite(self, rec: Any) -> None:
         import psycopg
@@ -310,9 +388,31 @@ class PgMemoryStore(MemoryStore):
             return None
         return _from_row(model, dict(zip(cols, row)))
 
+    async def aexpire(
+        self,
+        model: Type[Any],
+        tenant_id: str,
+        id: str,
+        expired_at: int,
+        t_invalid: Optional[int] = None,
+        superseded_by: Optional[Any] = None,
+    ) -> int:
+        import psycopg
+
+        sql, params = self._expire_sql(
+            model, tenant_id, id, expired_at, t_invalid, superseded_by
+        )
+        async with await psycopg.AsyncConnection.connect(self.conninfo) as conn:
+            cur = await conn.execute(sql, params)
+            await conn.commit()
+            return cur.rowcount
+
 
 class InMemoryMemoryStore(MemoryStore):
-    """Second adapter: proves the seam. Same interface, zero call-site changes."""
+    """Second adapter: proves the seam. Same interface, zero call-site changes.
+
+    Mirrors the pg insert-only guardrail: write() refuses to overwrite an existing (tenant, id).
+    """
 
     def __init__(self) -> None:
         self._data: Dict[Tuple[str, str, str], Any] = {}
@@ -324,13 +424,46 @@ class InMemoryMemoryStore(MemoryStore):
         return (table, tenant_id, id)
 
     def write(self, rec: Any) -> None:
-        self._data[self._key(rec, rec.tenant_id, rec.id)] = rec.model_copy(deep=True)
+        key = self._key(rec, rec.tenant_id, rec.id)
+        if key in self._data:
+            raise ValueError(f"insert-only: {key} already exists (use expire + new id)")
+        self._data[key] = rec.model_copy(deep=True)
 
     def read(self, model: Type[T], tenant_id: str, id: str) -> Optional[T]:
         return self._data.get(self._key(model, tenant_id, id))
+
+    def expire(
+        self,
+        model: Type[Any],
+        tenant_id: str,
+        id: str,
+        expired_at: int,
+        t_invalid: Optional[int] = None,
+        superseded_by: Optional[Any] = None,
+    ) -> int:
+        rec = self._data.get(self._key(model, tenant_id, id))
+        if rec is None or rec.expired_at is not None:
+            return 0
+        rec.expired_at = expired_at
+        if t_invalid is not None:
+            rec.t_invalid = t_invalid
+        if superseded_by is not None:
+            rec.superseded_by = superseded_by
+        return 1
 
     async def awrite(self, rec: Any) -> None:
         self.write(rec)
 
     async def aread(self, model: Type[T], tenant_id: str, id: str) -> Optional[T]:
         return self.read(model, tenant_id, id)
+
+    async def aexpire(
+        self,
+        model: Type[Any],
+        tenant_id: str,
+        id: str,
+        expired_at: int,
+        t_invalid: Optional[int] = None,
+        superseded_by: Optional[Any] = None,
+    ) -> int:
+        return self.expire(model, tenant_id, id, expired_at, t_invalid, superseded_by)

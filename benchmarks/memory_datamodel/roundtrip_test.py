@@ -75,12 +75,20 @@ def _samples(tenant: str = "acme") -> List[Tuple[Type[Any], Any]]:
         embedding_dim=768,
         embedding_version="bge-base-en-v1.5/d768/cos/v1",
         importance=0.75,
-        strength=0.5,
         last_accessed_at=1_700_000_100,
         entity_ids=["e_acme"],
         graph_node_id="e_acme",
         t_valid=1_700_000_000,
         metadata={"src": "chat"},
+        # SM-R6 episode identity / segmentation:
+        revision=1,
+        supersedes=["ep_old_1"],
+        superseded_by=[],
+        boundary_method="time_gap",
+        boundary_trigger=1800.0,
+        boundary_confidence=1.0,
+        refined=True,
+        segmenter_version="seg-v1/param-hash",
     )
     fact = SemanticFact(
         tenant_id=tenant,
@@ -90,6 +98,7 @@ def _samples(tenant: str = "acme") -> List[Tuple[Type[Any], Any]]:
         object="PostgreSQL",
         confidence=1.0,
         source_episode_ids=[ep.id],
+        derived_by="mem0",
         entity_ids=["e_acme"],
         embedding=_vec(0.25),
         embedding_dim=768,
@@ -163,9 +172,9 @@ def _assert_equal(orig: Any, got: Any) -> None:
             assert av == bv, f"{type(orig).__name__}.{k}: {av!r} != {bv!r}"
 
 
-def _roundtrip_sync(store: MemoryStore, label: str) -> int:
+def _roundtrip_sync(store: MemoryStore, label: str, tenant: str = "acme") -> int:
     n = 0
-    for model, rec in _samples():
+    for model, rec in _samples(tenant):
         store.write(rec)
         _assert_equal(rec, store.read(model, rec.tenant_id, rec.id))
         n += 1
@@ -173,9 +182,11 @@ def _roundtrip_sync(store: MemoryStore, label: str) -> int:
     return n
 
 
-async def _roundtrip_async(store: MemoryStore, label: str) -> int:
+async def _roundtrip_async(store: MemoryStore, label: str, tenant: str = "beta") -> int:
+    # Different tenant from the sync pass: some fixtures use fixed ids (entity 'e_acme'), and
+    # write() is now insert-only, so the two passes must not target the same (tenant, id).
     n = 0
-    for model, rec in _samples():
+    for model, rec in _samples(tenant):
         await store.awrite(rec)
         _assert_equal(rec, await store.aread(model, rec.tenant_id, rec.id))
         n += 1
@@ -184,18 +195,20 @@ async def _roundtrip_async(store: MemoryStore, label: str) -> int:
 
 
 def _check_bitemporal(srv: Any, store: PgMemoryStore) -> None:
-    """Invalidate-not-delete + point-in-time (SM-R10). Fact changes: MySQL (t0..t1) -> PostgreSQL (t1..)."""
+    """SM-R10 SCD-2 via expire() on a PERSISTED row -- the real reuse-id UPDATE path -- then a
+    fresh insert. Proves invalidate-not-delete + point-in-time AND that expire() never mutates
+    t_valid/created_at (the failure the old blanket UPSERT allowed). Globex changes MySQL->pg."""
     t0, t1 = 1_700_000_000, 1_700_000_500
-    # Distinct subject so this check is independent of the round-trip fixtures above.
     old = SemanticFact(
         tenant_id="acme",
         content="Globex uses MySQL.",
         subject="Globex",
         predicate="uses",
         object="MySQL",
-        t_valid=t0,
-        t_invalid=t1,
+        t_valid=t0,  # open-ended / current when written
+        created_at=t0,  # tx-time in; keeps expired_at >= created_at (CHECK) consistent
     )
+    store.write(old)
     new = SemanticFact(
         tenant_id="acme",
         content="Globex uses PostgreSQL.",
@@ -203,11 +216,27 @@ def _check_bitemporal(srv: Any, store: PgMemoryStore) -> None:
         predicate="uses",
         object="PostgreSQL",
         t_valid=t1,
+        created_at=t1,
     )
-    old.superseded_by = new.id
-    old.expired_at = t1  # tx-time out: old row corrected, but NOT deleted
-    store.write(old)
+    # Close the old row in place (the ONLY legitimate mutation) then insert the new version.
+    closed = store.expire(
+        SemanticFact, "acme", old.id, expired_at=t1, t_invalid=t1, superseded_by=new.id
+    )
+    assert closed == 1, f"expire() should close exactly one row, got {closed}"
     store.write(new)
+    # Re-expiring is a guarded no-op (expired_at IS NULL guard).
+    assert store.expire(SemanticFact, "acme", old.id, expired_at=t1) == 0, (
+        "re-expire must be a no-op"
+    )
+    # expire() moved only expired_at/t_invalid/superseded_by -- t_valid is untouched.
+    reread = store.read(SemanticFact, "acme", old.id)
+    assert (
+        reread is not None
+        and reread.t_valid == t0
+        and reread.t_invalid == t1
+        and reread.expired_at == t1
+        and reread.superseded_by == new.id
+    ), f"expire touched the wrong fields: {reread!r}"
     # point-in-time "true at T": exactly one active fact valid at each instant
     q = (
         "SELECT object FROM memory_semantic_fact "
@@ -228,7 +257,68 @@ def _check_bitemporal(srv: Any, store: PgMemoryStore) -> None:
         "SELECT count(*) FROM memory_semantic_fact WHERE tenant_id='acme' AND subject='Globex';"
     )
     assert "2" in cnt, f"invalidate-not-delete broken: {cnt}"
-    print("  [pg] bi-temporal invalidate-not-delete + point-in-time OK")
+    print(
+        "  [pg] bi-temporal expire()+point-in-time OK (t_valid preserved; re-expire no-op)"
+    )
+
+
+def _check_insert_only(store: PgMemoryStore) -> None:
+    """SM-R10 guardrail: write() is insert-only. Re-writing an existing id must FAIL rather than
+    silently overwrite temporal fields (what the previous blanket ON CONFLICT DO UPDATE did)."""
+    import psycopg
+
+    rec = SemanticFact(
+        tenant_id="acme",
+        content="Insert-only probe.",
+        subject="Probe",
+        predicate="p",
+        object="o",
+        t_valid=1_700_000_000,
+    )
+    store.write(rec)
+    clobber = rec.model_copy(update={"t_valid": 9_999_999_999, "content": "MUTATED"})
+    try:
+        store.write(clobber)  # same (tenant_id, id)
+        raise AssertionError(
+            "write() allowed an overwrite -- insert-only guardrail missing"
+        )
+    except psycopg.errors.UniqueViolation:
+        pass
+    reread = store.read(SemanticFact, "acme", rec.id)
+    assert (
+        reread is not None
+        and reread.t_valid == 1_700_000_000
+        and reread.content == "Insert-only probe."
+    ), f"temporal fields mutated despite conflict: {reread!r}"
+    print("  [pg] insert-only guardrail OK (duplicate id rejected; t_valid intact)")
+
+
+def _check_constraints(srv: Any) -> None:
+    """SM-R10 CHECK constraints actually fire: an impossible window (t_invalid < t_valid) and a
+    backwards expiry (expired_at < created_at) are both rejected by the DB, not just documented."""
+    bad_window = (
+        "INSERT INTO memory_semantic_fact (tenant_id, id, content, created_at, t_valid, t_invalid) "
+        "VALUES ('acme', 'ck_bad_window', 'x', 100, 200, 100);"  # t_invalid < t_valid
+    )
+    bad_expiry = (
+        "INSERT INTO memory_semantic_fact (tenant_id, id, content, created_at, expired_at) "
+        "VALUES ('acme', 'ck_bad_expiry', 'x', 200, 100);"  # expired_at < created_at
+    )
+    # srv.psql prints the CHECK error to stderr rather than raising; assert the rows never landed.
+    for sql in (bad_window, bad_expiry):
+        try:
+            srv.psql(sql)
+        except Exception:
+            pass
+    cnt = srv.psql(
+        "SELECT count(*) FROM memory_semantic_fact "
+        "WHERE id IN ('ck_bad_window', 'ck_bad_expiry');"
+    )
+    landed = cnt.strip().split("\n")[2].strip()
+    assert landed == "0", (
+        f"CHECK constraints failed to reject bad rows (found {landed})"
+    )
+    print("  [pg] bi-temporal CHECK constraints reject bad windows OK")
 
 
 def _check_isolation(store: PgMemoryStore) -> None:
@@ -260,6 +350,8 @@ def main() -> None:
         _roundtrip_sync(pg, "pg")
         asyncio.run(_roundtrip_async(pg, "pg"))
         _check_bitemporal(srv, pg)
+        _check_insert_only(pg)
+        _check_constraints(srv)
         _check_isolation(pg)
         print("Second adapter (proves the seam, zero call-site changes):")
         mem = InMemoryMemoryStore()

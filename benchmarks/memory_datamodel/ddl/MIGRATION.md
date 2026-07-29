@@ -16,7 +16,13 @@ the actual migrations; this is the mapping contract.
 3. **Bi-temporal defaults** — `created_at` carries the seed's transaction time. `t_valid`/
    `t_invalid`/`expired_at` are NULL (historical world-validity is unknown; rows are treated as
    valid-since-forever / current). Going forward, corrections use invalidate-not-delete.
-4. **Time-format normalisation (two formats in the seed):**
+4. **Net-new fields default cleanly.** The SM-R6 episode-identity columns (`revision=0`,
+   `supersedes`/`superseded_by='{}'`, `boundary_*=NULL`, `refined=FALSE`, `segmenter_version=NULL`)
+   and SM-R7 `derived_by=NULL` have no seed source; migrated rows take the defaults (a migrated
+   episode is treated as an inline, un-refined `revision=0` cut). SM-R5 `strength` is **not** a
+   column (deferred by SM-R5); decay uses `last_accessed_at` (default `created_at`) + `importance`
+   (default 0.5).
+5. **Time-format normalisation (two formats in the seed):**
    - Seed **row columns** (`UserMemory.created_at/updated_at`, `agno_learnings`) are epoch
      seconds — copied as-is to the BIGINT columns.
    - Seed **in-content** entries (`learn/schemas.py` `EntityMemory.facts/events/relationships`,

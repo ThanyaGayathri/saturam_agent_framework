@@ -36,17 +36,23 @@ accepted. "DDL APPLIED CLEANLY ON REAL pgvector".
 
 **Description:**
 - All 6 persisted tiers round-trip **sync** and **async** through `PgMemoryStore` (embedding,
-  bi-temporal, `TEXT[]`, `JSONB` all lossless; float4-exact fixtures).
-- **Bi-temporal invalidate-not-delete + point-in-time** (SM-R10): supersede a fact (set
-  `t_invalid`/`expired_at` + new row), assert "true at T" returns the right version at each
-  instant and **both** rows survive (nothing destroyed).
-- **Cross-tenant isolation** (SM-R3): a row written under tenant `acme` is invisible from tenant
-  `beta` (0 leakage).
-- **Seam proof:** the identical test passes through `InMemoryMemoryStore` (second adapter) with
-  zero call-site changes.
+  bi-temporal, `TEXT[]`, `JSONB`, SM-R6 identity fields, SM-R7 `derived_by` all lossless;
+  float4-exact fixtures). Sync pass on tenant `acme`, async on `beta` (write() is insert-only).
+- **Bi-temporal via `expire()`** (SM-R10): write an open fact, `expire()` it on the **persisted
+  row** (the real reuse-id UPDATE path), insert the new version; assert point-in-time "true at T"
+  at each instant, that `expire()` **preserved `t_valid`** (only moved `expired_at`/`t_invalid`/
+  `superseded_by`), that re-expire is a no-op, and that **both** rows survive.
+- **Insert-only guardrail** (SM-R10): re-writing an existing id raises `UniqueViolation` and the
+  original temporal fields are intact (proves `write()` can't silently mutate).
+- **CHECK constraints** (SM-R10): `t_invalid < t_valid` and `expired_at < created_at` inserts are
+  rejected by the DB (rows never land).
+- **Cross-tenant isolation** (SM-R3): a row written under tenant `acme` is invisible from `beta`.
+- **Seam proof:** the identical round-trip passes through `InMemoryMemoryStore` (second adapter,
+  also insert-only) with zero call-site changes.
 
-**Result:** `ALL ROUND-TRIP CHECKS PASSED` on both runs. sync 6/6, async 6/6, bi-temporal OK,
-isolation OK, in-memory adapter 6/6 sync + 6/6 async.
+**Result:** `ALL ROUND-TRIP CHECKS PASSED` on both runs. sync 6/6, async 6/6, bi-temporal
+expire()+point-in-time OK, insert-only guardrail OK, CHECK constraints OK, isolation OK,
+in-memory adapter 6/6 sync + 6/6 async.
 
 ---
 
