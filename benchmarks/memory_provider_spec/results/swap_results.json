@@ -53,6 +53,11 @@
       "ok": true
     },
     {
+      "detail": "before_valid=0 within=1 after_invalid=0",
+      "name": "SM-R10 bounded interval [t_valid, t_invalid): both bounds enforced",
+      "ok": true
+    },
+    {
       "detail": "written=1 vector=1 graph=1",
       "name": "SM-R7: consolidate writes the semantic fact to both substrates",
       "ok": true

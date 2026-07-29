@@ -88,6 +88,24 @@ contradiction-resolution stay explicitly scoped to SM-C* (`contradictions_resolv
 default off), not SM-R8's. Relabelled in `interface.py` (`read` docstring, `MemoryProviderConfig`)
 and SPEC §5.3/§7/§9. Rerank stays attributed to SM-R8.
 
+## F9 — Self-review caveats (leg-pairing + graph-fact shape)
+
+Surfaced by a second-pass self-review of the consistency fixes (F5–F8):
+
+- **F5 leg-pairing (SM-R8):** SM-R8 measured weighted-over-RRF for **dense+BM25** (2-leg) and
+  **dense+BM25+graph** (3-leg) — **not** this seam's **vector+graph** pairing (no BM25 leg).
+  Defaulting to weighted here is a mechanism-based *transfer*, not a measured result for this exact
+  pairing; it must be re-validated against real backends (SM-G9 graph + SM-R3 store). The
+  `_weighted` docstring and SPEC §7/§9 now say this explicitly rather than citing SM-R8 as settled.
+- **F7 graph-fact shape (SM-R7):** the reference `consolidate` writes the distilled fact to the
+  graph as a **flat, provenance-carrying record** via `upsert_episode` — a stand-in, not the
+  SM-R12 `SemanticEntity`/`SemanticRelation` + `fact↔episode` edge shape SM-R7 intends. "Both
+  substrates" is true, but SM-C1 needs a real semantic-fact upsert on the `GraphSubstrate` port
+  (which today only exposes `upsert_episode`). Caveated in code + SPEC.
+
+Both are honest-caveat items, not code bugs; the seam behavior is correct, the *claims* are now
+scoped to what was actually measured/implemented.
+
 ## Note — "empty query text = scan" convention
 
 `consolidate` needs to enumerate all episodic records, not run a relevance search. Rather than

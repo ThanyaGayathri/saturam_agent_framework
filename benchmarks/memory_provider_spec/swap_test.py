@@ -211,6 +211,25 @@ def run() -> Result:
         "as_of<t_valid={b} as_of>t_valid={a}".format(b=len(before_valid.records), a=len(after_valid.records)),
     )
 
+    # 5b'. SM-R10 bounded interval: BOTH bounds set on one record ([t_valid, t_invalid)).
+    # Exercises both sides of _valid_at simultaneously (before-valid, within, after-invalid).
+    bi_scope = Scope(tenant_id="acme", user_id="bi")
+    bi = build_memory_provider(CONFIGS[0])
+    rb = bi.write(
+        bi_scope,
+        [MemoryEvent(content="Acme leased floor 3", scope=bi_scope, topics=["lease", "floor"], occurred_at=100)],
+    )
+    bi._graph.invalidate(bi_scope, rb.event_ids[0], at=300)  # type: ignore[attr-defined]  # t_invalid=300
+    biq = "lease floor"
+    n_before = len(bi.read(bi_scope, MemoryQuery(text=biq, tiers=[MemoryTier.EPISODIC], as_of=50)).records)
+    n_within = len(bi.read(bi_scope, MemoryQuery(text=biq, tiers=[MemoryTier.EPISODIC], as_of=200)).records)
+    n_after = len(bi.read(bi_scope, MemoryQuery(text=biq, tiers=[MemoryTier.EPISODIC], as_of=400)).records)
+    result.check(
+        "SM-R10 bounded interval [t_valid, t_invalid): both bounds enforced",
+        n_before == 0 and n_within == 1 and n_after == 0,
+        "before_valid={b} within={w} after_invalid={a}".format(b=n_before, w=n_within, a=n_after),
+    )
+
     # 5c. SM-R7 reference consolidate writes the distilled fact to BOTH substrates.
     cs_scope = Scope(tenant_id="acme", user_id="cs")
     cs = build_memory_provider(CONFIGS[0])

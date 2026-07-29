@@ -5,7 +5,8 @@ no randomness — so the swap test is CI-safe and the proof is real, not asserte
 
 - ``co_located`` (Mode A): a functional co-located provider that composes two
   in-memory substrate ports (``VectorSubstrate`` + ``GraphSubstrate``), fuses
-  their results with RRF, and runs a real episodic->semantic ``consolidate``.
+  their results (weighted by default, RRF optional), and runs a real
+  episodic->semantic ``consolidate``.
   This stands in for "pgvector + Neo4j in-VPC": swap the two substrate objects
   for SM-R3 / SM-R2 backends and nothing else changes.
 - ``external_stub`` (Mode B): a minimal contract-complete stub standing in for an
@@ -239,13 +240,22 @@ def _minmax(values: List[float]) -> List[float]:
 
 
 def _weighted(ranked_lists: Sequence[List[MemoryRecord]], weights: Sequence[float]) -> List[MemoryRecord]:
-    """Weighted / relative-score fusion — the SM-R8 ratified default (2-leg dense+BM25 win).
+    """Weighted / relative-score fusion — SM-R8's ratified fusion *method*.
 
     Each leg's native scores are min-max normalized to [0, 1], then combined as
     ``sum(weight_i * norm_i)`` and deduped by id. ``weights`` aligns with
-    ``ranked_lists`` (e.g. ``[vector_weight, graph_weight]``). SM-R8's measured
+    ``ranked_lists`` (e.g. ``[vector_weight, graph_weight]``); SM-R8's measured
     ``vector_score_weight`` default is ~0.4-0.5 (memory sets peak nearer 0.3).
-    Weighted subsumes vector-only at ``vector_weight -> 1``.
+    Weighted subsumes a single leg at ``weight -> 1``.
+
+    LEG-PAIRING CAVEAT: SM-R8 measured weighted-vs-RRF for **dense+BM25** (2-leg)
+    and **dense+BM25+graph** (3-leg synthetic) — weighted won both. It did NOT
+    measure a **vector+graph** pairing with no BM25 leg, which is what this seam
+    fuses. Defaulting to weighted here is a reasonable *transfer* by the same
+    mechanism (tunable relative-score fusion subsumes RRF and single-leg), and
+    SM-R8's 3-leg result points the same way, but it is unmeasured for this exact
+    pairing and must be re-validated against real backends (SM-G9 graph + SM-R3
+    store). RRF stays available via ``method="rrf"`` for that gated case.
     """
     fused: Dict[str, MemoryRecord] = {}
     combined: Dict[str, float] = {}
@@ -430,6 +440,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
             )
             # Write the distilled fact to BOTH substrates (vector for similarity,
             # graph for the semantic subgraph) so the record is reachable either way.
+            # NOTE (reference-fidelity): the graph write stores a FLAT, provenance-
+            # carrying record via ``upsert_episode`` — a stand-in, not the real shape.
+            # The production design writes SM-R12 ``SemanticEntity``/``SemanticRelation``
+            # rows with fact<->episode provenance edges (SM-R7 section 8); SM-C1 will
+            # need a semantic-fact upsert on the GraphSubstrate port, which today
+            # exposes only ``upsert_episode``.
             self._vector.upsert(scope, [semantic])
             self._graph.upsert_episode(
                 scope,

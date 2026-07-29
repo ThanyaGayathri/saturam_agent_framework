@@ -18,7 +18,7 @@ ABC (not instantiable); `Scope.key()`, `MemorySlice.as_context()` work; substrat
 
 ### swap_test.py
 
-**Status:** PASS (10/10 checks, exit 0)
+**Status:** PASS (11/11 checks, exit 0)
 
 **Description:** One consumer function (`consumer_workload`) driven verbatim against two
 providers built purely from config. Checks:
@@ -30,13 +30,15 @@ providers built purely from config. Checks:
 6. Tenant isolation — a second tenant sees nothing.
 7. Bi-temporal (SM-R10) — invalidate-not-delete + `as_of` upper bound.
 8. **SM-R10 two-sided** — a future-dated record is excluded before `t_valid`.
-9. **SM-R7** — `consolidate` writes the semantic fact to both substrates.
-10. Sync + async variants both satisfy the contract.
+9. **SM-R10 bounded interval** — both bounds enforced on one record (`before=0, within=1, after=0`).
+10. **SM-R7** — `consolidate` writes the semantic fact to both substrates.
+11. Sync + async variants both satisfy the contract.
 
 **Result:** All pass. Output is byte-identical across repeated runs
-(`results/swap_results.json`), confirming determinism. Checks 5, 8, 9 were added in the
+(`results/swap_results.json`), confirming determinism. Checks 5, 8, 10 were added in the
 pre-review consistency pass (SM-R8 weighted fusion, SM-R10 two-sided point-in-time, SM-R7
-dual-write).
+dual-write); check 9 (bounded-interval, both bounds set at once) was added in the self-review.
+Each is a genuine regression test — reverting its fix makes exactly that check fail (verified).
 
 ---
 

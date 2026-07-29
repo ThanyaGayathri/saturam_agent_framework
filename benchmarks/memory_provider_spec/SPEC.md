@@ -133,8 +133,9 @@ fields surfacing on the projection) lands with SM-C1.
 > and expresses `types` as **`MemoryQuery.tiers`**. Same information, better ergonomics. The real
 > signature is `read(scope: Scope, query: MemoryQuery) -> MemorySlice`.
 > Do **not** copy `read(tenant, agent, query, types)` into downstream docstrings — that literal was
-> the issue's strawman, and a sibling PR (SM-R13 #19) already misquoted it by copying from the
-> issue text instead of this file. When in doubt, the code in `interface.py` is authoritative.
+> a **suggested shape in the issue's "Questions to answer" (a question, not a hard requirement)**,
+> and a sibling PR (SM-R13 #19) already misquoted it by copying from the issue text instead of this
+> file. When in doubt, the code in `interface.py` is authoritative.
 
 | Verb | Sync | Async | Returns | Semantics |
 |------|------|-------|---------|-----------|
@@ -243,10 +244,10 @@ loop. These are the additive build surface `MemoryProvider` exposes — WRAP the
 | **SM-C1** (implements this) | `MemoryProvider` ABC + `MemoryProviderConfig` + registry; adapters subclass the ABC. |
 | **SM-R3** (vector store) | Selected as the `VectorSubstrate` backend via `config.vector`. |
 | **SM-R2 / SM-G1** (graph engine) | Selected as the `GraphSubstrate` backend via `config.graph`. |
-| **SM-R8** (retrieval fusion) | `config.fusion` — **weighted is the default** (`method="weighted"`, `vector_weight≈0.5`), RRF selectable but reserved for the SM-G9-gated graph-join case; optional cross-encoder rerank (off by default). The provider owns fusion in `read` (`_weighted`/`_rrf`). |
+| **SM-R8** (retrieval fusion) | `config.fusion` — **weighted is the default** (`method="weighted"`, `vector_weight≈0.5`), RRF selectable but reserved for the SM-G9-gated graph-join case; optional cross-encoder rerank (off by default). The provider owns fusion in `read` (`_weighted`/`_rrf`). **Caveat:** SM-R8 measured weighted-over-RRF for dense+BM25 (2-leg) and dense+BM25+graph (3-leg), **not** this seam's vector+graph pairing; defaulting to weighted is a mechanism-based *transfer* to re-validate against real backends (SM-G9/SM-R3), not a measured result for this exact pairing. |
 | **SM-R9** (multi-hop / PPR) | `config.fusion["ppr"]` — optional personalized-PageRank, **per-tenant flag, default off** (SM-R9's decision, not SM-R8's). |
 | **SM-R10** (bi-temporal) | `t_valid`/`t_invalid`/`created_at`/`expired_at`/`superseded_by` on records; `MemoryQuery.as_of` point-in-time read enforces the **two-sided** `t_valid <= as_of < t_invalid`; `GraphSubstrate.invalidate` (invalidate-not-delete). |
-| **SM-R7** (consolidation) | `consolidate` distills episodic→semantic and writes to **both** substrates; deterministic dedup here, LLM extraction + contradiction-resolution deferred to SM-C*. |
+| **SM-R7** (consolidation) | `consolidate` distills episodic→semantic and writes to **both** substrates; deterministic dedup here, LLM extraction + contradiction-resolution deferred to SM-C*. **Caveat:** the reference graph write is a **flat provenance-carrying stand-in** (via `upsert_episode`), not the SM-R12 `SemanticEntity`/`SemanticRelation` + fact↔episode-edge shape SM-R7 intends; SM-C1 needs a semantic-fact upsert on the `GraphSubstrate` port. |
 | **SM-R12** (data model, [PR #18](https://github.com/Saturam-Inc/saturam-agent-framework/pull/18)) | Owns the per-tier row schemas (`EpisodicRecord`/`SemanticFact`/…) **and** a row-level `MemoryStore` port (`read(model, tenant_id, id)` / `write(rec)` + async; `Pg`/`InMemory` adapters). This seam's `MemoryRecord` is a read-projection over those rows; a `MemoryProvider` adapter **composes** `MemoryStore` for single-row persistence beneath the seam. Altitudes differ: R12 `read/write` = one row by primary key; R11 `read/write` = query→`MemorySlice` / event write-back. The seam envelope (`MemorySlice`/`MemoryEvent`/`Scope`) is owned here; R12 defines none of it. |
 
 ---
@@ -277,7 +278,9 @@ loop. These are the additive build surface `MemoryProvider` exposes — WRAP the
   real weighted path, `_weighted`). RRF is selectable but **reserved for the SM-G9-gated 3-leg
   graph-join case**, which SM-R8 marks provisional (its synthetic 3-leg test found weighted's edge
   over RRF *widened*, not flipped). Fusion is genuinely config-selectable, proven by the swap test
-  ("weighted is the default; RRF selectable by config").
+  ("weighted is the default; RRF selectable by config"). **Honest caveat:** SM-R8 never measured a
+  vector+graph pairing (its legs were dense+BM25±graph), so the weighted default *here* is a
+  mechanism-based transfer to re-validate with real backends, not a measured result for this pairing.
 - **SM-R9 (multi-hop / PPR, ratified):** PPR is exposed as an optional **per-tenant flag, default
   off**, and attributed to SM-R9 (previously mis-cited as SM-R8).
 - **SM-R10 (bi-temporal, ratified):** point-in-time reads enforce the **two-sided** "true at T"
@@ -292,7 +295,7 @@ loop. These are the additive build surface `MemoryProvider` exposes — WRAP the
 
 | # | Item | Disposition |
 |---|------|-------------|
-| P1-1a | Signature deviation from issue's `read(tenant,agent,query,types)` | **Made explicit** — loud callout in §5.3 + `interface.py` `read` docstring, so downstream docs stop copying the strawman. |
+| P1-1a | Signature deviation from issue's `read(tenant,agent,query,types)` | **Made explicit** — loud callout in §5.3 + `interface.py` `read` docstring, so downstream docs stop copying the issue's suggested-signature literal. |
 | 1 | SM-R8: fusion hardcoded RRF, no weighted path | **Fixed** — `_weighted` added, defaulted on; `config.fusion["method"]` now takes effect. |
 | 2 | SM-R10: `as_of` only checked `t_invalid` (upper bound) | **Fixed** — two-sided `_valid_at`; future-dated test added. |
 | 3 | SM-R7: `consolidate` claimed "both substrates" but wrote vector only | **Fixed** — now dual-writes; docstring made accurate. |
