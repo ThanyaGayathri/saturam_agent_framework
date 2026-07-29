@@ -52,8 +52,7 @@ dev = [
   "uvicorn",
   "websockets",
   "PyJWT",
-  "mcp",
-  "fastmcp",
+  "egpt[mcp]",
   "openai",
   "ddgs",
   "fakeredis",
@@ -71,7 +70,7 @@ dev = [
 
 # AgentOS server bundle
 os = ["fastapi", "python-multipart>=0.0.18", "uvicorn", "websockets", "sqlalchemy", "PyJWT", "opentelemetry-sdk", "openinference-instrumentation-agno", "egpt[scheduler]"]
-mcp = ["mcp>=1.9.2", "fastmcp"]
+mcp = ["mcp>=1.9.2,<2.0.0", "fastmcp>=2.14.1,<3.0.0"]
 scheduler = ["croniter>=1.3", "pytz>=2023.3"]
 
 # Dependencies for Telemetry
@@ -382,7 +381,7 @@ integration-tests = [
     "yfinance",
     "sqlalchemy",
     "Pillow",
-    "fastmcp",
+    "egpt[mcp]",
     "PyJWT",
     # Implements @pytest.mark.flaky(reruns=N); without it the mark is a
     # silent no-op and model-nondeterminism retries never happen.
@@ -407,7 +406,7 @@ demo = [
     "websockets",
     "google-genai",
     "matplotlib",
-    "mcp",
+    "egpt[mcp]",
     "nest_asyncio",
     "openai",
     "openinference-instrumentation-agno",

@@ -11,7 +11,7 @@ from fastmcp import Context, FastMCP
 from fastmcp.server.http import (
     StarletteWithLifespan,
 )
-from fastmcp.tools import ToolResult
+from fastmcp.tools.tool import ToolResult
 
 from egpt.db.base import SessionType
 from egpt.os.mcp_results import build_run_tool_result, trim_session_run
