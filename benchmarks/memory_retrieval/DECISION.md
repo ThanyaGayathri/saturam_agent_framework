@@ -504,11 +504,12 @@ and excluded here as option-invariant.
 - Graph-ready for **SM-G9** (both fusions wired, 3-leg choice gated — §3.5); hands the
   fusion/reranker seams to **SM-H2/H3**; hands time-aware placement to **SM-E7**
   (reconciled with SM-R5's decay model, §3.6); flags embedder re-validation for **SM-R4**.
-- **Not yet consistent with SM-R11 (PR #20):** `memory_provider_spec/adapters.py`'s
-  `co_located` adapter hardcodes RRF (`_rrf`, no weighted path) for its vector+graph
-  fusion — opened *after* this decision was already open, so not the same
-  forked-before-merge cause as the embedder gaps below. Flagged via comment on PR #20
-  (2026-07-28); not fixed here (out of scope, different PR/owner).
+- **SM-R11 (PR #20) — update (2026-07-29, re-checked on `origin/feat/memory-SM-R11`):**
+  the RRF-hardcoding flagged above **is now fixed** (`e722a2a`, a pre-review consistency
+  pass on that PR) — it added a real weighted/relative-score fusion path and made it the
+  default (`vector_weight≈0.5`), keeping RRF selectable but reserved for the SM-G9-gated
+  3-leg case, citing this doc's §3.5 finding (widened, not flipped) directly. Confirms the
+  FYI comment on PR #20 was acted on rather than missed.
 - **SM-R9 (PR #15) — update (2026-07-28, re-checked, not assumed from "ready for
   re-review"):** the embedder issue flagged above **is now fixed** on
   `origin/feat/memory-SM-R9` (`2c15ee9`/`a363152`, re-verified by reading the branch
