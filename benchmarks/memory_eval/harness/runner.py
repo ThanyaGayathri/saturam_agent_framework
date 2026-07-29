@@ -59,6 +59,7 @@ def run_benchmark(
         ingest_ms.append((time.perf_counter() - t0) * 1000.0)
     if config.consolidate:
         provider.consolidate()
+    footprint = provider.footprint()  # after ingest (+ consolidate): labelless store size
 
     records: List[ProbeRecord] = []
     for probe in benchmark.probes:
@@ -89,6 +90,7 @@ def run_benchmark(
         ingest_ms=ingest_ms,
         usage=usage,
         judge_name=judge.name,
+        footprint=footprint,
     )
     report["benchmark"] = benchmark.name
     report["provider"] = getattr(provider, "name", provider.__class__.__name__)
@@ -116,6 +118,7 @@ async def arun_benchmark(
         ingest_ms.append((time.perf_counter() - t0) * 1000.0)
     if config.consolidate:
         await provider.aconsolidate()
+    footprint = await provider.afootprint()  # labelless store size
 
     records: List[ProbeRecord] = []
     for probe in benchmark.probes:
@@ -146,6 +149,7 @@ async def arun_benchmark(
         ingest_ms=ingest_ms,
         usage=usage,
         judge_name=judge.name,
+        footprint=footprint,
     )
     report["benchmark"] = benchmark.name
     report["provider"] = getattr(provider, "name", provider.__class__.__name__)

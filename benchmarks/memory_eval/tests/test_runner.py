@@ -38,12 +38,22 @@ def test_report_has_all_sections() -> None:
         "retrieval",
         "bitemporal",
         "decay",
+        "memory_footprint",
         "latency_ms",
         "cost",
     ):
         assert key in rep, f"missing report section {key}"
     for key in ("recall_at_k", "hit_at_k", "ndcg_at_k"):
         assert key in rep["retrieval"]
+
+
+def test_memory_footprint_labelless() -> None:
+    # Reference-free footprint: a non-consolidating baseline stores every ingested
+    # turn; items == turn count and tokens > 0 (no TargetFact labels involved).
+    bench = get_loader("longmemeval").fixture()
+    rep = _run("longmemeval", "lexical")
+    fp = rep["memory_footprint"]
+    assert fp is not None and fp["items"] == bench.n_turns and fp["tokens"] > 0
 
 
 def test_providers_conform_to_protocol() -> None:

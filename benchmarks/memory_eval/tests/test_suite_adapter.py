@@ -45,6 +45,9 @@ def test_build_memory_cases_against_real_suite() -> None:
     assert all(p.probe_id in retrieved for p in bench.probes)
     for c, p in zip(cases, bench.probes):
         assert p.answer in c.criteria  # gold answer flows into the judge criteria
+        # judge_model pinned to OpenAIResponses (NOT the seed's OpenAIChat fallback).
+        assert c.judge_model is not None
+        assert type(c.judge_model).__name__ == "OpenAIResponses"
         assert "Question:" in c.input
 
 

@@ -83,8 +83,8 @@ system rankings. Use `--mode full` on the real corpora with the LLM judge for th
 ## Scope & known gaps (read before trusting a number)
 
 - **Lexical-only baselines — no embedder.** Both providers rank by token overlap; semantic/embedding
-  retrieval is not exercised. Embedder choice is SM-R9's; a real embedding provider drops in behind
-  the seam unchanged. (`findings/02`.)
+  retrieval is not exercised. Embedder choice is **SM-R4's** (#79); a real embedding provider drops
+  in behind the seam unchanged. (`findings/02`.)
 - **Consolidation quality: seam wired, intrinsic score not run here.** `consolidate()` is wired and
   tested, and the metric is defined as SM-R7's `composite_quality`, but running it needs SM-R7's
   labeled targets (SM-R7 owns them). (`PLAN.md §2.4`.)

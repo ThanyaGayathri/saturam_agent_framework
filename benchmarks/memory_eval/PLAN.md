@@ -25,9 +25,9 @@ by scoring two baseline providers offline (`results/`). SM-X7 lifts this onto `e
 ## Acceptance criteria (verbatim from #88)
 
 - [x] **Benchmarks + metrics chosen (incl. temporal + consolidation coverage)** — §1 (benchmarks),
-      §2 (metrics). Temporal/bi-temporal/decay fully implemented + tested. Consolidation coverage is
-      **seam-wired + metric-defined (SM-R7 `composite_quality`), intrinsic score not run here** —
-      see §2.4 for the honest scope. Implemented: `harness/datasets/`, `harness/metrics.py`.
+      §2 (metrics). Temporal/bi-temporal/decay fully implemented + tested. Consolidation coverage =
+      **labelless footprint wired now + seam wired; SM-R7 `composite_quality` (label-based) defined,
+      not run here** — see §2.4 for the honest split. Implemented: `harness/datasets/`, `harness/metrics.py`.
 - [x] **Integration approach with the existing `eval/suite.py` defined** — §3. Implemented:
       `adapters/egpt_suite.py` (`build_memory_cases` → seed `Case`s; `LLMJudge` wraps
       `AgentAsJudgeEval`).
@@ -119,17 +119,22 @@ Probes without evidence (DMR-thin, abstention) return `None` and are **excluded*
 - **decay** = for a probe naming a stale turn D: `suppression@k` = fraction with D **not** in top-k;
   `outranked` = fraction where every gold evidence turn ranks above D. Higher = better forgetting.
 
-### 2.4 Consolidation quality (from SM-R7) — seam wired, intrinsic score NOT run here
-Honest status: this harness **wires the `consolidate()` seam** (`MemoryProvider.consolidate(tiers)`,
-called by `runner.py` when `RunConfig.consolidate=True`, unit-tested end-to-end) and **defines**
-the intrinsic metric as SM-R7's `composite_quality` (`benchmarks/memory_consolidation/harness/
-metrics.py:258`: fact recall/precision, dedup, conflict, provenance). It does **not run**
-`composite_quality` here: that score needs SM-R7's **labeled consolidation targets**
-(`TargetFact`s), which SM-R7 owns and this harness's benchmarks do not carry. So consolidation
-coverage = *seam + defined metric + planned end-to-end QA-after-consolidate impact*, with the
-intrinsic score produced by SM-R7's harness. The baselines here do not consolidate (their
-`consolidate()` is a no-op); an SM-R7 consolidating provider drops in behind the seam. (Unification
-path: `findings/01`.)
+### 2.4 Consolidation quality (from SM-R7) — labelless footprint wired; label-based score deferred
+Honest status, split into what runs now vs what is deferred:
+
+- **Wired now (labelless):** a reference-free **memory footprint** — `{items, tokens}` over the
+  provider's store (`MemoryProvider.footprint()`, in every report as `memory_footprint`, unit-tested).
+  This is SM-R7's own companion signal (`active_fact_count`/`memory_tokens`; the `composite_quality`
+  docstring says to *"read the score alongside footprint"*): it needs **no labels**, and a
+  consolidating provider shrinks it vs a raw store. This is the partial score wireable today.
+- **Wired seam:** `consolidate(tiers)` is called by `runner.py` when `RunConfig.consolidate=True`
+  (unit-tested end-to-end); baselines' `consolidate()` is a no-op, an SM-R7 provider drops in behind it.
+- **Deferred (label-based):** SM-R7's `composite_quality` (`benchmarks/memory_consolidation/harness/
+  metrics.py:258`) is a weighted blend of fact recall/precision, dedup, conflict and provenance —
+  **all six terms are label-gated** (computed via `match_facts_to_targets(facts, targets)`), so it has
+  **no labelless mode**. Running it needs SM-R7's `TargetFact` labels, which SM-R7 owns and this
+  harness's benchmarks do not carry. Its intrinsic score is produced by SM-R7's harness; here it is
+  defined + reused, plus the planned end-to-end QA-after-consolidate impact. (Unification: `findings/01`.)
 
 ### 2.5 Latency + cost
 Latency mean/p50/**p95**/max for ingest and query. `stats.summarize` replicates the p95 convention
@@ -190,8 +195,9 @@ the LLM ones and the baselines for R7/R8 providers with no metric/runner changes
 - The canonical `MemoryProvider` interface → **SM-R11 (#86)**; its implementation → **SM-C1 (#89)**.
 - Consolidation strategy + its intrinsic metric → **SM-R7 (#82)** (reused, not redefined).
 - Retrieval/store internals → **SM-R8 / SM-R3**. Latency SLO ratification + scale targets → **SM-R1**.
-- **Embedder choice → SM-R9**; this harness ships **lexical-only** baselines (no embedder). Known
-  coverage gap — semantic/embedding retrieval is not exercised here; `findings/02`.
+- **Embedder choice → SM-R4** (#79, ratified `bge-base-en-v1.5`/`text-embedding-3-large`); this
+  harness ships **lexical-only** baselines (no embedder). Known coverage gap — semantic/embedding
+  retrieval is not exercised here; `findings/02`.
 - Tool-call reliability eval (`eval/reliability.py`) — not memory quality.
 
 ## 7. Consistency with dependencies

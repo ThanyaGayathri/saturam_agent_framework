@@ -42,6 +42,12 @@ LATENCY: mean / p50 / p95 / max over per-op wall-clock samples, for ingest and
 query (see stats.summarize; p95 matches the seed PerformanceEval convention).
 
 COST: measured tokens x price table (see usage.UsageStats.cost_usd).
+
+MEMORY FOOTPRINT (labelless consolidation signal): {items, tokens} = the provider's
+stored-memory size. SM-R7's ``composite_quality`` is fully label-gated (needs
+``TargetFact``s) so it is not run here; footprint is the reference-free companion the
+composite docstring says to read alongside — a consolidating provider shrinks it vs a
+raw store. Reported, not gated (no ratified SLO yet).
 """
 
 from __future__ import annotations
@@ -122,6 +128,7 @@ def aggregate(
     ingest_ms: Optional[Sequence[float]] = None,
     usage: Optional[UsageStats] = None,
     judge_name: str = "stub",
+    footprint: Optional[Dict[str, int]] = None,
 ) -> dict:
     """Turn per-probe records into the full metric report (all definitions above)."""
     turn_index = turn_index or {}
@@ -201,6 +208,10 @@ def aggregate(
             "as_of_leak_rate": as_of_leak_rate,
         },
         "decay": decay,
+        # Labelless consolidation signal: store size (items + tokens). SM-R7's
+        # composite_quality is label-gated and not run here; this footprint is the
+        # reference-free companion it explicitly says to read alongside.
+        "memory_footprint": footprint,
         "latency_ms": {
             "ingest": summarize(list(ingest_ms or [])),
             "query": summarize([r.query_ms for r in records]),

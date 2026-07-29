@@ -91,7 +91,15 @@ class Turn:
         return f"{self.speaker}: {self.text}"
 
     def valid_at(self, t: int) -> bool:
-        """SM-R10 point-in-time truth: ``t_valid <= t < t_invalid`` (open => +inf)."""
+        """SM-R10 point-in-time truth: ``t_valid <= t < t_invalid`` (open => +inf).
+
+        DELIBERATE default: when ``t_valid`` is None the lower bound falls back to
+        ``timestamp`` (the utterance time) and the turn is still EVALUATED — it is not
+        silently excluded. This is the opposite of SM-R10's own NULL-handling bug
+        (a `valid_from IS NULL` comparison that dropped un-COALESCE'd rows): here a
+        missing valid-time never removes a turn from consideration, it just uses a
+        sensible default. ``t_invalid`` None => open interval (COALESCE to +inf).
+        """
         lo = self.t_valid if self.t_valid is not None else self.timestamp
         hi = self.t_invalid  # None => open (+inf)
         return lo <= t and (hi is None or t < hi)

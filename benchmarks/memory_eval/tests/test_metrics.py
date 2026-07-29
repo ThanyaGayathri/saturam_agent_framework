@@ -124,6 +124,18 @@ def test_aggregate_end_to_end() -> None:
     assert _approx(rep["decay"]["outranked"], 1.0)
 
 
+def test_valid_at_default_lower_bound() -> None:
+    # t_valid=None must fall back to `timestamp` and still be EVALUATED (not dropped
+    # the way SM-R10's valid_from-IS-NULL bug dropped rows).
+    t = Turn("x", "A", "x", timestamp=10)  # t_valid/t_invalid both None
+    assert t.valid_at(10) is True  # inclusive lower bound at the default (timestamp)
+    assert t.valid_at(100) is True  # open upper bound (+inf)
+    assert t.valid_at(5) is False  # before the default lower bound
+    # explicit closed window still honored
+    bounded = Turn("y", "A", "y", timestamp=10, t_valid=10, t_invalid=50)
+    assert bounded.valid_at(49) is True and bounded.valid_at(50) is False
+
+
 def test_bitemporal_leak_is_two_sided() -> None:
     # SM-R10: valid iff t_valid <= T < t_invalid. The leak metric must flag BOTH a
     # future fact AND a stale-superseded fact returned as current (the case a

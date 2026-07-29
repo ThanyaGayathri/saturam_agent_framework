@@ -46,7 +46,7 @@ Both sync and async methods are declared (codebase convention).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Protocol, Sequence, runtime_checkable
+from typing import Dict, List, Optional, Protocol, Sequence, runtime_checkable
 
 from harness.schemas import Session, Turn
 
@@ -116,6 +116,17 @@ class MemoryProvider(Protocol):
     def consolidate(self, tiers: Optional[Sequence[str]] = None) -> None: ...
 
     async def aconsolidate(self, tiers: Optional[Sequence[str]] = None) -> None: ...
+
+    # Reference-free memory footprint: {"items": int, "tokens": int} over the
+    # provider's current store. This is the LABELLESS consolidation signal — SM-R7's
+    # ``composite_quality`` is fully label-gated (needs TargetFacts) and cannot run
+    # here, but its companion footprint (SM-R7 ``active_fact_count``/``memory_tokens``,
+    # the "read the score alongside footprint" the composite docstring calls for) needs
+    # no labels. A consolidating provider shrinks this vs a raw store; reported, not
+    # gated (no ratified SLO yet).
+    def footprint(self) -> Dict[str, int]: ...
+
+    async def afootprint(self) -> Dict[str, int]: ...
 
 
 @runtime_checkable

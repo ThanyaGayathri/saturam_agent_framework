@@ -39,9 +39,9 @@ def render_markdown(reports: List[dict], *, title: str, generated_utc: str, mode
 
     header = (
         "| benchmark | provider | k | QA | temporal | recall@k | nDCG@k | bitemporal | as_of_leak | "
-        "decay(supp/outr) | ingest p95 | query p95 | cost |"
+        "decay(supp/outr) | mem(items/tok) | ingest p95 | query p95 | cost |"
     )
-    sep = "| " + " | ".join(["---"] * 13) + " |"
+    sep = "| " + " | ".join(["---"] * 14) + " |"
     lines.append(header)
     lines.append(sep)
 
@@ -50,6 +50,8 @@ def render_markdown(reports: List[dict], *, title: str, generated_utc: str, mode
         decay_s = "-" if not decay else f"{decay['suppression_at_k']:.2f}/{decay['outranked']:.2f}"
         cost = r.get("cost")
         cost_s = "-" if not cost else f"${cost['cost_usd']:.4f}"
+        fp = r.get("memory_footprint")
+        fp_s = "-" if not fp else f"{fp['items']}/{fp['tokens']}"
         row = [
             r.get("benchmark", "-"),
             r.get("provider", "-"),
@@ -61,6 +63,7 @@ def render_markdown(reports: List[dict], *, title: str, generated_utc: str, mode
             _fmt_opt(r["bitemporal"].get("accuracy")),
             _fmt_float(r["bitemporal"].get("as_of_leak_rate")),
             decay_s,
+            fp_s,
             _fmt_float(r["latency_ms"]["ingest"]["p95"], "ms"),
             _fmt_float(r["latency_ms"]["query"]["p95"], "ms"),
             cost_s,
@@ -74,7 +77,8 @@ def render_markdown(reports: List[dict], *, title: str, generated_utc: str, mode
         "evidence; bitemporal = QA over {as_of_t, knowledge_update}; as_of_leak = fraction of "
         "as-of probes whose top-1 retrieval is NOT valid at T (two-sided: future OR "
         "stale-superseded; SM-R10 t_valid<=T<t_invalid; lower better); "
-        "decay supp/outr = stale-target suppression@k / gold-outranks-stale (higher better)."
+        "decay supp/outr = stale-target suppression@k / gold-outranks-stale (higher better); "
+        "mem = labelless footprint (stored items / token proxy — lower = more consolidated)."
     )
     lines.append("")
     return "\n".join(lines)

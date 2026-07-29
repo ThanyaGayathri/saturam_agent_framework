@@ -17,8 +17,9 @@ vector similarity is exercised anywhere in this harness.**
   the provider ranked. A real embedding-backed provider (SM-R8 retrieval / SM-R9
   PPR / the SM-R3 vector store) drops in behind the `MemoryProvider` protocol with
   no metric or runner change.
-- **Embedder choice is explicitly out of scope** here — it is owned by **SM-R9**
-  (embedding model decision) and consumed via the **SM-R11** seam. Baking a
+- **Embedder choice is explicitly out of scope** here — the embedding-model decision
+  is owned by **SM-R4** (#79, ratified: `bge-base-en-v1.5`@768 Mode A /
+  `text-embedding-3-large`→1024 Mode B) and consumed via the **SM-R11** seam. Baking a
   specific embedder into this plan would pre-empt that decision.
 
 ## The upside (deliberate)
@@ -36,7 +37,7 @@ a bad embedding config.
 ## Recommendation for SM-X7 (the implementer)
 
 Add at least one **embedding-backed provider adapter** (behind the same
-`MemoryProvider` seam, using the SM-R9 embedder + SM-R3 store) as a third baseline,
-and re-run the same metrics. No harness changes are needed — only a new adapter in
-the registry. Until then, treat the retrieval numbers here as a **lexical floor**,
+`MemoryProvider` seam, using the **SM-R4** embedder (`bge-base`/`text-embedding-3-large`)
++ SM-R3 store) as a third baseline, and re-run the same metrics. No harness changes are
+needed — only a new adapter in the registry. Until then, treat the retrieval numbers here as a **lexical floor**,
 not a semantic-retrieval measurement.

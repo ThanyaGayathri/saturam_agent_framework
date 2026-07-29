@@ -139,6 +139,12 @@ def build_memory_cases(
         provider.write(events_of(session))
 
     agent = _answer_agent()
+    # Pin the JUDGE model on every Case. Without this, run_cases builds the judge as
+    # AgentAsJudgeEval(model=case.judge_model or judge_model); if the run_cases caller
+    # also passes no judge_model, the seed FALLS BACK to OpenAIChat(id="gpt-5-mini")
+    # (agent_as_judge.py get_evaluator_agent) — a house-rule violation (no OpenAIChat).
+    # Setting it here makes the Case carry an OpenAIResponses judge regardless of caller.
+    judge_model = _build_model()
     cases: List[object] = []
     retrieved: Dict[str, List[str]] = {}
     mode = JudgeMode.NUMERIC if judge_mode == "numeric" else JudgeMode.BINARY
@@ -158,6 +164,7 @@ def build_memory_cases(
                 agent=agent,
                 criteria=criteria,
                 judge_mode=mode,
+                judge_model=judge_model,
                 tags=(benchmark.name, probe.category),
             )
         )

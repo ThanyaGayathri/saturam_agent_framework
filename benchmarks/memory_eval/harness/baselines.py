@@ -60,6 +60,15 @@ class _BaseLexical:
     async def aconsolidate(self, tiers: Optional[Sequence[str]] = None) -> None:
         return None
 
+    def footprint(self) -> Dict[str, int]:
+        # Labelless memory footprint: stored items + a token proxy (word count;
+        # the real harness would use egpt count_text_tokens — kept stdlib here).
+        tokens = sum(len(ev.text.split()) for ev in self._events)
+        return {"items": len(self._events), "tokens": tokens}
+
+    async def afootprint(self) -> Dict[str, int]:
+        return self.footprint()
+
     def _score(self, event: MemoryEvent, base: float, now: Optional[int]) -> float:
         raise NotImplementedError
 

@@ -16,38 +16,53 @@ Applied against the CURRENT sibling docs (re-read, not from memory):
 | P2.3 | Bi-temporal leak made **two-sided** (`t_valid <= T < t_invalid`, SM-R10). Added `Turn.t_valid`/`t_invalid` + `valid_at`; leak now catches future AND stale-superseded, over all `as_of` probes. | `harness/schemas.py:Turn`; `harness/metrics.py` (`as_of_leak_rate`); `tests/test_metrics.py:test_bitemporal_leak_is_two_sided` (2/3, incl. the stale case a one-sided check misses). |
 | P2.4 | Latency gate `1500 ms → 50 ms` (SM-R8 hot-path `p95 < ~50 ms`, retrieval read only); mis-citation of "SM-R3 family" corrected. | `harness/gate.py:GateConfig.max_query_p95_ms`. Reference-provider gate still PASS. |
 | P2.5 | Decay clock — loud NON-PRODUCTION comment: ages from creation, NOT SM-R5's `now - last_accessed_at` (reset on access). | `harness/baselines.py:RecencyDecayProvider` docstring + `_score`. |
-| P2.6 | Embedder gap flagged (both baselines lexical-only; no embedder). Not fixed — out of scope (SM-R9). | `findings/02-embedder-coverage-gap.md`; `PLAN.md §6`. |
+| P2.6 | Embedder gap flagged (both baselines lexical-only; no embedder). Not fixed — out of scope (embedder decision = SM-R4 #79). | `findings/02-embedder-coverage-gap.md`; `PLAN.md §6`. |
 
 Post-fix verification (offline, re-run): ruff (E,F,W,I) clean; `ruff format --check` clean; mypy clean
 (20 files); `7 metric tests`, `7 runner tests`, suite-adapter SKIP (no egpt). Reference-provider gate
 PASS at 50 ms. Core untouched: `git diff origin/main -- libs/` = 0.
 
+## Second self-review round (verify-don't-re-trust)
+
+| § | Finding | Resolution |
+|---|---|---|
+| 1 | **Misattribution** — embedder ownership said "SM-R9". SM-R9 (#84) is the HippoRAG PPR spike; the embedding-model decision is **SM-R4 (#79)** (bge-base / text-embedding-3-large). | Fixed in `findings/02`, `PLAN.md §6`, `README.md`, this log. Bug-history mention of SM-R9/R8/R11 kept (accurate). |
+| 2 | **Bi-temporal default** — is `valid_at` defaulting `t_valid→timestamp` intentional (not R10's NULL-drop bug)? | Confirmed intentional; added explicit docstring + `test_valid_at_default_lower_bound` proving a `t_valid=None` turn is evaluated, not dropped. |
+| 3 | **Is the SM-R7 downgrade the full story?** Re-read `composite_quality`: all 6 terms are label-gated (no labelless mode). **But** its companion **footprint** is reference-free. | **Wired it** — `MemoryProvider.footprint()` `{items, tokens}`, in every report as `memory_footprint`, unit-tested + shown in results. Label-based `composite_quality` stays deferred. Stronger than a full punt. |
+| 4 | **Static-trace of suite wiring** — field-by-field vs `Case`/`run_cases`. All fields match; **found** a gap: `run_cases` judges via `AgentAsJudgeEval(model=case.judge_model or judge_model)` → falls back to `OpenAIChat(gpt-5-mini)` (house-rule violation) if unset, which a construct-only test misses. | Fixed: `build_memory_cases` now pins `case.judge_model = OpenAIResponses` (test asserts it). |
+| 5 | Doc sweep — `1500` / `consolidate(scope: str)` / strawman `read(tenant,…)`. | Confirmed: no live residuals; remaining mentions are the corrected R11 signature + the explanatory "was wrong" note only. |
+
+Round-2 verification: ruff + `ruff format --check` clean; mypy clean (20 files); **8 metric + 8 runner
+tests** pass; suite-adapter SKIP offline; reference gate PASS at 50 ms; footprint renders (e.g.
+`custom_temporal` 3 items / 24 tok); `git diff origin/main -- libs/` = 0.
+
 ---
 
 ### tests/test_metrics.py
 
-**Status:** PASS (7/7)
+**Status:** PASS (8/8)
 
 **Description:** Unit tests for the metric engine on hand-computed values — recall@k / hit@k,
 nDCG@k (DCG/IDCG spelled out), percentile/p95, Wilson interval, StubJudge, an end-to-end
 `aggregate` check (per-category QA, temporal slice, retrieval means, bi-temporal leak, decay), and
 the **two-sided** bi-temporal leak (future + stale-superseded, SM-R10 `t_valid <= T < t_invalid`).
 
-**Result:** `7 metric tests passed`. Formulas cross-checked in-test against independent closed-form
+**Result:** `8 metric tests passed` (added the two-sided leak test + a `valid_at` t_valid=None
+default test). Formulas cross-checked in-test against independent closed-form
 expressions (not hardcoded constants).
 
 ---
 
 ### tests/test_runner.py
 
-**Status:** PASS (7/7)
+**Status:** PASS (8/8)
 
 **Description:** End-to-end runner + provider protocol: report has all sections; both baselines
 conform to the `MemoryProvider` protocol (runtime_checkable); no-evidence probes excluded from
 recall (`n==2` on longmemeval); time-aware provider ≥ naive on update-heavy sets; recency respects
 `as_of` (leak 0.0); the `consolidate()` seam runs end-to-end (`consolidate=True`); async == sync.
 
-**Result:** `7 runner tests passed`.
+**Result:** `8 runner tests passed` (added a labelless `memory_footprint` test).
 
 ---
 
