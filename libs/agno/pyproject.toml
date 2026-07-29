@@ -52,8 +52,7 @@ dev = [
   "uvicorn",
   "websockets",
   "PyJWT",
-  "mcp",
-  "fastmcp",
+  "egpt[mcp]",
   "openai",
   "ddgs",
   "fakeredis",
@@ -382,7 +381,7 @@ integration-tests = [
     "yfinance",
     "sqlalchemy",
     "Pillow",
-    "fastmcp",
+    "egpt[mcp]",
     "PyJWT",
     # Implements @pytest.mark.flaky(reruns=N); without it the mark is a
     # silent no-op and model-nondeterminism retries never happen.
@@ -407,7 +406,7 @@ demo = [
     "websockets",
     "google-genai",
     "matplotlib",
-    "mcp",
+    "egpt[mcp]",
     "nest_asyncio",
     "openai",
     "openinference-instrumentation-agno",
