@@ -4,6 +4,60 @@ Run log for the retrieval fusion + reranker decision benchmark. Newest first.
 
 ---
 
+### Phase 7 — second-pass self-review: verify the verifier + check what's changed
+
+**Status:** PASS — Phase 6's own adversarial control had a real, undisclosed gap; found,
+measured, and closed. Cross-PR state re-checked from source, not assumed from PR status.
+
+**Trigger:** a follow-up review asked to verify Phase 6's verification itself (not repeat
+it), specifically: is `LexicalGraphRetriever` actually decorrelated, is the overlap
+diagnostic measuring the right thing, is §3.5 honest about the effect-size drop, and has
+SM-R9 (flagged stale in Phase 6) since changed in ways SM-R8 should know about.
+
+1. **`_diagnose_overlap` measures top-k *result* overlap (post-PPR), not graph edge/
+   adjacency overlap** — confirmed by reading the function directly. This is arguably the
+   more relevant metric for the stated concern (it captures both shared graph structure
+   *and* shared seeding), but its scope was incomplete: it only ever checked overlap vs
+   `dense`, never vs `bm25`.
+2. **Gap found: `LexicalGraphRetriever` decorrelates from dense but correlates with bm25.**
+   It's seeded from bm25's own top hits and built on TF-IDF (a lexical signal close to
+   BM25) — measured: top-10 overlap with bm25 is **0.52**, higher than its 0.29 overlap
+   with dense (`verify_decorrelation.py`, reproduced by the official run — see updated
+   `graph_leg_experiment.json`). A separate, non-query-dependent check (raw k-NN edge-set
+   Jaccard between the two graph *structures*) is 0.22 — genuinely different topology — so
+   the bm25-correlation comes from the shared seed vector, not the graph edges. Added a
+   `bm25`-overlap diagnostic call to `graph_leg_experiment.py` (previously only checked
+   `dense`) and disclosed the finding in `DECISION.md` §3.5: the control is honest for the
+   *dense*-circularity concern specifically (which is what was asked for), not proof of a
+   fully independent third signal.
+3. **§3.5's +0.076→+0.060 drop:** confirmed the doc already stated both numbers side by
+   side and called the smaller one out explicitly — strengthened to state the ~21%
+   reduction as a number, not just "smaller than," so it can't be read as more confirmation
+   than it is. The "one dataset, N synthetic graph constructions" caveat was already
+   current (says "two", correctly, post-Phase-6), not a stale "one" left over.
+4. **SM-R9 (PR #15) re-checked from `origin/feat/memory-SM-R9` directly, not the PR's
+   "Ready for re-review" status:** the embedder fix is real and confirmed (`2c15ee9`/
+   `a363152`, live SM-R4 Mode A). Two things surfaced that Phase 6 didn't have yet:
+   - SM-R9's own consistency audit found this doc's §9 cross-PR list was **incomplete** —
+     `HybridRetriever` (dense+PPR) also hardcodes RRF, the same pattern flagged on PR #20,
+     which Phase 6 missed on that spike.
+   - SM-R9 then **measured weighted-vs-RRF on a real PPR leg** (LLM+OpenIE-built KG) —
+     literally the real-graph-retriever measurement §3.5 asked for. Result: RRF numerically
+     ahead (not significant, p=0.26), and their CI **excludes** this doc's −0.076 effect —
+     an independent real measurement pointing a different numeric direction, neither side
+     conclusive. `DECISION.md` §3.5/§9 updated with this cross-validation; a stale "still
+     open" comment on PR #15 was followed up with a correction.
+
+**Hygiene re-confirmed:** `git diff origin/main -- libs/` still empty;
+`graph_leg_experiment.py` alone is ruff-clean (0 findings); the ~86 ruff findings across
+`retrievers.py`/`run.py`/`data.py`/`embcache.py` are all pre-existing `UP*`-style debt
+predating every SM-R8 review-response commit (diffed line-by-line against `26c84f6`, the
+commit before any of these fixes, to confirm — none are in code this task touched); mypy
+remains unavailable on this host (consistent with `format.sh`/`validate.sh` not covering
+`benchmarks/` at all).
+
+---
+
 ### Phase 6 — verification audit of Phase 5's fixes (adversarial circularity check)
 
 **Status:** PASS — all Phase 5 claims re-verified against source data; one gap found and

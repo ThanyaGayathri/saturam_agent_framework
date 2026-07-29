@@ -34,9 +34,11 @@
         "significant": 1.0
       }
     },
-    "dense_overlap": {
-      "graph_dense_derived": 0.6199999999999999,
-      "graph_lexical_decorrelated": 0.29
+    "top10_overlap": {
+      "dense_vs_graph": 0.6199999999999999,
+      "dense_vs_lex_graph": 0.29,
+      "bm25_vs_graph": 0.2783333333333333,
+      "bm25_vs_lex_graph": 0.5183333333333333
     }
   }
 }

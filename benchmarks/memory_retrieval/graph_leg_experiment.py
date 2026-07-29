@@ -34,6 +34,15 @@ leg -- k-NN edges AND PPR seeds -- from BM25/TF-IDF instead, so it shares no
 construction path with the dense leg it's fused against. `_diagnose_overlap`
 quantifies how correlated each graph variant's top-10 actually is with dense's.
 
+**Adversarial check, round 3 (second-pass review):** checking only vs `dense` was
+incomplete -- `LexicalGraphRetriever` is *seeded from bm25's own top hits* and built
+on TF-IDF (a lexical signal close to BM25), so decorrelating it from dense doesn't
+rule out it just being correlated with **bm25** (the *other* fusion leg) instead.
+Measured: `lex_graph` overlaps bm25's top-10 at ~0.52 (vs ~0.29 with dense) -- so the
+"decorrelated" control is honestly a control for the dense-circularity concern
+specifically, not a fully independent third signal. See DECISION.md §3.5 for the
+full disclosure and why the finding still holds despite this.
+
 Run: PYTHONPATH=. .venvs/smr8/bin/python -m benchmarks.memory_retrieval.graph_leg_experiment
 """
 
@@ -205,11 +214,19 @@ def run_dataset(dsname: str, cache: EmbeddingCache) -> dict:
     graph = GraphRetriever(doc_ids, dmat)
     lex_graph = LexicalGraphRetriever(doc_ids, doc_texts, bm25)
 
+    # Second-pass review: _diagnose_overlap vs dense alone isn't enough -- lex_graph is
+    # *seeded from bm25's own top hits* and built on TF-IDF (a lexical signal close to
+    # BM25), so it could just be correlated with bm25 (the *other* fusion leg) instead of
+    # dense. Check both axes so the "decorrelated" claim is honest about what it actually
+    # decorrelates from.
     overlap_dense_graph = _diagnose_overlap(dense, graph, qids, qtexts, qmat)
     overlap_dense_lexgraph = _diagnose_overlap(dense, lex_graph, qids, qtexts, qmat)
+    overlap_bm25_graph = _diagnose_overlap(bm25, graph, qids, qtexts, qmat)
+    overlap_bm25_lexgraph = _diagnose_overlap(bm25, lex_graph, qids, qtexts, qmat)
     print(
-        f"[{dsname}] top-10 overlap with dense -- graph(dense-derived): "
-        f"{overlap_dense_graph:.3f}  graph(lexical, decorrelated): {overlap_dense_lexgraph:.3f}"
+        f"[{dsname}] top-10 overlap -- dense~graph: {overlap_dense_graph:.3f}  "
+        f"dense~lex_graph: {overlap_dense_lexgraph:.3f}  bm25~graph: {overlap_bm25_graph:.3f}  "
+        f"bm25~lex_graph: {overlap_bm25_lexgraph:.3f}"
     )
 
     configs = {
@@ -256,9 +273,11 @@ def run_dataset(dsname: str, cache: EmbeddingCache) -> dict:
     return {
         "ndcg": results,
         "significance": sig,
-        "dense_overlap": {
-            "graph_dense_derived": overlap_dense_graph,
-            "graph_lexical_decorrelated": overlap_dense_lexgraph,
+        "top10_overlap": {
+            "dense_vs_graph": overlap_dense_graph,
+            "dense_vs_lex_graph": overlap_dense_lexgraph,
+            "bm25_vs_graph": overlap_bm25_graph,
+            "bm25_vs_lex_graph": overlap_bm25_lexgraph,
         },
     }
 
