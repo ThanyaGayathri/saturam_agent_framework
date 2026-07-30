@@ -115,6 +115,11 @@ factory, and both work with `async with`.
 
 Because the override is scoped to the block, resolve inside it — a value read out beforehand is the real implementation.
 
+An `aresolve()` still running when the block opens is not an exception to that. Its factory was chosen from the binding
+that was in force when it started, so the value it eventually returns is discarded rather than cached over the
+override, and the resolve is retried against whatever is bound now. The same holds for `bind()`, `bind_instance()`,
+`unbind()` and `reset()` mid-build: the newer binding always wins, and the in-flight caller gets it too.
+
 To substitute before the OS is even built, pass a pre-bound container:
 
 ```python

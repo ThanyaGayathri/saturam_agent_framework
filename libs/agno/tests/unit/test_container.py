@@ -472,6 +472,202 @@ async def test_cross_task_deadlock_is_reported_not_hung():
     assert any(isinstance(r, ContainerError) for r in results)
 
 
+# -- Bindings changed while an async factory is suspended -----------------------------
+#
+# ``aresolve`` picks a binding, then awaits its factory. Anything that changes the binding
+# in that window used to be undone by the resuming task, which cached a value built from
+# the superseded binding -- so both the in-flight caller and everyone after it got the old
+# implementation, and an ``override`` opened across the build was silently defeated.
+
+
+def _suspended_store(tag: str):
+    """An async singleton factory returning ``Store(tag)``, plus gates to drive it.
+
+    ``started`` fires once the factory is inside the await, so a test can change the
+    binding at exactly the point where the old code would go on to publish the result.
+    """
+    started = asyncio.Event()
+    release = asyncio.Event()
+    builds = []
+
+    async def factory(_c):
+        started.set()
+        await release.wait()
+        store = Store(url=tag)
+        builds.append(store)
+        return store
+
+    return factory, started, release, builds
+
+
+@pytest.mark.asyncio
+async def test_rebinding_during_an_async_build_does_not_cache_the_old_instance():
+    """The regression this section exists for: a rebind must win over an in-flight build."""
+    c = Container()
+    factory, started, release, builds = _suspended_store("async://old")
+    c.bind(Store, factory)
+
+    resolving = asyncio.create_task(c.aresolve(Store))
+    await started.wait()
+    c.bind(Store, lambda _c: Store(url="async://new"))
+    release.set()
+
+    # The in-flight caller is retried against the new binding rather than handed the
+    # value its own factory built, and nothing stale reaches the cache.
+    assert (await resolving).url == "async://new"
+    assert c.resolve(Store).url == "async://new"
+    assert len(builds) == 1
+    _assert_no_async_bookkeeping(c)
+
+
+@pytest.mark.asyncio
+async def test_rebinding_to_a_sync_factory_during_an_async_build():
+    """The retry re-reads the binding, so the replacement need not be async."""
+    c = Container()
+    factory, started, release, _builds = _suspended_store("async://old")
+    c.bind(Store, factory)
+
+    resolving = asyncio.create_task(c.aresolve(Store))
+    await started.wait()
+    c.bind(Store, lambda _c: FakeStore())
+    release.set()
+
+    assert isinstance(await resolving, FakeStore)
+    assert isinstance(c.resolve(Store), FakeStore)
+
+
+@pytest.mark.asyncio
+async def test_bind_instance_during_an_async_build_is_not_overwritten():
+    """An instance bound mid-build is already in the cache, and stays the one on offer."""
+    c = Container()
+    factory, started, release, _builds = _suspended_store("async://old")
+    c.bind(Store, factory)
+
+    resolving = asyncio.create_task(c.aresolve(Store))
+    await started.wait()
+    fake = FakeStore()
+    c.bind_instance(Store, fake)
+    release.set()
+
+    assert await resolving is fake
+    assert c.resolve(Store) is fake
+
+
+@pytest.mark.asyncio
+async def test_override_opened_during_an_async_build_is_not_defeated():
+    """``override`` is the documented test seam, so an in-flight build must not poison it."""
+    c = Container()
+    factory, started, release, _builds = _suspended_store("postgres://real")
+    c.bind(Store, factory)
+
+    resolving = asyncio.create_task(c.aresolve(Store))
+    await started.wait()
+
+    with c.override(Store, FakeStore()):
+        release.set()
+        assert isinstance(await resolving, FakeStore)
+        assert isinstance(c.resolve(Store), FakeStore)
+
+    # Exiting restores the real binding, and nothing built during the block survived.
+    assert Store not in c._instances
+    assert (await c.aresolve(Store)).url == "postgres://real"
+
+
+@pytest.mark.asyncio
+async def test_unbinding_during_an_async_build_leaves_nothing_cached():
+    c = Container()
+    factory, started, release, _builds = _suspended_store("async://old")
+    c.bind(Store, factory)
+    c.bind(Indexer, lambda c_: Indexer(store=Store()))
+
+    resolving = asyncio.create_task(c.aresolve(Store))
+    await started.wait()
+    c.unbind(Store)
+    release.set()
+
+    with pytest.raises(ContainerError, match="No binding registered"):
+        await resolving
+    assert Store not in c._instances
+    _assert_no_async_bookkeeping(c)
+
+
+@pytest.mark.asyncio
+async def test_reset_during_an_async_build_rebuilds_rather_than_republishes():
+    """``reset`` promises the next resolve rebuilds; a build already in flight is not it.
+
+    The binding is untouched here, so identity alone would let the stale value through --
+    this is what the cache epoch is for.
+    """
+    c = Container()
+    builds = []
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def build_store(_c):
+        if not builds:
+            started.set()
+            await release.wait()
+        store = Store(url=f"async://{len(builds)}")
+        builds.append(store)
+        return store
+
+    c.bind(Store, build_store)
+
+    resolving = asyncio.create_task(c.aresolve(Store))
+    await started.wait()
+    c.reset()
+    release.set()
+
+    assert (await resolving).url == "async://1"
+    assert len(builds) == 2
+    assert c.resolve(Store).url == "async://1"
+
+
+@pytest.mark.asyncio
+async def test_endless_rebinding_raises_instead_of_spinning():
+    """Retrying is bounded: a binding replaced on every attempt is a bug, not contention."""
+    c = Container()
+    attempts = []
+
+    async def build_store(c_):
+        attempts.append(1)
+        await asyncio.sleep(0)
+        # Supersede the binding this very build was chosen from, every time.
+        c_.bind(Store, build_store)
+        return Store()
+
+    c.bind(Store, build_store)
+
+    with pytest.raises(ContainerError, match="Store"):
+        await asyncio.wait_for(c.aresolve(Store), timeout=5)
+
+    assert len(attempts) == 8
+    assert Store not in c._instances
+    _assert_no_async_bookkeeping(c)
+
+
+def test_sync_factory_that_rebinds_its_own_token_is_not_cached():
+    """The sync path holds the container lock throughout, so only a factory can do this.
+
+    It is not retried -- re-running a factory that rebinds itself would never terminate --
+    but its result must still not be cached over the newer binding.
+    """
+    c = Container()
+    builds = []
+
+    def build_store(c_):
+        builds.append(1)
+        c_.bind(Store, lambda _c: Store(url="sync://replacement"))
+        return Store(url="sync://original")
+
+    c.bind(Store, build_store)
+
+    assert c.resolve(Store).url == "sync://original"
+    assert len(builds) == 1
+    # The replacement is in force from here on: nothing stale was cached over it.
+    assert c.resolve(Store).url == "sync://replacement"
+
+
 @pytest.mark.asyncio
 async def test_atry_resolve(container):
     assert await container.atry_resolve(FakeStore) is None

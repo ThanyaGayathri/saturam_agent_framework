@@ -121,7 +121,10 @@ Layer placement (ADR 0001):
 
 ### Negative / follow-on work
 
-- A hand-written container means we own its behaviour (thread/task safety, cycle detection) rather than a library.
+- A hand-written container means we own its behaviour (thread/task safety, cycle detection) rather than a library. Three
+  invariants have already needed fixing during review — per-task bookkeeping unwound on every path, cross-task deadlock
+  detection, and refusing to cache a value built from a binding that was replaced while its factory was suspended. Each
+  is pinned by tests; the cost is real but bounded, and confined to one file.
 - Most of `os/app.py` still constructs collaborators inline; migration is incremental and deliberately out of scope.
 - Provider/plugin discovery and `Registry` constructor registration remain EGPT-1.9.
 

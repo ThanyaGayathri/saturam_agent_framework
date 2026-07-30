@@ -45,6 +45,12 @@ Factory = Callable[["Container"], Any]
 
 _MISSING = object()
 
+# How many times ``aresolve`` rebuilds a token whose binding was replaced while its factory
+# was suspended. A retry only happens when something rebinds concurrently, so exhausting
+# this many is a rebind loop -- a bug -- and spinning on it forever would be worse than a
+# clear error.
+_MAX_RESOLVE_ATTEMPTS = 8
+
 __all__ = ["Container", "ContainerError", "Factory", "Token"]
 
 
@@ -81,6 +87,12 @@ class Container:
         self._parent = parent
         self._bindings: Dict[Token, _Binding] = {}
         self._instances: Dict[Token, Any] = {}
+        # Bumped by every operation that clears the instance cache wholesale (``reset``,
+        # and the override swap/restore). A build already in flight when one of those runs
+        # may embed a dependency the clear was meant to discard, so it must not publish.
+        # Per-token invalidation needs no counter: ``_Binding`` objects are rebuilt by
+        # ``bind``/``bind_instance``, so identity comparison already catches a rebind.
+        self._cache_epoch = 0
         # Guards the binding/instance maps and the in-progress stack. Reentrant so a
         # factory can resolve its own dependencies on the same thread.
         self._lock = RLock()
@@ -187,6 +199,7 @@ class Container:
                 self._instances.clear()
             else:
                 self._instances.pop(token, None)
+            self._cache_epoch += 1
 
     # -- Resolution ----------------------------------------------------------------
 
@@ -220,6 +233,7 @@ class Container:
                     # so delegate and share the parent's instance rather than duplicating.
                     return self._resolve_from_parent(token)
                 binding = self._inherited_binding(token)
+            epoch = self._cache_epoch
 
             self._enter(token)
             try:
@@ -233,7 +247,12 @@ class Container:
                     f"{_token_name(token)} is bound to an async factory in container '{self.name}'. "
                     "Resolve it with `await container.aresolve(...)`."
                 )
-            if binding.singleton:
+            if binding.singleton and self._is_current(token, binding, epoch):
+                # The factory ran under the container-wide lock, so no other thread could
+                # rebind mid-build: the only way to get here is a factory that rebound (or
+                # reset) its own token while constructing. Hand back what it built, but do
+                # not cache it over the newer binding. Unlike ``aresolve`` this does not
+                # retry -- re-running a factory that rebinds itself would never terminate.
                 self._instances[token] = value
             return value
 
@@ -260,21 +279,13 @@ class Container:
     async def aresolve(self, token: str) -> Any: ...
 
     async def aresolve(self, token: Token) -> Any:
-        """Async variant of ``resolve`` that also supports async factories."""
-        with self._lock:
-            cached = self._instances.get(token, _MISSING)
-            if cached is not _MISSING:
-                return cached
-            binding = self._bindings.get(token)
-            delegate = binding is None and not self._bindings
+        """Async variant of ``resolve`` that also supports async factories.
 
-        if delegate:
-            if self._parent is None:
-                raise ContainerError(f"No binding registered for {_token_name(token)} in container '{self.name}'.")
-            return await self._parent.aresolve(token)
-        if binding is None:
-            binding = self._inherited_binding(token)
-
+        A factory is suspended across awaits, so the binding it was chosen from can be
+        replaced, removed or overridden before it returns. Such a value is discarded rather
+        than cached over the newer binding, and the resolve is retried against whatever is
+        bound now -- so the caller gets the current implementation, not a superseded one.
+        """
         # Every exit path below must unwind the per-task bookkeeping: its keys are
         # ``id(task)``, which CPython reuses once the task is collected, so a leaked
         # entry does not merely grow the dict -- it can make a later, unrelated task
@@ -285,38 +296,67 @@ class Container:
                 chain = " -> ".join(_token_name(t) for t in [*stack, token])
                 raise ContainerError(f"Cyclic dependency detected while resolving: {chain}")
 
-            # Transient bindings share no instance, so serializing them would only add
-            # latency; only singletons need the per-token lock.
-            if not binding.singleton:
-                return await self._build_async(token, binding, stack)
+            # The binding is re-read on every attempt: a retry exists precisely because the
+            # one read last time is no longer in force.
+            for _attempt in range(_MAX_RESOLVE_ATTEMPTS):
+                with self._lock:
+                    cached = self._instances.get(token, _MISSING)
+                    if cached is not _MISSING:
+                        return cached
+                    binding = self._bindings.get(token)
+                    delegate = binding is None and not self._bindings
+                    epoch = self._cache_epoch
 
-            self._enter_async_wait(token)
-            try:
-                async with self._async_lock(token):
-                    self._claim_async_owner(token)
-                    try:
+                if delegate:
+                    if self._parent is None:
+                        raise ContainerError(
+                            f"No binding registered for {_token_name(token)} in container '{self.name}'."
+                        )
+                    return await self._parent.aresolve(token)
+                if binding is None:
+                    binding = self._inherited_binding(token)
+
+                # Transient bindings share no instance, so serializing them would only add
+                # latency; only singletons need the per-token lock. Nothing is published
+                # either, so a rebind mid-build cannot poison anything -- no retry needed.
+                if not binding.singleton:
+                    return await self._build_async(token, binding, stack)
+
+                self._enter_async_wait(token)
+                try:
+                    async with self._async_lock(token):
+                        self._claim_async_owner(token)
+                        try:
+                            with self._lock:
+                                # Whoever lost the race for the lock finds the instance already
+                                # built. Claiming ownership above happens first so the release is
+                                # paired, and this return is inside the try for the same reason.
+                                cached = self._instances.get(token, _MISSING)
+                                if cached is not _MISSING:
+                                    return cached
+                            value = await self._build_async(token, binding, stack)
+                        finally:
+                            self._release_async_owner(token)
+
                         with self._lock:
-                            # Whoever lost the race for the lock finds the instance already
-                            # built. Claiming ownership above happens first so the release is
-                            # paired, and this return is inside the try for the same reason.
+                            # A sync resolve on another thread can slip in while we await, so the
+                            # first instance cached wins and ours is discarded -- a token bound as
+                            # a singleton must never hand out two objects.
                             cached = self._instances.get(token, _MISSING)
                             if cached is not _MISSING:
                                 return cached
-                        value = await self._build_async(token, binding, stack)
-                    finally:
-                        self._release_async_owner(token)
+                            if self._is_current(token, binding, epoch):
+                                self._instances[token] = value
+                                return value
+                    # Superseded. Leaving the ``async with`` first is what makes the retry
+                    # able to take the per-token lock again instead of deadlocking on it.
+                finally:
+                    self._clear_async_wait()
 
-                    with self._lock:
-                        # A sync resolve on another thread can slip in while we await, so the
-                        # first instance cached wins and ours is discarded -- a token bound as
-                        # a singleton must never hand out two objects.
-                        cached = self._instances.get(token, _MISSING)
-                        if cached is not _MISSING:
-                            return cached
-                        self._instances[token] = value
-                    return value
-            finally:
-                self._clear_async_wait()
+            raise ContainerError(
+                f"Gave up resolving {_token_name(token)} in container '{self.name}' after "
+                f"{_MAX_RESOLVE_ATTEMPTS} attempts: its binding was replaced every time its factory ran."
+            )
         finally:
             self._release_async_stack()
 
@@ -359,8 +399,8 @@ class Container:
             raise ContainerError(f"No binding registered for {_token_name(token)} in container '{self.name}'.")
         return self._parent.resolve(token)
 
-    def _inherited_binding(self, token: Token) -> _Binding:
-        """Find a binding on an ancestor, to be built with this container as context."""
+    def _ancestor_binding(self, token: Token) -> Optional[_Binding]:
+        """Walk the parent chain for a binding, without consulting this container."""
         node = self._parent
         while node is not None:
             with node._lock:
@@ -368,7 +408,34 @@ class Container:
             if binding is not None:
                 return binding
             node = node._parent
-        raise ContainerError(f"No binding registered for {_token_name(token)} in container '{self.name}'.")
+        return None
+
+    def _inherited_binding(self, token: Token) -> _Binding:
+        """Find a binding on an ancestor, to be built with this container as context."""
+        binding = self._ancestor_binding(token)
+        if binding is None:
+            raise ContainerError(f"No binding registered for {_token_name(token)} in container '{self.name}'.")
+        return binding
+
+    def _current_binding(self, token: Token) -> Optional[_Binding]:
+        """The binding this container would use for ``token`` right now, or None if unbound.
+
+        Mirrors the lookup ``resolve``/``aresolve`` perform -- local binding first, then the
+        ancestor chain -- but reports absence instead of raising, so it can be used to ask
+        "is the binding I captured still the one in force?".
+        """
+        with self._lock:
+            binding = self._bindings.get(token)
+        return binding if binding is not None else self._ancestor_binding(token)
+
+    def _is_current(self, token: Token, binding: _Binding, epoch: int) -> bool:
+        """Whether a value built from ``binding`` at ``epoch`` may still be published.
+
+        Two ways it may not be: the binding was replaced or removed while the factory ran
+        (identity), or the whole instance cache was invalidated under it (epoch). Callers
+        hold ``self._lock``, so the answer cannot go stale before they act on it.
+        """
+        return self._cache_epoch == epoch and self._current_binding(token) is binding
 
     def _enter(self, token: Token) -> None:
         self._check_cycle(token)
@@ -494,6 +561,7 @@ class Container:
             snapshot = dict(self._instances)
             self._instances.clear()
             self._bindings[token] = binding
+            self._cache_epoch += 1
             return previous_binding, snapshot
 
     def _restore(
@@ -511,6 +579,7 @@ class Container:
             # substituted implementation -- and the pre-block cache is put back exactly.
             self._instances.clear()
             self._instances.update(snapshot)
+            self._cache_epoch += 1
 
 
 class _Override:
