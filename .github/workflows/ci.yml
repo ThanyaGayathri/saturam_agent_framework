@@ -162,10 +162,15 @@ jobs:
           # and the asyncio_mode="auto" per-file event loops behave as they do serially.
           # --timeout turns a wedged test into a loud failure instead of a job that runs
           # until the runner's own limit; 180s is well above the slowest legitimate test.
+          # --max-worker-restart=0: when a worker dies (OOM, execnet transport failure,
+          # pytest-timeout killing a wedged test), xdist's default is to replace it and
+          # keep going. On py3.10 that recovery has hung at ~99% until the job timeout,
+          # burning 25 minutes with no FAILED summary. Fail fast instead.
           # log_cli stays on for local runs (it is set in pyproject.toml) but is turned off here:
           # under -n it interleaves across workers, and it emitted ~24k lines per CI run.
           python -m pytest \
             -n auto --dist loadfile \
+            --max-worker-restart=0 \
             --timeout=180 --timeout-method=thread \
             -o log_cli=false \
             -p no:cacheprovider \
