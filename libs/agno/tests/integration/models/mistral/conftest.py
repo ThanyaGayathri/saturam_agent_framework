@@ -10,8 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 QUARANTINE_REASON = (
-    "Quarantined (EGPT-0.10): mistral extra disabled pending PyPI quarantine; "
-    "run manually with egpt[mistral]"
+    "Quarantined (EGPT-0.10): mistral extra disabled pending PyPI quarantine; run manually with egpt[mistral]"
 )
 
 

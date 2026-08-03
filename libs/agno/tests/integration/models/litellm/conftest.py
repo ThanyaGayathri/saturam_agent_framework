@@ -10,8 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 QUARANTINE_REASON = (
-    "Quarantined (EGPT-0.10): litellm extra disabled pending PyPI security review; "
-    "run manually with egpt[litellm]"
+    "Quarantined (EGPT-0.10): litellm extra disabled pending PyPI security review; run manually with egpt[litellm]"
 )
 
 

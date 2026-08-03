@@ -16,7 +16,18 @@ ROOT = Path(__file__).resolve().parents[5]
 
 def _pip_install_target(target: Path, wheel: Path) -> None:
     if shutil.which("uv"):
-        cmd = ["uv", "pip", "install", "-q", "--no-deps", "--python", sys.executable, "--target", str(target), str(wheel)]
+        cmd = [
+            "uv",
+            "pip",
+            "install",
+            "-q",
+            "--no-deps",
+            "--python",
+            sys.executable,
+            "--target",
+            str(target),
+            str(wheel),
+        ]
     else:
         cmd = [sys.executable, "-m", "pip", "install", "-q", "--no-deps", "--target", str(target), str(wheel)]
     subprocess.run(cmd, check=True)
