@@ -51,7 +51,10 @@ The `check` subcommand greps for `agno`/`agentos` and fails on any hit except:
   (pulled in by `egpt[os]`), not a brand reference.
 - `AGENTOS_URL` and `AGENTOS_MCP_SIGNING_KEY` — env var names the framework
   and egptctl still read (`egptctl/discovery.py` hardcodes `AGENTOS_URL`).
+- `agno_pat_` — the service-account token prefix the framework still mints
+  (`libs/agno/egpt/os/service_accounts.py` `TOKEN_PREFIX`).
 - `NOTICE` — the Apache-2.0 attribution to the upstream template.
+- `LICENSE` — retains the upstream copyright notice, as Apache-2.0 requires.
 
 ## Version pinning
 

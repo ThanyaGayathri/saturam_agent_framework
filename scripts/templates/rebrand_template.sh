@@ -30,16 +30,20 @@ FLAVORS=(docker aws fly gcp railway)
 # Grep for upstream-brand leakage. Allowed residuals:
 #   - openinference-instrumentation-agno: real third-party PyPI package
 #   - AGENTOS_URL / AGENTOS_MCP_SIGNING_KEY: env names the framework still reads
+#   - agno_pat_: the service-account token prefix the framework still mints
+#     (libs/agno/egpt/os/service_accounts.py TOKEN_PREFIX)
 #   - NOTICE: Apache-2.0 attribution to the upstream template
+#   - LICENSE: retains the upstream copyright notice, as Apache-2.0 requires
 # The pattern requires "agno" not preceded by "i" so that ordinary words like
 # "diagnostic" / "diagnose" (which contain "agno") do not trip the check.
 check_dir() {
     local dir="$1"
     local hits
-    hits="$(grep -rIn --exclude-dir=.git --exclude=NOTICE -i -E '(^|[^i])agno|agentos' "${dir}" \
+    hits="$(grep -rIn --exclude-dir=.git --exclude=NOTICE --exclude=LICENSE -i -E '(^|[^i])agno|agentos' "${dir}" \
         | grep -v 'openinference-instrumentation-agno' \
         | grep -v 'AGENTOS_URL' \
-        | grep -v 'AGENTOS_MCP_SIGNING_KEY' || true)"
+        | grep -v 'AGENTOS_MCP_SIGNING_KEY' \
+        | grep -v 'agno_pat_' || true)"
     if [[ -n "${hits}" ]]; then
         echo "Upstream-brand leakage found in ${dir}:"
         echo ""
