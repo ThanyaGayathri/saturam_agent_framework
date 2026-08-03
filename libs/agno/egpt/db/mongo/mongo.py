@@ -64,6 +64,7 @@ class MongoDb(BaseDb):
         learnings_collection: Optional[str] = None,
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
+        server_selection_timeout_ms: Optional[int] = None,
     ):
         """
         Interface for interacting with a MongoDB database.
@@ -84,6 +85,10 @@ class MongoDb(BaseDb):
             schedule_runs_collection (Optional[str]): Name of the collection to store schedule runs.
             learnings_collection (Optional[str]): Name of the collection to store learnings.
             id (Optional[str]): ID of the database.
+            server_selection_timeout_ms (Optional[int]): How long, in milliseconds, a client created
+                from db_url waits for a reachable server before giving up. Ignored when db_client is
+                supplied. Defaults to PyMongo's own default (30s); lower it when a fast failure is
+                preferable to a long block against an unreachable host.
 
         Raises:
             ValueError: If neither db_url nor db_client is provided.
@@ -112,7 +117,10 @@ class MongoDb(BaseDb):
 
         _client: Optional[MongoClient] = db_client
         if _client is None and db_url is not None:
-            _client = MongoClient(db_url, driver=DRIVER_METADATA)
+            client_kwargs: Dict[str, Any] = {}
+            if server_selection_timeout_ms is not None:
+                client_kwargs["serverSelectionTimeoutMS"] = server_selection_timeout_ms
+            _client = MongoClient(db_url, driver=DRIVER_METADATA, **client_kwargs)
         if _client is None:
             raise ValueError("One of db_url or db_client must be provided")
 

@@ -8,6 +8,20 @@ from egpt.db.base import SessionType
 from egpt.db.mongo import AsyncMongoDb
 
 
+@pytest.fixture(autouse=True)
+def no_index_io():
+    """Keep this module offline.
+
+    `_get_or_create_collection` calls `create_collection_indexes_async`, which issues a real
+    `create_index` against `db_url`. There is no MongoDB in CI, so every collection touch used to
+    block for PyMongo's 30s server-selection default before the error was swallowed as a warning —
+    ~180s across this file. Everything asserted here is cache/flag bookkeeping, not index creation,
+    so stubbing the index call keeps the coverage and drops the wait.
+    """
+    with patch("egpt.db.mongo.async_mongo.create_collection_indexes_async", new=AsyncMock()) as mock:
+        yield mock
+
+
 def test_id_is_deterministic():
     """Test that two db instances with same URL have same ID"""
     db1 = AsyncMongoDb(db_url="mongodb://localhost:27017", db_name="test_db")
@@ -133,7 +147,7 @@ async def test_initialization_flags_cleared_on_event_loop_change():
 
 
 @pytest.mark.asyncio
-async def test_indexes_awaited_properly():
+async def test_indexes_awaited_properly(no_index_io):
     """Test that index creation is properly awaited.
 
     The second part of the fix ensures create_collection_indexes_async
@@ -145,6 +159,9 @@ async def test_indexes_awaited_properly():
     # This should complete without hanging or leaving pending futures
     collection = await db._get_collection("sessions", create_collection_if_not_found=True)
     assert collection is not None
+
+    # Awaited, not merely called: a bare call would leave a pending coroutine behind
+    assert no_index_io.await_count == 1
 
     # Verify no pending tasks from our code (exclude current task and PyMongo/Motor internals)
     current_task = asyncio.current_task()
