@@ -47,7 +47,7 @@ def test_create_scaffolds_project(fake_git, tmp_path):
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
 
-    assert payload["template"] == "agentos-docker"
+    assert payload["template"] == "docker"
     project = tmp_path / "my-os"
     assert (project / "docker-compose.yml").exists()
     assert not (project / ".git").exists()
@@ -56,7 +56,7 @@ def test_create_scaffolds_project(fake_git, tmp_path):
     assert not (project / ".env").exists()
     assert "secrets" not in payload
     clone_args = fake_git.calls[0]
-    assert "https://github.com/agno-agi/agentos-docker" in clone_args
+    assert "https://github.com/Saturam-Inc/egpt-os-docker" in clone_args
 
 
 @pytest.mark.parametrize("name", ["../escape", "a/b", "/tmp/abs", ".."])
@@ -80,7 +80,7 @@ def test_create_unknown_template(fake_git):
     assert result.exit_code == 1
     payload = json.loads(result.output)
     assert "Unknown template" in payload["error"]
-    assert "agentos-docker" in payload["hint"]
+    assert "docker" in payload["hint"]
 
 
 @pytest.mark.parametrize("template", sorted(create_module.TEMPLATES))
@@ -89,6 +89,15 @@ def test_create_known_templates_clone_their_repo(fake_git, template):
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)["template"] == template
     assert create_module.TEMPLATES[template] in fake_git.calls[0]
+
+
+def test_templates_carry_no_upstream_brand():
+    """Regression guard for EGPT-0.11: templates must come from our own org."""
+    for key, url in create_module.TEMPLATES.items():
+        assert "agno" not in key.lower()
+        assert "agno" not in url.lower()
+        assert url.startswith("https://github.com/Saturam-Inc/")
+    assert create_module.DEFAULT_TEMPLATE in create_module.TEMPLATES
 
 
 def test_create_custom_url(fake_git):
@@ -104,7 +113,10 @@ def test_create_clone_failure(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["create", "my-os", "--json"])
     assert result.exit_code == 1
-    assert "git clone failed" in json.loads(result.output)["error"]
+    payload = json.loads(result.output)
+    assert "git clone failed" in payload["error"]
+    # Templates are private: a failed clone should point at git auth.
+    assert "authenticate git" in payload["hint"]
 
 
 # -- infra -----------------------------------------------------------------------------

@@ -18,14 +18,14 @@ from egptctl.console import emit_json, print_info, print_success
 from egptctl.errors import CLIError
 
 TEMPLATES: Dict[str, str] = {
-    "agentos-docker": "https://github.com/agno-agi/agentos-docker",
-    "agentos-aws": "https://github.com/agno-agi/agentos-aws",
-    "agentos-fly": "https://github.com/agno-agi/agentos-fly",
-    "agentos-gcp": "https://github.com/agno-agi/agentos-gcp",
-    "agentos-railway": "https://github.com/agno-agi/agentos-railway",
+    "docker": "https://github.com/Saturam-Inc/egpt-os-docker",
+    "aws": "https://github.com/Saturam-Inc/egpt-os-aws",
+    "fly": "https://github.com/Saturam-Inc/egpt-os-fly",
+    "gcp": "https://github.com/Saturam-Inc/egpt-os-gcp",
+    "railway": "https://github.com/Saturam-Inc/egpt-os-railway",
 }
 
-DEFAULT_TEMPLATE = "agentos-docker"
+DEFAULT_TEMPLATE = "docker"
 
 GIT_TIMEOUT = 300.0
 
@@ -45,7 +45,11 @@ def _clone(repo_url: str, target: Path) -> None:
         raise CLIError("git clone timed out after " + str(int(GIT_TIMEOUT)) + "s: " + repo_url)
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
-        raise CLIError("git clone failed: " + (detail or repo_url))
+        raise CLIError(
+            "git clone failed: " + (detail or repo_url),
+            hint="Starter templates are private repositories: authenticate git with GitHub "
+            "(gh auth login, or a credential helper with access to Saturam-Inc) and retry.",
+        )
     shutil.rmtree(target / ".git", ignore_errors=True)
 
 
