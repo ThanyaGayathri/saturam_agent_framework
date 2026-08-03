@@ -197,7 +197,11 @@ chonkie = [
 csv = ["aiofiles"]
 docx = ["python-docx"]
 excel = ["openpyxl", "xlrd"]
-markdown = ["unstructured<0.18.31", "markdown", "aiofiles"]
+# nltk 3.10.1 blocks imports of its own dependencies whenever the virtualenv
+# lives under the process CWD (its new CWE-427 import hook treats site-packages
+# inside CWD as hijacking), which breaks unstructured's import in any
+# venv-in-project layout, including CI.
+markdown = ["unstructured<0.18.31", "markdown", "aiofiles", "nltk<3.10.1"]
 pdf = ["pypdf", "rapidocr_onnxruntime"]
 pptx = ["python-pptx"]
 text = ["aiofiles"]
