@@ -87,6 +87,7 @@ PRE_RENAMES = [
 # more specific patterns come first so they win over the bare-word renames.
 RENAMES = [
     (re.compile(r"github\.com/agno-agi/agentos-(docker|aws|fly|gcp|railway)"), r"github.com/Saturam-Inc/egpt-os-\1"),
+    (re.compile(r"github\.com/agno-agi/agno\b"), "github.com/Saturam-Inc/saturam-agent-framework"),
     (re.compile(r"agno-agi"), "Saturam-Inc"),
     (re.compile(r"agnoctl"), "egptctl"),
     (re.compile(r"agnohq/pgvector:18"), "pgvector/pgvector:pg18"),
