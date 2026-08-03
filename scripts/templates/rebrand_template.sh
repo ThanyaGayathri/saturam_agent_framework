@@ -39,7 +39,7 @@ FLAVORS=(docker aws fly gcp railway)
 check_dir() {
     local dir="$1"
     local hits
-    hits="$(grep -rIn --exclude-dir=.git --exclude=NOTICE --exclude=LICENSE -i -E '(^|[^i])agno|agentos' "${dir}" \
+    hits="$(grep -rIn --exclude-dir=.git --exclude-dir=.venv --exclude-dir=__pycache__ --exclude-dir=.mypy_cache --exclude-dir=.ruff_cache --exclude=NOTICE --exclude=LICENSE -i -E '(^|[^i])agno|agentos' "${dir}" \
         | grep -v 'openinference-instrumentation-agno' \
         | grep -v 'AGENTOS_URL' \
         | grep -v 'AGENTOS_MCP_SIGNING_KEY' \
