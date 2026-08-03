@@ -110,9 +110,10 @@ class DockerContainer(DockerResource):
     container_status: Optional[str] = None
 
     def run_container(self, docker_client: DockerApiClient) -> Optional[Any]:
+        from rich.progress import Progress, SpinnerColumn, TextColumn
+
         from docker import DockerClient
         from docker.errors import APIError, ImageNotFound
-        from rich.progress import Progress, SpinnerColumn, TextColumn
 
         print_info("Starting container: {}".format(self.name))
         try:
