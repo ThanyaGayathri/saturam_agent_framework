@@ -112,7 +112,9 @@ egpt connect                    # writes the "egpt" entry
 claude mcp remove --scope user agno
 ```
 
-Pass `--server-name agno` to keep writing under the old key instead.
+`egpt status` reports a leftover `agno` entry per client — as `legacy_entry` under `--json`, and as a removal hint in the human output — so you can find the stale ones without grepping each config by hand.
+
+Pass `--server-name agno` to keep writing under the old key instead; the leftover check is skipped in that case, since the old key is then the one you asked for.
 
 ### Outbound identity
 
