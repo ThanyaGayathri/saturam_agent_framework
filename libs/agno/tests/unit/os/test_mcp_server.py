@@ -646,26 +646,45 @@ _MCP_HEADERS = {"Content-Type": "application/json", "Accept": "application/json,
 # This points at a Starlette BaseHTTPMiddleware/anyio request-body-stream teardown interaction that
 # differs between Python 3.10 and 3.11+, not a bug in this repo's request-handling logic.
 #
-# Group 2 -- test_open_mode_with_db_stays_open_and_ignores_stale_pats, added to the quarantine
-# later and INTERMITTENT rather than deterministic: it passed on py3.10 in the CI run for PR #25
-# and then wedged on main with a byte-identical tree (`git diff df44c1d 743ba9f` is empty), taking
-# out runs 30906120666 and 30912122340. Because it is intermittent, the isolated per-test sweep
-# that found group 1 did not catch it. It does not fit the group 1 shape at all: both of its
-# requests return 200 and the instance installs no auth middleware, so nothing short-circuits.
-# What it has that no other quarantined test has is a SqliteDb driven through the full EgptOS
-# lifespan, so the suspected wedge point is db teardown (egpt/os/app.py::_close_databases and the
-# aiosqlite connection thread) rather than the request body stream. That is a hypothesis -- it has
-# not been reproduced under a debugger or confirmed.
+# Group 2 -- test_open_mode_with_db_stays_open_and_ignores_stale_pats. INTERMITTENT rather than
+# deterministic, which is why the isolated per-test sweep that found group 1 missed it: it passed
+# on py3.10 in the CI run for PR #25 and then wedged on main with a byte-identical tree
+# (`git diff df44c1d 743ba9f` is empty), taking out runs 30906120666 and 30912122340.
 #
-# Root cause not fixed for either group -- needs its own investigation, not a quick patch to
-# auth-adjacent code. Reproducing group 2 requires looping the test on a real py3.10 interpreter;
-# a single run frequently passes.
+# Root cause CONFIRMED for this one, by reproducing it in a linux/amd64 python:3.10.20 container
+# (~1 wedge per 4-6 runs of this file) and dumping the pending asyncio tasks:
+#
+#   Task <test_open_mode_...> running at test_mcp_server.py, in `async with _mcp_http_client(...)`
+#     wait_for=<Task <docket.worker.Worker.run_forever()> wait_for=<taskgroup.install.WaitTaskRescheduled>>
+#
+# _mcp_http_client enters app.router.lifespan_context. fastmcp's own lifespan
+# (fastmcp/server/server.py, `worker_task = asyncio.create_task(worker.run_forever())` ... `finally:
+# worker_task.cancel(); await worker_task`) unconditionally starts a pydocket Worker plus six
+# background tasks -- there is no opt-out in DocketSettings, and pydocket is a hard dependency
+# across the whole fastmcp>=2.14.1,<3.0.0 range we allow. On py3.10 that cancel/await lands on the
+# `taskgroup` and `backports.asyncio.runner` shims (backports of asyncio.TaskGroup / asyncio.Runner,
+# installed ONLY below 3.11); the cancellation is lost and run_forever never completes, so the
+# lifespan exit blocks forever. On 3.11+ the native implementations are used and it does not.
+#
+# So this is an upstream fastmcp/pydocket/taskgroup interaction on py3.10, not a bug in this repo
+# and not fixable by pinning within our allowed range. It is also NOT the group 1 explanation
+# above: no aiosqlite thread and no undrained request body are involved, and both of this test's
+# requests return 200 through an instance with no auth middleware at all.
+#
+# Group 1's documented cause predates this finding and has not been re-checked against it. Those
+# tests go through the same _mcp_http_client -> same fastmcp lifespan -> same Worker, so they may
+# well share this root cause rather than the middleware one; worth verifying before anyone spends
+# time on the Starlette/anyio theory.
+#
+# Neither group is fixed. Reproducing group 2 needs a LINUX py3.10 interpreter in a loop -- a
+# single run usually passes, and macOS was not observed to reproduce it.
 _PY310_HANGS_REASON = (
     "Quarantined (EGPT-0.10 follow-up): hangs (not fails) on Python 3.10. Six of these are "
     "deterministic and reproduce in isolation (Starlette BaseHTTPMiddleware/anyio teardown on an "
     "undrained short-circuited request); test_open_mode_with_db_stays_open_and_ignores_stale_pats "
-    "is intermittent and suspected to wedge in EgptOS db teardown instead. Not a bug in this "
-    "repo's request handling. See the comment above _MCP_HEADERS."
+    "is intermittent and confirmed to deadlock in fastmcp's lifespan awaiting a pydocket Worker "
+    "that the py3.10 taskgroup backport fails to cancel. Upstream, not a bug in this repo. "
+    "See the comment above _MCP_HEADERS."
 )
 _py310_hangs = pytest.mark.skipif(sys.version_info < (3, 11), reason=_PY310_HANGS_REASON)
 
