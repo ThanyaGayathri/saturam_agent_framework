@@ -6,6 +6,7 @@ import typer
 
 from egptctl import CLI_NAME
 from egptctl.clients import build_adapters
+from egptctl.clients.base import DEFAULT_MCP_SERVER_NAME
 from egptctl.commands._common import handle_cli_error
 from egptctl.console import emit_json, print_info, print_success
 from egptctl.discovery import discover
@@ -14,7 +15,9 @@ from egptctl.errors import CLIError
 
 def status(
     url: Optional[str] = typer.Option(None, "--url", help="EgptOS base URL (default: autodiscover on localhost)."),
-    server_name: str = typer.Option("agno", "--server-name", help="MCP server entry name to look for in clients."),
+    server_name: str = typer.Option(
+        DEFAULT_MCP_SERVER_NAME, "--server-name", help="MCP server entry name to look for in clients."
+    ),
     json_output: bool = typer.Option(False, "--json", help="Emit a single JSON document for machine consumption."),
 ) -> None:
     """Show the discovered EgptOS and which coding agents are connected to it."""

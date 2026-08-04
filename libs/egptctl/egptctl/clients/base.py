@@ -17,6 +17,12 @@ from typing import Any, Dict, Optional
 
 from egptctl.errors import CLIError
 
+# Key that MCP entries are written under in every client's config. Before EGPT-0.12
+# this defaulted to "agno"; entries left under the old key are not migrated or
+# removed, so re-running `egpt connect` writes a new entry alongside them.
+DEFAULT_MCP_SERVER_NAME = "egpt"
+LEGACY_MCP_SERVER_NAME = "agno"
+
 
 @dataclass
 class ExistingEntry:

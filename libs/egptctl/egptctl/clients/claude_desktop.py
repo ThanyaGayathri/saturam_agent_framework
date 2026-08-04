@@ -7,14 +7,16 @@ it cannot point at a remote HTTP EgptOS directly. The supported bridge is `mcp-r
 this client. We write an entry that launches it with the EgptOS URL and, when auth is
 on, an Authorization header sourced from an env var so the token stays out of argv:
 
-    "agno": {
+    "egpt": {
       "command": "npx",
       "args": ["-y", "mcp-remote", "<url>", "--header", "Authorization:${EGPT_AUTH_HEADER}"],
       "env": {"EGPT_AUTH_HEADER": "Bearer <token>"}
     }
 
-The default --server-name remains "agno" so existing Claude Desktop entries keep working.
-An operator may pass --server-name egpt to write under a different key.
+The default --server-name is "egpt" (EGPT-0.12). It was "agno" in earlier versions, and
+that change is a clean break: an entry already written under the "agno" key is neither
+migrated nor removed, so it lingers until an operator deletes it by hand. Pass
+--server-name with the legacy value to keep writing under the old key.
 
 Config path is per-OS (macOS Application Support, Windows APPDATA, Linux ~/.config).
 Because the bridge runs at Claude Desktop launch time, it needs Node/npx on PATH; connect
