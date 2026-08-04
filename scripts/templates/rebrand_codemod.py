@@ -277,6 +277,12 @@ def patch_claude_settings(target: Path) -> None:
         settings.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
 
+# [P1] Platform-specific deploy path patches: wire GITHUB_TOKEN secret through each
+# cloud flavor's actual deployment commands (rasiksuhailali's review feedback).
+# The Dockerfile uses RUN --mount=type=secret,id=github_token to read the token, but
+# the codemod only wired the secret through compose.yaml and the generic build_image.sh.
+# AWS/GCP call docker build directly, Fly uses fly deploy, Railway uses railway up —
+# none forwarded GITHUB_TOKEN, causing template deployment to fail.
 def patch_aws_deploy(target: Path) -> None:
     for script in ["up.sh", "redeploy.sh"]:
         script_path = target / "scripts" / "aws" / script
@@ -337,7 +343,7 @@ def patch_dockerfile_railway(target: Path) -> None:
         "COPY scripts/install_egpt.sh ./scripts/install_egpt.sh\n"
         "ARG GITHUB_TOKEN\n"
         "RUN GITHUB_TOKEN=\"${GITHUB_TOKEN}\" bash ./scripts/install_egpt.sh --system",
-        "install egpt wheels after uv pip sync (Railway: GITHUB_TOKEN is passed as build ARG, exposed in build cache)",
+        "install egpt wheels after uv pip sync (Railway: uses ARG instead of --mount=type=secret because Railway's builder does not support BuildKit secret mounts; this means GITHUB_TOKEN is exposed in Railway's build cache—a platform limitation, not a regression)",
     )
 
 
@@ -408,6 +414,8 @@ def main() -> int:
     patch_mcp_json(target)
     patch_claude_settings(target)
 
+    # Apply platform-specific deploy path patches to wire GITHUB_TOKEN through each
+    # flavor's actual deployment command (addresses rasiksuhailali's P1 review feedback).
     if flavor == "aws":
         patch_aws_deploy(target)
     elif flavor == "gcp":

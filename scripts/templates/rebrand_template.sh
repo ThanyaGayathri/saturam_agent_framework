@@ -38,6 +38,10 @@ FLAVORS=(docker aws fly gcp railway)
 # "diagnostic" / "diagnose" (which contain "agno") do not trip the check.
 check_dir() {
     local dir="$1"
+    # [P2] Reject nonexistent/unreadable directories before grep. The trailing || true
+    # in the grep pipeline suppresses both the expected "no matches" (exit 1) AND genuine
+    # errors (exit 2). This guard ensures a typo'd path fails fast instead of silently
+    # passing the pre-publication gate (rasiksuhailali's review feedback).
     if [[ ! -d "${dir}" || ! -r "${dir}" ]]; then
         echo "Not a readable directory: ${dir}" >&2
         return 2
