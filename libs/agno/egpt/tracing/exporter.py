@@ -1,5 +1,5 @@
 """
-Custom OpenTelemetry SpanExporter that writes traces to Agno database.
+Custom OpenTelemetry SpanExporter that writes traces to EGPT database.
 """
 
 import asyncio
@@ -16,7 +16,7 @@ from egpt.utils.log import log_debug, log_error, log_warning
 
 
 class DatabaseSpanExporter(SpanExporter):
-    """Custom OpenTelemetry SpanExporter that writes to Agno database"""
+    """Custom OpenTelemetry SpanExporter that writes to EGPT database"""
 
     def __init__(self, db: Union[BaseDb, AsyncBaseDb, RemoteDb]):
         """

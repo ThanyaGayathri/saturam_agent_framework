@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import requests
 
+from egpt.brand import PRODUCT_NAME
 from egpt.tools import Toolkit
 from egpt.utils.log import log_error, log_info, logger
 
@@ -238,7 +239,7 @@ def create_apify_client(token: str) -> ApifyClient:
 
     client = ApifyClient(token)
     if http_client := getattr(client.http_client, "httpx_client", None):
-        http_client.headers["user-agent"] += "; Origin/agno"
+        http_client.headers["user-agent"] += f"; Origin/{PRODUCT_NAME.lower()}"
     return client
 
 

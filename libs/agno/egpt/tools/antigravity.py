@@ -23,7 +23,7 @@ DEFAULT_INSTRUCTIONS = dedent(
     available — e.g. multi-step research, analysing a repo, generating files, or
     running code you cannot run locally.
 
-    The sandbox persists across calls within the same Agno session, so subsequent
+    The sandbox persists across calls within the same EGPT session, so subsequent
     `run_antigravity_task` calls can build on prior files and state.
 
     Use `create_custom_antigravity_agent` / `list_antigravity_agents` /
@@ -33,7 +33,7 @@ DEFAULT_INSTRUCTIONS = dedent(
 
 
 class AntigravityTools(Toolkit):
-    """Toolkit that lets an Agno agent delegate sub-tasks to Google's Gemini Agents API.
+    """Toolkit that lets an EGPT agent delegate sub-tasks to Google's Gemini Agents API.
 
     An Antigravity sandbox is provisioned lazily on the first `run_antigravity_task` call
     and its environment_id is cached in the agent's session_state so subsequent calls
@@ -287,7 +287,7 @@ class AntigravityTools(Toolkit):
         same session. State (files, installed packages) persists.
 
         Args:
-            agent: Calling Agno agent (injected automatically by the toolkit).
+            agent: Calling EGPT agent (injected automatically by the toolkit).
             task: Natural-language task description for the Antigravity agent.
 
         Returns:
@@ -340,7 +340,7 @@ class AntigravityTools(Toolkit):
         agent.session_state under a key scoped to the custom agent name).
 
         Args:
-            agent: Calling Agno agent (injected automatically).
+            agent: Calling EGPT agent (injected automatically).
             custom_agent_name: Name of the previously-created custom agent.
             task: Natural-language task for the custom agent.
 
@@ -494,7 +494,7 @@ class AntigravityTools(Toolkit):
                 cached in the calling agent's session_state (from a prior
                 run_antigravity_task call).
             output_path: Local filesystem path to write the tar file to.
-            agent: Calling Agno agent (injected automatically); used only when
+            agent: Calling EGPT agent (injected automatically); used only when
                 environment_id == "current".
 
         Returns:

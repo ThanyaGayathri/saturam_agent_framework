@@ -16,7 +16,7 @@ def delete_agno_config() -> None:
 
 
 def initialize_agno_cli(reset: bool = False) -> Optional[AgnoCliConfig]:
-    """Initialize Agno CLI config.
+    """Initialize EGPT CLI config.
 
     Steps:
     1. Check if BRANDED_CLI_CONFIG_DIR exists, if not, create it. If reset == True, recreate BRANDED_CLI_CONFIG_DIR.
@@ -24,11 +24,11 @@ def initialize_agno_cli(reset: bool = False) -> Optional[AgnoCliConfig]:
     """
     from egpt.utilities.filesystem import delete_from_fs
 
-    print_heading("Welcome to Agno!")
+    print_heading("Welcome to EGPT!")
     if reset:
         delete_agno_config()
 
-    logger.debug("Initializing Agno")
+    logger.debug("Initializing EGPT")
 
     # One-time copy from ~/.config/ag when branded config is absent, then resolve.
     active_config_dir = migrate_legacy_cli_config()
@@ -56,7 +56,7 @@ def initialize_agno_cli(reset: bool = False) -> Optional[AgnoCliConfig]:
         agno_config = AgnoCliConfig()
         agno_config.save_config()
 
-    logger.debug("Agno CLI initialized")
+    logger.debug("EGPT CLI initialized")
     return agno_config
 
 

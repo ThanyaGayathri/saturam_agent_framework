@@ -76,7 +76,7 @@ class FilesystemContextProvider(ContextProvider):
 
     # Wrap in a `query_fs` sub-agent because `FileTools` exposes
     # `list_files` / `search_files` / `read_file` — names that collide with
-    # other file-like toolkits, and agno's tool resolver dedupes by name
+    # other file-like toolkits, and EGPT's tool resolver dedupes by name
     # across the whole list (silently dropping the second toolkit).
     # mode=tools only works when FS is the sole file-like provider.
     def _default_tools(self) -> list:

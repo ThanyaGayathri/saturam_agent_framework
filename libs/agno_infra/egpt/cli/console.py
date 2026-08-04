@@ -44,7 +44,7 @@ def print_info(msg: str) -> None:
 
 
 def log_config_not_available_msg() -> None:
-    logger.error("Agno config not found, please run `ag init` and try again")
+    logger.error("EGPT config not found, please run `ag init` and try again")
 
 
 def log_active_infra_not_available() -> None:

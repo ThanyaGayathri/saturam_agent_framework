@@ -419,7 +419,7 @@ class WatsonX(Model):
 
     def _get_metrics(self, response_usage: Dict[str, Any]) -> MessageMetrics:
         """
-        Parse the given WatsonX usage into an Agno MessageMetrics object.
+        Parse the given WatsonX usage into an EGPT MessageMetrics object.
 
         Args:
             response_usage: Usage data from WatsonX

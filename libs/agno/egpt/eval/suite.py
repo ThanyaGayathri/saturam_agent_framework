@@ -515,7 +515,7 @@ async def arun_cases(
     A cancelled run aborts the suite: the unrun cases are recorded as failed with a
     "skipped: ..." error so the payload still accounts for every selected case. This
     fires on a cancelled RunOutput - a server-side cancel_run, or a KeyboardInterrupt
-    agno converts into one.
+    EGPT converts into one.
     """
     selected = [case for case in cases if _case_matches(case, tag=tag, name=name)]
 
@@ -543,7 +543,7 @@ async def arun_cases(
             except Exception as exc:
                 _append_error(result, f"hook: on_case_end {type(exc).__name__}: {exc}")
         if result.response is not None and result.response.status == RunStatus.cancelled:
-            # A server-side cancel_run (and a KeyboardInterrupt agno converts into a cancelled
+            # A server-side cancel_run (and a KeyboardInterrupt EGPT converts into a cancelled
             # RunOutput) surfaces as status=cancelled - stop here rather than marching through
             # the remaining cases. A terminal Ctrl-C under asyncio.run instead propagates
             # CancelledError, which unwinds the suite before reaching this branch.

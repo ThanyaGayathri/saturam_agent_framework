@@ -13,7 +13,7 @@ ignored_dirs = ["ignore", "test", "tests", "config"]
 
 
 class InfraConfig(BaseModel):
-    """The InfraConfig holds the configuration for an Agno Infrastructure."""
+    """The InfraConfig holds the configuration for an EGPT Infrastructure."""
 
     # Root directory of the infrastructure.
     infra_root_path: Path

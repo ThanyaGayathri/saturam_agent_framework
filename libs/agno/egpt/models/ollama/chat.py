@@ -434,7 +434,7 @@ class Ollama(Model):
 
     def _get_metrics(self, response: Union[dict, ChatResponse]) -> MessageMetrics:
         """
-        Parse the given Ollama usage into an Agno MessageMetrics object.
+        Parse the given Ollama usage into an EGPT MessageMetrics object.
 
         Args:
             response: The response from the provider.

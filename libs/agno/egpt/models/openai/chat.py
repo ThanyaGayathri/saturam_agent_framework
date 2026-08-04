@@ -424,7 +424,7 @@ class OpenAIChat(Model):
             )
             assistant_message.metrics.stop_timer()
 
-            # Parse the response into an Agno ModelResponse object
+            # Parse the response into an EGPT ModelResponse object
             model_response = self._parse_provider_response(provider_response, response_format=response_format)
 
             return model_response
@@ -514,7 +514,7 @@ class OpenAIChat(Model):
             )
             assistant_message.metrics.stop_timer()
 
-            # Parse the response into an Agno ModelResponse object
+            # Parse the response into an EGPT ModelResponse object
             provider_response: ModelResponse = self._parse_provider_response(response, response_format=response_format)
 
             return provider_response
@@ -1006,7 +1006,7 @@ class OpenAIChat(Model):
 
     def _get_metrics(self, response_usage: CompletionUsage) -> MessageMetrics:
         """
-        Parse the given OpenAI-specific usage into an Agno MessageMetrics object.
+        Parse the given OpenAI-specific usage into an EGPT MessageMetrics object.
 
         Args:
             response_usage: Usage data from OpenAI

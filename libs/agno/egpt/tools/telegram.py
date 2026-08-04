@@ -9,7 +9,10 @@ try:
     from telebot import TeleBot
     from telebot.apihelper import ApiTelegramException
 except ImportError as e:
-    raise ImportError("`pyTelegramBotAPI` not installed. Please install using `pip install 'agno[telegram]'`") from e
+    raise ImportError(
+        "`pyTelegramBotAPI` not installed. Install it with `pip install pyTelegramBotAPI` "
+        "(included in the `egpt[telegram]` extra)."
+    ) from e
 
 
 class TelegramTools(Toolkit):

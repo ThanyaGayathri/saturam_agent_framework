@@ -13,7 +13,7 @@ from typing import Dict, Optional
 # Default prefix for persisted database table names (e.g. egpt_sessions).
 DEFAULT_TABLE_PREFIX = "egpt_"
 
-# Prefix used by pre-rename (Agno) deployments. Referenced by the one-release
+# Prefix used by pre-rename (EGPT) deployments. Referenced by the one-release
 # compatibility shim in egpt.db.utils and by legacy-table detection warnings.
 LEGACY_TABLE_PREFIX = "agno_"
 

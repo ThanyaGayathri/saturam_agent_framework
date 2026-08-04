@@ -27,7 +27,7 @@ class AntigravityAgent(BaseExternalAgent):
 
     Antigravity runs a full agent loop server-side inside a sandboxed Linux
     environment. The environment persists across turns via an environment_id,
-    which this adapter caches per Agno session_id so multi-turn conversations
+    which this adapter caches per EGPT session_id so multi-turn conversations
     keep state.
 
     Args:
@@ -391,7 +391,7 @@ class AntigravityAgent(BaseExternalAgent):
     async def _arun_adapter_stream(
         self, input: Any, *, history: Optional[List[Dict[str, Any]]] = None, **kwargs: Any
     ) -> AsyncIterator[RunOutputEvent]:
-        """Streaming POST /interactions, translate SSE events to Agno events."""
+        """Streaming POST /interactions, translate SSE events to EGPT events."""
         import httpx
 
         run_id = kwargs.get("run_id", str(uuid4()))
@@ -471,9 +471,9 @@ class AntigravityAgent(BaseExternalAgent):
         run_id: str,
         tool_info_map: Dict[str, Dict[str, Any]],
     ) -> AsyncIterator[RunOutputEvent]:
-        """Translate a single Antigravity SSE event into zero or more Agno events.
+        """Translate a single Antigravity SSE event into zero or more EGPT events.
 
-        Async generator because SSE shape may produce multiple Agno events per
+        Async generator because SSE shape may produce multiple EGPT events per
         frame (e.g. concurrent content + tool_call).
 
         Per the API docs, content shape varies by event type and is accessed via

@@ -120,7 +120,7 @@ def test_search_success():
         call_kwargs = mock_post.call_args
         assert call_kwargs[1]["json"]["query"] == "AI agents"
         assert call_kwargs[1]["json"]["max_results"] == 5
-        assert call_kwargs[1]["headers"]["X-Source"] == "agno"
+        assert call_kwargs[1]["headers"]["X-Source"] == "egpt"
         assert call_kwargs[1]["headers"]["Authorization"] == "Bearer test_key"
 
 

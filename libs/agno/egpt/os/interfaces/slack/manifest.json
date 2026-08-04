@@ -1,7 +1,7 @@
 {
     "display_information": {
         "name": "Slack Agent",
-        "description": "An AI agent powered by Agno"
+        "description": "An AI agent powered by EGPT"
     },
     "features": {
         "app_home": {

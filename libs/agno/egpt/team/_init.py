@@ -548,7 +548,7 @@ def _set_default_model(team: "Team") -> None:
         except ModuleNotFoundError as e:
             log_exception(e)
             log_error(
-                "Agno agents use `openai` as the default model provider. Please provide a `model` or install `openai`."
+                "EGPT agents use `openai` as the default model provider. Please provide a `model` or install `openai`."
             )
             exit(1)
 

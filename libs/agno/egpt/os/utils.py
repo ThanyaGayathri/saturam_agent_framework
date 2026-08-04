@@ -1135,7 +1135,7 @@ def resolve_origins(user_origins: Optional[List[str]] = None, default_origins: O
     if user_origins:
         return user_origins
 
-    # Default Agno domains
+    # Default EGPT domains
     return default_origins or [
         "http://localhost:3000",
         "https://agno.com",

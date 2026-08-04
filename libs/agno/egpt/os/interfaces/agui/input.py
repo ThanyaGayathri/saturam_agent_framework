@@ -84,7 +84,7 @@ def extract_media(
                     elif source.type == "data" and value:
                         content = _decode_base64(value)
 
-            # 4. Create Agno media object and append to correct list
+            # 4. Create EGPT media object and append to correct list
             # Route by part.type first (typed content), fall back to MIME (binary content)
             if url or content:
                 if part.type == "image" or (mime and mime.startswith("image/")):

@@ -470,7 +470,7 @@ class HuggingFace(Model):
 
     def _get_metrics(self, response: Union[ChatCompletionOutput, ChatCompletionStreamOutput]) -> MessageMetrics:
         """
-        Parse the given HuggingFace-specific usage into an Agno MessageMetrics object.
+        Parse the given HuggingFace-specific usage into an EGPT MessageMetrics object.
 
         Args:
             response: The HuggingFace response to parse.

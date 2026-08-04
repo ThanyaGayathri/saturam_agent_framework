@@ -1,4 +1,4 @@
-"""Agno-friendly schemas for A2A protocol responses.
+"""EGPT-friendly schemas for A2A protocol responses.
 
 These schemas provide a simplified, Pythonic interface for working with
 A2A protocol responses, abstracting away the JSON-RPC complexity.

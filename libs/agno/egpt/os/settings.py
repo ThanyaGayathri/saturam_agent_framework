@@ -39,7 +39,7 @@ class AgnoAPISettings(BaseSettings):
     def set_cors_origin_list(cls, cors_origin_list):
         valid_cors = cors_origin_list or []
 
-        # Add Agno domains to cors origin list
+        # Add EGPT domains to cors origin list
         valid_cors.extend(
             [
                 "http://localhost:3000",

@@ -39,7 +39,7 @@ class BaseExternalAgent:
     - Run lifecycle event emission (RunStarted, RunCompleted, RunError)
     - Tool call event wrapping
     - Sync/async run and print_response methods
-    - Session persistence via Agno's DB (when db is configured)
+    - Session persistence via EGPT's DB (when db is configured)
 
     Subclasses must implement:
     - _arun_adapter(input, **kwargs) -> str  (non-streaming)

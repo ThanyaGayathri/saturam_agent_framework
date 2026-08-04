@@ -501,7 +501,7 @@ class PerformanceEval:
         4. Collect results
         5. Save results if requested
         6. Print results as requested
-        7. Log results to the Agno platform if requested
+        7. Log results to the EGPT platform if requested
         """
         if isinstance(self.db, AsyncBaseDb):
             raise ValueError("run() is not supported with an async DB. Please use arun() instead.")
@@ -599,7 +599,7 @@ class PerformanceEval:
         if self.print_summary or print_summary:
             self.result.print_summary(console, measure_memory=self.measure_memory, measure_runtime=self.measure_runtime)
 
-        # 7. Log results to the Agno platform if requested
+        # 7. Log results to the EGPT platform if requested
         if self.db:
             eval_input = {
                 "num_iterations": self.num_iterations,
@@ -643,7 +643,7 @@ class PerformanceEval:
         4. Collect results
         5. Save results if requested
         6. Print results as requested
-        7. Log results to the Agno platform if requested
+        7. Log results to the EGPT platform if requested
         """
         # Validate the function to evaluate is async.
         if not asyncio.iscoroutinefunction(self.func):
@@ -744,7 +744,7 @@ class PerformanceEval:
         if self.print_summary or print_summary:
             self.result.print_summary(console, measure_memory=self.measure_memory, measure_runtime=self.measure_runtime)
 
-        # 7. Log results to the Agno platform if requested
+        # 7. Log results to the EGPT platform if requested
         if self.db:
             eval_input = {
                 "num_iterations": self.num_iterations,

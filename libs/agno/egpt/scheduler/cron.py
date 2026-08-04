@@ -17,12 +17,17 @@ except ImportError:
 
 def _require_croniter() -> None:
     if croniter is None:
-        raise ImportError("`croniter` not installed. Please install it using `pip install agno[scheduler]`")
+        raise ImportError(
+            "`croniter` not installed. Install it with `pip install croniter` "
+            "(included in the `egpt[scheduler]` extra)."
+        )
 
 
 def _require_pytz() -> None:
     if pytz is None:
-        raise ImportError("`pytz` not installed. Please install it using `pip install agno[scheduler]`")
+        raise ImportError(
+            "`pytz` not installed. Install it with `pip install pytz` (included in the `egpt[scheduler]` extra)."
+        )
 
 
 def validate_cron_expr(cron_expr: str) -> bool:

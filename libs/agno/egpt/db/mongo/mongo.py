@@ -12,6 +12,7 @@ except ImportError:
 if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
+from egpt.brand import PRODUCT_NAME
 from egpt.db.base import BaseDb, SessionType
 from egpt.db.mongo.utils import (
     apply_pagination,
@@ -42,7 +43,7 @@ try:
 except ImportError:
     raise ImportError("`pymongo` not installed. Please install it using `pip install pymongo`")
 
-DRIVER_METADATA = DriverInfo(name="Agno", version=metadata.version("egpt"))
+DRIVER_METADATA = DriverInfo(name=PRODUCT_NAME, version=metadata.version("egpt"))
 
 
 class MongoDb(BaseDb):

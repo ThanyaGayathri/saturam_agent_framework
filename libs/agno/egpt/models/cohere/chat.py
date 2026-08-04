@@ -413,7 +413,7 @@ class Cohere(Model):
 
     def _get_metrics(self, response_usage) -> MessageMetrics:
         """
-        Parse the given Cohere usage into an Agno MessageMetrics object.
+        Parse the given Cohere usage into an EGPT MessageMetrics object.
 
         Args:
             response_usage: Usage data from Cohere

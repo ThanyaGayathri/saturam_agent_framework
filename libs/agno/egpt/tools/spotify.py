@@ -1,5 +1,5 @@
 """
-Spotify Toolkit for Agno SDK
+Spotify Toolkit for EGPT SDK
 
 A toolkit for searching songs, creating playlists, and updating playlists on Spotify.
 Requires a valid Spotify access token with appropriate scopes.

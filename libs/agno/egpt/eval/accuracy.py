@@ -212,7 +212,7 @@ class AccuracyEval:
             except (ModuleNotFoundError, ImportError) as e:
                 logger.exception(e)
                 raise EvalError(
-                    "Agno uses `openai` as the default model provider. Please run `pip install openai` to use the default evaluator."
+                    "EGPT uses `openai` as the default model provider. Please run `pip install openai` to use the default evaluator."
                 )
 
         additional_guidelines = ""
@@ -451,7 +451,7 @@ Remember: You must only compare the agent_output to the expected_output. The exp
         if self.print_summary or print_summary:
             self.result.print_summary(console)
 
-        # Log results to the Agno DB if requested
+        # Log results to the EGPT DB if requested
         if self.agent is not None:
             agent_id = self.agent.id
             team_id = None
@@ -610,7 +610,7 @@ Remember: You must only compare the agent_output to the expected_output. The exp
             model_provider = self.team.model.provider if self.team.model is not None else None
             evaluated_component_name = self.team.name
 
-        # Log results to the Agno DB if requested
+        # Log results to the EGPT DB if requested
         if self.db:
             log_eval_input = {
                 "additional_guidelines": self.additional_guidelines,
@@ -705,7 +705,7 @@ Remember: You must only compare the agent_output to the expected_output. The exp
                     eval_id=self.eval_id,
                     result=self.result,
                 )
-        # Log results to the Agno DB if requested
+        # Log results to the EGPT DB if requested
         if self.db:
             if isinstance(self.db, AsyncBaseDb):
                 log_error("You are using an async DB in a non-async method. The evaluation won't be stored in the DB.")
@@ -828,7 +828,7 @@ Remember: You must only compare the agent_output to the expected_output. The exp
                     eval_id=self.eval_id,
                     result=self.result,
                 )
-        # Log results to the Agno DB if requested
+        # Log results to the EGPT DB if requested
         if self.db:
             if self.agent is not None:
                 agent_id = self.agent.id

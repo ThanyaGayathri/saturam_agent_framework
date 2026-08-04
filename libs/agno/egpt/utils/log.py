@@ -269,7 +269,7 @@ def configure_agno_logging(
     enable_log_tracebacks: Optional[bool] = None,
 ) -> None:
     """
-    Util to set custom loggers. These will be used everywhere across the Agno library.
+    Util to set custom loggers. These will be used everywhere across the EGPT library.
 
     Args:
         custom_default_logger: Default logger to use (overrides agent_logger for default)
