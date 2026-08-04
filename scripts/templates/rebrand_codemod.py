@@ -277,6 +277,91 @@ def patch_claude_settings(target: Path) -> None:
         settings.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
 
+def patch_aws_deploy(target: Path) -> None:
+    for script in ["up.sh", "redeploy.sh"]:
+        script_path = target / "scripts" / "aws" / script
+        if not script_path.is_file():
+            continue
+        text = script_path.read_text(encoding="utf-8")
+        if "docker build --platform linux/amd64 -t" in text:
+            text = text.replace(
+                "docker build --platform linux/amd64 -t",
+                'docker build --secret id=github_token,env=GITHUB_TOKEN --platform linux/amd64 -t',
+            )
+            script_path.write_text(text, encoding="utf-8")
+            warn(script + " now requires GITHUB_TOKEN at build time")
+
+
+def patch_gcp_deploy(target: Path) -> None:
+    for script in ["up.sh", "redeploy.sh"]:
+        script_path = target / "scripts" / "gcp" / script
+        if not script_path.is_file():
+            continue
+        text = script_path.read_text(encoding="utf-8")
+        if "docker build --platform linux/amd64 -t" in text:
+            text = text.replace(
+                "docker build --platform linux/amd64 -t",
+                'docker build --secret id=github_token,env=GITHUB_TOKEN --platform linux/amd64 -t',
+            )
+            script_path.write_text(text, encoding="utf-8")
+            warn(script + " now requires GITHUB_TOKEN at build time")
+
+
+def patch_fly_deploy(target: Path) -> None:
+    for script in ["up.sh", "redeploy.sh"]:
+        script_path = target / "scripts" / "fly" / script
+        if not script_path.is_file():
+            continue
+        text = script_path.read_text(encoding="utf-8")
+        if '"$FLY" deploy --ha=false' in text:
+            text = text.replace(
+                '"$FLY" deploy --ha=false',
+                '"$FLY" deploy --ha=false --build-secret "github_token=${GITHUB_TOKEN}"',
+            )
+            script_path.write_text(text, encoding="utf-8")
+            warn(script + " now requires GITHUB_TOKEN at build time")
+
+
+def patch_dockerfile_railway(target: Path) -> None:
+    dockerfile = target / "Dockerfile"
+    patch(
+        dockerfile,
+        "FROM agnohq/python:3.12",
+        "FROM python:3.12-slim\nCOPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/",
+        "base image swap",
+    )
+    patch(
+        dockerfile,
+        "RUN uv pip sync requirements.txt --system",
+        "RUN uv pip sync requirements.txt --system\n"
+        "COPY scripts/install_egpt.sh ./scripts/install_egpt.sh\n"
+        "ARG GITHUB_TOKEN\n"
+        "RUN GITHUB_TOKEN=\"${GITHUB_TOKEN}\" bash ./scripts/install_egpt.sh --system",
+        "install egpt wheels after uv pip sync (Railway: GITHUB_TOKEN is passed as build ARG, exposed in build cache)",
+    )
+
+
+def patch_railway_deploy(target: Path) -> None:
+    for script in ["up.sh", "redeploy.sh"]:
+        script_path = target / "scripts" / "railway" / script
+        if not script_path.is_file():
+            continue
+        text = script_path.read_text(encoding="utf-8")
+        if 'railway up --service agent-os' in text:
+            before = 'railway up --service agent-os'
+            after = (
+                'if [[ -z "${GITHUB_TOKEN:-}" ]]; then\n'
+                '    echo "GITHUB_TOKEN is required to download the egpt wheels" >&2\n'
+                '    exit 1\n'
+                'fi\n'
+                'railway variables --set "GITHUB_TOKEN=${GITHUB_TOKEN}" --service agent-os > /dev/null\n'
+                'railway up --service agent-os'
+            )
+            text = text.replace(before, after)
+            script_path.write_text(text, encoding="utf-8")
+            warn(script + " now requires GITHUB_TOKEN at build time")
+
+
 def rebrand_text(text: str, egpt_version: str, is_pyproject: bool) -> str:
     for pattern, replacement in PRE_RENAMES:
         text = pattern.sub(replacement, text)
@@ -310,7 +395,10 @@ def main() -> int:
         return 2
 
     # Structural patches run first, against the upstream (pre-rename) text.
-    patch_dockerfile(target)
+    if flavor == "railway":
+        patch_dockerfile_railway(target)
+    else:
+        patch_dockerfile(target)
     patch_compose(target)
     patch_entrypoint(target)
     patch_venv_setup(target)
@@ -319,6 +407,15 @@ def main() -> int:
     patch_build_image(target)
     patch_mcp_json(target)
     patch_claude_settings(target)
+
+    if flavor == "aws":
+        patch_aws_deploy(target)
+    elif flavor == "gcp":
+        patch_gcp_deploy(target)
+    elif flavor == "fly":
+        patch_fly_deploy(target)
+    elif flavor == "railway":
+        patch_railway_deploy(target)
 
     changed = 0
     for path in sorted(target.rglob("*")):

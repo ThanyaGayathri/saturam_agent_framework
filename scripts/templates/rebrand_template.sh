@@ -38,6 +38,10 @@ FLAVORS=(docker aws fly gcp railway)
 # "diagnostic" / "diagnose" (which contain "agno") do not trip the check.
 check_dir() {
     local dir="$1"
+    if [[ ! -d "${dir}" || ! -r "${dir}" ]]; then
+        echo "Not a readable directory: ${dir}" >&2
+        return 2
+    fi
     local hits
     hits="$(grep -rIn --exclude-dir=.git --exclude-dir=.venv --exclude-dir=__pycache__ --exclude-dir=.mypy_cache --exclude-dir=.ruff_cache --exclude=NOTICE --exclude=LICENSE -i -E '(^|[^i])agno|agentos' "${dir}" \
         | grep -v 'openinference-instrumentation-agno' \
