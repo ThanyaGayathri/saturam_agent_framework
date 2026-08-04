@@ -106,17 +106,34 @@ def test_create_custom_url(fake_git):
     assert "https://example.com/custom.git" in fake_git.calls[0]
 
 
-def test_create_clone_failure(monkeypatch, tmp_path):
-    fake = FakeGit(returncode=128)
-    monkeypatch.setattr(create_module.subprocess, "run", fake)
+@pytest.fixture
+def failing_git(monkeypatch, tmp_path):
+    monkeypatch.setattr(create_module.subprocess, "run", FakeGit(returncode=128))
     monkeypatch.setattr(create_module.shutil, "which", lambda name: "/usr/bin/git")
     monkeypatch.chdir(tmp_path)
+
+
+def test_create_clone_failure(failing_git):
     result = runner.invoke(app, ["create", "my-os", "--json"])
     assert result.exit_code == 1
     payload = json.loads(result.output)
     assert "git clone failed" in payload["error"]
-    # Templates are private: a failed clone should point at git auth.
+    # Built-in templates are private: a failed clone should point at git auth.
     assert "authenticate git" in payload["hint"]
+    assert "Saturam-Inc" in payload["hint"]
+
+
+def test_create_custom_url_clone_failure_omits_private_repo_hint(failing_git):
+    """A custom --url may be public or mistyped: don't send users after org access."""
+    result = runner.invoke(app, ["create", "my-os", "-u", "https://example.com/custom.git", "--json"])
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert "git clone failed" in payload["error"]
+    # Assert on absence, not just the new wording: a regression that re-adds the
+    # private-repo sentence alongside the generic one would still match the latter.
+    assert "Saturam-Inc" not in payload["hint"]
+    assert "private repositories" not in payload["hint"]
+    assert "Check the repository URL" in payload["hint"]
 
 
 # -- infra -----------------------------------------------------------------------------

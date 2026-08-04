@@ -29,8 +29,20 @@ DEFAULT_TEMPLATE = "docker"
 
 GIT_TIMEOUT = 300.0
 
+# Clone-failure hints. Only the built-in templates are known to be private and to live
+# under Saturam-Inc; a custom --url may be public, self-hosted, or simply mistyped, so it
+# gets guidance that does not send the user off to request org access they don't need.
+BUILTIN_CLONE_HINT = (
+    "Starter templates are private repositories: authenticate git with GitHub "
+    "(gh auth login, or a credential helper with access to Saturam-Inc) and retry."
+)
+CUSTOM_URL_CLONE_HINT = (
+    "Check the repository URL is correct and reachable. If it is private, authenticate git first "
+    "(for GitHub: gh auth login)."
+)
 
-def _clone(repo_url: str, target: Path) -> None:
+
+def _clone(repo_url: str, target: Path, *, builtin: bool) -> None:
     if shutil.which("git") is None:
         raise CLIError("git is required to create a project from a template.", hint="Install git and re-run.")
     try:
@@ -47,8 +59,7 @@ def _clone(repo_url: str, target: Path) -> None:
         detail = (result.stderr or result.stdout or "").strip()
         raise CLIError(
             "git clone failed: " + (detail or repo_url),
-            hint="Starter templates are private repositories: authenticate git with GitHub "
-            "(gh auth login, or a credential helper with access to Saturam-Inc) and retry.",
+            hint=BUILTIN_CLONE_HINT if builtin else CUSTOM_URL_CLONE_HINT,
         )
     shutil.rmtree(target / ".git", ignore_errors=True)
 
@@ -102,5 +113,5 @@ def _create(name: str, template: str, template_url: Optional[str]) -> Dict[str, 
             )
         template_label = template
 
-    _clone(repo_url, target)
+    _clone(repo_url, target, builtin=template_url is None)
     return {"path": str(target), "template": template_label}
