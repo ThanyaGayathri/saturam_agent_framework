@@ -14,7 +14,6 @@ import pytest
 pytest.importorskip("fastmcp")
 
 import asyncio  # noqa: E402
-import sys  # noqa: E402
 import time  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
 from typing import Any, AsyncIterator, Iterator, Optional  # noqa: E402
@@ -65,14 +64,22 @@ from egpt.workflow.workflow import Workflow  # noqa: E402
 # lost, run_forever() never completes, and the lifespan blocks forever. On 3.11+ the native
 # implementations are used and it does not happen.
 #
-# WHY THE WHOLE MODULE, not the individual tests that were seen to hang. This is one race in the
+# WHY WHOLE MODULES, not the individual tests that were seen to hang. This is one race in the
 # lifespan, not a defect in particular tests: across 14 runs it landed on three DIFFERENT tests,
 # one of which was never quarantined at all. Both ways of driving a server here enter that
 # lifespan -- `_mcp_http_client` (20 tests) via app.router.lifespan_context, and
 # `Client(build_mcp_server(...))` (11 tests) via FastMCPTransport -> server._lifespan_manager().
 # Naming individual tests is whack-a-mole; the next one to lose the race takes CI down again.
+# And the same holds across modules: test_mcp_surface_v2.py, test_mcp_run_results.py and
+# test_mcp_resolution.py enter the same lifespan 26 more times, so the quarantine lives in
+# conftest.py (_PY310_MCP_QUARANTINED) and covers all four MCP modules, not just this file.
+#
 # Cost: the ~26 tests here that never start a lifespan are collateral, skipped on 3.10 too.
-# Python 3.12 runs the entire module, and CI covers both versions.
+# The bigger loss is the MCP HTTP auth surface (security-key rejection, PAT verifier status
+# mapping, Host/Origin rebinding protection, service-accounts-disabled 401): this module is
+# its only unit coverage, and those tests all drive the lifespan via `_mcp_http_client`, so
+# they cannot be split out of the quarantine -- py3.10 loses that coverage until the upstream
+# fix. Python 3.12 runs all four modules in full, and CI covers both versions.
 #
 # An earlier revision of this comment blamed a Starlette BaseHTTPMiddleware/anyio teardown on an
 # undrained short-circuited request. That was wrong -- no such teardown is involved -- and the six
@@ -87,14 +94,6 @@ from egpt.workflow.workflow import Workflow  # noqa: E402
 # Worth noting beyond the test suite: this is a shutdown deadlock in fastmcp's lifespan, and
 # requires-python is >=3.9, so an EgptOS deployment serving MCP on Python 3.10 may hang on
 # shutdown the same way.
-pytestmark = pytest.mark.skipif(
-    sys.version_info < (3, 11),
-    reason=(
-        "Quarantined (EGPT-0.10 follow-up): intermittent hang on Python 3.10. fastmcp's lifespan "
-        "awaits a pydocket Worker that the py3.10 taskgroup backport fails to cancel, so the "
-        "lifespan never exits. Upstream, not a bug in this repo. See the comment above."
-    ),
-)
 
 # The full set of built-in tools, keyed by their tag group. The surface is deliberately
 # 8 tools: an operator surface for LLM frontends, not a database console.
