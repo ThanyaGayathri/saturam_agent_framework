@@ -280,6 +280,8 @@ async def test_asearch_success():
         call_kwargs = mock_client.post.call_args
         assert call_kwargs[1]["json"]["query"] == "AI agents"
         assert call_kwargs[1]["json"]["max_results"] == 5
+        assert call_kwargs[1]["headers"]["X-Source"] == "egpt"
+        assert call_kwargs[1]["headers"]["Authorization"] == "Bearer test_key"
 
 
 @pytest.mark.asyncio

@@ -96,7 +96,10 @@ def create_infra_from_template(
             infra_template = LEGACY_TEMPLATE_ALIASES[template.lower()]
             log_warning(f"Template '{template}' was renamed to '{infra_template.value}'; using the new template.")
         else:
-            raise Exception(f"{template} is not a supported template, please choose from: {templates}")
+            # `.value` because the member names still carry their upstream spelling; the
+            # values are what a user actually types after `-t`.
+            supported = ", ".join(t.value for t in templates)
+            raise Exception(f"{template} is not a supported template, please choose from: {supported}")
 
         logger.debug(f"Selected Template: {infra_template.value}")
         repo_to_clone = TEMPLATE_TO_REPO_MAP.get(infra_template)
