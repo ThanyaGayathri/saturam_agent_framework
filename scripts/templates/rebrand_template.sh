@@ -109,8 +109,8 @@ cat <<EOF
 Manual pass still required in ${TARGET}:
   1. README.md — rewrite: strip os.agno.com UI sections, utm links and
      upstream marketing; keep localhost:8000/docs and the MCP flow as the
-     primary interface. Fly/Railway flavors: document that GITHUB_TOKEN must
-     be configured as a platform build secret.
+     primary interface. Document that GITHUB_TOKEN must be exported before
+     scripts/${FLAVOR}/up.sh (the deploy scripts validate and forward it).
   2. example.env — rewrite the comment blocks that reference os.agno.com
      (JWT key generation) and review remaining comments.
   3. AGENTS.md / CLAUDE.md / .agents/skills — review prose; drop stale

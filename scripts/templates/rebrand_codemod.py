@@ -140,7 +140,22 @@ def patch(path: Path, old: str, new: str, label: str, count: int = 1) -> None:
     path.write_text(text.replace(old, new), encoding="utf-8")
 
 
-def patch_dockerfile(target: Path) -> None:
+# The Dockerfile layer that installs the egpt wheels. Every flavor but Railway reads the
+# token from a BuildKit secret mount, which keeps it out of both the image and the build
+# cache. Railway's builder does not support secret mounts, so it falls back to a build ARG
+# and the token becomes visible in Railway's build cache — a platform limitation, not a
+# preference. See scripts/templates/README.md.
+INSTALL_LAYER_SECRET = (
+    "RUN --mount=type=secret,id=github_token \\\n"
+    '    GITHUB_TOKEN="$(cat /run/secrets/github_token)" \\\n'
+    "    bash ./scripts/install_egpt.sh --system"
+)
+INSTALL_LAYER_ARG = (
+    "ARG GITHUB_TOKEN\nRUN GITHUB_TOKEN=\"${GITHUB_TOKEN}\" bash ./scripts/install_egpt.sh --system"
+)
+
+
+def patch_dockerfile(target: Path, flavor: str) -> None:
     dockerfile = target / "Dockerfile"
     patch(
         dockerfile,
@@ -148,20 +163,29 @@ def patch_dockerfile(target: Path) -> None:
         "FROM python:3.12-slim\nCOPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/",
         "base image swap",
     )
+    install_layer = INSTALL_LAYER_ARG if flavor == "railway" else INSTALL_LAYER_SECRET
     patch(
         dockerfile,
         "RUN uv pip sync requirements.txt --system",
-        "RUN uv pip sync requirements.txt --system\n"
-        "COPY scripts/install_egpt.sh ./scripts/install_egpt.sh\n"
-        "RUN --mount=type=secret,id=github_token \\\n"
-        '    GITHUB_TOKEN="$(cat /run/secrets/github_token)" \\\n'
-        "    bash ./scripts/install_egpt.sh --system",
+        "RUN uv pip sync requirements.txt --system\nCOPY scripts/install_egpt.sh ./scripts/install_egpt.sh\n"
+        + install_layer,
         "install egpt wheels after uv pip sync",
     )
 
 
-def patch_compose(target: Path) -> None:
+def patch_compose(target: Path, flavor: str) -> None:
     compose = target / "compose.yaml"
+    if flavor == "railway":
+        # Railway's Dockerfile takes the token as a build ARG, so compose must pass it the
+        # same way. Wiring a secret here instead would leave ARG unset and the local
+        # `docker compose build` would fail inside install_egpt.sh.
+        patch(
+            compose,
+            "      dockerfile: Dockerfile\n",
+            "      dockerfile: Dockerfile\n      args:\n        - GITHUB_TOKEN\n",
+            "build arg wiring",
+        )
+        return
     patch(
         compose,
         "      dockerfile: Dockerfile\n",
@@ -277,95 +301,65 @@ def patch_claude_settings(target: Path) -> None:
         settings.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
 
-# [P1] Platform-specific deploy path patches: wire GITHUB_TOKEN secret through each
-# cloud flavor's actual deployment commands (rasiksuhailali's review feedback).
-# The Dockerfile uses RUN --mount=type=secret,id=github_token to read the token, but
-# the codemod only wired the secret through compose.yaml and the generic build_image.sh.
-# AWS/GCP call docker build directly, Fly uses fly deploy, Railway uses railway up —
-# none forwarded GITHUB_TOKEN, causing template deployment to fail.
-def patch_aws_deploy(target: Path) -> None:
-    for script in ["up.sh", "redeploy.sh"]:
-        script_path = target / "scripts" / "aws" / script
-        if not script_path.is_file():
-            continue
-        text = script_path.read_text(encoding="utf-8")
-        if "docker build --platform linux/amd64 -t" in text:
-            text = text.replace(
-                "docker build --platform linux/amd64 -t",
-                'docker build --secret id=github_token,env=GITHUB_TOKEN --platform linux/amd64 -t',
-            )
-            script_path.write_text(text, encoding="utf-8")
-            warn(script + " now requires GITHUB_TOKEN at build time")
+# Every cloud flavor builds the image from its own up.sh/redeploy.sh rather than through
+# scripts/build_image.sh, so each one has to validate and forward GITHUB_TOKEN itself.
+# The guard wording matches files/install_egpt.sh so a missing token reads the same
+# wherever it surfaces.
+TOKEN_GUARD = (
+    'if [[ -z "${GITHUB_TOKEN:-}" ]]; then\n'
+    '    echo "GITHUB_TOKEN is required to download the egpt wheels" >&2\n'
+    "    exit 1\n"
+    "fi"
+)
+
+DOCKER_PREFLIGHT = "if ! command -v docker &> /dev/null || ! docker info &> /dev/null; then"
+DOCKER_BUILD = "docker build --platform linux/amd64 -t"
+DOCKER_BUILD_WITH_SECRET = "docker build --secret id=github_token,env=GITHUB_TOKEN --platform linux/amd64 -t"
+
+FLY_PREFLIGHT = (
+    "else\n"
+    '    echo "flyctl not found. Install: https://fly.io/docs/flyctl/install/"\n'
+    "    exit 1\n"
+    "fi"
+)
+FLY_DEPLOY = '"$FLY" deploy --ha=false'
+
+RAILWAY_PREFLIGHT = "if ! command -v railway &> /dev/null; then"
+RAILWAY_PUSH_VAR = 'railway variables --set "GITHUB_TOKEN=${GITHUB_TOKEN}" --service agent-os > /dev/null'
+# Section headers immediately preceding the deploy. Anchoring here rather than on
+# `railway up --service agent-os -d` matters: that command appears twice in redeploy.sh,
+# once inside the banner that echoes it, so replacing it would mangle the banner.
+RAILWAY_DEPLOY_HEADERS = {
+    "up.sh": 'echo -e "${ORANGE}▸${NC} ${BOLD}Deploying application${NC}"',
+    "redeploy.sh": 'echo -e "${ORANGE}▸${NC} ${BOLD}Redeploying agent-os${NC}"',
+}
 
 
-def patch_gcp_deploy(target: Path) -> None:
-    for script in ["up.sh", "redeploy.sh"]:
-        script_path = target / "scripts" / "gcp" / script
-        if not script_path.is_file():
-            continue
-        text = script_path.read_text(encoding="utf-8")
-        if "docker build --platform linux/amd64 -t" in text:
-            text = text.replace(
-                "docker build --platform linux/amd64 -t",
-                'docker build --secret id=github_token,env=GITHUB_TOKEN --platform linux/amd64 -t',
-            )
-            script_path.write_text(text, encoding="utf-8")
-            warn(script + " now requires GITHUB_TOKEN at build time")
+def patch_docker_deploy(target: Path, flavor: str) -> None:
+    """AWS and GCP both build the image locally with `docker build` and push it."""
+    for script in ("up.sh", "redeploy.sh"):
+        path = target / "scripts" / flavor / script
+        patch(path, DOCKER_PREFLIGHT, TOKEN_GUARD + "\n\n" + DOCKER_PREFLIGHT, "GITHUB_TOKEN preflight")
+        patch(path, DOCKER_BUILD, DOCKER_BUILD_WITH_SECRET, "forward github_token to docker build")
 
 
 def patch_fly_deploy(target: Path) -> None:
-    for script in ["up.sh", "redeploy.sh"]:
-        script_path = target / "scripts" / "fly" / script
-        if not script_path.is_file():
-            continue
-        text = script_path.read_text(encoding="utf-8")
-        if '"$FLY" deploy --ha=false' in text:
-            text = text.replace(
-                '"$FLY" deploy --ha=false',
-                '"$FLY" deploy --ha=false --build-secret "github_token=${GITHUB_TOKEN}"',
-            )
-            script_path.write_text(text, encoding="utf-8")
-            warn(script + " now requires GITHUB_TOKEN at build time")
-
-
-def patch_dockerfile_railway(target: Path) -> None:
-    dockerfile = target / "Dockerfile"
-    patch(
-        dockerfile,
-        "FROM agnohq/python:3.12",
-        "FROM python:3.12-slim\nCOPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/",
-        "base image swap",
-    )
-    patch(
-        dockerfile,
-        "RUN uv pip sync requirements.txt --system",
-        "RUN uv pip sync requirements.txt --system\n"
-        "COPY scripts/install_egpt.sh ./scripts/install_egpt.sh\n"
-        "ARG GITHUB_TOKEN\n"
-        "RUN GITHUB_TOKEN=\"${GITHUB_TOKEN}\" bash ./scripts/install_egpt.sh --system",
-        "install egpt wheels after uv pip sync (Railway: uses ARG instead of --mount=type=secret because Railway's builder does not support BuildKit secret mounts; this means GITHUB_TOKEN is exposed in Railway's build cache—a platform limitation, not a regression)",
-    )
+    for script in ("up.sh", "redeploy.sh"):
+        path = target / "scripts" / "fly" / script
+        patch(path, FLY_PREFLIGHT, FLY_PREFLIGHT + "\n\n" + TOKEN_GUARD, "GITHUB_TOKEN preflight")
+        patch(
+            path,
+            FLY_DEPLOY,
+            FLY_DEPLOY + ' --build-secret "github_token=${GITHUB_TOKEN}"',
+            "forward github_token to fly deploy",
+        )
 
 
 def patch_railway_deploy(target: Path) -> None:
-    for script in ["up.sh", "redeploy.sh"]:
-        script_path = target / "scripts" / "railway" / script
-        if not script_path.is_file():
-            continue
-        text = script_path.read_text(encoding="utf-8")
-        if 'railway up --service agent-os' in text:
-            before = 'railway up --service agent-os'
-            after = (
-                'if [[ -z "${GITHUB_TOKEN:-}" ]]; then\n'
-                '    echo "GITHUB_TOKEN is required to download the egpt wheels" >&2\n'
-                '    exit 1\n'
-                'fi\n'
-                'railway variables --set "GITHUB_TOKEN=${GITHUB_TOKEN}" --service agent-os > /dev/null\n'
-                'railway up --service agent-os'
-            )
-            text = text.replace(before, after)
-            script_path.write_text(text, encoding="utf-8")
-            warn(script + " now requires GITHUB_TOKEN at build time")
+    for script, header in RAILWAY_DEPLOY_HEADERS.items():
+        path = target / "scripts" / "railway" / script
+        patch(path, RAILWAY_PREFLIGHT, TOKEN_GUARD + "\n\n" + RAILWAY_PREFLIGHT, "GITHUB_TOKEN preflight")
+        patch(path, header, RAILWAY_PUSH_VAR + "\n" + header, "push GITHUB_TOKEN as a Railway build variable")
 
 
 def rebrand_text(text: str, egpt_version: str, is_pyproject: bool) -> str:
@@ -401,11 +395,8 @@ def main() -> int:
         return 2
 
     # Structural patches run first, against the upstream (pre-rename) text.
-    if flavor == "railway":
-        patch_dockerfile_railway(target)
-    else:
-        patch_dockerfile(target)
-    patch_compose(target)
+    patch_dockerfile(target, flavor)
+    patch_compose(target, flavor)
     patch_entrypoint(target)
     patch_venv_setup(target)
     patch_generate_requirements(target)
@@ -414,12 +405,10 @@ def main() -> int:
     patch_mcp_json(target)
     patch_claude_settings(target)
 
-    # Apply platform-specific deploy path patches to wire GITHUB_TOKEN through each
-    # flavor's actual deployment command (addresses rasiksuhailali's P1 review feedback).
-    if flavor == "aws":
-        patch_aws_deploy(target)
-    elif flavor == "gcp":
-        patch_gcp_deploy(target)
+    # Each cloud flavor deploys through its own scripts, which bypass both compose and
+    # build_image.sh, so GITHUB_TOKEN has to be validated and forwarded there too.
+    if flavor in ("aws", "gcp"):
+        patch_docker_deploy(target, flavor)
     elif flavor == "fly":
         patch_fly_deploy(target)
     elif flavor == "railway":

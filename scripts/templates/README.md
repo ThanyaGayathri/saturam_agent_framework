@@ -43,6 +43,33 @@ gh repo create Saturam-Inc/egpt-os-docker --private --source . --push
 gh secret set EGPT_RELEASES_TOKEN --repo Saturam-Inc/egpt-os-docker --body "<token>"
 ```
 
+## GITHUB_TOKEN at deploy time
+
+`egpt` is installed from private GitHub release wheels, so the image build needs a token.
+Each cloud flavor deploys through its own `scripts/<flavor>/up.sh` and `redeploy.sh` rather
+than through `scripts/build_image.sh`, so the codemod patches those scripts directly: each
+one fails fast when `GITHUB_TOKEN` is unset, then forwards it to the build.
+
+| Flavor | How the token reaches the build |
+|--------|--------------------------------|
+| docker | `docker compose` build secret, or `docker build --secret id=github_token,env=GITHUB_TOKEN` |
+| aws, gcp | `docker build --secret id=github_token,env=GITHUB_TOKEN` |
+| fly | `fly deploy --build-secret "github_token=$GITHUB_TOKEN"` |
+| railway | `railway variables --set GITHUB_TOKEN=…`, consumed as a Dockerfile `ARG` |
+
+Export `GITHUB_TOKEN` before running any of them:
+
+```bash
+export GITHUB_TOKEN=...
+(cd egpt-os-aws && ./scripts/aws/up.sh)
+```
+
+**Railway caveat.** Every other flavor mounts the token as a BuildKit secret, which keeps
+it out of the image *and* the build cache. Railway's builder does not support secret
+mounts, so the Railway template falls back to a build `ARG` — the token is recoverable
+from Railway's build cache. That is a platform limitation rather than a choice; use a
+read-only, narrowly-scoped token for Railway deployments and rotate it independently.
+
 ## Allowed residual strings
 
 The `check` subcommand greps for `agno`/`agentos` and fails on any hit except:
