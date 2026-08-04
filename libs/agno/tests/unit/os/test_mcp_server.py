@@ -44,6 +44,58 @@ from egpt.tools import tool  # noqa: E402
 from egpt.workflow.step import Step  # noqa: E402
 from egpt.workflow.workflow import Workflow  # noqa: E402
 
+# ---------------------------------------------------------------------------
+# Quarantined on Python 3.10 (EGPT-0.10 follow-up)
+# ---------------------------------------------------------------------------
+# Tests in this module wedge -- hang, not fail -- on Python 3.10, intermittently. In CI that
+# trips pytest-timeout's kill, and with --max-worker-restart=0 it ends the whole unit session
+# wherever it happens to be (runs 30906120666 and 30912122340 died at 28%, ~7300 tests unrun).
+#
+# ROOT CAUSE (confirmed, not hypothesised). Reproduced in a linux/amd64 python:3.10.20 container
+# -- 3 wedges in 14 runs of this file -- and pinned down by dumping the pending asyncio tasks:
+#
+#   Task <the test> running at `async with _mcp_http_client(...)`
+#     wait_for=<Task <docket.worker.Worker.run_forever()>
+#                 wait_for=<taskgroup.install.WaitTaskRescheduled>>
+#
+# fastmcp's server lifespan (fastmcp/server/server.py) unconditionally starts a pydocket Worker
+# plus six background tasks, then on exit does `worker_task.cancel(); await worker_task`. On
+# py3.10 that cancel/await runs through the `taskgroup` and `backports.asyncio.runner` shims --
+# backports of asyncio.TaskGroup / asyncio.Runner, installed ONLY below 3.11. The cancellation is
+# lost, run_forever() never completes, and the lifespan blocks forever. On 3.11+ the native
+# implementations are used and it does not happen.
+#
+# WHY THE WHOLE MODULE, not the individual tests that were seen to hang. This is one race in the
+# lifespan, not a defect in particular tests: across 14 runs it landed on three DIFFERENT tests,
+# one of which was never quarantined at all. Both ways of driving a server here enter that
+# lifespan -- `_mcp_http_client` (20 tests) via app.router.lifespan_context, and
+# `Client(build_mcp_server(...))` (11 tests) via FastMCPTransport -> server._lifespan_manager().
+# Naming individual tests is whack-a-mole; the next one to lose the race takes CI down again.
+# Cost: the ~26 tests here that never start a lifespan are collateral, skipped on 3.10 too.
+# Python 3.12 runs the entire module, and CI covers both versions.
+#
+# An earlier revision of this comment blamed a Starlette BaseHTTPMiddleware/anyio teardown on an
+# undrained short-circuited request. That was wrong -- no such teardown is involved -- and the six
+# tests it described as deterministic hangs all pass when run alone.
+#
+# NOT fixable here: pydocket is a hard dependency across the whole fastmcp>=2.14.1,<3.0.0 range we
+# allow, and DocketSettings has no opt-out. Not dependency drift either -- fastmcp 2.14.6 /
+# pydocket 0.23.1 / taskgroup 0.2.2 are identical across the passing and failing CI runs. The fix
+# is upstream. Reproducing needs a LINUX py3.10 interpreter looping this file; a single run of a
+# single test passes essentially always.
+#
+# Worth noting beyond the test suite: this is a shutdown deadlock in fastmcp's lifespan, and
+# requires-python is >=3.9, so an EgptOS deployment serving MCP on Python 3.10 may hang on
+# shutdown the same way.
+pytestmark = pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason=(
+        "Quarantined (EGPT-0.10 follow-up): intermittent hang on Python 3.10. fastmcp's lifespan "
+        "awaits a pydocket Worker that the py3.10 taskgroup backport fails to cancel, so the "
+        "lifespan never exits. Upstream, not a bug in this repo. See the comment above."
+    ),
+)
+
 # The full set of built-in tools, keyed by their tag group. The surface is deliberately
 # 8 tools: an operator surface for LLM frontends, not a database console.
 CORE_TOOLS = {"get_agentos_config", "run_agent", "run_team", "run_workflow", "continue_run", "cancel_run"}
@@ -630,64 +682,6 @@ _MCP_INIT_BODY = {
 }
 _MCP_HEADERS = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
 
-# Quarantined (EGPT-0.10 follow-up): 7 tests in this file hang (not fail) on Python 3.10 -- the
-# process blocks (state S, ~0 CPU) rather than erroring or timing out. They fall into two groups
-# with what look like two distinct causes; do not merge them.
-#
-# Group 1 -- 6 deterministic hangs, confirmed via isolated reproduction. All 6 share the same
-# shape: a single request through _mcp_http_client that a BaseHTTPMiddleware short-circuits with
-# an early 4xx response, with the POST's JSON body never read by the downstream app, and the test
-# exits its `async with` block right after -- i.e. app/client teardown runs immediately after an
-# undrained short-circuited request. Sibling tests that are structurally identical except for
-# making a second (fully-handled, 200) request on the same client before exiting
-# (test_open_server_gets_default_rebinding_protection), or reaching the rejection via a different
-# sub-path (test_security_key_mode_rejects_revoked_pat, test_authorize_gate_rejects_unauthorized_caller),
-# do NOT hang -- confirmed individually for every _mcp_http_client test in this file, not assumed.
-# This points at a Starlette BaseHTTPMiddleware/anyio request-body-stream teardown interaction that
-# differs between Python 3.10 and 3.11+, not a bug in this repo's request-handling logic.
-#
-# Group 2 -- test_open_mode_with_db_stays_open_and_ignores_stale_pats. INTERMITTENT rather than
-# deterministic, which is why the isolated per-test sweep that found group 1 missed it: it passed
-# on py3.10 in the CI run for PR #25 and then wedged on main with a byte-identical tree
-# (`git diff df44c1d 743ba9f` is empty), taking out runs 30906120666 and 30912122340.
-#
-# Root cause CONFIRMED for this one, by reproducing it in a linux/amd64 python:3.10.20 container
-# (~1 wedge per 4-6 runs of this file) and dumping the pending asyncio tasks:
-#
-#   Task <test_open_mode_...> running at test_mcp_server.py, in `async with _mcp_http_client(...)`
-#     wait_for=<Task <docket.worker.Worker.run_forever()> wait_for=<taskgroup.install.WaitTaskRescheduled>>
-#
-# _mcp_http_client enters app.router.lifespan_context. fastmcp's own lifespan
-# (fastmcp/server/server.py, `worker_task = asyncio.create_task(worker.run_forever())` ... `finally:
-# worker_task.cancel(); await worker_task`) unconditionally starts a pydocket Worker plus six
-# background tasks -- there is no opt-out in DocketSettings, and pydocket is a hard dependency
-# across the whole fastmcp>=2.14.1,<3.0.0 range we allow. On py3.10 that cancel/await lands on the
-# `taskgroup` and `backports.asyncio.runner` shims (backports of asyncio.TaskGroup / asyncio.Runner,
-# installed ONLY below 3.11); the cancellation is lost and run_forever never completes, so the
-# lifespan exit blocks forever. On 3.11+ the native implementations are used and it does not.
-#
-# So this is an upstream fastmcp/pydocket/taskgroup interaction on py3.10, not a bug in this repo
-# and not fixable by pinning within our allowed range. It is also NOT the group 1 explanation
-# above: no aiosqlite thread and no undrained request body are involved, and both of this test's
-# requests return 200 through an instance with no auth middleware at all.
-#
-# Group 1's documented cause predates this finding and has not been re-checked against it. Those
-# tests go through the same _mcp_http_client -> same fastmcp lifespan -> same Worker, so they may
-# well share this root cause rather than the middleware one; worth verifying before anyone spends
-# time on the Starlette/anyio theory.
-#
-# Neither group is fixed. Reproducing group 2 needs a LINUX py3.10 interpreter in a loop -- a
-# single run usually passes, and macOS was not observed to reproduce it.
-_PY310_HANGS_REASON = (
-    "Quarantined (EGPT-0.10 follow-up): hangs (not fails) on Python 3.10. Six of these are "
-    "deterministic and reproduce in isolation (Starlette BaseHTTPMiddleware/anyio teardown on an "
-    "undrained short-circuited request); test_open_mode_with_db_stays_open_and_ignores_stale_pats "
-    "is intermittent and confirmed to deadlock in fastmcp's lifespan awaiting a pydocket Worker "
-    "that the py3.10 taskgroup backport fails to cancel. Upstream, not a bug in this repo. "
-    "See the comment above _MCP_HEADERS."
-)
-_py310_hangs = pytest.mark.skipif(sys.version_info < (3, 11), reason=_PY310_HANGS_REASON)
-
 
 async def _ok_tool(message: str) -> str:
     return message
@@ -896,7 +890,6 @@ async def test_transport_security_allows_localhost_by_default():
     assert response.status_code == 200
 
 
-@_py310_hangs
 async def test_transport_security_rejects_unknown_host():
     """A rebound / unknown Host is rejected with 400 before the MCP machinery runs."""
     async with _mcp_http_client(_security_os(allowed_hosts=[])) as client:
@@ -912,7 +905,6 @@ async def test_transport_security_allows_configured_deploy_host():
     assert response.status_code == 200
 
 
-@_py310_hangs
 async def test_transport_security_rejects_unknown_origin():
     """A present-but-unknown Origin is rejected even when the Host is allowed."""
     async with _mcp_http_client(_security_os(allowed_hosts=[])) as client:
@@ -1011,7 +1003,6 @@ def _bearer(token: str) -> dict:
     return {**_MCP_HEADERS, "Authorization": f"Bearer {token}"}
 
 
-@_py310_hangs
 async def test_security_key_mode_rejects_missing_token():
     async with _mcp_http_client(_auth_os(security_key="test-key")) as client:
         response = await client.post("/mcp", json=_MCP_INIT_BODY, headers=_MCP_HEADERS)
@@ -1019,7 +1010,6 @@ async def test_security_key_mode_rejects_missing_token():
     assert response.json()["detail"] == "Authorization header required"
 
 
-@_py310_hangs
 async def test_security_key_mode_rejects_invalid_token():
     async with _mcp_http_client(_auth_os(security_key="test-key")) as client:
         response = await client.post("/mcp", json=_MCP_INIT_BODY, headers=_bearer("wrong-key"))
@@ -1073,7 +1063,6 @@ async def test_security_key_mode_rejects_revoked_pat(tmp_path):
     assert response.json()["detail"] == "Invalid or expired service account token"
 
 
-@_py310_hangs
 async def test_pat_without_db_gets_service_accounts_disabled_401():
     """Without a db there is no verifier: a PAT gets REST's 'not enabled' 401, not a key check."""
     async with _mcp_http_client(_auth_os(security_key="test-key")) as client:
@@ -1082,7 +1071,6 @@ async def test_pat_without_db_gets_service_accounts_disabled_401():
     assert response.json()["detail"] == "Service accounts are not enabled on this EgptOS instance"
 
 
-@_py310_hangs
 async def test_open_mode_with_db_stays_open_and_ignores_stale_pats(tmp_path):
     """A db-only EgptOS (no security key, no JWT) installs no auth layer on /mcp.
 
@@ -1128,7 +1116,6 @@ class _FakeVerifier:
     "status,expected_status_code",
     [(VerificationStatus.THROTTLED, 429), (VerificationStatus.UNAVAILABLE, 503)],
 )
-@_py310_hangs
 async def test_pat_verifier_statuses_map_like_rest(tmp_path, status, expected_status_code):
     """THROTTLED -> 429 and UNAVAILABLE -> 503, matching the REST path in egpt.os.auth."""
     os = _auth_os(security_key="test-key", db=_sqlite_db(tmp_path))
