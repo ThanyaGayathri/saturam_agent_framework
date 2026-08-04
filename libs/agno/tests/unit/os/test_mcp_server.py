@@ -630,24 +630,42 @@ _MCP_INIT_BODY = {
 }
 _MCP_HEADERS = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
 
-# Quarantined (EGPT-0.10 follow-up): confirmed via isolated reproduction that these 6 tests hang
-# (not fail) on Python 3.10 -- the process blocks (state S, ~0 CPU) rather than erroring or timing
-# out. All 5 share the same shape: a single request through _mcp_http_client that a
-# BaseHTTPMiddleware short-circuits with an early 4xx response, with the POST's JSON body never
-# read by the downstream app, and the test exits its `async with` block right after -- i.e. app/
-# client teardown runs immediately after an undrained short-circuited request. Sibling tests that
-# are structurally identical except for making a second (fully-handled, 200) request on the same
-# client before exiting (test_open_server_gets_default_rebinding_protection), or reaching the
-# rejection via a different sub-path (test_security_key_mode_rejects_revoked_pat,
-# test_authorize_gate_rejects_unauthorized_caller), do NOT hang -- confirmed individually for every
-# _mcp_http_client test in this file, not assumed. This points at a Starlette BaseHTTPMiddleware/anyio
-# request-body-stream teardown interaction that differs between Python 3.10 and 3.11+, not a bug
-# in this repo's request-handling logic (git history: unrelated to any recent change here).
-# Root cause not fixed -- needs its own investigation, not a quick patch to auth-adjacent code.
+# Quarantined (EGPT-0.10 follow-up): 7 tests in this file hang (not fail) on Python 3.10 -- the
+# process blocks (state S, ~0 CPU) rather than erroring or timing out. They fall into two groups
+# with what look like two distinct causes; do not merge them.
+#
+# Group 1 -- 6 deterministic hangs, confirmed via isolated reproduction. All 6 share the same
+# shape: a single request through _mcp_http_client that a BaseHTTPMiddleware short-circuits with
+# an early 4xx response, with the POST's JSON body never read by the downstream app, and the test
+# exits its `async with` block right after -- i.e. app/client teardown runs immediately after an
+# undrained short-circuited request. Sibling tests that are structurally identical except for
+# making a second (fully-handled, 200) request on the same client before exiting
+# (test_open_server_gets_default_rebinding_protection), or reaching the rejection via a different
+# sub-path (test_security_key_mode_rejects_revoked_pat, test_authorize_gate_rejects_unauthorized_caller),
+# do NOT hang -- confirmed individually for every _mcp_http_client test in this file, not assumed.
+# This points at a Starlette BaseHTTPMiddleware/anyio request-body-stream teardown interaction that
+# differs between Python 3.10 and 3.11+, not a bug in this repo's request-handling logic.
+#
+# Group 2 -- test_open_mode_with_db_stays_open_and_ignores_stale_pats, added to the quarantine
+# later and INTERMITTENT rather than deterministic: it passed on py3.10 in the CI run for PR #25
+# and then wedged on main with a byte-identical tree (`git diff df44c1d 743ba9f` is empty), taking
+# out runs 30906120666 and 30912122340. Because it is intermittent, the isolated per-test sweep
+# that found group 1 did not catch it. It does not fit the group 1 shape at all: both of its
+# requests return 200 and the instance installs no auth middleware, so nothing short-circuits.
+# What it has that no other quarantined test has is a SqliteDb driven through the full EgptOS
+# lifespan, so the suspected wedge point is db teardown (egpt/os/app.py::_close_databases and the
+# aiosqlite connection thread) rather than the request body stream. That is a hypothesis -- it has
+# not been reproduced under a debugger or confirmed.
+#
+# Root cause not fixed for either group -- needs its own investigation, not a quick patch to
+# auth-adjacent code. Reproducing group 2 requires looping the test on a real py3.10 interpreter;
+# a single run frequently passes.
 _PY310_HANGS_REASON = (
-    "Quarantined (EGPT-0.10 follow-up): hangs (not fails) on Python 3.10 -- confirmed via isolated "
-    "reproduction to be a Starlette BaseHTTPMiddleware/anyio teardown interaction on an undrained "
-    "short-circuited request, not a bug in this repo. See the comment above _MCP_HEADERS."
+    "Quarantined (EGPT-0.10 follow-up): hangs (not fails) on Python 3.10. Six of these are "
+    "deterministic and reproduce in isolation (Starlette BaseHTTPMiddleware/anyio teardown on an "
+    "undrained short-circuited request); test_open_mode_with_db_stays_open_and_ignores_stale_pats "
+    "is intermittent and suspected to wedge in EgptOS db teardown instead. Not a bug in this "
+    "repo's request handling. See the comment above _MCP_HEADERS."
 )
 _py310_hangs = pytest.mark.skipif(sys.version_info < (3, 11), reason=_PY310_HANGS_REASON)
 
@@ -1045,6 +1063,7 @@ async def test_pat_without_db_gets_service_accounts_disabled_401():
     assert response.json()["detail"] == "Service accounts are not enabled on this EgptOS instance"
 
 
+@_py310_hangs
 async def test_open_mode_with_db_stays_open_and_ignores_stale_pats(tmp_path):
     """A db-only EgptOS (no security key, no JWT) installs no auth layer on /mcp.
 
