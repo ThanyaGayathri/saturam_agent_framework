@@ -2,10 +2,11 @@
 
 ############################################################################
 #
-#    Agno Validate
+#    EGPT Validate
 #
 #    ruff check + mypy for agno and egptctl, ruff + pattern check for
-#    cookbook. Exits non-zero if anything fails — safe to gate on.
+#    cookbook, brand audit for the repo. Exits non-zero if anything fails —
+#    safe to gate on.
 #    agno-infra is not part of the dev venv; it validates in its own CI job.
 #
 #    Usage: ./scripts/validate.sh
@@ -73,6 +74,9 @@ run_step "mypy" mypy "${REPO_ROOT}/libs/egptctl/egptctl" --config-file "${REPO_R
 target "cookbook"
 run_step "ruff check" ruff check "${REPO_ROOT}/cookbook"
 run_step "pattern check" python3 "${REPO_ROOT}/cookbook/scripts/check_cookbook_pattern.py" --base-dir "${REPO_ROOT}/cookbook/00_quickstart"
+
+target "repo"
+run_step "brand audit" python3 "${REPO_ROOT}/scripts/brand_audit.py"
 
 ELAPSED=$((SECONDS - START))
 echo ""
