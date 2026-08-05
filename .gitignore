@@ -93,6 +93,7 @@ cookbook/12_context/demo-wiki-git/
 !/docs/adr/
 !/docs/adr/**
 !/docs/di.md
+!/docs/integrations-inventory.md
 /projects
 /agno-os
 /apps
