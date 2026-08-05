@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Validate that every name a cookbook imports from `egpt` actually exists.
+"""Validate that every `egpt` import in a cookbook resolves: both the module and the names.
 
 Cookbooks are never executed in CI and `ruff check` cannot catch a wrong *imported* name --
 that is a runtime error, not a lint -- so a typo like `from egpt.models.cohere import
 CohereChat` (the class is `Cohere`) ships silently and only fails when a user runs the example.
+The same is true of a wrong module path: `from egpt.learn.mode import LearningMode` names a
+module that does not exist (`LearningMode` lives in `egpt.learn`).
 
 The check is deliberately **static**. It parses the target module with `ast` instead of
 importing it, because the base CI environment installs only the `openai` SDK: an import-based
@@ -45,6 +47,15 @@ def iter_python_files(base_dir: Path) -> list[Path]:
     return files
 
 
+def _module_candidates(dotted: str) -> list[list[str]]:
+    parts = dotted.split(".")
+    candidates = []
+    if parts[:2] == [ROOT_PACKAGE, "models"] and len(parts) > 2:
+        candidates.append(["egpt", "integrations", "models"] + parts[2:])
+    candidates.append(parts)
+    return candidates
+
+
 def module_path(dotted: str, lib_root: Path) -> Path | None:
     """Map a dotted module name to its file, preferring the integrations layer.
 
@@ -52,18 +63,21 @@ def module_path(dotted: str, lib_root: Path) -> Path | None:
     re-export via `from ... import *`, which binds no statically visible names. Resolving to
     the real implementation keeps the check meaningful on both sides of that move.
     """
-    parts = dotted.split(".")
-    candidates = []
-    if parts[:2] == [ROOT_PACKAGE, "models"] and len(parts) > 2:
-        candidates.append(["egpt", "integrations", "models"] + parts[2:])
-    candidates.append(parts)
-
-    for cand in candidates:
+    for cand in _module_candidates(dotted):
         base = lib_root.joinpath(*cand)
         for candidate in (base / "__init__.py", base.with_suffix(".py")):
             if candidate.is_file():
                 return candidate
     return None
+
+
+def is_namespace_package(dotted: str, lib_root: Path) -> bool:
+    """True if the module is a directory with no `__init__.py` (e.g. `egpt/cloud`).
+
+    Such a package is importable but exports nothing statically visible, so it must be
+    treated as resolved-but-unverifiable rather than missing.
+    """
+    return any(lib_root.joinpath(*cand).is_dir() for cand in _module_candidates(dotted))
 
 
 def _bound_names(node: ast.AST, names: set[str]) -> None:
@@ -85,6 +99,57 @@ def _bound_names(node: ast.AST, names: set[str]) -> None:
             names.add(alias.asname or alias.name.split(".")[0])
 
 
+def _is_type_checking(test: ast.expr) -> bool:
+    """True for `TYPE_CHECKING` and `typing.TYPE_CHECKING`."""
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    if isinstance(test, ast.Attribute):
+        return test.attr == "TYPE_CHECKING"
+    return False
+
+
+def _runtime_branches(node: ast.If) -> list[list[ast.stmt]]:
+    """The branches of an `if` that can actually execute at runtime.
+
+    `typing.TYPE_CHECKING` is false at runtime, so a name bound only under `if TYPE_CHECKING:`
+    is *not* importable -- claiming otherwise manufactures phantom exports and suppresses the
+    real broken imports this check exists to catch.
+    """
+    if _is_type_checking(node.test):
+        return [node.orelse]
+    if (
+        isinstance(node.test, ast.UnaryOp)
+        and isinstance(node.test.op, ast.Not)
+        and _is_type_checking(node.test.operand)
+    ):
+        return [node.body]
+    return [node.body, node.orelse]
+
+
+def _collect_scope(body: list[ast.stmt], names: set[str]) -> None:
+    """Collect names bound by a statement list, without leaving module scope.
+
+    Descends into `try`/`if`/`with` -- optional-dependency fallbacks (aws's `Claude` stub) bind
+    real module-level names there -- but never into a function or class body, whose locals are
+    not module attributes.
+    """
+    for node in body:
+        _bound_names(node, names)
+
+        if isinstance(node, ast.Try):
+            branches = [node.body, node.orelse, node.finalbody]
+            branches += [handler.body for handler in node.handlers]
+        elif isinstance(node, ast.If):
+            branches = _runtime_branches(node)
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            branches = [node.body]
+        else:
+            continue
+
+        for branch in branches:
+            _collect_scope(branch, names)
+
+
 def exported_names(path: Path) -> set[str] | None:
     """Names a module provides, or None if it cannot be determined statically.
 
@@ -99,16 +164,11 @@ def exported_names(path: Path) -> set[str] | None:
 
     names: set[str] = set()
     for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name == "__getattr__":
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "__getattr__"
+        ):
             return None
-        _bound_names(node, names)
-
-        # Names bound inside a top-level `try`/`if` are still importable: optional-dependency
-        # fallbacks (aws's Claude stub) and `if TYPE_CHECKING:` re-exports both live there.
-        if isinstance(node, (ast.Try, ast.If, ast.With)):
-            for sub in ast.walk(node):
-                if sub is not node:
-                    _bound_names(sub, names)
 
         if isinstance(node, ast.Assign):
             for target in node.targets:
@@ -117,6 +177,8 @@ def exported_names(path: Path) -> set[str] | None:
                         names |= {str(n) for n in ast.literal_eval(node.value)}
                     except (ValueError, SyntaxError):
                         pass
+
+    _collect_scope(tree.body, names)
     return names
 
 
@@ -151,7 +213,26 @@ def check_file(path: Path, lib_root: Path, repo_root: Path) -> list[Violation]:
     )
     violations: list[Violation] = []
 
+    def missing_module(dotted: str, lineno: int) -> Violation:
+        return Violation(
+            path=rel,
+            line=lineno,
+            code="unknown_import_module",
+            message=f"'{dotted}' does not resolve to a module in the '{ROOT_PACKAGE}' package.",
+        )
+
     for node in ast.walk(tree):
+        # `import egpt.models.cohere` fails at runtime just as `from ... import` does.
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[0] != ROOT_PACKAGE:
+                    continue
+                if module_path(
+                    alias.name, lib_root
+                ) is None and not is_namespace_package(alias.name, lib_root):
+                    violations.append(missing_module(alias.name, node.lineno))
+            continue
+
         if not isinstance(node, ast.ImportFrom) or node.level != 0:
             continue
         if not node.module or node.module.split(".")[0] != ROOT_PACKAGE:
@@ -159,7 +240,11 @@ def check_file(path: Path, lib_root: Path, repo_root: Path) -> list[Violation]:
 
         target = module_path(node.module, lib_root)
         if target is None:
-            continue  # module not found: an unrelated concern, not this check's job
+            # A namespace package (a directory with no `__init__.py`, e.g. `egpt/cloud`) is
+            # importable but exports nothing statically visible -- resolved, unverifiable.
+            if not is_namespace_package(node.module, lib_root):
+                violations.append(missing_module(node.module, node.lineno))
+            continue
         names = exported_names(target)
         if names is None:
             continue  # dynamic module -- unverifiable statically

@@ -106,8 +106,81 @@ def test_optional_dependency_fallback_names_are_accepted(tmp_path):
     assert _check("from egpt.models.aws import AwsBedrock, Claude\n", tmp_path) == []
 
 
+def test_detects_a_nonexistent_module(tmp_path):
+    """A wrong *module path* fails at runtime exactly like a wrong name.
+
+    Two of the seven bugs this check was written for were wrong module paths
+    (`egpt.models.vertexai` for `egpt.models.vertexai.claude`); those were only caught because
+    the wrong package happened to exist and be empty. A misspelled one must be reported too.
+    """
+    violations = _check("from egpt.this_module_does_not_exist import Missing\n", tmp_path)
+    assert len(violations) == 1
+    assert violations[0].code == "unknown_import_module"
+    assert "egpt.this_module_does_not_exist" in violations[0].message
+
+
+def test_detects_a_nonexistent_module_in_a_plain_import(tmp_path):
+    violations = _check("import egpt.this_module_does_not_exist\n", tmp_path)
+    assert len(violations) == 1
+    assert violations[0].code == "unknown_import_module"
+
+
+def test_plain_import_of_a_real_module_is_accepted(tmp_path):
+    assert _check("import egpt.models.cohere\nimport egpt.agent as agent_pkg\n", tmp_path) == []
+
+
+def test_namespace_package_is_not_reported_as_missing(tmp_path):
+    """`egpt/cloud` has no `__init__.py`: importable, but exporting nothing statically visible."""
+    assert _check("from egpt.cloud.aws import anything_at_all\n", tmp_path) == []
+
+
+def test_type_checking_only_import_is_not_a_runtime_export(tmp_path):
+    """`egpt/utils/agent.py` binds `Agent` under `if TYPE_CHECKING:`, which is false at runtime.
+
+    Counting it as an export manufactured a phantom name and would suppress a genuinely broken
+    import -- the same failure class this check exists to catch, in the opposite direction.
+    """
+    violations = _check("from egpt.utils.agent import Agent\n", tmp_path)
+    assert len(violations) == 1
+    assert violations[0].code == "unknown_import_name"
+
+
+def test_type_checking_branch_is_excluded_but_its_else_is_not(tmp_path):
+    module = tmp_path / "mod.py"
+    module.write_text(
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n"
+        "    from x import OnlyForTypes\n"
+        "else:\n"
+        "    from y import RealAtRuntime\n"
+        "if not TYPE_CHECKING:\n"
+        "    from z import AlsoRealAtRuntime\n",
+        encoding="utf-8",
+    )
+    names = checker.exported_names(module)
+    assert "OnlyForTypes" not in names
+    assert {"RealAtRuntime", "AlsoRealAtRuntime"} <= names
+
+
+def test_nested_scopes_do_not_manufacture_exports(tmp_path):
+    """A name bound inside a function or class body is not a module attribute."""
+    module = tmp_path / "mod.py"
+    module.write_text(
+        "if True:\n"
+        "    def outer():\n"
+        "        from egpt.agent import NotAnExport\n"
+        "        local_name = 1\n"
+        "\n"
+        "    class Holder:\n"
+        "        attribute = 2\n",
+        encoding="utf-8",
+    )
+    assert checker.exported_names(module) == {"outer", "Holder"}
+
+
 def test_non_egpt_imports_are_ignored(tmp_path):
     assert _check("from os.path import definitely_not_real\n", tmp_path) == []
+    assert _check("import definitely.not.real\n", tmp_path) == []
 
 
 def test_star_import_is_ignored(tmp_path):
