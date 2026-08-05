@@ -129,9 +129,19 @@ def test_plain_import_of_a_real_module_is_accepted(tmp_path):
     assert _check("import egpt.models.cohere\nimport egpt.agent as agent_pkg\n", tmp_path) == []
 
 
-def test_namespace_package_is_not_reported_as_missing(tmp_path):
-    """`egpt/cloud` has no `__init__.py`: importable, but exporting nothing statically visible."""
-    assert _check("from egpt.cloud.aws import anything_at_all\n", tmp_path) == []
+def test_namespace_package_rejects_a_missing_child(tmp_path):
+    """A namespace package is importable, but an arbitrary child name is not."""
+    violations = _check("from egpt.cloud.aws import anything_at_all\n", tmp_path)
+    assert len(violations) == 1
+    assert violations[0].code == "unknown_import_name"
+    assert "anything_at_all" in violations[0].message
+
+
+def test_namespace_package_accepts_real_children(tmp_path):
+    """Directories and files below a namespace package are importable submodules."""
+    assert _check("import egpt.cloud.aws\n", tmp_path) == []
+    assert _check("from egpt.cloud import aws\n", tmp_path) == []
+    assert _check("from egpt.cloud.aws import base\n", tmp_path) == []
 
 
 def test_type_checking_only_import_is_not_a_runtime_export(tmp_path):

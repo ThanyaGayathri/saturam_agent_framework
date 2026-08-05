@@ -189,15 +189,17 @@ def has_submodule(dotted: str, name: str, lib_root: Path) -> bool:
     Compares directory entries explicitly rather than probing with `Path.is_file()`: macOS is
     case-insensitive, so `SambaNova.py` would match `sambanova.py` and mask exactly the
     wrong-capitalization typos this check exists to catch. That would make the check pass
-    locally and fail on Linux CI (or vice versa).
+    locally and fail on Linux CI (or vice versa). A child directory is importable even without
+    an `__init__.py`, so namespace subpackages count as modules too.
     """
-    base = lib_root.joinpath(*dotted.split("."))
-    if not base.is_dir():
-        return False
-    entries = {entry.name for entry in base.iterdir()}
-    return f"{name}.py" in entries or (
-        name in entries and (base / name / "__init__.py").is_file()
-    )
+    for candidate in _module_candidates(dotted):
+        base = lib_root.joinpath(*candidate)
+        if not base.is_dir():
+            continue
+        entries = {entry.name for entry in base.iterdir()}
+        if f"{name}.py" in entries or (name in entries and (base / name).is_dir()):
+            return True
+    return False
 
 
 def check_file(path: Path, lib_root: Path, repo_root: Path) -> list[Violation]:
@@ -241,14 +243,23 @@ def check_file(path: Path, lib_root: Path, repo_root: Path) -> list[Violation]:
         target = module_path(node.module, lib_root)
         if target is None:
             # A namespace package (a directory with no `__init__.py`, e.g. `egpt/cloud`) is
-            # importable but exports nothing statically visible -- resolved, unverifiable.
+            # importable but has no statically bound attributes. Treat it as an empty export
+            # surface so the checks below still accept real child modules and reject arbitrary
+            # names.
             if not is_namespace_package(node.module, lib_root):
                 violations.append(missing_module(node.module, node.lineno))
-            continue
-        names = exported_names(target)
-        if names is None:
-            continue  # dynamic module -- unverifiable statically
+                continue
+            names: set[str] = set()
+        else:
+            names = exported_names(target)
+            if names is None:
+                continue  # dynamic module -- unverifiable statically
 
+        resolved_to = (
+            target.relative_to(lib_root).as_posix()
+            if target is not None
+            else node.module.replace(".", "/")
+        )
         for alias in node.names:
             if alias.name == "*":
                 continue
@@ -263,7 +274,7 @@ def check_file(path: Path, lib_root: Path, repo_root: Path) -> list[Violation]:
                     code="unknown_import_name",
                     message=(
                         f"'{alias.name}' is not provided by '{node.module}' "
-                        f"(resolved to {target.relative_to(lib_root).as_posix()})."
+                        f"(resolved to {resolved_to})."
                     ),
                 )
             )
