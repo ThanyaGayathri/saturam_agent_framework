@@ -28,9 +28,9 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/05_knowledge/01_team_with_knowledge.py", line 16, in <module>
-    from agno.vectordb.lancedb import LanceDb, SearchType
+    from egpt.vectordb.lancedb import LanceDb, SearchType
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/vectordb/lancedb/__init__.py", line 1, in <module>
-    from agno.vectordb.lancedb.lance_db import LanceDb, SearchType
+    from egpt.vectordb.lancedb.lance_db import LanceDb, SearchType
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/vectordb/lancedb/lance_db.py", line 11, in <module>
     raise ImportError("`lancedb` not installed. Please install using `pip install lancedb`")
 ImportError: `lancedb` not installed. Please install using `pip install lancedb`
@@ -52,9 +52,9 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/05_knowledge/02_team_with_knowledge_filters.py", line 17, in <module>
-    from agno.vectordb.lancedb import LanceDb
+    from egpt.vectordb.lancedb import LanceDb
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/vectordb/lancedb/__init__.py", line 1, in <module>
-    from agno.vectordb.lancedb.lance_db import LanceDb, SearchType
+    from egpt.vectordb.lancedb.lance_db import LanceDb, SearchType
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/vectordb/lancedb/lance_db.py", line 11, in <module>
     raise ImportError("`lancedb` not installed. Please install using `pip install lancedb`")
 ImportError: `lancedb` not installed. Please install using `pip install lancedb`
@@ -76,9 +76,9 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/05_knowledge/03_team_with_agentic_knowledge_filters.py", line 16, in <module>
-    from agno.vectordb.lancedb import LanceDb
+    from egpt.vectordb.lancedb import LanceDb
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/vectordb/lancedb/__init__.py", line 1, in <module>
-    from agno.vectordb.lancedb.lance_db import LanceDb, SearchType
+    from egpt.vectordb.lancedb.lance_db import LanceDb, SearchType
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/vectordb/lancedb/lance_db.py", line 11, in <module>
     raise ImportError("`lancedb` not installed. Please install using `pip install lancedb`")
 ImportError: `lancedb` not installed. Please install using `pip install lancedb`
@@ -110,9 +110,9 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/05_knowledge/05_team_update_knowledge.py", line 12, in <module>
-    from agno.vectordb.lancedb import LanceDb
+    from egpt.vectordb.lancedb import LanceDb
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/vectordb/lancedb/__init__.py", line 1, in <module>
-    from agno.vectordb.lancedb.lance_db import LanceDb, SearchType
+    from egpt.vectordb.lancedb.lance_db import LanceDb, SearchType
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/vectordb/lancedb/lance_db.py", line 11, in <module>
     raise ImportError("`lancedb` not installed. Please install using `pip install lancedb`")
 ImportError: `lancedb` not installed. Please install using `pip install lancedb`

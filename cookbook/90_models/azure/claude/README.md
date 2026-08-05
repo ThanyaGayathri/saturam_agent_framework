@@ -27,7 +27,7 @@ export ANTHROPIC_FOUNDRY_BASE_URL=https://your-resource.services.ai.azure.com
 ### 3. Install libraries
 
 ```shell
-uv pip install -U anthropic agno
+uv pip install -U anthropic
 ```
 
 ### 4. Run basic agent

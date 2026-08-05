@@ -20,7 +20,7 @@ export OPENROUTER_API_KEY=***
 ### 3. Install libraries
 
 ```shell
-pip install -U openai agno
+pip install -U openai
 ```
 
 ---

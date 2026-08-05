@@ -11,7 +11,7 @@ Instructions for Claude Code when testing the Scheduler cookbooks.
 # Virtual environment with all dependencies
 .venvs/demo/bin/python
 
-# Requires croniter and pytz (included in agno[scheduler] and agno[demo])
+# Requires croniter and pytz (included in egpt[scheduler] and egpt[demo])
 ```
 
 **Run a cookbook:**
@@ -76,7 +76,7 @@ After each test, update `cookbook/05_agent_os/scheduler/TEST_LOG.md` with:
 
 ## Key Concepts
 
-- **croniter** and **pytz** are optional dependencies under `agno[scheduler]`
+- **croniter** and **pytz** are optional dependencies under `egpt[scheduler]`
 - The scheduler polls the database at a configurable interval (default: 15s)
 - Schedules are claimed atomically to prevent duplicate execution
 - The executor calls endpoints on the EgptOS server using an internal service token

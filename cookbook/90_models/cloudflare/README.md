@@ -6,7 +6,7 @@ This cookbook uses **Workers AI** by default: you only need a Cloudflare API tok
 
 ### 1. Create and activate a virtual environment
 
-See the repository [Development setup](https://github.com/agno-agi/agno/blob/main/CONTRIBUTING.md#development-setup).
+See the repository [Development setup](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/CONTRIBUTING.md#development-setup).
 
 ### 2. Export credentials
 
@@ -38,7 +38,7 @@ Models like `openai/...` or `anthropic/...` are forwarded to that vendor. Add th
 ### 3. Install libraries
 
 ```shell
-uv pip install -U openai agno
+uv pip install -U openai
 ```
 
 ### 4. Run the basic example

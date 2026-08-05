@@ -11,7 +11,7 @@ Use cases:
 - Production-grade instrumentation
 
 Install:
-    uv pip install agno openai httpx
+    uv pip install openai httpx
 """
 
 import logging

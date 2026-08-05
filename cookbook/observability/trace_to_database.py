@@ -167,8 +167,8 @@ def run_trace_demo() -> None:
                 important_attrs = {
                     "session.id": "Session",
                     "user.id": "User",
-                    "agno.agent.id": "Agent",
-                    "agno.run.id": "Run",
+                    "egpt.agent.id": "Agent",
+                    "egpt.run.id": "Run",
                 }
                 for attr_key, label in important_attrs.items():
                     if attr_key in span.attributes and span.attributes[attr_key]:
@@ -194,8 +194,8 @@ def run_trace_demo() -> None:
                     "llm.input_messages",
                     "session.id",
                     "user.id",
-                    "agno.agent.id",
-                    "agno.run.id",
+                    "egpt.agent.id",
+                    "egpt.run.id",
                 }
                 other_attrs = {
                     k: v for k, v in span.attributes.items() if k not in shown_keys

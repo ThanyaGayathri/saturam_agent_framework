@@ -5,7 +5,7 @@ This example demonstrates how to create an Agno agent that performs web searches
 Setup:
 1. Install Python dependencies:
    ```bash
-   uv pip install agno mcp anthropic
+   uv pip install mcp anthropic
    ```
 
 2. Set ANTHROPIC_API_KEY environment variable (required for Claude model).

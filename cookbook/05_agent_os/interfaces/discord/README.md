@@ -16,7 +16,7 @@ Before you can use the Discord client, you'll need:
 
 1. Install the required packages:
 ```bash
-uv pip install discord.py agno
+uv pip install discord.py
 ```
 
 2. Create a Discord bot:
@@ -46,9 +46,9 @@ uv pip install discord.py agno
 Here's a basic example of how to use the DiscordClient:
 
 ```python
-from agno.agent import Agent
-from agno.integrations.discord import DiscordClient
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.integrations.discord import DiscordClient
+from egpt.models.anthropic import Claude
 
 # Create your agent
 agent = Agent(

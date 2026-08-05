@@ -2,7 +2,7 @@
 Agentic Rag With Reranking
 =============================
 
-1. Run: `uv pip install openai agno cohere lancedb sqlalchemy` to install the dependencies.
+1. Run: `uv pip install openai cohere lancedb sqlalchemy` to install the dependencies.
 """
 
 from egpt.agent import Agent

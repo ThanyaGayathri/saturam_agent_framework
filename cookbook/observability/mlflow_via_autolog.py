@@ -5,7 +5,7 @@ MLflow Via Autolog
 Demonstrates tracing an Agno agent with MLflow's built-in autolog integration.
 
 Requirements:
-    pip install mlflow agno
+    pip install mlflow
 
 Start MLflow:
     mlflow server --host 127.0.0.1 --port 5000

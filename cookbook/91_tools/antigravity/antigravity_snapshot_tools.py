@@ -13,7 +13,7 @@ sandbox produced during a task.
 
 Requirements:
     export GEMINI_API_KEY=...
-    uv pip install agno google-genai
+    uv pip install google-genai
 
 Usage:
     .venvs/demo/bin/python cookbook/91_tools/antigravity/antigravity_snapshot_tools.py

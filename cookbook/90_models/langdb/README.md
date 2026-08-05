@@ -19,7 +19,7 @@ export LANGDB_PROJECT_ID=***
 ### 3. Install libraries
 
 ```shell
-uv pip install -U openai ddgs duckdb yfinance agno
+uv pip install -U openai ddgs duckdb yfinance
 ```
 
 ### 4. Run Agent without Tools

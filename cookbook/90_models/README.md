@@ -24,7 +24,7 @@ Examples for all supported LLM providers in Agno.
 
 ```bash
 # Install provider
-uv pip install agno openai
+uv pip install openai
 
 # Set API key
 export OPENAI_API_KEY=your-key

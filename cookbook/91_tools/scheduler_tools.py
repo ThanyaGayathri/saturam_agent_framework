@@ -8,7 +8,7 @@ The agent can convert natural language requests like "do this every day at 9am"
 into cron-based schedules that run via the EgptOS scheduler infrastructure.
 
 Prerequisites:
-    pip install agno[scheduler]
+    pip install croniter pytz
     # A running EgptOS server with scheduler enabled
     # See cookbook/05_agent_os/scheduler/scheduler_tools_agent.py for full setup
 """

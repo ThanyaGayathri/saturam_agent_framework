@@ -1,4 +1,4 @@
-agno
+-e ./libs/agno
 chromadb
 fastapi[standard]
 google-genai

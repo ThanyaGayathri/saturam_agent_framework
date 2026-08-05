@@ -5,9 +5,9 @@ Agents for Gmail, Google Calendar, Google Drive, and Google Slides using OAuth o
 ## Quick Start
 
 ```python
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.google.calendar import GoogleCalendarTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.google.calendar import GoogleCalendarTools
 
 agent = Agent(
     model=OpenAIChat(id="gpt-4o"),
@@ -20,9 +20,9 @@ agent.print_response("What meetings do I have tomorrow?", stream=True)
 ```
 
 ```python
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.google.slides import GoogleSlidesTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.google.slides import GoogleSlidesTools
 
 agent = Agent(
     model=OpenAIChat(id="gpt-4o"),

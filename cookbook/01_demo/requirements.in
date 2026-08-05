@@ -1,4 +1,4 @@
-agno[os]
+-e ./libs/agno[os]
 google-genai
 fastapi[standard]
 mcp

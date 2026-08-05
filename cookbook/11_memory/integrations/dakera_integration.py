@@ -14,7 +14,7 @@ Prerequisites:
         -e DAKERA_API_KEY=demo \\
         ghcr.io/dakera-ai/dakera:latest
 
-    uv pip install agno dakera
+    uv pip install dakera
 
 Usage:
     DAKERA_API_KEY=demo python cookbook/11_memory/integrations/dakera_integration.py

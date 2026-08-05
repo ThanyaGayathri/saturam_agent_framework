@@ -18,7 +18,7 @@ export NEOSANTARA_API_KEY=***
 ### 3. Install libraries
 
 ```shell
-uv pip install -U ddgs agno
+uv pip install -U ddgs
 ```
 
 ### 4. Run basic Agent

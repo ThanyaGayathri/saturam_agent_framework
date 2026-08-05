@@ -4,7 +4,7 @@ Starts an EgptOS with the scheduler enabled. After the server is running,
 use the REST API to create a schedule that triggers an agent every 5 minutes.
 
 Prerequisites:
-    pip install agno[scheduler]
+    pip install croniter pytz
     # Start postgres: ./cookbook/scripts/run_pgvector.sh
 
 Usage:

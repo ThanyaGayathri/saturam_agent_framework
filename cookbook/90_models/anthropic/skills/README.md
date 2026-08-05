@@ -28,7 +28,7 @@ Before you can use Claude Agent Skills, you'll need:
 
 1. Install the required packages:
 ```bash
-uv pip install anthropic agno
+uv pip install anthropic
 
 # Optional: Install document manipulation libraries
 uv pip install python-pptx openpyxl python-docx PyPDF2 pdfplumber
@@ -79,8 +79,8 @@ response = client.messages.create(
 Agno now has native support for Claude Agent Skills! Simply pass the `skills` parameter to the Claude model:
 
 ```python
-from agno.agent import Agent
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
 
 # Enable PowerPoint skill
 agent = Agent(

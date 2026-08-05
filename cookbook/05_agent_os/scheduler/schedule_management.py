@@ -4,7 +4,7 @@ Demonstrates creating, listing, updating, enabling/disabling,
 manually triggering, and deleting schedules.
 
 Prerequisites:
-    pip install agno[scheduler] httpx
+    pip install croniter pytz httpx
 
 Usage:
     # First, start the server:

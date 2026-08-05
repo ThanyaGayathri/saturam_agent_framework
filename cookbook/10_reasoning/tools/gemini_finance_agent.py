@@ -4,7 +4,7 @@ Gemini Finance Agent
 
 Demonstrates this reasoning cookbook example.
 """
-# ! pip install -U agno
+# ! pip install -U google-genai yfinance
 
 from egpt.agent import Agent
 from egpt.models.google import Gemini

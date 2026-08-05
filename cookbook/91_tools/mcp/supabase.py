@@ -6,7 +6,7 @@ Setup:
 1. Install Python dependencies:
 
 ```bash
-uv pip install agno mcp
+uv pip install mcp
 ```
 
 2. Create a Supabase Access Token: https://supabase.com/dashboard/account/tokens and set it as the SUPABASE_ACCESS_TOKEN environment variable.

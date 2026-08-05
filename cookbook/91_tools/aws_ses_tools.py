@@ -33,7 +33,7 @@ AWS SES (Simple Email Service) Setup Instructions:
 
 3. Install required Python packages:
    ```
-   uv pip install boto3 agno
+   uv pip install boto3
    ```
 
 4. Update the variables below with your configuration:

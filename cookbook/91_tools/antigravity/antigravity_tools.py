@@ -13,7 +13,7 @@ calls can build on prior files and state.
 2. Set the API key as an environment variable:
     export GEMINI_API_KEY=<your_api_key>
 3. Install the dependencies:
-    uv pip install agno google-genai
+    uv pip install google-genai
 """
 
 from egpt.agent import Agent

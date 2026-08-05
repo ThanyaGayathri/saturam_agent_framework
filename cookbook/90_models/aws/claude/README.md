@@ -33,7 +33,7 @@ agent = Agent(
 ### 3. Install libraries
 
 ```shell
-uv pip install -U anthropic ddgs agno
+uv pip install -U anthropic ddgs
 ```
 
 ### 4. Run basic agent
@@ -85,7 +85,7 @@ python cookbook/90_models/aws/claude/adaptive_thinking.py
 ```
 
 ```python
-from agno.models.aws import Claude
+from egpt.models.aws import Claude
 
 model = Claude(
     id="anthropic.claude-sonnet-4-6-20250514-v1:0",

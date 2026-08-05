@@ -18,7 +18,7 @@ export TOGETHER_API_KEY=***
 ### 3. Install libraries
 
 ```shell
-uv pip install -U together openai ddgs duckdb yfinance agno
+uv pip install -U together openai ddgs duckdb yfinance
 ```
 
 ### 4. Run basic Agent

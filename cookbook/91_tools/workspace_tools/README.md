@@ -13,7 +13,7 @@ agent inside a real sandbox (container, VM, Daytona).
 ## Quick reference
 
 ```python
-from agno.tools.workspace import Workspace
+from egpt.tools.workspace import Workspace
 
 # Default: reads auto-pass, writes/edits/moves/deletes/shell require confirmation.
 tools = [Workspace(".")]

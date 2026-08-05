@@ -19,11 +19,11 @@ Each example uses SQLite for session storage so you can run it with no infra set
 ## The Multi-Framework Example
 
 ```python
-from agno.agent import Agent
-from agno.agents.claude import ClaudeAgent
-from agno.db.sqlite import SqliteDb
+from egpt.agent import Agent
+from egpt.agents.claude import ClaudeAgent
+from egpt.db.sqlite import SqliteDb
 from egpt.os import EgptOS
-from agno.tools.workspace import Workspace
+from egpt.tools.workspace import Workspace
 
 # Claude Code agent
 claude_agent = ClaudeAgent(

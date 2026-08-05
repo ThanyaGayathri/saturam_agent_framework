@@ -25,8 +25,8 @@ or use our script:
 ## Configuration
 
 ```python
-from agno.agent import Agent
-from agno.db.mongo import MongoDb
+from egpt.agent import Agent
+from egpt.db.mongo import MongoDb
 
 db = MongoDb(db_url="mongodb://username:password@localhost:27017")
 

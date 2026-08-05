@@ -14,8 +14,8 @@ Agno teams support four execution modes that control how the team leader coordin
 ## Usage
 
 ```python
-from agno.team.mode import TeamMode
-from agno.team.team import Team
+from egpt.team.mode import TeamMode
+from egpt.team.team import Team
 
 team = Team(
     name="My Team",

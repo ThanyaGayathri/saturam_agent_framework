@@ -5,7 +5,7 @@ Examples demonstrating JSON file-based storage integration with Agno agents, tea
 ## Configuration
 
 ```python
-from agno.db.json import JsonDb
+from egpt.db.json import JsonDb
 
 db = JsonDb(db_path="tmp/json_db")
 ```

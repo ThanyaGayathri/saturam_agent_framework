@@ -3,7 +3,7 @@ LlamaIndex Vector DB
 ====================
 
 Install dependencies:
-- uv pip install llama-index-core llama-index-readers-file llama-index-embeddings-openai agno
+- uv pip install llama-index-core llama-index-readers-file llama-index-embeddings-openai
 """
 
 import asyncio

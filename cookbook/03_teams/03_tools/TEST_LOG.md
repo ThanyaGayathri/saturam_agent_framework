@@ -28,7 +28,7 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/03_tools/async_tools.py", line 14, in <module>
-    from agno.tools.agentql import AgentQLTools
+    from egpt.tools.agentql import AgentQLTools
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/tools/agentql.py", line 11, in <module>
     raise ImportError("`agentql` not installed. Please install using `pip install agentql`")
 ImportError: `agentql` not installed. Please install using `pip install agentql`
