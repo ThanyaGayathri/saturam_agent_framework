@@ -1,6 +1,8 @@
-# egpt comes from this repo's sources, not PyPI (upstream `agno` pin removed,
-# EGPT-0.13). Run this from the repo root -- uv resolves the editable path below
-# against your current directory:
+# Hand-maintained list -- this folder has no requirements.in and no
+# generate_requirements.sh, so edit it directly. `egpt` comes from this repo's
+# sources, not PyPI. Install from the repo root: uv resolves the editable path
+# below against your current directory.
+#
 #     uv pip install -r cookbook/gemini_3/requirements.txt
 -e ./libs/agno[google]
 duckduckgo-search
