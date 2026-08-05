@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with SiliconFlow."""
 
 from egpt.agent import Agent
-from egpt.models.siliconflow import SiliconFlow
+from egpt.models.siliconflow import Siliconflow
 
 # ---------------------------------------------------------------------------
 # Create Agent
@@ -11,7 +11,7 @@ from egpt.models.siliconflow import SiliconFlow
 wrong_model_id = "siliconflow-wrong-id"
 
 agent = Agent(
-    model=SiliconFlow(
+    model=Siliconflow(
         id=wrong_model_id,
         retries=3,  # Number of times to retry the request.
         delay_between_retries=1,  # Delay between retries in seconds.

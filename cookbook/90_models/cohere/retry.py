@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Cohere."""
 
 from egpt.agent import Agent
-from egpt.models.cohere import CohereChat
+from egpt.models.cohere import Cohere
 
 # ---------------------------------------------------------------------------
 # Create Agent
@@ -11,7 +11,7 @@ from egpt.models.cohere import CohereChat
 wrong_model_id = "cohere-wrong-id"
 
 agent = Agent(
-    model=CohereChat(
+    model=Cohere(
         id=wrong_model_id,
         retries=3,  # Number of times to retry the request.
         delay_between_retries=1,  # Delay between retries in seconds.
