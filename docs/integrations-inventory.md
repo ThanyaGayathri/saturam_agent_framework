@@ -21,6 +21,23 @@ One row per external touchpoint in the framework, each carrying the core interfa
 3. Targets were taken from ADR 0001's layer mapping. Where the ADR is silent, a target is proposed and marked.
 4. Anything the ADR and the ticket disagree on, or that has no clean home, is raised in section 6 with a proposed disposition.
 
+### Scope rule, and the areas deliberately excluded
+
+**Rule applied:** a module is a touchpoint if it imports a library that speaks to a system outside this process -- a vendor SDK, a network API, a database driver, a message channel. Libraries that are pure local computation or framework plumbing (`pydantic`, `fastapi`, `rich`, `numpy`, `croniter`, `cryptography`, ...) do not make a module a touchpoint on their own.
+
+Earlier drafts of this document scanned only the areas named in the ticket's mapping table, which meant a touchpoint in an unscanned package could not be found by construction -- four families were missed that way and added in review. The scope is now the **whole package**, and the modules that match the import test but are still excluded are recorded here rather than left implicit:
+
+| Module | External import | Why excluded |
+|---|---|---|
+| `eval/utils.py` | `sqlalchemy` | Consumes the DB layer; is not itself a backend. Moves only if `db/` moves under it. |
+| `os/routers/service_accounts/router.py` | `sqlalchemy` | Same: control-plane router over the DB layer. |
+| `os/middleware/jwt.py` | `jwt` (PyJWT) | Token verification is local computation; no external system is contacted. |
+| `workflow/cel.py` | `celpy` | CEL expression evaluator -- pure local computation, no external system. |
+| `scheduler/` | `croniter`, `pytz` | Date/schedule arithmetic; no external system. |
+| `client/`, `remote/`, `api/` | `fastapi`, `pydantic_settings` | Framework plumbing and config. |
+
+If a reviewer disagrees with any exclusion, the fix is a row in section 4, not a change to the rule.
+
 ## 3. Reconciliation against the ticket's estimates
 
 | Area | Ticket estimate | Measured | Reconciliation |
@@ -41,9 +58,13 @@ One row per external touchpoint in the framework, each carrying the core interfa
 | Context providers | "~context" | **11** provider dirs (8 move, 3 stay) | Ticket never fixed a number and routes all of `context/` to integrations; ADR splits it -- see A8. |
 | Cloud provider adapters | *not listed* | **4** modules under `cloud/aws/` | **Gap in the ticket.** ADR 0001 line 164 extracts these to integrations. |
 | Provider-specific `utils/` | *not listed* | **14** (`gemini`, `openai`, `mcp`, `streamlit` + **10** in `utils/models/`) | **Gap in the ticket.** ADR 0001 decision 5 + split table (lines 152/178) split `utils/`. |
-| Channel integrations | "only `discord/`" | **1** | Matches; already in the target layer. |
+| Channel integrations (existing) | "only `discord/`" | **1** | Matches; already in the target layer. |
+| `os/interfaces/` channels | *not listed* | **35** (34 adapter modules + `base.py`) | **Gap in the ticket.** Slack, Telegram, WhatsApp, A2A, AG-UI. ADR 0001 line 37 puts channel integrations in the integrations layer -- see A13. |
+| `agents/` external frameworks | *not listed* | **6** (+ `base.py`) | **Gap in the ticket.** `claude_agent_sdk`, `dspy`, `langchain_core`, Google Generative Language API. |
+| `guardrails/openai.py` | *not listed* | **1** (of 4 in `guardrails/`) | **Gap in the ticket.** Instantiates an OpenAI client and calls the moderation API. |
+| `run/cancellation_management/` | *not listed* | **1** (of 3) | **Gap in the ticket.** Redis backend. |
 
-**Totals: 349 modules inventoried.** 266 move to the integrations layer unambiguously; 50 need a decision first (section 6), of which 39 are proposed to move and 11 to stay or split; 27 are interfaces, domain types or pure logic that stay in core / orchestration; 6 are deprecation shims to delete. That is **~305 modules destined for the integrations layer**, against the ticket's ~270 estimate. The excess is the rerankers, loaders, remote content, cloud adapters and provider utils the ticket's table did not account for.
+**Totals: 401 modules inventoried.** 293 move to the integrations layer unambiguously; 67 need a decision first (section 6), of which 56 are proposed to move and 11 to stay or split; 35 are interfaces, domain types or pure logic that stay in core / orchestration; 6 are deprecation shims to delete. That is **~349 modules destined for the integrations layer**, against the ticket's ~270 estimate. The excess is the rerankers, loaders, remote content, cloud adapters and provider utils the ticket's table did not account for.
 
 ### Disposition legend
 
@@ -446,7 +467,7 @@ Tool interface. Target `integrations/tools/mcp`, owner EGPT-1.7. The client live
 | `knowledge/document/` | `Document` | stay in core | -- | STAY | knowledge domain type (ADR 0001 line 103); listed so no subpackage is unaccounted for |
 | `knowledge/remote_knowledge.py` | -- | `integrations/knowledge/remote_knowledge` | EGPT-1.8 | MOVE | ADR 0001 assigns to integrations; **missing from the EGPT-1.3 ticket table** |
 
-### 4.12 Context providers (15)
+### 4.12 Context providers (18)
 
 `ContextProvider` / `ContextBackend`. ADR 0001 splits this package: builders stay in orchestration, external connectors move. See A8.
 
@@ -461,7 +482,10 @@ Tool interface. Target `integrations/tools/mcp`, owner EGPT-1.7. The client live
 | `context/mcp/` | `ContextProvider` (`context/provider.py`) | `integrations/context/mcp` | EGPT-1.7/1.8 | MOVE |  |
 | `context/slack/` | `ContextProvider` (`context/provider.py`) | `integrations/context/slack` | EGPT-1.7/1.8 | MOVE |  |
 | `context/web/` | `ContextProvider` (`context/provider.py`) | `integrations/context/web` | EGPT-1.7/1.8 | MOVE | holds `exa.py`, `parallel.py` + their MCP variants |
-| `context/wiki/` | `ContextProvider` (`context/provider.py`) | stay in orchestration (ADR 0001) | -- | FLAG | **conflict**: ADR lists `wiki/` as orchestration, but it holds `notion_ops.py` + `git_ops.py` (external systems) -- see A8 |
+| `context/wiki/provider.py` | `ContextProvider` | stay in orchestration (ADR 0001) | -- | STAY | imports `CommitSummary` + `WikiBackend` from `backend.py` and takes `WikiBackend` in its constructor |
+| `context/wiki/backend.py` | `WikiBackend` (defined here) | **split** -- see A8 | EGPT-1.7 | FLAG | single file holding the ABC, `CommitSummary`, `WikiBackendError`, `FileSystemBackend` **and** `GitBackend` / `NotionDatabaseBackend` / `NotionPageBackend`. Cannot move or stay whole -- see A8 |
+| `context/wiki/git_ops.py` | -- | `integrations/context/wiki/git_ops` | EGPT-1.7 | MOVE | git subprocess driver used only by `GitBackend` |
+| `context/wiki/notion_ops.py` | -- | `integrations/context/wiki/notion_ops` | EGPT-1.7 | MOVE | Notion API driver used only by the Notion backends |
 | `context/workspace/` | `ContextProvider` (`context/provider.py`) | stay in orchestration (ADR 0001) | -- | STAY | local workspace provider (ADR: orchestration) |
 | `context/provider.py` | -- | stay in core/orchestration | -- | STAY | `ContextProvider` ABC |
 | `context/backend.py` | -- | stay in core/orchestration | -- | STAY | `ContextBackend` ABC |
@@ -511,13 +535,83 @@ No core interface. ADR 0001 decision 5 and its split table (lines 152/178) assig
 | `utils/models/watsonx.py` | -- | integrations/... (with its provider) | EGPT-1.4 | MOVE | IBM watsonx helpers -- move with `models/ibm`; ADR 0001 lines 152/178 assign `utils/models/` to integrations; **missing from the EGPT-1.3 ticket table** |
 | `utils/print_response/` | -- | orchestration (not integrations) | -- | STAY | ADR 0001 line 178 assigns to orchestration alongside `utils/{agent,team,events,reasoning,response,hooks}.py`; listed here only so the `utils/` split is fully accounted for |
 
-### 4.16 Channel integrations (1)
+### 4.16 Channel integrations (existing) (1)
 
 Already in the integrations layer.
 
 | Module | Interface (core) | Target module | Ticket | Disposition | Note |
 |---|---|---|---|---|---|
 | `integrations/discord/client.py` | -- | integrations/discord (already in place) | -- | STAY | the only pre-existing occupant of the integrations layer |
+
+### 4.17 Channel and protocol interfaces (35)
+
+`BaseInterface` in `os/interfaces/base.py`. ADR 0001 line 37 names **channel integrations** as part of the integrations layer, and `integrations/discord/` (section 4.16) is already there -- these are its structural twins. Target `integrations/channels/*`, owner EGPT-1.7. **Absent from the ticket's mapping table.** See A13.
+
+| Module | Interface (core) | Target module | Ticket | Disposition | Note |
+|---|---|---|---|---|---|
+| `os/interfaces/a2a/a2a.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/a2a/a2a` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/a2a/router.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/a2a/router` | EGPT-1.7 | MOVE | vendor SDK: `a2a`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/a2a/utils.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/a2a/utils` | EGPT-1.7 | MOVE | vendor SDK: `a2a`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/agui/agui.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/agui/agui` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/agui/handlers.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/agui/handlers` | EGPT-1.7 | MOVE | vendor SDK: `ag_ui`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/agui/input.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/agui/input` | EGPT-1.7 | MOVE | vendor SDK: `ag_ui`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/agui/router.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/agui/router` | EGPT-1.7 | MOVE | vendor SDK: `ag_ui`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/agui/state.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/agui/state` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/agui/stream.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/agui/stream` | EGPT-1.7 | MOVE | vendor SDK: `ag_ui`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/slack/builders.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/builders` | EGPT-1.7 | MOVE | vendor SDK: `slack_sdk`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/slack/components.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/components` | EGPT-1.7 | MOVE | vendor SDK: `slack_sdk`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/slack/event_handler.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/event_handler` | EGPT-1.7 | MOVE | vendor SDK: `slack_sdk`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/slack/events.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/events` | EGPT-1.7 | MOVE | vendor SDK: `slack_sdk`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/slack/helpers.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/helpers` | EGPT-1.7 | MOVE | vendor SDK: `httpx`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/slack/hitl.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/hitl` | EGPT-1.7 | MOVE | vendor SDK: `slack_sdk`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/slack/ids.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/ids` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/slack/interactions.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/interactions` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/slack/pause.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/pause` | EGPT-1.7 | MOVE | vendor SDK: `slack_sdk`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/slack/router.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/router` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/slack/security.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/security` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/slack/slack.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/slack` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/slack/state.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/state` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/slack/types.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/slack/types` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/telegram/events.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/telegram/events` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/telegram/formatting.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/telegram/formatting` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/telegram/helpers.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/telegram/helpers` | EGPT-1.7 | MOVE | vendor SDK: `telebot`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/telegram/router.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/telegram/router` | EGPT-1.7 | MOVE | vendor SDK: `telebot`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/telegram/security.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/telegram/security` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/telegram/state.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/telegram/state` | EGPT-1.7 | MOVE | vendor SDK: `telebot`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/telegram/telegram.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/telegram/telegram` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/whatsapp/helpers.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/whatsapp/helpers` | EGPT-1.7 | MOVE | vendor SDK: `httpx`; **missing from the EGPT-1.3 ticket table** |
+| `os/interfaces/whatsapp/router.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/whatsapp/router` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/whatsapp/security.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/whatsapp/security` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/whatsapp/whatsapp.py` | `BaseInterface` (`os/interfaces/base.py`) | `integrations/channels/whatsapp/whatsapp` | EGPT-1.7 | FLAG | FastAPI routing / glue for the same adapter -- see A13 |
+| `os/interfaces/base.py` | `BaseInterface` | stay in core/api | -- | STAY | interface ABC for all channel adapters |
+
+### 4.18 External agent frameworks (7)
+
+`BaseAgent` in `agents/base.py`. Adapters wrapping third-party agent frameworks. Target `integrations/agents/*`, owner EGPT-1.7. **Absent from the ticket's mapping table.**
+
+| Module | Interface (core) | Target module | Ticket | Disposition | Note |
+|---|---|---|---|---|---|
+| `agents/antigravity/agent.py` | `BaseAgent` (`agents/base.py`) | `integrations/agents/antigravity/agent` | EGPT-1.7 | MOVE | calls the Google Generative Language API directly (`generativelanguage.googleapis.com`); **missing from the EGPT-1.3 ticket table** |
+| `agents/claude/agent.py` | `BaseAgent` (`agents/base.py`) | `integrations/agents/claude/agent` | EGPT-1.7 | MOVE | wraps `claude_agent_sdk`; **missing from the EGPT-1.3 ticket table** |
+| `agents/dspy/agent.py` | `BaseAgent` (`agents/base.py`) | `integrations/agents/dspy/agent` | EGPT-1.7 | MOVE | wraps `dspy`; **missing from the EGPT-1.3 ticket table** |
+| `agents/dspy/utils.py` | `BaseAgent` (`agents/base.py`) | `integrations/agents/dspy/utils` | EGPT-1.7 | MOVE | wraps `dspy`; **missing from the EGPT-1.3 ticket table** |
+| `agents/langgraph/agent.py` | `BaseAgent` (`agents/base.py`) | `integrations/agents/langgraph/agent` | EGPT-1.7 | MOVE | wraps `langchain_core` / LangGraph; **missing from the EGPT-1.3 ticket table** |
+| `agents/langgraph/utils.py` | `BaseAgent` (`agents/base.py`) | `integrations/agents/langgraph/utils` | EGPT-1.7 | MOVE | wraps `langchain_core` / LangGraph; **missing from the EGPT-1.3 ticket table** |
+| `agents/base.py` | `BaseAgent` | stay in core | -- | STAY | external-agent interface; `rich` is a cross-cutting core dependency |
+
+### 4.19 Other external touchpoints (7)
+
+Touchpoints in packages that are otherwise core/services. Listed with their non-external siblings so the boundary is explicit. **Absent from the ticket's mapping table.**
+
+| Module | Interface (core) | Target module | Ticket | Disposition | Note |
+|---|---|---|---|---|---|
+| `guardrails/openai.py` | `BaseGuardrail` (`guardrails/base.py`) | `integrations/guardrails/openai` | EGPT-1.7 | MOVE | instantiates `OpenAI(api_key=...)` and calls the moderation API; **missing from the EGPT-1.3 ticket table** |
+| `guardrails/base.py` | `BaseGuardrail` | stay in core/services | -- | STAY | interface / pure local logic, no external system |
+| `guardrails/pii.py` | `BaseGuardrail` | stay in core/services | -- | STAY | interface / pure local logic, no external system |
+| `guardrails/prompt_injection.py` | `BaseGuardrail` | stay in core/services | -- | STAY | interface / pure local logic, no external system |
+| `run/cancellation_management/redis_cancellation_manager.py` | `CancellationManager` | `integrations/run/redis_cancellation_manager` | EGPT-1.7 | MOVE | Redis backend; **missing from the EGPT-1.3 ticket table** |
+| `run/cancellation_management/base.py` | `CancellationManager` | stay in core | -- | STAY | interface |
+| `run/cancellation_management/in_memory_cancellation_manager.py` | `CancellationManager` | stay in core | -- | STAY | process memory, no external system |
 
 ---
 
@@ -540,8 +634,14 @@ These are real touchpoints with no row in the ticket's mapping table. All are al
 | `utils/models/` | 10 | EGPT-1.4 |
 | `knowledge/reader/utils/` | 2 | EGPT-1.8 |
 | `models/utils.py` | 1 | EGPT-1.4 |
+| `os/interfaces/` (Slack, Telegram, WhatsApp, A2A, AG-UI) | 34 | EGPT-1.7 |
+| `agents/{antigravity,claude,dspy,langgraph}` | 6 | EGPT-1.7 |
+| `guardrails/openai.py` | 1 | EGPT-1.7 |
+| `run/cancellation_management/redis_cancellation_manager.py` | 1 | EGPT-1.7 |
 
-**55 modules.** Six of these -- `tools/google/auth/` (4) and `knowledge/reader/utils/` (2) -- are not merely unlisted but load-bearing: they are imported by nearly every module scheduled to move alongside them (`tools/google/{base,gmail,drive,calendar,sheets,slides}.py` and the csv / excel / website / firecrawl / docling / llms_txt readers respectively). Moving the listed modules without them breaks those imports.
+**97 modules.** Six of these -- `tools/google/auth/` (4) and `knowledge/reader/utils/` (2) -- are not merely unlisted but load-bearing: they are imported by nearly every module scheduled to move alongside them (`tools/google/{base,gmail,drive,calendar,sheets,slides}.py` and the csv / excel / website / firecrawl / docling / llms_txt readers respectively). Moving the listed modules without them breaks those imports.
+
+The largest block -- the 42 modules under `os/interfaces/`, `agents/`, `guardrails/` and `run/cancellation_management/` -- was invisible to earlier drafts because those packages sat outside the scanned areas entirely. Section 2 now records the scope rule and the exclusions, and section 8 leads with a whole-tree sweep so an area-scoped blind spot cannot recur.
 
 ---
 
@@ -602,11 +702,26 @@ A UI helper module that does not implement `Toolkit`.
 
 The EGPT-1.3 ticket routes all of `context/` to `integrations/context/*`. ADR 0001 (lines 123, 153) splits it: builders and assemblers stay in orchestration, external connectors move.
 
-**Proposed disposition:** follow the ADR. `provider.py`, `backend.py`, `mode.py`, `_utils.py`, `fs/`, `workspace/` stay; `calendar/`, `database/`, `gdrive/`, `gmail/`, `google/`, `mcp/`, `slack/`, `web/` move. `wiki/` is the exception the ADR gets wrong -- it is listed as orchestration but contains `notion_ops.py` and `git_ops.py`, which are Notion and git clients. **Proposal: split `wiki/`,** leaving `provider.py` in orchestration and moving `backend.py`, `notion_ops.py`, `git_ops.py` to `integrations/context/wiki`.
+**Proposed disposition:** follow the ADR. `provider.py`, `mode.py`, `_utils.py`, `fs/`, `workspace/` stay; `calendar/`, `database/`, `gdrive/`, `gmail/`, `google/`, `mcp/`, `slack/`, `web/` move.
+
+`wiki/` is the exception the ADR gets wrong -- it is listed as orchestration but drives git and Notion. An earlier draft of this document proposed moving `wiki/backend.py` wholesale into integrations while leaving `provider.py` in orchestration. **That was wrong and would have produced the exact violation this epic exists to remove:** `provider.py:31` does `from egpt.context.wiki.backend import CommitSummary, WikiBackend` and takes a `WikiBackend` in its constructor, so the move would create an orchestration -> integrations import.
+
+The file cannot move or stay as a unit, because it is both sides of the seam at once:
+
+| Symbol in `context/wiki/backend.py` | Nature | Side |
+|---|---|---|
+| `WikiBackend` (ABC) | contract `provider.py` depends on | core / orchestration |
+| `CommitSummary` | domain type in that contract | core / orchestration |
+| `WikiBackendError` | exception in that contract | core / orchestration |
+| `FileSystemBackend` | local files, no external system | core / orchestration |
+| `GitBackend` | drives `git_ops.py` | **integrations** |
+| `NotionDatabaseBackend`, `NotionPageBackend` | drive `notion_ops.py` | **integrations** |
+
+**Revised proposal:** split `backend.py` itself. Keep the ABC, `CommitSummary`, `WikiBackendError` and `FileSystemBackend` on the inward side; move `GitBackend` and the two Notion backends to `integrations/context/wiki/` alongside `git_ops.py` and `notion_ops.py`; inject the concrete backend into `WikiContextProvider` through the retained contract. `provider.py` then imports only the ABC and domain types, and the arrow stays inward.
 
 ### A9 -- Tracing exporters do not exist yet
 
-The ticket's table implies a set of exporters to move. There are none: `tracing/` contains only `setup.py`, `exporter.py` and `schemas.py`, and vendor exporters (Langfuse, Arize) attach through OTel configuration.
+The ticket's table implies a set of *vendor* exporters to move. There are none: `tracing/` contains only `setup.py`, `exporter.py` and `schemas.py`, and Langfuse / Arize attach through OTel configuration rather than through code in this tree. `tracing/` is not third-party-free, though -- `setup.py:13` imports `openinference.instrumentation.agno`, which is one more reason it cannot sit in enforceable core.
 
 **Proposed disposition:** the row is a forward declaration, not extraction work. `exporter.py` moves to `integrations/tracing/`; `schemas.py` stays in core; `setup.py` is blocked on ADR prereq #5 (it imports `remote.base` and the exporter directly). Epic 4 creates the first real occupant when it wires Langfuse.
 
@@ -618,7 +733,7 @@ Sits among the 46 provider directories but the name suggested it might not be an
 
 ### A11 -- `utils/models/schema_utils.py`
 
-The other eight modules in `utils/models/` are each tied to one provider and travel with it. `schema_utils.py` is shared across providers (pydantic-only, no SDK).
+The other nine modules in `utils/models/` are each tied to one provider and travel with it. `schema_utils.py` is shared across providers (pydantic-only, no SDK).
 
 **Proposed disposition:** move to a shared spot inside the integrations layer (e.g. `integrations/models/_shared`), not core -- it exists only to serve provider adapters. Confirm with the EGPT-1.4 owner.
 
@@ -628,6 +743,12 @@ The other eight modules in `utils/models/` are each tied to one provider and tra
 
 **Proposed disposition:** move the SDK-facing transport to `integrations/tools/mcp/server` and leave a thin control-plane surface in `os/` that wires it at the composition root, matching the treatment of `tracing/setup.py` in A9. The alternative -- an explicit composition-root exemption for `os/mcp.py` -- is also defensible; the EGPT-1.7 owner should pick one before extraction starts.
 
+### A13 -- How much of `os/interfaces/` goes with the channel adapters
+
+ADR 0001 line 37 puts **channel integrations** in the integrations layer, and `integrations/discord/` is already there, so Slack / Telegram / WhatsApp / A2A / AG-UI belong beside it rather than in the api layer. The complication is that each adapter is part vendor SDK and part FastAPI surface. Of the 34 channel modules, 17 import a vendor SDK directly (`slack_sdk`, `telebot`, `a2a`, `ag_ui`, or raw `httpx` for the Meta Graph API) and are marked MOVE; the remaining 17 are routers, security middleware and state glue that import only FastAPI/Pydantic and are marked FLAG.
+
+**Proposed disposition:** move each adapter as a whole package to `integrations/channels/<name>/`, including its routers, and have `os/` mount them at the composition root -- the same shape proposed for the MCP server in A12. Splitting mid-adapter would put a router in api importing an SDK wrapper in integrations for every channel, which is more coupling than it removes. The alternative -- keep routers in `os/interfaces/` and move only the SDK wrappers -- is viable but needs a per-channel interface definition. **EGPT-1.7 owner decides; this is the largest single open question in the inventory.**
+
 ---
 
 ## 7. Open questions for reviewers
@@ -636,6 +757,7 @@ The other eight modules in `utils/models/` are each tied to one provider and tra
 2. **Physical vs logical move.** ADR 0001 line 168 allows implementations to stay as leaf packages that integrations owns for import-lint purposes, instead of physically relocating under `integrations/`. This inventory assumes physical moves. If 1.4-1.8 choose the logical option, every target in this document becomes an ownership label rather than a path.
 3. **`cloud/aws/` owner.** ADR assigns it to integrations but no extraction ticket claims it. EGPT-1.7, or a new ticket?
 4. **Deprecation shims.** Are the six `tools/google*` shims safe to delete during 1.7, or do they need a release-cycle grace period?
+5. **EGPT-1.7 scope.** This document routes four newly-found families (`os/interfaces/`, `agents/`, `guardrails/openai.py`, `run/cancellation_management/`) to EGPT-1.7, which was scoped as the tools ticket. That is 42 additional modules including all the channel adapters. Split them into a new extraction ticket, or widen 1.7?
 
 ---
 
@@ -643,15 +765,36 @@ The other eight modules in `utils/models/` are each tied to one provider and tra
 
 Run from `libs/agno/egpt`. Re-run before each extraction ticket starts; any delta means this document is stale.
 
-> A `*.py` glob does not see subpackages. Three were missed on the first pass for exactly that reason (`tools/google/auth/`, `knowledge/reader/utils/`, `utils/models/`), so the directory checks below are part of the reconciliation, not an optional extra:
+> Two whole classes of miss were found by review rather than by these commands, and the checks below exist to close both. First, a `*.py` glob cannot see subpackages (`tools/google/auth/`, `knowledge/reader/utils/`, `utils/models/` were all missed that way). Second, and more seriously, an area-scoped scan cannot see a touchpoint in an area nobody thought to scan -- that is how `os/interfaces/`, `agents/`, `guardrails/openai.py` and `run/cancellation_management/` were missed. **The authoritative check is therefore the whole-tree AST sweep, not the per-area counts.**
 
 ```bash
-# every subpackage under the areas this inventory covers -- each must appear in section 4
-find models db vectordb tools knowledge context tracing cloud utils integrations \
-     -mindepth 1 -type d ! -name __pycache__ | sort
+# AUTHORITATIVE: every module in the package that imports a non-stdlib, non-plumbing library.
+# Any hit not present in section 4 or in the section 2 exclusion table is an orphan.
+python3 - <<'PY'
+import ast, pathlib, sys
+STD = set(sys.stdlib_module_names)
+PLUMBING = {'pydantic','pydantic_settings','typing_extensions','rich','fastapi','starlette',
+            'uvicorn','yaml','dotenv','click','packaging','docstring_parser','jsonpatch',
+            'cryptography','croniter','pytz','dateutil','numpy','httpx','requests','aiofiles'}
+for p in sorted(pathlib.Path('.').rglob('*.py')):
+    if '__pycache__' in str(p) or p.name == '__init__.py':
+        continue
+    ext = set()
+    for n in ast.walk(ast.parse(p.read_text())):
+        if isinstance(n, ast.Import):
+            ext |= {a.name.split('.')[0] for a in n.names}
+        elif isinstance(n, ast.ImportFrom) and n.module and n.level == 0:
+            ext.add(n.module.split('.')[0])
+    hits = ext - STD - PLUMBING - {'egpt'}
+    if hits:
+        print(f'{p}: {sorted(hits)}')
+PY
 ```
 
 ```bash
+# every subpackage in the whole tree -- each must appear in section 4 or the section 2 exclusion table
+find . -mindepth 1 -type d ! -name __pycache__ ! -path './__pycache__*' | sort
+```
 
 ```bash
 find models    -maxdepth 1 -type d ! -name __pycache__ | tail -n +2 | wc -l   # 46
@@ -681,9 +824,8 @@ ls os/mcp*.py                                                                 # 
 
 | Criterion | Status |
 |---|---|
-| Inventory lists every external touchpoint | Done -- section 4, 349 modules across 16 areas |
+| Inventory lists every external touchpoint | Done -- section 4, 401 modules across 19 areas, scope rule and exclusions in section 2 |
 | Each entry has interface, target module, owning ticket | Done -- all four columns populated in every table |
-| Counts reconcile with a fresh tree scan, no orphans | Done -- section 3 reconciles each area; section 5 lists the 55 modules the ticket's table omitted; commands in section 8 |
-| Ambiguous items flagged with a proposed disposition | Done -- A1 through A12 in section 6 (A10 resolved during review), each with a proposal |
+| Counts reconcile with a fresh tree scan, no orphans | Done -- section 3 reconciles each area; section 5 lists the 97 modules the ticket's table omitted; commands in section 8 |
+| Ambiguous items flagged with a proposed disposition | Done -- A1 through A13 in section 6 (A10 resolved during review), each with a proposal |
 | Peer review by an EGPT-1.4-1.8 executor | **Pending** |
-
