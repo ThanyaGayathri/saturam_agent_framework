@@ -251,6 +251,30 @@ class Registry:
             return next((db for db in self.dbs if db.id == db_id), None)
         return None
 
+    def get_vector_db(self, vector_db_id: str) -> Optional[VectorDb]:
+        """Get a vector database by id (or name) from the registry.
+
+        Matched on the same key ``add_vector_db`` dedupes on -- ``id`` when set, otherwise
+        ``name`` -- so a vector db registered without an explicit id is still reachable under
+        the name it was registered with.
+
+        Returns the live, fully-configured instance. Vector dbs hold connection state (engines,
+        clients, credentials) that no serialized form round-trips, so rebuilding one from config
+        is not equivalent to retrieving it.
+
+        Args:
+            vector_db_id: The vector database id, or its name when it has no id
+
+        Returns:
+            The vector database instance if found, None otherwise
+        """
+        if not self.vector_dbs or not vector_db_id:
+            return None
+        return next(
+            (v for v in self.vector_dbs if (getattr(v, "id", None) or getattr(v, "name", None)) == vector_db_id),
+            None,
+        )
+
     def get_model(self, model_id: str, provider: Optional[str] = None, name: Optional[str] = None) -> Optional[Model]:
         """Get a registered model instance by id, disambiguating by provider/name when given.
 

@@ -749,6 +749,103 @@ class TestGetDb:
 
 
 # =============================================================================
+# get_vector_db() Tests
+# =============================================================================
+
+
+def _mock_vector_db(id=None, name=None):
+    from egpt.vectordb.base import VectorDb
+
+    vector_db = MagicMock(spec=VectorDb)
+    vector_db.id = id
+    vector_db.name = name
+    return vector_db
+
+
+class TestGetVectorDb:
+    """Tests for Registry.get_vector_db() method."""
+
+    def test_get_vector_db_found_by_id(self):
+        """Test getting a vector db that exists."""
+        vector_db = _mock_vector_db(id="vec-1", name="vectors")
+        reg = Registry(vector_dbs=[vector_db])
+
+        assert reg.get_vector_db("vec-1") is vector_db
+
+    def test_get_vector_db_found_by_name_when_id_is_none(self):
+        """A vector db registered without an id is reachable by name.
+
+        add_vector_db() dedupes on ``id or name``, so get_vector_db() must resolve the same
+        key or name-only registrations would be unretrievable.
+        """
+        vector_db = _mock_vector_db(name="vectors")
+        reg = Registry(vector_dbs=[vector_db])
+
+        assert reg.get_vector_db("vectors") is vector_db
+
+    def test_get_vector_db_prefers_id_over_name(self):
+        """When both are set the id is the key, so the name does not resolve."""
+        vector_db = _mock_vector_db(id="vec-1", name="vectors")
+        reg = Registry(vector_dbs=[vector_db])
+
+        assert reg.get_vector_db("vec-1") is vector_db
+        assert reg.get_vector_db("vectors") is None
+
+    def test_get_vector_db_multiple(self):
+        """Test getting different vector dbs."""
+        v1 = _mock_vector_db(id="vec-1")
+        v2 = _mock_vector_db(id="vec-2")
+        v3 = _mock_vector_db(name="vec-3")
+
+        reg = Registry(vector_dbs=[v1, v2, v3])
+
+        assert reg.get_vector_db("vec-1") is v1
+        assert reg.get_vector_db("vec-2") is v2
+        assert reg.get_vector_db("vec-3") is v3
+
+    def test_get_vector_db_not_found(self):
+        """Test getting a vector db that doesn't exist."""
+        reg = Registry(vector_dbs=[_mock_vector_db(id="vec-1")])
+
+        assert reg.get_vector_db("nonexistent") is None
+
+    def test_get_vector_db_empty_registry(self, basic_registry):
+        """Test getting a vector db from an empty registry."""
+        assert basic_registry.get_vector_db("some-vec") is None
+
+    def test_get_vector_db_empty_id_returns_none(self):
+        """An empty lookup key must not match a vector db that has neither id nor name."""
+        reg = Registry(vector_dbs=[_mock_vector_db()])
+
+        assert reg.get_vector_db("") is None
+
+    def test_get_vector_db_case_sensitive(self):
+        """Test that vector db lookup is case sensitive."""
+        vector_db = _mock_vector_db(id="vec-1")
+        reg = Registry(vector_dbs=[vector_db])
+
+        assert reg.get_vector_db("vec-1") is vector_db
+        assert reg.get_vector_db("Vec-1") is None
+        assert reg.get_vector_db("VEC-1") is None
+
+    def test_get_vector_db_roundtrips_with_add_vector_db(self):
+        """add_vector_db() and get_vector_db() must agree on the lookup key.
+
+        Pins the two to the same ``id or name`` expression so editing one without the other
+        fails here rather than silently making registered vector dbs unretrievable.
+        """
+        with_id = _mock_vector_db(id="vec-1", name="ignored")
+        name_only = _mock_vector_db(name="vectors")
+
+        reg = Registry()
+        reg.add_vector_db(with_id)
+        reg.add_vector_db(name_only)
+
+        assert reg.get_vector_db("vec-1") is with_id
+        assert reg.get_vector_db("vectors") is name_only
+
+
+# =============================================================================
 # get_model() Tests
 # =============================================================================
 
