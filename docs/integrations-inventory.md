@@ -36,6 +36,8 @@ Earlier drafts of this document scanned only the areas named in the ticket's map
 | `scheduler/` | `croniter`, `pytz` | Date/schedule arithmetic; no external system. |
 | `client/`, `remote/`, `api/` | `fastapi`, `pydantic_settings` | Framework plumbing and config. |
 
+Orchestration and services packages (`agent/`, `agents/`, `team/`, `workflow/`, `session/`, `run/`, `memory/`, `eval/`, ...) are not candidates in the first place under ADR 0001, so they appear here only where a specific module inside them fails the import test -- as `agents/{claude,dspy,langgraph,antigravity}`, `guardrails/openai.py` and `run/cancellation_management/redis_cancellation_manager.py` do.
+
 If a reviewer disagrees with any exclusion, the fix is a row in section 4, not a change to the rule.
 
 ## 3. Reconciliation against the ticket's estimates
@@ -606,9 +608,9 @@ Touchpoints in packages that are otherwise core/services. Listed with their non-
 | Module | Interface (core) | Target module | Ticket | Disposition | Note |
 |---|---|---|---|---|---|
 | `guardrails/openai.py` | `BaseGuardrail` (`guardrails/base.py`) | `integrations/guardrails/openai` | EGPT-1.7 | MOVE | instantiates `OpenAI(api_key=...)` and calls the moderation API; **missing from the EGPT-1.3 ticket table** |
-| `guardrails/base.py` | `BaseGuardrail` | stay in core/services | -- | STAY | interface / pure local logic, no external system |
-| `guardrails/pii.py` | `BaseGuardrail` | stay in core/services | -- | STAY | interface / pure local logic, no external system |
-| `guardrails/prompt_injection.py` | `BaseGuardrail` | stay in core/services | -- | STAY | interface / pure local logic, no external system |
+| `guardrails/base.py` | -- | stay in core/services | -- | STAY | `BaseGuardrail` ABC with `@abstractmethod` |
+| `guardrails/pii.py` | `BaseGuardrail` | stay in core/services | -- | STAY | pure regex logic, no external system |
+| `guardrails/prompt_injection.py` | `BaseGuardrail` | stay in core/services | -- | STAY | pure pattern matching, no external system |
 | `run/cancellation_management/redis_cancellation_manager.py` | `CancellationManager` | `integrations/run/redis_cancellation_manager` | EGPT-1.7 | MOVE | Redis backend; **missing from the EGPT-1.3 ticket table** |
 | `run/cancellation_management/base.py` | `CancellationManager` | stay in core | -- | STAY | interface |
 | `run/cancellation_management/in_memory_cancellation_manager.py` | `CancellationManager` | stay in core | -- | STAY | process memory, no external system |
