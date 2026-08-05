@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from egpt.exceptions import ModelProviderError
+from egpt.integrations.models.openai.responses import OpenAIResponses
 from egpt.models.message import Message
-from egpt.models.openai.responses import OpenAIResponses
 
 
 class _FakeError:

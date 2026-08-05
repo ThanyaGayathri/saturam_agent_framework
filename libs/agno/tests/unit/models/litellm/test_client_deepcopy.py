@@ -11,7 +11,7 @@ import pytest
 
 pytest.importorskip("litellm")
 
-from egpt.models.litellm import LiteLLM
+from egpt.integrations.models.litellm import LiteLLM
 
 
 def test_client_preserved_after_deepcopy():

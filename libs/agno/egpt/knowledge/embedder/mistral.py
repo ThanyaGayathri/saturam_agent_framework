@@ -2,10 +2,10 @@ from dataclasses import dataclass
 from os import getenv
 from typing import Any, Dict, List, Optional, Tuple
 
+from egpt.integrations.models._utils._mistral_compat import EmbeddingResponse
+from egpt.integrations.models._utils._mistral_compat import MistralClient as Mistral
 from egpt.knowledge.embedder.base import Embedder
 from egpt.utils.log import log_info, log_warning
-from egpt.utils.models._mistral_compat import EmbeddingResponse
-from egpt.utils.models._mistral_compat import MistralClient as Mistral
 
 
 @dataclass

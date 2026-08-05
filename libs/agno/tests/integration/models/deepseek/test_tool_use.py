@@ -3,7 +3,7 @@ from typing import Optional
 import pytest
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.models.deepseek import DeepSeek
+from egpt.integrations.models.deepseek import DeepSeek
 from egpt.tools.websearch import WebSearchTools
 from egpt.tools.yfinance import YFinanceTools
 

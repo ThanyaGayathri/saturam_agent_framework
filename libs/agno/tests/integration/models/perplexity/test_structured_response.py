@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.perplexity import Perplexity
+from egpt.integrations.models.perplexity import Perplexity
 
 
 class MovieScript(BaseModel):

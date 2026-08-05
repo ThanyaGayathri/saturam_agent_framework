@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional
 
 from egpt.agent.agent import Agent
-from egpt.models.openai.chat import OpenAIChat
+from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.run import RunContext
 from egpt.team.team import Team
 

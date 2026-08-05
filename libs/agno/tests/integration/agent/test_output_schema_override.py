@@ -2,7 +2,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 
 
 class PersonSchema(BaseModel):

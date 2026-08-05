@@ -36,10 +36,11 @@ class AgenticChunking(ChunkingStrategy):
         model = get_model(model)
         if model is None:
             try:
-                from egpt.models.openai import OpenAIChat
+                model = get_model(f"openai-chat:{DEFAULT_OPENAI_MODEL_ID}")
             except Exception:
                 raise ValueError("`openai` isn't installed. Please install it with `pip install openai`")
-            model = OpenAIChat(DEFAULT_OPENAI_MODEL_ID)
+            if model is None:
+                raise ValueError("Could not resolve the default chunking model.")
 
         if max_chunk_size is None:
             max_chunk_size = MAX_CHUNK_SIZE

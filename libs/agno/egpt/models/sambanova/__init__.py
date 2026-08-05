@@ -1,5 +1,16 @@
-from egpt.models.sambanova.sambanova import Sambanova
+"""Deprecated compatibility shim (EGPT-1.4).
 
-__all__ = [
-    "Sambanova",
-]
+Model providers moved to the integrations layer. Import from
+``egpt.integrations.models.sambanova`` instead; this module will be removed.
+
+Attribute access is forwarded rather than re-exported so the target package's
+lazy imports and optional-dependency fallbacks keep working unchanged.
+"""
+
+from egpt.integrations.models import sambanova as _target
+
+__all__ = _target.__all__
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)

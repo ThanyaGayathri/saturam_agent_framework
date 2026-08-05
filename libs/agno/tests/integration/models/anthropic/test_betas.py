@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.anthropic import Claude
+from egpt.integrations.models.anthropic import Claude
 
 
 def _create_mock_response():
@@ -36,7 +36,7 @@ def _create_mock_response():
 @pytest.fixture
 def mock_anthropic_client():
     """Mock Anthropic client for testing beta features."""
-    with patch("egpt.models.anthropic.claude.AnthropicClient") as mock_client_class:
+    with patch("egpt.integrations.models.anthropic.claude.AnthropicClient") as mock_client_class:
         mock_client = MagicMock()
         mock_beta_messages = MagicMock()
         mock_messages = MagicMock()
@@ -186,7 +186,7 @@ def test_betas_with_real_client(claude_model):
 @pytest.mark.asyncio
 async def test_async_beta_client_used_when_betas_provided():
     """Test that async beta client is used when betas parameter is provided."""
-    with patch("egpt.models.anthropic.claude.AsyncAnthropicClient") as mock_async_client_class:
+    with patch("egpt.integrations.models.anthropic.claude.AsyncAnthropicClient") as mock_async_client_class:
         mock_async_client = MagicMock()
         mock_beta_messages = MagicMock()
         mock_messages = MagicMock()

@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional
 
+from egpt.integrations.models.openai.responses import OpenAIResponses
 from egpt.models.message import Message
-from egpt.models.openai.responses import OpenAIResponses
 from egpt.models.response import ModelResponse
 
 

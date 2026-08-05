@@ -12,6 +12,7 @@ from egpt.eval._telemetry import apply_eval_telemetry_env
 from egpt.eval.utils import async_log_eval, log_eval_run, spinner_live, store_result_in_file
 from egpt.exceptions import EvalError
 from egpt.models.base import Model
+from egpt.models.utils import get_model
 from egpt.team.team import Team
 from egpt.utils.env import get_branded_env_bool
 from egpt.utils.log import log_error, logger, set_log_level_to_debug, set_log_level_to_info
@@ -206,9 +207,7 @@ class AccuracyEval:
         model = self.model
         if model is None:
             try:
-                from egpt.models.openai import OpenAIChat
-
-                model = OpenAIChat(id="o4-mini")
+                model = get_model("openai-chat:o4-mini")
             except (ModuleNotFoundError, ImportError) as e:
                 logger.exception(e)
                 raise EvalError(

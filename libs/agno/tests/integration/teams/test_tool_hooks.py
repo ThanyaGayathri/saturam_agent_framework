@@ -5,8 +5,8 @@ from typing import Any, Callable, Dict
 import pytest
 
 from egpt.agent import Agent
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.models.message import Message
-from egpt.models.openai import OpenAIChat
 from egpt.run.base import RunContext
 from egpt.team import Team
 from egpt.tools import FunctionCall

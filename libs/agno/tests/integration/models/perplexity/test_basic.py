@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
 from egpt.db.sqlite import SqliteDb
-from egpt.models.perplexity import Perplexity
+from egpt.integrations.models.perplexity import Perplexity
 
 
 def _assert_metrics(response: RunOutput):

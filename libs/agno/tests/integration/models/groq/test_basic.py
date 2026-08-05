@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.db.sqlite import SqliteDb
-from egpt.models.groq import Groq
+from egpt.integrations.models.groq import Groq
 
 
 @pytest.fixture(scope="module")

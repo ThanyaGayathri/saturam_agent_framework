@@ -1,7 +1,7 @@
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.cerebras import CerebrasOpenAI
+from egpt.integrations.models.cerebras import CerebrasOpenAI
 from egpt.tools.websearch import WebSearchTools
 from egpt.tools.yfinance import YFinanceTools
 

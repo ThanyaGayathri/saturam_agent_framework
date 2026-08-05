@@ -2,7 +2,7 @@
 
 The litellm optional extra is temporarily disabled in egpt[tests] pending PyPI
 security review. Collection must be skipped to avoid ImportError on
-`from egpt.models.litellm import LiteLLM`.
+`from egpt.integrations.models.litellm import LiteLLM`.
 """
 
 from __future__ import annotations

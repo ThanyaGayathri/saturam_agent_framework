@@ -2,8 +2,8 @@ import base64
 
 import pytest
 
+from egpt.integrations.models._utils.claude import _format_file_for_message
 from egpt.media import File
-from egpt.utils.models.claude import _format_file_for_message
 
 
 class TestFormatFileForMessage:

@@ -3,8 +3,8 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.db.sqlite import SqliteDb
-from egpt.models.groq.groq import Groq
-from egpt.models.mistral import MistralChat
+from egpt.integrations.models.groq.groq import Groq
+from egpt.integrations.models.mistral import MistralChat
 
 
 def _assert_metrics(response: RunOutput):

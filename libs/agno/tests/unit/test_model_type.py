@@ -63,14 +63,14 @@ class TestModelTypeEnum:
 class TestModelTypeOnModel:
     def test_default_model_type(self):
         """Model instances default to ModelType.MODEL."""
-        from egpt.models.openai.chat import OpenAIChat
+        from egpt.integrations.models.openai.chat import OpenAIChat
 
         model = OpenAIChat(id="gpt-4o-mini")
         assert model.model_type == ModelType.MODEL
 
     def test_model_type_can_be_overridden(self):
         """model_type can be set to a different ModelType value."""
-        from egpt.models.openai.chat import OpenAIChat
+        from egpt.integrations.models.openai.chat import OpenAIChat
 
         model = OpenAIChat(id="gpt-4o-mini")
         model.model_type = ModelType.OUTPUT_MODEL
@@ -277,21 +277,21 @@ class TestMetricsSerialization:
 
 class TestMetricsProviderVariants:
     def test_openai_chat_provider_is_distinct(self):
-        from egpt.models.openai.chat import OpenAIChat
+        from egpt.integrations.models.openai.chat import OpenAIChat
 
         model = OpenAIChat(id="gpt-4o-mini")
 
         assert model.get_provider() == "OpenAI Chat"
 
     def test_openai_responses_provider_is_distinct(self):
-        from egpt.models.openai.responses import OpenAIResponses
+        from egpt.integrations.models.openai.responses import OpenAIResponses
 
         model = OpenAIResponses(id="gpt-4o-mini")
 
         assert model.get_provider() == "OpenAI Responses"
 
     def test_openrouter_provider_variants_are_distinct(self):
-        from egpt.models.openrouter import OpenRouter, OpenRouterResponses
+        from egpt.integrations.models.openrouter import OpenRouter, OpenRouterResponses
 
         chat_model = OpenRouter(id="openai/gpt-4o-mini")
         responses_model = OpenRouterResponses(id="openai/gpt-4o-mini")
@@ -321,14 +321,14 @@ class TestAgentInitModelType:
     def test_agent_model_gets_model_type_set(self):
         """Agent's model should have model_type=MODEL after init."""
         from egpt.agent import Agent
-        from egpt.models.openai.chat import OpenAIChat
+        from egpt.integrations.models.openai.chat import OpenAIChat
 
         agent = Agent(model=OpenAIChat(id="gpt-4o-mini"))
         assert agent.model.model_type == ModelType.MODEL
 
     def test_agent_output_model_gets_type_set(self):
         from egpt.agent import Agent
-        from egpt.models.openai.chat import OpenAIChat
+        from egpt.integrations.models.openai.chat import OpenAIChat
 
         agent = Agent(
             model=OpenAIChat(id="gpt-4o-mini"),
@@ -338,7 +338,7 @@ class TestAgentInitModelType:
 
     def test_agent_parser_model_gets_type_set(self):
         from egpt.agent import Agent
-        from egpt.models.openai.chat import OpenAIChat
+        from egpt.integrations.models.openai.chat import OpenAIChat
 
         agent = Agent(
             model=OpenAIChat(id="gpt-4o-mini"),
@@ -348,7 +348,7 @@ class TestAgentInitModelType:
 
     def test_agent_reasoning_model_gets_type_set(self):
         from egpt.agent import Agent
-        from egpt.models.openai.chat import OpenAIChat
+        from egpt.integrations.models.openai.chat import OpenAIChat
 
         agent = Agent(
             model=OpenAIChat(id="gpt-4o-mini"),

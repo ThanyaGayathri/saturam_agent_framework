@@ -236,7 +236,7 @@ def test_resolve_model_passes_through_unhandled_values():
 # Abstract/intermediate Model subclasses that are not concrete providers and so must not appear
 # in MODEL_PROVIDER_CLASSES. Add a class here only after a deliberate decision that it is not a
 # user-selectable provider. Keyed by (defining_module, class_name).
-_NON_PROVIDER_MODEL_CLASSES = {("egpt.models.openai.like", "OpenAILike")}
+_NON_PROVIDER_MODEL_CLASSES = {("egpt.integrations.models._openai_like.like", "OpenAILike")}
 
 
 def _models_root():
@@ -293,8 +293,8 @@ def _registered_defining_classes(root):
     """Resolve every MODEL_PROVIDER_CLASSES entry to the (defining_module, class) it points at.
 
     The registry references the re-exporting package and that package's exported name (e.g.
-    ``("egpt.models.azure", "AzureFoundryClaude")``), while the class is defined in a submodule
-    under its own name (``egpt.models.azure.claude.Claude``). Parse each package __init__ to
+    ``("egpt.integrations.models.azure", "AzureFoundryClaude")``), while the class is defined in a submodule
+    under its own name (``egpt.integrations.models.azure.claude.Claude``). Parse each package __init__ to
     follow ``from <mod> import <name> as <alias>`` re-exports back to the definition.
     """
     import ast

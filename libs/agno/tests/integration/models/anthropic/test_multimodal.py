@@ -1,6 +1,6 @@
 from egpt.agent.agent import Agent
+from egpt.integrations.models.anthropic import Claude
 from egpt.media import File, Image
-from egpt.models.anthropic import Claude
 
 
 def test_image_input(image_path):

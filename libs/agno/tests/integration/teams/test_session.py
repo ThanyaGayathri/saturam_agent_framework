@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 import pytest
 
 from egpt.agent.agent import Agent
-from egpt.models.openai.chat import OpenAIChat
+from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.run.team import TeamRunEvent
 from egpt.team.team import Team
 

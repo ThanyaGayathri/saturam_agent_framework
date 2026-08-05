@@ -7,7 +7,7 @@ responses and preserved across multi-turn conversations.
 
 from egpt.agent import Agent
 from egpt.db.in_memory import InMemoryDb
-from egpt.models.openrouter import OpenRouter
+from egpt.integrations.models.openrouter import OpenRouter
 
 
 def test_gemini_multi_turn_preserves_provider_data():

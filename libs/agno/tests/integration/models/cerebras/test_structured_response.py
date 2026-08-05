@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.cerebras import Cerebras
+from egpt.integrations.models.cerebras import Cerebras
 
 
 class MovieScript(BaseModel):

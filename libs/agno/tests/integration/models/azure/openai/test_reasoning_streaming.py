@@ -14,7 +14,7 @@ is delivered incrementally via RunEvent.reasoning_content_delta events.
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.azure import AzureOpenAI
+from egpt.integrations.models.azure import AzureOpenAI
 from egpt.run.agent import RunEvent
 
 

@@ -7,15 +7,15 @@ pytest.importorskip("groq")
 
 from egpt.agent import Agent
 from egpt.culture.manager import CultureManager
+from egpt.integrations.models.anthropic import Claude
+from egpt.integrations.models.cloudflare import Cloudflare
+from egpt.integrations.models.google import Gemini
+from egpt.integrations.models.groq import Groq
+from egpt.integrations.models.minimax import MiniMax
+from egpt.integrations.models.n1n import N1N
+from egpt.integrations.models.openai import OpenAIChat, OpenAIResponses
 from egpt.knowledge.chunking.agentic import AgenticChunking
 from egpt.memory.manager import MemoryManager
-from egpt.models.anthropic import Claude
-from egpt.models.cloudflare import Cloudflare
-from egpt.models.google import Gemini
-from egpt.models.groq import Groq
-from egpt.models.minimax import MiniMax
-from egpt.models.n1n import N1N
-from egpt.models.openai import OpenAIChat, OpenAIResponses
 from egpt.models.utils import get_model
 from egpt.team import Team
 

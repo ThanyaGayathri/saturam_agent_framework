@@ -1,25 +1,10 @@
-from dataclasses import dataclass
+"""Deprecated compatibility shim (EGPT-1.4).
 
-from egpt.models.openai.like import OpenAILike
+Import from ``egpt.integrations.models.lmstudio.lmstudio`` instead; this module will be removed.
+"""
+
+from egpt.integrations.models.lmstudio import lmstudio as _target
 
 
-@dataclass
-class LMStudio(OpenAILike):
-    """
-    A class for interacting with LM Studio.
-
-    Attributes:
-        id (str): The id of the LM Studio model. Default is "qwen2.5-7b-instruct-1m".
-        name (str): The name of this chat model instance. Default is "LMStudio".
-        provider (str): The provider of the model. Default is "LMStudio".
-        base_url (str): The base url to which the requests are sent.
-    """
-
-    id: str = "qwen2.5-7b-instruct-1m"
-    name: str = "LMStudio"
-    provider: str = "LMStudio"
-
-    base_url: str = "http://127.0.0.1:1234/v1"
-
-    supports_native_structured_outputs: bool = False
-    supports_json_schema_outputs: bool = True
+def __getattr__(name: str):
+    return getattr(_target, name)

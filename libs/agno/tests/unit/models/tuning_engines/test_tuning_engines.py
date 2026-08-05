@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from egpt.exceptions import ModelAuthenticationError
-from egpt.models.tuning_engines import TuningEngines
+from egpt.integrations.models.tuning_engines import TuningEngines
 
 
 def test_tuning_engines_initialization_with_api_key():

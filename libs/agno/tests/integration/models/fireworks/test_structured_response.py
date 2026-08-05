@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.fireworks import Fireworks
+from egpt.integrations.models.fireworks import Fireworks
 
 
 class MovieScript(BaseModel):

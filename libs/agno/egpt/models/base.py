@@ -145,6 +145,10 @@ class Model(ABC):
     supports_native_structured_outputs: bool = False
     # True if the Model requires a json_schema for structured outputs (e.g. LMStudio)
     supports_json_schema_outputs: bool = False
+    # True if the Model is a third-party provider served over the OpenAI API schema
+    # (i.e. an OpenAILike subclass). Lets core/orchestration branch on the capability
+    # without importing the concrete integrations base class.
+    is_openai_compatible_proxy: bool = False
 
     # Controls which (if any) function is called by the model.
     # "none" means the model will not call a function and instead generates a message.

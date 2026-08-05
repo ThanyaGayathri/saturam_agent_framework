@@ -1,12 +1,16 @@
-from egpt.models.meta.llama import Llama
+"""Deprecated compatibility shim (EGPT-1.4).
 
-try:
-    from egpt.models.meta.llama_openai import LlamaOpenAI
-except ImportError:
+Model providers moved to the integrations layer. Import from
+``egpt.integrations.models.meta`` instead; this module will be removed.
 
-    class LlamaOpenAI:  # type: ignore
-        def __init__(self, *args, **kwargs):
-            raise ImportError("`openai` not installed. Please install it via `pip install openai`")
+Attribute access is forwarded rather than re-exported so the target package's
+lazy imports and optional-dependency fallbacks keep working unchanged.
+"""
+
+from egpt.integrations.models import meta as _target
+
+__all__ = _target.__all__
 
 
-__all__ = ["Llama", "LlamaOpenAI"]
+def __getattr__(name: str):
+    return getattr(_target, name)

@@ -1,20 +1,16 @@
-from typing import TYPE_CHECKING
+"""Deprecated compatibility shim (EGPT-1.4).
 
-from egpt.models.google.gemini import Gemini
+Model providers moved to the integrations layer. Import from
+``egpt.integrations.models.google`` instead; this module will be removed.
 
-if TYPE_CHECKING:
-    from egpt.models.google.gemini_interactions import GeminiInteractions
+Attribute access is forwarded rather than re-exported so the target package's
+lazy imports and optional-dependency fallbacks keep working unchanged.
+"""
 
-__all__ = [
-    "Gemini",
-    "GeminiInteractions",
-]
+from egpt.integrations.models import google as _target
+
+__all__ = _target.__all__
 
 
 def __getattr__(name: str):
-    """Lazy import of GeminiInteractions to avoid requiring google-genai>=2.0.0 for standard Gemini usage."""
-    if name == "GeminiInteractions":
-        from egpt.models.google.gemini_interactions import GeminiInteractions
-
-        return GeminiInteractions
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(_target, name)

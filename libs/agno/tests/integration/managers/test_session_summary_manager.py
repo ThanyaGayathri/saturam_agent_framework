@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from egpt.db.sqlite import SqliteDb
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.run.agent import Message, RunOutput
 from egpt.run.team import TeamRunOutput
 from egpt.session.agent import AgentSession

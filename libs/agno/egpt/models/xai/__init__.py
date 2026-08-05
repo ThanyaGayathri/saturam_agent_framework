@@ -1,3 +1,16 @@
-from egpt.models.xai.xai import xAI
+"""Deprecated compatibility shim (EGPT-1.4).
 
-__all__ = ["xAI"]
+Model providers moved to the integrations layer. Import from
+``egpt.integrations.models.xai`` instead; this module will be removed.
+
+Attribute access is forwarded rather than re-exported so the target package's
+lazy imports and optional-dependency fallbacks keep working unchanged.
+"""
+
+from egpt.integrations.models import xai as _target
+
+__all__ = _target.__all__
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)

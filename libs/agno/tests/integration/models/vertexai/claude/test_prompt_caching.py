@@ -13,7 +13,7 @@ from unittest.mock import Mock
 import pytest
 
 from egpt.agent import Agent, RunOutput
-from egpt.models.vertexai.claude import Claude
+from egpt.integrations.models.vertexai.claude import Claude
 from egpt.utils.media import download_file
 
 

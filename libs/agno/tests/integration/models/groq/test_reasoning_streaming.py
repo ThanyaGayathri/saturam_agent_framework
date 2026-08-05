@@ -10,7 +10,7 @@ is delivered incrementally via RunEvent.reasoning_content_delta events.
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.groq import Groq
+from egpt.integrations.models.groq import Groq
 from egpt.run.agent import RunEvent
 
 

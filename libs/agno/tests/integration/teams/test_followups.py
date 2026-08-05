@@ -5,7 +5,7 @@ Validates that team followups are returned as a flat List[str].
 
 import pytest
 
-from egpt.models.openai.chat import OpenAIChat
+from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.run.team import TeamRunOutput
 from egpt.team import Team, TeamRunEvent
 

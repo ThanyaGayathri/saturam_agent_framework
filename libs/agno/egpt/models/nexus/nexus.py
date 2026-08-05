@@ -1,22 +1,10 @@
-from dataclasses import dataclass
+"""Deprecated compatibility shim (EGPT-1.4).
 
-from egpt.models.openai.like import OpenAILike
+Import from ``egpt.integrations.models.nexus.nexus`` instead; this module will be removed.
+"""
+
+from egpt.integrations.models.nexus import nexus as _target
 
 
-@dataclass
-class Nexus(OpenAILike):
-    """
-    A class for interacting with LLMs using Nexus.
-
-    Attributes:
-        id (str): The id of the Nexus model to use. Default is "openai/gpt-4".
-        name (str): The name of this chat model instance. Default is "Nexus"
-        provider (str): The provider of the model. Default is "Nexus".
-        base_url (str): The base url to which the requests are sent.
-    """
-
-    id: str = "openai/gpt-4"
-    name: str = "Nexus"
-    provider: str = "Nexus"
-
-    base_url: str = "http://localhost:8000/llm/v1/"
+def __getattr__(name: str):
+    return getattr(_target, name)

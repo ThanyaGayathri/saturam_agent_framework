@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.nebius import Nebius
+from egpt.integrations.models.nebius import Nebius
 
 NEBIUS_MODEL_ID = "Qwen/Qwen3-4B-fast"
 

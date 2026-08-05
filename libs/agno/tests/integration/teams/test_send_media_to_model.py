@@ -3,8 +3,8 @@ from typing import Optional, Sequence
 import pytest
 
 from egpt.agent import Agent
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.media import File
-from egpt.models.openai import OpenAIChat
 from egpt.team.team import Team
 from egpt.tools import Toolkit
 

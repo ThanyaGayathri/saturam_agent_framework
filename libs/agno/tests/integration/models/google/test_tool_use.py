@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.models.google import Gemini
+from egpt.integrations.models.google import Gemini
 from egpt.tools.websearch import WebSearchTools
 from egpt.tools.yfinance import YFinanceTools
 

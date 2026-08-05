@@ -12,7 +12,7 @@ from typing import Optional
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 
 
 # Define an async knowledge retriever function

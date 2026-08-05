@@ -1,11 +1,16 @@
-from egpt.models.cloudflare.cloudflare import (
-    DEFAULT_GATEWAY_MODEL,
-    Cloudflare,
-    normalize_cloudflare_gateway_model_id,
-)
+"""Deprecated compatibility shim (EGPT-1.4).
 
-__all__ = [
-    "Cloudflare",
-    "DEFAULT_GATEWAY_MODEL",
-    "normalize_cloudflare_gateway_model_id",
-]
+Model providers moved to the integrations layer. Import from
+``egpt.integrations.models.cloudflare`` instead; this module will be removed.
+
+Attribute access is forwarded rather than re-exported so the target package's
+lazy imports and optional-dependency fallbacks keep working unchanged.
+"""
+
+from egpt.integrations.models import cloudflare as _target
+
+__all__ = _target.__all__
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)

@@ -1,6 +1,6 @@
 from egpt.agent.agent import Agent
+from egpt.integrations.models.openai.responses import OpenAIResponses
 from egpt.media import File, Image
-from egpt.models.openai.responses import OpenAIResponses
 from egpt.tools.websearch import WebSearchTools
 
 

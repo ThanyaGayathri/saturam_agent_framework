@@ -545,7 +545,7 @@ class TestRegistryIntegration:
         from_dict should prefer it. See Model.to_dict / Registry.get_model.
         """
         from egpt.agent.agent import Agent
-        from egpt.models.azure import AzureOpenAI
+        from egpt.integrations.models.azure import AzureOpenAI
 
         model = AzureOpenAI(
             id="gpt-4.1-mini",
@@ -572,7 +572,7 @@ class TestRegistryIntegration:
     def test_from_dict_without_registry_rebuilds_bare_model(self):
         """Without a registry, the model is still rebuilt from its dict (unchanged fallback)."""
         from egpt.agent.agent import Agent
-        from egpt.models.azure import AzureOpenAI
+        from egpt.integrations.models.azure import AzureOpenAI
 
         config = {
             "id": "test-agent",
@@ -1177,8 +1177,8 @@ class TestAddModel:
         """
         pytest.importorskip("openai")  # openai is an optional extra, not a base dependency
         os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
-        from egpt.models.openai.chat import OpenAIChat
-        from egpt.models.openai.responses import OpenAIResponses
+        from egpt.integrations.models.openai.chat import OpenAIChat
+        from egpt.integrations.models.openai.responses import OpenAIResponses
 
         reg = Registry()
         reg.add_model(OpenAIChat(id="gpt-5.4"))
@@ -1191,7 +1191,7 @@ class TestAddModel:
     def test_dedupes_same_class_provider_and_id(self):
         pytest.importorskip("openai")  # openai is an optional extra, not a base dependency
         os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
-        from egpt.models.openai.responses import OpenAIResponses
+        from egpt.integrations.models.openai.responses import OpenAIResponses
 
         reg = Registry()
         reg.add_model(OpenAIResponses(id="gpt-5.4"))

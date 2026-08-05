@@ -1,14 +1,16 @@
-from egpt.models.litellm.chat import LiteLLM
+"""Deprecated compatibility shim (EGPT-1.4).
 
-try:
-    from egpt.models.litellm.litellm_openai import LiteLLMOpenAI
-except ImportError:
+Model providers moved to the integrations layer. Import from
+``egpt.integrations.models.litellm`` instead; this module will be removed.
 
-    class LiteLLMOpenAI:  # type: ignore
-        def __init__(self, *args, **kwargs):
-            raise ImportError("`openai` not installed. Please install using `pip install openai`")
+Attribute access is forwarded rather than re-exported so the target package's
+lazy imports and optional-dependency fallbacks keep working unchanged.
+"""
+
+from egpt.integrations.models import litellm as _target
+
+__all__ = _target.__all__
 
 
-__all__ = [
-    "LiteLLM",
-]
+def __getattr__(name: str):
+    return getattr(_target, name)

@@ -7,8 +7,8 @@ incorrect accumulation of cumulative token counts in streaming responses.
 
 from typing import Optional
 
+from egpt.integrations.models.perplexity.perplexity import Perplexity
 from egpt.models.metrics import MessageMetrics
-from egpt.models.perplexity.perplexity import Perplexity
 
 
 class MockCompletionUsage:

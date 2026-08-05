@@ -1,7 +1,7 @@
 import pytest
 
 from egpt.agent import Agent, RunOutput
-from egpt.models.litellm import LiteLLMOpenAI
+from egpt.integrations.models.litellm import LiteLLMOpenAI
 from egpt.tools.websearch import WebSearchTools
 from egpt.tools.yfinance import YFinanceTools
 

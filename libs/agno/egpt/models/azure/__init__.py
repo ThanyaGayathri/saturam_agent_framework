@@ -1,27 +1,14 @@
-try:
-    from egpt.models.azure.ai_foundry import AzureAIFoundry
-except ImportError:
+"""Deprecated compatibility shim (EGPT-1.4).
 
-    class AzureAIFoundry:  # type: ignore
-        def __init__(self, *args, **kwargs):
-            raise ImportError(
-                "`azure-ai-inference` not installed. Please install it via `pip install azure-ai-inference aiohttp`"
-            )
+Model providers moved to the integrations layer. Import from
+``egpt.integrations.models.azure`` instead; this module will be removed.
 
+Attribute access is forwarded rather than re-exported so the target package's
+lazy imports and optional-dependency fallbacks keep working unchanged.
+"""
 
-try:
-    from egpt.models.azure.openai_chat import AzureOpenAI
-except ImportError:
-
-    class AzureOpenAI:  # type: ignore
-        def __init__(self, *args, **kwargs):
-            raise ImportError("`openai` not installed. Please install it via `pip install openai`")
+from egpt.integrations.models import azure as _target
 
 
-try:
-    from egpt.models.azure.claude import Claude as AzureFoundryClaude
-except ImportError:
-
-    class AzureFoundryClaude:  # type: ignore
-        def __init__(self, *args, **kwargs):
-            raise ImportError("`anthropic` not installed. Please install it via `pip install anthropic`")
+def __getattr__(name: str):
+    return getattr(_target, name)

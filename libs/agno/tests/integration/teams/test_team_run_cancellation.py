@@ -16,7 +16,7 @@ import uuid
 import pytest
 
 from egpt.agent.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.run.base import RunStatus
 from egpt.run.cancel import cancel_run, register_run
 from egpt.run.team import RunCancelledEvent as TeamRunCancelledEvent

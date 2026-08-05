@@ -1,3 +1,16 @@
-from egpt.models.tuning_engines.tuning_engines import TuningEngines
+"""Deprecated compatibility shim (EGPT-1.4).
 
-__all__ = ["TuningEngines"]
+Model providers moved to the integrations layer. Import from
+``egpt.integrations.models.tuning_engines`` instead; this module will be removed.
+
+Attribute access is forwarded rather than re-exported so the target package's
+lazy imports and optional-dependency fallbacks keep working unchanged.
+"""
+
+from egpt.integrations.models import tuning_engines as _target
+
+__all__ = _target.__all__
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)

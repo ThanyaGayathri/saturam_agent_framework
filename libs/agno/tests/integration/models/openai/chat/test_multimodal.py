@@ -3,8 +3,8 @@ from typing import Any, Union
 import requests
 
 from egpt.agent.agent import Agent
+from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.media import Audio, Image
-from egpt.models.openai.chat import OpenAIChat
 from egpt.tools.websearch import WebSearchTools
 
 

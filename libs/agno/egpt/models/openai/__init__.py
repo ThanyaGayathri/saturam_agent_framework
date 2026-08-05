@@ -1,11 +1,15 @@
-from egpt.models.openai.chat import OpenAIChat
-from egpt.models.openai.like import OpenAILike
-from egpt.models.openai.open_responses import OpenResponses
-from egpt.models.openai.responses import OpenAIResponses
+"""Deprecated compatibility shim (EGPT-1.4).
 
-__all__ = [
-    "OpenAIChat",
-    "OpenAILike",
-    "OpenAIResponses",
-    "OpenResponses",
-]
+Model providers moved to the integrations layer. Import from
+``egpt.integrations.models.openai`` instead; this module will be removed.
+``OpenAILike`` now lives in ``egpt.integrations.models._openai_like``.
+"""
+
+from egpt.integrations.models import openai as _target
+from egpt.integrations.models._openai_like import OpenAILike
+
+__all__ = [*_target.__all__, "OpenAILike"]
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)

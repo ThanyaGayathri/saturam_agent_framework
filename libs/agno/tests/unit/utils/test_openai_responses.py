@@ -8,9 +8,7 @@ from typing import Dict, List, Optional
 import pytest
 from pydantic import BaseModel, Field
 
-from egpt.media import Image
-from egpt.utils.media import resolve_image_mime_type
-from egpt.utils.models.openai_responses import (
+from egpt.integrations.models._utils.openai_responses import (
     _process_bytes_image,
     _process_image,
     _process_image_path,
@@ -18,6 +16,8 @@ from egpt.utils.models.openai_responses import (
     images_to_message,
     sanitize_response_schema,
 )
+from egpt.media import Image
+from egpt.utils.media import resolve_image_mime_type
 
 
 class SimpleModel(BaseModel):

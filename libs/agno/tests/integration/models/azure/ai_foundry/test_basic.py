@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
 from egpt.db.sqlite.sqlite import SqliteDb
-from egpt.models.azure import AzureAIFoundry
+from egpt.integrations.models.azure import AzureAIFoundry
 
 
 @pytest.fixture

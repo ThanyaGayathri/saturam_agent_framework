@@ -1,4 +1,4 @@
-"""Regression test: ``egpt.utils.models.claude`` must be importable without
+"""Regression test: ``egpt.integrations.models._utils.claude`` must be importable without
 ``anthropic`` installed, so that non-Anthropic callers (LiteLLM, Bedrock)
 can use ``supports_prefill()`` without the Anthropic SDK as a runtime dep.
 
@@ -26,7 +26,7 @@ def test_supports_prefill_importable_without_anthropic():
         sys.modules["anthropic"] = None  # type: ignore[assignment]
         sys.modules["anthropic.types"] = None  # type: ignore[assignment]
 
-        from egpt.utils.models.claude import supports_prefill
+        from egpt.integrations.models._utils.claude import supports_prefill
 
         # Smoke-test the function while we're here.
         assert supports_prefill("claude-sonnet-4-5") is True

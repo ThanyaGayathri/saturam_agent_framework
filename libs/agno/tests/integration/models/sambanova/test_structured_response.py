@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.sambanova import Sambanova
+from egpt.integrations.models.sambanova import Sambanova
 
 
 class MovieScript(BaseModel):

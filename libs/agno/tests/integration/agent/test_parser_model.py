@@ -3,9 +3,9 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.anthropic import Claude
-from egpt.models.google import Gemini
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.anthropic import Claude
+from egpt.integrations.models.google import Gemini
+from egpt.integrations.models.openai import OpenAIChat
 
 
 class ParkGuide(BaseModel):

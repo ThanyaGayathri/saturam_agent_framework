@@ -1,6 +1,6 @@
 """Quarantine litellm_openai integration tests (EGPT-0.10).
 
-Importing LiteLLMOpenAI still loads egpt.models.litellm.chat, which requires
+Importing LiteLLMOpenAI still loads egpt.integrations.models.litellm.chat, which requires
 the disabled litellm extra.
 """
 

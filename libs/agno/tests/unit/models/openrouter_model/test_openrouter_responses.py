@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 
 from egpt.exceptions import ModelAuthenticationError
-from egpt.models.openrouter import OpenRouterResponses
+from egpt.integrations.models.openrouter import OpenRouterResponses
 
 
 def test_openrouter_responses_default_config():

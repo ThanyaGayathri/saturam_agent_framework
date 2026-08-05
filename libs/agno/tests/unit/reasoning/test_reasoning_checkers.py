@@ -210,7 +210,7 @@ def test_azure_openai_with_reasoning_model():
 
 def test_openai_like_with_deepseek_r1():
     """Test OpenAILike model with deepseek-r1 in ID returns True."""
-    from egpt.models.openai.like import OpenAILike
+    from egpt.integrations.models._openai_like import OpenAILike
 
     # Create a proper OpenAILike instance
     model = OpenAILike(
@@ -240,13 +240,45 @@ def test_openai_non_openai_model():
 
 def test_openai_like_without_deepseek_r1():
     """Test OpenAILike model without deepseek-r1 returns False."""
-    from egpt.models.openai.like import OpenAILike
+    from egpt.integrations.models._openai_like import OpenAILike
 
     # Create a proper OpenAILike instance
     model = OpenAILike(
         id="gpt-4-turbo",
         name="GPT-4",
     )
+    assert is_openai_reasoning_model(model) is False
+
+
+def test_is_openai_compatible_proxy_flag_matches_openai_like_subclassing():
+    """The capability flag must mark OpenAILike subclasses only (EGPT-1.4).
+
+    `is_openai_reasoning_model` used to do `isinstance(model, OpenAILike)`. Orchestration
+    may no longer import that concrete integrations class, so the check reads the
+    `is_openai_compatible_proxy` flag instead. The flag belongs on OpenAILike, NOT on its
+    parent OpenAIChat -- setting it on the parent would silently flip plain
+    OpenAIChat/OpenAIResponses into the proxy branch.
+    """
+    from egpt.integrations.models._openai_like import OpenAILike
+    from egpt.integrations.models.azure import AzureOpenAI
+    from egpt.integrations.models.deepseek import DeepSeek
+    from egpt.integrations.models.openai import OpenAIChat, OpenAIResponses
+
+    for cls in (OpenAILike, DeepSeek, AzureOpenAI):
+        instance = cls(id="x")
+        assert isinstance(instance, OpenAILike)
+        assert instance.is_openai_compatible_proxy is True, cls.__name__
+
+    for cls in (OpenAIChat, OpenAIResponses):
+        instance = cls(id="x")
+        assert not isinstance(instance, OpenAILike)
+        assert instance.is_openai_compatible_proxy is False, cls.__name__
+
+
+def test_is_openai_reasoning_model_tolerates_models_without_the_flag():
+    """Duck-typed models that predate the flag must not raise (getattr default)."""
+    model = MockModel(class_name="SomeCustomModel", model_id="deepseek-r1")
+    assert not hasattr(model, "is_openai_compatible_proxy")
     assert is_openai_reasoning_model(model) is False
 
 

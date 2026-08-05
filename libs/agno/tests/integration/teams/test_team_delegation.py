@@ -5,7 +5,7 @@ import pytest
 from pydantic import BaseModel
 
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.team.team import Team
 
 ASYNC_TEST_TIMEOUT = 300

@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from egpt.agent.agent import Agent
+from egpt.integrations.models.meta import LlamaOpenAI
 from egpt.media import Image
-from egpt.models.meta import LlamaOpenAI
 from egpt.utils.media import download_image
 
 image_path = Path(__file__).parent.joinpath("sample.jpg")

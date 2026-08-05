@@ -1,7 +1,7 @@
 import pytest
 
 from egpt.agent import Agent, ToolCallCompletedEvent, ToolCallStartedEvent
-from egpt.models.huggingface import HuggingFace
+from egpt.integrations.models.huggingface import HuggingFace
 from egpt.tools.exa import ExaTools
 from egpt.tools.websearch import WebSearchTools
 from egpt.tools.yfinance import YFinanceTools

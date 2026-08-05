@@ -17,9 +17,9 @@ import pytest
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-for-testing")
 
-from egpt.models.anthropic.claude import Claude
-from egpt.models.openai.chat import OpenAIChat
-from egpt.models.openai.responses import OpenAIResponses
+from egpt.integrations.models.anthropic.claude import Claude
+from egpt.integrations.models.openai.chat import OpenAIChat
+from egpt.integrations.models.openai.responses import OpenAIResponses
 from egpt.utils.http import (
     aclose_default_clients,
     close_sync_client,

@@ -7,8 +7,8 @@ import pytest
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
 from egpt.exceptions import ModelProviderError, RetryableModelProviderError
-from egpt.models.google.gemini import Gemini
-from egpt.models.openai.chat import OpenAIChat
+from egpt.integrations.models.google.gemini import Gemini
+from egpt.integrations.models.openai.chat import OpenAIChat
 
 
 @pytest.fixture

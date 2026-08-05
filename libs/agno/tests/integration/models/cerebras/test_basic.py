@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
 from egpt.db.sqlite import SqliteDb
-from egpt.models.cerebras import Cerebras
+from egpt.integrations.models.cerebras import Cerebras
 
 
 @pytest.fixture(scope="module")

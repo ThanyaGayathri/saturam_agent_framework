@@ -1,12 +1,16 @@
-from egpt.models.cerebras.cerebras import Cerebras
+"""Deprecated compatibility shim (EGPT-1.4).
 
-try:
-    from egpt.models.cerebras.cerebras_openai import CerebrasOpenAI
-except ImportError:
+Model providers moved to the integrations layer. Import from
+``egpt.integrations.models.cerebras`` instead; this module will be removed.
 
-    class CerebrasOpenAI:  # type: ignore
-        def __init__(self, *args, **kwargs):
-            raise ImportError("`openai` not installed. Please install it via `pip install openai`")
+Attribute access is forwarded rather than re-exported so the target package's
+lazy imports and optional-dependency fallbacks keep working unchanged.
+"""
+
+from egpt.integrations.models import cerebras as _target
+
+__all__ = _target.__all__
 
 
-__all__ = ["Cerebras", "CerebrasOpenAI"]
+def __getattr__(name: str):
+    return getattr(_target, name)

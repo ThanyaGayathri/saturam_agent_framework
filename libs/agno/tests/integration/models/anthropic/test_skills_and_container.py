@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 from anthropic.types import MessageStopEvent
 
-from egpt.models.anthropic import Claude
+from egpt.integrations.models.anthropic import Claude
 
 
 def _create_mock_usage():

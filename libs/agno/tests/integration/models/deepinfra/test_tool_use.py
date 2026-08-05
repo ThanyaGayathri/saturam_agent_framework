@@ -3,7 +3,7 @@ from typing import Optional
 import pytest
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.models.deepinfra import DeepInfra
+from egpt.integrations.models.deepinfra import DeepInfra
 from egpt.tools.yfinance import YFinanceTools
 
 

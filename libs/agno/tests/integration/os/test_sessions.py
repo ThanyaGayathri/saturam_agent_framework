@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
 from egpt.db.sqlite import SqliteDb
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.models.message import Message
-from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.os.utils import get_session_name
 from egpt.run.agent import RunOutput

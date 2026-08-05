@@ -5,7 +5,7 @@ import uuid
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.run.workflow import WorkflowCompletedEvent, WorkflowStartedEvent
 from egpt.workflow import Step, StepInput, StepOutput, Workflow
 from egpt.workflow.agent import WorkflowAgent

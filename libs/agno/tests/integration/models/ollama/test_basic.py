@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
 from egpt.db.sqlite import SqliteDb
-from egpt.models.ollama import Ollama
+from egpt.integrations.models.ollama import Ollama
 
 
 def _assert_metrics(response: RunOutput):

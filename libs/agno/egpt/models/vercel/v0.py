@@ -1,43 +1,10 @@
-from dataclasses import dataclass
-from os import getenv
-from typing import Any, Dict, Optional
+"""Deprecated compatibility shim (EGPT-1.4).
 
-from egpt.exceptions import ModelAuthenticationError
-from egpt.models.openai.like import OpenAILike
+Import from ``egpt.integrations.models.vercel.v0`` instead; this module will be removed.
+"""
+
+from egpt.integrations.models.vercel import v0 as _target
 
 
-@dataclass
-class V0(OpenAILike):
-    """
-    Class for interacting with the v0 API.
-
-    Attributes:
-        id (str): The ID of the language model. Defaults to "v0-1.0-md".
-        name (str): The name of the API. Defaults to "v0".
-        provider (str): The provider of the API. Defaults to "v0".
-        api_key (Optional[str]): The API key for the v0 API.
-        base_url (Optional[str]): The base URL for the v0 API. Defaults to "https://v0.dev/chat/settings/keys".
-    """
-
-    id: str = "v0-1.0-md"
-    name: str = "v0"
-    provider: str = "Vercel"
-
-    api_key: Optional[str] = None
-    base_url: str = "https://api.v0.dev/v1/"
-
-    def _get_client_params(self) -> Dict[str, Any]:
-        """
-        Returns client parameters for API requests, checking for V0_API_KEY.
-
-        Returns:
-            Dict[str, Any]: A dictionary of client parameters for API requests.
-        """
-        if not self.api_key:
-            self.api_key = getenv("V0_API_KEY")
-            if not self.api_key:
-                raise ModelAuthenticationError(
-                    message="V0_API_KEY not set. Please set the V0_API_KEY environment variable.",
-                    model_name=self.name,
-                )
-        return super()._get_client_params()
+def __getattr__(name: str):
+    return getattr(_target, name)

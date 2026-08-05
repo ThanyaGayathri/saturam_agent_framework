@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
 from egpt.db.sqlite import SqliteDb
-from egpt.models.anthropic import Claude
+from egpt.integrations.models.anthropic import Claude
 
 
 @pytest.fixture(scope="module")

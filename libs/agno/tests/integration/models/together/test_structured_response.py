@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.together import Together
+from egpt.integrations.models.together import Together
 
 
 class MovieScript(BaseModel):

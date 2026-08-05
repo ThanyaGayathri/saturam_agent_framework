@@ -2,8 +2,8 @@ from dataclasses import dataclass
 from os import getenv
 from typing import Any, Dict, List, Optional, Tuple
 
+from egpt.integrations.models._utils.gemini import inject_agno_client_header
 from egpt.knowledge.embedder.base import Embedder
-from egpt.utils.gemini import inject_agno_client_header
 from egpt.utils.log import log_error, log_info, log_warning
 
 try:

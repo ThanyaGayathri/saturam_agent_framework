@@ -1590,7 +1590,7 @@ class TestHeavyResourcesUnit:
 
     def test_model_is_shared(self):
         """Model should be shared."""
-        from egpt.models.openai import OpenAIChat
+        from egpt.integrations.models.openai import OpenAIChat
 
         model = OpenAIChat(id="gpt-4o-mini")
         agent = Agent(name="test", id="test-id", model=model)
@@ -1600,7 +1600,7 @@ class TestHeavyResourcesUnit:
 
     def test_reasoning_model_is_shared(self):
         """Reasoning model should be shared."""
-        from egpt.models.openai import OpenAIChat
+        from egpt.integrations.models.openai import OpenAIChat
 
         reasoning_model = OpenAIChat(id="gpt-4o")
         agent = Agent(name="test", id="test-id", reasoning_model=reasoning_model)

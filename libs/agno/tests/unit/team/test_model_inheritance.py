@@ -3,8 +3,8 @@ import pytest
 pytest.importorskip("anthropic")
 
 from egpt.agent import Agent
-from egpt.models.anthropic import Claude
-from egpt.models.openai import OpenAIChat, OpenAIResponses
+from egpt.integrations.models.anthropic import Claude
+from egpt.integrations.models.openai import OpenAIChat, OpenAIResponses
 from egpt.team.team import Team
 
 

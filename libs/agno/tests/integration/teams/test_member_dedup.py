@@ -8,7 +8,7 @@ These tests run a real Team with actual LLM calls to verify the fix end-to-end.
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.team import Team
 
 

@@ -1,6 +1,6 @@
 from egpt.agent.agent import Agent
+from egpt.integrations.models.vertexai.claude import Claude
 from egpt.media import Image
-from egpt.models.vertexai.claude import Claude
 
 
 def test_image_input():

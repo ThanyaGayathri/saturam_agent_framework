@@ -1,15 +1,16 @@
-from egpt.models.aws.bedrock import AwsBedrock
+"""Deprecated compatibility shim (EGPT-1.4).
 
-try:
-    from egpt.models.aws.claude import Claude
-except ImportError:
+Model providers moved to the integrations layer. Import from
+``egpt.integrations.models.aws`` instead; this module will be removed.
 
-    class Claude:  # type: ignore
-        def __init__(self, *args, **kwargs):
-            raise ImportError("`anthropic` not installed. Please install using `pip install anthropic`")
+Attribute access is forwarded rather than re-exported so the target package's
+lazy imports and optional-dependency fallbacks keep working unchanged.
+"""
+
+from egpt.integrations.models import aws as _target
+
+__all__ = _target.__all__
 
 
-__all__ = [
-    "AwsBedrock",
-    "Claude",
-]
+def __getattr__(name: str):
+    return getattr(_target, name)

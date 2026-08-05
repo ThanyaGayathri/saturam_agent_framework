@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.tools.exa import ExaTools
 from egpt.tools.websearch import WebSearchTools
 from egpt.tools.yfinance import YFinanceTools

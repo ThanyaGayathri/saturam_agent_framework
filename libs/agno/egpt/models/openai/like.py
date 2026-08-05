@@ -1,31 +1,9 @@
-from dataclasses import dataclass
-from typing import Optional
+"""Deprecated compatibility shim (EGPT-1.4).
 
-from egpt.models.base import Model
-from egpt.models.openai.chat import OpenAIChat
+``OpenAILike`` moved to ``egpt.integrations.models._openai_like``;
+this module will be removed.
+"""
 
+from egpt.integrations.models._openai_like.like import OpenAILike
 
-@dataclass
-class OpenAILike(OpenAIChat):
-    """
-    A class for to interact with any provider using the OpenAI API schema.
-
-    Args:
-        id (str): The id of the OpenAI model to use. Defaults to "not-provided".
-        name (str): The name of the OpenAI model to use. Defaults to "OpenAILike".
-        api_key (Optional[str]): The API key to use. Defaults to "not-provided".
-    """
-
-    id: str = "not-provided"
-    name: str = "OpenAILike"
-    api_key: Optional[str] = "not-provided"
-
-    default_role_map = {
-        "system": "system",
-        "user": "user",
-        "assistant": "assistant",
-        "tool": "tool",
-    }
-
-    def get_provider(self) -> str:
-        return Model.get_provider(self)
+__all__ = ["OpenAILike"]

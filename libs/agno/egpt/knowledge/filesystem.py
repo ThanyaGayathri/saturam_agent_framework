@@ -36,14 +36,14 @@ class FileSystemKnowledge:
         ```python
         from egpt.agent import Agent
         from egpt.knowledge.filesystem import FileSystemKnowledge
-        from egpt.models.openai import OpenAIChat
+        from egpt.integrations.models.openai import OpenAIResponses
 
         # Create knowledge for a directory
         fs_knowledge = FileSystemKnowledge(base_dir="/path/to/code")
 
         # Agent automatically gets grep_file, list_files, get_file tools
         agent = Agent(
-            model=OpenAIChat(id="gpt-4o"),
+            model=OpenAIResponses(id="gpt-5.5"),
             knowledge=fs_knowledge,
             search_knowledge=True,
         )

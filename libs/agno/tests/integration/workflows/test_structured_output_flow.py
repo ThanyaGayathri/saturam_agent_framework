@@ -6,7 +6,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.team import Team
 from egpt.workflow import Step, Workflow
 from egpt.workflow.types import StepInput, StepOutput

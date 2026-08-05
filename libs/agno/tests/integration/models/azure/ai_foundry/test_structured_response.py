@@ -4,7 +4,7 @@ from typing import Dict, List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.azure import AzureAIFoundry
+from egpt.integrations.models.azure import AzureAIFoundry
 
 
 class MovieScript(BaseModel):

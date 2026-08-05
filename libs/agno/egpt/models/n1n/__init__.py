@@ -1,3 +1,16 @@
-from egpt.models.n1n.n1n import N1N
+"""Deprecated compatibility shim (EGPT-1.4).
 
-__all__ = ["N1N"]
+Model providers moved to the integrations layer. Import from
+``egpt.integrations.models.n1n`` instead; this module will be removed.
+
+Attribute access is forwarded rather than re-exported so the target package's
+lazy imports and optional-dependency fallbacks keep working unchanged.
+"""
+
+from egpt.integrations.models import n1n as _target
+
+__all__ = _target.__all__
+
+
+def __getattr__(name: str):
+    return getattr(_target, name)
