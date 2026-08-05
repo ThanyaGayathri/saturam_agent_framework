@@ -2,7 +2,7 @@
 set -e
 
 ############################################################################
-# Agno Setup for running cookbooks
+# EGPT Setup for running cookbooks
 # - Create a virtual environment and install libraries in editable mode.
 # - Please deactivate the existing virtual environment before running.
 # Usage: ./scripts/cookbook_setup.sh
@@ -14,7 +14,7 @@ AGNO_DIR="${REPO_ROOT}/libs/agno"
 EGPTCTL_DIR="${REPO_ROOT}/libs/egptctl"
 source "${CURR_DIR}/_utils.sh"
 
-VENV_DIR="${REPO_ROOT}/agnoenv"
+VENV_DIR="${REPO_ROOT}/.venvs/cookbook"
 PYTHON_VERSION=$(python3 --version)
 
 print_heading "Development setup..."
@@ -33,7 +33,7 @@ source "${VENV_DIR}/bin/activate"
 print_info "Installing base python packages"
 pip3 install --upgrade pip pip-tools twine build
 
-print_heading "Installing egptctl and agno with [dev] extras"
+print_heading "Installing egptctl and egpt with [dev] extras"
 pip install --editable "${EGPTCTL_DIR}" --editable "${AGNO_DIR}[dev]"
 
 print_heading "pip list"

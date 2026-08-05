@@ -22,7 +22,7 @@ source ~/.venvs/aienv/bin/activate
 ### 2. Install dependencies
 
 ```shell
-pip install -U psycopg sqlalchemy openai agno
+pip install -U psycopg sqlalchemy openai
 ```
 
 ### 3. Run an example

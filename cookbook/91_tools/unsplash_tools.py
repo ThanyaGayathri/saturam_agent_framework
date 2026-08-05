@@ -12,7 +12,7 @@ UnsplashTools provides:
 Setup:
 1. Get a free API key from https://unsplash.com/developers
 2. Set the environment variable: export UNSPLASH_ACCESS_KEY="your_access_key"
-3. Install dependencies: pip install openai agno
+3. Install dependencies: pip install openai
 
 Usage:
     python unsplash_tools.py

@@ -21,8 +21,8 @@ uv pip install sqlalchemy asyncmy
 ### Synchronous MySQL
 
 ```python
-from agno.agent import Agent
-from agno.db.mysql import MySQLDb
+from egpt.agent import Agent
+from egpt.db.mysql import MySQLDb
 
 db = MySQLDb(db_url="mysql+pymysql://username:password@localhost:3306/database")
 
@@ -36,8 +36,8 @@ agent = Agent(
 
 ```python
 import asyncio
-from agno.agent import Agent
-from agno.db.mysql import AsyncMySQLDb
+from egpt.agent import Agent
+from egpt.db.mysql import AsyncMySQLDb
 
 db = AsyncMySQLDb(db_url="mysql+asyncmy://username:password@localhost:3306/database")
 

@@ -1,4 +1,4 @@
-agno[os]
+-e ./libs/agno[os]
 fastapi[standard]
 google-genai
 httpx

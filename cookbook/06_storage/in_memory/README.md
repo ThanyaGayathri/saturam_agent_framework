@@ -23,7 +23,7 @@ Notice this is not recommended for production use cases.
 ### Basic Setup
 
 ```python
-from agno.db.in_memory import InMemoryDb
+from egpt.db.in_memory import InMemoryDb
 
 db = InMemoryDb()
 ```
@@ -33,9 +33,9 @@ db = InMemoryDb()
 The real power of InMemoryDb comes from providing your own dictionary for custom storage mechanisms, in case the current first-class supported storage offerings are too opinionated:
 
 ```python
-from agno.db.in_memory import InMemoryDb
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
+from egpt.db.in_memory import InMemoryDb
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
 import json
 import boto3
 

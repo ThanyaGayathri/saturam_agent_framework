@@ -18,13 +18,13 @@ export LLAMA_API_KEY=***
 ### 3. Install libraries
 
 ```shell
-uv pip install -U agno llama-api-client
+uv pip install -U llama-api-client
 ```
 
 If using LlamaOpenAI, install the following:
 
 ```shell
-uv pip install -U agno openai
+uv pip install -U openai
 ```
 
 ### 4. Run a basic Agent

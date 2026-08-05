@@ -5,8 +5,8 @@ Examples demonstrating SQLite database integration with Agno agents, teams, and 
 ## Configuration
 
 ```python
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
 
 db = SqliteDb(db_file="path/to/database.db")
 
@@ -21,8 +21,8 @@ agent = Agent(
 Agno also supports using your SQLite database asynchronously, via the `AsyncSqliteDb` class:
 
 ```python
-from agno.agent import Agent
-from agno.db.sqlite import AsyncSqliteDb
+from egpt.agent import Agent
+from egpt.db.sqlite import AsyncSqliteDb
 
 db = AsyncSqliteDb(db_file="path/to/database.db")
 

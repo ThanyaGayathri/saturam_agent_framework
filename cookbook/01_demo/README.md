@@ -4,8 +4,6 @@ A demo EgptOS built from wiki agents. Ingest URLs, images, voice memos, or PDFs.
 
 Built on EgptOS with SQLite-backed sessions. The codebase is small enough to grok in an afternoon, and stable enough to build on.
 
-> For a production version of this demo, see the [agent-platform-railway](https://github.com/agno-agi/agent-platform-railway) codebase.
-
 ## Agents
 
 | Agent | What it does |

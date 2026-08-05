@@ -14,7 +14,7 @@ Examples for using and creating tools in Agno.
 ## Custom Tools
 
 ```python
-from agno.tools import tool
+from egpt.tools import tool
 
 @tool
 def get_weather(city: str) -> str:
@@ -29,7 +29,7 @@ agent = Agent(tools=[get_weather])
 Model Context Protocol allows connecting to external tool servers:
 
 ```python
-from agno.tools.mcp import MCPTools
+from egpt.tools.mcp import MCPTools
 
 tools = MCPTools(servers=["npx", "-y", "@anthropic/mcp-server-filesystem"])
 agent = Agent(tools=[tools])

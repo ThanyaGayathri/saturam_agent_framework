@@ -1,4 +1,4 @@
-agno
+-e ./libs/agno
 anthropic
 chromadb
 fastapi[standard]

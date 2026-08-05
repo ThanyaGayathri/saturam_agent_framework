@@ -10,7 +10,7 @@ Example prompts to try:
 - "Look up DOI 10.1038/s41586-024-07386-0 and list conflicts of interest"
 - "What does the literature say about GLP-1 cardiovascular outcomes?"
 
-Run: `uv pip install agno mcp anthropic` to install the dependencies
+Run: `uv pip install mcp anthropic` to install the dependencies
 
 Environment variables:
 - ANTHROPIC_API_KEY: Required for the default Claude model

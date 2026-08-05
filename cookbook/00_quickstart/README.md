@@ -39,8 +39,8 @@ Each example can be run independently and contains detailed comments to help you
 
 ### 1. Clone the repo
 ```bash
-git clone https://github.com/agno-agi/agno.git
-cd agno
+git clone https://github.com/Saturam-Inc/saturam-agent-framework.git
+cd saturam-agent-framework
 ```
 
 ### 2. Create and activate a virtual environment
@@ -50,9 +50,15 @@ source .venvs/quickstart/bin/activate
 ```
 
 ### 3. Install dependencies
+
+Run this from the repo root — it installs `egpt` from the local `libs/agno` sources
+in editable mode, plus the third-party packages these examples use.
+
 ```bash
 uv pip install -r cookbook/00_quickstart/requirements.txt
 ```
+
+> `egpt` is not published to public PyPI — do not `pip install egpt`.
 
 ### 4. Set your API key
 ```bash
@@ -92,15 +98,15 @@ Agno is model-agnostic. Same code, different provider:
 
 ```python
 # Gemini (default in these examples)
-from agno.models.google import Gemini
+from egpt.models.google import Gemini
 model = Gemini(id="gemini-3.5-flash")
 
 # OpenAI
-from agno.models.openai import OpenAIResponses
+from egpt.models.openai import OpenAIResponses
 model = OpenAIResponses(id="gpt-5.2")
 
 # Anthropic
-from agno.models.anthropic import Claude
+from egpt.models.anthropic import Claude
 model = Claude(id="claude-sonnet-4-5")
 ```
 

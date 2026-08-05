@@ -8,7 +8,7 @@ international endpoint `https://api.minimax.io/v1`.
 
 ### 1. Create and activate a virtual environment
 
-See the repository [Development setup](https://github.com/agno-agi/agno/blob/main/CONTRIBUTING.md#development-setup).
+See the repository [Development setup](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/CONTRIBUTING.md#development-setup).
 
 ### 2. Export your API key
 
@@ -21,7 +21,7 @@ Create an API key from the [MiniMax platform dashboard](https://platform.minimax
 ### 3. Install libraries
 
 ```shell
-uv pip install -U openai agno
+uv pip install -U openai
 ```
 
 ### 4. Run the basic example
@@ -45,8 +45,8 @@ current catalog. As of writing:
 Pass any of these as `MiniMax(id="...")`:
 
 ```python
-from agno.agent import Agent
-from agno.models.minimax import MiniMax
+from egpt.agent import Agent
+from egpt.models.minimax import MiniMax
 
 agent = Agent(model=MiniMax(id="MiniMax-M2.7-highspeed"))
 ```

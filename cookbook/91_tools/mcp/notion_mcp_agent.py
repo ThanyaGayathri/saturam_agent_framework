@@ -10,7 +10,7 @@ Setup:
 3. Connect the pages you want the agent to access: open each page, click the "..." menu,
    and select "Connect to integration".
 
-Dependencies: uv pip install agno mcp openai
+Dependencies: uv pip install mcp openai
 
 Usage:
   python cookbook/91_tools/mcp/notion_mcp_agent.py

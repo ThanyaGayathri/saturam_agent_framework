@@ -21,7 +21,7 @@ How to setup and run:
     ```
 3. Install the required dependencies:
     ```bash
-    uv pip install agno mcp openai
+    uv pip install mcp openai
     ```
 4. Export your API key:
     ```bash

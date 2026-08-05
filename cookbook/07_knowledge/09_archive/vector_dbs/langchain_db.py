@@ -3,7 +3,7 @@ LangChain Vector DB
 ===================
 
 Install dependencies:
-- uv pip install langchain langchain-community langchain-openai langchain-chroma agno
+- uv pip install langchain langchain-community langchain-openai langchain-chroma
 """
 
 import asyncio

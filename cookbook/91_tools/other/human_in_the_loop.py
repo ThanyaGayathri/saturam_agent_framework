@@ -12,7 +12,7 @@ Some practical applications:
 - Validating data transformations
 - Approving automated actions in critical systems
 
-Run `uv pip install openai httpx rich agno` to install dependencies.
+Run `uv pip install openai httpx rich` to install dependencies.
 """
 
 import json

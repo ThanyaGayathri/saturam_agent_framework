@@ -14,7 +14,7 @@ Examples for `scheduler` in EgptOS.
 Install scheduler dependencies:
 
 ```bash
-pip install agno[scheduler]
+pip install croniter pytz
 ```
 
 This installs `croniter` and `pytz`.

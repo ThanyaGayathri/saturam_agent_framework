@@ -11,8 +11,8 @@ uv pip install pymysql sqlalchemy
 ## Configuration
 
 ```python
-from agno.agent import Agent
-from agno.db.singlestore.singlestore import SingleStoreDb
+from egpt.agent import Agent
+from egpt.db.singlestore.singlestore import SingleStoreDb
 
 # Using environment variables
 USERNAME = getenv("SINGLESTORE_USERNAME")

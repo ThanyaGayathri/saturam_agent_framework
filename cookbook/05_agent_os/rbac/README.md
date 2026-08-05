@@ -183,7 +183,7 @@ app = agent_os.get_app()
 **Option B: Via JWTMiddleware directly**
 ```python
 from egpt.os import EgptOS
-from agno.os.middleware import JWTMiddleware
+from egpt.os.middleware import JWTMiddleware
 
 agent_os = EgptOS(
     id="my-agent-os",
@@ -293,7 +293,7 @@ See `/libs/agno/egpt/os/scopes.py` for the default scope mappings.
 You can override or extend default mappings:
 
 ```python
-from agno.os.middleware import JWTMiddleware
+from egpt.os.middleware import JWTMiddleware
 
 app.add_middleware(
     JWTMiddleware,

@@ -21,7 +21,7 @@ export PORTKEY_VIRTUAL_KEY=***
 ### 3. Install libraries
 
 ```shell
-uv pip install -U agno portkey-ai
+uv pip install -U portkey-ai
 ```
 
 ### 4. Run basic Agent

@@ -43,9 +43,9 @@ for the local vector store.
 ## Quick Start
 
 ```python
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.parallel import ParallelTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.parallel import ParallelTools
 
 agent = Agent(
     model=OpenAIResponses(id="gpt-5.4"),

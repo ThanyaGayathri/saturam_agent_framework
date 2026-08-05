@@ -24,7 +24,7 @@ export COMETAPI_KEY=sk-***
 ### 3. Install libraries
 
 ```shell
-uv pip install -U openai duckduckgo-search duckdb agno
+uv pip install -U openai duckduckgo-search duckdb
 ```
 
 ### 4. Run basic Agent
@@ -158,7 +158,7 @@ CometAPI provides access to multiple LLM providers through a unified interface. 
 If you encounter authentication errors, make sure your API key is correctly set:
 
 ```python
-from agno.models.cometapi import CometAPI
+from egpt.models.cometapi import CometAPI
 
 # Test API key
 model = CometAPI()

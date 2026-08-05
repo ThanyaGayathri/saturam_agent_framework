@@ -10,7 +10,7 @@ Ask the agent things like:
     - "Disable the daily-health-check schedule"
 
 Prerequisites:
-    pip install agno[scheduler]
+    pip install croniter pytz
     # Start postgres: ./cookbook/scripts/run_pgvector.sh
 
 Usage:

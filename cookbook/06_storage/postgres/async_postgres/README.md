@@ -11,7 +11,7 @@ uv pip install sqlalchemy psycopg
 ## Configuration
 
 ```python
-from agno.db.postgres import AsyncPostgresDb
+from egpt.db.postgres import AsyncPostgresDb
 
 db = AsyncPostgresDb(db_url="postgresql+psycopg_async://username:password@localhost:5432/database")
 ```

@@ -34,7 +34,7 @@ the built-ins, gate the server, and protect it — all with data, no middleware 
 
 ```python
 from egpt.os import EgptOS
-from agno.os.config import MCPServerConfig
+from egpt.os.config import MCPServerConfig
 
 agent_os = EgptOS(
     agents=[my_agent],

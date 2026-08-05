@@ -1,4 +1,4 @@
-"""Run `pip install groq seltz agno` to install dependencies."""
+"""Run `pip install groq seltz` to install dependencies."""
 
 from pathlib import Path
 from textwrap import dedent

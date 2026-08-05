@@ -28,7 +28,7 @@ for a first request.
 
 ### 1. Create and activate a virtual environment
 
-See the repository [Development setup](https://github.com/agno-agi/agno/blob/main/CONTRIBUTING.md#development-setup).
+See the repository [Development setup](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/CONTRIBUTING.md#development-setup).
 
 ### 2. Export your API key
 
@@ -39,7 +39,7 @@ export MIMO_API_KEY=***
 ### 3. Install libraries
 
 ```shell
-uv pip install -U openai ddgs agno
+uv pip install -U openai ddgs
 ```
 
 ## Examples

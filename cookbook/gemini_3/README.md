@@ -10,7 +10,7 @@ Each example can be run independently and contains detailed comments + example p
 
 ```bash
 # 1. Clone
-git clone https://github.com/agno-agi/agno.git && cd agno
+git clone https://github.com/Saturam-Inc/saturam-agent-framework.git && cd saturam-agent-framework
 
 # 2. Create virtual environment
 uv venv .venvs/gemini --python 3.12 && source .venvs/gemini/bin/activate

@@ -11,7 +11,7 @@ The Agno `Inception` class defaults to `mercury-2` and points at
 
 ### 1. Create and activate a virtual environment
 
-See the repository [Development setup](https://github.com/agno-agi/agno/blob/main/CONTRIBUTING.md#development-setup).
+See the repository [Development setup](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/CONTRIBUTING.md#development-setup).
 
 ### 2. Get an API key
 
@@ -26,7 +26,7 @@ export INCEPTION_API_KEY=***
 ### 3. Install libraries
 
 ```shell
-uv pip install -U openai ddgs agno
+uv pip install -U openai ddgs
 ```
 
 ### 4. Run the basic example
@@ -49,8 +49,8 @@ python cookbook/90_models/inception/basic.py
 Pass any of these as `Inception(id="...")`:
 
 ```python
-from agno.agent import Agent
-from agno.models.inception import Inception
+from egpt.agent import Agent
+from egpt.models.inception import Inception
 
 agent = Agent(model=Inception(id="mercury-2"))
 ```

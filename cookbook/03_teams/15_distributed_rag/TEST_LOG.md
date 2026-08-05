@@ -24,7 +24,7 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/15_distributed_rag/03_distributed_rag_with_reranking.py", line 13, in <module>
-    from agno.knowledge.reranker.cohere import CohereReranker
+    from egpt.knowledge.reranker.cohere import CohereReranker
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/knowledge/reranker/cohere.py", line 10, in <module>
     raise ImportError("cohere not installed, please run pip install cohere")
 ImportError: cohere not installed, please run pip install cohere
@@ -46,9 +46,9 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/15_distributed_rag/02_distributed_rag_lancedb.py", line 15, in <module>
-    from agno.vectordb.lancedb import LanceDb, SearchType
+    from egpt.vectordb.lancedb import LanceDb, SearchType
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/vectordb/lancedb/__init__.py", line 1, in <module>
-    from agno.vectordb.lancedb.lance_db import LanceDb, SearchType
+    from egpt.vectordb.lancedb.lance_db import LanceDb, SearchType
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/vectordb/lancedb/lance_db.py", line 11, in <module>
     raise ImportError("`lancedb` not installed. Please install using `pip install lancedb`")
 ImportError: `lancedb` not installed. Please install using `pip install lancedb`

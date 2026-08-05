@@ -16,6 +16,10 @@ REPO_ROOT="$(dirname "$(dirname "${CURR_DIR}")")"
 VENV_DIR="${REPO_ROOT}/.venvs/learning"
 REQUIREMENTS_FILE="${CURR_DIR}/requirements.txt"
 
+# requirements.txt installs egpt as an editable path relative to the repo root, so
+# install from there -- uv resolves those paths against the current directory.
+cd "${REPO_ROOT}" || exit 1
+
 # Colors
 ORANGE='\033[38;5;208m'
 DIM='\033[2m'
@@ -59,8 +63,8 @@ uv venv ${VENV_DIR} --python 3.12 --quiet
 
 echo ""
 echo -e "    ${DIM}Installing requirements...${NC}"
-echo -e "    ${DIM}> VIRTUAL_ENV=${VENV_DIR} uv uv pip install -r ${REQUIREMENTS_FILE}${NC}"
-VIRTUAL_ENV=${VENV_DIR} uv uv pip install -r ${REQUIREMENTS_FILE} --quiet
+echo -e "    ${DIM}> VIRTUAL_ENV=${VENV_DIR} uv pip install -r ${REQUIREMENTS_FILE}${NC}"
+VIRTUAL_ENV=${VENV_DIR} uv pip install -r ${REQUIREMENTS_FILE} --quiet
 
 # Copy activation command to clipboard
 ACTIVATE_CMD="source .venvs/learning/bin/activate"

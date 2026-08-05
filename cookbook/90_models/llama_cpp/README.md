@@ -22,7 +22,7 @@ source ~/.venvs/aienv/bin/activate
 ### 3. Install libraries
 
 ```shell
-uv pip install -U ddgs openai agno
+uv pip install -U ddgs openai
 ```
 
 ### 4. Run basic Agent

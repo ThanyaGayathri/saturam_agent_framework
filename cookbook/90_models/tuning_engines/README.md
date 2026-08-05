@@ -26,7 +26,7 @@ export TUNING_ENGINES_BASE_URL=https://your-host.example.com/v1
 ## 3. Install libraries
 
 ```shell
-uv pip install -U agno openai
+uv pip install -U openai
 ```
 
 ## 4. Run the example
@@ -38,8 +38,8 @@ python cookbook/90_models/tuning_engines/basic.py
 The example uses the dedicated `TuningEngines` model provider:
 
 ```python
-from agno.agent import Agent
-from agno.models.tuning_engines import TuningEngines
+from egpt.agent import Agent
+from egpt.models.tuning_engines import TuningEngines
 
 agent = Agent(model=TuningEngines(id="gpt-4o"))
 ```

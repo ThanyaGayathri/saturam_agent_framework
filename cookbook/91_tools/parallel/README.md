@@ -31,9 +31,9 @@ export PARALLEL_API_KEY=<your-api-key>
 ## Quick Start
 
 ```python
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.parallel import ParallelTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.parallel import ParallelTools
 
 # Search API (default)
 agent = Agent(

@@ -53,7 +53,7 @@ vLLM embedders can load and run embedding models locally without requiring a ser
 
 4. **Usage**:
    ```python
-   from agno.knowledge.embedder.vllm import VLLMEmbedder
+   from egpt.knowledge.embedder.vllm import VLLMEmbedder
 
    # Local mode (no server needed)
    embedder = VLLMEmbedder(

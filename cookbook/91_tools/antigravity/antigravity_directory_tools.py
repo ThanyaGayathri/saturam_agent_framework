@@ -14,7 +14,7 @@ Re-uses the example folder from
 
 Requirements:
     export GEMINI_API_KEY=...
-    uv pip install agno google-genai pyyaml
+    uv pip install google-genai pyyaml
 
 Usage:
     .venvs/demo/bin/python cookbook/91_tools/antigravity/antigravity_directory_tools.py
