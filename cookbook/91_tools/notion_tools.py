@@ -26,7 +26,7 @@ Configuration Instructions:
 2. Create a Notion Integration:
    - Go to https://www.notion.so/my-integrations
    - Click "+ New integration"
-   - Name it (e.g., "Agno Agent")
+   - Name it (e.g., "EGPT Agent")
    - Copy the "Internal Integration Token"
 
 3. Create a Notion Database:

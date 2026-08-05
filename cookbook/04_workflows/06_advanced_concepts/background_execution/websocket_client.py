@@ -336,7 +336,7 @@ class WorkflowWebSocketClient:
 
     def print_banner(self):
         """Print application banner"""
-        banner = Text("Agno Workflow WebSocket Client", style="bold blue")
+        banner = Text("EGPT Workflow WebSocket Client", style="bold blue")
         self.console.print(Align.center(banner))
         self.console.print(Align.center(f"Connected to: {self.server_url}"))
         self.console.print()
@@ -450,7 +450,7 @@ async def main():
     """Main CLI function"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Agno Workflow WebSocket Client")
+    parser = argparse.ArgumentParser(description="EGPT Workflow WebSocket Client")
     parser.add_argument(
         "--server", default="ws://localhost:8000/ws", help="WebSocket server URL"
     )

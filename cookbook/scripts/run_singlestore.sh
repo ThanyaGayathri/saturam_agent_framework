@@ -22,8 +22,8 @@ echo "Waiting for SingleStore to be ready..."
 sleep 10
 
 # Create database with proper charset
-echo "Creating AGNO database with UTF-8 charset..."
-docker exec singlestoredb memsql -u root -padmin -e "CREATE DATABASE IF NOT EXISTS AGNO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+echo "Creating EGPT database with UTF-8 charset..."
+docker exec singlestoredb memsql -u root -padmin -e "CREATE DATABASE IF NOT EXISTS EGPT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
 echo "Database setup complete!"
 
@@ -31,4 +31,4 @@ export SINGLESTORE_HOST="localhost"
 export SINGLESTORE_PORT="3306"
 export SINGLESTORE_USERNAME="root"
 export SINGLESTORE_PASSWORD="admin"
-export SINGLESTORE_DATABASE="AGNO"
+export SINGLESTORE_DATABASE="EGPT"

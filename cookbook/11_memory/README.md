@@ -1,6 +1,6 @@
 # Agent Memory
 
-This section demonstrates how Agno agents persist and use user memories across runs, sessions, and agents.
+This section demonstrates how EGPT agents persist and use user memories across runs, sessions, and agents.
 
 ## Directory Layout
 

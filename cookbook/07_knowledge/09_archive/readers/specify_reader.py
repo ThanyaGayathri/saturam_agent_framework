@@ -26,7 +26,7 @@ vector_db = PgVector(
 def create_knowledge() -> Knowledge:
     return Knowledge(
         name="Basic SDK Knowledge Base",
-        description="Agno 2.0 Knowledge Implementation",
+        description="EGPT 2.0 Knowledge Implementation",
         vector_db=vector_db,
     )
 

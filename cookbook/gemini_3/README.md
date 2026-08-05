@@ -1,6 +1,6 @@
 # Gemini 3 -- Build Agents with Google Gemini
 
-Build Agno agents with Google Gemini, progressively adding capabilities at each step. From a basic chat to workflows and multi-agent teams deployed on Agent OS.
+Build EGPT agents with Google Gemini, progressively adding capabilities at each step. From a basic chat to workflows and multi-agent teams deployed on Agent OS.
 
 This guide walks through the basics of building Agents, the easy way. Follow along to learn how to build agents with tools, storage, memory, knowledge, state, guardrails, and human in the loop. We'll also build multi-agent teams and step-based agentic workflows.
 
@@ -116,7 +116,7 @@ Agent OS provides a web interface for interacting with all your agents. Step 21 
 python cookbook/gemini_3/21_agent_os.py
 ```
 
-Then visit [os.agno.com](https://os.agno.com/?utm_source=github&utm_medium=cookbook&utm_campaign=gemini&utm_content=cookbook-gemini-3&utm_term=gemini-3) and add `http://localhost:7777` as an endpoint.
+Then open the interactive API docs at <http://localhost:7777/docs>, or attach a coding agent with `egpt connect`.
 
 ## Troubleshooting
 
@@ -129,6 +129,6 @@ Then visit [os.agno.com](https://os.agno.com/?utm_source=github&utm_medium=cookb
 
 ## Learn More
 
-- [Agno Documentation](https://docs.agno.com?utm_source=github&utm_medium=cookbook&utm_campaign=gemini&utm_content=cookbook-gemini-3&utm_term=docs)
-- [Agent OS Overview](https://docs.agno.com/agent-os/introduction?utm_source=github&utm_medium=cookbook&utm_campaign=gemini&utm_content=cookbook-gemini-3&utm_term=agentos-docs)
+- [EGPT package README](../../libs/agno/README.md)
+- [EgptOS cookbooks](../05_agent_os/README.md)
 - [Gemini API Reference](https://ai.google.dev/docs)

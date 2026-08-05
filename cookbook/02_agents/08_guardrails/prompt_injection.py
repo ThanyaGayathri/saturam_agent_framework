@@ -2,7 +2,7 @@
 Prompt Injection
 =============================
 
-Example demonstrating how to use checks with Agno Agent to implement guardrails.
+Example demonstrating how to use checks with EGPT Agent to implement guardrails.
 """
 
 from egpt.agent import Agent

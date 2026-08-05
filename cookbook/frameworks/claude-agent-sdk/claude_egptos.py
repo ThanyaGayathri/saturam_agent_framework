@@ -2,7 +2,7 @@
 Claude Agent SDK on EgptOS
 ===========================
 Serve a Claude Agent SDK agent through EgptOS -- the same runtime
-used for native Agno agents.
+used for native EGPT agents.
 
 The agent is available at the standard /agents/{agent_id}/runs endpoint,
 supports streaming (SSE) and non-streaming responses, and appears in
@@ -12,7 +12,7 @@ Requirements:
     pip install claude-agent-sdk
 
 Usage:
-    .venvs/demo/bin/python cookbook/frameworks/claude-agent-sdk/claude_agentos.py
+    .venvs/demo/bin/python cookbook/frameworks/claude-agent-sdk/claude_egptos.py
 
 Then call the API:
     # List agents
@@ -59,4 +59,4 @@ app = agent_os.get_app()
 # Run
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    agent_os.serve(app="claude_agentos:app", reload=True)
+    agent_os.serve(app="claude_egptos:app", reload=True)

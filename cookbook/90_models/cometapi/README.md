@@ -1,6 +1,6 @@
 # CometAPI Cookbook
 
-This cookbook demonstrates how to use CometAPI with the Agno framework. CometAPI provides unified access to multiple LLM providers (GPT, Claude, Gemini, DeepSeek, Qwen, and more) through a single OpenAI-compatible interface.
+This cookbook demonstrates how to use CometAPI with the EGPT framework. CometAPI provides unified access to multiple LLM providers (GPT, Claude, Gemini, DeepSeek, Qwen, and more) through a single OpenAI-compatible interface.
 
 > **Prerequisites**: Fork and clone this repository if needed
 
@@ -169,7 +169,7 @@ print(f"Found {len(available_models)} available models")
 ## Resources & Support
 
 ### 🔗 Official Links
-- [Website](https://www.cometapi.com/?utm_source=agno&utm_campaign=integration&utm_medium=integration&utm_content=integration)
+- [Website](https://www.cometapi.com/?utm_source=egpt&utm_campaign=integration&utm_medium=integration&utm_content=integration)
 - [API Documentation](https://api.cometapi.com/doc)
 - [Model List & Pricing](https://api.cometapi.com/pricing)
 - [Get API Key](https://api.cometapi.com/console/token)

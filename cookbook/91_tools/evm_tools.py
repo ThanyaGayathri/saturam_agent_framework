@@ -1,7 +1,7 @@
 """
 EVM Tools Example
 
-This example demonstrates how to use Agno's EVM integration to send ETH transactions
+This example demonstrates how to use EGPT's EVM integration to send ETH transactions
 on any EVM-compatible blockchain.
 
 1. Set your environment variables:

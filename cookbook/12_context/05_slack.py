@@ -14,7 +14,7 @@ never see `send_message`, and the write agent never sees history or
 search tools. Uploads / downloads are off on both.
 
 This cookbook always runs the read prompt. If you set
-`SLACK_WRITE_CHANNEL` (e.g. `SLACK_WRITE_CHANNEL=#agno-test`), it
+`SLACK_WRITE_CHANNEL` (e.g. `SLACK_WRITE_CHANNEL=#egpt-test`), it
 also runs a write prompt that posts a hello message there. Without
 it, posting is skipped so a casual `python cookbook/12_context/05_slack.py`
 never spams a real channel.
@@ -28,7 +28,7 @@ Requires:
     Optional:
     SLACK_TOKEN         (falls back here if SLACK_BOT_TOKEN isn't set)
     SLACK_USER_TOKEN    (user token; xoxp-...) for search_messages API
-    SLACK_WRITE_CHANNEL (e.g. `#agno-test`) — opt in to the write demo
+    SLACK_WRITE_CHANNEL (e.g. `#egpt-test`) — opt in to the write demo
 """
 
 from __future__ import annotations

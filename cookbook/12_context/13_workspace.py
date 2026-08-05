@@ -27,8 +27,8 @@ from egpt.models.openai import OpenAIResponses
 # Create the provider
 # ---------------------------------------------------------------------------
 project = WorkspaceContextProvider(
-    id="agno",
-    name="Agno Project",
+    id="egpt",
+    name="EGPT Project",
     root=Path(__file__).resolve().parents[2],
     model=OpenAIResponses(id="gpt-5.4-mini"),
 )

@@ -1,6 +1,6 @@
 # Test Log - _02_text_multilabel_classification
 
-Tested 2026-05-22 against `gemini-3.5-flash`, agno 2.6.9.
+Tested 2026-05-22 against `gemini-3.5-flash`, egpt 2.6.9.
 
 ### basic.py
 

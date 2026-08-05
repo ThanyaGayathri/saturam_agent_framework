@@ -84,11 +84,12 @@ agent = Agent(
 # ---------------------------------------------------------------------------
 def main() -> None:
     knowledge_cohere.insert(
-        name="Agno Docs", url="https://docs.agno.com/introduction.md"
+        name="MCP Docs",
+        url="https://modelcontextprotocol.io/docs/getting-started/intro",
     )
     _ = knowledge_convenience
     _ = knowledge_amazon
-    agent.print_response("What are the key features?")
+    agent.print_response("What are the key features of the Model Context Protocol?")
 
 
 if __name__ == "__main__":

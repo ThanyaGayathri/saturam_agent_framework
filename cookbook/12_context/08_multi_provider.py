@@ -55,7 +55,7 @@ web = WebContextProvider(backend=ExaMCPBackend(), model=provider_model)
 # in-memory DB is per-connection — the sub-agent opens its own
 # connection and would see an empty DB.
 # ---------------------------------------------------------------------------
-DB_PATH = Path(tempfile.gettempdir()) / "agno_context_multi_provider.sqlite"
+DB_PATH = Path(tempfile.gettempdir()) / "egpt_context_multi_provider.sqlite"
 if DB_PATH.exists():
     DB_PATH.unlink()
 engine = create_engine(f"sqlite:///{DB_PATH}")
@@ -64,7 +64,7 @@ with engine.begin() as conn:
     conn.execute(
         text("INSERT INTO releases VALUES (:v, :n)"),
         [
-            {"v": "2.5.17", "n": "agno core release — current"},
+            {"v": "2.5.17", "n": "egpt core release — current"},
             {"v": "2.5.16", "n": "previous release"},
         ],
     )

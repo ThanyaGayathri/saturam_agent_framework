@@ -33,7 +33,7 @@ from egpt.tools import tool
 # ---------------------------------------------------------------------------
 
 # Setup the database
-db = SqliteDb(db_file="tmp/agentos.db")
+db = SqliteDb(db_file="tmp/egptos.db")
 
 # The set of owner identities allowed to use the server. In production these are
 # the JWT subjects of your owners; EgptOS resolves the caller from the verified token.

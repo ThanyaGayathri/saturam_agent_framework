@@ -5,8 +5,8 @@ diffusion large language models (dLLMs) that refine all tokens in parallel
 instead of generating them left-to-right, making them very fast. Inception
 exposes the models through an
 [OpenAI-compatible API](https://docs.inceptionlabs.ai/), so you can drive
-them through Agno the same way you'd drive any OpenAI-compatible provider.
-The Agno `Inception` class defaults to `mercury-2` and points at
+them through EGPT the same way you'd drive any OpenAI-compatible provider.
+The EGPT `Inception` class defaults to `mercury-2` and points at
 `https://api.inceptionlabs.ai/v1`.
 
 ### 1. Create and activate a virtual environment
@@ -39,7 +39,7 @@ python cookbook/90_models/inception/basic.py
 
 | Model id | Notes |
 | --- | --- |
-| `mercury-2` | Flagship reasoning dLLM. Tunable reasoning depth, 128K context, native tool use, JSON output. Default in the Agno class. |
+| `mercury-2` | Flagship reasoning dLLM. Tunable reasoning depth, 128K context, native tool use, JSON output. Default in the EGPT class. |
 | `mercury-coder-small` | Coding-focused variant for latency-sensitive code workflows. |
 
 > The original `mercury` model is only available to accounts created before
@@ -66,7 +66,7 @@ agent = Agent(model=Inception(id="mercury-2"))
 ### Structured output
 
 Inception's OpenAI-compatible endpoint does not implement native
-`json_schema` structured outputs, so the Agno class sets
+`json_schema` structured outputs, so the EGPT class sets
 `supports_native_structured_outputs = False`. Use `use_json_mode=True` on the
 agent for Pydantic-shaped output:
 

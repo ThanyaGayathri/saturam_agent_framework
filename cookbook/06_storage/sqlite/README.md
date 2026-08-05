@@ -1,6 +1,6 @@
 # SQLite Integration
 
-Examples demonstrating SQLite database integration with Agno agents, teams, and workflows.
+Examples demonstrating SQLite database integration with EGPT agents, teams, and workflows.
 
 ## Configuration
 
@@ -18,7 +18,7 @@ agent = Agent(
 
 ## Async usage
 
-Agno also supports using your SQLite database asynchronously, via the `AsyncSqliteDb` class:
+EGPT also supports using your SQLite database asynchronously, via the `AsyncSqliteDb` class:
 
 ```python
 from egpt.agent import Agent

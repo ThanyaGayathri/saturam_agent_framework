@@ -88,7 +88,7 @@ if __name__ == "__main__":
     # Example usage with all functions enabled
     print("=== Example 1: Using all Discord functions ===")
     discord_agent_all.print_response(
-        f"Send a message 'Hello from Agno with all functions!' to channel {channel_id}",
+        f"Send a message 'Hello from EGPT with all functions!' to channel {channel_id}",
         stream=True,
     )
 
@@ -101,7 +101,7 @@ if __name__ == "__main__":
     # Example usage with default configuration
     print("\n=== Example 3: Default Discord agent usage ===")
     discord_agent.print_response(
-        f"Send a message 'Hello from Agno!' to channel {channel_id}", stream=True
+        f"Send a message 'Hello from EGPT!' to channel {channel_id}", stream=True
     )
 
     discord_agent.print_response(

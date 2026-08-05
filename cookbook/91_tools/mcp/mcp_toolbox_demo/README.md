@@ -1,6 +1,6 @@
 # MCP Toolbox Demo - Hotel Management Agent
 
-This demo showcases how to set up and run an Agno Agent that can interact with a PostgreSQL database through the [MCP Toolbox for Databases](https://googleapis.github.io/genai-toolbox/getting-started/introduction/). The agent acts as a hotel assistant capable of searching, booking, and canceling hotel reservations.
+This demo showcases how to set up and run an EGPT Agent that can interact with a PostgreSQL database through the [MCP Toolbox for Databases](https://googleapis.github.io/genai-toolbox/getting-started/introduction/). The agent acts as a hotel assistant capable of searching, booking, and canceling hotel reservations.
 
 MCP Toolbox for Databases (MCP Toolbox) provides a unified interface for AI agents to interact with databases.
 
@@ -121,7 +121,7 @@ Request: Find luxury hotels in Zurich and book the first available one
 ==================================================
 INFO Executing async step (non-streaming): Search Hotels                                                                
 INFO Executing async step (non-streaming): Book Hotel                                                                   
-INFO Successfully created table 'agno_sessions'                                                                         
+INFO Successfully created table 'egpt_sessions'                                                                         
 
 ✅ Workflow Result:
 Content: The hotel has been successfully booked!

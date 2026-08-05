@@ -7,7 +7,7 @@ video and returns a structured list of products announced.
 How to use:
 1. Set the GOOGLE_API_KEY environment variable
 2. Start the server: python cookbook/05_agent_os/google/gemini_3/data_labeling.py
-3. Visit https://os.agno.com and add http://localhost:7777 as a local endpoint
+3. Visit http://localhost:7777/docs and add http://localhost:7777 as a local endpoint
 4. Upload a keynote clip (or paste a YouTube URL) and run the agent
 
 Key concepts:

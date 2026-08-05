@@ -19,10 +19,10 @@ from egpt.vectordb.lancedb import LanceDb, SearchType
 # Setup
 # ---------------------------------------------------------------------------
 knowledge = Knowledge(
-    # Use LanceDB as the vector database, store embeddings in the `agno_docs_infinity` table
+    # Use LanceDB as the vector database, store embeddings in the `mcp_docs_infinity` table
     vector_db=LanceDb(
         uri="tmp/lancedb",
-        table_name="agno_docs_infinity",
+        table_name="mcp_docs_infinity",
         search_type=SearchType.hybrid,
         embedder=CohereEmbedder(id="embed-v4.0"),
         # Use Infinity reranker for local, fast reranking
@@ -46,6 +46,7 @@ agent = Agent(
     # search_knowledge is True by default
     search_knowledge=True,
     instructions=[
+        "You are an expert on the Model Context Protocol (MCP).",
         "Include sources in your response.",
         "Always search your knowledge before answering the question.",
         "Provide detailed and accurate information based on the retrieved documents.",
@@ -81,9 +82,9 @@ if __name__ == "__main__":
     asyncio.run(
         knowledge.ainsert_many(
             urls=[
-                "https://docs.agno.com/agents/overview.md",
-                "https://docs.agno.com/tools/overview.md",
-                "https://docs.agno.com/knowledge/overview.md",
+                "https://modelcontextprotocol.io/docs/learn/architecture",
+                "https://modelcontextprotocol.io/docs/learn/client-concepts",
+                "https://modelcontextprotocol.io/docs/learn/server-concepts",
             ]
         )
     )
@@ -97,9 +98,9 @@ if __name__ == "__main__":
 
     # Example questions to test the reranking capabilities
     questions = [
-        "What are Agents and how do they work?",
-        "How do I use tools with agents?",
-        "What is the difference between knowledge and tools?",
+        "What is the Model Context Protocol and how does it work?",
+        "How does an MCP server expose tools to a client?",
+        "What is the difference between resources and tools in MCP?",
     ]
 
     for i, question in enumerate(questions, 1):

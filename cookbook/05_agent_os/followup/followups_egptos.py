@@ -37,13 +37,13 @@ team = Team(
     db=db,
 )
 
-agno_os = EgptOS(
-    id="followups-agentos",
+egpt_os = EgptOS(
+    id="followups-egptos",
     name="Followups EgptOS",
     agents=[agent],
     teams=[team],
     db=db,
 )
-app = agno_os.get_app()
+app = egpt_os.get_app()
 if __name__ == "__main__":
-    agno_os.serve(app="followups_agentos:app", reload=True)
+    egpt_os.serve(app="followups_egptos:app", reload=True)

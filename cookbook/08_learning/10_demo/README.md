@@ -1,6 +1,6 @@
 # Learning Demo: EgptOS + the Learning UI
 
-A small EgptOS app that shows the learning system end to end: one agent with all six learning stores enabled, a seed script that populates them with real conversations, and the Learning pages at [os.agno.com](https://os.agno.com) to browse the results.
+A small EgptOS app that shows the learning system end to end: one agent with all six learning stores enabled, a seed script that populates them with real conversations, and the `/learnings` REST endpoints to browse the results.
 
 ## What it shows
 
@@ -48,11 +48,11 @@ This runs the conversations through the agent. Extraction happens automatically,
 .venvs/demo/bin/python cookbook/08_learning/10_demo/run.py
 ```
 
-### 5. Connect from os.agno.com
+### 5. Browse the learnings
 
-1. Open [os.agno.com](https://os.agno.com) and sign in
-2. **Add OS** -> **Local**, connect to `http://localhost:7777`
-3. Open the **Learning** section in the sidebar
+1. Open the interactive API docs at <http://localhost:7777/docs>
+2. Call the `/learnings` endpoints to read each store
+3. Or attach a coding agent to the server with `egpt connect`
 
 Each page reads from the `egpt_learnings` table through the `/learnings` REST endpoints. You can also chat with the Ops Assistant directly: it recalls what it knows about the active user and keeps learning from new conversations.
 

@@ -40,48 +40,48 @@ agent = get_agent(knowledge)
 if __name__ == "__main__":
 
     async def main():
-        # --- WAV audio - Agno description with HTML output ---
+        # --- WAV audio - EGPT description with HTML output ---
         print("\n" + "=" * 60)
-        print("WAV audio - Agno Description (HTML output)")
+        print("WAV audio - EGPT Description (HTML output)")
         print("=" * 60 + "\n")
 
         await knowledge.ainsert(
-            name="Agno_Audio_WAV",
-            path="cookbook/07_knowledge/testing_resources/agno_description.wav",
+            name="EGPT_Audio_WAV",
+            path="cookbook/07_knowledge/testing_resources/egpt_description.wav",
             reader=DoclingReader(output_format="html"),
         )
         agent.print_response(
-            "What does the audio describe about Agno?",
+            "What does the audio describe about EGPT?",
             stream=True,
         )
 
-        # --- MP3 audio - Agno description ---
+        # --- MP3 audio - EGPT description ---
         print("\n" + "=" * 60)
-        print("MP3 audio - Agno Description (markdown output)")
+        print("MP3 audio - EGPT Description (markdown output)")
         print("=" * 60 + "\n")
 
         await knowledge.ainsert(
-            name="Agno_Audio_MP3",
-            path="cookbook/07_knowledge/testing_resources/agno_description.mp3",
+            name="EGPT_Audio_MP3",
+            path="cookbook/07_knowledge/testing_resources/egpt_description.mp3",
             reader=DoclingReader(),
         )
         agent.print_response(
-            "Summarize what Agno framework is used for",
+            "Summarize what EGPT framework is used for",
             stream=True,
         )
 
-        # --- MP4 audio - Agno description with VTT output ---
+        # --- MP4 audio - EGPT description with VTT output ---
         print("\n" + "=" * 60)
-        print("MP4 audio - Agno Description (VTT output)")
+        print("MP4 audio - EGPT Description (VTT output)")
         print("=" * 60 + "\n")
 
         await knowledge.ainsert(
-            name="Agno_Audio_MP4",
-            path="cookbook/07_knowledge/testing_resources/agno_description.mp4",
+            name="EGPT_Audio_MP4",
+            path="cookbook/07_knowledge/testing_resources/egpt_description.mp4",
             reader=DoclingReader(output_format="vtt"),
         )
         agent.print_response(
-            "What are the key features of Agno mentioned in the audio?",
+            "What are the key features of EGPT mentioned in the audio?",
             stream=True,
         )
 

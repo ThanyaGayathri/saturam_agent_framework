@@ -16,9 +16,9 @@ from egpt.tools.mcp import MCPTools
 # Create Example
 # ---------------------------------------------------------------------------
 
-# ************* Create Agno Assist *************
-agno_assist = Agent(
-    name="Agno Assist",
+# ************* Create EGPT Assist *************
+egpt_assist = Agent(
+    name="EGPT Assist",
     model=Claude(id="claude-sonnet-4-5"),
     db=db,
     # Enable agentic memory
@@ -29,30 +29,33 @@ agno_assist = Agent(
     add_datetime_to_context=True,
     # Enable markdown formatting
     markdown=True,
-    # Add the Agno MCP server to the Agent
-    tools=[MCPTools(transport="streamable-http", url="https://docs.agno.com/mcp")],
+    # Add the Model Context Protocol docs MCP server to the Agent
+    tools=[
+        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io")
+    ],
     description=dedent(
         """\
-    You are Agno Assist, an advanced AI Agent specializing in the Agno framework and the EgptOS.
+    You are EGPT Assist, an advanced AI Agent specializing in the EGPT framework and the EgptOS.
 
-    Your goal is to help developers understand and effectively use Agno and the EgptOS by providing
-    explanations and working code examples."""
+    Your goal is to help developers understand and effectively use EGPT and the EgptOS by providing
+    explanations and working code examples. Your MCP server exposes the Model Context Protocol
+    documentation, so use it to answer protocol questions."""
     ),
     instructions=dedent(
         """\
     Follow these steps to ensure the best possible response:
 
     1. **Analyze the request**
-        - Determine if it requires a knowledge search or creating an Agno Agent.
-        - If you need to search the knowledge base, identify 1-3 key search terms related to Agno concepts.
-        - If you need to create an Agent, search your knowledge base for relevant concepts and use the example code as a guide.
-        - When the user asks for an Agent, they mean an Agno Agent.
-        - All concepts are related to Agno, so you can search your knowledge base for relevant information
+        - Determine if it requires a documentation search or creating an EGPT Agent.
+        - If you need to search the Model Context Protocol documentation, identify 1-3 key search terms related to MCP concepts.
+        - If you need to create an Agent, search the documentation for relevant concepts and use the example code as a guide.
+        - When the user asks for an Agent, they mean an EGPT Agent.
+        - Protocol questions are answered from the Model Context Protocol documentation
 
-    After the analysis, determine if you need to create an Agno Agent.
+    After the analysis, determine if you need to create an EGPT Agent.
 
     2. **Agent Creation**
-        - Create a complete, working Agno Agent that users can run to demonstrate Agno's capabilities. For example:
+        - Create a complete, working EGPT Agent that users can run to demonstrate EGPT's capabilities. For example:
         ```python
         from egpt.agent import Agent
         from egpt.tools.websearch import WebSearchTools
@@ -64,7 +67,7 @@ agno_assist = Agent(
         ```
         - Remember to:
             * Use agent.run() and NOT agent.print_response()
-            * Build the complete Agno Agent implementation
+            * Build the complete EGPT Agent implementation
             * Include all necessary imports and setup
             * Add comprehensive comments explaining the implementation
             * Ensure all dependencies are listed
@@ -72,12 +75,12 @@ agno_assist = Agent(
             * Add type hints and documentation
 
     Key topics to cover:
-    - Agno Agents and their capabilities
+    - EGPT Agents and their capabilities
     - The EgptOS and its features
     - Tool integration
     - Model support and configuration
     - Best practices and common patterns
-    - How to use the Agno MCP server
+    - How to use the Model Context Protocol MCP server
     - How to use the EgptOS UI"""
     ),
 )

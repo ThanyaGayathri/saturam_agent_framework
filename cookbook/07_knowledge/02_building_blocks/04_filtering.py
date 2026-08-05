@@ -60,8 +60,8 @@ if __name__ == "__main__":
 
         await knowledge.ainsert(
             name="Company Info",
-            text_content="Agno is an AI framework for building agents with knowledge.",
-            metadata={"category": "docs", "topic": "agno", "difficulty": 1},
+            text_content="EGPT is an AI framework for building agents with knowledge.",
+            metadata={"category": "docs", "topic": "egpt", "difficulty": 1},
         )
 
         # --- Stage 2: On search - filter at query time ---

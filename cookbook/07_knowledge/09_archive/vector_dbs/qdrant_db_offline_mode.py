@@ -105,7 +105,7 @@ print("\n[Step 3] Loading documents and testing hybrid search...")
 knowledge = Knowledge(vector_db=offline_db)
 
 documents = [
-    "Agno is an open-source framework for building agentic AI applications.",
+    "EGPT is an open-source framework for building agentic AI applications.",
     "Hybrid search combines semantic search with keyword matching.",
     "Air-gapped systems are isolated networks without internet access.",
     "BM25 is a ranking function used in information retrieval.",

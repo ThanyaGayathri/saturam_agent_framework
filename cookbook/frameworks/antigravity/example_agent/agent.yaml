@@ -1,4 +1,4 @@
-id: agno-haiku-bot-from-dir
+id: egpt-haiku-bot-from-dir
 base_agent: antigravity-preview-05-2026
 description: "Haiku-writing assistant defined from a local directory."
 # system_instruction is here as a fallback; AGENTS.md overrides it if present.

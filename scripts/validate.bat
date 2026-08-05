@@ -9,7 +9,7 @@ SETLOCAL ENABLEDELAYEDEXPANSION
 REM Get current directory
 SET "CURR_DIR=%~dp0"
 SET "REPO_ROOT=%CURR_DIR%\.."
-SET "AGNO_DIR=%REPO_ROOT%\libs\agno"
+SET "AGNO_DIR=%REPO_ROOT%\libs\egpt"
 SET "AGNO_INFRA_DIR=%REPO_ROOT%\libs\agno_infra"
 SET "COOKBOOK_DIR=%REPO_ROOT%\cookbook"
 

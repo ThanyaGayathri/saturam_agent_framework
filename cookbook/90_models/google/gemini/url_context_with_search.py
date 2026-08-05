@@ -18,7 +18,7 @@ agent = Agent(
 
 # The agent will first search for relevant URLs, then analyze their content in detail
 agent.print_response(
-    "Analyze the content of the following URL: https://docs.agno.com/introduction and also give me latest updates on AI agents"
+    "Analyze the content of the following URL: https://modelcontextprotocol.io/docs/getting-started/intro and also give me latest updates on AI agents"
 )
 
 # ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 Langfuse Via OpenInference
 ==========================
 
-Demonstrates instrumenting an Agno agent with OpenInference and sending traces to Langfuse.
+Demonstrates instrumenting an EGPT agent with OpenInference and sending traces to Langfuse.
 """
 
 import asyncio
@@ -36,7 +36,7 @@ os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=Basic {LANGFUSE_AUTH}
 tracer_provider = TracerProvider()
 tracer_provider.add_span_processor(SimpleSpanProcessor(OTLPSpanExporter()))
 
-# Start instrumenting agno
+# Start instrumenting egpt
 AgnoInstrumentor().instrument(tracer_provider=tracer_provider)
 
 

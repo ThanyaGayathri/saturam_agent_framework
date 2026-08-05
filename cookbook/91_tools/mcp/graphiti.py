@@ -1,7 +1,7 @@
 """
  MCP Graphiti Agent - A personal diary assistant
 
-This example demonstrates how to use Agno's MCP integration together with Graphiti, to build a personal diary assistant.
+This example demonstrates how to use EGPT's MCP integration together with Graphiti, to build a personal diary assistant.
 
 - Run your Graphiti MCP server. Full instructions: https://github.com/getzep/graphiti/tree/main/mcp_server
 - Run: `uv pip install mcp openai` to install the dependencies
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     asyncio.run(
         # Using the agent to add new entries to the diary
         run_agent(
-            "Add the following entry to the diary: 'Today I spent some time building agents with Agno'"
+            "Add the following entry to the diary: 'Today I spent some time building agents with EGPT'"
         )
     )
 

@@ -1,6 +1,6 @@
 # DeepSeek Cookbook
 
-[DeepSeek](https://api-docs.deepseek.com/) provides an OpenAI-compatible API. Agno's
+[DeepSeek](https://api-docs.deepseek.com/) provides an OpenAI-compatible API. EGPT's
 `DeepSeek` model defaults to `deepseek-v4-flash`.
 
 ## Models

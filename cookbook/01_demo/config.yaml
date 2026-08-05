@@ -1,17 +1,17 @@
 chat:
   quick_prompts:
     local-wiki:
-      - "Add https://docs.agno.com/ to the wiki"
+      - "Add https://modelcontextprotocol.io to the wiki"
       - "Attach an image or PDF, then digest and file it"
       - "What's in the wiki?"
 
     git-wiki:
-      - "Add https://docs.agno.com/ to the wiki"
+      - "Add https://modelcontextprotocol.io to the wiki"
       - "Attach an image or PDF, then digest and file it"
       - "What's in the wiki?"
 
     notion-wiki:
-      - "Add https://docs.agno.com/ to the wiki"
+      - "Add https://modelcontextprotocol.io to the wiki"
       - "Attach an image or PDF, then digest and file it"
       - "What's in the wiki?"
 

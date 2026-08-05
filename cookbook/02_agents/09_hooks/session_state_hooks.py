@@ -80,7 +80,7 @@ if __name__ == "__main__":
     )
 
     agent.print_response(
-        input="I also want to know more about Agno, the framework to build AI Agents.",
+        input="I also want to know more about EGPT, the framework to build AI Agents.",
         session_id="topics_analyzer_session",
     )
     print(

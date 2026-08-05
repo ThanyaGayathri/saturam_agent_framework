@@ -1,6 +1,6 @@
 # JSON File Storage Integration
 
-Examples demonstrating JSON file-based storage integration with Agno agents, teams, and workflows.
+Examples demonstrating JSON file-based storage integration with EGPT agents, teams, and workflows.
 
 ## Configuration
 

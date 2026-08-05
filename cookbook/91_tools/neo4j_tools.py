@@ -1,5 +1,5 @@
 """
-Example script demonstrating the use of Neo4jTools with an Agno agent.
+Example script demonstrating the use of Neo4jTools with an EGPT agent.
 This script sets up an agent that can interact with a Neo4j database using natural language queries,
 such as listing node labels or executing Cypher queries.
 
@@ -133,7 +133,7 @@ if __name__ == "__main__":
         "Handle errors gracefully and provide clear feedback to the user.",
     ]
 
-    # Example: Use with AGNO Agent
+    # Example: Use with EGPT Agent
     agent = Agent(
         model=OpenAIChat(id="o3-mini"),
         tools=[neo4j_toolkit],

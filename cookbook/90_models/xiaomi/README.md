@@ -2,8 +2,8 @@
 
 [Xiaomi MiMo](https://platform.xiaomimimo.com/) exposes its models through an
 [OpenAI-compatible API](https://platform.xiaomimimo.com/docs/en-US/api/chat/openai-api),
-so you can drive them through Agno the same way you'd drive any OpenAI-compatible
-provider. The Agno `MiMo` class defaults to `mimo-v2.5-pro` and points at
+so you can drive them through EGPT the same way you'd drive any OpenAI-compatible
+provider. The EGPT `MiMo` class defaults to `mimo-v2.5-pro` and points at
 `https://api.xiaomimimo.com/v1`.
 
 ## Thinking mode

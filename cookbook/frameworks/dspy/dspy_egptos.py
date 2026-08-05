@@ -1,7 +1,7 @@
 """
 DSPy on EgptOS
 ===============
-Serve a DSPy program through EgptOS -- the same runtime used for native Agno agents.
+Serve a DSPy program through EgptOS -- the same runtime used for native EGPT agents.
 
 The agent is available at the standard /agents/{agent_id}/runs endpoint,
 supports streaming (SSE) and non-streaming responses, and appears in
@@ -11,7 +11,7 @@ Requirements:
     pip install dspy
 
 Usage:
-    .venvs/demo/bin/python cookbook/frameworks/dspy/dspy_agentos.py
+    .venvs/demo/bin/python cookbook/frameworks/dspy/dspy_egptos.py
 
 Then call the API:
     # List agents
@@ -61,4 +61,4 @@ app = agent_os.get_app()
 # Run
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    agent_os.serve(app="dspy_agentos:app", reload=True)
+    agent_os.serve(app="dspy_egptos:app", reload=True)

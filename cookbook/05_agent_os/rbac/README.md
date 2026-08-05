@@ -19,7 +19,7 @@ The system supports:
 
 RBAC on EgptOS is compatible with the EgptOS Control Plane. When connecting your EgptOS, you'll need to enable "Authorization" for traffic from the control plane to have the required JWT token with the correct scopes.
 
-See the [documentation](https://docs.agno.com/agent-os/security/overview) for more information about EgptOS Security.
+See the examples in this folder for more information about EgptOS Security.
 
 Note: Only Asymmetric keys are supported for EgptOS Control Plane traffic.  The public key will be provided by the control plane when you connect your EgptOS.
 
@@ -345,5 +345,5 @@ app.add_middleware(
 
 ## Additional Resources
 
-- [EgptOS Documentation](https://docs.agno.com/agent-os/security/overview)
+- [EgptOS cookbooks](../README.md)
 - [JWT.io](https://jwt.io) - JWT debugging tool

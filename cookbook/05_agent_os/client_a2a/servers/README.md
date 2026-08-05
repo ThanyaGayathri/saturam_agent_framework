@@ -3,7 +3,7 @@
 Examples for `client_a2a/servers` in EgptOS.
 
 ## Files
-- `agno_server.py` — Agno EgptOS A2A Server for testing A2AClient.
+- `egpt_server.py` — EGPT EgptOS A2A Server for testing A2AClient.
 - `google_adk_server.py` — Google ADK A2A Server for testing A2AClient.
 
 ## Prerequisites

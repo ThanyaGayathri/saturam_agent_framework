@@ -2,9 +2,9 @@
 
 ############################################################################
 #
-#    Agno Format
+#    EGPT Format
 #
-#    ruff format + import sort for agno, egptctl, agno_infra and cookbook.
+#    ruff format + import sort for egpt, egptctl, agno_infra and cookbook.
 #
 #    Usage: ./scripts/format.sh
 #
@@ -31,7 +31,7 @@ if ! command -v ruff &> /dev/null; then
 fi
 
 echo ""
-echo -e "    ${BOLD}Agno Format${NC}"
+echo -e "    ${BOLD}EGPT Format${NC}"
 
 FAILURES=()
 CURRENT_TARGET=""
@@ -58,7 +58,7 @@ run_step() {
     fi
 }
 
-target "agno"
+target "egpt"
 run_step "ruff format" ruff format "${REPO_ROOT}/libs/agno"
 run_step "import sort" ruff check --select I --fix "${REPO_ROOT}/libs/agno"
 

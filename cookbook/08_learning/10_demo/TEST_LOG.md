@@ -8,7 +8,7 @@
 
 **Description:** Ran the full seed end to end with a live OPENAI_API_KEY against the pgvector container. All scripted conversations completed and every store populated: user profiles and user memories for both users, session context for all three sessions, 7 global entity memories (Postgres Cluster with 4 facts, Marcus Lee, Sarah Kim, Northwind, Vantage Labs, Design System, PostgreSQL), 4 decision logs, and 5 learned-knowledge entries in the vector table including the explicit "rehearse the cutover on a clone" rule that transfers from Alice to Ben.
 
-**Result:** 18 rows in ai.agno_learnings across all five learning types, 5 entries in ai.learning_demo_knowledge. Knowledge transfer beat works.
+**Result:** 18 rows in ai.egpt_learnings across all five learning types, 5 entries in ai.learning_demo_knowledge. Knowledge transfer beat works.
 
 ---
 

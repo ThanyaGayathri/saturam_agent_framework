@@ -1,6 +1,6 @@
 # Model Providers
 
-Examples for all supported LLM providers in Agno.
+Examples for all supported LLM providers in EGPT.
 
 ## Providers
 

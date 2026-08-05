@@ -2,7 +2,7 @@
 AgentOps Integration
 ====================
 
-Demonstrates logging Agno model calls with AgentOps.
+Demonstrates logging EGPT model calls with AgentOps.
 """
 
 import agentops

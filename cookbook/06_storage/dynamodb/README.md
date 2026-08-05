@@ -1,6 +1,6 @@
 # DynamoDB Integration
 
-Examples demonstrating AWS DynamoDB integration with Agno agents.
+Examples demonstrating AWS DynamoDB integration with EGPT agents.
 
 ## Setup
 

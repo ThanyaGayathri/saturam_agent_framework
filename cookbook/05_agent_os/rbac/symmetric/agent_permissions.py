@@ -42,11 +42,13 @@ web_search_agent = Agent(
     markdown=True,
 )
 
-agno_agent = Agent(
-    id="agno-agent",
-    name="Agno Agent",
+mcp_agent = Agent(
+    id="mcp-agent",
+    name="MCP Agent",
     model=OpenAIResponses(id="gpt-5.5"),
-    tools=[MCPTools(transport="streamable-http", url="https://docs.agno.com/mcp")],
+    tools=[
+        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io")
+    ],
     db=db,
     add_history_to_context=True,
     markdown=True,
@@ -57,7 +59,7 @@ agno_agent = Agent(
 agent_os = EgptOS(
     id="my-agent-os",
     description="RBAC Protected EgptOS",
-    agents=[web_search_agent, agno_agent],
+    agents=[web_search_agent, mcp_agent],
     authorization=True,
     authorization_config=AuthorizationConfig(
         verification_keys=[JWT_SECRET],
@@ -90,7 +92,7 @@ if __name__ == "__main__":
     
     Per-agent scope format:
     - "agents:web-search-agent:run" - Run only the web-search-agent
-    - "agents:agno-agent:run" - Run only the agno-agent
+    - "agents:mcp-agent:run" - Run only the mcp-agent
     - "agents:*:run" - Run any agent
     - "agent_os:admin" - Full access to everything
     
@@ -108,21 +110,21 @@ if __name__ == "__main__":
         web_search_user_token_payload, JWT_SECRET, algorithm="HS256"
     )
 
-    agno_user_token_payload = {
+    mcp_user_token_payload = {
         "sub": "user_456",
-        "scopes": ["agents:agno-agent:run"],
+        "scopes": ["agents:mcp-agent:run"],
         "exp": datetime.now(UTC) + timedelta(hours=24),
         "iat": datetime.now(UTC),
     }
-    agno_user_token = jwt.encode(agno_user_token_payload, JWT_SECRET, algorithm="HS256")
+    mcp_user_token = jwt.encode(mcp_user_token_payload, JWT_SECRET, algorithm="HS256")
 
     print("\n" + "=" * 60)
     print("RBAC Test Tokens")
     print("=" * 60)
     print("\nWeb Search User Token (agents:web-search-agent:run):")
     print(web_search_user_token)
-    print("\nAgno User Token (agents:agno-agent:run):")
-    print(agno_user_token)
+    print("\nMCP User Token (agents:mcp-agent:run):")
+    print(mcp_user_token)
     print("\n" + "=" * 60)
     print("\nTest commands:")
     print(
@@ -132,8 +134,8 @@ if __name__ == "__main__":
     )
     print(
         '\ncurl -H "Authorization: Bearer '
-        + agno_user_token
-        + '" http://localhost:7777/agents/agno-agent/runs'
+        + mcp_user_token
+        + '" http://localhost:7777/agents/mcp-agent/runs'
     )
     print("\n" + "=" * 60 + "\n")
 

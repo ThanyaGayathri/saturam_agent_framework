@@ -4,7 +4,7 @@ Give agents access to your documents, databases, and APIs through Retrieval-Augm
 
 ## Overview
 
-Knowledge is Agno's RAG framework. It handles the full pipeline: reading documents, chunking them, embedding chunks, storing them in a vector database, and retrieving relevant content when agents need it.
+Knowledge is EGPT's RAG framework. It handles the full pipeline: reading documents, chunking them, embedding chunks, storing them in a vector database, and retrieving relevant content when agents need it.
 
 | Component | What It Does | Options |
 |-----------|-------------|---------|

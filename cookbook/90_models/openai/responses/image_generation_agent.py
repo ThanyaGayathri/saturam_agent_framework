@@ -1,6 +1,6 @@
 """Example: Using the OpenAITools Toolkit for Image Generation
 
-This script demonstrates how to use the `OpenAITools` toolkit, which includes a tool for generating images using OpenAI's DALL-E within an Agno Agent.
+This script demonstrates how to use the `OpenAITools` toolkit, which includes a tool for generating images using OpenAI's DALL-E within an EGPT Agent.
 
 Example prompts to try:
 - "Create a surreal painting of a floating city in the clouds at sunset"

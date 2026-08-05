@@ -2,13 +2,13 @@
 LangGraph agent with tools served through EgptOS.
 
 A LangGraph ReAct-style agent with web search, served through
-the same EgptOS runtime used for native Agno agents.
+the same EgptOS runtime used for native EGPT agents.
 
 Requirements:
     pip install langgraph langchain-openai langchain-community
 
 Usage:
-    python cookbook/frameworks/langgraph/langgraph_tools_agentos.py
+    python cookbook/frameworks/langgraph/langgraph_tools_egptos.py
 
 Then call the API:
     # Streaming
@@ -78,4 +78,4 @@ agent_os = EgptOS(agents=[agent])
 app = agent_os.get_app()
 
 if __name__ == "__main__":
-    agent_os.serve(app="langgraph_tools_agentos:app", reload=True)
+    agent_os.serve(app="langgraph_tools_egptos:app", reload=True)

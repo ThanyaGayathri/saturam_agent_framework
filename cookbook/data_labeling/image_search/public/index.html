@@ -346,7 +346,7 @@
           const t0 = performance.now();
           try {
             // Gemini's embedding endpoint flakes with a transient 503 every now
-            // and then; agno's pgvector adapter swallows the failure and returns
+            // and then; egpt's pgvector adapter swallows the failure and returns
             // []. Retry once with a brief backoff before giving up.
             let j = await this._search(q, signal);
             if (signal.aborted) return;

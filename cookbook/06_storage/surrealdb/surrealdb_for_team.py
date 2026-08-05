@@ -33,7 +33,7 @@ from pydantic import BaseModel
 SURREALDB_URL = "ws://localhost:8000"
 SURREALDB_USER = "root"
 SURREALDB_PASSWORD = "root"
-SURREALDB_NAMESPACE = "agno"
+SURREALDB_NAMESPACE = "egpt"
 SURREALDB_DATABASE = "surrealdb_for_team"
 
 creds = {"username": SURREALDB_USER, "password": SURREALDB_PASSWORD}

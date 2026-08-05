@@ -63,9 +63,10 @@ custom_agent = Agent(
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     agent.print_response(
-        "Scrape the main content from https://docs.agno.com/introduction", markdown=True
+        "Scrape the main content from https://modelcontextprotocol.io/docs/getting-started/intro",
+        markdown=True,
     )
     custom_agent.print_response(
-        "Extract title and content from https://docs.agno.com/introduction",
+        "Extract title and content from https://modelcontextprotocol.io/docs/getting-started/intro",
         markdown=True,
     )

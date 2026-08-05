@@ -5,7 +5,7 @@ Prerequisites:
 uv pip install -U fastapi uvicorn sqlalchemy pgvector psycopg openai ddgs
 """
 
-from egpt import __version__ as agno_version
+from egpt import __version__ as egpt_version
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
@@ -36,17 +36,19 @@ db = PostgresDb(db_url=db_url)
 # Create Postgres-backed vector store
 vector_db = PgVector(
     db_url=db_url,
-    table_name="agno_docs",
+    table_name="mcp_docs",
 )
 knowledge = Knowledge(
-    name="Agno Docs",
+    name="MCP Docs",
     contents_db=db,
     vector_db=vector_db,
 )
 
 registry = Registry(
-    name="Agno Registry",
-    tools=[MCPTools(transport="streamable-http", url="https://docs.agno.com/mcp")],
+    name="EGPT Registry",
+    tools=[
+        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io")
+    ],
     models=[
         OpenAIChat(id="gpt-5"),
     ],
@@ -96,9 +98,9 @@ a2a_interface = A2A(agents=[simple_agent])
 
 # Create the EgptOS
 agent_os = EgptOS(
-    id="agentos-demo",
-    name="Agno API Reference",
-    version=agno_version,
+    id="egptos-demo",
+    name="EGPT API Reference",
+    version=egpt_version,
     description="The all-in-one, private, secure agent platform that runs in your cloud.",
     agents=[simple_agent],
     teams=[simple_team],

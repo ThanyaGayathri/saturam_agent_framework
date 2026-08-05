@@ -10,7 +10,7 @@ Wipes the existing index, then for each image URL in the configured list:
      embedded for vector search; the structured fields are stored as
      metadata for the gallery view.
 
-URLs are processed concurrently with a ThreadPoolExecutor. agno's Workflow
+URLs are processed concurrently with a ThreadPoolExecutor. egpt's Workflow
 primitives (Step / Parallel / Loop) cover ordered pipelines and fixed
 parallel branches but don't map dynamically over a list, so the per-URL
 parallelism lives inside this Step's executor.

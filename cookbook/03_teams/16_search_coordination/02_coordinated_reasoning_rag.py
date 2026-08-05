@@ -20,7 +20,7 @@ from egpt.vectordb.lancedb import LanceDb, SearchType
 knowledge = Knowledge(
     vector_db=LanceDb(
         uri="tmp/lancedb",
-        table_name="agno_docs_reasoning_team",
+        table_name="mcp_docs_reasoning_team",
         search_type=SearchType.hybrid,
         embedder=CohereEmbedder(id="embed-v4.0"),
         reranker=CohereReranker(model="rerank-v3.5"),
@@ -124,8 +124,10 @@ async def async_reasoning_demo() -> None:
     print("Async Coordinated Reasoning RAG Team Demo")
     print("=" * 60)
 
-    query = "What are Agents and how do they work with tools? Explain the reasoning behind their design."
-    await knowledge.ainsert_many(urls=["https://docs.agno.com/agents/overview.md"])
+    query = "What are MCP servers and how do they expose tools to clients? Explain the reasoning behind the protocol design."
+    await knowledge.ainsert_many(
+        urls=["https://modelcontextprotocol.io/docs/learn/architecture"]
+    )
 
     await coordinated_reasoning_team.aprint_response(
         query,
@@ -138,8 +140,10 @@ def sync_reasoning_demo() -> None:
     print("Coordinated Reasoning RAG Team Demo")
     print("=" * 50)
 
-    query = "What are Agents and how do they work with tools? Explain the reasoning behind their design."
-    knowledge.insert_many(urls=["https://docs.agno.com/agents/overview.md"])
+    query = "What are MCP servers and how do they expose tools to clients? Explain the reasoning behind the protocol design."
+    knowledge.insert_many(
+        urls=["https://modelcontextprotocol.io/docs/learn/architecture"]
+    )
 
     coordinated_reasoning_team.print_response(
         query,

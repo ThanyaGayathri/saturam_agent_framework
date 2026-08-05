@@ -1,6 +1,6 @@
 # Firestore Integration
 
-Examples demonstrating Google Cloud Firestore integration with Agno agents.
+Examples demonstrating Google Cloud Firestore integration with EGPT agents.
 
 ## Setup
 

@@ -15,14 +15,14 @@ from egpt.tools.mcp import MCPTools
 # ---------------------------------------------------------------------------
 
 # Setup the database
-db = SqliteDb(db_file="tmp/agentos.db")
+db = SqliteDb(db_file="tmp/egptos.db")
 
-mcp_tools = MCPTools(transport="streamable-http", url="https://docs.agno.com/mcp")
+mcp_tools = MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io")
 
 # Setup basic agent
-agno_support_agent = Agent(
-    id="agno-support-agent",
-    name="Agno Support Agent",
+mcp_support_agent = Agent(
+    id="mcp-support-agent",
+    name="MCP Support Agent",
     model=Claude(id="claude-sonnet-4-5"),
     db=db,
     tools=[mcp_tools],
@@ -34,7 +34,7 @@ agno_support_agent = Agent(
 
 agent_os = EgptOS(
     description="Example app with MCP Tools",
-    agents=[agno_support_agent],
+    agents=[mcp_support_agent],
 )
 
 

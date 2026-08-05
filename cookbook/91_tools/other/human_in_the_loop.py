@@ -1,6 +1,6 @@
 """Human-in-the-Loop: Adding User Confirmation to Tool Calls
 
-This example shows how to implement human-in-the-loop functionality in your Agno tools.
+This example shows how to implement human-in-the-loop functionality in your EGPT tools.
 It shows how to:
 - Add pre-hooks to tools for user confirmation
 - Handle user input during tool execution

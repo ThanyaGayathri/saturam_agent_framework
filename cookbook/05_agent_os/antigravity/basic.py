@@ -15,7 +15,7 @@ from egpt.os import EgptOS
 # Setup
 # ---------------------------------------------------------------------------
 db = SqliteDb(
-    db_file="tmp/antigravity_agentos.db",
+    db_file="tmp/antigravity_egptos.db",
 )
 
 # ---------------------------------------------------------------------------

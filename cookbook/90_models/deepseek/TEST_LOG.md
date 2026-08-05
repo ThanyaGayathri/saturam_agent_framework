@@ -38,7 +38,7 @@ Tested against the DeepSeek V4 API (`DEEPSEEK_API_KEY` set) on 2026-05-29.
 
 **Description:** `deepseek-v4-flash` with a `MovieScript` schema, run two ways: `json_mode_agent` (`use_json_mode=True`) and `structured_output_agent` (`output_schema` only, no JSON mode).
 
-**Result:** Both modes returned valid structured JSON. DeepSeek has no native/json_schema structured output, but the `output_schema`-only agent still works via agno's prompt-based JSON fallback, so both paths produce a valid MovieScript.
+**Result:** Both modes returned valid structured JSON. DeepSeek has no native/json_schema structured output, but the `output_schema`-only agent still works via egpt's prompt-based JSON fallback, so both paths produce a valid MovieScript.
 
 ---
 

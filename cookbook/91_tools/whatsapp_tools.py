@@ -2,7 +2,7 @@
 WhatsApp Cookbook
 ----------------
 
-This cookbook demonstrates how to use WhatsApp integration with Agno. Before running this example,
+This cookbook demonstrates how to use WhatsApp integration with EGPT. Before running this example,
 you'll need to complete these setup steps:
 
 1. Create Meta Developer Account
@@ -25,7 +25,7 @@ Important Notes:
   [here](https://developers.facebook.com/docs/whatsapp/cloud-api/guides/send-message-templates)
 - Test messages can only be sent to numbers that are registered in your test environment
 
-The example below shows how to send a template message using Agno's WhatsApp tools.
+The example below shows how to send a template message using EGPT's WhatsApp tools.
 For more complex use cases, check out the WhatsApp Cloud API documentation:
 [here](https://developers.facebook.com/docs/whatsapp/cloud-api/overview)
 """

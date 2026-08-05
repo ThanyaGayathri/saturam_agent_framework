@@ -54,7 +54,10 @@ def add_references(step_input: StepInput):
     previous_output = step_input.previous_step_content
 
     if isinstance(previous_output, str):
-        return previous_output + "\n\nReferences: https://www.agno.com"
+        return (
+            previous_output
+            + "\n\nReferences: https://github.com/Saturam-Inc/saturam-agent-framework"
+        )
 
 
 # === WORKFLOW STEPS ===

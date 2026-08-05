@@ -1,6 +1,6 @@
 @echo off
 REM ###########################################################################
-REM # Run tests for agno library
+REM # Run tests for egpt library
 REM # Usage: scripts\test.bat
 REM ###########################################################################
 
@@ -9,18 +9,18 @@ SETLOCAL ENABLEDELAYEDEXPANSION
 REM Get current directory
 SET "CURR_DIR=%~dp0"
 SET "REPO_ROOT=%CURR_DIR%\.."
-SET "AGNO_DIR=%REPO_ROOT%\libs\agno"
+SET "AGNO_DIR=%REPO_ROOT%\libs\egpt"
 
 REM Function to print headings
-CALL :print_heading "Running tests for agno library"
+CALL :print_heading "Running tests for egpt library"
 
-REM Check if agno directory exists
+REM Check if egpt directory exists
 IF NOT EXIST "%AGNO_DIR%" (
     ECHO [ERROR] AGNO_DIR: %AGNO_DIR% does not exist
     EXIT /B 1
 )
 
-REM Run tests for agno library
+REM Run tests for egpt library
 SET AGNO_TEST=%AGNO_DIR%\scripts\test.bat
 IF EXIST "%AGNO_TEST%" (
     ECHO [INFO] Running %AGNO_TEST%

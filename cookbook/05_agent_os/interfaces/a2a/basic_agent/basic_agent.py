@@ -2,7 +2,7 @@
 Basic A2A Agent Executor
 ========================
 
-Implements an A2A executor that routes incoming text to an Agno agent.
+Implements an A2A executor that routes incoming text to an EGPT agent.
 """
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext

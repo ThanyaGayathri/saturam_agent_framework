@@ -23,7 +23,7 @@ from egpt.agents.antigravity import AntigravityAgent
 
 agent = AntigravityAgent(
     name="Haiku Bot",
-    custom_agent_name="agno-haiku-bot",
+    custom_agent_name="egpt-haiku-bot",
     custom_agent_instructions=(
         "You are a haiku-writing assistant. Always respond with exactly one haiku "
         "(three lines, 5-7-5 syllable structure) and nothing else."

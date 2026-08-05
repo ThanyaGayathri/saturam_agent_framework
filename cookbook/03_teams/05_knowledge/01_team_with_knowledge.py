@@ -22,16 +22,16 @@ cwd = Path(__file__).parent
 tmp_dir = cwd.joinpath("tmp")
 tmp_dir.mkdir(parents=True, exist_ok=True)
 
-agno_docs_knowledge = Knowledge(
+mcp_docs_knowledge = Knowledge(
     vector_db=LanceDb(
         uri=str(tmp_dir.joinpath("lancedb")),
-        table_name="agno_docs",
+        table_name="mcp_docs",
         search_type=SearchType.hybrid,
         embedder=OpenAIEmbedder(id="text-embedding-3-small"),
     ),
 )
 
-agno_docs_knowledge.insert(url="https://docs.agno.com/llms-full.txt")
+mcp_docs_knowledge.insert(url="https://modelcontextprotocol.io/llms-full.txt")
 
 # ---------------------------------------------------------------------------
 # Create Members
@@ -51,7 +51,7 @@ team_with_knowledge = Team(
     name="Team with Knowledge",
     members=[web_agent],
     model=OpenAIResponses(id="gpt-5-mini"),
-    knowledge=agno_docs_knowledge,
+    knowledge=mcp_docs_knowledge,
     show_members_responses=True,
     markdown=True,
 )
@@ -60,4 +60,6 @@ team_with_knowledge = Team(
 # Run Team
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    team_with_knowledge.print_response("Tell me about the Agno framework", stream=True)
+    team_with_knowledge.print_response(
+        "Tell me about the Model Context Protocol", stream=True
+    )

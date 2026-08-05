@@ -21,8 +21,10 @@ console = Console()
 # ---------------------------------------------------------------------------
 mcp_tools = MCPTools(
     transport="streamable-http",
-    url="https://docs.agno.com/mcp",
-    requires_confirmation_tools=["SearchAgno"],  # Note: Tool names are case-sensitive
+    url="https://modelcontextprotocol.io",
+    requires_confirmation_tools=[
+        "SearchMcpDocs"
+    ],  # Note: Tool names are case-sensitive
 )
 
 agent = Agent(
@@ -37,7 +39,9 @@ agent = Agent(
 # Run Agent
 # ---------------------------------------------------------------------------
 async def main():
-    async for run_event in agent.arun("What is Agno?", stream=True):
+    async for run_event in agent.arun(
+        "What is the Model Context Protocol?", stream=True
+    ):
         if run_event.is_paused:
             # Handle confirmation requirements
             for requirement in run_event.active_requirements:

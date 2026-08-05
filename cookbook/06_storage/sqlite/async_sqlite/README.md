@@ -1,6 +1,6 @@
 # Async SQLite Integration
 
-Examples demonstrating asynchronous SQLite integration with Agno agents, teams, and workflows.
+Examples demonstrating asynchronous SQLite integration with EGPT agents, teams, and workflows.
 
 ## Setup
 

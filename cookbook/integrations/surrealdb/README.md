@@ -1,6 +1,6 @@
 # SurrealDB Integration
 
-Examples showing SurrealDB as a backend for Agno memory management.
+Examples showing SurrealDB as a backend for EGPT memory management.
 
 ## Files
 

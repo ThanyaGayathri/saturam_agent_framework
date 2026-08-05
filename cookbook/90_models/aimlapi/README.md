@@ -2,8 +2,8 @@
 
 ### AI/ML API provides 300+ AI models including Deepseek, Gemini, ChatGPT. The models run at enterprise-grade rate limits and uptimes.
 
-#### You can check provider docs [_here_](https://docs.aimlapi.com/?utm_source=agno&utm_medium=github&utm_campaign=integration)
-#### And models overview is [_here_](https://aimlapi.com/models/?utm_source=agno&utm_medium=github&utm_campaign=integration)
+#### You can check provider docs [_here_](https://docs.aimlapi.com/?utm_source=egpt&utm_medium=github&utm_campaign=integration)
+#### And models overview is [_here_](https://aimlapi.com/models/?utm_source=egpt&utm_medium=github&utm_campaign=integration)
 
 > Note: Fork and clone this repository if needed
 

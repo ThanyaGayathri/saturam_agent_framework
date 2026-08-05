@@ -2,7 +2,7 @@
 Basic Discord Agent
 ===================
 
-Runs a simple Agno-powered Discord bot.
+Runs a simple EGPT-powered Discord bot.
 """
 
 from egpt.agent import Agent

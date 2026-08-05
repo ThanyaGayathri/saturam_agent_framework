@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ############################################################################
-# Validate the agno library using ruff and mypy
+# Validate the egpt library using ruff and mypy
 # Usage: ./libs/agno/scripts/validate.sh
 ############################################################################
 

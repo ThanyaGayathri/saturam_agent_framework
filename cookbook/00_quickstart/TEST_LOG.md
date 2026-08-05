@@ -73,13 +73,13 @@
 
 ### agent_search_over_knowledge.py
 
-**Status:** PASS
+**Status:** NEEDS RETEST
 
-**Description:** Loads `https://docs.agno.com/` into ChromaDb (hybrid search, RRF), then answers "What is Agno?" by searching the knowledge base.
+**Description:** Loads a documentation URL into ChromaDb (hybrid search, RRF), then answers a question about it by searching the knowledge base.
 
-**Result:** Knowledge load succeeded against the updated URL. Agent searched the knowledge base and returned a comprehensive answer covering Agno's SDK code example, EgptOS production APIs, control plane UI, and data-ownership story.
+**Result:** The last recorded run passed, but it loaded the upstream `docs.agno.com` corpus and asked "What is Agno?". EGPT-0.13 re-pointed this example at the public Model Context Protocol documentation (`https://modelcontextprotocol.io/docs/getting-started/intro`) and changed the prompt to match, so that result no longer describes what this file does. Re-run with `GOOGLE_API_KEY` set and record the real outcome.
 
-**Note:** Original URL `https://docs.agno.com/introduction.md` was failing with `httpx.HTTPStatusError: 307 Temporary Redirect` to a broken target (`/.md`). Switched to `https://docs.agno.com/` in this run.
+**Note:** The earlier run hit `httpx.HTTPStatusError: 307 Temporary Redirect` on a `.md` URL and was switched to the site root; check whether the new corpus URL needs the same treatment.
 
 ---
 

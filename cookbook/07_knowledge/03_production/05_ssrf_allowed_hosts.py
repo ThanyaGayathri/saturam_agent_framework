@@ -64,14 +64,14 @@ if __name__ == "__main__":
         reader = WebsiteReader(
             max_depth=1,
             max_links=5,
-            allowed_hosts=["docs.agno.com"],
+            allowed_hosts=["modelcontextprotocol.io"],
         )
         await knowledge.ainsert(
-            name="Agno Docs",
-            url="https://docs.agno.com/introduction",
+            name="MCP Docs",
+            url="https://modelcontextprotocol.io/docs/getting-started/intro",
             reader=reader,
         )
-        agent.print_response("What is Agno?", stream=True)
+        agent.print_response("What is the Model Context Protocol?", stream=True)
 
         # -------------------------------------------------------------------
         # 2. Disallowed host: ingestion short-circuits, no request fires
@@ -106,15 +106,15 @@ if __name__ == "__main__":
         # -------------------------------------------------------------------
 
         #   from egpt.knowledge.reader.firecrawl_reader import FirecrawlReader
-        #   FirecrawlReader(api_key=..., allowed_hosts=["docs.agno.com"])
+        #   FirecrawlReader(api_key=..., allowed_hosts=["modelcontextprotocol.io"])
         #
         #   from egpt.knowledge.reader.docling_reader import DoclingReader
-        #   DoclingReader(allowed_hosts=["docs.agno.com"])
+        #   DoclingReader(allowed_hosts=["modelcontextprotocol.io"])
         #
         #   from egpt.knowledge.reader.llms_txt_reader import LLMsTxtReader
-        #   LLMsTxtReader(allowed_hosts=["docs.agno.com"])
+        #   LLMsTxtReader(allowed_hosts=["modelcontextprotocol.io"])
         #
         #   from egpt.knowledge.reader.web_search_reader import WebSearchReader
-        #   WebSearchReader(allowed_hosts=["docs.agno.com", "github.com"])
+        #   WebSearchReader(allowed_hosts=["modelcontextprotocol.io", "github.com"])
 
     asyncio.run(main())

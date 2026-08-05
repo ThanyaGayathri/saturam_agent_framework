@@ -5,7 +5,7 @@ Openai Chat Citations
 Cookbook example for `openai/chat/citations.py`.
 
 OpenAI web-search chat models return
-`url_citation` annotations alongside the content. Agno surfaces these on
+`url_citation` annotations alongside the content. EGPT surfaces these on
 `response.citations`.
 """
 

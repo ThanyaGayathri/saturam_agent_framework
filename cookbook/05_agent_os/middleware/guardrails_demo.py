@@ -1,5 +1,5 @@
 """
-Example demonstrating how to use guardrails with an Agno Agent.
+Example demonstrating how to use guardrails with an EGPT Agent.
 
 The EgptOS UI will show an error when the guardrail is triggered.
 

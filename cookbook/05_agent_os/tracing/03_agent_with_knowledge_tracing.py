@@ -22,7 +22,7 @@ from egpt.vectordb.pgvector import PgVector, SearchType
 
 # ************* Database Setup *************
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
-db = PostgresDb(db_url, id="agno_assist_db")
+db = PostgresDb(db_url, id="egpt_assist_db")
 db_sqlite = SqliteDb(db_file="tmp/traces.db")
 # *******************************
 
@@ -30,21 +30,22 @@ db_sqlite = SqliteDb(db_file="tmp/traces.db")
 # ************* Description & Instructions *************
 description = dedent(
     """\
-    You are AgnoAssist, an advanced AI Agent specialized in the Agno framework.
-    Your goal is to help developers understand and effectively use Agno and the EgptOS by providing
-    explanations, working code examples, and optional audio explanations for complex concepts."""
+    You are EGPT Assist, an advanced AI Agent specialized in the EGPT framework.
+    Your goal is to help developers understand and effectively use EGPT and the EgptOS by providing
+    explanations, working code examples, and optional audio explanations for complex concepts.
+    Your knowledge base contains the Model Context Protocol (MCP) documentation."""
 )
 
 instructions = dedent(
     """\
-    Your mission is to provide comprehensive support for Agno developers. Follow these steps to ensure the best possible response:
+    Your mission is to provide comprehensive support for EGPT developers. Follow these steps to ensure the best possible response:
 
     1. **Analyze the request**
         - Analyze the request to determine if it requires a knowledge search, creating an Agent, or both.
-        - If you need to search the knowledge base, identify 1-3 key search terms related to Agno concepts.
+        - If you need to search the knowledge base, identify 1-3 key search terms related to Model Context Protocol concepts.
         - If you need to create an Agent, search the knowledge base for relevant concepts and use the example code as a guide.
-        - When the user asks for an Agent, they mean an Agno Agent.
-        - All concepts are related to Agno, so you can search the knowledge base for relevant information
+        - When the user asks for an Agent, they mean an EGPT Agent.
+        - Your knowledge base holds the Model Context Protocol documentation, so search it for protocol concepts and details
 
     After Analysis, always start the iterative search process. No need to wait for approval from the user.
 
@@ -92,7 +93,7 @@ instructions = dedent(
         - Don't provide the URL of the image in the response. Only describe what image was generated.
 
     Key topics to cover:
-    - Agent levels and capabilities
+    - Model Context Protocol servers, clients and transports
     - Knowledge base and memory management
     - Tool integration
     - Model support and configuration
@@ -104,17 +105,17 @@ instructions = dedent(
 knowledge = Knowledge(
     vector_db=PgVector(
         db_url=db_url,
-        table_name="agno_assist_knowledge",
+        table_name="mcp_docs_knowledge",
         search_type=SearchType.hybrid,
         embedder=OpenAIEmbedder(id="text-embedding-3-small"),
     ),
     contents_db=db,
 )
 
-# Setup our Agno Agent
-agno_assist = Agent(
-    name="Agno Assist",
-    id="agno-assist",
+# Setup our EGPT Agent
+egpt_assist = Agent(
+    name="EGPT Assist",
+    id="egpt-assist",
     model=OpenAIChat(id="gpt-4.1"),
     description=description,
     instructions=instructions,
@@ -128,8 +129,8 @@ agno_assist = Agent(
 )
 
 agent_os = EgptOS(
-    description="Example app with Agno Docs Agent with knowledge and tracing",
-    agents=[agno_assist],
+    description="Example app with EGPT Assist over MCP documentation, with tracing",
+    agents=[egpt_assist],
     tracing=True,
 )
 
@@ -141,7 +142,9 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    knowledge.insert(name="Agno Docs", url="https://docs.agno.com/llms-full.txt")
+    knowledge.insert(
+        name="MCP Docs", url="https://modelcontextprotocol.io/llms-full.txt"
+    )
     """Run your EgptOS.
 
     You can see test your EgptOS at:

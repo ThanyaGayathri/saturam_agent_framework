@@ -20,11 +20,11 @@ agent = AntigravityAgent(
         # Inline content: small files dropped straight into the sandbox
         {
             "type": "inline",
-            "content": "agno is an open-source agent framework",
+            "content": "EGPT is an agent framework",
             "target": "/workspace/about.txt",
         },
         # Repository: clone a Git repo into a target path
-        # {"type": "repository", "source": "github://agno-agi/agno", "target": "/workspace/agno"},
+        # {"type": "repository", "source": "github://modelcontextprotocol/modelcontextprotocol", "target": "/workspace/egpt"},
         # GCS: pull a folder from a public GCS bucket
         # {"type": "gcs", "source": "gs://my-bucket/data/", "target": "/workspace/data"},
     ],

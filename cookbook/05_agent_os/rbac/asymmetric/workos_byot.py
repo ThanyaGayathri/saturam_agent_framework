@@ -59,14 +59,14 @@ if not WORKOS_CLIENT_ID or not WORKOS_API_KEY:
         "environment) before running."
     )
 
-_JWKS_FILE = "/tmp/agno_workos_jwks.json"
+_JWKS_FILE = "/tmp/egpt_workos_jwks.json"
 
 workos = WorkOSClient(api_key=WORKOS_API_KEY, client_id=WORKOS_CLIENT_ID)
 
 # RBAC definition - permission slugs are identical to EgptOS scope names.
-ORG_NAME = "Agno BYOT Demo"
-DEMO_DOMAIN = "agno-byot-demo.com"  # a domain with no SSO connection
-DEMO_PASSWORD = "Agno-Demo-Passw0rd!"
+ORG_NAME = "EGPT BYOT Demo"
+DEMO_DOMAIN = "egpt-byot-demo.com"  # a domain with no SSO connection
+DEMO_PASSWORD = "EGPT-Demo-Passw0rd!"
 
 PERMISSIONS = ["agents:read", "agents:run", "sessions:read", "agent_os:admin"]
 ROLES = {

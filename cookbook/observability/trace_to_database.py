@@ -2,7 +2,7 @@
 Trace To Database
 =================
 
-Demonstrates Agno's two-table trace design and how to inspect traces and spans.
+Demonstrates EGPT's two-table trace design and how to inspect traces and spans.
 """
 
 import time  # noqa

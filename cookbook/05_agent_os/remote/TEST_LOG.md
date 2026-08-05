@@ -22,7 +22,7 @@
 
 **Status:** PENDING
 
-**Description:** Example demonstrating how to connect to a remote Agno A2A agent.
+**Description:** Example demonstrating how to connect to a remote EGPT A2A agent.
 
 ---
 
@@ -50,11 +50,11 @@
 
 ---
 
-### agno_a2a_server.py
+### egpt_a2a_server.py
 
 **Status:** PENDING
 
-**Description:** Agno A2A Server for Cookbook Examples.
+**Description:** EGPT A2A Server for Cookbook Examples.
 
 ---
 

@@ -1,13 +1,13 @@
-"""Agno EgptOS A2A Server for testing A2AClient.
+"""EGPT EgptOS A2A Server for testing A2AClient.
 
-This server uses Agno's EgptOS to create an A2A-compatible
+This server uses EGPT's EgptOS to create an A2A-compatible
 agent that can be tested with A2AClient.
 
 Prerequisites:
     export OPENAI_API_KEY=your_key
 
 Usage:
-    python cookbook/05_agent_os/client_a2a/servers/agno_server.py
+    python cookbook/05_agent_os/client_a2a/servers/egpt_server.py
 
 The server will start at http://localhost:7003
 """
@@ -46,4 +46,4 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    agent_os.serve(app="agno_server:app", reload=True, port=7003)
+    agent_os.serve(app="egpt_server:app", reload=True, port=7003)

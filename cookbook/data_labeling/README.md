@@ -58,7 +58,7 @@ These layer on top of any modality.
 
 ## Running a cookbook
 
-From the agno repo root, create and activate the demo venv:
+From the egpt repo root, create and activate the demo venv:
 
 ```bash
 ./scripts/demo_setup.sh

@@ -28,7 +28,7 @@ agent = ClaudeAgent(
 agent_os = EgptOS(
     agents=[agent],
     tracing=True,
-    db=SqliteDb(db_file="tmp/agentos.db"),
+    db=SqliteDb(db_file="tmp/egptos.db"),
 )
 app = agent_os.get_app()
 

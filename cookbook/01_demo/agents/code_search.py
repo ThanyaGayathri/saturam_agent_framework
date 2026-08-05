@@ -2,7 +2,7 @@
 CodeSearch Agent
 ================
 
-Answers questions about the agno repository.
+Answers questions about the egpt repository.
 
 Uses ``WorkspaceContextProvider``, which exposes a read-only ``Workspace`` toolkit (list / search / read) behind a sub-agent.
 
@@ -20,14 +20,14 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 code_search_provider = WorkspaceContextProvider(
     id="codebase",
-    name="Agno Repo",
+    name="EGPT Repo",
     root=REPO_ROOT,
     model=sub_agent_model(),
 )
 
 
 CODE_SEARCH_INSTRUCTIONS = """\
-You answer questions about the agno repository by searching the code with
+You answer questions about the egpt repository by searching the code with
 query_codebase. Ground every answer in what you actually find: cite real
 file paths (with line numbers where useful) and quote the code rather than
 paraphrasing it. If the repository does not contain the answer — a function

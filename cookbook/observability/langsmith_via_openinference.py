@@ -2,7 +2,7 @@
 LangSmith Via OpenInference
 ===========================
 
-Demonstrates instrumenting an Agno agent with OpenInference and sending traces to LangSmith.
+Demonstrates instrumenting an EGPT agent with OpenInference and sending traces to LangSmith.
 """
 
 import os
@@ -29,7 +29,7 @@ tracer_provider.add_span_processor(
     SimpleSpanProcessor(OTLPSpanExporter(endpoint=endpoint, headers=headers))
 )
 
-# Start instrumenting agno
+# Start instrumenting egpt
 AgnoInstrumentor().instrument(tracer_provider=tracer_provider)
 
 

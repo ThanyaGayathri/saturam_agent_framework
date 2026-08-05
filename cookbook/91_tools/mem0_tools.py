@@ -1,5 +1,5 @@
 """
-This example demonstrates how to use the Mem0 toolkit with Agno agents.
+This example demonstrates how to use the Mem0 toolkit with EGPT agents.
 
 To get started, please export your Mem0 API key as an environment variable. You can get your Mem0 API key from https://app.mem0.ai/dashboard/api-keys
 
@@ -20,7 +20,7 @@ from egpt.tools.mem0 import Mem0Tools
 
 
 USER_ID = "jane_doe"
-SESSION_ID = "agno_session"
+SESSION_ID = "egpt_session"
 
 # Example 1: Enable all Mem0 functions
 agent_all = Agent(

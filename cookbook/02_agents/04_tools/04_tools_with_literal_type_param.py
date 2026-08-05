@@ -1,8 +1,8 @@
 """
-Example demonstrating Literal type support in Agno tools.
+Example demonstrating Literal type support in EGPT tools.
 
 This example shows how to use typing.Literal for function parameters
-in Agno toolkits and standalone tools. Literal types are useful when
+in EGPT toolkits and standalone tools. Literal types are useful when
 a parameter should only accept specific predefined values.
 """
 

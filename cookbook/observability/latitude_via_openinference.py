@@ -2,7 +2,7 @@
 Latitude Via OpenInference
 ==========================
 
-Demonstrates instrumenting an Agno agent with OpenInference and sending traces to Latitude.
+Demonstrates instrumenting an EGPT agent with OpenInference and sending traces to Latitude.
 """
 
 import asyncio
@@ -30,7 +30,7 @@ os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = (
 tracer_provider = TracerProvider()
 tracer_provider.add_span_processor(SimpleSpanProcessor(OTLPSpanExporter()))
 
-# Start instrumenting agno
+# Start instrumenting egpt
 AgnoInstrumentor().instrument(tracer_provider=tracer_provider)
 
 

@@ -43,7 +43,10 @@ agent_custom = Agent(
         environment={
             "type": "remote",
             "sources": [
-                {"type": "git", "url": "https://github.com/agno-agi/agno"},
+                {
+                    "type": "git",
+                    "url": "https://github.com/modelcontextprotocol/modelcontextprotocol",
+                },
             ],
             "network": {"allow_internet_access": True},
         },

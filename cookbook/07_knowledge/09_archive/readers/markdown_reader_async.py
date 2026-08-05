@@ -30,7 +30,7 @@ if __name__ == "__main__":
 
     asyncio.run(
         agent.aprint_response(
-            "What can you tell me about Agno?",
+            "What can you tell me about EGPT?",
             markdown=True,
         )
     )

@@ -19,7 +19,7 @@ from egpt.vectordb.lancedb import LanceDb, SearchType
 knowledge_primary = Knowledge(
     vector_db=LanceDb(
         uri="tmp/lancedb",
-        table_name="agno_docs_primary",
+        table_name="mcp_docs_primary",
         search_type=SearchType.hybrid,
         embedder=CohereEmbedder(id="embed-v4.0"),
         reranker=InfinityReranker(
@@ -31,7 +31,7 @@ knowledge_primary = Knowledge(
 knowledge_secondary = Knowledge(
     vector_db=LanceDb(
         uri="tmp/lancedb",
-        table_name="agno_docs_secondary",
+        table_name="mcp_docs_secondary",
         search_type=SearchType.hybrid,
         embedder=CohereEmbedder(id="embed-v4.0"),
         reranker=InfinityReranker(
@@ -132,13 +132,13 @@ async def async_distributed_search() -> None:
     print("Async Distributed Search with Infinity Reranker Demo")
     print("=" * 65)
 
-    query = "How do Agents work with tools and what are the performance considerations?"
+    query = "How do MCP clients and servers work together, and what are the transport considerations?"
 
     await knowledge_primary.ainsert_many(
-        urls=["https://docs.agno.com/agents/overview.md"]
+        urls=["https://modelcontextprotocol.io/docs/learn/architecture"]
     )
     await knowledge_secondary.ainsert_many(
-        urls=["https://docs.agno.com/agents/overview.md"]
+        urls=["https://modelcontextprotocol.io/docs/learn/architecture"]
     )
 
     await distributed_search_team.aprint_response(query, stream=True)
@@ -148,10 +148,14 @@ def sync_distributed_search() -> None:
     print("Distributed Search with Infinity Reranker Demo")
     print("=" * 55)
 
-    query = "How do Agents work with tools and what are the performance considerations?"
+    query = "How do MCP clients and servers work together, and what are the transport considerations?"
 
-    knowledge_primary.insert_many(urls=["https://docs.agno.com/agents/overview.md"])
-    knowledge_secondary.insert_many(urls=["https://docs.agno.com/agents/overview.md"])
+    knowledge_primary.insert_many(
+        urls=["https://modelcontextprotocol.io/docs/learn/architecture"]
+    )
+    knowledge_secondary.insert_many(
+        urls=["https://modelcontextprotocol.io/docs/learn/architecture"]
+    )
 
     distributed_search_team.print_response(query, stream=True)
 

@@ -6,7 +6,7 @@ through EgptOS using the FileGenerationTools toolkit.
 Run:
     .venvs/demo/bin/python cookbook/05_agent_os/file_generation/file_generation_os.py
 
-Then open os.agno.com, connect to the local server, and chat with the agent, e.g.:
+Then open http://localhost:7777/docs, connect to the local server, and chat with the agent, e.g.:
     "Generate a DOCX report on Q4 sales trends."
     "Generate a PDF about renewable energy."
     "Generate a CSV of 5 fictional employees."

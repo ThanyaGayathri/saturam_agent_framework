@@ -6,7 +6,7 @@ across multiple messages using the A2A protocol.
 
 Prerequisites:
 1. Start an EgptOS server with A2A interface:
-   python cookbook/05_agent_os/client_a2a/servers/agno_server.py
+   python cookbook/05_agent_os/client_a2a/servers/egpt_server.py
 
 2. Run this script:
    python cookbook/05_agent_os/client_a2a/03_multi_turn.py

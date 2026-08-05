@@ -29,7 +29,7 @@ agent = Agent(
 )
 
 agent.print_response(
-    "Tell me about https://github.com/agno-agi/agno",
+    "Tell me about https://github.com/modelcontextprotocol/modelcontextprotocol",
     stream=True,
 )
 

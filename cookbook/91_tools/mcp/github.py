@@ -66,7 +66,7 @@ if __name__ == "__main__":
     # Pull request example
     asyncio.run(
         run_agent(
-            "Tell me about Agno. Github repo: https://github.com/agno-agi/agno. You can read the README for more information."
+            "Tell me about the Model Context Protocol. Github repo: https://github.com/modelcontextprotocol/modelcontextprotocol. You can read the README for more information."
         )
     )
 

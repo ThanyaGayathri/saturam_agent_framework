@@ -9,7 +9,7 @@ Once running, the EgptOS API lets you browse sources, upload
 content from any configured source, and search the knowledge base.
 
 Run:
-    python cookbook/07_knowledge/cloud/cloud_agentos.py
+    python cookbook/07_knowledge/cloud/cloud_egptos.py
 
 Key Concepts:
 - Each source type has its own config: S3Config, GcsConfig, SharePointConfig, GitHubConfig, AzureBlobConfig
@@ -66,7 +66,7 @@ content_sources.append(
     GitHubConfig(
         id="my-repo",
         name="My Repository",
-        repo=getenv("GITHUB_REPO", "agno-agi/agno"),
+        repo=getenv("GITHUB_REPO", "modelcontextprotocol/modelcontextprotocol"),
         token=getenv("GITHUB_TOKEN"),
         branch="main",
     )
@@ -125,7 +125,7 @@ app = agent_os.get_app()
 # ============================================================================
 if __name__ == "__main__":
     # Serves a FastAPI app exposed by EgptOS. Use reload=True for local dev.
-    agent_os.serve(app="cloud_agentos:app", reload=True)
+    agent_os.serve(app="cloud_egptos:app", reload=True)
 
 
 # ============================================================================

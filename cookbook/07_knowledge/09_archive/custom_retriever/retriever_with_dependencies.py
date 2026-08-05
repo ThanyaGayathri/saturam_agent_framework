@@ -33,7 +33,7 @@ knowledge = Knowledge(
 # Add some sample content
 asyncio.run(
     knowledge.ainsert(
-        url="https://docs.agno.com/llms-full.txt",
+        url="https://modelcontextprotocol.io/llms-full.txt",
     )
 )
 

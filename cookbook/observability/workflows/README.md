@@ -1,6 +1,6 @@
 # Workflow Observability
 
-Examples for tracing Agno workflows.
+Examples for tracing EGPT workflows.
 
 ## Files
 

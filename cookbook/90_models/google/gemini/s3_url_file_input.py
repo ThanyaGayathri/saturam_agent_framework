@@ -29,7 +29,7 @@ s3_client = boto3.client("s3")
 presigned_url = s3_client.generate_presigned_url(
     "get_object",
     Params={
-        "Bucket": "agno-public",  # Example: using Agno's public bucket
+        "Bucket": "agno-public",  # Example: using EGPT's public bucket
         "Key": "recipes/ThaiRecipes.pdf",
     },
     ExpiresIn=3600,  # URL valid for 1 hour

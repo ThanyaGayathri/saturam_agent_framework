@@ -150,22 +150,22 @@ sage = Agent(
 )
 
 knowledge = Knowledge(
-    name="Agno Docs",
-    contents_db=PostgresDb(db_url=db_url, knowledge_table="agno-assist-knowledge"),
+    name="MCP Docs",
+    contents_db=PostgresDb(db_url=db_url, knowledge_table="egpt-assist-knowledge"),
     vector_db=PgVector(
         db_url=db_url,
-        table_name="agno_assist_knowledge",
+        table_name="egpt_assist_knowledge",
         embedder=OpenAIEmbedder(id="text-embedding-3-small"),
     ),
 )
 
-agno_assist = Agent(
-    name="Agno Assist",
+egpt_assist = Agent(
+    name="EGPT Assist",
     model=Claude(id="claude-3-7-sonnet-latest"),
-    description="You help answer questions about the Agno framework.",
+    description="You help answer questions about the Model Context Protocol.",
     instructions="Search your knowledge before answering the question.",
     knowledge=knowledge,
-    db=PostgresDb(db_url=db_url, session_table="agno_assist_sessions"),
+    db=PostgresDb(db_url=db_url, session_table="egpt_assist_sessions"),
     add_history_to_context=True,
     add_datetime_to_context=True,
     markdown=True,

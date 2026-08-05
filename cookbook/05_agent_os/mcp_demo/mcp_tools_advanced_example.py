@@ -17,9 +17,11 @@ from egpt.tools.mcp import MCPTools  # noqa: F401
 # ---------------------------------------------------------------------------
 
 # Setup the database
-db = SqliteDb(db_file="tmp/agentos.db")
+db = SqliteDb(db_file="tmp/egptos.db")
 
-agno_mcp_tools = MCPTools(transport="streamable-http", url="https://docs.agno.com/mcp")
+mcp_docs_tools = MCPTools(
+    transport="streamable-http", url="https://modelcontextprotocol.io"
+)
 
 # Example: Brave Search MCP server
 brave_mcp_tools = MCPTools(
@@ -35,17 +37,17 @@ brave_mcp_tools = MCPTools(
 # from egpt.tools.mcp import MultiMCPTools
 # mcp_tools = MultiMCPTools(
 #     commands=["npx -y @modelcontextprotocol/server-brave-search"],
-#     urls=["https://docs.agno.com/mcp"],
+#     urls=["https://modelcontextprotocol.io"],
 #     env={"BRAVE_API_KEY": getenv("BRAVE_API_KEY")},
 # )
 
 # Setup ai framework agent
 ai_framework_agent = Agent(
-    id="agno-support-agent",
-    name="Agno Support Agent",
+    id="mcp-support-agent",
+    name="MCP Support Agent",
     model=Claude(id="claude-sonnet-4-5"),
     db=db,
-    tools=[brave_mcp_tools, agno_mcp_tools],
+    tools=[brave_mcp_tools, mcp_docs_tools],
     add_history_to_context=True,
     num_history_runs=3,
     markdown=True,

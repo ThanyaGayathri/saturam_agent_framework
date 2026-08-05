@@ -2,7 +2,7 @@
 Opik Via OpenInference
 ======================
 
-Demonstrates instrumenting Agno with OpenTelemetry and exporting traces to Opik.
+Demonstrates instrumenting EGPT with OpenTelemetry and exporting traces to Opik.
 """
 
 from egpt.agent import Agent
@@ -22,7 +22,7 @@ tracer_provider = TracerProvider()
 tracer_provider.add_span_processor(SimpleSpanProcessor(OTLPSpanExporter()))
 trace_api.set_tracer_provider(tracer_provider)
 
-# Enable automatic instrumentation for Agno
+# Enable automatic instrumentation for EGPT
 AgnoInstrumentor().instrument()
 
 

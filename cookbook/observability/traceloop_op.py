@@ -2,7 +2,7 @@
 Traceloop Integration
 =====================
 
-Demonstrates wrapping Agno calls in Traceloop workflow spans.
+Demonstrates wrapping EGPT calls in Traceloop workflow spans.
 """
 
 from egpt.agent import Agent
@@ -13,7 +13,7 @@ from traceloop.sdk.decorators import workflow
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
-Traceloop.init(app_name="agno_workflows")
+Traceloop.init(app_name="egpt_workflows")
 
 
 # ---------------------------------------------------------------------------

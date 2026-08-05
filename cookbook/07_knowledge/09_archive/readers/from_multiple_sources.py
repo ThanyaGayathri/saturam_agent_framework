@@ -20,7 +20,7 @@ from egpt.vectordb.pgvector import PgVector
 def create_sync_knowledge() -> Knowledge:
     return Knowledge(
         name="Basic SDK Knowledge Base",
-        description="Agno 2.0 Knowledge Implementation",
+        description="EGPT Knowledge Implementation",
         vector_db=PgVector(
             table_name="vectors", db_url="postgresql+psycopg://ai:ai@localhost:5532/ai"
         ),
@@ -30,7 +30,7 @@ def create_sync_knowledge() -> Knowledge:
 def create_async_knowledge() -> Knowledge:
     return Knowledge(
         name="Basic SDK Knowledge Base",
-        description="Agno 2.0 Knowledge Implementation",
+        description="EGPT Knowledge Implementation",
         vector_db=PgVector(
             table_name="vectors",
             db_url="postgresql+psycopg://ai:ai@localhost:5532/ai",
@@ -69,7 +69,7 @@ def run_sync() -> None:
             },
             {
                 "name": "Docs",
-                "url": "https://docs.agno.com/introduction",
+                "url": "https://modelcontextprotocol.io/docs/getting-started/intro",
                 "metadata": {"user_tag": "Documents"},
             },
         ]
@@ -78,13 +78,15 @@ def run_sync() -> None:
     knowledge.insert_many(
         urls=[
             "https://agno-public.s3.amazonaws.com/recipes/ThaiRecipes.pdf",
-            "https://docs.agno.com/introduction",
-            "https://docs.agno.com/knowledge/overview.md",
+            "https://modelcontextprotocol.io/docs/getting-started/intro",
+            "https://modelcontextprotocol.io/docs/learn/server-concepts",
         ],
     )
 
     agent = create_sync_agent(knowledge)
-    agent.print_response("What can you tell me about Agno?", markdown=True)
+    agent.print_response(
+        "What can you tell me about the Model Context Protocol?", markdown=True
+    )
 
 
 async def run_async() -> None:
@@ -99,7 +101,7 @@ async def run_async() -> None:
             },
             {
                 "name": "Docs",
-                "url": "https://docs.agno.com/introduction",
+                "url": "https://modelcontextprotocol.io/docs/getting-started/intro",
                 "metadata": {"user_tag": "Documents"},
             },
         ]
@@ -108,8 +110,8 @@ async def run_async() -> None:
     await knowledge.ainsert_many(
         urls=[
             "https://agno-public.s3.amazonaws.com/recipes/ThaiRecipes.pdf",
-            "https://docs.agno.com/introduction",
-            "https://docs.agno.com/knowledge/overview.md",
+            "https://modelcontextprotocol.io/docs/getting-started/intro",
+            "https://modelcontextprotocol.io/docs/learn/server-concepts",
         ],
     )
 

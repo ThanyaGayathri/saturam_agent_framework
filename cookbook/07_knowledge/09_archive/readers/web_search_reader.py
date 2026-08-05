@@ -23,7 +23,7 @@ knowledge = Knowledge(
 
 # Load knowledge from web search
 knowledge.insert(
-    topics=["agno"],
+    topics=["egpt"],
     reader=WebSearchReader(
         max_results=3,
         search_engine="duckduckgo",

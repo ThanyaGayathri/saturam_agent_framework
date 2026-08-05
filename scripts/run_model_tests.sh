@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ############################################################################
-# Agno Model Test Setup
+# EGPT Model Test Setup
 # - Create a virtual environment and run model-specific tests
 # - Usage: ./model_tests_setup.sh <model_name>
 # - Example: ./model_tests_setup.sh openai
@@ -82,7 +82,7 @@ pip install \
     pytest-timeout \
     requests
 
-# Change to agno directory
+# Change to egpt directory
 cd libs/agno
 
 case $MODEL_NAME in
@@ -236,8 +236,8 @@ case $MODEL_NAME in
         ;;
 esac
 
-# Install agno with model and integration test dependencies
-print_heading "Installing agno with ${MODEL_NAME} dependencies"
+# Install egpt with model and integration test dependencies
+print_heading "Installing egpt with ${MODEL_NAME} dependencies"
 print_info "pip install -e ../egptctl -e .[${MODEL_NAME},integration-tests]"
 # Include the separately distributed CLI in the model-test environment.
 pip install -e "../egptctl" -e ".[${MODEL_NAME},integration-tests]"

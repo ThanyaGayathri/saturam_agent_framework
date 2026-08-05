@@ -1,8 +1,8 @@
 """
-Agno Assist
-==========
+EGPT Assist
+===========
 
-Demonstrates a minimal agno agent.
+Demonstrates a minimal EGPT agent backed by the Model Context Protocol docs.
 """
 
 from egpt.agent import Agent
@@ -15,18 +15,18 @@ from egpt.tools.mcp import MCPTools
 # Create Agent
 # ---------------------------------------------------------------------------
 
-agno_assist = Agent(
-    name="Agno Assist",
+egpt_assist = Agent(
+    name="EGPT Assist",
     model=Claude(id="claude-sonnet-4-5"),
     db=SqliteDb(db_file="egpt.db"),
-    tools=[MCPTools(url="https://docs.agno.com/mcp")],
+    tools=[MCPTools(url="https://modelcontextprotocol.io")],
     add_datetime_to_context=True,
     add_history_to_context=True,
     num_history_runs=10,
     markdown=True,
 )
 
-agent_os = EgptOS(agents=[agno_assist])
+agent_os = EgptOS(agents=[egpt_assist])
 app = agent_os.get_app()
 
 # ---------------------------------------------------------------------------
@@ -34,4 +34,4 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    agent_os.serve(app="agno_assist:app", reload=True)
+    agent_os.serve(app="egpt_assist:app", reload=True)

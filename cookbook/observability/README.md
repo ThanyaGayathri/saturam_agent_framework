@@ -1,6 +1,6 @@
 # Observability
 
-Observability examples for tracing and monitoring Agno agents, teams, and workflows.
+Observability examples for tracing and monitoring EGPT agents, teams, and workflows.
 
 ## Root Integrations
 

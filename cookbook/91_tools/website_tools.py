@@ -34,6 +34,6 @@ agent = Agent(
 if __name__ == "__main__":
     print("=== Basic Web Content Search Example ===")
     agent.print_response(
-        "Search web page: 'https://docs.agno.com/introduction' and summarize the key concepts",
+        "Search web page: 'https://modelcontextprotocol.io/docs/getting-started/intro' and summarize the key concepts",
         markdown=True,
     )

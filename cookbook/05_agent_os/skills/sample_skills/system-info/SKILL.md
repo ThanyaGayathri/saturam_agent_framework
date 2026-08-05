@@ -4,7 +4,7 @@ description: Get system information using executable scripts
 license: MIT
 metadata:
   version: "1.0.0"
-  author: agno
+  author: egpt
 ---
 # System Info Skill
 

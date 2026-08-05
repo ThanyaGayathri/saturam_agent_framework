@@ -2,7 +2,7 @@
 Openai Moderation
 =============================
 
-Example demonstrating how to use OpenAI moderation guardrails with Agno Agent.
+Example demonstrating how to use OpenAI moderation guardrails with EGPT Agent.
 """
 
 import asyncio

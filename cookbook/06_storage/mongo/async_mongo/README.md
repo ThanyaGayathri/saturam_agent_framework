@@ -1,6 +1,6 @@
 # Async MongoDB Integration
 
-Examples demonstrating asynchronous MongoDB integration with Agno agents, teams, and workflows.
+Examples demonstrating asynchronous MongoDB integration with EGPT agents, teams, and workflows.
 
 ## Setup
 

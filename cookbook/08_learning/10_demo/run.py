@@ -2,7 +2,7 @@
 Learning Demo: EgptOS Server
 =============================
 Serves the ops assistant on an EgptOS instance, which exposes the
-/learnings CRUD endpoints and powers the Learning pages at os.agno.com.
+/learnings CRUD endpoints and powers the Learning pages at http://localhost:7777/docs.
 
 Requires the pgvector container:
     ./cookbook/scripts/run_pgvector.sh
@@ -13,7 +13,7 @@ Run seed.py first so the Learning pages have data:
 Then start the server:
     .venvs/demo/bin/python cookbook/08_learning/10_demo/run.py
 
-Then open https://os.agno.com, connect to http://localhost:7777, and
+Then open http://localhost:7777/docs, connect to http://localhost:7777, and
 browse the Learning section: User Profiles, User Memories, Entity
 Memories, Session Context, and Decision Logs.
 

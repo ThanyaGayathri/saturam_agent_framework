@@ -2,7 +2,7 @@
 Pii Detection
 =============================
 
-Example demonstrating how to use PII detection guardrails with Agno Agent.
+Example demonstrating how to use PII detection guardrails with EGPT Agent.
 """
 
 import asyncio

@@ -1,6 +1,6 @@
 # Integrations
 
-Partner integrations for Agno agents.
+Partner integrations for EGPT agents.
 
 ## Directories
 

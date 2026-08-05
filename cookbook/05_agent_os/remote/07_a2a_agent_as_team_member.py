@@ -9,7 +9,7 @@ Prerequisites:
    pip install a2a-sdk
 
 2. Start the A2A server:
-   python cookbook/05_agent_os/remote/agno_a2a_server.py
+   python cookbook/05_agent_os/remote/egpt_a2a_server.py
 
    The server will run on http://localhost:7779
 

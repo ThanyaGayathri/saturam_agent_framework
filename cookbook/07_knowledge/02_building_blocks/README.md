@@ -27,7 +27,7 @@ Core components you can configure to customize knowledge behavior.
 
 ## Further Reading
 
-- [Knowledge Overview](https://docs.agno.com/knowledge/overview)
-- [Chunking Strategies](https://docs.agno.com/knowledge/chunking)
-- [Embedders](https://docs.agno.com/knowledge/embedders)
-- [Vector Databases](https://docs.agno.com/vectordb)
+- [Knowledge cookbooks](../README.md)
+- [Chunking examples](01_chunking_strategies.py)
+- [Embedder examples](06_embedders.py)
+- [Vector database examples](../09_archive/vector_dbs/)

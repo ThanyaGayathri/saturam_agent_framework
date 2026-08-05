@@ -1,7 +1,7 @@
 # Tuning Engines Cookbook
 
-Tuning Engines exposes an OpenAI-compatible endpoint for teams that want Agno
-agents to run through a governed AI control plane. Agno owns the agent behavior,
+Tuning Engines exposes an OpenAI-compatible endpoint for teams that want EGPT
+agents to run through a governed AI control plane. EGPT owns the agent behavior,
 tools, memory, and orchestration. Tuning Engines centralizes model access,
 policy checks, audit logs, traces, and usage/cost reporting.
 

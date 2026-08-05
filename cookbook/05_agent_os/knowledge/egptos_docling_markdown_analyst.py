@@ -1,8 +1,8 @@
 """
-Agentos Excel Analyst
-=====================
+EgptOS Docling Markdown Analyst
+========================
 
-Demonstrates agentos excel analyst.
+Demonstrates EgptOS markdown analyst using Docling reader.
 """
 
 from pathlib import Path
@@ -10,7 +10,7 @@ from pathlib import Path
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.excel_reader import ExcelReader
+from egpt.knowledge.reader.docling_reader import DoclingReader
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.vectordb.pgvector import PgVector
@@ -23,33 +23,33 @@ db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 
 db = PostgresDb(db_url=db_url)
 
-excel_knowledge = Knowledge(
-    name="Excel Products",
+docling_knowledge = Knowledge(
+    name="Docling Markdowns",
     contents_db=db,  # Required for UI to show knowledge
     vector_db=PgVector(
         db_url=db_url,
-        table_name="agentos_excel_knowledge",
+        table_name="egptos_docling_knowledge",
     ),
 )
 
-excel_agent = Agent(
-    name="Excel Data Agent",
+docling_agent = Agent(
+    name="Docling Markdown Agent",
     model=OpenAIChat(id="gpt-4o-mini"),
     db=db,  # For session storage
-    knowledge=excel_knowledge,
+    knowledge=docling_knowledge,
     search_knowledge=True,
     markdown=True,
     instructions=[
-        "You are a data analyst assistant with access to Excel spreadsheet data.",
-        "Search the knowledge base to answer questions about the data.",
-        "Provide specific numbers and details when available.",
+        "You are a markdown analyst assistant with access to markdown data.",
+        "Search the knowledge base to answer questions about the markdowns.",
+        "Provide specific details and quotes when available.",
     ],
 )
 
 # Create EgptOS app
 agent_os = EgptOS(
-    description="Excel Knowledge API - Query Excel data via REST",
-    agents=[excel_agent],
+    description="Docling Knowledge API - Query markdowns via REST",
+    agents=[docling_agent],
 )
 
 app = agent_os.get_app()
@@ -60,22 +60,21 @@ app = agent_os.get_app()
 
 if __name__ == "__main__":
     repo_root = Path(__file__).parent.parent.parent.parent
-    sample_file = (
-        repo_root / "cookbook/07_knowledge/testing_resources/sample_products.xlsx"
-    )
+    sample_file = repo_root / "cookbook/07_knowledge/testing_resources/coffee.md"
 
     if sample_file.exists():
-        print("Loading sample products data...")
-        excel_knowledge.insert(
+        print("Loading coffee guide with Docling...")
+        docling_knowledge.insert(
             path=str(sample_file),
-            reader=ExcelReader(),
+            reader=DoclingReader(),
             skip_if_exists=True,
         )
 
     print("\nStarting EgptOS server...")
     print("Test at: http://localhost:7777/")
     print("\nExample queries:")
-    print("  - What electronics products are in stock?")
-    print("  - What is the price of the Bluetooth speaker?")
+    print("  - What is the difference between a cappuccino and a latte?")
+    print("  - How do you make an espresso?")
+    print("  - What are the different types of brewed coffee?")
 
-    agent_os.serve(app="agentos_excel_analyst:app", reload=True)
+    agent_os.serve(app="egptos_docling_markdown_analyst:app", reload=True)

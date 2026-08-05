@@ -15,7 +15,7 @@ from egpt.tools.websearch import WebSearchTools
 # ---------------------------------------------------------------------------
 
 # Setup the database
-db = SqliteDb(db_file="tmp/agentos.db")
+db = SqliteDb(db_file="tmp/egptos.db")
 
 # Setup basic research agent
 web_research_agent = Agent(

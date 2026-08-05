@@ -40,7 +40,7 @@
 
 ---
 
-### antigravity_agentos.py
+### antigravity_egptos.py
 
 **Status:** PENDING
 
@@ -50,11 +50,11 @@
 
 ---
 
-### antigravity_session_agentos.py
+### antigravity_session_egptos.py
 
 **Status:** PENDING
 
-**Description:** Same as antigravity_agentos.py with SqliteDb-backed sessions; verify sessions persist across restarts.
+**Description:** Same as antigravity_egptos.py with SqliteDb-backed sessions; verify sessions persist across restarts.
 
 **Result:** Awaiting live-API verification.
 

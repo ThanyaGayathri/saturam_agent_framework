@@ -1,6 +1,6 @@
 # Team Modes
 
-Agno teams support four execution modes that control how the team leader coordinates work with member agents.
+EGPT teams support four execution modes that control how the team leader coordinates work with member agents.
 
 ## Modes at a Glance
 

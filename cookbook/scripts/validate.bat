@@ -1,7 +1,7 @@
 @echo off
 REM ###########################################################################
-REM # Validate the agno library using ruff and mypy
-REM # Usage: libs\agno\scripts\validate.bat
+REM # Validate the egpt library using ruff and mypy
+REM # Usage: libs\egpt\scripts\validate.bat
 REM ###########################################################################
 
 SETLOCAL ENABLEDELAYEDEXPANSION
@@ -9,7 +9,7 @@ SETLOCAL ENABLEDELAYEDEXPANSION
 REM Get current directory
 SET "CURR_DIR=%~dp0"
 SET "COOKBOOK_DIR=%CURR_DIR%\.."
-SET "AGNO_DIR=%COOKBOOK_DIR%\..\libs\agno"
+SET "AGNO_DIR=%COOKBOOK_DIR%\..\libs\egpt"
 
 ECHO.
 ECHO ##################################################

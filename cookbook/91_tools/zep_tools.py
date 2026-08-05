@@ -21,7 +21,7 @@ from egpt.tools.zep import ZepAsyncTools, ZepTools
 def run_sync() -> None:
     # Initialize the ZepTools
     sync_zep_tools = ZepTools(
-        user_id="agno", session_id="agno-session", add_instructions=True
+        user_id="egpt", session_id="egpt-session", add_instructions=True
     )
 
     # Initialize the Agent
@@ -66,7 +66,7 @@ export ZEP_API_KEY=<your-zep-api-key>
 async def run_async() -> None:
     # Initialize the ZepAsyncTools
     async_zep_tools = ZepAsyncTools(
-        user_id="agno", session_id="agno-async-session", add_instructions=True
+        user_id="egpt", session_id="egpt-async-session", add_instructions=True
     )
 
     # Initialize the Agent

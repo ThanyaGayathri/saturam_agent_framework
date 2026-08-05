@@ -27,10 +27,10 @@ from egpt.vectordb.chroma import ChromaDb, SearchType
 # Create Knowledge Base
 # ---------------------------------------------------------------------------
 knowledge = Knowledge(
-    name="Agno Documentation",
-    description="Knowledge base for Agno framework documentation",
+    name="MCP Documentation",
+    description="Knowledge base for Model Context Protocol documentation",
     vector_db=ChromaDb(
-        name="agno_docs",
+        name="mcp_docs",
         path="tmp/chromadb_hybrid",
         persistent_client=True,
         # Enable hybrid search - combines vector similarity with keyword matching using RRF
@@ -49,20 +49,21 @@ knowledge = Knowledge(
 # ---------------------------------------------------------------------------
 description = dedent(
     """\
-    You are AgnoAssist — an AI Agent built to help developers learn and master the Agno framework.
-    Your goal is to provide clear explanations and complete, working code examples to help users understand and effectively use Agno and EgptOS.\
+    You are EGPT Assist — an AI Agent built to help developers learn and master the EGPT framework.
+    Your knowledge base holds the Model Context Protocol documentation, and your goal is to provide clear explanations
+    and complete, working code examples to help users understand and effectively use EGPT and EgptOS.\
     """
 )
 
 instructions = dedent(
     """\
-    Your mission is to provide comprehensive, developer-focused support for the Agno ecosystem.
+    Your mission is to provide comprehensive, developer-focused support for the EGPT ecosystem.
 
     Follow this structured process to ensure accurate and actionable responses:
 
     1. **Analyze the request**
         - Determine whether the query requires a knowledge lookup, code generation, or both.
-        - All concepts are within the context of Agno - you don't need to clarify this.
+        - Your knowledge base holds the Model Context Protocol documentation - search it for protocol concepts.
 
     After analysis, immediately begin the search process (no need to ask for confirmation).
 
@@ -95,7 +96,7 @@ instructions = dedent(
 
 # Create an agent with the hybrid search knowledge base
 agent = Agent(
-    name="Agno Knowledge Agent",
+    name="EGPT Knowledge Agent",
     model=OpenAIChat(id="gpt-5.2"),
     knowledge=knowledge,
     instructions=instructions,
@@ -106,11 +107,11 @@ agent = Agent(
 # Run Agent
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    # Load Agno documentation into the knowledge base
+    # Load Model Context Protocol documentation into the knowledge base
     asyncio.run(
         knowledge.ainsert(
-            name="Agno Documentation",
-            url="https://docs.agno.com/llms-full.txt",
+            name="MCP Documentation",
+            url="https://modelcontextprotocol.io/llms-full.txt",
         )
     )
 
@@ -118,4 +119,4 @@ if __name__ == "__main__":
     # 1. Find semantically similar documents (via dense embeddings)
     # 2. Find documents containing query keywords (via FTS)
     # 3. Fuse results using RRF for optimal ranking
-    agent.print_response("How do I create an agent with tools?", markdown=True)
+    agent.print_response("How does an MCP client connect to a server?", markdown=True)

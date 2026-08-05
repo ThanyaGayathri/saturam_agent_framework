@@ -14,20 +14,20 @@ from egpt.tools.knowledge import KnowledgeTools
 from egpt.vectordb.lancedb import LanceDb, SearchType
 
 # Create a knowledge containing information from a URL
-agno_docs = Knowledge(
-    # Use LanceDB as the vector database and store embeddings in the `agno_docs` table
+mcp_docs = Knowledge(
+    # Use LanceDB as the vector database and store embeddings in the `mcp_docs` table
     vector_db=LanceDb(
         uri="tmp/lancedb",
-        table_name="agno_docs",
+        table_name="mcp_docs",
         search_type=SearchType.hybrid,
         embedder=OpenAIEmbedder(id="text-embedding-3-small"),
     ),
 )
 # Add content to the knowledge
-agno_docs.insert(url="https://docs.agno.com/llms-full.txt")
+mcp_docs.insert(url="https://modelcontextprotocol.io/llms-full.txt")
 
 knowledge_tools = KnowledgeTools(
-    knowledge=agno_docs,
+    knowledge=mcp_docs,
     enable_think=True,
     enable_search=True,
     enable_analyze=True,
@@ -42,7 +42,7 @@ agent = Agent(
 
 if __name__ == "__main__":
     agent.print_response(
-        "How do I build a team of agents in agno?",
+        "How does an MCP client connect to a server?",
         markdown=True,
         stream=True,
     )

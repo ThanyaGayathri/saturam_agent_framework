@@ -28,7 +28,7 @@ from sqlalchemy import create_engine, text
 # ---------------------------------------------------------------------------
 # Seed a SQLite DB with a contacts table
 # ---------------------------------------------------------------------------
-DB_PATH = Path(tempfile.gettempdir()) / "agno_context_db_cookbook.sqlite"
+DB_PATH = Path(tempfile.gettempdir()) / "egpt_context_db_cookbook.sqlite"
 if DB_PATH.exists():
     DB_PATH.unlink()
 

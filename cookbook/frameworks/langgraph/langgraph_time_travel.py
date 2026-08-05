@@ -1,5 +1,5 @@
 """
-LangGraph time travel (replay & fork) through Agno's LangGraphAgent.
+LangGraph time travel (replay & fork) through EGPT's LangGraphAgent.
 
 This demonstrates:
 1. Running a multi-step LangGraph agent with checkpointing
@@ -35,7 +35,7 @@ graph.set_entry_point("chatbot")
 checkpointer = MemorySaver()
 compiled = graph.compile(checkpointer=checkpointer)
 
-# ----- Wrap for Agno -----
+# ----- Wrap for EGPT -----
 agent = LangGraphAgent(
     name="Time Travel Agent",
     graph=compiled,

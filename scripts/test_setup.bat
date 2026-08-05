@@ -1,6 +1,6 @@
 @echo off
 REM ###########################################################################
-REM # Agno Development Setup (Windows)
+REM # EGPT Development Setup (Windows)
 REM # - Create a virtual environment and install libraries in editable mode.
 REM # - Please deactivate the existing virtual environment before running.
 REM # Usage: scripts\dev_setup.bat
@@ -11,7 +11,7 @@ SETLOCAL ENABLEDELAYEDEXPANSION
 REM Get current directory
 SET "CURR_DIR=%~dp0"
 SET "REPO_ROOT=%CURR_DIR%\.."
-SET "AGNO_DIR=%REPO_ROOT%\libs\agno"
+SET "AGNO_DIR=%REPO_ROOT%\libs\egpt"
 SET "EGPTCTL_DIR=%REPO_ROOT%\libs\egptctl"
 SET "AGNO_INFRA_DIR=%REPO_ROOT%\libs\agno_infra"
 SET "VENV_DIR=%REPO_ROOT%\.venv"
@@ -32,16 +32,16 @@ REM Activate virtual environment
 CALL :activate_venv
 IF ERRORLEVEL 1 EXIT /B %ERRORLEVEL%
 
-CALL :print_heading "Installing egptctl and agno in editable mode with test dependencies"
+CALL :print_heading "Installing egptctl and egpt in editable mode with test dependencies"
 pip install -e "%EGPTCTL_DIR%" -e "%AGNO_DIR%[tests]"
 IF ERRORLEVEL 1 EXIT /B %ERRORLEVEL%
 
-CALL :print_heading "Installing agno-os"
+CALL :print_heading "Installing egpt-os"
 ECHO [INFO] Installing dependencies from %AGNO_INFRA_DIR%\requirements.txt
 pip install -r "%AGNO_INFRA_DIR%\requirements.txt"
 IF ERRORLEVEL 1 EXIT /B %ERRORLEVEL%
 
-CALL :print_heading "Installing agno-os in editable mode with dev dependencies"
+CALL :print_heading "Installing egpt-os in editable mode with dev dependencies"
 pip install -e "%AGNO_INFRA_DIR%[dev]"
 IF ERRORLEVEL 1 EXIT /B %ERRORLEVEL%
 

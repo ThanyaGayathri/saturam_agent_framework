@@ -23,4 +23,4 @@ agent = Agent(tools=composio_tools)
 # Run Agent
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    agent.print_response("Can you star agno-agi/agno repo?")
+    agent.print_response("Can you star modelcontextprotocol/modelcontextprotocol repo?")

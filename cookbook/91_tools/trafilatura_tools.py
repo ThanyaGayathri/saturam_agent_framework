@@ -37,7 +37,7 @@ def basic_text_extraction():
     )
 
     agent.print_response(
-        "Please extract and summarize the main content from https://github.com/agno-agi/agno"
+        "Please extract and summarize the main content from https://github.com/modelcontextprotocol/modelcontextprotocol"
     )
 
 

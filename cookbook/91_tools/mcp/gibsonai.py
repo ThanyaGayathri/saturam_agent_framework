@@ -1,6 +1,6 @@
 """GibsonAI MCP Server - Create and manage databases with prompts
 
-This example shows how to connect a local GibsonAI MCP to Agno agent.
+This example shows how to connect a local GibsonAI MCP to EGPT agent.
 You can instantly generate, modify database schemas
 and chat with your relational database using natural language.
 From prompt to a serverless database (MySQL, PostgresQL, etc.), auto-generated REST APIs for your data.

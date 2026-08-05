@@ -1,6 +1,6 @@
 # MongoDB Integration
 
-Examples demonstrating MongoDB integration with Agno agents and teams.
+Examples demonstrating MongoDB integration with EGPT agents and teams.
 
 ## Setup
 

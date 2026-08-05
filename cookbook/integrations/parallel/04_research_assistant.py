@@ -3,7 +3,7 @@ Parallel Research Assistant - Persistent, Multi-API Agent
 =========================================================
 
 A research assistant you can come back to. It combines all of Parallel's
-agent APIs (Search, Extract, Task) with Agno persistence: a SQLite-backed
+agent APIs (Search, Extract, Task) with EGPT persistence: a SQLite-backed
 session, conversation history, and user memory.
 
 Ask a question, then a follow-up - the assistant remembers what you are

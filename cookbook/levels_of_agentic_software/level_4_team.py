@@ -18,7 +18,7 @@ Run standalone:
 
 Run via Agent OS:
     python cookbook/levels_of_agentic_software/run.py
-    Then visit https://os.agno.com and select "L4 Coding Team"
+    Then visit http://localhost:7777/docs and select "L4 Coding Team"
 
 Example prompt:
     "Build a stack data structure with full test coverage"

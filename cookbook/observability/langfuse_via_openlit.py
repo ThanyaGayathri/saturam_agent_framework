@@ -2,7 +2,7 @@
 Langfuse Via OpenLIT
 ====================
 
-Demonstrates sending Agno traces to Langfuse through OpenLIT.
+Demonstrates sending EGPT traces to Langfuse through OpenLIT.
 """
 
 import base64

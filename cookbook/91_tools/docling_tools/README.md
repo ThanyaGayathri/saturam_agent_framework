@@ -11,7 +11,7 @@ Includes examples for:
 - PDF, DOCX, Markdown, HTML, XML, XLSX
 - PPTX (`ai_presentation.pptx`)
 - Image (`restaurant_invoice.png`)
-- Audio/Video to VTT (`agno_description.mp4`)
+- Audio/Video to VTT (`egpt_description.mp4`)
 
 Run with:
 

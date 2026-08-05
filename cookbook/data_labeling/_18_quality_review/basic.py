@@ -2,7 +2,7 @@
 Quality Review - Basic
 ======================
 
-Multi-agent quality control on a labeling task, expressed as an agno
+Multi-agent quality control on a labeling task, expressed as an egpt
 Workflow. Two labelers (different providers) run concurrently, a reviewer
 diffs them field by field, and an adjudicator runs only when the reviewer
 flags disagreement. Every run is persisted to SQLite for traceability.

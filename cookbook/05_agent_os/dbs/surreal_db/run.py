@@ -5,7 +5,7 @@ Steps:
     2. Run the demo: `python cookbook/agent_os/dbs/surreal_db/run.py`
 """
 
-from agents import agno_assist
+from agents import egpt_assist
 from egpt.os import EgptOS
 from teams import reasoning_finance_team
 from workflows import research_workflow
@@ -17,7 +17,7 @@ from workflows import research_workflow
 # ************* Create the EgptOS *************
 agent_os = EgptOS(
     description="SurrealDB EgptOS",
-    agents=[agno_assist],
+    agents=[egpt_assist],
     teams=[reasoning_finance_team],
     workflows=[research_workflow],
 )

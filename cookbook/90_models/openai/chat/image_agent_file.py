@@ -15,7 +15,7 @@ image_path = Path(__file__).parent.joinpath("sample.jpg")
 if not image_path.exists():
     resp = httpx.get(
         "https://picsum.photos/id/1/640/480",
-        headers={"User-Agent": "agno-cookbook/1.0"},
+        headers={"User-Agent": "egpt-cookbook/1.0"},
         follow_redirects=True,
     )
     image_path.write_bytes(resp.content)

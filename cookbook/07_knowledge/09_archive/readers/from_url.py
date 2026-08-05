@@ -27,7 +27,7 @@ contents_db = PostgresDb(
 def create_knowledge() -> Knowledge:
     return Knowledge(
         name="Basic SDK Knowledge Base",
-        description="Agno 2.0 Knowledge Implementation",
+        description="EGPT 2.0 Knowledge Implementation",
         contents_db=contents_db,
         vector_db=PgVector(
             table_name="vectors", db_url="postgresql+psycopg://ai:ai@localhost:5532/ai"
@@ -41,7 +41,7 @@ def create_knowledge() -> Knowledge:
 def create_agent(knowledge: Knowledge) -> Agent:
     return Agent(
         name="My Agent",
-        description="Agno 2.0 Agent Implementation",
+        description="EGPT 2.0 Agent Implementation",
         knowledge=knowledge,
         search_knowledge=True,
     )

@@ -2,9 +2,9 @@
 
 ############################################################################
 #
-#    Agno Development Setup
+#    EGPT Development Setup
 #
-#    Creates .venv with egptctl and agno installed in editable mode,
+#    Creates .venv with egptctl and egpt installed in editable mode,
 #    with everything the core dev loop needs: unit + integration tests,
 #    ./scripts/format.sh and ./scripts/validate.sh.
 #    Provider-SDK test dependencies live in ./scripts/test_setup.sh.
@@ -64,7 +64,7 @@ uv venv "${VENV_DIR}" --python 3.12 --quiet
 
 # Install the separately distributed CLI and core library together for development.
 echo ""
-echo -e "    ${DIM}Installing egptctl[dev] and agno[dev] in editable mode...${NC}"
+echo -e "    ${DIM}Installing egptctl[dev] and egpt[dev] in editable mode...${NC}"
 echo -e "    ${DIM}> uv pip install -e libs/egptctl[dev] -e libs/agno[dev]${NC}"
 VIRTUAL_ENV="${VENV_DIR}" uv pip install -e "${EGPTCTL_DIR}[dev]" -e "${AGNO_DIR}[dev]" --quiet
 

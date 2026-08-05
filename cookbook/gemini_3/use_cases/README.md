@@ -1,6 +1,6 @@
 # Use Cases
 
-Domain-specific examples that combine multiple steps from the main guide. Each script demonstrates how to compose Agno agents for real-world scenarios in music, film, and gaming.
+Domain-specific examples that combine multiple steps from the main guide. Each script demonstrates how to compose EGPT agents for real-world scenarios in music, film, and gaming.
 
 ## Examples
 

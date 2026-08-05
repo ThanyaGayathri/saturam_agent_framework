@@ -52,7 +52,7 @@ async def main():
             if agent
             else team.name
             if team
-            else "unnamed-agno-entity",
+            else "unnamed-egpt-entity",
         }
         return headers
 

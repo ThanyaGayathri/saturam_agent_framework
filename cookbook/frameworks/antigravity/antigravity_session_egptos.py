@@ -9,14 +9,14 @@ Requirements:
     export GEMINI_API_KEY=...
 
 Usage:
-    .venvs/demo/bin/python cookbook/frameworks/antigravity/antigravity_session_agentos.py
+    .venvs/demo/bin/python cookbook/frameworks/antigravity/antigravity_session_egptos.py
 """
 
 from egpt.agents.antigravity import AntigravityAgent
 from egpt.db.sqlite import SqliteDb
 from egpt.os import EgptOS
 
-db = SqliteDb(db_file="tmp/antigravity_agentos.db")
+db = SqliteDb(db_file="tmp/antigravity_egptos.db")
 
 antigravity_agent = AntigravityAgent(
     name="Antigravity",
@@ -32,4 +32,4 @@ agent_os = EgptOS(
 app = agent_os.get_app()
 
 if __name__ == "__main__":
-    agent_os.serve(app="antigravity_session_agentos:app", reload=True)
+    agent_os.serve(app="antigravity_session_egptos:app", reload=True)

@@ -1,6 +1,6 @@
 # Getting Started with Knowledge
 
-Start here to learn the basics of RAG (Retrieval-Augmented Generation) with Agno.
+Start here to learn the basics of RAG (Retrieval-Augmented Generation) with EGPT.
 
 ## Prerequisites
 
@@ -33,5 +33,5 @@ Start here to learn the basics of RAG (Retrieval-Augmented Generation) with Agno
 
 ## Further Reading
 
-- [Knowledge Overview](https://docs.agno.com/knowledge/overview)
-- [Agents](https://docs.agno.com/agents/overview)
+- [Knowledge cookbooks](../README.md)
+- [Agent cookbooks](../../02_agents/README.md)

@@ -5,7 +5,9 @@ reader = WebsiteReader(max_depth=3, max_links=10)
 
 try:
     print("Starting read...")
-    documents = reader.read("https://docs.agno.com/introduction")
+    documents = reader.read(
+        "https://modelcontextprotocol.io/docs/getting-started/intro"
+    )
     if documents:
         for doc in documents:
             print(doc.name)

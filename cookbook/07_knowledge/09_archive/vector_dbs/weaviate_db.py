@@ -32,7 +32,7 @@ def create_sync_knowledge() -> tuple[Knowledge, Weaviate]:
     )
     knowledge = Knowledge(
         name="Basic SDK Knowledge Base",
-        description="Agno 2.0 Knowledge Implementation with Weaviate",
+        description="EGPT 2.0 Knowledge Implementation with Weaviate",
         vector_db=vector_db,
     )
     return knowledge, vector_db

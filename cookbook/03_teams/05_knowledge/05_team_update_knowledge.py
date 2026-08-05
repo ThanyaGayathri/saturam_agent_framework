@@ -22,7 +22,7 @@ team_knowledge = Knowledge(
 )
 team_knowledge.insert(
     text_content=(
-        "Agno teams can coordinate multiple specialist agents for operational tasks "
+        "EGPT teams can coordinate multiple specialist agents for operational tasks "
         "and can use shared memory utilities to stay aligned."
     )
 )

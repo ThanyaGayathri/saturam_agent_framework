@@ -44,7 +44,7 @@ agent = Agent(
 if __name__ == "__main__":
     print(f"\nfs.status() = {fs.status()}\n")
     prompt = (
-        "Walk me through setting up an agno context provider. Read "
+        "Walk me through setting up an egpt context provider. Read "
         "the README and a simple example in this directory, then "
         "lay out the minimal steps with a short code snippet. Cite "
         "the files you pulled from."

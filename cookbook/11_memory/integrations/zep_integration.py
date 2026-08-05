@@ -2,7 +2,7 @@
 Zep Integration
 ===============
 
-Demonstrates Zep-powered memory retrieval for an Agno agent.
+Demonstrates Zep-powered memory retrieval for an EGPT agent.
 """
 
 import time
@@ -15,7 +15,7 @@ from egpt.tools.zep import ZepTools
 # Setup
 # ---------------------------------------------------------------------------
 # Initialize the ZepTools
-zep_tools = ZepTools(user_id="agno", session_id="agno-session")
+zep_tools = ZepTools(user_id="egpt", session_id="egpt-session")
 
 zep_tools.add_zep_message(role="user", content="My name is John Billings")
 zep_tools.add_zep_message(role="user", content="I live in NYC")
