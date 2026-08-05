@@ -66,9 +66,14 @@ echo -e "    ${DIM}Installing requirements...${NC}"
 echo -e "    ${DIM}> VIRTUAL_ENV=${VENV_DIR} uv pip install -r ${REQUIREMENTS_FILE}${NC}"
 VIRTUAL_ENV=${VENV_DIR} uv pip install -r ${REQUIREMENTS_FILE} --quiet
 
-# Copy activation command to clipboard
+# Copy activation command to clipboard. pbcopy is macOS-only, and under `set -e` a
+# missing clipboard tool would abort the script after a successful install.
 ACTIVATE_CMD="source .venvs/learning/bin/activate"
-echo -n "${ACTIVATE_CMD}" | pbcopy
+COPIED=""
+if command -v pbcopy >/dev/null 2>&1; then
+  echo -n "${ACTIVATE_CMD}" | pbcopy
+  COPIED="yes"
+fi
 
 echo ""
 echo -e "    ${BOLD}Done.${NC}"
@@ -76,5 +81,7 @@ echo ""
 echo -e "    ${DIM}Activate:${NC}  ${ACTIVATE_CMD}"
 echo -e "    ${DIM}Run:${NC}       python cookbook/08_learning/01_basics/1_user_profile_always.py"
 echo ""
-echo -e "    ${DIM}(Activation command copied to clipboard. Just paste and hit enter.)${NC}"
+if [ -n "${COPIED}" ]; then
+  echo -e "    ${DIM}(Activation command copied to clipboard. Just paste and hit enter.)${NC}"
+fi
 echo ""
