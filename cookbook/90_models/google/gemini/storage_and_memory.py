@@ -15,7 +15,7 @@ from egpt.vectordb.pgvector import PgVector
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 
 knowledge = Knowledge(vector_db=PgVector(table_name="recipes", db_url=db_url))
-knowledge.add_content(  # Comment out after first run
+knowledge.insert(  # Comment out after first run
     url="https://agno-public.s3.amazonaws.com/recipes/ThaiRecipes.pdf",
     reader=PDFReader(),
 )
