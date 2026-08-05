@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
 from egpt.db.sqlite import SqliteDb
-from egpt.models.fireworks import Fireworks
+from egpt.integrations.models.fireworks import Fireworks
 
 
 def _assert_metrics(response: RunOutput):

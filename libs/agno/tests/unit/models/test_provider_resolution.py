@@ -236,19 +236,37 @@ def test_resolve_model_passes_through_unhandled_values():
 # Abstract/intermediate Model subclasses that are not concrete providers and so must not appear
 # in MODEL_PROVIDER_CLASSES. Add a class here only after a deliberate decision that it is not a
 # user-selectable provider. Keyed by (defining_module, class_name).
-_NON_PROVIDER_MODEL_CLASSES = {("egpt.models.openai.like", "OpenAILike")}
+_NON_PROVIDER_MODEL_CLASSES = {("egpt.integrations.models.openai_like.like", "OpenAILike")}
+
+
+def _package_root():
+    """The directory `egpt` itself lives in, so dotted module names start with `egpt.`."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    assert (root / "egpt").is_dir(), f"package root not found: {root}"
+    return root
 
 
 def _models_root():
-    from pathlib import Path
+    """Provider implementations live in the integrations layer as of EGPT-1.4.
 
-    root = Path(__file__).resolve().parents[3] / "egpt" / "models"
+    Anchored on `_package_root()` rather than a `parents[N]` walk from this path: the previous
+    form derived the dotted prefix from the root's own depth, so moving the providers one level
+    deeper silently yielded an empty scan and a vacuously passing guard.
+    """
+    root = _package_root() / "egpt" / "integrations" / "models"
     assert root.is_dir(), f"models root not found: {root}"
     return root
 
 
-def _module_name(path, root):
-    name = ".".join(path.relative_to(root.parents[1]).with_suffix("").parts)
+def _deprecated_models_root():
+    """The pre-EGPT-1.4 `egpt/models` tree, which must now hold only compatibility shims."""
+    return _package_root() / "egpt" / "models"
+
+
+def _module_name(path, _root=None):
+    name = ".".join(path.relative_to(_package_root()).with_suffix("").parts)
     return name[: -len(".__init__")] if name.endswith(".__init__") else name
 
 
@@ -293,8 +311,8 @@ def _registered_defining_classes(root):
     """Resolve every MODEL_PROVIDER_CLASSES entry to the (defining_module, class) it points at.
 
     The registry references the re-exporting package and that package's exported name (e.g.
-    ``("egpt.models.azure", "AzureFoundryClaude")``), while the class is defined in a submodule
-    under its own name (``egpt.models.azure.claude.Claude``). Parse each package __init__ to
+    ``("egpt.integrations.models.azure", "AzureFoundryClaude")``), while the class is defined in a submodule
+    under its own name (``egpt.integrations.models.azure.claude.Claude``). Parse each package __init__ to
     follow ``from <mod> import <name> as <alias>`` re-exports back to the definition.
     """
     import ast
@@ -324,6 +342,15 @@ def test_every_model_subclass_is_registered():
     discovered = _discover_model_subclasses(root)
     covered = _registered_defining_classes(root) | _NON_PROVIDER_MODEL_CLASSES
 
+    # Without this the guard degrades silently: if the scan root ever stops matching where
+    # providers actually live, `discovered` is empty, the assertion below can never fire, and the
+    # test reports PASS while checking nothing. Exactly what happened when EGPT-1.4 moved the
+    # providers into the integrations layer.
+    assert len(discovered) > 40, (
+        f"Only {len(discovered)} Model subclasses discovered under {root}; expected the full "
+        "provider set. The scan root is probably stale, which makes this guard vacuous."
+    )
+
     missing = sorted(f"{name} ({module})" for (module, name) in discovered - covered)
     assert not missing, (
         "Model subclasses missing from MODEL_PROVIDER_CLASSES: "
@@ -331,3 +358,124 @@ def test_every_model_subclass_is_registered():
         + ". Add each to the registry in agno/models/utils.py (or to the test allowlist if it is "
         "not a user-selectable provider)."
     )
+
+
+def test_deprecated_models_tree_holds_only_shims():
+    """No provider implementation may be added back under the deprecated `egpt/models` tree.
+
+    That tree is compatibility shims only (EGPT-1.4). A Model subclass defined there would be
+    invisible to `test_every_model_subclass_is_registered`, which now scans the integrations
+    layer, so it could ship unregistered.
+    """
+    stragglers = _discover_model_subclasses(_deprecated_models_root())
+    assert not stragglers, (
+        "Model subclasses found under the deprecated egpt/models tree: "
+        + ", ".join(sorted(f"{name} ({module})" for (module, name) in stragglers))
+        + ". Provider implementations belong under egpt/integrations/models/."
+    )
+
+
+# Names a shim exports that its target deliberately does not. Each entry needs a reason: the
+# default expectation is that a shim mirrors its target exactly.
+#
+# egpt.integrations.models.openai omits OpenAILike on purpose — it subclasses OpenAIChat, so
+# re-exporting it from that package deadlocks on any import order reaching openai_like first.
+# The pre-EGPT-1.4 egpt.models.openai did export it, and the shim exists to preserve that
+# surface, so the extra name here is the shim doing its job rather than drift.
+_SHIM_EXTRA_EXPORTS = {"openai": {"OpenAILike"}}
+
+
+def _public_export_names(path):
+    """Statically compute the star-import name set of a package ``__init__.py``.
+
+    AST-based, like the scans above, so it holds for SDK-gated providers whose modules cannot be
+    imported without their optional dependency. A module-level ``__all__`` is authoritative when
+    present; otherwise every public name bound at import time is collected.
+
+    Submodule names are intentionally not included. ``from .claude import Claude`` also binds
+    ``claude`` on the package, but only as a side effect of the submodule importing successfully,
+    which makes the set depend on which optional SDKs happen to be installed. Submodules stay
+    reachable by their dotted path either way.
+    """
+    import ast
+
+    tree = ast.parse(path.read_text(), filename=str(path))
+
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "__all__":
+                    if isinstance(node.value, (ast.List, ast.Tuple)):
+                        return {
+                            elt.value
+                            for elt in node.value.elts
+                            if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                        }
+
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module == "typing":
+                continue  # TYPE_CHECKING and friends are not part of the export surface
+            names.update(alias.asname or alias.name for alias in node.names if alias.name != "*")
+        elif isinstance(node, ast.Import):
+            names.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+    return {name for name in names if not name.startswith("_")}
+
+
+def test_deprecated_shims_reexport_everything_their_target_exports():
+    """Each `egpt/models/<provider>` shim must export what its integrations target exports.
+
+    The EGPT-1.4 shims were written provider by provider, and two (`azure`, `langdb`) were missed
+    while their docstrings still claimed explicit re-exports — prose is not checkable, so the
+    claim and the code drifted apart. `azure` silently degraded to binding zero names, breaking
+    star-imports, `dir()` and static type resolution on a path that is supposed to be a
+    drop-in replacement.
+
+    Both providers were exactly the ones whose pre-move `__init__.py` declared no `__all__` of
+    its own, so the pass that copied `__all__` into the shims had nothing to copy. That is a
+    mechanical failure mode, so it gets a mechanical check — EGPT-1.5 through 1.8 each add
+    another shim layer of the same shape.
+    """
+    targets_root = _models_root()
+    shims_root = _deprecated_models_root()
+
+    checked = 0
+    problems = []
+    for target_dir in sorted(p for p in targets_root.iterdir() if p.is_dir()):
+        if target_dir.name.startswith("_"):
+            continue  # _utils is shared infra, never had a public egpt.models path
+        target_init = target_dir / "__init__.py"
+        shim_init = shims_root / target_dir.name / "__init__.py"
+        if not target_init.exists() or not shim_init.exists():
+            continue  # providers added after EGPT-1.4 need no deprecated path
+
+        checked += 1
+        target_names = _public_export_names(target_init)
+        shim_names = _public_export_names(shim_init)
+        allowed_extra = _SHIM_EXTRA_EXPORTS.get(target_dir.name, set())
+
+        missing = sorted(target_names - shim_names)
+        extra = sorted(shim_names - target_names - allowed_extra)
+        if missing:
+            problems.append(
+                f"{target_dir.name}: shim does not re-export {missing}. Import them explicitly and "
+                "list them in __all__, as the other shims do."
+            )
+        if extra:
+            problems.append(
+                f"{target_dir.name}: shim exports {extra} which the target does not. Either drop "
+                "them or record the reason in _SHIM_EXTRA_EXPORTS."
+            )
+
+    # Same non-vacuity floor as test_every_model_subclass_is_registered: if the shim or target
+    # layout moves, this loop would quietly check nothing and still report PASS.
+    assert checked > 40, (
+        f"Only {checked} shim/target pairs compared; expected the full provider set. One of the "
+        "two roots is probably stale, which makes this guard vacuous."
+    )
+    assert not problems, "Compatibility shims out of sync with their targets:\n" + "\n".join(problems)

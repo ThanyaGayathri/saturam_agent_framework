@@ -4,8 +4,8 @@ from typing import Optional
 from uuid import uuid4
 
 from egpt.agent import Agent
+from egpt.integrations.models.nebius import Nebius
 from egpt.media import Image
-from egpt.models.nebius import Nebius
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
 from egpt.utils.log import log_error, log_warning

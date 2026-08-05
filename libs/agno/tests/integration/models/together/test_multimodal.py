@@ -1,6 +1,6 @@
 from egpt.agent import Agent
+from egpt.integrations.models.together import Together
 from egpt.media import Image
-from egpt.models.together import Together
 
 
 def test_image_input():

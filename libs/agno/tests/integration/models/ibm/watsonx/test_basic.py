@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.db.sqlite import SqliteDb
-from egpt.models.ibm import WatsonX
+from egpt.integrations.models.ibm import WatsonX
 
 
 def _assert_metrics(response: RunOutput):

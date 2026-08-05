@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent  # noqa
-from egpt.models.mistral import MistralChat
+from egpt.integrations.models.mistral import MistralChat
 from egpt.tools.exa import ExaTools
 from egpt.tools.websearch import WebSearchTools
 from egpt.tools.yfinance import YFinanceTools

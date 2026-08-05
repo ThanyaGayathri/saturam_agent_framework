@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
 from egpt.db.sqlite import SqliteDb
-from egpt.models.nvidia import Nvidia
+from egpt.integrations.models.nvidia import Nvidia
 
 
 def _assert_metrics(response: RunOutput):

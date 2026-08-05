@@ -4,7 +4,7 @@ from typing import Dict, List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.openai.chat import OpenAIChat
+from egpt.integrations.models.openai.chat import OpenAIChat
 
 
 class MovieScript(BaseModel):

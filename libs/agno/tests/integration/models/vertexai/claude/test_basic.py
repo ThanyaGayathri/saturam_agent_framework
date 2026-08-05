@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
 from egpt.db.sqlite import SqliteDb
-from egpt.models.vertexai.claude import Claude
+from egpt.integrations.models.vertexai.claude import Claude
 from egpt.utils.log import log_warning
 from egpt.utils.media import download_file
 

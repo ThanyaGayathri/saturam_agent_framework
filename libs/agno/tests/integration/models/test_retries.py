@@ -6,7 +6,7 @@ import pytest
 
 from egpt.agent import Agent
 from egpt.exceptions import ModelProviderError
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.run.base import RunStatus
 
 

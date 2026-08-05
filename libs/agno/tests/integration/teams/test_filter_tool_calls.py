@@ -1,6 +1,6 @@
 import pytest
 
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.team import Team
 
 

@@ -8,7 +8,7 @@ import pytest
 from pydantic import BaseModel
 
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.run.workflow import (
     StepCompletedEvent,
     StepStartedEvent,

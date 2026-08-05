@@ -1,6 +1,6 @@
 from egpt.agent.agent import Agent
+from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.media import Image
-from egpt.models.openai.chat import OpenAIChat
 from egpt.team.team import Team
 
 

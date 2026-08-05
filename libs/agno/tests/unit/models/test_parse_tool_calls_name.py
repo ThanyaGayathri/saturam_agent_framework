@@ -150,39 +150,39 @@ def _litellm_chunk(
 
 
 def _openai_parse(chunks):
-    from egpt.models.openai.chat import OpenAIChat
+    from egpt.integrations.models.openai.chat import OpenAIChat
 
     return OpenAIChat.parse_tool_calls(chunks)
 
 
 def _groq_parse(chunks):
-    from egpt.models.groq.groq import Groq
+    from egpt.integrations.models.groq.groq import Groq
 
     return Groq.parse_tool_calls(chunks)
 
 
 def _huggingface_parse(chunks):
-    from egpt.models.huggingface.huggingface import HuggingFace
+    from egpt.integrations.models.huggingface.huggingface import HuggingFace
 
     return HuggingFace.parse_tool_calls(chunks)
 
 
 def _cerebras_parse(chunks):
     # Cerebras.parse_tool_calls is an instance method (not @staticmethod)
-    from egpt.models.cerebras.cerebras import Cerebras
+    from egpt.integrations.models.cerebras.cerebras import Cerebras
 
     model = Cerebras.__new__(Cerebras)
     return model.parse_tool_calls(chunks)
 
 
 def _watsonx_parse(chunks):
-    from egpt.models.ibm.watsonx import WatsonX
+    from egpt.integrations.models.ibm.watsonx import WatsonX
 
     return WatsonX.parse_tool_calls(chunks)
 
 
 def _litellm_parse(chunks):
-    from egpt.models.litellm.chat import LiteLLM
+    from egpt.integrations.models.litellm.chat import LiteLLM
 
     return LiteLLM.parse_tool_calls(chunks)
 

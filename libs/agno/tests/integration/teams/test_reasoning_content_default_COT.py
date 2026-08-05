@@ -11,7 +11,7 @@ from textwrap import dedent
 
 import pytest
 
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.team.team import Team
 
 

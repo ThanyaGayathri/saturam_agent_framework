@@ -4,7 +4,7 @@ from typing import List, Tuple
 
 from egpt.agent.agent import Agent
 from egpt.db.base import SessionType
-from egpt.models.openai.chat import OpenAIChat
+from egpt.integrations.models.openai.chat import OpenAIChat
 
 
 class MemoryMonitor:

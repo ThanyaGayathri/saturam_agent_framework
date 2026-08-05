@@ -5,7 +5,7 @@ multiple continue_run() calls when new tools are paused in each round.
 """
 
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.tools.decorator import tool
 from egpt.tools.user_control_flow import UserControlFlowTools
 

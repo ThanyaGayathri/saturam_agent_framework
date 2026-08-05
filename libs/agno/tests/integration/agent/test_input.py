@@ -2,9 +2,9 @@ from pydantic import BaseModel
 
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.media import Image
 from egpt.models.message import Message
-from egpt.models.openai import OpenAIChat
 from egpt.session.summary import SessionSummaryManager
 
 

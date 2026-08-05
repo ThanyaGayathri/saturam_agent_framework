@@ -29,7 +29,7 @@ class UnsplashTools(Toolkit):
     Example:
         ```python
         from egpt.agent import Agent
-        from egpt.models.openai import OpenAIChat
+        from egpt.integrations.models.openai import OpenAIChat
         from egpt.tools.unsplash import UnsplashTools
 
         agent = Agent(

@@ -5,9 +5,9 @@ from unittest.mock import Mock, patch
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.google import Gemini
-from egpt.models.google.gemini import RetryableModelProviderError
-from egpt.models.google.utils import MALFORMED_FUNCTION_CALL_GUIDANCE
+from egpt.integrations.models.google import Gemini
+from egpt.integrations.models.google.gemini import RetryableModelProviderError
+from egpt.integrations.models.google.utils import MALFORMED_FUNCTION_CALL_GUIDANCE
 from egpt.run.agent import RunEvent
 from egpt.run.base import RunStatus
 

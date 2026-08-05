@@ -8,9 +8,9 @@ import base64
 import tempfile
 from pathlib import Path
 
+from egpt.integrations.models.openai.responses import OpenAIResponses
 from egpt.media import File
 from egpt.models.message import Message
-from egpt.models.openai.responses import OpenAIResponses
 from egpt.tools.function import Function
 
 # ---------------------------------------------------------------------------

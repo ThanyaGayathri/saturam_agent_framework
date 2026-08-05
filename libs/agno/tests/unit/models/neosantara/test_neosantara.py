@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from egpt.exceptions import ModelAuthenticationError
-from egpt.models.neosantara import Neosantara
+from egpt.integrations.models.neosantara import Neosantara
 
 
 def test_neosantara_initialization_with_api_key():

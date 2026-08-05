@@ -1,42 +1,28 @@
-from dataclasses import dataclass
-from os import getenv
-from typing import Any, Dict, Optional
+"""Deprecated compatibility shim (EGPT-1.4).
 
-from egpt.exceptions import ModelAuthenticationError
-from egpt.models.openai.like import OpenAILike
+Import from ``egpt.integrations.models.siliconflow.siliconflow`` instead; this module will be removed.
+
+Names are re-exported explicitly (not proxied through ``__getattr__`` alone) so that
+star-imports, ``dir()`` and static type checking keep working on this path.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.models.siliconflow.siliconflow as _target
+from egpt.integrations.models.siliconflow.siliconflow import *  # noqa: F401,F403
+
+_warnings.warn(
+    "egpt.models.siliconflow.siliconflow is deprecated; import from egpt.integrations.models.siliconflow.siliconflow instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-@dataclass
-class Siliconflow(OpenAILike):
-    """
-    A class for interacting with Siliconflow API.
-
-    Attributes:
-        id (str): The id of the Siliconflow model to use. Default is "Qwen/QwQ-32B".
-        name (str): The name of this chat model instance. Default is "Siliconflow".
-        provider (str): The provider of the model. Default is "Siliconflow".
-        api_key (str): The api key to authorize request to Siliconflow.
-        base_url (str): The base url to which the requests are sent. Defaults to "https://api.siliconflow.cn/v1".
-    """
-
-    id: str = "Qwen/QwQ-32B"
-    name: str = "Siliconflow"
-    provider: str = "Siliconflow"
-    api_key: Optional[str] = None
-    base_url: str = "https://api.siliconflow.cn/v1"
-
-    def _get_client_params(self) -> Dict[str, Any]:
-        """
-        Returns client parameters for API requests, checking for SILICONFLOW_API_KEY.
-
-        Returns:
-            Dict[str, Any]: A dictionary of client parameters for API requests.
-        """
-        if not self.api_key:
-            self.api_key = getenv("SILICONFLOW_API_KEY")
-            if not self.api_key:
-                raise ModelAuthenticationError(
-                    message="SILICONFLOW_API_KEY not set. Please set the SILICONFLOW_API_KEY environment variable.",
-                    model_name=self.name,
-                )
-        return super()._get_client_params()
+def __getattr__(name: str):
+    # Fallback for names the target provides lazily (google's GeminiInteractions) or via
+    # an optional-dependency fallback (aws Claude), which must not be imported eagerly.
+    return getattr(_target, name)

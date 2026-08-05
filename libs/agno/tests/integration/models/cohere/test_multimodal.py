@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 
 from egpt.agent.agent import Agent
+from egpt.integrations.models.cohere.chat import Cohere
 from egpt.media import Image
-from egpt.models.cohere.chat import Cohere
 from egpt.tools.websearch import WebSearchTools
 
 

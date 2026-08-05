@@ -15,7 +15,7 @@ import os
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.team.team import Team
 from egpt.tools.decorator import tool
 

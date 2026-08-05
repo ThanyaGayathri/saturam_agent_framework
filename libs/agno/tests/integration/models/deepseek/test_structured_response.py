@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.deepseek import DeepSeek
+from egpt.integrations.models.deepseek import DeepSeek
 
 
 class MovieScript(BaseModel):

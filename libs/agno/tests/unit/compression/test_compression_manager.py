@@ -7,7 +7,7 @@ from egpt.models.message import Message
 async def test_ashould_compress_below_token_limit():
     """Test async should_compress returns False when below token limit."""
     from egpt.compression.manager import CompressionManager
-    from egpt.models.openai import OpenAIChat
+    from egpt.integrations.models.openai import OpenAIChat
 
     model = OpenAIChat(id="gpt-4o")
     messages = [Message(role="user", content="Hello")]
@@ -25,7 +25,7 @@ async def test_ashould_compress_below_token_limit():
 async def test_ashould_compress_above_token_limit():
     """Test async should_compress returns True when above token limit."""
     from egpt.compression.manager import CompressionManager
-    from egpt.models.openai import OpenAIChat
+    from egpt.integrations.models.openai import OpenAIChat
 
     model = OpenAIChat(id="gpt-4o")
     messages = [Message(role="user", content="Hello " * 100)]
@@ -43,7 +43,7 @@ async def test_ashould_compress_above_token_limit():
 async def test_ashould_compress_disabled():
     """Test async should_compress returns False when compression disabled."""
     from egpt.compression.manager import CompressionManager
-    from egpt.models.openai import OpenAIChat
+    from egpt.integrations.models.openai import OpenAIChat
 
     model = OpenAIChat(id="gpt-4o")
     messages = [Message(role="user", content="Hello")]
@@ -60,7 +60,7 @@ async def test_ashould_compress_disabled():
 def test_should_compress_below_token_limit():
     """Test sync should_compress returns False when below token limit."""
     from egpt.compression.manager import CompressionManager
-    from egpt.models.openai import OpenAIChat
+    from egpt.integrations.models.openai import OpenAIChat
 
     model = OpenAIChat(id="gpt-4o")
     messages = [Message(role="user", content="Hello")]
@@ -74,7 +74,7 @@ def test_should_compress_below_token_limit():
 def test_should_compress_above_token_limit():
     """Test sync should_compress returns True when above token limit."""
     from egpt.compression.manager import CompressionManager
-    from egpt.models.openai import OpenAIChat
+    from egpt.integrations.models.openai import OpenAIChat
 
     model = OpenAIChat(id="gpt-4o")
     messages = [Message(role="user", content="Hello " * 100)]

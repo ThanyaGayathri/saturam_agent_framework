@@ -1,6 +1,6 @@
 from egpt.agent.agent import Agent
+from egpt.integrations.models.azure import AzureAIFoundry
 from egpt.media import Image
-from egpt.models.azure import AzureAIFoundry
 
 
 def test_image_input():

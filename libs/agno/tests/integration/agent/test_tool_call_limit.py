@@ -1,7 +1,7 @@
 import pytest
 
 from egpt.agent.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.run.agent import RunEvent
 from egpt.tools.yfinance import YFinanceTools
 

@@ -1,41 +1,23 @@
-from typing import Any, Dict, List, Sequence
+"""Deprecated compatibility shim (EGPT-1.4).
 
-from egpt.media import Image
-from egpt.models.message import Message
-from egpt.utils.log import log_error, log_warning
+Moved to ``egpt.integrations.models._utils.watsonx`` with the model providers; this module will be removed.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.models._utils.watsonx as _target
+from egpt.integrations.models._utils.watsonx import *  # noqa: F401,F403
+
+_warnings.warn(
+    "egpt.utils.models.watsonx is deprecated; import from egpt.integrations.models._utils.watsonx instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-def format_images_for_message(message: Message, images: Sequence[Image]) -> Message:
-    """
-    Format an image into the format expected by WatsonX.
-    """
-
-    # Create a default message content with text
-    message_content_with_image: List[Dict[str, Any]] = [{"type": "text", "text": message.content}]
-
-    # Add images to the message content
-    for image in images:
-        try:
-            if image.content is not None:
-                image_content = image.content
-            elif image.url is not None:
-                image_content = image.get_content_bytes()  # type: ignore
-            else:
-                log_warning(f"Unsupported image format: {image}")
-                continue
-
-            if image_content is not None:
-                import base64
-
-                base64_image = base64.b64encode(image_content).decode("utf-8")
-                image_url = f"data:image/jpeg;base64,{base64_image}"
-                image_payload = {"type": "image_url", "image_url": {"url": image_url}}
-                message_content_with_image.append(image_payload)
-
-        except Exception as e:
-            log_error(f"Failed to process image: {str(e)}")
-
-    # Update the message content with the images
-    if len(message_content_with_image) > 1:
-        message.content = message_content_with_image
-    return message
+def __getattr__(name: str):
+    return getattr(_target, name)

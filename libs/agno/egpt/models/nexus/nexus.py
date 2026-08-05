@@ -1,22 +1,28 @@
-from dataclasses import dataclass
+"""Deprecated compatibility shim (EGPT-1.4).
 
-from egpt.models.openai.like import OpenAILike
+Import from ``egpt.integrations.models.nexus.nexus`` instead; this module will be removed.
+
+Names are re-exported explicitly (not proxied through ``__getattr__`` alone) so that
+star-imports, ``dir()`` and static type checking keep working on this path.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.models.nexus.nexus as _target
+from egpt.integrations.models.nexus.nexus import *  # noqa: F401,F403
+
+_warnings.warn(
+    "egpt.models.nexus.nexus is deprecated; import from egpt.integrations.models.nexus.nexus instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-@dataclass
-class Nexus(OpenAILike):
-    """
-    A class for interacting with LLMs using Nexus.
-
-    Attributes:
-        id (str): The id of the Nexus model to use. Default is "openai/gpt-4".
-        name (str): The name of this chat model instance. Default is "Nexus"
-        provider (str): The provider of the model. Default is "Nexus".
-        base_url (str): The base url to which the requests are sent.
-    """
-
-    id: str = "openai/gpt-4"
-    name: str = "Nexus"
-    provider: str = "Nexus"
-
-    base_url: str = "http://localhost:8000/llm/v1/"
+def __getattr__(name: str):
+    # Fallback for names the target provides lazily (google's GeminiInteractions) or via
+    # an optional-dependency fallback (aws Claude), which must not be imported eagerly.
+    return getattr(_target, name)

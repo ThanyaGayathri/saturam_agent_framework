@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.db.sqlite import SqliteDb
-from egpt.models.nebius import Nebius
+from egpt.integrations.models.nebius import Nebius
 
 NEBIUS_MODEL_ID = "Qwen/Qwen3-4B-fast"
 

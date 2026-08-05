@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.nvidia import Nvidia
+from egpt.integrations.models.nvidia import Nvidia
 
 
 class MovieScript(BaseModel):

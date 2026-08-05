@@ -3,8 +3,8 @@ import pytest
 from egpt.agent.agent import Agent
 from egpt.db.base import SessionType
 from egpt.db.in_memory.in_memory_db import InMemoryDb
+from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.media import Audio, Image
-from egpt.models.openai.chat import OpenAIChat
 from egpt.tools.dalle import DalleTools
 
 # Provider-availability failures (model brownouts/retirement windows, billing,

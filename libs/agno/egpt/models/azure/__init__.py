@@ -1,27 +1,44 @@
-try:
-    from egpt.models.azure.ai_foundry import AzureAIFoundry
-except ImportError:
+"""Deprecated compatibility shim (EGPT-1.4).
 
-    class AzureAIFoundry:  # type: ignore
-        def __init__(self, *args, **kwargs):
-            raise ImportError(
-                "`azure-ai-inference` not installed. Please install it via `pip install azure-ai-inference aiohttp`"
-            )
+Import from ``egpt.integrations.models.azure`` instead; this module will be removed.
+
+Names are re-exported explicitly (not proxied through ``__getattr__`` alone) so that
+star-imports, ``dir()`` and static type checking keep working on this path.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+
+The three names are imported from the target *package* rather than its submodules, so the
+target's ``try``/``except ImportError`` stub fallbacks are honoured and no optional SDK is
+forced open. Submodules stay reachable by their dotted path
+(``egpt.models.azure.claude``); they are deliberately kept out of ``__all__``, matching
+every provider that declared ``__all__`` before the move.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.models.azure as _target
+from egpt.integrations.models.azure import (  # noqa: F401
+    AzureAIFoundry,
+    AzureFoundryClaude,
+    AzureOpenAI,
+)
+
+_warnings.warn(
+    "egpt.models.azure is deprecated; import from egpt.integrations.models.azure instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+__all__ = [
+    "AzureAIFoundry",
+    "AzureFoundryClaude",
+    "AzureOpenAI",
+]
 
 
-try:
-    from egpt.models.azure.openai_chat import AzureOpenAI
-except ImportError:
-
-    class AzureOpenAI:  # type: ignore
-        def __init__(self, *args, **kwargs):
-            raise ImportError("`openai` not installed. Please install it via `pip install openai`")
-
-
-try:
-    from egpt.models.azure.claude import Claude as AzureFoundryClaude
-except ImportError:
-
-    class AzureFoundryClaude:  # type: ignore
-        def __init__(self, *args, **kwargs):
-            raise ImportError("`anthropic` not installed. Please install it via `pip install anthropic`")
+def __getattr__(name: str):
+    # Fallback for names the target provides lazily (google's GeminiInteractions) or via
+    # an optional-dependency fallback (aws Claude), which must not be imported eagerly.
+    return getattr(_target, name)

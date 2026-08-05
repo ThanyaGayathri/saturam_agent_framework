@@ -2,7 +2,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from pydantic import BaseModel
 
-from egpt.models.google.gemini import Gemini
+from egpt.integrations.models.google.gemini import Gemini
 from egpt.models.message import Message
 from egpt.tools.function import Function
 

@@ -1,31 +1,25 @@
-from dataclasses import dataclass
-from typing import Optional
+"""Deprecated compatibility shim (EGPT-1.4).
 
-from egpt.models.base import Model
-from egpt.models.openai.chat import OpenAIChat
+``OpenAILike`` moved to ``egpt.integrations.models.openai_like``; this module will be removed.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.models.openai_like as _target
+from egpt.integrations.models.openai_like import OpenAILike  # noqa: F401
+
+_warnings.warn(
+    "egpt.models.openai.like is deprecated; import from egpt.integrations.models.openai_like "
+    "instead. This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
+
+__all__ = ["OpenAILike"]
 
 
-@dataclass
-class OpenAILike(OpenAIChat):
-    """
-    A class for to interact with any provider using the OpenAI API schema.
-
-    Args:
-        id (str): The id of the OpenAI model to use. Defaults to "not-provided".
-        name (str): The name of the OpenAI model to use. Defaults to "OpenAILike".
-        api_key (Optional[str]): The API key to use. Defaults to "not-provided".
-    """
-
-    id: str = "not-provided"
-    name: str = "OpenAILike"
-    api_key: Optional[str] = "not-provided"
-
-    default_role_map = {
-        "system": "system",
-        "user": "user",
-        "assistant": "assistant",
-        "tool": "tool",
-    }
-
-    def get_provider(self) -> str:
-        return Model.get_provider(self)
+def __getattr__(name: str):
+    return getattr(_target, name)

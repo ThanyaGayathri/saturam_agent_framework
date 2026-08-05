@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from egpt.exceptions import ModelAuthenticationError
-from egpt.models.minimax import MiniMax
+from egpt.integrations.models.minimax import MiniMax
 
 
 def test_minimax_initialization_with_api_key():

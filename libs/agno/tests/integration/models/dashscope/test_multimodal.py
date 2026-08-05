@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 
 from egpt.agent.agent import Agent
+from egpt.integrations.models.dashscope import DashScope
 from egpt.media import Image
-from egpt.models.dashscope import DashScope
 
 
 def test_image_input_url():

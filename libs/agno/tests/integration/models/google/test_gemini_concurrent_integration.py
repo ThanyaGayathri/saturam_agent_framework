@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from egpt.agent import Agent
 from egpt.exceptions import ModelProviderError
-from egpt.models.google import Gemini
+from egpt.integrations.models.google import Gemini
 from egpt.models.message import Message
 from egpt.run.agent import RunErrorEvent
 

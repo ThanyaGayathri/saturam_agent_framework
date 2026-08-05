@@ -66,7 +66,7 @@ def basic_agent():
 def agent_with_model():
     """Create an agent with a real model for testing to_dict."""
     # Use a real model class with mocked internals for serialization testing
-    from egpt.models.openai import OpenAIChat
+    from egpt.integrations.models.openai import OpenAIChat
 
     model = OpenAIChat(id="gpt-4o-mini")
     agent = Agent(
@@ -243,7 +243,7 @@ class TestAgentFromDict:
 
     def test_from_dict_with_model(self):
         """Test from_dict reconstructs model from config."""
-        from egpt.models.openai import OpenAIResponses
+        from egpt.integrations.models.openai import OpenAIResponses
 
         config = {
             "id": "model-agent",

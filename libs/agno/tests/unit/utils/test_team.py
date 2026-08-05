@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from egpt.agent.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.team.team import Team
 from egpt.utils.team import get_member_id
 

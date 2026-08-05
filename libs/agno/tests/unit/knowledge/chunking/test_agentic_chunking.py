@@ -197,7 +197,7 @@ def test_initialization_with_default_model():
     """Test that OpenAIChat model is created when no model provided."""
     mock_openai_instance = Mock()
 
-    with patch("egpt.models.openai.OpenAIChat", return_value=mock_openai_instance):
+    with patch("egpt.integrations.models.openai.OpenAIChat", return_value=mock_openai_instance):
         chunker = AgenticChunking(max_chunk_size=1000, custom_prompt="Test")
 
         assert chunker.model is mock_openai_instance

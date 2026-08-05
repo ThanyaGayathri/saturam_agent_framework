@@ -1,5 +1,5 @@
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.models.response import ModelResponse, ModelResponseEvent, ToolExecution
 from egpt.run.agent import RunEvent, RunOutput, ToolCallErrorEvent
 from egpt.run.messages import RunMessages

@@ -3,7 +3,7 @@ from typing import Optional
 import pytest
 
 from egpt.agent import Agent  # noqa
-from egpt.models.azure import AzureOpenAI
+from egpt.integrations.models.azure import AzureOpenAI
 from egpt.tools.exa import ExaTools
 from egpt.tools.websearch import WebSearchTools
 from egpt.tools.yfinance import YFinanceTools

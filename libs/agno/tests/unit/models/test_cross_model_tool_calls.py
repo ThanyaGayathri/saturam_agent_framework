@@ -252,7 +252,7 @@ class TestReformatResponsesApiDualId:
 class TestClaudeFormatMessages:
     def test_parallel_tool_results_merged_into_single_user(self):
         """Multiple consecutive tool results should merge into one user message for Claude."""
-        from egpt.utils.models.claude import format_messages
+        from egpt.integrations.models._utils.claude import format_messages
 
         tc1 = _make_tool_call("toolu_001", name="get_weather", arguments='{"city": "Paris"}')
         tc2 = _make_tool_call("toolu_002", name="get_weather", arguments='{"city": "London"}')
@@ -281,7 +281,7 @@ class TestClaudeFormatMessages:
 
     def test_cross_provider_ids_passed_through_for_claude(self):
         """Claude should handle tool calls from Responses API (fc_* IDs) directly."""
-        from egpt.utils.models.claude import format_messages
+        from egpt.integrations.models._utils.claude import format_messages
 
         tc = _make_tool_call("fc_abc", call_id="call_xyz")
         msgs = [
@@ -298,7 +298,7 @@ class TestClaudeFormatMessages:
 
     def test_tool_result_followed_by_user_message_merged(self):
         """A tool result (mapped to user) followed by a user message should merge into one."""
-        from egpt.utils.models.claude import format_messages
+        from egpt.integrations.models._utils.claude import format_messages
 
         tc = _make_tool_call("toolu_001", name="get_weather")
         msgs = [
@@ -321,7 +321,7 @@ class TestClaudeFormatMessages:
 
     def test_three_consecutive_tool_results_merged(self):
         """Three parallel tool results should all merge into a single user message."""
-        from egpt.utils.models.claude import format_messages
+        from egpt.integrations.models._utils.claude import format_messages
 
         tc1 = _make_tool_call("toolu_001", name="search", arguments='{"q": "a"}')
         tc2 = _make_tool_call("toolu_002", name="search", arguments='{"q": "b"}')
@@ -344,7 +344,7 @@ class TestClaudeFormatMessages:
 
     def test_alternating_roles_no_merge_needed(self):
         """When roles already alternate, no merging should happen."""
-        from egpt.utils.models.claude import format_messages
+        from egpt.integrations.models._utils.claude import format_messages
 
         msgs = [
             Message(role="user", content="Hello"),
@@ -360,7 +360,7 @@ class TestClaudeFormatMessages:
 
     def test_assistant_list_content_preserves_server_tool_blocks(self):
         """server_tool_use and code-execution blocks on list-shaped assistant content round-trip."""
-        from egpt.utils.models.claude import format_messages
+        from egpt.integrations.models._utils.claude import format_messages
 
         server_use = {"type": "server_tool_use", "id": "srvtoolu_01", "name": "code_execution", "input": {}}
         bash_result = {
@@ -387,7 +387,7 @@ class TestClaudeFormatMessages:
 
     def test_tool_result_preserves_list_payload(self):
         """Structured tool_result content lists must not be collapsed with str()."""
-        from egpt.utils.models.claude import format_messages
+        from egpt.integrations.models._utils.claude import format_messages
 
         tc = _make_tool_call("toolu_ce01", name="code_execution")
         inner = {"type": "text", "text": "stdout"}
@@ -404,7 +404,7 @@ class TestClaudeFormatMessages:
 
     def test_server_tool_blocks_not_duplicated_across_sources(self):
         """When list-content and provider_data both carry the same block, emit once."""
-        from egpt.utils.models.claude import format_messages
+        from egpt.integrations.models._utils.claude import format_messages
 
         server_use = {"type": "server_tool_use", "id": "srvtoolu_dup", "name": "web_search", "input": {}}
         msg = Message(
@@ -425,7 +425,7 @@ class TestClaudeFormatMessages:
         dropped all provider_data blocks whenever list-content carried any server block,
         silently losing blocks that existed only in provider_data.
         """
-        from egpt.utils.models.claude import format_messages
+        from egpt.integrations.models._utils.claude import format_messages
 
         shared = {"type": "server_tool_use", "id": "srvtoolu_A", "name": "web_search", "input": {}}
         only_in_provider = {
@@ -449,7 +449,7 @@ class TestClaudeFormatMessages:
 
     def test_tool_result_non_block_item_coerced_to_text(self):
         """Tool result list items that aren't valid blocks should be coerced to text, not passed through."""
-        from egpt.utils.models.claude import format_messages
+        from egpt.integrations.models._utils.claude import format_messages
 
         tc = _make_tool_call("toolu_nb01", name="code_execution")
         msgs = [
@@ -471,7 +471,7 @@ class TestClaudeFormatMessages:
 
     def test_redacted_thinking_block_uses_canonical_type(self):
         """RedactedThinkingBlock must be constructed with the Anthropic SDK's literal type."""
-        from egpt.utils.models.claude import format_messages
+        from egpt.integrations.models._utils.claude import format_messages
 
         msgs = [
             Message(role="user", content="hi"),
@@ -491,7 +491,7 @@ class TestClaudeFormatMessages:
 class TestGeminiFormatMessages:
     def test_individual_tool_msg_formatted(self):
         """Gemini should format individual canonical tool messages correctly."""
-        from egpt.models.google.gemini import Gemini
+        from egpt.integrations.models.google.gemini import Gemini
 
         gemini = Gemini(id="gemini-2.0-flash")
         tc = _make_tool_call("toolu_001", name="get_weather")
@@ -515,7 +515,7 @@ class TestGeminiFormatMessages:
 
     def test_missing_tool_name_falls_through(self):
         """Tool message without tool_name should not crash Gemini."""
-        from egpt.models.google.gemini import Gemini
+        from egpt.integrations.models.google.gemini import Gemini
 
         gemini = Gemini(id="gemini-2.0-flash")
         msgs = [
@@ -535,7 +535,7 @@ class TestGeminiFormatMessages:
 
     def test_missing_arguments_handled(self):
         """Tool call with missing arguments should not crash Gemini."""
-        from egpt.models.google.gemini import Gemini
+        from egpt.integrations.models.google.gemini import Gemini
 
         gemini = Gemini(id="gemini-2.0-flash")
         tc = {
@@ -643,7 +643,7 @@ class TestParallelToolCallsGeminiFormat:
 
     def test_parallel_tool_results_merged_for_gemini(self):
         """Multiple consecutive tool results should merge into one Gemini user turn."""
-        from egpt.models.google.gemini import Gemini
+        from egpt.integrations.models.google.gemini import Gemini
 
         gemini = Gemini(id="gemini-2.0-flash")
         tc1 = _make_tool_call("toolu_001", name="get_weather", arguments='{"city": "Paris"}')
@@ -673,7 +673,7 @@ class TestParallelToolCallsGeminiFormat:
 
     def test_cross_provider_parallel_to_gemini(self):
         """Claude-style tool IDs in parallel should format correctly for Gemini."""
-        from egpt.models.google.gemini import Gemini
+        from egpt.integrations.models.google.gemini import Gemini
 
         gemini = Gemini(id="gemini-2.0-flash")
         tc1 = _make_tool_call("toolu_aaa", name="search", arguments='{"q": "a"}')
@@ -702,7 +702,7 @@ class TestParallelToolCallsClaudeFormat:
 
     def test_parallel_from_openai_chat_for_claude(self):
         """OpenAI Chat call_* IDs in parallel should format correctly for Claude."""
-        from egpt.utils.models.claude import format_messages
+        from egpt.integrations.models._utils.claude import format_messages
 
         tc1 = _make_tool_call("call_abc123", name="get_weather", arguments='{"city": "Paris"}')
         tc2 = _make_tool_call("call_def456", name="get_weather", arguments='{"city": "London"}')
@@ -724,7 +724,7 @@ class TestParallelToolCallsClaudeFormat:
 
     def test_parallel_from_gemini_for_claude(self):
         """Gemini UUID-style IDs in parallel should format correctly for Claude."""
-        from egpt.utils.models.claude import format_messages
+        from egpt.integrations.models._utils.claude import format_messages
 
         tc1 = _make_tool_call("uuid-111-aaa", name="search", arguments='{"q": "a"}')
         tc2 = _make_tool_call("uuid-222-bbb", name="search", arguments='{"q": "b"}')

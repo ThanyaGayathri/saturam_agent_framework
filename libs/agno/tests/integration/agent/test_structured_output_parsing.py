@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.models.openai.chat import OpenAIChat  # noqa
+from egpt.integrations.models.openai.chat import OpenAIChat  # noqa
 
 
 def test_structured_output_parsing_with_quotes():

@@ -5,8 +5,8 @@ explicitly configures reasoning params, unlike the parent OpenResponses which
 unconditionally sends `reasoning: {}`.
 """
 
-from egpt.models.openai.open_responses import OpenResponses
-from egpt.models.openrouter import OpenRouterResponses
+from egpt.integrations.models.openai.open_responses import OpenResponses
+from egpt.integrations.models.openrouter import OpenRouterResponses
 
 
 def test_no_reasoning_when_none_configured():

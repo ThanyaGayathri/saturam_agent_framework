@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.aimlapi import AIMLAPI
+from egpt.integrations.models.aimlapi import AIMLAPI
 
 
 class MovieScript(BaseModel):

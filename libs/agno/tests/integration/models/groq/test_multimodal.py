@@ -1,8 +1,8 @@
 import pytest
 
 from egpt.agent.agent import Agent
+from egpt.integrations.models.groq import Groq
 from egpt.media import Image
-from egpt.models.groq import Groq
 
 
 @pytest.mark.skip(reason="Error on Groq API")

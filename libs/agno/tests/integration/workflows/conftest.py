@@ -8,7 +8,7 @@ import pytest_asyncio
 from egpt.agent.agent import Agent
 from egpt.db.json import JsonDb
 from egpt.db.sqlite.async_sqlite import AsyncSqliteDb
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.team.team import Team
 from egpt.workflow import Condition, Loop, Parallel, Router
 from egpt.workflow.step import Step

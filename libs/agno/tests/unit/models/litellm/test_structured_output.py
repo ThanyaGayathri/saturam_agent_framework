@@ -8,7 +8,7 @@ pytest.importorskip("litellm")
 
 from pydantic import BaseModel
 
-from egpt.models.litellm import LiteLLM
+from egpt.integrations.models.litellm import LiteLLM
 from egpt.models.message import Message
 
 

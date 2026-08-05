@@ -13,7 +13,7 @@ is delivered incrementally via RunEvent.reasoning_content_delta events.
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.run.agent import RunEvent
 
 

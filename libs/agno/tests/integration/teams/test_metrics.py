@@ -4,8 +4,8 @@ import pytest
 
 from egpt.agent import Agent
 from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.metrics import ModelMetrics, RunMetrics, SessionMetrics, ToolCallMetrics
-from egpt.models.openai import OpenAIChat
 from egpt.run.team import TeamRunOutput
 from egpt.team.team import Team
 from egpt.tools.yfinance import YFinanceTools
@@ -422,7 +422,7 @@ def test_team_provider_metrics_openai():
 
 
 def test_team_provider_metrics_gemini():
-    from egpt.models.google import Gemini
+    from egpt.integrations.models.google import Gemini
 
     member = Agent(model=Gemini(id="gemini-2.5-flash"), name="Helper")
     team = Team(model=Gemini(id="gemini-2.5-flash"), members=[member])

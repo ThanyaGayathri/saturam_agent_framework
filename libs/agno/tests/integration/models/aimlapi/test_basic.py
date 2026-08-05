@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
 from egpt.db.sqlite import SqliteDb
-from egpt.models.aimlapi import AIMLAPI
+from egpt.integrations.models.aimlapi import AIMLAPI
 
 
 def _assert_metrics(response: RunOutput):

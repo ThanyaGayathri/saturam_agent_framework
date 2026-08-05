@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.dashscope import DashScope
+from egpt.integrations.models.dashscope import DashScope
 
 
 class MovieScript(BaseModel):

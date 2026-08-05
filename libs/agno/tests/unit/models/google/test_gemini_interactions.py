@@ -7,8 +7,8 @@ import pytest
 
 pytest.importorskip("google.genai")
 
+from egpt.integrations.models.google.gemini_interactions import GeminiInteractions
 from egpt.media import Audio, File, Image, Video
-from egpt.models.google.gemini_interactions import GeminiInteractions
 from egpt.models.message import Message
 
 
@@ -31,7 +31,7 @@ class TestGetClient:
     def test_get_client_with_api_key(self):
         model = GeminiInteractions(api_key="test-key")
 
-        with patch("egpt.models.google.gemini_interactions.genai.Client") as mock_client_cls:
+        with patch("egpt.integrations.models.google.gemini_interactions.genai.Client") as mock_client_cls:
             model.get_client()
             _, kwargs = mock_client_cls.call_args
             assert kwargs["api_key"] == "test-key"
@@ -39,7 +39,7 @@ class TestGetClient:
     def test_get_client_caches_instance(self):
         model = GeminiInteractions(api_key="test-key")
 
-        with patch("egpt.models.google.gemini_interactions.genai.Client") as mock_client_cls:
+        with patch("egpt.integrations.models.google.gemini_interactions.genai.Client") as mock_client_cls:
             client1 = model.get_client()
             client2 = model.get_client()
             assert client1 is client2
@@ -48,7 +48,7 @@ class TestGetClient:
     def test_get_client_timeout_configuration(self):
         model = GeminiInteractions(api_key="test-key", timeout=30.0)
 
-        with patch("egpt.models.google.gemini_interactions.genai.Client") as mock_client_cls:
+        with patch("egpt.integrations.models.google.gemini_interactions.genai.Client") as mock_client_cls:
             model.get_client()
             _, kwargs = mock_client_cls.call_args
             assert kwargs["http_options"]["timeout"] == 30000
@@ -776,7 +776,7 @@ class TestAgentBackgroundPolling:
                 model._poll_until_terminal(in_progress)
 
     def test_invoke_polls_on_agent_path(self):
-        from egpt.models.google.gemini_interactions import ModelOutputStep, TextContent
+        from egpt.integrations.models.google.gemini_interactions import ModelOutputStep, TextContent
 
         model = self._make_model(agent_poll_interval=0.0)
 
@@ -821,7 +821,7 @@ class TestParseInteractionResponse:
 
     def _make_model_output_step(self, text):
         """Create a mock ModelOutputStep with TextContent."""
-        from egpt.models.google.gemini_interactions import ModelOutputStep, TextContent
+        from egpt.integrations.models.google.gemini_interactions import ModelOutputStep, TextContent
 
         mock_text = MagicMock(spec=TextContent)
         mock_text.text = text
@@ -833,7 +833,7 @@ class TestParseInteractionResponse:
         return mock_step
 
     def _make_thought_step(self, summary_text, signature=None):
-        from egpt.models.google.gemini_interactions import TextContent, ThoughtStep
+        from egpt.integrations.models.google.gemini_interactions import TextContent, ThoughtStep
 
         # ThoughtStep.summary is List[TextContent | ImageContent]
         mock_summary_item = MagicMock(spec=TextContent)
@@ -847,7 +847,7 @@ class TestParseInteractionResponse:
         return mock_step
 
     def _make_function_call_step(self, call_id, name, arguments, signature=None):
-        from egpt.models.google.gemini_interactions import FunctionCallStep
+        from egpt.integrations.models.google.gemini_interactions import FunctionCallStep
 
         mock_step = MagicMock(spec=FunctionCallStep)
         mock_step.id = call_id
@@ -875,7 +875,7 @@ class TestParseInteractionResponse:
 
         All go to citations.raw; only url_citation populates citations.urls.
         """
-        from egpt.models.google.gemini_interactions import ModelOutputStep, TextContent
+        from egpt.integrations.models.google.gemini_interactions import ModelOutputStep, TextContent
 
         url_ann = MagicMock()
         url_ann.type = "url_citation"
@@ -928,7 +928,7 @@ class TestParseInteractionResponse:
         assert response.tool_calls[0]["function"]["arguments"] == '{"city": "Paris"}'
 
     def _make_function_result_step(self, call_id, result, name=None, is_error=None):
-        from egpt.models.google.gemini_interactions import FunctionResultStep
+        from egpt.integrations.models.google.gemini_interactions import FunctionResultStep
 
         mock_step = MagicMock(spec=FunctionResultStep)
         mock_step.call_id = call_id
@@ -1012,11 +1012,11 @@ class TestParseInteractionResponse:
         # Build the Arguments via the real type so model_dump works.
         CEArgs = _interactions_content_type("CodeExecutionCallArguments")
 
-        from egpt.models.google.gemini_interactions import (
+        from egpt.integrations.models.google.gemini_interactions import (
             CodeExecutionCallStep,
             CodeExecutionResultStep,
         )
-        from egpt.models.google.gemini_interactions import (
+        from egpt.integrations.models.google.gemini_interactions import (
             CodeExecutionCallStep as _CECall,
         )
 
@@ -1052,7 +1052,7 @@ class TestParseInteractionResponse:
         UCArgs = _interactions_content_type("URLContextCallArguments")
         UCResult = _interactions_content_type("URLContextResult")
 
-        from egpt.models.google.gemini_interactions import URLContextCallStep, URLContextResultStep
+        from egpt.integrations.models.google.gemini_interactions import URLContextCallStep, URLContextResultStep
 
         call_step = MagicMock(spec=URLContextCallStep)
         call_step.__class__ = URLContextCallStep
@@ -1434,7 +1434,7 @@ class TestInvokeStream:
         assert call_kwargs["stream"] is True
 
     def test_invoke_stream_handles_text_delta(self):
-        from egpt.models.google.gemini_interactions import DeltaText, interaction_types
+        from egpt.integrations.models.google.gemini_interactions import DeltaText, interaction_types
 
         model = self._make_model()
         mock_client = MagicMock()
@@ -1460,7 +1460,7 @@ class TestInvokeStream:
         """Streamed visualization charts (DeltaImage) surface incrementally."""
         import base64
 
-        from egpt.models.google.gemini_interactions import DeltaImage, interaction_types
+        from egpt.integrations.models.google.gemini_interactions import DeltaImage, interaction_types
 
         model = self._make_model()
         mock_client = MagicMock()
@@ -1482,7 +1482,7 @@ class TestInvokeStream:
         assert len(imgs) == 1
 
     def test_invoke_stream_handles_interaction_created(self):
-        from egpt.models.google.gemini_interactions import interaction_types
+        from egpt.integrations.models.google.gemini_interactions import interaction_types
 
         model = self._make_model()
         mock_client = MagicMock()
@@ -1506,7 +1506,7 @@ class TestInvokeStream:
 
     def test_invoke_stream_merges_thought_signature(self):
         """thought_signature must merge into provider_data without clobbering siblings."""
-        from egpt.models.google.gemini_interactions import (
+        from egpt.integrations.models.google.gemini_interactions import (
             DeltaThoughtSignature,
             DeltaThoughtSummary,
             TextContent,
@@ -1544,7 +1544,7 @@ class TestInvokeStream:
         assert sig_responses[0].provider_data["thought_signature"] == "sig-abc"
 
     def test_invoke_stream_handles_function_call_with_argument_deltas(self):
-        from egpt.models.google.gemini_interactions import (
+        from egpt.integrations.models.google.gemini_interactions import (
             DeltaArgumentsDelta,
             FunctionCallStep,
             interaction_types,
@@ -1597,7 +1597,7 @@ class TestInvokeStream:
         """Streaming variant: FunctionCallStep StepStart -> args via deltas ->
         StepStop -> FunctionResultStep StepStart should yield a ToolExecution
         (with finalized args) and no client-side tool_calls."""
-        from egpt.models.google.gemini_interactions import (
+        from egpt.integrations.models.google.gemini_interactions import (
             DeltaArgumentsDelta,
             FunctionCallStep,
             FunctionResultStep,
@@ -1677,7 +1677,7 @@ class TestInvokeStream:
         'google_search()' with no args."""
         GSArgs = _interactions_content_type("GoogleSearchCallArguments")
 
-        from egpt.models.google.gemini_interactions import (
+        from egpt.integrations.models.google.gemini_interactions import (
             DeltaArgumentsDelta,
             FunctionResultStep,
             GoogleSearchCallStep,
@@ -1757,7 +1757,7 @@ class TestInvokeStream:
         DeltaGoogleSearchCall (NOT DeltaArgumentsDelta). Result content
         likewise arrives on DeltaGoogleSearchResult after the result step's
         StepStart, not on the step itself."""
-        from egpt.models.google.gemini_interactions import (
+        from egpt.integrations.models.google.gemini_interactions import (
             DeltaGoogleSearchCall,
             DeltaGoogleSearchResult,
             GoogleSearchCallStep,
@@ -1848,7 +1848,7 @@ class TestInvokeStream:
         result=None at StepStart; the actual TextContent payload arrives on
         a DeltaFunctionResult before StepStop. The result text must end up
         on ToolExecution.result, not silently dropped."""
-        from egpt.models.google.gemini_interactions import (
+        from egpt.integrations.models.google.gemini_interactions import (
             DeltaArgumentsDelta,
             DeltaFunctionResult,
             FunctionCallStep,
@@ -1932,7 +1932,7 @@ class TestInvokeStream:
         on DeltaCodeExecutionCall, and the stdout streams on
         DeltaCodeExecutionResult. Both surfaces must end up on the
         ToolExecution."""
-        from egpt.models.google.gemini_interactions import (
+        from egpt.integrations.models.google.gemini_interactions import (
             CodeExecutionCallStep,
             CodeExecutionResultStep,
             DeltaCodeExecutionCall,
@@ -2012,7 +2012,7 @@ class TestInvokeStream:
         tool-call event) when model_response.event ==
         ModelResponseEvent.tool_call_completed.value. Without the tag, the
         EgptOS UI shows no tool activity even though the data is there."""
-        from egpt.models.google.gemini_interactions import (
+        from egpt.integrations.models.google.gemini_interactions import (
             DeltaArgumentsDelta,
             FunctionCallStep,
             FunctionResultStep,
@@ -2077,7 +2077,7 @@ class TestInvokeStream:
         is a client-declared tool the autonomous loop is waiting for us to
         dispatch. Must be emitted as a tool_call on InteractionCompletedEvent,
         not silently dropped."""
-        from egpt.models.google.gemini_interactions import (
+        from egpt.integrations.models.google.gemini_interactions import (
             DeltaArgumentsDelta,
             FunctionCallStep,
             interaction_types,
@@ -2163,7 +2163,7 @@ class TestBackgroundStreamReconnect:
         )
 
     def _created_event(self, iid="interactions/dr-1"):
-        from egpt.models.google.gemini_interactions import interaction_types
+        from egpt.integrations.models.google.gemini_interactions import interaction_types
 
         ev = MagicMock(spec=interaction_types.InteractionCreatedEvent)
         ev.__class__ = interaction_types.InteractionCreatedEvent
@@ -2173,7 +2173,7 @@ class TestBackgroundStreamReconnect:
         return ev
 
     def _text_delta(self, text, event_id="e2"):
-        from egpt.models.google.gemini_interactions import DeltaText, interaction_types
+        from egpt.integrations.models.google.gemini_interactions import DeltaText, interaction_types
 
         ev = MagicMock(spec=interaction_types.StepDelta)
         ev.__class__ = interaction_types.StepDelta
@@ -2185,7 +2185,7 @@ class TestBackgroundStreamReconnect:
         return ev
 
     def test_reconnects_until_completed(self):
-        from egpt.models.google.gemini_interactions import ModelOutputStep, TextContent
+        from egpt.integrations.models.google.gemini_interactions import ModelOutputStep, TextContent
 
         model = self._make_model()
         mock_client = MagicMock()
@@ -2260,7 +2260,7 @@ class TestBackgroundStreamReconnect:
 
     def test_error_event_raises(self):
         from egpt.exceptions import ModelProviderError
-        from egpt.models.google.gemini_interactions import interaction_types
+        from egpt.integrations.models.google.gemini_interactions import interaction_types
 
         model = self._make_model()
         mock_client = MagicMock()
@@ -2434,7 +2434,7 @@ class TestMultimodalOutput:
         return GeminiInteractions(api_key="test-key")
 
     def test_parse_image_output(self):
-        from egpt.models.google.gemini_interactions import ImageContent, ModelOutputStep
+        from egpt.integrations.models.google.gemini_interactions import ImageContent, ModelOutputStep
 
         if ImageContent is None:
             pytest.skip("ImageContent not available in SDK")
@@ -2464,7 +2464,7 @@ class TestMultimodalOutput:
         assert response.images[0].mime_type == "image/png"
 
     def test_parse_audio_output(self):
-        from egpt.models.google.gemini_interactions import AudioContent, ModelOutputStep
+        from egpt.integrations.models.google.gemini_interactions import AudioContent, ModelOutputStep
 
         if AudioContent is None:
             pytest.skip("AudioContent not available in SDK")
@@ -2493,7 +2493,7 @@ class TestMultimodalOutput:
         assert response.audio.mime_type == "audio/wav"
 
     def test_parse_mixed_text_and_image_output(self):
-        from egpt.models.google.gemini_interactions import ImageContent, ModelOutputStep, TextContent
+        from egpt.integrations.models.google.gemini_interactions import ImageContent, ModelOutputStep, TextContent
 
         if ImageContent is None:
             pytest.skip("ImageContent not available in SDK")

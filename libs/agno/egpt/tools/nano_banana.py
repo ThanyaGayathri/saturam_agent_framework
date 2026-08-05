@@ -5,10 +5,10 @@ from io import BytesIO
 from typing import Any, List, Optional
 from uuid import uuid4
 
+from egpt.integrations.models._utils.gemini import inject_agno_client_header
 from egpt.media import Image
 from egpt.tools import Toolkit
 from egpt.tools.function import ToolResult
-from egpt.utils.gemini import inject_agno_client_header
 from egpt.utils.log import log_debug, logger
 
 try:

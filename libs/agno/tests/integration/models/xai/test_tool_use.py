@@ -3,7 +3,7 @@ from typing import Optional
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.xai import xAI
+from egpt.integrations.models.xai import xAI
 from egpt.tools.websearch import WebSearchTools
 from egpt.tools.yfinance import YFinanceTools
 

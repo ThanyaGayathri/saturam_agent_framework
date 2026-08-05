@@ -2,7 +2,7 @@ import pytest
 
 from egpt.agent import Agent
 from egpt.compression.manager import CompressionManager
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.team.team import Team
 
 

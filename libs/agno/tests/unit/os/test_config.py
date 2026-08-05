@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from egpt.agent.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.os.config import ChatConfig, EgptOSConfig, Manifest
 from egpt.os.schema import AgentSummaryResponse, ConfigResponse, TeamSummaryResponse

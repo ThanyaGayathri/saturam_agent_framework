@@ -6,9 +6,9 @@ pytest.importorskip("duckduckgo_search")
 pytest.importorskip("yfinance")
 
 from egpt.agent import Agent
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.models.message import Message
 from egpt.models.metrics import RunMetrics
-from egpt.models.openai import OpenAIChat
 from egpt.run import RunContext
 from egpt.run.team import TeamRunOutput
 from egpt.session.team import TeamSession

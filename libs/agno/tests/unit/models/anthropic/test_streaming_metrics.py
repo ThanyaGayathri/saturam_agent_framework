@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 from anthropic.types import MessageStartEvent, MessageStopEvent, Usage
 
-from egpt.models.anthropic.claude import Claude
+from egpt.integrations.models.anthropic.claude import Claude
 
 
 def _make_usage(input_tokens: int, output_tokens: int) -> Usage:

@@ -6,7 +6,7 @@ import pytest
 
 from egpt.agent import Agent
 from egpt.db.json import JsonDb
-from egpt.models.anthropic import Claude
+from egpt.integrations.models.anthropic import Claude
 from egpt.models.message import Message
 from egpt.run.agent import RunOutput
 from egpt.tools.yfinance import YFinanceTools

@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.openrouter import OpenRouter
+from egpt.integrations.models.openrouter import OpenRouter
 
 
 class MovieScript(BaseModel):

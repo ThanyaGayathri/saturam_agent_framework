@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from boto3.session import Session
 
-from egpt.models.aws import AwsBedrock
+from egpt.integrations.models.aws import AwsBedrock
 
 
 def _make_frozen_creds(access_key="ASIATEMP", secret_key="secret", token="token"):
@@ -54,7 +54,7 @@ class TestStaticKeyClientCached:
             aws_region="us-east-1",
         )
 
-        with patch("egpt.models.aws.bedrock.AwsClient") as MockClient:
+        with patch("egpt.integrations.models.aws.bedrock.AwsClient") as MockClient:
             mock_client = MagicMock()
             MockClient.return_value = mock_client
 
@@ -74,7 +74,7 @@ class TestSessionTokenEnv:
 
         model = AwsBedrock(id="anthropic.claude-3-sonnet-20240229-v1:0")
 
-        with patch("egpt.models.aws.bedrock.AwsClient") as MockClient:
+        with patch("egpt.integrations.models.aws.bedrock.AwsClient") as MockClient:
             MockClient.return_value = MagicMock()
             model.get_client()
 
@@ -91,7 +91,7 @@ class TestSessionTokenEnv:
             aws_region="us-east-1",
         )
 
-        with patch("egpt.models.aws.bedrock.AwsClient") as MockClient:
+        with patch("egpt.integrations.models.aws.bedrock.AwsClient") as MockClient:
             MockClient.return_value = MagicMock()
             model.get_client()
 
@@ -106,7 +106,7 @@ class TestSessionTokenEnv:
 
         model = AwsBedrock(id="anthropic.claude-3-sonnet-20240229-v1:0")
 
-        with patch("egpt.models.aws.bedrock.AwsClient") as MockClient:
+        with patch("egpt.integrations.models.aws.bedrock.AwsClient") as MockClient:
             MockClient.return_value = MagicMock()
             model.get_client()
 

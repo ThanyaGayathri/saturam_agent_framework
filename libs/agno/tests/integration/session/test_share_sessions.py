@@ -3,7 +3,7 @@ import uuid
 import pytest
 
 from egpt.agent.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.run.agent import RunOutput
 from egpt.run.team import TeamRunOutput
 from egpt.session.agent import AgentSession
