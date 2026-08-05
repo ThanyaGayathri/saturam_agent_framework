@@ -30,6 +30,8 @@ Earlier drafts of this document scanned only the areas named in the ticket's map
 | Module | External import | Why excluded |
 |---|---|---|
 | `eval/utils.py` | `sqlalchemy` | Consumes the DB layer; is not itself a backend. Moves only if `db/` moves under it. |
+| `db/filter_converter.py` | `sqlalchemy` | Query-helper over the DB layer, not a backend. ADR 0001 lines 101 and 173 name it explicitly in the core group. Also carried as a STAY row in section 4.3. |
+| `db/migrations/versions/*.py` | `sqlalchemy` | Alembic revision scripts under the `db/migrations/` STAY row in section 4.3. |
 | `os/routers/service_accounts/router.py` | `sqlalchemy` | Same: control-plane router over the DB layer. |
 | `os/middleware/jwt.py` | `jwt` (PyJWT) | Token verification is local computation; no external system is contacted. |
 | `workflow/cel.py` | `celpy` | CEL expression evaluator -- pure local computation, no external system. |
@@ -46,7 +48,7 @@ If a reviewer disagrees with any exclusion, the fix is a row in section 4, not a
 |---|---|---|---|
 | Model providers | ~46 | **46** provider dirs (+ `models/utils.py`) | Matches. Ticket omits `models/utils.py`, which ADR prereq #2 requires to move. |
 | Vector DB backends | ~18 | **18** | Matches. |
-| DB backends | ~14 | **14** (+ `schemas/`, `migrations/`) | Matches. |
+| DB backends | ~14 | **14** (+ `base.py`, `filter_converter.py`, `table_names.py`, `utils.py`, `schemas/`, `migrations/`) | Backend count matches. The six non-backend modules are listed as STAY rows so the area is complete against ADR 0001 line 101. |
 | Tools/toolkits | ~137 | **136** top-level `.py` + **18** in subpackages | Ticket's 137 counts `__init__.py`. Ticket omits `tools/google/` (8), `tools/google/auth/` (4), `tools/models/` (5), `tools/streamlit/` (1). |
 | MCP client + server | 4 (+`os/mcp`) | **3** client modules in `tools/mcp/`, **2** server modules in `os/` | Client count matches once `__init__.py` is excluded. The ticket's `os/mcp` is `os/mcp.py` (plus `os/mcp_results.py`) -- a **file, not a directory**, and a genuine `fastmcp` touchpoint. See A12. |
 | Knowledge readers | ~22 | **19** concrete (+ `base.py`, `reader_factory.py`, **2** in `reader/utils/`) | Ticket's 22 counts `__init__.py` and `base.py`, and misses the `reader/utils/` subpackage. |
@@ -59,14 +61,14 @@ If a reviewer disagrees with any exclusion, the fix is a row in section 4, not a
 | Tracing exporters | "OTel" | **1** in-tree (`exporter.py`); **0** vendor exporters | No Langfuse/Arize code exists in-tree -- see A9. |
 | Context providers | "~context" | **11** provider dirs (8 move, 3 stay) | Ticket never fixed a number and routes all of `context/` to integrations; ADR splits it -- see A8. |
 | Cloud provider adapters | *not listed* | **4** modules under `cloud/aws/` | **Gap in the ticket.** ADR 0001 line 164 extracts these to integrations. |
-| Provider-specific `utils/` | *not listed* | **14** (`gemini`, `openai`, `mcp`, `streamlit` + **10** in `utils/models/`) | **Gap in the ticket.** ADR 0001 decision 5 + split table (lines 152/178) split `utils/`. |
+| Provider-specific `utils/` | *not listed* | **15** (`gemini`, `openai`, `mcp`, `streamlit`, `tokens` + **10** in `utils/models/`) | **Gap in the ticket.** ADR 0001 decision 5 + split table (lines 152/178) split `utils/`. `tokens.py` added in re-review -- see A11. |
 | Channel integrations (existing) | "only `discord/`" | **1** | Matches; already in the target layer. |
 | `os/interfaces/` channels | *not listed* | **35** (34 adapter modules + `base.py`) | **Gap in the ticket.** Slack, Telegram, WhatsApp, A2A, AG-UI. ADR 0001 line 37 puts channel integrations in the integrations layer -- see A13. |
 | `agents/` external frameworks | *not listed* | **6** (+ `base.py`) | **Gap in the ticket.** `claude_agent_sdk`, `dspy`, `langchain_core`, Google Generative Language API. |
 | `guardrails/openai.py` | *not listed* | **1** (of 4 in `guardrails/`) | **Gap in the ticket.** Instantiates an OpenAI client and calls the moderation API. |
 | `run/cancellation_management/` | *not listed* | **1** (of 3) | **Gap in the ticket.** Redis backend. |
 
-**Totals: 401 modules inventoried.** 293 move to the integrations layer unambiguously; 67 need a decision first (section 6), of which 56 are proposed to move and 11 to stay or split; 35 are interfaces, domain types or pure logic that stay in core / orchestration; 6 are deprecation shims to delete. That is **~349 modules destined for the integrations layer**, against the ticket's ~270 estimate. The excess is the four families the ticket never contemplated (`os/interfaces/` channel adapters, `agents/` external-framework wrappers, `guardrails/openai.py`, the Redis cancellation manager) plus the rerankers, loaders, remote content, cloud adapters and provider utils its table did not account for.
+**Totals: 406 modules inventoried.** 293 move to the integrations layer unambiguously; 68 need a decision first (section 6), of which 57 are proposed to move and 11 to stay or split; 39 are interfaces, domain types or pure logic that stay in core / orchestration; 6 are deprecation shims to delete. That is **~350 modules destined for the integrations layer**, against the ticket's ~270 estimate. The excess is the four families the ticket never contemplated (`os/interfaces/` channel adapters, `agents/` external-framework wrappers, `guardrails/openai.py`, the Redis cancellation manager) plus the rerankers, loaders, remote content, cloud adapters and provider utils its table did not account for.
 
 ### Disposition legend
 
@@ -160,7 +162,7 @@ If a reviewer disagrees with any exclusion, the fix is a row in section 4, not a
 | `vectordb/upstashdb/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/upstashdb` | EGPT-1.5 | MOVE |  |
 | `vectordb/weaviate/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/weaviate` | EGPT-1.5 | MOVE |  |
 
-### 4.3 DB backends (16)
+### 4.3 DB backends (20)
 
 `BaseDb` / `AsyncBaseDb` in `db/base.py`. Target `integrations/db/*`, owner EGPT-1.6.
 
@@ -180,6 +182,10 @@ If a reviewer disagrees with any exclusion, the fix is a row in section 4, not a
 | `db/singlestore/` | `BaseDb` / `AsyncBaseDb` | `integrations/db/singlestore` | EGPT-1.6 | MOVE |  |
 | `db/sqlite/` | `BaseDb` / `AsyncBaseDb` | `integrations/db/sqlite` | EGPT-1.6 | MOVE |  |
 | `db/surrealdb/` | `BaseDb` / `AsyncBaseDb` | `integrations/db/surrealdb` | EGPT-1.6 | MOVE |  |
+| `db/base.py` | `BaseDb` / `AsyncBaseDb` | stay in core | -- | STAY | the interface itself |
+| `db/filter_converter.py` | -- | stay in core | -- | STAY | builds SQLAlchemy where-clauses over the DB layer; **not a backend**. ADR 0001 lines 101 and 173 name it explicitly in the core group -- see the section 2 exclusion table |
+| `db/table_names.py` | -- | stay in core | -- | STAY | shared table-name constants (ADR 0001 line 101) |
+| `db/utils.py` | -- | stay in core | -- | STAY | shared DB helpers (ADR 0001 line 101) |
 | `db/schemas/` | -- | stay in core | -- | STAY | shared table schemas, not a backend |
 | `db/migrations/` | -- | stay in core | -- | STAY | shared migrations (incl. `migrations/versions/`), not a backend |
 
@@ -515,7 +521,7 @@ No core interface today. ADR 0001 line 164 requires extraction so `cloud/` stays
 | `cloud/aws/s3/bucket.py` | -- | `integrations/cloud/aws/*` | EGPT-1.7 (TBC) | MOVE | ADR 0001: provider-specific deploy code extracts to integrations; **missing from the EGPT-1.3 ticket table** |
 | `cloud/aws/s3/object.py` | -- | `integrations/cloud/aws/*` | EGPT-1.7 (TBC) | MOVE | ADR 0001: provider-specific deploy code extracts to integrations; **missing from the EGPT-1.3 ticket table** |
 
-### 4.15 Provider-specific utils (15)
+### 4.15 Provider-specific utils (16)
 
 No core interface. ADR 0001 decision 5 and its split table (lines 152/178) assign these to integrations. **Absent from the ticket's mapping table.**
 
@@ -535,6 +541,7 @@ No core interface. ADR 0001 decision 5 and its split table (lines 152/178) assig
 | `utils/models/openai_responses.py` | -- | integrations/... (with its provider) | EGPT-1.4 | MOVE | OpenAI Responses helpers -- move with `models/openai`; ADR 0001 lines 152/178 assign `utils/models/` to integrations; **missing from the EGPT-1.3 ticket table** |
 | `utils/models/schema_utils.py` | -- | integrations/... (with its provider) | EGPT-1.4 | FLAG | shared schema helpers used across providers -- see A11; ADR 0001 lines 152/178 assign `utils/models/` to integrations; **missing from the EGPT-1.3 ticket table** |
 | `utils/models/watsonx.py` | -- | integrations/... (with its provider) | EGPT-1.4 | MOVE | IBM watsonx helpers -- move with `models/ibm`; ADR 0001 lines 152/178 assign `utils/models/` to integrations; **missing from the EGPT-1.3 ticket table** |
+| `utils/tokens.py` | -- | integrations/models/_shared/tokens (proposed) | EGPT-1.4 | FLAG | provider-keyed tokenizer selection: `tiktoken.encoding_for_model` (OpenAI), `Xenova/llama-3-tokenizer` (Meta), `c4ai-command-r` (Cohere). Both libraries fetch vocabularies over the network on first use. Multi-provider, so it cannot travel with one provider -- see A11 |
 | `utils/print_response/` | -- | orchestration (not integrations) | -- | STAY | ADR 0001 line 178 assigns to orchestration alongside `utils/{agent,team,events,reasoning,response,hooks}.py`; listed here only so the `utils/` split is fully accounted for |
 
 ### 4.16 Channel integrations (existing) (1)
@@ -634,6 +641,7 @@ These are real touchpoints with no row in the ticket's mapping table. All are al
 | `cloud/aws/` | 4 | EGPT-1.7 (to be confirmed) |
 | `utils/{gemini,openai,mcp,streamlit}.py` | 4 | EGPT-1.4 / 1.7 |
 | `utils/models/` | 10 | EGPT-1.4 |
+| `utils/tokens.py` | 1 | EGPT-1.4 |
 | `knowledge/reader/utils/` | 2 | EGPT-1.8 |
 | `models/utils.py` | 1 | EGPT-1.4 |
 | `os/interfaces/` (Slack, Telegram, WhatsApp, A2A, AG-UI) | 34 | EGPT-1.7 |
@@ -641,7 +649,7 @@ These are real touchpoints with no row in the ticket's mapping table. All are al
 | `guardrails/openai.py` | 1 | EGPT-1.7 |
 | `run/cancellation_management/redis_cancellation_manager.py` | 1 | EGPT-1.7 |
 
-**97 modules.** Six of these -- `tools/google/auth/` (4) and `knowledge/reader/utils/` (2) -- are not merely unlisted but load-bearing: they are imported by nearly every module scheduled to move alongside them (`tools/google/{base,gmail,drive,calendar,sheets,slides}.py` and the csv / excel / website / firecrawl / docling / llms_txt readers respectively). Moving the listed modules without them breaks those imports.
+**98 modules.** Six of these -- `tools/google/auth/` (4) and `knowledge/reader/utils/` (2) -- are not merely unlisted but load-bearing: they are imported by nearly every module scheduled to move alongside them (`tools/google/{base,gmail,drive,calendar,sheets,slides}.py` and the csv / excel / website / firecrawl / docling / llms_txt readers respectively). Moving the listed modules without them breaks those imports.
 
 The largest block -- the 42 modules under `os/interfaces/`, `agents/`, `guardrails/` and `run/cancellation_management/` -- was invisible to earlier drafts because those packages sat outside the scanned areas entirely. Section 2 now records the scope rule and the exclusions, and section 8 leads with a whole-tree sweep so an area-scoped blind spot cannot recur.
 
@@ -733,11 +741,18 @@ Sits among the 46 provider directories but the name suggested it might not be an
 
 **Disposition:** MOVE with the other providers under EGPT-1.4. No further decision needed.
 
-### A11 -- `utils/models/schema_utils.py`
+### A11 -- Shared provider helpers with no single owning provider
 
-The other nine modules in `utils/models/` are each tied to one provider and travel with it. `schema_utils.py` is shared across providers (pydantic-only, no SDK).
+Two modules serve the provider adapters collectively rather than belonging to any one of them, so neither the "travels with its provider" rule nor "stays in core" fits cleanly.
 
-**Proposed disposition:** move to a shared spot inside the integrations layer (e.g. `integrations/models/_shared`), not core -- it exists only to serve provider adapters. Confirm with the EGPT-1.4 owner.
+| Module | Why it has no single owner |
+|---|---|
+| `utils/models/schema_utils.py` | The other nine modules in `utils/models/` are each tied to one provider; this one is shared (pydantic-only, no SDK). |
+| `utils/tokens.py` | Selects a tokenizer per provider -- `tiktoken.encoding_for_model` for OpenAI, `Xenova/llama-3-tokenizer` for Meta, `c4ai-command-r` for Cohere -- in one module. |
+
+**Proposed disposition:** both move to a shared location inside the integrations layer (e.g. `integrations/models/_shared`), not core -- they exist only to serve provider adapters. Confirm with the EGPT-1.4 owner.
+
+`utils/tokens.py` is the weaker touchpoint of the two and was raised in review as a genuine judgement call. It contacts no service at request time, but `tiktoken` downloads BPE ranks from `openaipublic.blob.core.windows.net` and `tokenizers` pulls vocabularies from the HuggingFace Hub on first use, both cached thereafter. It is listed rather than excluded because ADR prerequisite #3's stated rationale is that provider helpers move "so core does not pull optional SDKs", and `tiktoken` / `tokenizers` are exactly that. The alternative -- excluding it -- would mean adding both libraries to the section 8 `PLUMBING` set, which would be untrue of them and would weaken the scope rule to silence a single hit.
 
 ### A12 -- MCP server in the api layer (`os/mcp.py`)
 
@@ -798,6 +813,8 @@ PY
 find . -mindepth 1 -type d ! -name __pycache__ ! -path './__pycache__*' | sort
 ```
 
+> When reconciling the sweep's output against this document, match on the **exact module path** as it appears in a section 4 row or a section 2 exclusion row. Do not accept a match on the parent directory -- `db/filter_converter.py` and `utils/tokens.py` both went unnoticed through two review rounds because `` `db/` `` and `` `utils/` `` appear elsewhere in the prose, and a parent-directory match reported them as accounted for when neither had a row.
+
 ```bash
 find models    -maxdepth 1 -type d ! -name __pycache__ | tail -n +2 | wc -l   # 46
 find vectordb  -maxdepth 1 -type d ! -name __pycache__ | tail -n +2 | wc -l   # 18
@@ -815,6 +832,7 @@ ls knowledge/remote_content/*.py | grep -v __init__ | wc -l                   # 
 find context   -maxdepth 1 -type d ! -name __pycache__ | tail -n +2 | wc -l   # 11
 find cloud -name '*.py' ! -name __init__.py | wc -l                           # 4
 ls utils/models/*.py      | grep -v __init__ | wc -l                          # 10
+ls db/*.py                | grep -v __init__ | wc -l                          #  4
 ls tools/google/auth/*.py | grep -v __init__ | wc -l                          # 4
 ls knowledge/reader/utils/*.py | grep -v __init__ | wc -l                     # 2
 ls os/mcp*.py                                                                 # 2
@@ -826,8 +844,8 @@ ls os/mcp*.py                                                                 # 
 
 | Criterion | Status |
 |---|---|
-| Inventory lists every external touchpoint | Done -- section 4, 401 modules across 19 areas, scope rule and exclusions in section 2 |
+| Inventory lists every external touchpoint | Done -- section 4, 406 modules across 19 areas, scope rule and exclusions in section 2 |
 | Each entry has interface, target module, owning ticket | Done -- all four columns populated in every table |
-| Counts reconcile with a fresh tree scan, no orphans | Done -- section 3 reconciles each area; section 5 lists the 97 modules the ticket's table omitted; commands in section 8 |
+| Counts reconcile with a fresh tree scan, no orphans | Done -- section 3 reconciles each area; section 5 lists the 98 modules the ticket's table omitted; commands in section 8 |
 | Ambiguous items flagged with a proposed disposition | Done -- A1 through A13 in section 6 (A10 resolved during review), each with a proposal |
 | Peer review by an EGPT-1.4-1.8 executor | **Pending** |
