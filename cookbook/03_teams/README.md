@@ -1,6 +1,6 @@
 # Agent Teams
 
-Cookbooks for building multi-agent teams in Agno.
+Cookbooks for building multi-agent teams in EGPT.
 
 ## Prerequisites
 

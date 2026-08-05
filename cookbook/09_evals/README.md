@@ -1,13 +1,13 @@
 # Evals Cookbook
 
-This directory contains runnable examples for Agno evaluation patterns.
+This directory contains runnable examples for EGPT evaluation patterns.
 
 ## Directory Overview
 
 - `accuracy/` - Accuracy evaluation examples for agents and teams.
 - `agent_as_judge/` - LLM-as-judge evaluation examples with scoring and hooks.
 - `performance/` - Runtime and memory performance benchmark examples.
-- `performance/comparison/` - Instantiation benchmarks for non-Agno frameworks.
+- `performance/comparison/` - Instantiation benchmarks for non-EGPT frameworks.
 - `reliability/` - Tool-call reliability evaluation examples.
 - `reliability/single_tool_calls/` - Reliability examples for single expected tool calls.
 - `reliability/multiple_tool_calls/` - Reliability examples for multi-tool workflows.

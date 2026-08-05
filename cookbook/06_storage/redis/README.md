@@ -1,6 +1,6 @@
 # Redis Integration
 
-Examples demonstrating Redis integration with Agno agents, teams, and workflows.
+Examples demonstrating Redis integration with EGPT agents, teams, and workflows.
 
 ## Setup
 

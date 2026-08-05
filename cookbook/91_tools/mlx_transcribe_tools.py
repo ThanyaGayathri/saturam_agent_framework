@@ -29,8 +29,8 @@ from egpt.tools.mlx_transcribe import MLXTranscribeTools
 
 
 # Get audio files from storage/audio directory
-agno_root_dir = Path(__file__).parent.parent.parent.resolve()
-audio_storage_dir = agno_root_dir.joinpath("storage/audio")
+egpt_root_dir = Path(__file__).parent.parent.parent.resolve()
+audio_storage_dir = egpt_root_dir.joinpath("storage/audio")
 
 # ---------------------------------------------------------------------------
 # Run Agent

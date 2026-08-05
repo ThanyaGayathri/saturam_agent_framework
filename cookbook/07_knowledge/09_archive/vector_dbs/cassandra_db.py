@@ -107,9 +107,11 @@ async def run_async(session, enable_batch: bool = False) -> None:
             "What can you tell me about the candidate?", markdown=True
         )
     else:
-        await knowledge.ainsert(url="https://docs.agno.com/agents/overview.md")
+        await knowledge.ainsert(
+            url="https://modelcontextprotocol.io/docs/learn/architecture"
+        )
         await agent.aprint_response(
-            "What is the purpose of an Agno Agent?", markdown=True
+            "What is the purpose of an MCP server?", markdown=True
         )
 
 

@@ -62,7 +62,7 @@ agent_readonly = Agent(
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     agent_all.print_response(
-        "Send 'Hello from Agno!' to #general",
+        "Send 'Hello from EGPT!' to #general",
         stream=True,
     )
 

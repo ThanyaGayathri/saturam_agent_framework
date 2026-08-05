@@ -1,7 +1,7 @@
-"""Connect Agno A2AClient to Google ADK A2A Server.
+"""Connect EGPT A2AClient to Google ADK A2A Server.
 
 This example demonstrates cross-framework A2A communication:
-Agno client -> Google ADK server
+EGPT client -> Google ADK server
 
 Prerequisites:
     1. Install dependencies:

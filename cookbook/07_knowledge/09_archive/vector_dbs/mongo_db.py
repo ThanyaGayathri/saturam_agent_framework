@@ -65,7 +65,7 @@ def create_async_knowledge(enable_batch: bool = False) -> Knowledge:
             vector_db=MongoVectorDb(
                 collection_name="documents",
                 db_url=mdb_connection_string,
-                database="agno",
+                database="egpt",
                 embedder=OpenAIEmbedder(enable_batch=True),
             )
         )

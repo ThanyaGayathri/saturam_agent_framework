@@ -28,4 +28,4 @@ Advanced knowledge patterns for power users and custom integrations.
 
 ## Further Reading
 
-- [Knowledge Overview](https://docs.agno.com/knowledge/overview)
+- [Knowledge cookbooks](../README.md)

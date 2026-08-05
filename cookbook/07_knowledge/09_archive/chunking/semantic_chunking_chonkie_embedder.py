@@ -8,16 +8,16 @@ from egpt.vectordb.pgvector import PgVector
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 
-agno_embedder = (
+egpt_embedder = (
     GeminiEmbedder()
-)  # Agno embedder is used to get the embedding for the vector database
+)  # EGPT embedder is used to get the embedding for the vector database
 chonkie_embedder = GeminiEmbeddings(
     model="gemini-embedding-exp-03-07"
 )  # Chonkie embedder is used to get the embedding for the semantic chunking
 
 knowledge = Knowledge(
     vector_db=PgVector(
-        table_name="recipes_semantic_chunking", db_url=db_url, embedder=agno_embedder
+        table_name="recipes_semantic_chunking", db_url=db_url, embedder=egpt_embedder
     ),
 )
 knowledge.insert(

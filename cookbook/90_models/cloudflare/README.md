@@ -21,13 +21,13 @@ Create an API token in the Cloudflare dashboard with permissions to use AI Gatew
 
 ### Default model (Workers AI)
 
-The Agno `Cloudflare` model class defaults to a Workers AI chat model so the basic example runs with Cloudflare credentials only. Confirm the exact model id in the [Workers AI model catalog](https://developers.cloudflare.com/workers-ai/models/) if the default id changes.
+The EGPT `Cloudflare` model class defaults to a Workers AI chat model so the basic example runs with Cloudflare credentials only. Confirm the exact model id in the [Workers AI model catalog](https://developers.cloudflare.com/workers-ai/models/) if the default id changes.
 
-**Building a Workers AI `id` for Agno / AI Gateway**
+**Building a Workers AI `id` for EGPT / AI Gateway**
 
 1. In the catalog, open a **Text generation** model you want (for example [gemma-4-26b-a4b-it](https://developers.cloudflare.com/workers-ai/models/gemma-4-26b-a4b-it/)).
 2. On that page, copy the model binding id from the UI (format like `@cf/google/gemma-4-26b-a4b-it`).
-3. Paste it into Agno as-is: `Cloudflare(id="@cf/google/gemma-4-26b-a4b-it")` or `Agent(model="cloudflare:@cf/google/gemma-4-26b-a4b-it")`. Agno turns `@cf/...` into `workers-ai/@cf/...` for the AI Gateway. The full `workers-ai/@cf/...` form still works if you type it yourself.
+3. Paste it into EGPT as-is: `Cloudflare(id="@cf/google/gemma-4-26b-a4b-it")` or `Agent(model="cloudflare:@cf/google/gemma-4-26b-a4b-it")`. EGPT turns `@cf/...` into `workers-ai/@cf/...` for the AI Gateway. The full `workers-ai/@cf/...` form still works if you type it yourself.
 
 Workers AI lists **Gemma** and other Google-hosted open weights; it does not expose arbitrary **Gemini** API names. For Gemini through the gateway, use a `google/...` model string from the [unified API docs](https://developers.cloudflare.com/ai-gateway/usage/chat-completion/) plus Google BYOK in the dashboard.
 
@@ -50,7 +50,7 @@ python cookbook/90_models/cloudflare/basic.py
 ### String model syntax
 
 ```python
-# Paste the catalog binding (Agno adds the workers-ai/ prefix):
+# Paste the catalog binding (EGPT adds the workers-ai/ prefix):
 Agent(model="cloudflare:@cf/google/gemma-4-26b-a4b-it")
 # Or use the full gateway form:
 Agent(model="cloudflare:workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast")

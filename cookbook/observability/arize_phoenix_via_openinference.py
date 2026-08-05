@@ -2,7 +2,7 @@
 Arize Phoenix Via OpenInference
 ===============================
 
-Demonstrates instrumenting an Agno agent with OpenInference and sending traces to Phoenix.
+Demonstrates instrumenting an EGPT agent with OpenInference and sending traces to Phoenix.
 """
 
 import asyncio

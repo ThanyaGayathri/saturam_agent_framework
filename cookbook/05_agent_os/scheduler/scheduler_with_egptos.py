@@ -7,7 +7,7 @@ This example demonstrates the primary DX for the scheduler:
 - The internal service token handles auth between scheduler and agent endpoints
 
 Run with:
-    .venvs/demo/bin/python cookbook/05_agent_os/scheduler/scheduler_with_agentos.py
+    .venvs/demo/bin/python cookbook/05_agent_os/scheduler/scheduler_with_egptos.py
 """
 
 from egpt.agent import Agent
@@ -64,4 +64,4 @@ app = agent_os.get_app()
 # The poller will pick it up on the next poll cycle and run the agent.
 
 if __name__ == "__main__":
-    agent_os.serve(app="scheduler_with_agentos:app", reload=True)
+    agent_os.serve(app="scheduler_with_egptos:app", reload=True)

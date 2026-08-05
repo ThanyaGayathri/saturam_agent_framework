@@ -1,10 +1,10 @@
 # WhatsApp Cookbook
 
-Examples for connecting Agno agents, teams, and workflows to WhatsApp using the
+Examples for connecting EGPT agents, teams, and workflows to WhatsApp using the
 `Whatsapp` interface in EgptOS. Supports text, images, video, audio, documents,
 and interactive messages (buttons, lists, location pins).
 
-**Requirements:** `httpx` (included with agno).
+**Requirements:** `httpx` (included with egpt).
 
 ## WhatsApp Business Setup
 
@@ -95,7 +95,7 @@ reachable, so start it **before** configuring the webhook in Meta.
    ```
 3. Set **Verify Token** to the same string as your `WHATSAPP_VERIFY_TOKEN` env var.
 4. Click **Verify and save** — Meta sends a GET challenge to your running server,
-   which Agno verifies automatically.
+   which EGPT verifies automatically.
 
 > See [Set Up Webhooks](https://developers.facebook.com/docs/whatsapp/cloud-api/guides/set-up-webhooks)
 > for details on the verification handshake and payload format.

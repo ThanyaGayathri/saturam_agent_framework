@@ -22,7 +22,7 @@ from egpt.vectordb.lancedb import LanceDb, SearchType
 def run_example() -> None:
     # Create a knowledge containing information from a URL
     print("Setting up URL knowledge...")
-    agno_docs = Knowledge(
+    egpt_docs = Knowledge(
         # Use LanceDB as the vector database
         vector_db=LanceDb(
             uri="tmp/lancedb",
@@ -32,7 +32,7 @@ def run_example() -> None:
         ),
     )
     # Add content to the knowledge
-    asyncio.run(agno_docs.ainsert(url="https://www.paulgraham.com/read.html"))
+    asyncio.run(egpt_docs.ainsert(url="https://www.paulgraham.com/read.html"))
     print("Knowledge ready.")
 
     print("\n=== Example 1: Using KnowledgeTools in non-streaming mode ===\n")
@@ -42,7 +42,7 @@ def run_example() -> None:
         model=OpenAIChat(id="gpt-4o"),
         tools=[
             KnowledgeTools(
-                knowledge=agno_docs,
+                knowledge=egpt_docs,
                 enable_think=True,
                 enable_search=True,
                 enable_analyze=True,
@@ -83,7 +83,7 @@ def run_example() -> None:
         model=OpenAIChat(id="gpt-4o"),
         tools=[
             KnowledgeTools(
-                knowledge=agno_docs,
+                knowledge=egpt_docs,
                 enable_think=True,
                 enable_search=True,
                 enable_analyze=True,

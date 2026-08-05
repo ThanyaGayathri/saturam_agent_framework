@@ -1,6 +1,6 @@
 # Database Integration
 
-This directory contains examples demonstrating how to integrate various databases with Agno agents, teams, and workflows for persistent storage.
+This directory contains examples demonstrating how to integrate various databases with EGPT agents, teams, and workflows for persistent storage.
 
 ## Setup
 

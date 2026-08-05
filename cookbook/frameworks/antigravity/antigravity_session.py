@@ -27,7 +27,7 @@ SESSION_ID = "antigravity-demo-1"
 
 # Turn 1 — provision the sandbox and run something
 agent.print_response(
-    "Write a file called notes.txt containing the string 'hello agno'.",
+    "Write a file called notes.txt containing the string 'hello egpt'.",
     stream=True,
     session_id=SESSION_ID,
 )

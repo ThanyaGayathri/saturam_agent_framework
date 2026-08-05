@@ -1,6 +1,6 @@
 # SingleStore Integration
 
-Examples demonstrating SingleStore database integration with Agno agents and teams.
+Examples demonstrating SingleStore database integration with EGPT agents and teams.
 
 ## Setup
 

@@ -1,6 +1,6 @@
 # In-Memory Storage
 
-This directory contains examples demonstrating how to use `InMemoryDb` with Agno agents, workflows, and teams.
+This directory contains examples demonstrating how to use `InMemoryDb` with EGPT agents, workflows, and teams.
 
 ## Overview
 

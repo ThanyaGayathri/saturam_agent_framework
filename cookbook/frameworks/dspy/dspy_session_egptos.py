@@ -9,7 +9,7 @@ Requirements:
     pip install dspy ddgs
 
 Usage:
-    python cookbook/frameworks/dspy/dspy_session_agentos.py
+    python cookbook/frameworks/dspy/dspy_session_egptos.py
 
 Then call the API:
     # Streaming
@@ -67,4 +67,4 @@ agent_os = EgptOS(agents=[agent])
 app = agent_os.get_app()
 
 if __name__ == "__main__":
-    agent_os.serve(app="dspy_session_agentos:app", reload=True)
+    agent_os.serve(app="dspy_session_egptos:app", reload=True)

@@ -19,14 +19,14 @@ from egpt.vectordb.lancedb import LanceDb, SearchType
 knowledge = Knowledge(
     vector_db=LanceDb(
         uri="tmp/lancedb",
-        table_name="agno_docs_team",
+        table_name="mcp_docs_team",
         search_type=SearchType.hybrid,
         embedder=CohereEmbedder(id="embed-v4.0"),
         reranker=CohereReranker(model="rerank-v3.5"),
     ),
 )
 
-knowledge.insert_many(urls=["https://docs.agno.com/agents/overview.md"])
+knowledge.insert_many(urls=["https://modelcontextprotocol.io/docs/learn/architecture"])
 
 # ---------------------------------------------------------------------------
 # Create Members
@@ -98,7 +98,7 @@ def main() -> None:
     print("Coordinated Agentic RAG Team Demo")
     print("=" * 50)
 
-    query = "What are Agents and how do they work with tools and knowledge?"
+    query = "What are MCP servers and how do they expose tools and resources?"
     coordinated_rag_team.print_response(query, stream=True)
 
 

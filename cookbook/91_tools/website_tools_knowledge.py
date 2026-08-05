@@ -32,7 +32,7 @@ if __name__ == "__main__":
     kb.insert_many(
         urls=[
             "https://agno-public.s3.amazonaws.com/recipes/ThaiRecipes.pdf",
-            "https://docs.agno.com/introduction",
+            "https://modelcontextprotocol.io/docs/getting-started/intro",
         ]
     )
 

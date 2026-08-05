@@ -18,7 +18,7 @@ from egpt.utils.log import log_info
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 
 # Setup basic agents, teams and workflows
-agno_support_agent = Agent(
+egpt_support_agent = Agent(
     id="example-agent",
     name="Example Agent",
     model=Claude(id="claude-sonnet-4-5"),
@@ -36,7 +36,7 @@ async def lifespan(app):
 
 agent_os = EgptOS(
     description="Example app with custom lifespan",
-    agents=[agno_support_agent],
+    agents=[egpt_support_agent],
     lifespan=lifespan,
 )
 

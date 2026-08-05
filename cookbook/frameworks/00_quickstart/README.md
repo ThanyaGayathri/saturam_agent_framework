@@ -1,6 +1,6 @@
-# Frameworks Quickstart: Agno, Claude Code, LangGraph, DSPy
+# Frameworks Quickstart: EGPT, Claude Code, LangGraph, DSPy
 
-EgptOS supports agents built with **Agno**, the **Claude Agent SDK** (Claude Code), **LangGraph**, and **DSPy** — served through one runtime, one API, and one UI.
+EgptOS supports agents built with **EGPT**, the **Claude Agent SDK** (Claude Code), **LangGraph**, and **DSPy** — served through one runtime, one API, and one UI.
 
 This quickstart shows each framework on its own and all together.
 
@@ -8,11 +8,11 @@ This quickstart shows each framework on its own and all together.
 
 | File | What It Shows |
 |:-----|:--------------|
-| `agno_agent.py` | Native Agno agent with the `Workspace` tool (read/edit/search/shell, with confirmation gates) |
+| `egpt_agent.py` | Native EGPT agent with the `Workspace` tool (read/edit/search/shell, with confirmation gates) |
 | `claude_agent.py` | Claude Code agent via the Claude Agent SDK, with `Read`, `Edit`, `Bash` tools |
 | `langgraph_agent.py` | A LangGraph chatbot wrapped for EgptOS |
 | `dspy_agent.py` | A DSPy `ChainOfThought` program wrapped for EgptOS |
-| `multi_framework_agentos.py` | Agno + Claude Code in one EgptOS — the example from the launch blog post |
+| `multi_framework_egptos.py` | EGPT + Claude Code in one EgptOS — the example from the launch blog post |
 
 Each example uses SQLite for session storage so you can run it with no infra setup.
 
@@ -34,9 +34,9 @@ claude_agent = ClaudeAgent(
     max_turns=10,
 )
 
-# Agno agent
-agno_agent = Agent(
-    name="Agno Agent",
+# EGPT agent
+egpt_agent = Agent(
+    name="EGPT Agent",
     model="openai:gpt-5.4",
     tools=[
         Workspace(
@@ -48,9 +48,9 @@ agno_agent = Agent(
 )
 
 agent_os = EgptOS(
-    agents=[agno_agent, claude_agent],
+    agents=[egpt_agent, claude_agent],
     tracing=True,
-    db=SqliteDb(db_file="tmp/agentos.db"),
+    db=SqliteDb(db_file="tmp/egptos.db"),
 )
 app = agent_os.get_app()
 ```
@@ -82,7 +82,7 @@ export OPENAI_API_KEY=sk-...
 Run any of the examples:
 
 ```bash
-python cookbook/frameworks/00_quickstart/multi_framework_agentos.py
+python cookbook/frameworks/00_quickstart/multi_framework_egptos.py
 ```
 
 The EgptOS UI is at <http://localhost:7777>. To list agents over HTTP:
@@ -94,7 +94,7 @@ curl http://localhost:7777/agents
 To run an agent:
 
 ```bash
-curl -X POST http://localhost:7777/agents/agno-agent/runs \
+curl -X POST http://localhost:7777/agents/egpt-agent/runs \
     -F "message=List the Python files in this directory" \
     -F "stream=true" --no-buffer
 ```
@@ -104,7 +104,7 @@ curl -X POST http://localhost:7777/agents/agno-agent/runs \
 - `../claude-agent-sdk/` — sessions, custom MCP tools, and more Claude SDK patterns
 - `../langgraph/` — tool calls, sessions, time travel
 - `../dspy/` — sessions, ReAct with tools
-- [EgptOS docs](https://docs.agno.com/agent-os/introduction)
+- [EgptOS cookbooks](../../05_agent_os/README.md)
 
 ## Status
 

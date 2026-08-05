@@ -1,10 +1,10 @@
-# Agno Cookbooks
+# EGPT Cookbooks
 
 Hundreds of examples. Copy, paste, run.
 
 ## Where to Start
 
-**New to Agno?** Start with [00_quickstart](./00_quickstart) — it walks you through the fundamentals, with each cookbook building on the last.
+**New to EGPT?** Start with [00_quickstart](./00_quickstart) — it walks you through the fundamentals, with each cookbook building on the last.
 
 **Want to see something real?** Jump to [01_demo](./01_demo) — advanced use cases. Run the examples, break them, learn from them.
 
@@ -15,7 +15,7 @@ Hundreds of examples. Copy, paste, run.
 ## Build by Use Case
 
 ### I want to build a single agent
-[02_agents](./02_agents) — The atomic unit of Agno. Start here for tools, RAG, structured outputs, multimodal, guardrails, and more.
+[02_agents](./02_agents) — The atomic unit of EGPT. Start here for tools, RAG, structured outputs, multimodal, guardrails, and more.
 
 ### I want agents working together
 [03_teams](./03_teams) — Coordinate multiple agents. Async flows, shared memory, distributed RAG, reasoning patterns.

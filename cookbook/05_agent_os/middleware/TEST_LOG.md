@@ -56,6 +56,6 @@
 
 **Status:** PENDING
 
-**Description:** Example demonstrating how to use guardrails with an Agno Agent.
+**Description:** Example demonstrating how to use guardrails with an EGPT Agent.
 
 ---

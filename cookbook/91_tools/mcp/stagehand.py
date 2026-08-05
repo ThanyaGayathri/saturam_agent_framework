@@ -1,7 +1,7 @@
 """
  Stagehand MCP Agent - Hacker News Reader's Digest
 
-This example demonstrates how to use Agno's agent to create a Hacker News content using the Stagehand MCP server.
+This example demonstrates how to use EGPT's agent to create a Hacker News content using the Stagehand MCP server.
 
 Features:
 - Scrapes current Hacker News headlines and metadata

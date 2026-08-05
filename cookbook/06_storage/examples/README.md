@@ -1,6 +1,6 @@
 # Database Integration Examples
 
-Patterns and examples for database integration with Agno.
+Patterns and examples for database integration with EGPT.
 
 ## Examples
 

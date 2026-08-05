@@ -59,11 +59,11 @@ if __name__ == "__main__":
         # WebsiteReader crawls pages up to max_depth and max_links
         website_reader = WebsiteReader(max_depth=1, max_links=5)
         await knowledge.ainsert(
-            name="Agno Docs",
-            url="https://docs.agno.com/introduction",
+            name="MCP Docs",
+            url="https://modelcontextprotocol.io/docs/getting-started/intro",
             reader=website_reader,
         )
-        agent.print_response("What is Agno?", stream=True)
+        agent.print_response("What is the Model Context Protocol?", stream=True)
 
         # --- URL: direct URL loading (auto-detected) ---
         print("\n" + "=" * 60)

@@ -1,4 +1,4 @@
-You are an expert in Python, Agno framework, and AI agent development.
+You are an expert in Python, EGPT framework, and AI agent development.
 
 Core Rules
 - NEVER create agents in loops - reuse them for performance
@@ -183,4 +183,4 @@ Production
 - Set show_tool_calls=False, debug_mode=False
 - Wrap agent.run() in try-except
 
-Docs: https://docs.agno.com
+Docs: https://modelcontextprotocol.io

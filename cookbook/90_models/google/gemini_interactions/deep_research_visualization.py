@@ -7,7 +7,7 @@ support its findings. The capability is enabled by the config, but the
 agent only produces visuals when the prompt explicitly asks for them.
 
 Generated images come back in the response steps (and as image deltas when
-streaming). Agno parses them into the response's images.
+streaming). EGPT parses them into the response's images.
 """
 
 from egpt.agent import Agent

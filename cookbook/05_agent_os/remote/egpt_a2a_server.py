@@ -1,7 +1,7 @@
 """
-Agno A2A Server for Cookbook Examples.
+EGPT A2A Server for Cookbook Examples.
 
-This server exposes Agno agents via the A2A (Agent-to-Agent) interface,
+This server exposes EGPT agents via the A2A (Agent-to-Agent) interface,
 allowing them to be accessed by any A2A-compatible client.
 
 Start this server before running 04_remote_agno_a2a_agent.py
@@ -84,7 +84,7 @@ researcher = Agent(
 
 agent_os = EgptOS(
     id="cookbook-a2a-server",
-    description="Agno A2A server for cookbook examples",
+    description="EGPT A2A server for cookbook examples",
     agents=[assistant, researcher],
     knowledge=[knowledge],
     a2a_interface=True,  # Enable A2A interface
@@ -102,4 +102,4 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    agent_os.serve(app="agno_a2a_server:app", reload=True, access_log=True, port=7779)
+    agent_os.serve(app="egpt_a2a_server:app", reload=True, access_log=True, port=7779)

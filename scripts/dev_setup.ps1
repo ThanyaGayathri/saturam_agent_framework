@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Agno Development Setup
+    EGPT Development Setup
 
 .DESCRIPTION
     Create a virtual environment and install libraries in editable mode.
@@ -58,17 +58,17 @@ uv venv $VenvDir --python 3.12
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 $env:VIRTUAL_ENV = $VenvDir
-Print-Heading "Installing egptctl and agno in editable mode with dev dependencies"
+Print-Heading "Installing egptctl and egpt in editable mode with dev dependencies"
 Print-Info "VIRTUAL_ENV=$VenvDir uv pip install -U -e ${EgptctlDir}[dev] -e ${AgnoDir}[dev]"
 uv pip install -U -e "${EgptctlDir}[dev]" -e "${AgnoDir}[dev]"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Print-Heading "Installing agno-infra"
+Print-Heading "Installing egpt-infra"
 Print-Info "VIRTUAL_ENV=$VenvDir uv pip install -r $AgnoInfraDir\requirements.txt"
 uv pip install -r "$AgnoInfraDir\requirements.txt"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-Print-Heading "Installing agno-infra in editable mode with dev dependencies"
+Print-Heading "Installing egpt-infra in editable mode with dev dependencies"
 Print-Info "VIRTUAL_ENV=$VenvDir uv pip install -U -e $AgnoInfraDir[dev]"
 uv pip install -U -e "${AgnoInfraDir}[dev]"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

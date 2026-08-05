@@ -1,12 +1,12 @@
 """
-Example demonstrating how to connect to a remote Agno A2A agent.
+Example demonstrating how to connect to a remote EGPT A2A agent.
 
 This example shows how to use RemoteAgent with the A2A protocol to connect
-to an Agno agent that's exposed via the A2A interface.
+to an EGPT agent that's exposed via the A2A interface.
 
 Prerequisites:
-1. Start an Agno A2A server:
-   python cookbook/06_agent_os/remote/agno_a2a_server.py
+1. Start an EGPT A2A server:
+   python cookbook/06_agent_os/remote/egpt_a2a_server.py
 
    The server will run on http://localhost:7779
 
@@ -23,10 +23,10 @@ from egpt.agent import RemoteAgent
 
 
 async def remote_agno_a2a_agent_example():
-    """Call a remote Agno agent exposed via A2A interface."""
-    # Connect to remote Agno A2A agent
+    """Call a remote EGPT agent exposed via A2A interface."""
+    # Connect to remote EGPT A2A agent
     # protocol="a2a" tells RemoteAgent to use A2A protocol
-    # a2a_protocol="rest" uses REST API (default for Agno A2A servers)
+    # a2a_protocol="rest" uses REST API (default for EGPT A2A servers)
     agent = RemoteAgent(
         base_url="http://localhost:7779/a2a/agents/assistant-agent-2",
         agent_id="assistant-agent-2",  # Agent ID from the A2A server
@@ -34,7 +34,7 @@ async def remote_agno_a2a_agent_example():
         a2a_protocol="rest",
     )
 
-    print("Calling remote Agno A2A agent...")
+    print("Calling remote EGPT A2A agent...")
     response = await agent.arun(
         "What is 15 * 23? Use the calculator tool.",
         user_id="user-123",
@@ -44,7 +44,7 @@ async def remote_agno_a2a_agent_example():
 
 
 async def remote_agno_a2a_streaming_example():
-    """Stream responses from a remote Agno A2A agent."""
+    """Stream responses from a remote EGPT A2A agent."""
     agent = RemoteAgent(
         base_url="http://localhost:7779/a2a/agents/researcher-agent-2",
         agent_id="researcher-agent-2",
@@ -52,7 +52,7 @@ async def remote_agno_a2a_streaming_example():
         a2a_protocol="rest",
     )
 
-    print("\nStreaming response from remote Agno A2A agent...")
+    print("\nStreaming response from remote EGPT A2A agent...")
     async for chunk in agent.arun(
         "Tell me a brief 2-sentence story about space exploration",
         session_id="session-456",
@@ -66,7 +66,7 @@ async def remote_agno_a2a_streaming_example():
 
 
 async def remote_agno_a2a_agent_info_example():
-    """Get information about a remote Agno A2A agent."""
+    """Get information about a remote EGPT A2A agent."""
     agent = RemoteAgent(
         base_url="http://localhost:7779/a2a/agents/assistant-agent-2",
         agent_id="assistant-agent-2",
@@ -84,19 +84,19 @@ async def remote_agno_a2a_agent_info_example():
 async def main():
     """Run all examples in a single event loop."""
     print("=" * 60)
-    print("Remote Agno A2A Agent Examples")
+    print("Remote EGPT A2A Agent Examples")
     print("=" * 60)
-    print("\nNote: Make sure the Agno A2A server is running on port 7779")
-    print("Start it with: python cookbook/06_agent_os/remote/agno_a2a_server.py\n")
+    print("\nNote: Make sure the EGPT A2A server is running on port 7779")
+    print("Start it with: python cookbook/06_agent_os/remote/egpt_a2a_server.py\n")
 
     # Run examples
-    print("1. Remote Agno A2A Agent Example:")
+    print("1. Remote EGPT A2A Agent Example:")
     await remote_agno_a2a_agent_example()
 
-    print("\n2. Remote Agno A2A Streaming Example:")
+    print("\n2. Remote EGPT A2A Streaming Example:")
     await remote_agno_a2a_streaming_example()
 
-    print("\n3. Remote Agno A2A Agent Info Example:")
+    print("\n3. Remote EGPT A2A Agent Info Example:")
     await remote_agno_a2a_agent_info_example()
 
 

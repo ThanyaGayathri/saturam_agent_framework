@@ -1,6 +1,6 @@
 # Async MySQL Integration
 
-Examples demonstrating asynchronous MySQL integration with Agno agents, teams, and workflows.
+Examples demonstrating asynchronous MySQL integration with EGPT agents, teams, and workflows.
 
 ## Setup
 

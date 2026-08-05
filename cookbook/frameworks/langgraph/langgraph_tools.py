@@ -1,5 +1,5 @@
 """
-LangGraph agent with tool calls, wrapped in Agno's LangGraphAgent.
+LangGraph agent with tool calls, wrapped in EGPT's LangGraphAgent.
 
 Requirements:
     pip install langgraph langchain-openai
@@ -67,7 +67,7 @@ graph.add_edge("tools", "chatbot")
 compiled = graph.compile()
 
 
-# ----- Wrap for Agno -----
+# ----- Wrap for EGPT -----
 agent = LangGraphAgent(
     name="LangGraph Tool Agent",
     graph=compiled,

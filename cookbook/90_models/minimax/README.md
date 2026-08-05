@@ -2,8 +2,8 @@
 
 [MiniMax](https://www.minimax.io/) exposes its text models through an
 [OpenAI-compatible API](https://platform.minimax.io/docs/api-reference/text-openai-api),
-so you can drive them through Agno the same way you'd drive any OpenAI-compatible
-provider. The Agno `MiniMax` class defaults to `MiniMax-M3` and points at the
+so you can drive them through EGPT the same way you'd drive any OpenAI-compatible
+provider. The EGPT `MiniMax` class defaults to `MiniMax-M3` and points at the
 international endpoint `https://api.minimax.io/v1`.
 
 ### 1. Create and activate a virtual environment
@@ -60,7 +60,7 @@ python cookbook/90_models/minimax/tool_use.py
 ### Structured output
 
 MiniMax does not implement OpenAI-style native `response_format` / strict
-`json_schema`, so the Agno class sets `supports_native_structured_outputs =
+`json_schema`, so the EGPT class sets `supports_native_structured_outputs =
 False`. Use `use_json_mode=True` on the agent for Pydantic-shaped output:
 
 ```python

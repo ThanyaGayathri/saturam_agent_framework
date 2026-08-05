@@ -1,7 +1,7 @@
 """
 ‍ Agent with Daytona tools
 
-This example shows how to use Agno's Daytona integration to run Agent-generated code in a remote, secure sandbox.
+This example shows how to use EGPT's Daytona integration to run Agent-generated code in a remote, secure sandbox.
 
 1. Get your Daytona API key and API URL: https://app.daytona.io/dashboard/keys
 2. Set the API key and API URL as environment variables:

@@ -1,13 +1,13 @@
 """
 Basic Agent - Your First Gemini Agent
 =======================================
-Simple Agno agent with Gemini 3.5 Flash.
+Simple EGPT agent with Gemini 3.5 Flash.
 
 Key concepts:
-- Agent: The core building block in Agno wraps a model with instructions
+- Agent: The core building block in EGPT wraps a model with instructions
 - print_response: Runs the agent and prints formatted output
 - stream=True: Streams tokens as they arrive instead of waiting for the full response
-- Sync vs async: Every Agno method has an async variant (aprint_response, arun, etc.)
+- Sync vs async: Every EGPT method has an async variant (aprint_response, arun, etc.)
 
 Example prompts to try:
 - "What are the top 3 things to see in Paris?"
@@ -58,7 +58,7 @@ if __name__ == "__main__":
 # More Examples
 # ---------------------------------------------------------------------------
 """
-Agno supports four execution modes for every agent:
+EGPT supports four execution modes for every agent:
 
 1. Sync (blocking)
    agent.print_response("prompt")

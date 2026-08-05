@@ -1,5 +1,5 @@
 """
-Standalone usage of DSPy with Agno's .run() and .print_response() methods.
+Standalone usage of DSPy with EGPT's .run() and .print_response() methods.
 
 Requirements:
     pip install dspy

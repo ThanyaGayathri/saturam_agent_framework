@@ -8,7 +8,7 @@ backs every learning store (`user_profile`, `user_memory`, `entity_memory`, etc.
 
 | File | Purpose |
 |------|---------|
-| `learnings_with_agentos.py` | Starts an EgptOS with a learning-enabled agent. |
+| `learnings_with_egptos.py` | Starts an EgptOS with a learning-enabled agent. |
 | `rest_api_learnings.py` | Hits the `/learnings` endpoints with `httpx`. |
 
 ## Running
@@ -16,7 +16,7 @@ backs every learning store (`user_profile`, `user_memory`, `entity_memory`, etc.
 In one terminal, start the EgptOS:
 
 ```bash
-.venvs/demo/bin/python cookbook/05_agent_os/learnings/learnings_with_agentos.py
+.venvs/demo/bin/python cookbook/05_agent_os/learnings/learnings_with_egptos.py
 ```
 
 In another, run the REST client:

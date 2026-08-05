@@ -17,7 +17,7 @@ from egpt.tools.calcom import CalComTools
 
 
 """
-Example showing how to use the Cal.com Tools with Agno.
+Example showing how to use the Cal.com Tools with EGPT.
 
 Requirements:
 - Cal.com API key (get from cal.com/settings/developer/api-keys)

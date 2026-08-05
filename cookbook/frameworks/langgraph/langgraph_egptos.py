@@ -1,14 +1,14 @@
 """
 Run a LangGraph agent through EgptOS endpoints.
 
-This shows how to register a LangGraph agent alongside native Agno agents
+This shows how to register a LangGraph agent alongside native EGPT agents
 and serve them all through the same EgptOS runtime.
 
 Requirements:
     pip install langgraph langchain-openai
 
 Usage:
-    .venvs/demo/bin/python cookbook/frameworks/langgraph_agentos.py
+    .venvs/demo/bin/python cookbook/frameworks/langgraph_egptos.py
 
 Then call the API:
     # Streaming
@@ -58,4 +58,4 @@ app = agent_os.get_app()
 # Run
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    agent_os.serve(app="langgraph_agentos:app", reload=True)
+    agent_os.serve(app="langgraph_egptos:app", reload=True)

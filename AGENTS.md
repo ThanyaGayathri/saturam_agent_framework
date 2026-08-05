@@ -1,4 +1,4 @@
-# AGENTS.md — Agno
+# AGENTS.md — EGPT
 
 Instructions for AI coding agents working on this codebase.
 
@@ -223,10 +223,10 @@ The `gh pr edit` command may fail with GraphQL errors related to classic project
 
 ```bash
 # Update PR body
-gh api repos/agno-agi/agno/pulls/<PR_NUMBER> -X PATCH -f body="<PR_BODY>"
+gh api repos/Saturam-Inc/saturam-agent-framework/pulls/<PR_NUMBER> -X PATCH -f body="<PR_BODY>"
 
 # Or with a file
-gh api repos/agno-agi/agno/pulls/<PR_NUMBER> -X PATCH -f body="$(cat /path/to/body.md)"
+gh api repos/Saturam-Inc/saturam-agent-framework/pulls/<PR_NUMBER> -X PATCH -f body="$(cat /path/to/body.md)"
 ```
 
 ---

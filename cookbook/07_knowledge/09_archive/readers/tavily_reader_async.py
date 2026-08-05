@@ -36,7 +36,7 @@ async def main():
 
     # URLs to extract content from
     urls_to_extract = [
-        "https://github.com/agno-agi/agno",
+        "https://github.com/modelcontextprotocol/modelcontextprotocol",
         "https://docs.tavily.com/documentation/api-reference/endpoint/extract",
     ]
 
@@ -76,7 +76,7 @@ async def main():
 
     # Ask questions about the extracted content
     await agent.aprint_response(
-        "What is Agno and what are its main features based on the documentation?",
+        "What is EGPT and what are its main features based on the documentation?",
         markdown=True,
     )
 

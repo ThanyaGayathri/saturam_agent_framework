@@ -2,7 +2,7 @@
 Atla Observability Integration
 ==============================
 
-Demonstrates adding Atla observability to an Agno agent.
+Demonstrates adding Atla observability to an EGPT agent.
 """
 
 from os import getenv

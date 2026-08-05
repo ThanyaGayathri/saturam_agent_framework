@@ -16,7 +16,7 @@ from egpt.tools.websearch import WebSearchTools
 # Create Example
 # ---------------------------------------------------------------------------
 
-db = SqliteDb(db_file="tmp/agentos.db")
+db = SqliteDb(db_file="tmp/egptos.db")
 
 chat_agent = Agent(
     name="Assistant",

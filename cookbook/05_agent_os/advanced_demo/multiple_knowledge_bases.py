@@ -21,9 +21,9 @@ db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 
 vector_db = PgVector(table_name="vectors", db_url=db_url)
 secondary_vector_db = PgVector(table_name="more_vectors", db_url=db_url)
-contents_db = JsonDb(db_path="./agno_json_data", knowledge_table="main_knowledge")
+contents_db = JsonDb(db_path="./egpt_json_data", knowledge_table="main_knowledge")
 secondary_contents_db = JsonDb(
-    db_path="./agno_json_data_2", knowledge_table="secondary_knowledge"
+    db_path="./egpt_json_data_2", knowledge_table="secondary_knowledge"
 )
 
 # Create knowledge bases

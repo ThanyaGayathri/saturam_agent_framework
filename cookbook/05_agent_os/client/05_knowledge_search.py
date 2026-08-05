@@ -56,7 +56,7 @@ async def main():
     print("\n3. Searching knowledge base...")
     try:
         results = await client.search_knowledge(
-            query="What is Agno?",
+            query="What is EGPT?",
             limit=5,
         )
         print(f"   Found {len(results.data)} results")

@@ -1,6 +1,6 @@
 # Google Cloud Storage Integration
 
-Examples demonstrating Google Cloud Storage (GCS) integration with Agno agents using JSON blob storage.
+Examples demonstrating Google Cloud Storage (GCS) integration with EGPT agents using JSON blob storage.
 
 ## Setup
 

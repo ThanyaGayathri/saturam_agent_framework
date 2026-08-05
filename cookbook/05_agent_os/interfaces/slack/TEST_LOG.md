@@ -2,7 +2,7 @@
 
 **Branch:** feat/slack-hitl (PR #7574)
 **Date:** 2026-05-11
-**Environment:** ngrok tunnel to localhost:7777, Agno workspace, Agno Test Bot Prod
+**Environment:** ngrok tunnel to localhost:7777, EGPT workspace, EGPT Test Bot Prod
 
 ---
 

@@ -1,7 +1,7 @@
 """
-Agno Agent on EgptOS
+EGPT Agent on EgptOS
 =====================
-A native Agno agent with the Workspace tool, served through EgptOS.
+A native EGPT agent with the Workspace tool, served through EgptOS.
 
 The Workspace tool gives the agent read/write/search access to a local
 directory. Destructive ops (write/edit/delete/shell) require human
@@ -9,7 +9,7 @@ confirmation by default — EgptOS renders these as approval prompts
 in the run timeline.
 
 Usage:
-    .venvs/demo/bin/python cookbook/frameworks/00_quickstart/agno_agent.py
+    .venvs/demo/bin/python cookbook/frameworks/00_quickstart/egpt_agent.py
 """
 
 from egpt.agent import Agent
@@ -18,7 +18,7 @@ from egpt.os import EgptOS
 from egpt.tools.workspace import Workspace
 
 agent = Agent(
-    name="Agno Agent",
+    name="EGPT Agent",
     model="openai:gpt-5.4",
     tools=[
         Workspace(
@@ -32,9 +32,9 @@ agent = Agent(
 agent_os = EgptOS(
     agents=[agent],
     tracing=True,
-    db=SqliteDb(db_file="tmp/agentos.db"),
+    db=SqliteDb(db_file="tmp/egptos.db"),
 )
 app = agent_os.get_app()
 
 if __name__ == "__main__":
-    agent_os.serve(app="agno_agent:app", reload=True)
+    agent_os.serve(app="egpt_agent:app", reload=True)

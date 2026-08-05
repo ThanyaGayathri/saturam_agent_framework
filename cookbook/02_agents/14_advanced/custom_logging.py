@@ -2,7 +2,7 @@
 Custom Logging
 =============================
 
-Example showing how to use a custom logger with Agno.
+Example showing how to use a custom logger with EGPT.
 """
 
 import logging
@@ -26,7 +26,7 @@ def get_custom_logger():
 # Get the custom logger we will use for the example.
 custom_logger = get_custom_logger()
 
-# Configure Agno to use our custom logger. It will be used for all logging.
+# Configure EGPT to use our custom logger. It will be used for all logging.
 configure_agno_logging(custom_default_logger=custom_logger)
 
 # Every use of the logging function in egpt.utils.log will now use our custom logger.

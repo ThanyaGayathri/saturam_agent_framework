@@ -38,7 +38,7 @@
 
 **Status:** PENDING
 
-**Description:** This example shows how to run an Agent using our MCP integration in the Agno OS.
+**Description:** This example shows how to run an Agent using our MCP integration in the EgptOS.
 
 ---
 

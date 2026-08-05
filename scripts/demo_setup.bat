@@ -6,7 +6,7 @@ setlocal EnableDelayedExpansion
 
 :: ############################################################################
 :: 
-::    Agno Demo Environment Setup
+::    EGPT Demo Environment Setup
 :: 
 ::    Usage: scripts\demo_setup.bat
 ::    Run:   python cookbook/01_demo/run.py
@@ -60,7 +60,7 @@ uv venv "%VENV_DIR%" --python 3.12 --quiet
 if %ERRORLEVEL% NEQ 0 exit /b %ERRORLEVEL%
 
 echo.
-echo     %GRAY%Installing egptctl and agno[demo]...%RESET%
+echo     %GRAY%Installing egptctl and egpt[demo]...%RESET%
 echo     %GRAY%^> set VIRTUAL_ENV=%VENV_DIR% ^& uv pip install -e "%EGPTCTL_DIR%" -e "%AGNO_DIR%[demo]"%RESET%
 
 :: In batch, we can set the variable just for this command by chaining or wrapping

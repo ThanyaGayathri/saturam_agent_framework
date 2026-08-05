@@ -1,7 +1,7 @@
 """
-Multi-Framework EgptOS — Agno + Claude Code
+Multi-Framework EgptOS — EGPT + Claude Code
 ============================================
-Serve a Claude Code agent (via the Claude Agent SDK) and an Agno agent
+Serve a Claude Code agent (via the Claude Agent SDK) and an EGPT agent
 through a single EgptOS. They share one database, one API surface,
 and one UI.
 
@@ -12,14 +12,14 @@ Requirements:
     pip install claude-agent-sdk
 
 Usage:
-    .venvs/demo/bin/python cookbook/frameworks/00_quickstart/multi_framework_agentos.py
+    .venvs/demo/bin/python cookbook/frameworks/00_quickstart/multi_framework_egptos.py
 
 Then call the API:
     # List agents
     curl http://localhost:7777/agents
 
-    # Run the Agno agent
-    curl -X POST http://localhost:7777/agents/agno-agent/runs \\
+    # Run the EGPT agent
+    curl -X POST http://localhost:7777/agents/egpt-agent/runs \\
         -F "message=List the Python files in this directory" \\
         -F "stream=true" --no-buffer
 
@@ -47,10 +47,10 @@ claude_agent = ClaudeAgent(
 )
 
 # ---------------------------------------------------------------------------
-# Agno agent
+# EGPT agent
 # ---------------------------------------------------------------------------
-agno_agent = Agent(
-    name="Agno Agent",
+egpt_agent = Agent(
+    name="EGPT Agent",
     model="openai:gpt-5.4",
     tools=[
         Workspace(
@@ -65,11 +65,11 @@ agno_agent = Agent(
 # Serve both through one EgptOS
 # ---------------------------------------------------------------------------
 agent_os = EgptOS(
-    agents=[agno_agent, claude_agent],
+    agents=[egpt_agent, claude_agent],
     tracing=True,
-    db=SqliteDb(db_file="tmp/agentos.db"),
+    db=SqliteDb(db_file="tmp/egptos.db"),
 )
 app = agent_os.get_app()
 
 if __name__ == "__main__":
-    agent_os.serve(app="multi_framework_agentos:app", reload=True)
+    agent_os.serve(app="multi_framework_egptos:app", reload=True)

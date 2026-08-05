@@ -124,7 +124,7 @@ def _format_input(companies: List[str]) -> str:
 
 if __name__ == "__main__":
     if os.getenv("RUN_DEMO") == "1":
-        sample_companies = ["Agno", "Anthropic", "Hugging Face"]
+        sample_companies = ["EGPT", "Anthropic", "Hugging Face"]
         response = data_enrichment_agent.run(_format_input(sample_companies))
 
         result = response.content

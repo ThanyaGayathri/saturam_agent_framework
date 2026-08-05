@@ -1,5 +1,5 @@
 """
-Example: Using ShopifyTools with an Agno Agent
+Example: Using ShopifyTools with an EGPT Agent
 
 This example shows how to create an agent that can:
 - Analyze sales data and identify top-selling products

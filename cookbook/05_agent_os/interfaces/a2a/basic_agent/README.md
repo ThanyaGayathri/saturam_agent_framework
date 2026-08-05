@@ -1,12 +1,12 @@
-# Basic Agno A2A Agent Example
+# Basic EGPT A2A Agent Example
 
-Basic Agno A2A Agent example that uses A2A to send and receive messages to/from an agent.
+Basic EGPT A2A Agent example that uses A2A to send and receive messages to/from an agent.
 
 ## Getting started
 
 1. Clone a2a python repository: https://github.com/google/a2a-python
 
-2. Install the a2a library in your virtual environment which has Agno installed
+2. Install the a2a library in your virtual environment which has EGPT installed
 
    ```bash
    uv pip install .

@@ -18,7 +18,7 @@ from egpt.vectordb.lancedb import LanceDb
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
-TABLE_NAME = "agno_cloud_test"
+TABLE_NAME = "egpt_cloud_test"
 URI = os.getenv("LANCE_DB_URI")
 API_KEY = os.getenv("LANCE_DB_API_KEY") or os.getenv("LANCEDB_API_KEY")
 
@@ -49,7 +49,7 @@ def main():
 
     knowledge = Knowledge(
         name="LanceDB Cloud Test",
-        description="Agno Knowledge with LanceDB Cloud",
+        description="EGPT Knowledge with LanceDB Cloud",
         vector_db=vector_db,
     )
 
@@ -58,7 +58,7 @@ def main():
         await knowledge.ainsert(
             name="cloud_test_doc",
             text_content="LanceDB Cloud is a hosted vector database. "
-            "Agno supports it via the LanceDb vector store with uri and api_key. "
+            "EGPT supports it via the LanceDb vector store with uri and api_key. "
             "Use db:// URI and set LANCEDB_API_KEY for cloud connections.",
             metadata={"source": "lance_db_cloud_cookbook"},
         )

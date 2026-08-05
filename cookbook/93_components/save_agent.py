@@ -18,9 +18,9 @@ db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 # Create Agent
 # ---------------------------------------------------------------------------
 agent = Agent(
-    id="agno-agent",
+    id="egpt-agent",
     model=OpenAIChat(id="gpt-5-mini"),
-    name="Agno Agent",
+    name="EGPT Agent",
     db=db,
 )
 

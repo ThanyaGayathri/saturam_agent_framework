@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Agno Demo Environment Setup
+    EGPT Demo Environment Setup
 
 .DESCRIPTION
     Usage: .\scripts\demo_setup.ps1
@@ -54,7 +54,7 @@ uv venv $VenvDir --python 3.12 --quiet
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host ""
-Write-Host "    Installing egptctl and agno[demo]..." -ForegroundColor Gray
+Write-Host "    Installing egptctl and egpt[demo]..." -ForegroundColor Gray
 Write-Host "    > uv pip install -e $EgptctlDir -e ${AgnoDir}[demo]" -ForegroundColor Gray
 
 # Set VIRTUAL_ENV for the install command

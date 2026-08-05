@@ -1,6 +1,6 @@
 # Memory Integrations
 
-Examples for connecting Agno agents to external memory services.
+Examples for connecting EGPT agents to external memory services.
 
 ## Files
 

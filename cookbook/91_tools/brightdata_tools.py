@@ -44,17 +44,17 @@ agent = Agent(
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     agent.print_response(
-        "Scrape this webpage as markdown: https://docs.agno.com/introduction",
+        "Scrape this webpage as markdown: https://modelcontextprotocol.io/docs/getting-started/intro",
     )
 
     # Example 2: Take a screenshot of a webpage
     # agent.print_response(
-    #     "Take a screenshot of this webpage: https://docs.agno.com/introduction",
+    #     "Take a screenshot of this webpage: https://modelcontextprotocol.io/docs/getting-started/intro",
     # )
 
     # response = agent.run_response
     # if response.images:
-    #     save_base64_data(response.images[0].content, "tmp/agno_screenshot.png")
+    #     save_base64_data(response.images[0].content, "tmp/mcp_screenshot.png")
 
     # Add a new SERP API zone: https://brightdata.com/cp/zones/new
     # Example 3: Search using Google

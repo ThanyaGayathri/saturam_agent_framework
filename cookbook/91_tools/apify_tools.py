@@ -59,7 +59,7 @@ def demonstrate_tools():
     agent.print_response(prompt, show_full_reasoning=True)
 
     print("\n1.2 RAG Web Search Scenarios:")
-    prompt = "Carefully extract the key introduction details from https://docs.agno.com/introduction"  #  Extract content from specific website
+    prompt = "Carefully extract the key introduction details from https://modelcontextprotocol.io/docs/getting-started/intro"  #  Extract content from specific website
     agent.print_response(prompt)
 
     # Google Places Demonstration

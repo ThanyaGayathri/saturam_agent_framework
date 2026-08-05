@@ -6,7 +6,7 @@ Pass `agent_directory=` to the toolkit constructor and it will:
   2. Register the agent definition via POST /v1beta/agents (idempotent).
   3. Route all subsequent `run_antigravity_task` calls at the named custom agent.
 
-Lets a regular Agno agent (any model) delegate sub-tasks to a folder-defined
+Lets a regular EGPT agent (any model) delegate sub-tasks to a folder-defined
 Antigravity agent without having to wire up `/agents` calls yourself.
 
 Re-uses the example folder from
@@ -34,7 +34,7 @@ agent = Agent(
     name="Haiku Requester",
     model=Gemini(id="gemini-2.5-pro"),
     # Register the folder once at construction; subsequent run_antigravity_task
-    # calls invoke the named agent (`agno-haiku-bot-from-dir`).
+    # calls invoke the named agent (`egpt-haiku-bot-from-dir`).
     tools=[AntigravityTools(agent_directory=str(AGENT_DIR))],
     markdown=True,
     instructions=[

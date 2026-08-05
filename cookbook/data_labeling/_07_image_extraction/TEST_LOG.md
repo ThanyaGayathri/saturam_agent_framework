@@ -1,6 +1,6 @@
 # Test Log - _07_image_extraction
 
-Tested 2026-05-22 against `gemini-3.5-flash`, agno 2.6.9.
+Tested 2026-05-22 against `gemini-3.5-flash`, egpt 2.6.9.
 
 ### basic.py
 
@@ -20,7 +20,7 @@ Tested 2026-05-22 against `gemini-3.5-flash`, agno 2.6.9.
 
 **Description:** OCR a text-heavy image into typed fields (primary text, secondary text, color scheme).
 
-**Result:** Reads the Agno wordmark and body copy from the intro image into the typed schema.
+**Result:** Reads the EGPT wordmark and body copy from the intro image into the typed schema.
 
 **Note:** Input switched from a Wikimedia "Welcome to Las Vegas" sign (Gemini can't fetch those URLs) to `agno-public.s3.us-east-1.amazonaws.com/images/agno-intro.png`. The schema is still about extracting text from an image — content changed from a sign to a marketing graphic.
 

@@ -1,6 +1,6 @@
 """Example for EgptOS to show how to generate custom events.
 
-You can yield custom events from your own tools. These events will be handled internally as an Agno event, and you will be able to access it in the same way you would access any other Agno event.
+You can yield custom events from your own tools. These events will be handled internally as an EGPT event, and you will be able to access it in the same way you would access any other EGPT event.
 
 In this example we also pass the session state to the tool, so that the tool can use it to get the customer profile.
 """
@@ -46,7 +46,7 @@ async def get_customer_profile(run_context: RunContext):
     )
     customer_phone = run_context.session_state.get("customer_phone", "1234567890")
 
-    # We only need to yield the custom event, Agno will handle the rest.
+    # We only need to yield the custom event, EGPT will handle the rest.
     yield CustomerProfileEvent(
         customer_name=customer_name,
         customer_email=customer_email,

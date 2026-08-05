@@ -1,6 +1,6 @@
 # Async Postgres Integration
 
-Examples demonstrating asynchronous PostgreSQL integration with Agno agents, teams, and workflows.
+Examples demonstrating asynchronous PostgreSQL integration with EGPT agents, teams, and workflows.
 
 ## Setup
 

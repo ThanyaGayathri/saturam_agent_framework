@@ -1,6 +1,6 @@
 # Gemini Interactions API
 
-Examples using Google's Interactions API with Agno.
+Examples using Google's Interactions API with EGPT.
 
 The Interactions API is a new primitive that provides:
 

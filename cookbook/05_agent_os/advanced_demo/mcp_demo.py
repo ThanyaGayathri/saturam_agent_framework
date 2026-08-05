@@ -1,4 +1,4 @@
-"""This example shows how to run an Agent using our MCP integration in the Agno OS.
+"""This example shows how to run an Agent using our MCP integration in the EgptOS.
 
 For this example to run you need:
 - Create a GitHub personal access token following these steps:

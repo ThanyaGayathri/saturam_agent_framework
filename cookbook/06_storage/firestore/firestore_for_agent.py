@@ -12,7 +12,7 @@ from egpt.agent import Agent
 from egpt.db.firestore import FirestoreDb
 from egpt.tools.websearch import WebSearchTools
 
-PROJECT_ID = "agno-os-test"  # Use your project ID here
+PROJECT_ID = "egpt-os-test"  # Use your project ID here
 
 # ---------------------------------------------------------------------------
 # Setup

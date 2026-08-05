@@ -2,14 +2,14 @@
 Wiki Context Provider — EgptOS Streaming
 ==========================================
 
-Tests sub-agent event streaming through os.agno.com. When the parent agent
+Tests sub-agent event streaming through http://localhost:7777/docs. When the parent agent
 calls a context provider's query tool, the sub-agent's events (tool calls,
 content) are streamed back in real-time.
 
 Run locally:
-    python cookbook/12_context/23_wiki_agentos_streaming.py
+    python cookbook/12_context/23_wiki_egptos_streaming.py
 
-Then open os.agno.com and connect to http://localhost:7777
+Then open http://localhost:7777/docs and connect to http://localhost:7777
 
 Requires: OPENAI_API_KEY
 """
@@ -73,6 +73,8 @@ if __name__ == "__main__":
         print(f"  - {f.name}")
     print()
     print("Starting EgptOS on http://localhost:7777")
-    print("Connect via os.agno.com and ask: 'What is our system architecture?'")
+    print(
+        "Connect via http://localhost:7777/docs and ask: 'What is our system architecture?'"
+    )
     print()
-    agent_os.serve(app="23_wiki_agentos_streaming:app", reload=True)
+    agent_os.serve(app="23_wiki_egptos_streaming:app", reload=True)

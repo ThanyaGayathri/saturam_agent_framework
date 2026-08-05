@@ -87,7 +87,7 @@ if __name__ == "__main__":
     research_team.print_response(
         input={
             "project_name": "AI Framework Comparison 2024",
-            "research_topics": ["LangChain", "CrewAI", "AutoGen", "Agno"],
+            "research_topics": ["LangChain", "CrewAI", "AutoGen", "EGPT"],
             "target_audience": "AI Engineers and Developers",
             "depth_level": "intermediate",
             "max_sources": 15,

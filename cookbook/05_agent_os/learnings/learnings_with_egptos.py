@@ -4,7 +4,7 @@ This sets up an EgptOS instance with a learning-enabled agent so that you can
 exercise the /learnings CRUD endpoints from a client (see rest_api_learnings.py).
 
 Run with:
-    .venvs/demo/bin/python cookbook/05_agent_os/learnings/learnings_with_agentos.py
+    .venvs/demo/bin/python cookbook/05_agent_os/learnings/learnings_with_egptos.py
 
 Then in another terminal, run rest_api_learnings.py to hit the endpoints.
 """
@@ -52,4 +52,4 @@ if __name__ == "__main__":
 
     See http://localhost:7777/docs for interactive OpenAPI docs.
     """
-    agent_os.serve(app="learnings_with_agentos:app", reload=True)
+    agent_os.serve(app="learnings_with_egptos:app", reload=True)

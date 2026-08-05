@@ -12,7 +12,7 @@ Run standalone:
 
 Run via Agent OS:
     python cookbook/levels_of_agentic_software/run.py
-    Then visit https://os.agno.com and select "L1 Coding Agent"
+    Then visit http://localhost:7777/docs and select "L1 Coding Agent"
 
 Example prompt:
     "Write a Fibonacci function, save it to fib.py, and run it to verify"

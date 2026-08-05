@@ -72,19 +72,17 @@ python cookbook/00_quickstart/agent_with_tools.py
 
 **That's it.** No Docker, no Postgres — just Python and an API key.
 
-## Run via Agent OS
+## Run via EgptOS
 
-Agent OS provides a web interface for interacting with your agents. Start the server:
+EgptOS serves your agents as a production API. Start the server:
 
 ```bash
 python cookbook/00_quickstart/run.py
 ```
 
-Then visit [os.agno.com](https://os.agno.com?utm_source=github&utm_medium=example-repo&utm_campaign=ab-examples-data-labeling&utm_term=data-labeling&utm_content=agentos) and add `http://localhost:7777` as an endpoint.
-
-Here's how it looks in action — chat with your agents, explore sessions, monitor traces, manage knowledge and memories, all through a beautiful visual UI.
-
-https://github.com/user-attachments/assets/aae0086b-86f6-4939-a0ce-e1ec9b87ba1f
+Then open the interactive API docs at <http://localhost:7777/docs> to chat with your
+agents, inspect sessions and traces, and manage knowledge and memories over REST.
+A coding agent can attach to the same server with `egpt connect`.
 
 > [!TIP]
 > To run the agent-with-knowledge, remember to load the knowledge base first using:
@@ -94,7 +92,7 @@ https://github.com/user-attachments/assets/aae0086b-86f6-4939-a0ce-e1ec9b87ba1f
 
 ## Swap Models Anytime
 
-Agno is model-agnostic. Same code, different provider:
+EGPT is model-agnostic. Same code, different provider:
 
 ```python
 # Gemini (default in these examples)
@@ -156,5 +154,5 @@ All examples in this Quick Start use synchronous code for simplicity. For async/
 
 ## Learn More
 
-- [Agno Documentation](https://docs.agno.com?utm_source=github&utm_medium=example-repo&utm_campaign=ab-examples-data-labeling&utm_term=data-labeling&utm_content=docs)
-- [Agent OS Overview](https://docs.agno.com/agent-os/introduction?utm_source=github&utm_medium=example-repo&utm_campaign=ab-examples-data-labeling&utm_term=data-labeling&utm_content=docs)
+- [EGPT package README](../../libs/agno/README.md)
+- [EgptOS cookbooks](../05_agent_os/README.md)

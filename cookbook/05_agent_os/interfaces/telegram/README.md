@@ -1,12 +1,12 @@
 # Telegram Cookbook
 
-Examples for connecting Agno agents, teams, and workflows to Telegram using the
+Examples for connecting EGPT agents, teams, and workflows to Telegram using the
 `Telegram` interface in EgptOS. Supports text, media, streaming, and multi-agent
 teams via Telegram's Bot API with webhook-based message delivery.
 
 ## Telegram Bot Setup
 
-Follow these steps to create and configure a Telegram bot for use with Agno.
+Follow these steps to create and configure a Telegram bot for use with EGPT.
 
 ### 1. Create the Bot
 

@@ -5,11 +5,11 @@ Examples for `remote` in EgptOS.
 ## Files
 - `01_remote_agent.py` — Examples demonstrating EgptOSRunner for remote execution.
 - `02_remote_team.py` — Examples demonstrating EgptOSRunner for remote execution.
-- `03_remote_agno_a2a_agent.py` — Example demonstrating how to connect to a remote Agno A2A agent.
+- `03_remote_agno_a2a_agent.py` — Example demonstrating how to connect to a remote EGPT A2A agent.
 - `04_remote_adk_agent.py` — Example demonstrating how to connect to a remote Google ADK agent.
 - `05_agent_os_gateway.py` — Example showing how to use an EgptOS instance as a gateway to remote agents, teams and workflows.
 - `adk_server.py` — Google ADK A2A Server for Cookbook Examples.
-- `agno_a2a_server.py` — Agno A2A Server for Cookbook Examples.
+- `egpt_a2a_server.py` — EGPT A2A Server for Cookbook Examples.
 - `server.py` — EgptOS Server for Cookbook Client Examples.
 
 ## Prerequisites

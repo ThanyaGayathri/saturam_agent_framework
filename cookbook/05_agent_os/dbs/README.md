@@ -3,7 +3,7 @@
 Examples for `dbs` in EgptOS.
 
 ## Files
-- `agentos_default_db.py` — EgptOS Demo.
+- `egptos_default_db.py` — EgptOS Demo.
 - `dynamo.py` — Example showing how to use EgptOS with a DynamoDB database.
 - `firestore.py` — Example showing how to use EgptOS with a Firestore database.
 - `gcs_json.py` — Example showing how to use EgptOS with JSON files hosted in GCS as database.

@@ -44,8 +44,8 @@ def sample_tool():
 # Create Registry
 # ---------------------------------------------------------------------------
 registry = Registry(
-    name="Agno Registry",
-    description="Registry for Agno",
+    name="EGPT Registry",
+    description="Registry for EGPT",
     tools=[DuckDuckGoTools(), sample_tool],
     models=[OpenAIChat(id="gpt-5-mini")],
     dbs=[db],

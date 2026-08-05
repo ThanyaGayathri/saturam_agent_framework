@@ -2,7 +2,7 @@
 ⚙️ Global HTTP Client Customization (Cookbook)
 
 Demonstrates how to define a single global `httpx.Client`
-so that all agno Agents (OpenAI, Anthropic, internal models, etc.)
+so that all egpt Agents (OpenAI, Anthropic, internal models, etc.)
 share consistent behavior: logging, headers, request IDs, and retries.
 
 Use cases:
@@ -34,7 +34,7 @@ from egpt.utils.http import set_default_sync_client
 logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s"
 )
-logger = logging.getLogger("agno.http")
+logger = logging.getLogger("egpt.http")
 
 # ----------------------------------------------------------------------------
 # Example 1 — Request ID Injection
@@ -82,8 +82,8 @@ class HeaderInjectTransport(httpx.HTTPTransport):
 
 
 company_headers = {
-    "X-Company-ID": "agno",
-    "X-Service": "agno-agents",
+    "X-Company-ID": "egpt",
+    "X-Service": "egpt-agents",
     "X-Environment": "production",
     "X-Version": "1.0.0",
     "X-Timestamp": datetime.now().isoformat(),

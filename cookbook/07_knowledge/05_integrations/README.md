@@ -42,6 +42,6 @@ Specific reader, cloud storage, and vector database integrations.
 
 ## Further Reading
 
-- [Knowledge Overview](https://docs.agno.com/knowledge/overview)
-- [Readers](https://docs.agno.com/knowledge/readers)
-- [Vector Databases](https://docs.agno.com/vectordb)
+- [Knowledge cookbooks](../README.md)
+- [Reader examples](readers/)
+- [Vector database examples](../09_archive/vector_dbs/)

@@ -10,8 +10,8 @@ Key concepts:
 - Hybrid search: Combines semantic similarity with keyword matching.
 
 Example prompts to try:
-- "What is Agno?"
-- "What is the EgptOS?"
+- "What is the Model Context Protocol?"
+- "What is an MCP server?"
 """
 
 from egpt.agent import Agent
@@ -28,10 +28,10 @@ from egpt.vectordb.search import SearchType
 agent_db = SqliteDb(db_file="tmp/agents.db")
 
 knowledge = Knowledge(
-    name="Agno Documentation",
+    name="MCP Documentation",
     vector_db=ChromaDb(
-        name="agno_docs",
-        collection="agno_docs",
+        name="mcp_docs",
+        collection="mcp_docs",
         path="tmp/chromadb",
         persistent_client=True,
         # Enable hybrid search - combines vector similarity with keyword matching using RRF
@@ -44,7 +44,7 @@ knowledge = Knowledge(
     ),
     # Return 5 results on query
     max_results=5,
-    # Store metadata about the contents in the agent database, table_name="agno_knowledge"
+    # Store metadata about the contents in the agent database, table_name="egpt_knowledge"
     contents_db=agent_db,
 )
 
@@ -52,12 +52,12 @@ knowledge = Knowledge(
 # Agent Instructions
 # ---------------------------------------------------------------------------
 instructions = """\
-You are an expert on the Agno framework and building AI agents.
+You are an expert on the Model Context Protocol (MCP) and building AI agents.
 
 ## Workflow
 
 1. Search
-   - For questions about Agno, always search your knowledge base first
+   - For questions about MCP, always search your knowledge base first
    - Extract key concepts from the query to search effectively
 
 2. Synthesize
@@ -71,7 +71,7 @@ You are an expert on the Agno framework and building AI agents.
 
 ## Rules
 
-- Always search knowledge before answering Agno questions
+- Always search knowledge before answering MCP questions
 - If the answer isn't in the knowledge base, say so
 - Include code snippets for implementation questions
 - Be concise — developers want answers, not essays\
@@ -97,12 +97,15 @@ agent_with_knowledge = Agent(
 # Run Agent
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    # Load the introduction from the Agno documentation into the knowledge base
+    # Load the introduction from the Model Context Protocol documentation into the knowledge base
     # We're only loading 1 file to keep this example simple.
-    knowledge.insert(name="Agno Introduction", url="https://docs.agno.com/")
+    knowledge.insert(
+        name="MCP Introduction",
+        url="https://modelcontextprotocol.io/docs/getting-started/intro",
+    )
 
     agent_with_knowledge.print_response(
-        "What is Agno?",
+        "What is the Model Context Protocol?",
         stream=True,
     )
 

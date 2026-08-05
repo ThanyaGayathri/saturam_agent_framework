@@ -1,8 +1,8 @@
 """
-Skills With Agentos
+Skills With EgptOS
 ===================
 
-Demonstrates skills with agentos.
+Demonstrates skills with egptos.
 """
 
 from pathlib import Path
@@ -41,4 +41,4 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    agent_os.serve(app="skills_with_agentos:app", reload=True)
+    agent_os.serve(app="skills_with_egptos:app", reload=True)

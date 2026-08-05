@@ -24,14 +24,14 @@ agent = Agent(
 if __name__ == "__main__":
     asyncio.run(
         knowledge.ainsert(
-            url="https://github.com/agno-agi/agno/blob/main/README.md",
+            url="https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/README.md",
             reader=MarkdownReader(),
         )
     )
     # Create and use the agent
     asyncio.run(
         agent.aprint_response(
-            "What can you tell me about Agno?",
+            "What can you tell me about EGPT?",
             markdown=True,
         )
     )

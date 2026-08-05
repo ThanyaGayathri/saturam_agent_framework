@@ -1,6 +1,6 @@
 # Slack Cookbook
 
-Examples for connecting Agno agents, teams, and workflows to Slack using the
+Examples for connecting EGPT agents, teams, and workflows to Slack using the
 `Slack` interface in EgptOS. Supports both standard request/response and
 real-time streaming via Slack's `chat_stream` API.
 
@@ -9,7 +9,7 @@ Install or upgrade with `pip install "slack_sdk>=3.40.0"`.
 
 ## Slack App Setup
 
-Follow these steps to create and configure a Slack app for use with Agno.
+Follow these steps to create and configure a Slack app for use with EGPT.
 
 ### 1. Create the App
 

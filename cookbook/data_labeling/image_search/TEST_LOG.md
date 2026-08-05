@@ -3,7 +3,7 @@
 ## Run env
 
 - Tested 2026-05-21 against `gemini-3.5-flash` (vision + structured output)
-  and `gemini-embedding-001` (embeddings), agno 2.6.8.
+  and `gemini-embedding-001` (embeddings), egpt 2.6.8.
 - Vector DB: ChromaDb local (`persistent_client=True`, `data/chroma/`).
 - Contents DB: SqliteDb (single file, shared by Knowledge + Workflow).
 - Run command: `fastapi dev cookbook/data_labeling/image_search/run.py --port 7777`.
@@ -184,7 +184,7 @@ match tops out at ~0.5; anything above that is FTS-boosted.
   UX (`Show 12 below threshold`) gives an honest "no high-confidence
   match" experience instead of pretending.
 - `prefix_match=True` was tried and reverted: it appends `*` to query
-  terms, but agno passes the query through `websearch_to_tsquery`, which
+  terms, but egpt passes the query through `websearch_to_tsquery`, which
   doesn't honor `:*` / `*` operators — it's a silent no-op. (Fixed
   upstream in #8048 and re-enabled below.)
 
@@ -235,7 +235,7 @@ vs. after the flip.
 - `anima` is an instructive non-win: the document side stores the
   stemmed lexeme `anim`, and `to_tsquery('anima:*')` only matches
   lexemes that *start with* `anima` — `anim` doesn't qualify. This is
-  inherent to FTS stemming, not an agno limitation. The tray fallback
+  inherent to FTS stemming, not an egpt limitation. The tray fallback
   catches it cleanly.
 - `car` now surfaces the leopard image because the doc's "carnivore"
   stems to `carnivor`, which `car:*` matches. This is the tradeoff for

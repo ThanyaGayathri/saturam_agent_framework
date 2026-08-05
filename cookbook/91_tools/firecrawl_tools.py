@@ -36,4 +36,6 @@ if __name__ == "__main__":
     )
 
     # Should use crawl
-    agent.print_response("Summarize this https://docs.agno.com/introduction/")
+    agent.print_response(
+        "Summarize this https://modelcontextprotocol.io/docs/getting-started/intro"
+    )

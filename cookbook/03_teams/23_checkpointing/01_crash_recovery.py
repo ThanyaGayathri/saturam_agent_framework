@@ -74,7 +74,7 @@ async def _worker() -> None:
     """Runs inside the subprocess. Executes the team run until SIGKILL'd mid-flight."""
     team = build_team()
     await team.arun(
-        input="Research the topic 'agno checkpointing'.", session_id=SESSION_ID
+        input="Research the topic 'egpt checkpointing'.", session_id=SESSION_ID
     )
 
 

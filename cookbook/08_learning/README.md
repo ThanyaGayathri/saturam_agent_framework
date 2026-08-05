@@ -445,7 +445,7 @@ learning = LearningMachine(
 
 ## View Learnings in EgptOS
 
-Everything the learning system captures is browsable in the EgptOS UI and over REST. EgptOS exposes `/learnings` CRUD endpoints backed by the `egpt_learnings` table, and [os.agno.com](https://os.agno.com) renders them as dedicated Learning pages: User Profiles, User Memories, Entity Memories, Session Context, and Decision Logs.
+Everything the learning system captures is browsable over REST. EgptOS exposes `/learnings` CRUD endpoints backed by the `egpt_learnings` table, covering User Profiles, User Memories, Entity Memories, Session Context, and Decision Logs. Browse them from the interactive API docs at <http://localhost:7777/docs>.
 
 Try it with the demo in this cookbook:
 
@@ -453,7 +453,7 @@ Try it with the demo in this cookbook:
 # Seed every learning store with real conversations
 .venvs/demo/bin/python cookbook/08_learning/10_demo/seed.py
 
-# Serve the EgptOS app, then connect at os.agno.com
+# Serve the EgptOS app, then browse http://localhost:7777/docs
 .venvs/demo/bin/python cookbook/08_learning/10_demo/run.py
 ```
 
@@ -461,6 +461,6 @@ See [10_demo](10_demo/) for the walkthrough, and [cookbook/05_agent_os/learnings
 
 ## Learn More
 
-- [Agno Documentation](https://docs.agno.com)
+- [EGPT package README](../../libs/agno/README.md)
 
-Built with 💜 by the Agno team
+Built with 💜 by the EGPT team

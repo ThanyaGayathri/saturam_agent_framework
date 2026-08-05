@@ -64,7 +64,7 @@ if __name__ == "__main__":
     )
 
     web_agent.print_response(
-        "What are people on Reddit saying about the Agno framework?",
+        "What are people on Reddit saying about the EGPT framework?",
         markdown=True,
         stream=True,
     )

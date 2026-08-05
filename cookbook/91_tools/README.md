@@ -1,6 +1,6 @@
 # Tools
 
-Examples for using and creating tools in Agno.
+Examples for using and creating tools in EGPT.
 
 ## Tool Types
 

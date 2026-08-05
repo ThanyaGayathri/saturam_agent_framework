@@ -3,7 +3,7 @@ Slack HITL — Required Approval
 ==============================
 
 Infrastructure agent that handles database schema migrations. Migrations
-require admin approval via os.agno.com — the `@approval` decorator creates
+require admin approval via http://localhost:7777/docs — the `@approval` decorator creates
 a DB record so approvals persist across restarts and leave an audit trail.
 
 Try in Slack:

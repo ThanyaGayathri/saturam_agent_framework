@@ -4,7 +4,7 @@ description: Code review assistance with linting, style checking, and best pract
 license: Apache-2.0
 metadata:
   version: "1.0.0"
-  author: agno-team
+  author: egpt-team
   tags: ["quality", "review", "linting"]
 ---
 # Code Review Skill

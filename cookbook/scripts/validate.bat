@@ -1,6 +1,6 @@
 @echo off
 REM ###########################################################################
-REM # Validate the agno library using ruff and mypy
+REM # Validate the egpt library using ruff and mypy
 REM # Usage: libs\agno\scripts\validate.bat
 REM ###########################################################################
 

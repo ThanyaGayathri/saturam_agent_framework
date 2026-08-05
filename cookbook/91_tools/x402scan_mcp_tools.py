@@ -71,7 +71,7 @@ if __name__ == "__main__":
     # asyncio.run(run_agent("Find information about the CEO of Anthropic"))
 
     # Web scraping (Firecrawl)
-    # asyncio.run(run_agent("Scrape the content of https://docs.agno.com/introduction"))
+    # asyncio.run(run_agent("Scrape the content of https://modelcontextprotocol.io/docs/getting-started/intro"))
 
     # Search (Exa)
     # asyncio.run(run_agent("Search for recent AI agent framework comparisons"))

@@ -1,6 +1,6 @@
 # Performance Comparison Cookbooks
 
-These benchmarks compare agent instantiation patterns across non-Agno frameworks.
+These benchmarks compare agent instantiation patterns across non-EGPT frameworks.
 
 ## Files
 

@@ -2,7 +2,7 @@
 LangWatch Integration
 =====================
 
-Demonstrates instrumenting an Agno agent and sending traces to LangWatch.
+Demonstrates instrumenting an EGPT agent and sending traces to LangWatch.
 """
 
 import langwatch
@@ -14,7 +14,7 @@ from openinference.instrumentation.agno import AgnoInstrumentor
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
-# Initialize LangWatch and instrument Agno
+# Initialize LangWatch and instrument EGPT
 langwatch.setup(instrumentors=[AgnoInstrumentor()])
 
 

@@ -19,4 +19,6 @@ agent = Agent(tools=[JinaReaderTools()])
 # Run Agent
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    agent.print_response("Summarize: https://github.com/agno-agi/agno")
+    agent.print_response(
+        "Summarize: https://github.com/modelcontextprotocol/modelcontextprotocol"
+    )

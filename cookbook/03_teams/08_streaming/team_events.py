@@ -111,6 +111,6 @@ if __name__ == "__main__":
     # Async event streaming
     asyncio.run(
         run_team_with_events(
-            "Write me a full report on everything you can find about Agno, the company building AI agent infrastructure.",
+            "Write me a full report on everything you can find about EGPT, the company building AI agent infrastructure.",
         )
     )

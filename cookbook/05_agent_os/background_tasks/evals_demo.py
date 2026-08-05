@@ -48,7 +48,7 @@ evaluation = AccuracyEval(
 )
 # evaluation.run(print_results=True)
 
-# Setup the Agno API App
+# Setup the EGPT API App
 agent_os = EgptOS(
     description="Example app for basic agent with eval capabilities",
     id="eval-demo",

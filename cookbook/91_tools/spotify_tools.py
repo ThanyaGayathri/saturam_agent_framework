@@ -1,5 +1,5 @@
 """
-Example: Using SpotifyTools with an Agno Agent
+Example: Using SpotifyTools with an EGPT Agent
 
 This example shows how to create an agent that can:
 - Search for songs by mood, artist, or genre

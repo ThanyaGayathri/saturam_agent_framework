@@ -2,7 +2,7 @@
 GCS JSON Storage for Agent
 ==========================
 
-Demonstrates using GcsJsonDb as the session storage backend for an Agno agent.
+Demonstrates using GcsJsonDb as the session storage backend for an EGPT agent.
 """
 
 import uuid
@@ -36,7 +36,7 @@ db = GcsJsonDb(
 # ---------------------------------------------------------------------------
 # Create Agents
 # ---------------------------------------------------------------------------
-# Initialize Agno agent1 with the new storage backend and a web search tool.
+# Initialize EGPT agent1 with the new storage backend and a web search tool.
 agent1 = Agent(
     db=db,
     tools=[WebSearchTools()],

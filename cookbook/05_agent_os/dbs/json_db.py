@@ -12,7 +12,7 @@ from egpt.team.team import Team
 # ---------------------------------------------------------------------------
 
 # Setup the JSON database
-db = JsonDb(db_path="./agno_json_data")
+db = JsonDb(db_path="./egpt_json_data")
 
 # Setup a basic agent and a basic team
 agent = Agent(

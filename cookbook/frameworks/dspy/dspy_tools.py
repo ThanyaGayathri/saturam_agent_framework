@@ -1,5 +1,5 @@
 """
-DSPy ReAct agent with tools, wrapped in Agno's DSPyAgent.
+DSPy ReAct agent with tools, wrapped in EGPT's DSPyAgent.
 
 DSPy's ReAct module supports tool use via plain Python functions.
 The agent will reason, call tools, observe results, and produce a final answer.

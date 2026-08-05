@@ -18,7 +18,7 @@ Note on mixed TTLs: Anthropic requires any 1h cached block to appear before any
 5m cached block in the request. Because the agent-built block comes first and
 inherits the model-level TTL, you must set extended_cache_time=True whenever
 any SystemPromptBlock uses ttl="1h". Otherwise the request would be
-5m (agent) -> 1h (block), which the API rejects. Agno validates this at
+5m (agent) -> 1h (block), which the API rejects. EGPT validates this at
 assembly time with a clear error.
 
 Docs: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching

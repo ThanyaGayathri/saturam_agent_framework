@@ -77,8 +77,8 @@ async def main() -> None:
             "What is the current price of Tesla?", stream=True
         )
 
-    # Run search_agent and send traces to "Testing-agno" project
-    with dangerously_using_project("Testing-agno"):
+    # Run search_agent and send traces to "Testing-egpt" project
+    with dangerously_using_project("Testing-egpt"):
         await search_agent.aprint_response(
             "What is the latest news about AI?", stream=True
         )

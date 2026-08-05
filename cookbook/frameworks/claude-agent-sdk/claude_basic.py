@@ -1,5 +1,5 @@
 """
-Standalone usage of Claude Agent SDK with Agno's .run() and .print_response() methods.
+Standalone usage of Claude Agent SDK with EGPT's .run() and .print_response() methods.
 
 Requirements:
     pip install claude-agent-sdk
@@ -10,14 +10,14 @@ Usage:
 
 from egpt.agents.claude import ClaudeAgent
 
-# ----- Wrap Claude Agent SDK for Agno -----
+# ----- Wrap Claude Agent SDK for EGPT -----
 agent = ClaudeAgent(
     name="Claude Assistant",
     model="claude-sonnet-4-6",
     max_turns=3,
 )
 
-# Use .print_response() just like a native Agno agent
+# Use .print_response() just like a native EGPT agent
 agent.print_response(
     "What is quantum computing? Explain in 2-3 sentences.", stream=True
 )

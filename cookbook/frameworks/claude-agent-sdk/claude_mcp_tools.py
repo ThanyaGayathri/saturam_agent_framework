@@ -1,5 +1,5 @@
 """
-Claude Agent SDK with custom MCP tools, wrapped in Agno's ClaudeAgent.
+Claude Agent SDK with custom MCP tools, wrapped in EGPT's ClaudeAgent.
 
 Shows how to add custom tools via in-process MCP servers — the Claude Agent SDK
 pattern for user-defined tools.

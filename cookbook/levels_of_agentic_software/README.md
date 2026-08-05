@@ -78,7 +78,7 @@ Agent OS provides a web interface for interacting with your agents. All 5 levels
 python cookbook/levels_of_agentic_software/run.py
 ```
 
-Then visit [os.agno.com](https://os.agno.com) and add `http://localhost:7777` as an endpoint.
+Then open the interactive API docs at <http://localhost:7777/docs>, or attach a coding agent with `egpt connect`.
 
 | Agent in UI | What You Get |
 |:------------|:-------------|
@@ -92,7 +92,7 @@ Then visit [os.agno.com](https://os.agno.com) and add `http://localhost:7777` as
 
 ## Swap Models
 
-These examples use OpenAI but Agno is model-agnostic:
+These examples use OpenAI but EGPT is model-agnostic:
 
 ```python
 # OpenAI (default in these examples)

@@ -32,14 +32,14 @@ from google import genai
 client = genai.Client()
 
 store = client.file_search_stores.create(
-    config={"display_name": "agno-deep-research-demo"}
+    config={"display_name": "egpt-deep-research-demo"}
 )
 print(f"Created store: {store.name}")
 
 # A small sample document to ground the research on.
-sample = Path(tempfile.gettempdir()) / "agno_fy2025_summary.txt"
+sample = Path(tempfile.gettempdir()) / "egpt_fy2025_summary.txt"
 sample.write_text(
-    "Agno FY2025 internal summary.\n"
+    "EGPT FY2025 internal summary.\n"
     "Revenue grew 240% year over year, driven by EgptOS adoption.\n"
     "Headcount doubled. The flagship launch was the Antigravity integration.\n"
 )

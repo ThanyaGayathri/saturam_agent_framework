@@ -1,5 +1,5 @@
 """
-Example showing how to use the NanoBananaTools toolkit with your Agno Agent.
+Example showing how to use the NanoBananaTools toolkit with your EGPT Agent.
 
 Usage:
 - Set your Google API key as environment variable: `export GOOGLE_API_KEY="your_api_key"`

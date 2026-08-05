@@ -17,7 +17,9 @@ reader_basic = TavilyReader(
 )
 
 try:
-    documents = reader_basic.read("https://github.com/agno-agi/agno")
+    documents = reader_basic.read(
+        "https://github.com/modelcontextprotocol/modelcontextprotocol"
+    )
 
     if documents:
         print(f"Extracted {len(documents)} document(s)")

@@ -15,7 +15,7 @@ from egpt.tools.twilio import TwilioTools
 
 
 """
-Example showing how to use the Twilio Tools with Agno.
+Example showing how to use the Twilio Tools with EGPT.
 
 Requirements:
 - Twilio Account SID and Auth Token (get from console.twilio.com)

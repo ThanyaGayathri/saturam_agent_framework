@@ -1,6 +1,6 @@
 # PostgreSQL Integration
 
-Examples demonstrating PostgreSQL database integration with Agno agents, teams, and workflows.
+Examples demonstrating PostgreSQL database integration with EGPT agents, teams, and workflows.
 
 ## Setup
 
@@ -24,7 +24,7 @@ agent = Agent(
 
 ## Async usage
 
-Agno also supports using your PostgreSQL database asynchronously, via the `AsyncPostgresDb` class:
+EGPT also supports using your PostgreSQL database asynchronously, via the `AsyncPostgresDb` class:
 
 ```python
 from egpt.agent import Agent

@@ -4,10 +4,10 @@
 #
 #    EGPT Validate
 #
-#    ruff check + mypy for agno and egptctl, ruff + pattern check for
+#    ruff check + mypy for egpt and egptctl, ruff + pattern check for
 #    cookbook, brand audit for the repo. Exits non-zero if anything fails —
 #    safe to gate on.
-#    agno-infra is not part of the dev venv; it validates in its own CI job.
+#    egpt-infra is not part of the dev venv; it validates in its own CI job.
 #
 #    Usage: ./scripts/validate.sh
 #
@@ -36,7 +36,7 @@ for tool in ruff mypy; do
 done
 
 echo ""
-echo -e "    ${BOLD}Agno Validate${NC}"
+echo -e "    ${BOLD}EGPT Validate${NC}"
 
 FAILURES=()
 CURRENT_TARGET=""
@@ -63,7 +63,7 @@ run_step() {
     fi
 }
 
-target "agno"
+target "egpt"
 run_step "ruff check" ruff check "${REPO_ROOT}/libs/agno"
 run_step "mypy" mypy "${REPO_ROOT}/libs/agno" --config-file "${REPO_ROOT}/libs/agno/pyproject.toml"
 

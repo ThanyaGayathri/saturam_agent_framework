@@ -1,6 +1,6 @@
 # MySQL Integration
 
-Examples demonstrating MySQL database integration with Agno agents, teams, and workflows.
+Examples demonstrating MySQL database integration with EGPT agents, teams, and workflows.
 
 ## Setup
 

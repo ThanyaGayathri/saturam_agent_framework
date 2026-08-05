@@ -51,5 +51,5 @@ agent = Agent(
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     asyncio.run(
-        agent.aprint_response("What is the brand information of Agno?", markdown=True)
+        agent.aprint_response("What is the brand information of EGPT?", markdown=True)
     )
