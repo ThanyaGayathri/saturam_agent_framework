@@ -7,6 +7,11 @@ if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
 from egpt.db.base import BaseDb, SessionType
+from egpt.db.schemas.culture import CulturalKnowledge
+from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
+from egpt.db.schemas.knowledge import KnowledgeRow
+from egpt.db.schemas.memory import UserMemory
+from egpt.db.utils import deserialize_session, deserialize_sessions
 from egpt.integrations.db.redis.utils import (
     apply_filters,
     apply_pagination,
@@ -23,11 +28,6 @@ from egpt.integrations.db.redis.utils import (
     serialize_cultural_knowledge_for_db,
     serialize_data,
 )
-from egpt.db.schemas.culture import CulturalKnowledge
-from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
-from egpt.db.schemas.knowledge import KnowledgeRow
-from egpt.db.schemas.memory import UserMemory
-from egpt.db.utils import deserialize_session, deserialize_sessions
 from egpt.session import AgentSession, Session, TeamSession, WorkflowSession
 from egpt.utils.log import log_debug, log_error, log_info
 from egpt.utils.string import generate_id

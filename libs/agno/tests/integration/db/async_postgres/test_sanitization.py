@@ -9,9 +9,9 @@ import time
 import pytest
 import pytest_asyncio
 
-from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
+from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.run.agent import RunOutput
 from egpt.run.base import RunStatus
 from egpt.session.agent import AgentSession

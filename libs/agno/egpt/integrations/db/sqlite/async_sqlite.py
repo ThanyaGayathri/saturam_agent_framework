@@ -20,6 +20,12 @@ from egpt.db.schemas.service_accounts import (
     resolve_service_account_sort_column,
     validate_service_account_update,
 )
+from egpt.db.utils import (
+    deserialize_session,
+    deserialize_session_json_fields,
+    deserialize_sessions,
+    serialize_session_json_fields,
+)
 from egpt.integrations.db.sqlite.schemas import get_table_schema_definition
 from egpt.integrations.db.sqlite.utils import (
     abulk_upsert_metrics,
@@ -31,12 +37,6 @@ from egpt.integrations.db.sqlite.utils import (
     fetch_all_sessions_data,
     get_dates_to_calculate_metrics_for,
     serialize_cultural_knowledge_for_db,
-)
-from egpt.db.utils import (
-    deserialize_session,
-    deserialize_session_json_fields,
-    deserialize_sessions,
-    serialize_session_json_fields,
 )
 from egpt.run.base import RunStatus
 from egpt.session import AgentSession, Session, TeamSession, WorkflowSession
@@ -54,9 +54,7 @@ except ImportError:
 
 # Table-name overrides this class cannot honor: unlike SqliteDb, __init__ does not take
 # the component table parameters, so a clone carrying them would raise TypeError.
-_UNSUPPORTED_TABLE_OVERRIDES = frozenset(
-    {"components_table", "component_configs_table", "component_links_table"}
-)
+_UNSUPPORTED_TABLE_OVERRIDES = frozenset({"components_table", "component_configs_table", "component_links_table"})
 
 
 class AsyncSqliteDb(AsyncBaseDb):

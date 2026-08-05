@@ -18,13 +18,13 @@ from unittest.mock import Mock
 from sqlalchemy import create_engine
 
 from egpt.db.base import BaseDb
-from egpt.integrations.db.postgres.postgres import PostgresDb
-from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.db.utils import (
     DB_TABLE_NAME_KEYS,
     _clone_db_with_table_overrides,
     resolve_db_from_config,
 )
+from egpt.integrations.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 
 
 class _FakeRegistry:

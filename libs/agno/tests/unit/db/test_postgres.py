@@ -5,6 +5,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import Index, Table, UniqueConstraint
 
+from egpt.db.utils import json_serializer
 from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.integrations.db.postgres.schemas import (
     EVAL_TABLE_SCHEMA,
@@ -14,7 +15,6 @@ from egpt.integrations.db.postgres.schemas import (
     SESSION_TABLE_SCHEMA,
     get_table_schema_definition,
 )
-from egpt.db.utils import json_serializer
 
 
 @pytest.fixture

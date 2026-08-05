@@ -6,13 +6,14 @@ if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
 from egpt.db.base import BaseDb, SessionType
-from egpt.integrations.db.postgres.utils import (
-    get_dates_to_calculate_metrics_for,
-)
 from egpt.db.schemas import UserMemory
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
+from egpt.db.utils import deserialize_session, deserialize_sessions
+from egpt.integrations.db.postgres.utils import (
+    get_dates_to_calculate_metrics_for,
+)
 from egpt.integrations.db.surrealdb import utils
 from egpt.integrations.db.surrealdb.metrics import (
     bulk_upsert_metrics,
@@ -41,7 +42,6 @@ from egpt.integrations.db.surrealdb.models import (
 )
 from egpt.integrations.db.surrealdb.queries import COUNT_QUERY, WhereClause, order_limit_start
 from egpt.integrations.db.surrealdb.utils import build_client
-from egpt.db.utils import deserialize_session, deserialize_sessions
 from egpt.session import Session
 from egpt.utils.log import log_debug, log_error, log_info
 from egpt.utils.string import generate_id

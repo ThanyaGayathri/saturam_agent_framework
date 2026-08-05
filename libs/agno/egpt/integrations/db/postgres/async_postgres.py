@@ -8,6 +8,15 @@ if TYPE_CHECKING:
 
 from egpt.db.base import AsyncBaseDb, ComponentType, SessionType
 from egpt.db.migrations.manager import MigrationManager
+from egpt.db.schemas.culture import CulturalKnowledge
+from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
+from egpt.db.schemas.knowledge import KnowledgeRow
+from egpt.db.schemas.memory import UserMemory
+from egpt.db.schemas.service_accounts import (
+    resolve_service_account_sort_column,
+    validate_service_account_update,
+)
+from egpt.db.utils import deserialize_session, deserialize_sessions, json_serializer
 from egpt.integrations.db.postgres.schemas import get_table_schema_definition
 from egpt.integrations.db.postgres.utils import (
     abulk_upsert_metrics,
@@ -21,15 +30,6 @@ from egpt.integrations.db.postgres.utils import (
     get_dates_to_calculate_metrics_for,
     serialize_cultural_knowledge,
 )
-from egpt.db.schemas.culture import CulturalKnowledge
-from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
-from egpt.db.schemas.knowledge import KnowledgeRow
-from egpt.db.schemas.memory import UserMemory
-from egpt.db.schemas.service_accounts import (
-    resolve_service_account_sort_column,
-    validate_service_account_update,
-)
-from egpt.db.utils import deserialize_session, deserialize_sessions, json_serializer
 from egpt.run.base import RunStatus
 from egpt.session import AgentSession, Session, TeamSession, WorkflowSession
 from egpt.utils.log import log_debug, log_error, log_info, log_warning
@@ -49,9 +49,7 @@ except ImportError:
 
 # Table-name overrides this class cannot honor: unlike PostgresDb, __init__ does not take
 # the component table parameters, so a clone carrying them would raise TypeError.
-_UNSUPPORTED_TABLE_OVERRIDES = frozenset(
-    {"components_table", "component_configs_table", "component_links_table"}
-)
+_UNSUPPORTED_TABLE_OVERRIDES = frozenset({"components_table", "component_configs_table", "component_links_table"})
 
 
 class AsyncPostgresDb(AsyncBaseDb):

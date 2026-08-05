@@ -8,6 +8,15 @@ if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
 from egpt.db.base import BaseDb, SessionType
+from egpt.db.schemas.culture import CulturalKnowledge
+from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
+from egpt.db.schemas.knowledge import KnowledgeRow
+from egpt.db.schemas.memory import UserMemory
+from egpt.db.utils import (
+    deserialize_session,
+    deserialize_session_json_fields,
+    deserialize_sessions,
+)
 from egpt.integrations.db.firestore.utils import (
     apply_pagination,
     apply_pagination_to_records,
@@ -20,15 +29,6 @@ from egpt.integrations.db.firestore.utils import (
     fetch_all_sessions_data,
     get_dates_to_calculate_metrics_for,
     serialize_cultural_knowledge_for_db,
-)
-from egpt.db.schemas.culture import CulturalKnowledge
-from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
-from egpt.db.schemas.knowledge import KnowledgeRow
-from egpt.db.schemas.memory import UserMemory
-from egpt.db.utils import (
-    deserialize_session,
-    deserialize_session_json_fields,
-    deserialize_sessions,
 )
 from egpt.session import AgentSession, Session, TeamSession, WorkflowSession
 from egpt.utils.log import log_debug, log_error, log_info

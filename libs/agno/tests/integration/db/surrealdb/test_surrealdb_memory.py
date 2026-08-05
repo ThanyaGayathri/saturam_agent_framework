@@ -23,8 +23,8 @@ import pytest
 from surrealdb import RecordID
 
 from egpt.db.schemas.memory import UserMemory
-from egpt.integrations.db.surrealdb import SurrealDb
 from egpt.debug import enable_debug_mode
+from egpt.integrations.db.surrealdb import SurrealDb
 
 enable_debug_mode()
 

@@ -23,6 +23,10 @@ from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from egpt.db.base import BaseDb, ComponentType
+from egpt.db.filter_converter import TRACE_COLUMNS as TRACE_FILTER_COLUMNS
+from egpt.db.schemas.culture import CulturalKnowledge
+from egpt.db.schemas.evals import EvalRunRecord
+from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.integrations.db.clickhouse.schemas import SPANS_DDL, TRACES_DDL, VERSIONS_DDL
 from egpt.integrations.db.clickhouse.utils import (
     coerce_datetime,
@@ -35,10 +39,6 @@ from egpt.integrations.db.clickhouse.utils import (
     trace_columns,
     trace_to_row,
 )
-from egpt.db.filter_converter import TRACE_COLUMNS as TRACE_FILTER_COLUMNS
-from egpt.db.schemas.culture import CulturalKnowledge
-from egpt.db.schemas.evals import EvalRunRecord
-from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.utils.log import log_debug, log_error
 from egpt.utils.string import generate_id
 

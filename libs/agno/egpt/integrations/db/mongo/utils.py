@@ -6,8 +6,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from egpt.integrations.db.mongo.schemas import get_collection_indexes
 from egpt.db.schemas.culture import CulturalKnowledge
+from egpt.integrations.db.mongo.schemas import get_collection_indexes
 from egpt.utils.log import log_error, log_warning
 
 try:

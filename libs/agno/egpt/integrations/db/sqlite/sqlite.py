@@ -18,6 +18,12 @@ from egpt.db.schemas.service_accounts import (
     resolve_service_account_sort_column,
     validate_service_account_update,
 )
+from egpt.db.utils import (
+    deserialize_session,
+    deserialize_session_json_fields,
+    deserialize_sessions,
+    serialize_session_json_fields,
+)
 from egpt.integrations.db.sqlite.schemas import get_table_schema_definition
 from egpt.integrations.db.sqlite.utils import (
     apply_sorting,
@@ -29,12 +35,6 @@ from egpt.integrations.db.sqlite.utils import (
     is_table_available,
     is_valid_table,
     serialize_cultural_knowledge_for_db,
-)
-from egpt.db.utils import (
-    deserialize_session,
-    deserialize_session_json_fields,
-    deserialize_sessions,
-    serialize_session_json_fields,
 )
 from egpt.run.base import RunStatus
 from egpt.session import AgentSession, Session, TeamSession, WorkflowSession

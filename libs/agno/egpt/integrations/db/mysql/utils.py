@@ -5,8 +5,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from egpt.integrations.db.mysql.schemas import get_table_schema_definition
 from egpt.db.schemas.culture import CulturalKnowledge
+from egpt.integrations.db.mysql.schemas import get_table_schema_definition
 from egpt.utils.log import log_debug, log_error, log_warning
 
 try:
