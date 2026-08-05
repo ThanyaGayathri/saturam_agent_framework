@@ -135,7 +135,8 @@ Format:
 | Memory | `libs/agno/egpt/memory/` |
 | Learning | `libs/agno/egpt/learn/` |
 | Database adapters | `libs/agno/egpt/db/` |
-| Vector databases | `libs/agno/egpt/vectordb/` |
+| Vector DB interface | `libs/agno/egpt/vectordb/` (`VectorDb` + distance/score/search) |
+| Vector DB backends | `libs/agno/egpt/integrations/vectordb/` |
 | Tests | `libs/agno/tests/` |
 
 ---
