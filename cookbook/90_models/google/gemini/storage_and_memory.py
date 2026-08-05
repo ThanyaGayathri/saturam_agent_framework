@@ -2,7 +2,8 @@
 
 from egpt.agent import Agent
 from egpt.db.postgres.postgres import PostgresDb
-from egpt.knowledge import PDFUrlKnowledgeBase
+from egpt.knowledge.knowledge import Knowledge
+from egpt.knowledge.reader.pdf_reader import PDFReader
 from egpt.models.google import Gemini
 from egpt.tools.websearch import WebSearchTools
 from egpt.vectordb.pgvector import PgVector
@@ -13,16 +14,16 @@ from egpt.vectordb.pgvector import PgVector
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 
-knowledge_base = PDFUrlKnowledgeBase(
-    urls=["https://agno-public.s3.amazonaws.com/recipes/ThaiRecipes.pdf"],
-    vector_db=PgVector(table_name="recipes", db_url=db_url),
+knowledge = Knowledge(vector_db=PgVector(table_name="recipes", db_url=db_url))
+knowledge.add_content(  # Comment out after first run
+    url="https://agno-public.s3.amazonaws.com/recipes/ThaiRecipes.pdf",
+    reader=PDFReader(),
 )
-knowledge_base.load(recreate=True)  # Comment out after first run
 
 agent = Agent(
     model=Gemini(id="gemini-2.0-flash-001"),
     tools=[WebSearchTools()],
-    knowledge=knowledge_base,
+    knowledge=knowledge,
     # Store the memories and summary in a database
     db=PostgresDb(db_url=db_url, memory_table="agent_memory"),
     update_memory_on_run=True,

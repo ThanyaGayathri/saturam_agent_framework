@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with SambaNova."""
 
 from egpt.agent import Agent
-from egpt.models.sambanova import SambaNova
+from egpt.models.sambanova import Sambanova
 
 # ---------------------------------------------------------------------------
 # Create Agent
@@ -11,7 +11,7 @@ from egpt.models.sambanova import SambaNova
 wrong_model_id = "sambanova-wrong-id"
 
 agent = Agent(
-    model=SambaNova(
+    model=Sambanova(
         id=wrong_model_id,
         retries=3,  # Number of times to retry the request.
         delay_between_retries=1,  # Delay between retries in seconds.

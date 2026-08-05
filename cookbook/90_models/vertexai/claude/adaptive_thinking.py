@@ -17,7 +17,7 @@ Prerequisites:
 """
 
 from egpt.agent import Agent
-from egpt.models.vertexai import Claude
+from egpt.models.vertexai.claude import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent with Adaptive Thinking
