@@ -1,5 +1,6 @@
 """Logic shared across different database implementations"""
 
+import importlib
 import json
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
@@ -22,6 +23,46 @@ DB_TABLE_NAME_KEYS: frozenset = frozenset(TABLE_SUFFIXES)
 
 # Serialized db keys that customize table naming (prefix and/or per-table overrides).
 DB_CONFIG_OVERRIDE_KEYS: frozenset = frozenset({"table_prefix"}) | DB_TABLE_NAME_KEYS
+
+
+# Single source of truth for every DB backend shipped in the integrations layer.
+# One row per backend package:
+#     key -> (module, sync_class_name, async_class_name or None)
+#
+# `key` is the string a backend serializes as to_dict()["type"], so db_from_dict can
+# resolve a stored config without an if/elif chain and without core naming any backend
+# module. Backends that do not serialize a "type" yet are listed anyway: the table fixes
+# the canonical key up front, so adding serialization to a backend is a one-line change
+# there and none here. `async_postgres` has no row of its own -- it is an alias package
+# re-exporting the AsyncPostgresDb this table already reaches through the postgres row.
+_DB_BACKENDS: Dict[str, Tuple[str, str, Optional[str]]] = {
+    "clickhouse": ("egpt.integrations.db.clickhouse", "ClickhouseDb", None),
+    "dynamo": ("egpt.integrations.db.dynamo", "DynamoDb", None),
+    "firestore": ("egpt.integrations.db.firestore", "FirestoreDb", None),
+    "gcs_json": ("egpt.integrations.db.gcs_json", "GcsJsonDb", None),
+    "in_memory": ("egpt.integrations.db.in_memory", "InMemoryDb", None),
+    "json": ("egpt.integrations.db.json", "JsonDb", None),
+    "mongo": ("egpt.integrations.db.mongo", "MongoDb", "AsyncMongoDb"),
+    "mysql": ("egpt.integrations.db.mysql", "MySQLDb", "AsyncMySQLDb"),
+    "postgres": ("egpt.integrations.db.postgres", "PostgresDb", "AsyncPostgresDb"),
+    "redis": ("egpt.integrations.db.redis", "RedisDb", None),
+    "singlestore": ("egpt.integrations.db.singlestore", "SingleStoreDb", None),
+    "sqlite": ("egpt.integrations.db.sqlite", "SqliteDb", "AsyncSqliteDb"),
+    "surrealdb": ("egpt.integrations.db.surrealdb", "SurrealDb", None),
+}
+
+# key -> (module, class_name) for the synchronous BaseDb implementations. This is the
+# construction table db_from_dict resolves through, and what the drift guard checks.
+DB_BACKEND_CLASSES: Dict[str, Tuple[str, str]] = {
+    key: (module, sync_cls) for key, (module, sync_cls, _async_cls) in _DB_BACKENDS.items()
+}
+
+# key -> (module, class_name) for the AsyncBaseDb implementations, where one exists.
+# Not reachable from db_from_dict (no async backend defines from_dict, and Registry.add_db
+# only tracks BaseDb instances); present so the drift guard covers them too.
+ASYNC_DB_BACKEND_CLASSES: Dict[str, Tuple[str, str]] = {
+    key: (module, async_cls) for key, (module, _sync_cls, async_cls) in _DB_BACKENDS.items() if async_cls is not None
+}
 
 
 def _is_legacy_default_table_name(key: str, value: Any) -> bool:
@@ -314,51 +355,32 @@ def deserialize_session_json_fields(session: dict) -> dict:
     return session
 
 
-def db_from_dict(db_data: Dict[str, Any]) -> Optional[Union["BaseDb"]]:
+def db_from_dict(db_data: Dict[str, Any]) -> Optional["BaseDb"]:
     """
     Create a database instance from a dictionary.
 
+    The backend class is resolved through ``DB_BACKEND_CLASSES`` and imported lazily, so
+    core carries no import of any concrete backend and no optional driver is pulled in for
+    a backend that is not being reconstructed.
+
     Args:
-        db_data: Dictionary containing database configuration
+        db_data: Dictionary containing database configuration, keyed on ``type``
 
     Returns:
         Database instance or None if creation fails
     """
     db_type = db_data.get("type")
-    if db_type == "postgres":
-        try:
-            from egpt.db.postgres import PostgresDb
-
-            return PostgresDb.from_dict(db_data)
-        except Exception as e:
-            log_error(f"Error reconstructing PostgresDb from dictionary: {str(e)}")
-            return None
-    elif db_type == "sqlite":
-        try:
-            from egpt.db.sqlite import SqliteDb
-
-            return SqliteDb.from_dict(db_data)
-        except Exception as e:
-            log_error(f"Error reconstructing SqliteDb from dictionary: {str(e)}")
-            return None
-    elif db_type == "clickhouse":
-        try:
-            from egpt.db.clickhouse import ClickhouseDb
-
-            return ClickhouseDb.from_dict(db_data)
-        except Exception as e:
-            log_error(f"Error reconstructing ClickhouseDb from dictionary: {str(e)}")
-            return None
-    elif db_type == "json":
-        try:
-            from egpt.db.json import JsonDb
-
-            return JsonDb.from_dict(db_data)
-        except Exception as e:
-            log_error(f"Error reconstructing JsonDb from dictionary: {str(e)}")
-            return None
-    else:
+    entry = DB_BACKEND_CLASSES.get(db_type) if isinstance(db_type, str) else None
+    if entry is None:
         log_warning(f"Unknown database type: {db_type}")
+        return None
+
+    module_name, class_name = entry
+    try:
+        db_class = getattr(importlib.import_module(module_name), class_name)
+        return db_class.from_dict(db_data)
+    except Exception as e:
+        log_error(f"Error reconstructing {class_name} from dictionary: {str(e)}")
         return None
 
 
@@ -379,7 +401,7 @@ def _clone_db_with_table_overrides(
     round-trips to a usable config if it is re-saved and later loaded
     without a registry.
 
-    Returns ``None`` if the source db type is not recognized, so the
+    Returns ``None`` if the backend cannot apply the overrides, so the
     caller can decide how to fall back.
     """
     overrides: Dict[str, Any] = {
@@ -393,37 +415,14 @@ def _clone_db_with_table_overrides(
         and not _is_legacy_default_table_name(key, db_data[key])
     }
 
+    # Dispatched on the backend rather than branched on here: core must not import a
+    # concrete backend. Backends that cannot share a connection inherit BaseDb's default,
+    # which returns None.
     try:
-        from egpt.db.postgres import PostgresDb
-
-        if isinstance(source_db, PostgresDb):
-            return PostgresDb(
-                db_url=source_db.db_url,
-                db_engine=source_db.db_engine,
-                db_schema=source_db.db_schema,
-                id=source_db.id,
-                **overrides,
-            )
+        return source_db.clone_with_table_overrides(**overrides)
     except Exception as e:
-        log_error(f"Error cloning PostgresDb with table overrides: {str(e)}")
+        log_error(f"Error cloning {type(source_db).__name__} with table overrides: {str(e)}")
         return None
-
-    try:
-        from egpt.db.sqlite import SqliteDb
-
-        if isinstance(source_db, SqliteDb):
-            return SqliteDb(
-                db_file=source_db.db_file,
-                db_url=source_db.db_url,
-                db_engine=source_db.db_engine,
-                id=source_db.id,
-                **overrides,
-            )
-    except Exception as e:
-        log_error(f"Error cloning SqliteDb with table overrides: {str(e)}")
-        return None
-
-    return None
 
 
 def resolve_db_from_config(
@@ -476,14 +475,13 @@ def resolve_db_from_config(
             clone = _clone_db_with_table_overrides(registry_db, db_data)
             if clone is not None:
                 return clone
-            # The registered db type isn't one the cloner knows how to
-            # rebuild (e.g. JsonDb, RedisDb, FirestoreDb, DynamoDb, ...).
-            # Fall back to the registered instance rather than building
-            # a fresh one via db_from_dict, which only handles postgres
-            # and sqlite and would return None for these backends. This
-            # means table overrides are silently ignored for unsupported
-            # types, but the component still gets a working db — same as
-            # the pre-override behavior for those backends.
+            # The registered backend doesn't implement clone_with_table_overrides
+            # (e.g. JsonDb, RedisDb, FirestoreDb, DynamoDb, ...), so it inherits
+            # BaseDb's default and returns None. Fall back to the registered
+            # instance rather than building a fresh one via db_from_dict, which
+            # would drop the shared engine. This means table overrides are
+            # silently ignored for those backends, but the component still gets
+            # a working db — same as the pre-override behavior.
             log_warning(
                 f"Cannot apply table-name overrides to db of type {type(registry_db).__name__}; "
                 "reusing the registered instance with its configured table names."

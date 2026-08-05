@@ -47,6 +47,13 @@ except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
 
 
+# Table-name overrides this class cannot honor: unlike PostgresDb, __init__ does not take
+# the component table parameters, so a clone carrying them would raise TypeError.
+_UNSUPPORTED_TABLE_OVERRIDES = frozenset(
+    {"components_table", "component_configs_table", "component_links_table"}
+)
+
+
 class AsyncPostgresDb(AsyncBaseDb):
     def __init__(
         self,
@@ -154,6 +161,24 @@ class AsyncPostgresDb(AsyncBaseDb):
         self.async_session_factory = async_sessionmaker(
             bind=self.db_engine,
             expire_on_commit=False,
+        )
+
+    def clone_with_table_overrides(self, **overrides: Any) -> Optional["AsyncPostgresDb"]:
+        """Clone this db with table-name overrides, reusing the same engine.
+
+        Returns None when the config asks for a component table: unlike ``PostgresDb``,
+        this class does not accept those parameters, and returning None is the documented
+        "cannot apply overrides" signal, so the caller falls back to the registered
+        instance rather than hitting a TypeError.
+        """
+        if _UNSUPPORTED_TABLE_OVERRIDES & overrides.keys():
+            return None
+        return AsyncPostgresDb(
+            db_url=self.db_url,
+            db_engine=self.db_engine,
+            db_schema=self.db_schema,
+            id=self.id,
+            **overrides,
         )
 
     async def close(self) -> None:

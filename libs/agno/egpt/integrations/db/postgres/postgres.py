@@ -186,6 +186,20 @@ class PostgresDb(BaseDb):
         )
         return base
 
+    def clone_with_table_overrides(self, **overrides: Any) -> "PostgresDb":
+        """Clone this db with table-name overrides, reusing the same engine.
+
+        Passing ``db_engine`` through is what keeps the clone on the existing connection
+        pool instead of opening a second one per component load.
+        """
+        return PostgresDb(
+            db_url=self.db_url,
+            db_engine=self.db_engine,
+            db_schema=self.db_schema,
+            id=self.id,
+            **overrides,
+        )
+
     @classmethod
     def from_dict(cls, data):
         return cls(

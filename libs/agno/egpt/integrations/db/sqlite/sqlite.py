@@ -174,6 +174,20 @@ class SqliteDb(BaseDb):
         )
         return base
 
+    def clone_with_table_overrides(self, **overrides: Any) -> "SqliteDb":
+        """Clone this db with table-name overrides, reusing the same engine.
+
+        Passing ``db_engine`` through is what keeps the clone on the existing connection
+        pool instead of opening a second one per component load.
+        """
+        return SqliteDb(
+            db_file=self.db_file,
+            db_url=self.db_url,
+            db_engine=self.db_engine,
+            id=self.id,
+            **overrides,
+        )
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SqliteDb":
         return cls(
