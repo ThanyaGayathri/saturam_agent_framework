@@ -103,7 +103,7 @@ def stub_redisvl(monkeypatch):
 def import_redisdb(stub_redisvl):
     """Import RedisVectorDb after stubbing dependencies and return (RedisVectorDb, search_idx_mock)."""
     # Delayed import to ensure patches are in place
-    from egpt.vectordb.redis import RedisVectorDb  # type: ignore
+    from egpt.integrations.vectordb.redis import RedisVectorDb  # type: ignore
 
     search_idx_mock, async_idx_mock = stub_redisvl
     return RedisVectorDb, search_idx_mock, async_idx_mock

@@ -1,6 +1,6 @@
 import pytest
 
-from egpt.vectordb.lightrag import LightRag
+from egpt.integrations.vectordb.lightrag import LightRag
 
 TEST_SERVER_URL = "http://localhost:9621"
 TEST_API_KEY = "test_api_key"

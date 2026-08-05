@@ -1,13 +1,29 @@
-try:
-    from cassio.table.base_table import BaseTable
-    from cassio.table.mixins.metadata import MetadataMixin
-    from cassio.table.mixins.type_normalizer import TypeNormalizerMixin
-    from cassio.table.mixins.vector import VectorMixin
+"""Deprecated compatibility shim (EGPT-1.5).
 
-    from .extra_param_mixin import ExtraParamMixin
-except (ImportError, ModuleNotFoundError):
-    raise ImportError("Could not import cassio python package. Please install it with pip install cassio.")
+Import from ``egpt.integrations.vectordb.cassandra.index`` instead; this module will be removed.
+
+Names are re-exported explicitly (not proxied through ``__getattr__`` alone) so that
+star-imports, ``dir()`` and static type checking keep working on this path.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.vectordb.cassandra.index as _target
+from egpt.integrations.vectordb.cassandra.index import *  # noqa: F401,F403
+
+_warnings.warn(
+    "egpt.vectordb.cassandra.index is deprecated; import from egpt.integrations.vectordb.cassandra.index instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-class AgnoMetadataVectorCassandraTable(ExtraParamMixin, TypeNormalizerMixin, MetadataMixin, VectorMixin, BaseTable):
-    pass
+def __getattr__(name: str):
+    # Fallback so a name added to the target later still resolves through this path.
+    # No vectordb target binds names lazily or behind an optional-dependency guard today,
+    # unlike the EGPT-1.4 provider shims this mirrors.
+    return getattr(_target, name)

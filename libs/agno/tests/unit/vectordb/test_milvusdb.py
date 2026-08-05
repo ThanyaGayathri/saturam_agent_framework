@@ -27,7 +27,7 @@ if not MILVUS_AVAILABLE:
 
 # Try to import Milvus, skip all tests if not available
 try:
-    from egpt.vectordb.milvus import Milvus
+    from egpt.integrations.vectordb.milvus import Milvus
 
     MILVUS_AVAILABLE = True
 except (ImportError, TypeError) as e:

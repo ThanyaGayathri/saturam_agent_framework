@@ -4,8 +4,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from egpt.integrations.vectordb.qdrant import Qdrant
 from egpt.knowledge.document import Document
-from egpt.vectordb.qdrant import Qdrant
 
 
 @pytest.fixture

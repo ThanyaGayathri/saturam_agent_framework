@@ -8,8 +8,8 @@ from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
 
+from egpt.integrations.vectordb.mongodb import MongoVectorDb
 from egpt.knowledge.document import Document
-from egpt.vectordb.mongodb import MongoVectorDb
 
 
 @pytest.fixture

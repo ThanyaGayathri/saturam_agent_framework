@@ -3,9 +3,9 @@ import os
 import pytest
 
 from egpt.agent import Agent
+from egpt.integrations.vectordb.lancedb import LanceDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader.website_reader import WebsiteReader
-from egpt.vectordb.lancedb import LanceDb
 
 
 @pytest.fixture

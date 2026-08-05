@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 
 from egpt.agent import Agent
+from egpt.integrations.vectordb.lancedb import LanceDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.vectordb.lancedb import LanceDb
 
 
 @pytest.fixture

@@ -10,13 +10,13 @@ import os
 from egpt.agent import Agent
 from egpt.db.postgres import AsyncPostgresDb
 from egpt.integrations.models.openai import OpenAIChat
+from egpt.integrations.vectordb.pgvector import PgVector
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.os import EgptOS
 from egpt.team.team import Team
 from egpt.tools.calculator import CalculatorTools
 from egpt.tools.websearch import WebSearchTools
-from egpt.vectordb.pgvector import PgVector
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
 

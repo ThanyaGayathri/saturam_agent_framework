@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from egpt.integrations.vectordb.clickhouse import Clickhouse
 from egpt.knowledge.document import Document
-from egpt.vectordb.clickhouse import Clickhouse
 from egpt.vectordb.search import SearchType
 
 # Configuration for tests

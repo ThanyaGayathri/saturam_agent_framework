@@ -1,15 +1,29 @@
-from enum import Enum
+"""Deprecated compatibility shim (EGPT-1.5).
+
+Import from ``egpt.integrations.vectordb.weaviate.index`` instead; this module will be removed.
+
+Names are re-exported explicitly (not proxied through ``__getattr__`` alone) so that
+star-imports, ``dir()`` and static type checking keep working on this path.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.vectordb.weaviate.index as _target
+from egpt.integrations.vectordb.weaviate.index import *  # noqa: F401,F403
+
+_warnings.warn(
+    "egpt.vectordb.weaviate.index is deprecated; import from egpt.integrations.vectordb.weaviate.index instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-class VectorIndex(Enum):
-    HNSW = "hnsw"
-    FLAT = "flat"
-    DYNAMIC = "dynamic"
-
-
-class Distance(Enum):
-    COSINE = "cosine"
-    DOT = "dot"
-    L2_SQUARED = "l2-squared"
-    HAMMING = "hamming"
-    MANHATTAN = "manhattan"
+def __getattr__(name: str):
+    # Fallback so a name added to the target later still resolves through this path.
+    # No vectordb target binds names lazily or behind an optional-dependency guard today,
+    # unlike the EGPT-1.4 provider shims this mirrors.
+    return getattr(_target, name)
