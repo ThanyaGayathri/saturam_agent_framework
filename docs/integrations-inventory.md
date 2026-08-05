@@ -64,7 +64,7 @@ If a reviewer disagrees with any exclusion, the fix is a row in section 4, not a
 | `guardrails/openai.py` | *not listed* | **1** (of 4 in `guardrails/`) | **Gap in the ticket.** Instantiates an OpenAI client and calls the moderation API. |
 | `run/cancellation_management/` | *not listed* | **1** (of 3) | **Gap in the ticket.** Redis backend. |
 
-**Totals: 401 modules inventoried.** 293 move to the integrations layer unambiguously; 67 need a decision first (section 6), of which 56 are proposed to move and 11 to stay or split; 35 are interfaces, domain types or pure logic that stay in core / orchestration; 6 are deprecation shims to delete. That is **~349 modules destined for the integrations layer**, against the ticket's ~270 estimate. The excess is the rerankers, loaders, remote content, cloud adapters and provider utils the ticket's table did not account for.
+**Totals: 401 modules inventoried.** 293 move to the integrations layer unambiguously; 67 need a decision first (section 6), of which 56 are proposed to move and 11 to stay or split; 35 are interfaces, domain types or pure logic that stay in core / orchestration; 6 are deprecation shims to delete. That is **~349 modules destined for the integrations layer**, against the ticket's ~270 estimate. The excess is the four families the ticket never contemplated (`os/interfaces/` channel adapters, `agents/` external-framework wrappers, `guardrails/openai.py`, the Redis cancellation manager) plus the rerankers, loaders, remote content, cloud adapters and provider utils its table did not account for.
 
 ### Disposition legend
 
