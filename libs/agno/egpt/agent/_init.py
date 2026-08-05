@@ -89,11 +89,20 @@ def set_default_model(agent: Agent) -> None:
     if agent.model is None:
         try:
             model = get_model("openai-responses:gpt-5.4")
-        except ModuleNotFoundError as e:
+        # Provider modules raise a bare ImportError, not ModuleNotFoundError, when their SDK is
+        # missing. ModuleNotFoundError is a subclass of ImportError, so catching the narrower type
+        # here never fired and this handler was unreachable.
+        except ImportError as e:
             log_exception(e)
             raise ImportError(
                 "EGPT agents use `openai` as the default model provider. Please provide a `model` or install `openai`."
             ) from e
+
+        # get_model is typed Optional[Model]; it returns None only for a None argument, which
+        # cannot happen here. Guard anyway so a widened contract fails loudly rather than leaving
+        # agent.model unset for downstream code to trip over, matching culture/ and memory/.
+        if model is None:
+            raise ValueError("Could not resolve the default model.")
 
         log_info("Setting default model to OpenAI Responses")
         agent.model = model

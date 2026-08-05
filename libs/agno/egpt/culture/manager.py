@@ -85,7 +85,10 @@ class CultureManager:
         if self.model is None:
             try:
                 self.model = get_model("openai-chat:gpt-4o")
-            except ModuleNotFoundError as e:
+            # Provider modules raise a bare ImportError, not ModuleNotFoundError, when their SDK
+            # is missing. ModuleNotFoundError is a subclass of ImportError, so catching the
+            # narrower type here never fired and this handler was unreachable.
+            except ImportError as e:
                 log_error(e)
                 log_error(
                     "EGPT uses `openai` as the default model provider. Please provide a `model` or install `openai`."
