@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from sqlalchemy import text
 
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 
 
 def test_init_with_db_url():

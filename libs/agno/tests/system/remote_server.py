@@ -8,7 +8,7 @@ consumes via RemoteAgent, RemoteTeam, and RemoteWorkflow.
 import os
 
 from egpt.agent import Agent
-from egpt.db.postgres import AsyncPostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.integrations.models.openai import OpenAIChat
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge

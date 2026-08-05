@@ -300,7 +300,7 @@ def test_cancel_workflow_before_step_2_starts(streaming_workflow_with_agents):
 @pytest.mark.asyncio
 async def test_cancel_non_existent_run():
     """Test that cancelling a non-existent run returns False."""
-    from egpt.db.sqlite import SqliteDb
+    from egpt.integrations.db.sqlite import SqliteDb
 
     workflow = Workflow(
         name="Test Workflow",

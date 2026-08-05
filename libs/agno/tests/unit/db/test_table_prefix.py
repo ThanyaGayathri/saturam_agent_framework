@@ -2,11 +2,11 @@
 
 import pytest
 
-from egpt.db.in_memory.in_memory_db import InMemoryDb
-from egpt.db.json.json_db import JsonDb
-from egpt.db.postgres.postgres import PostgresDb
-from egpt.db.sqlite.async_sqlite import AsyncSqliteDb
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.db.in_memory.in_memory_db import InMemoryDb
+from egpt.integrations.db.json.json_db import JsonDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.db.table_names import (
     DEFAULT_TABLE_PREFIX,
     LEGACY_TABLE_PREFIX,
@@ -148,7 +148,7 @@ class TestTablePrefixSerialization:
 
         mock_engine = MagicMock()
         mock_engine.url = "postgresql://localhost/test"
-        with patch("egpt.db.postgres.postgres.create_engine", return_value=mock_engine):
+        with patch("egpt.integrations.db.postgres.postgres.create_engine", return_value=mock_engine):
             db = PostgresDb(db_url="postgresql://localhost/test", table_prefix="acme_")
             restored = PostgresDb.from_dict(db.to_dict())
 

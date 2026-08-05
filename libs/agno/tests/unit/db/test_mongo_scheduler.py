@@ -2,8 +2,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
-from egpt.db.mongo import AsyncMongoDb, MongoDb
-from egpt.db.mongo.schemas import get_collection_indexes
+from egpt.integrations.db.mongo import AsyncMongoDb, MongoDb
+from egpt.integrations.db.mongo.schemas import get_collection_indexes
 
 
 @pytest.fixture

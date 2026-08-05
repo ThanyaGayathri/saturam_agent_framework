@@ -6,7 +6,7 @@ from datetime import datetime
 import pytest
 
 from egpt.db.base import SessionType
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.run.agent import RunOutput
 from egpt.run.base import RunStatus
 from egpt.run.team import TeamRunOutput

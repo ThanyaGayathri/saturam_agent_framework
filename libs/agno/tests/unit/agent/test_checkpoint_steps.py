@@ -30,7 +30,7 @@ from egpt.agent._run import (
     persist_run_in_session,
 )
 from egpt.agent.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.integrations.models.openai.responses import OpenAIResponses
 from egpt.models.message import Message
 from egpt.models.response import ModelResponse, ToolExecution

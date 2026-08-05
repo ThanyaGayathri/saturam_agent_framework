@@ -6,7 +6,7 @@ from typing import List
 import pytest
 import pytest_asyncio
 
-from egpt.db.postgres import AsyncPostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.db.schemas.knowledge import KnowledgeRow
 
 

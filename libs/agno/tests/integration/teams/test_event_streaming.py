@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from egpt.agent import RunEvent
 from egpt.agent.agent import Agent
-from egpt.db.in_memory.in_memory_db import InMemoryDb
+from egpt.integrations.db.in_memory.in_memory_db import InMemoryDb
 from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.run.team import TeamRunInput, TeamRunOutput
 from egpt.team import Team, TeamRunEvent

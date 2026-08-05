@@ -3,7 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.eval.agent_as_judge import AgentAsJudgeEval, BinaryJudgeResponse, NumericJudgeResponse
 from egpt.integrations.models.openai import OpenAIChat
 from egpt.run.agent import RunOutput

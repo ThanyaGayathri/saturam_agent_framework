@@ -12,7 +12,7 @@ from sqlalchemy.types import JSON
 
 from egpt.agent.agent import Agent
 from egpt.db.migrations.manager import MigrationManager
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.os import EgptOS
 
 LATEST_SCHEMA_VERSION = MigrationManager.available_versions[-1][1].public

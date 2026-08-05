@@ -15,7 +15,7 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 
-from egpt.db.postgres import AsyncPostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.tracing.schemas import Trace
 
 

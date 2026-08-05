@@ -3,7 +3,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.integrations.models.google import Gemini
 from egpt.run.base import RunStatus
 

@@ -11,7 +11,7 @@ LLM calls) using InMemoryDb + direct session inserts.
 import pytest
 
 from egpt.agent.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.run.agent import RunOutput
 from egpt.run.base import RunStatus
 from egpt.run.team import TeamRunOutput

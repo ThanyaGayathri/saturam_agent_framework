@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 import pytest
 from surrealdb import RecordID
 
-from egpt.db.surrealdb import SurrealDb
+from egpt.integrations.db.surrealdb import SurrealDb
 from egpt.debug import enable_debug_mode
 from egpt.tracing.schemas import Span, Trace
 

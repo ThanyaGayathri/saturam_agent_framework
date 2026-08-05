@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 import pytest_asyncio
 
-from egpt.db.mongo import AsyncMongoDb
+from egpt.integrations.db.mongo import AsyncMongoDb
 
 # Try to import Motor
 try:

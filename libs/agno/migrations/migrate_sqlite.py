@@ -1,7 +1,7 @@
 import asyncio
 
 from egpt.db.migrations.manager import MigrationManager
-from egpt.db.sqlite import AsyncSqliteDb, SqliteDb
+from egpt.integrations.db.sqlite import AsyncSqliteDb, SqliteDb
 
 # Create your database connection here.
 # Pre-rename deployments store their data in agno_* tables. Setting

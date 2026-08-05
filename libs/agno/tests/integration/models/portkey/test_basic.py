@@ -2,7 +2,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.integrations.models.portkey import Portkey
 
 PORTKEY_MODEL_ID = "gpt-4o-mini"

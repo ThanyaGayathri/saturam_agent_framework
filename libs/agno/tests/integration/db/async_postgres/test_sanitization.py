@@ -9,7 +9,7 @@ import time
 import pytest
 import pytest_asyncio
 
-from egpt.db.postgres import AsyncPostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
 from egpt.run.agent import RunOutput

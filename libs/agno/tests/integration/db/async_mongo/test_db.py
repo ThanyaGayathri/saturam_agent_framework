@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import pytest
 
 try:
-    from egpt.db.mongo import AsyncMongoDb
+    from egpt.integrations.db.mongo import AsyncMongoDb
 except ImportError:
     pytest.skip(
         "Neither motor nor pymongo async installed, skipping AsyncMongoDb integration tests", allow_module_level=True

@@ -450,7 +450,7 @@ def _report_fn(step_input: StepInput) -> StepOutput:
 
 def _make_router_review_workflow(session_id: str):
     """Create a workflow with a Router that has output review."""
-    from egpt.db.sqlite import SqliteDb
+    from egpt.integrations.db.sqlite import SqliteDb
     from egpt.workflow.router import Router
     from egpt.workflow.workflow import Workflow
 
@@ -672,7 +672,7 @@ class TestRouterOutputReviewStreaming:
 
 def _make_async_router_review_workflow(session_id: str):
     """Create an async-compatible workflow with a Router that has output review."""
-    from egpt.db.sqlite import SqliteDb
+    from egpt.integrations.db.sqlite import SqliteDb
     from egpt.workflow.router import Router
     from egpt.workflow.workflow import Workflow
 

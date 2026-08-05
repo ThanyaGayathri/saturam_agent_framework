@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.os import EgptOS
 from egpt.team.team import Team

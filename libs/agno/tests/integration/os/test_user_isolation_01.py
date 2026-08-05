@@ -363,7 +363,7 @@ class TestAsyncDbDispatch:
     def async_client(self, tmp_path):
         import uuid
 
-        from egpt.db.sqlite.async_sqlite import AsyncSqliteDb
+        from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb
 
         db = AsyncSqliteDb(
             db_file=str(tmp_path / f"async_iso_{uuid.uuid4().hex[:8]}.db"),

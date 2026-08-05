@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from egpt.agent.agent import Agent
-from egpt.db.postgres import AsyncPostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.run import RunContext
 from egpt.run.base import RunStatus
 from egpt.run.team import TeamRunOutput

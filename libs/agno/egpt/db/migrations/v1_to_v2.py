@@ -454,7 +454,7 @@ def get_table_content_in_batches(db: BaseDb, db_schema: str, table_name: str, ba
     """Get table content in batches to avoid memory issues with large tables"""
     try:
         if type(db).__name__ == "MongoDb":
-            from egpt.db.mongo.mongo import MongoDb
+            from egpt.integrations.db.mongo.mongo import MongoDb
 
             db = cast(MongoDb, db)
 
@@ -479,17 +479,17 @@ def get_table_content_in_batches(db: BaseDb, db_schema: str, table_name: str, ba
         else:
             # SQL database implementations (PostgresDb, MySQLDb, SqliteDb)
             if type(db).__name__ == "PostgresDb":
-                from egpt.db.postgres.postgres import PostgresDb
+                from egpt.integrations.db.postgres.postgres import PostgresDb
 
                 db = cast(PostgresDb, db)
 
             elif type(db).__name__ == "MySQLDb":
-                from egpt.db.mysql.mysql import MySQLDb
+                from egpt.integrations.db.mysql.mysql import MySQLDb
 
                 db = cast(MySQLDb, db)
 
             elif type(db).__name__ == "SqliteDb":
-                from egpt.db.sqlite.sqlite import SqliteDb
+                from egpt.integrations.db.sqlite.sqlite import SqliteDb
 
                 db = cast(SqliteDb, db)
 

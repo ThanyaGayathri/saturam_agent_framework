@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.db.schemas.memory import UserMemory
 
 

@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.integrations.models.cometapi import CometAPI
 
 
@@ -107,7 +107,7 @@ def test_structured_output():
 
 def test_with_memory():
     """Test agent with memory storage."""
-    from egpt.db.sqlite import SqliteDb
+    from egpt.integrations.db.sqlite import SqliteDb
 
     db = SqliteDb(db_file="tmp/cometapi_agent_sessions.db")
     agent = Agent(

@@ -289,7 +289,7 @@ async def test_cancel_agent_async_streaming_preserves_content_in_db(shared_db):
 # ============================================================================
 def test_cancel_non_existent_agent_run():
     """Test that cancelling a non-existent run returns False."""
-    from egpt.db.sqlite import SqliteDb
+    from egpt.integrations.db.sqlite import SqliteDb
 
     agent = Agent(
         name="Test Agent",

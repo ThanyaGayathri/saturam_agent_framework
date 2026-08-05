@@ -9,7 +9,7 @@ from fastapi import Request
 from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.os import EgptOS
 from egpt.os.middleware import JWTMiddleware, TokenSource
 

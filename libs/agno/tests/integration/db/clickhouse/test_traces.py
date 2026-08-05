@@ -18,7 +18,7 @@ from uuid import uuid4
 
 import pytest
 
-from egpt.db.clickhouse import ClickhouseDb
+from egpt.integrations.db.clickhouse import ClickhouseDb
 from egpt.tracing.schemas import Span, create_trace_from_spans
 
 CLICKHOUSE_HOST = "localhost"

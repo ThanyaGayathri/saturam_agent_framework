@@ -5,8 +5,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from sqlalchemy.schema import Index, Table, UniqueConstraint
 
-from egpt.db.postgres.postgres import PostgresDb
-from egpt.db.postgres.schemas import (
+from egpt.integrations.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.schemas import (
     EVAL_TABLE_SCHEMA,
     KNOWLEDGE_TABLE_SCHEMA,
     MEMORY_TABLE_SCHEMA,
@@ -69,7 +69,7 @@ def test_init_with_engine(mock_engine):
     assert db.session_table_name == "sessions"
 
 
-@patch("egpt.db.postgres.postgres.create_engine")
+@patch("egpt.integrations.db.postgres.postgres.create_engine")
 def test_init_with_url(mock_create_engine):
     """Test initialization with database URL"""
     mock_engine = Mock(spec=Engine)
@@ -103,8 +103,8 @@ def test_create_table(postgres_db, mock_session):
 
     # Mock table creation
     with patch.object(Table, "create") as mock_table_create:
-        with patch("egpt.db.postgres.postgres.create_schema") as mock_create_schema:
-            with patch("egpt.db.postgres.postgres.is_table_available", return_value=False):
+        with patch("egpt.integrations.db.postgres.postgres.create_schema") as mock_create_schema:
+            with patch("egpt.integrations.db.postgres.postgres.is_table_available", return_value=False):
                 table = postgres_db._create_table("test_sessions", "sessions")
 
     # Verify schema was created
@@ -147,7 +147,7 @@ def test_create_table_with_indexes(postgres_db, mock_session):
 
     with patch.object(Table, "create"):
         with patch.object(Index, "create"):
-            with patch("egpt.db.postgres.postgres.create_schema"):
+            with patch("egpt.integrations.db.postgres.postgres.create_schema"):
                 table = postgres_db._create_table("test_metrics", "metrics")
 
     # Verify table has indexes on date and created_at columns
@@ -161,7 +161,7 @@ def test_create_table_with_unique_constraints(postgres_db, mock_session):
     postgres_db.Session = Mock(return_value=mock_session)
 
     with patch.object(Table, "create"):
-        with patch("egpt.db.postgres.postgres.create_schema"):
+        with patch("egpt.integrations.db.postgres.postgres.create_schema"):
             table = postgres_db._create_table("test_metrics", "metrics")
 
     # Verify unique constraint was added
@@ -181,7 +181,7 @@ def test_create_memory_table(postgres_db, mock_session):
     postgres_db.Session = Mock(return_value=mock_session)
 
     with patch.object(Table, "create"):
-        with patch("egpt.db.postgres.postgres.create_schema"):
+        with patch("egpt.integrations.db.postgres.postgres.create_schema"):
             table = postgres_db._create_table("test_memories", "memories")
 
     # Verify primary key
@@ -200,7 +200,7 @@ def test_create_eval_table(postgres_db, mock_session):
     """Test creation of eval table with correct schema"""
     postgres_db.Session = Mock(return_value=mock_session)
 
-    with patch("egpt.db.postgres.schemas.get_table_schema_definition") as mock_get_schema:
+    with patch("egpt.integrations.db.postgres.schemas.get_table_schema_definition") as mock_get_schema:
         mock_get_schema.return_value = EVAL_TABLE_SCHEMA.copy()
 
         with patch.object(Table, "create"):
@@ -221,7 +221,7 @@ def test_create_knowledge_table(postgres_db, mock_session):
     """Test creation of knowledge table with correct schema"""
     postgres_db.Session = Mock(return_value=mock_session)
 
-    with patch("egpt.db.postgres.schemas.get_table_schema_definition") as mock_get_schema:
+    with patch("egpt.integrations.db.postgres.schemas.get_table_schema_definition") as mock_get_schema:
         mock_get_schema.return_value = KNOWLEDGE_TABLE_SCHEMA.copy()
 
         with patch.object(Table, "create"):
@@ -308,8 +308,8 @@ def test_get_table_invalid_type(postgres_db):
         postgres_db._get_table("invalid_type")
 
 
-@patch("egpt.db.postgres.postgres.is_table_available")
-@patch("egpt.db.postgres.postgres.is_valid_table")
+@patch("egpt.integrations.db.postgres.postgres.is_table_available")
+@patch("egpt.integrations.db.postgres.postgres.is_valid_table")
 def test_get_or_create_table_existing_valid(mock_is_valid, mock_is_available, postgres_db, mock_session):
     """Test getting existing valid table"""
     mock_is_available.return_value = True
@@ -326,7 +326,7 @@ def test_get_or_create_table_existing_valid(mock_is_valid, mock_is_available, po
     mock_is_valid.assert_called_once()
 
 
-@patch("egpt.db.postgres.postgres.is_table_available")
+@patch("egpt.integrations.db.postgres.postgres.is_table_available")
 def test_get_or_create_table_not_available(mock_is_available, postgres_db, mock_session):
     """Test creating table when not available"""
     mock_is_available.return_value = False
@@ -342,8 +342,8 @@ def test_get_or_create_table_not_available(mock_is_available, postgres_db, mock_
         postgres_db._create_table.assert_called_once_with(table_name="test_table", table_type="sessions")
 
 
-@patch("egpt.db.postgres.postgres.is_table_available")
-@patch("egpt.db.postgres.postgres.is_valid_table")
+@patch("egpt.integrations.db.postgres.postgres.is_table_available")
+@patch("egpt.integrations.db.postgres.postgres.is_valid_table")
 def test_get_or_create_table_invalid_schema(mock_is_valid, mock_is_available, postgres_db, mock_session):
     """Test error when table exists but has invalid schema"""
     mock_is_available.return_value = True
@@ -355,8 +355,8 @@ def test_get_or_create_table_invalid_schema(mock_is_valid, mock_is_available, po
         postgres_db._get_or_create_table("test_table", "sessions", "test_schema")
 
 
-@patch("egpt.db.postgres.postgres.is_table_available")
-@patch("egpt.db.postgres.postgres.is_valid_table")
+@patch("egpt.integrations.db.postgres.postgres.is_table_available")
+@patch("egpt.integrations.db.postgres.postgres.is_valid_table")
 def test_get_or_create_table_load_error(mock_is_valid, mock_is_available, postgres_db, mock_session):
     """Test error when loading existing table fails"""
     mock_is_available.return_value = True

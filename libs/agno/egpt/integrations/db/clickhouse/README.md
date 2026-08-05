@@ -59,8 +59,8 @@ when you set `secure=True` and the appropriate `port`/`host`.
 
 ```python
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
-from egpt.db.clickhouse import ClickhouseDb
+from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.db.clickhouse import ClickhouseDb
 from egpt.models.openai import OpenAIResponses
 from egpt.tracing import setup_tracing
 

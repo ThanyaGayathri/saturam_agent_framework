@@ -1,7 +1,7 @@
 import asyncio
 
 from egpt.db.migrations.manager import MigrationManager
-from egpt.db.mysql import MySQLDb
+from egpt.integrations.db.mysql import MySQLDb
 
 # Create your database connection here.
 # Pre-rename deployments store their data in agno_* tables. Setting

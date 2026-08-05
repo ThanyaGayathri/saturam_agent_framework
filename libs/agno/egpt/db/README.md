@@ -15,7 +15,7 @@ most 32 characters) or the empty string `""` for unprefixed table names.
    `AsyncBaseDb` subclass:
 
    ```python
-   from egpt.db.sqlite import SqliteDb
+   from egpt.integrations.db.sqlite import SqliteDb
 
    db = SqliteDb(db_file="tmp/app.db", table_prefix="acme_")
    ```

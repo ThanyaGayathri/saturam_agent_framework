@@ -23,7 +23,7 @@ import pytest
 from surrealdb import RecordID
 
 from egpt.db.base import SessionType
-from egpt.db.surrealdb import SurrealDb
+from egpt.integrations.db.surrealdb import SurrealDb
 from egpt.debug import enable_debug_mode
 from egpt.session.agent import AgentSession
 from egpt.session.team import TeamSession

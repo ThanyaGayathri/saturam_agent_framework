@@ -13,7 +13,7 @@ import pytest
 
 from egpt.agent.agent import Agent
 from egpt.container import Container, ContainerError
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.base import Model
 from egpt.os import EgptOS
 from egpt.os.container import (

@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from starlette.middleware.cors import CORSMiddleware
 
 from egpt.agent.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.os import EgptOS
 from egpt.team.team import Team
 from egpt.tools.mcp import MCPTools

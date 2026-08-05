@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from egpt.agent import Agent
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.chroma import ChromaDb
 from egpt.vectordb.lancedb.lance_db import LanceDb

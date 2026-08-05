@@ -5,7 +5,7 @@ import pytest
 from pymongo import AsyncMongoClient
 
 from egpt.db.base import SessionType
-from egpt.db.mongo import AsyncMongoDb
+from egpt.integrations.db.mongo import AsyncMongoDb
 
 
 @pytest.fixture(autouse=True)
@@ -18,7 +18,7 @@ def no_index_io():
     ~180s across this file. Everything asserted here is cache/flag bookkeeping, not index creation,
     so stubbing the index call keeps the coverage and drops the wait.
     """
-    with patch("egpt.db.mongo.async_mongo.create_collection_indexes_async", new=AsyncMock()) as mock:
+    with patch("egpt.integrations.db.mongo.async_mongo.create_collection_indexes_async", new=AsyncMock()) as mock:
         yield mock
 
 
@@ -306,7 +306,7 @@ def test_detect_pymongo_async_client_type():
 def test_auto_select_preferred_client_from_url():
     """Test that preferred client is auto-selected when creating from URL"""
     # Import availability flags from the module
-    from egpt.db.mongo.async_mongo import MOTOR_AVAILABLE, PYMONGO_ASYNC_AVAILABLE
+    from egpt.integrations.db.mongo.async_mongo import MOTOR_AVAILABLE, PYMONGO_ASYNC_AVAILABLE
 
     db = AsyncMongoDb(db_url="mongodb://localhost:27017", db_name="test_db")
 

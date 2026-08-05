@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 
 

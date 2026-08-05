@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from egpt.db.postgres import AsyncPostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.session.workflow import WorkflowSession
 from egpt.workflow.workflow import Workflow
 

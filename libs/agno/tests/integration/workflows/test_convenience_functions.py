@@ -3,8 +3,8 @@ import uuid
 import pytest
 
 from egpt.agent.agent import Agent
-from egpt.db.sqlite.async_sqlite import AsyncSqliteDb
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.team.team import Team
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow

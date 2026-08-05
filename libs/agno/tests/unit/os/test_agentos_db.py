@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from egpt.agent.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.os import EgptOS
 from egpt.team.team import Team
 from egpt.workflow.workflow import Workflow

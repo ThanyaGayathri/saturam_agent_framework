@@ -227,7 +227,7 @@ class TestWorkflowFromDict:
             "db": {"type": "postgres", "db_url": "postgresql://localhost/test"},
         }
 
-        with patch("egpt.db.postgres.PostgresDb.from_dict") as mock_from_dict:
+        with patch("egpt.integrations.db.postgres.PostgresDb.from_dict") as mock_from_dict:
             mock_db = MagicMock()
             mock_from_dict.return_value = mock_db
 
@@ -243,7 +243,7 @@ class TestWorkflowFromDict:
             "db": {"type": "sqlite", "db_file": "/tmp/test.db"},
         }
 
-        with patch("egpt.db.sqlite.SqliteDb.from_dict") as mock_from_dict:
+        with patch("egpt.integrations.db.sqlite.SqliteDb.from_dict") as mock_from_dict:
             mock_db = MagicMock()
             mock_from_dict.return_value = mock_db
 

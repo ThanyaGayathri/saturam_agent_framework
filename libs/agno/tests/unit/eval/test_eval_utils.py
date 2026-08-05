@@ -56,7 +56,7 @@ def test_async_log_eval_write_failure_is_swallowed_and_warned(monkeypatch):
 def test_async_log_eval_in_memory_sqlite_stays_on_loop_and_persists():
     # In-memory sqlite is thread-affine (one private database per thread): the
     # write must run on the loop thread so it lands in the caller's database.
-    from egpt.db.sqlite import SqliteDb
+    from egpt.integrations.db.sqlite import SqliteDb
 
     db = SqliteDb(db_url="sqlite:///:memory:")
 
@@ -70,7 +70,7 @@ def test_async_log_eval_uri_form_in_memory_sqlite_stays_on_loop_and_persists():
     # URI-form in-memory sqlite gets the same thread-affine SingletonThreadPool as
     # ":memory:" but a different url.database - the pool class, not the URL
     # spelling, must decide the routing.
-    from egpt.db.sqlite import SqliteDb
+    from egpt.integrations.db.sqlite import SqliteDb
 
     db = SqliteDb(db_url="sqlite:///file:eval_mem?mode=memory&uri=true")
 

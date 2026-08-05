@@ -1592,7 +1592,7 @@ class TestCustomExecutorWithInternalAgentTeam:
     def test_step_id_stable_across_continue(self):
         """A run's step_id must stay stable across its own pause/continue, even though the OS
         deep-copies the workflow afresh for the continue request (clients correlate by step_id)."""
-        from egpt.db.in_memory import InMemoryDb
+        from egpt.integrations.db.in_memory import InMemoryDb
         from egpt.workflow.types import StepInput, StepOutput
 
         def my_func(step_input: StepInput) -> StepOutput:

@@ -2,7 +2,7 @@ import asyncio
 from os import getenv
 
 from egpt.db.migrations.manager import MigrationManager
-from egpt.db.singlestore import SingleStoreDb
+from egpt.integrations.db.singlestore import SingleStoreDb
 
 # Create your database connection here
 USERNAME = getenv("SINGLESTORE_USERNAME")
