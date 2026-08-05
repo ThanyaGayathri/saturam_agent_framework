@@ -7,11 +7,22 @@ star-imports, ``dir()`` and static type checking keep working on this path.
 
 Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
 implementation in the target module. Patch the target path instead.
+
+The three names are imported from the target *package* rather than its submodules, so the
+target's ``try``/``except ImportError`` stub fallbacks are honoured and no optional SDK is
+forced open. Submodules stay reachable by their dotted path
+(``egpt.models.azure.claude``); they are deliberately kept out of ``__all__``, matching
+every provider that declared ``__all__`` before the move.
 """
 
 import warnings as _warnings
 
 import egpt.integrations.models.azure as _target
+from egpt.integrations.models.azure import (  # noqa: F401
+    AzureAIFoundry,
+    AzureFoundryClaude,
+    AzureOpenAI,
+)
 
 _warnings.warn(
     "egpt.models.azure is deprecated; import from egpt.integrations.models.azure instead. "
@@ -19,6 +30,12 @@ _warnings.warn(
     DeprecationWarning,
     stacklevel=2,
 )
+
+__all__ = [
+    "AzureAIFoundry",
+    "AzureFoundryClaude",
+    "AzureOpenAI",
+]
 
 
 def __getattr__(name: str):

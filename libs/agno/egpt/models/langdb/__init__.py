@@ -7,6 +7,9 @@ star-imports, ``dir()`` and static type checking keep working on this path.
 
 Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
 implementation in the target module. Patch the target path instead.
+
+The ``langdb`` submodule stays reachable by its dotted path but is deliberately kept out of
+``__all__``, matching every provider that declared ``__all__`` before the move.
 """
 
 import warnings as _warnings
@@ -20,6 +23,10 @@ _warnings.warn(
     DeprecationWarning,
     stacklevel=2,
 )
+
+__all__ = [
+    "LangDB",
+]
 
 
 def __getattr__(name: str):
