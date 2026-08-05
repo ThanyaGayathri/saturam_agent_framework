@@ -15,7 +15,7 @@ async def run_agent():
     # Development environment tools
     dev_tools = MCPTools(
         transport="streamable-http",
-        url="https://modelcontextprotocol.io",
+        url="https://modelcontextprotocol.io/mcp",
         # By providing this tool_name_prefix, all the tool names will be prefixed with "dev_"
         tool_name_prefix="dev",
     )

@@ -53,7 +53,7 @@ knowledge = Knowledge(
 )
 
 knowledge.insert(
-    url="https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/main/libs/agno/egpt/session/workflow.py",
+    url="https://raw.githubusercontent.com/modelcontextprotocol/servers/main/src/fetch/src/mcp_server_fetch/server.py",
     reader=TextReader(
         chunking_strategy=CodeChunking(
             tokenizer=LineTokenizer(),

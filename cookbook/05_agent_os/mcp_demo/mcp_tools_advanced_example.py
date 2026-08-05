@@ -20,7 +20,7 @@ from egpt.tools.mcp import MCPTools  # noqa: F401
 db = SqliteDb(db_file="tmp/egptos.db")
 
 mcp_docs_tools = MCPTools(
-    transport="streamable-http", url="https://modelcontextprotocol.io"
+    transport="streamable-http", url="https://modelcontextprotocol.io/mcp"
 )
 
 # Example: Brave Search MCP server
@@ -37,7 +37,7 @@ brave_mcp_tools = MCPTools(
 # from egpt.tools.mcp import MultiMCPTools
 # mcp_tools = MultiMCPTools(
 #     commands=["npx -y @modelcontextprotocol/server-brave-search"],
-#     urls=["https://modelcontextprotocol.io"],
+#     urls=["https://modelcontextprotocol.io/mcp"],
 #     env={"BRAVE_API_KEY": getenv("BRAVE_API_KEY")},
 # )
 

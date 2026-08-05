@@ -47,7 +47,7 @@ mcp_agent = Agent(
     name="MCP Agent",
     model=OpenAIResponses(id="gpt-5.5"),
     tools=[
-        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io")
+        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io/mcp")
     ],
     db=db,
     add_history_to_context=True,

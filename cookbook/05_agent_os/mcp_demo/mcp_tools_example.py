@@ -17,7 +17,9 @@ from egpt.tools.mcp import MCPTools
 # Setup the database
 db = SqliteDb(db_file="tmp/egptos.db")
 
-mcp_tools = MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io")
+mcp_tools = MCPTools(
+    transport="streamable-http", url="https://modelcontextprotocol.io/mcp"
+)
 
 # Setup basic agent
 mcp_support_agent = Agent(

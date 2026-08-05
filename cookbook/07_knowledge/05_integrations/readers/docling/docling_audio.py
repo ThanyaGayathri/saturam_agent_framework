@@ -47,7 +47,7 @@ if __name__ == "__main__":
 
         await knowledge.ainsert(
             name="EGPT_Audio_WAV",
-            path="cookbook/07_knowledge/testing_resources/egpt_description.wav",
+            path="cookbook/07_knowledge/testing_resources/agno_description.wav",
             reader=DoclingReader(output_format="html"),
         )
         agent.print_response(
@@ -62,7 +62,7 @@ if __name__ == "__main__":
 
         await knowledge.ainsert(
             name="EGPT_Audio_MP3",
-            path="cookbook/07_knowledge/testing_resources/egpt_description.mp3",
+            path="cookbook/07_knowledge/testing_resources/agno_description.mp3",
             reader=DoclingReader(),
         )
         agent.print_response(
@@ -77,7 +77,7 @@ if __name__ == "__main__":
 
         await knowledge.ainsert(
             name="EGPT_Audio_MP4",
-            path="cookbook/07_knowledge/testing_resources/egpt_description.mp4",
+            path="cookbook/07_knowledge/testing_resources/agno_description.mp4",
             reader=DoclingReader(output_format="vtt"),
         )
         agent.print_response(

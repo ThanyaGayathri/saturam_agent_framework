@@ -18,7 +18,7 @@ from egpt.tools.mcp import MCPTools
 
 async def run_agent(message: str) -> None:
     async with MCPTools(
-        transport="streamable-http", url="https://modelcontextprotocol.io"
+        transport="streamable-http", url="https://modelcontextprotocol.io/mcp"
     ) as mcp_docs_server:
         agent = Agent(
             model=Claude(id="claude-sonnet-4-5"),

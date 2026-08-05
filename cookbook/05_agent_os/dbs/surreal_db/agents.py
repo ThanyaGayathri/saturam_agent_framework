@@ -31,7 +31,7 @@ egpt_assist = Agent(
     markdown=True,
     # Add the Model Context Protocol docs MCP server to the Agent
     tools=[
-        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io")
+        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io/mcp")
     ],
     description=dedent(
         """\

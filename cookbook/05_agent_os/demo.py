@@ -43,7 +43,7 @@ mcp_docs_agent = Agent(
     name="MCP Docs Agent",
     model=OpenAIChat(id="gpt-4.1"),
     tools=[
-        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io")
+        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io/mcp")
     ],
     db=db,
     update_memory_on_run=True,

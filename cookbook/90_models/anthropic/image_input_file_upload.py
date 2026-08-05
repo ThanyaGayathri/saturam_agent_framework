@@ -14,11 +14,11 @@ from egpt.utils.media import download_file
 # Create Agent
 # ---------------------------------------------------------------------------
 
-img_path = Path(__file__).parent.joinpath("egpt-intro.png")
+img_path = Path(__file__).parent.joinpath("agno-intro.png")
 
 # Download the file using the download_file function
 download_file(
-    "https://agno-public.s3.us-east-1.amazonaws.com/images/egpt-intro.png",
+    "https://agno-public.s3.us-east-1.amazonaws.com/images/agno-intro.png",
     str(img_path),
 )
 

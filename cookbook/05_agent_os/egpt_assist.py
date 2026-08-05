@@ -19,7 +19,7 @@ egpt_assist = Agent(
     name="EGPT Assist",
     model=Claude(id="claude-sonnet-4-5"),
     db=SqliteDb(db_file="egpt.db"),
-    tools=[MCPTools(url="https://modelcontextprotocol.io")],
+    tools=[MCPTools(url="https://modelcontextprotocol.io/mcp")],
     add_datetime_to_context=True,
     add_history_to_context=True,
     num_history_runs=10,

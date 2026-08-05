@@ -47,7 +47,7 @@ knowledge = Knowledge(
 registry = Registry(
     name="EGPT Registry",
     tools=[
-        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io")
+        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io/mcp")
     ],
     models=[
         OpenAIChat(id="gpt-5"),

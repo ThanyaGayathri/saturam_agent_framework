@@ -15,7 +15,7 @@ $ErrorActionPreference = "Stop"
 
 $CurrDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $RepoRoot = Split-Path -Parent $CurrDir
-$AgnoDir = Join-Path $RepoRoot "libs\egpt"
+$AgnoDir = Join-Path $RepoRoot "libs\agno"
 $EgptctlDir = Join-Path $RepoRoot "libs\egptctl"
 $AgnoInfraDir = Join-Path $RepoRoot "libs\agno_infra"
 $VenvDir = Join-Path $RepoRoot ".venv"

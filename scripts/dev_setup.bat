@@ -11,7 +11,7 @@ SETLOCAL ENABLEDELAYEDEXPANSION
 REM Get current directory
 SET "CURR_DIR=%~dp0"
 SET "REPO_ROOT=%CURR_DIR%\.."
-SET "AGNO_DIR=%REPO_ROOT%\libs\egpt"
+SET "AGNO_DIR=%REPO_ROOT%\libs\agno"
 SET "EGPTCTL_DIR=%REPO_ROOT%\libs\egptctl"
 SET "AGNO_INFRA_DIR=%REPO_ROOT%\libs\agno_infra"
 SET "VENV_DIR=%REPO_ROOT%\.venv"

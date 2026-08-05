@@ -41,7 +41,7 @@ mcp_agent = Agent(
     name="MCP Agent",
     model=OpenAIChat(id="gpt-4.1"),
     tools=[
-        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io")
+        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io/mcp")
     ],
     knowledge=knowledge,
     markdown=True,

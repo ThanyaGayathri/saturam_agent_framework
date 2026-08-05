@@ -21,9 +21,9 @@ console = Console()
 # ---------------------------------------------------------------------------
 mcp_tools = MCPTools(
     transport="streamable-http",
-    url="https://modelcontextprotocol.io",
+    url="https://modelcontextprotocol.io/mcp",
     requires_confirmation_tools=[
-        "SearchMcpDocs"
+        "search_model_context_protocol"
     ],  # Note: Tool names are case-sensitive
 )
 

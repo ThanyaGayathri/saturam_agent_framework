@@ -21,7 +21,7 @@ set "CURR_DIR=%CURR_DIR:~0,-1%"
 :: Get Repo Root (Parent of scripts folder)
 for %%I in ("%CURR_DIR%\..") do set "REPO_ROOT=%%~fI"
 
-set "AGNO_DIR=%REPO_ROOT%\libs\egpt"
+set "AGNO_DIR=%REPO_ROOT%\libs\agno"
 set "EGPTCTL_DIR=%REPO_ROOT%\libs\egptctl"
 set "VENV_DIR=%REPO_ROOT%\.venvs\demo"
 

@@ -70,7 +70,17 @@ DOCS_PATHS = [
     "libs/agno_infra/README.md",
     "libs/egptctl/README.md",
     "libs/agno/migrations/README.md",
+    # Agent-facing instructions. These tell a coding agent which repo to act on, so a
+    # stale org here is a live wrong-repo command, not cosmetics (EGPT-0.13 review).
+    "AGENTS.md",
+    "CLAUDE.md",
+    "PROVENANCE.md",
 ]
+
+# PROVENANCE.md records which project this repo was forked from; naming
+# agno-agi/agno there is the whole point of the file, not a stale clone
+# instruction. Exact match, as with UPSTREAM_HOST_SITES.
+PROVENANCE_SITES = ("PROVENANCE.md",)
 
 # The rebrand tooling necessarily quotes the strings it exists to catch, so scanning
 # it would flag its own exemplars. Path-scoped, in the same spirit as
@@ -146,7 +156,7 @@ DOCS_DENY_RULES: List[tuple] = DENY_RULES + [
     ("stale-import", re.compile(r"\bfrom agno(\.[\w.]+)? import\b|^\s*import agno\b"), ()),
     # Clone and setup instructions must point at this repo. Citations of upstream
     # issues stay -- they are factually about upstream (see keep-upstream-citation).
-    ("clone-url", re.compile(r"github\.com/agno-agi/(?!agno/issues/)"), ()),
+    ("clone-url", re.compile(r"github\.com/agno-agi/(?!agno/issues/)"), PROVENANCE_SITES),
 ]
 
 # Regressions this gate must catch, re-verified on every run. Each entry is the real
@@ -202,6 +212,10 @@ SELF_TEST_ALLOWED_DOCS = [
 # Every entry is a documented decision, not a convenience. Adding one means deciding
 # the brand leak is acceptable; say why in the comment.
 KEEP_RULES: List[tuple] = [
+    # -- The provenance record ----------------------------------------------------
+    # PROVENANCE.md states which project this repo was forked from. Naming it is the
+    # file's purpose; the row is matched exactly so no other upstream URL is allowed.
+    ("keep-provenance", re.compile(r"Source project \| https://github\.com/agno-agi/agno")),
     # -- English words that merely contain the substring (agnostic, diagnose, ...) -
     ("false-positive", re.compile(r"agnostic", re.I)),
     ("false-positive", re.compile(r"[a-z]agno[a-z]", re.I)),
@@ -229,9 +243,6 @@ KEEP_RULES: List[tuple] = [
             r"|agentos_aws|agentos_railway|agentos_fly|agentos_gcp)\b"
         ),
     ),
-    # The previous default EgptOS id, named in the upgrade note that tells operators
-    # their sessions get a new identity. Deleting the name deletes the warning.
-    ("keep-deprecated-alias", re.compile(r"egpt-agentos")),
     # -- Legacy env prefix, honoured for one release (see egpt.brand.LEGACY_ENV_PREFIX)
     ("keep-legacy-env", re.compile(r"\bAGNO_[A-Z0-9_]+|\bAGENTOS_[A-Z0-9_]+|\bAGNO_\b|\bLEGACY_ENV_PREFIX\b")),
     # -- Persistence identity: renaming re-points deployments at empty tables ------
@@ -281,8 +292,27 @@ KEEP_RULES: List[tuple] = [
     ("keep-token-prefix", re.compile(r"agno_pat_")),
     # -- The `ag` infra CLI command name; rename deferred past Epic 0 --------------
     ("defer-infra-cli", re.compile(r"\bag infra\b|\bag ws\b")),
+    # -- The legacy MCP server entry name -----------------------------------------
+    # egptctl still reads this key (LEGACY_MCP_SERVER_NAME = "agno" in
+    # egptctl/clients/base.py), and the upgrade note has to name it to say which stale
+    # entry to remove. Rewriting it in prose made the documented command delete the
+    # entry `egpt connect` had just written (EGPT-0.13 review, finding 2). Scoped to
+    # the exact phrasings so a bare `agno` elsewhere is still a finding.
+    (
+        "keep-legacy-mcp-entry",
+        re.compile(r"was `agno` before|\"agno\" entry|--server-name agno|--scope user agno"),
+    ),
     # -- The libs/agno directory name (not user- or wire-facing) ------------------
-    ("keep-directory-name", re.compile(r"libs/agno\b")),
+    # Both separators: the .bat/.ps1 scripts spell it `libs\agno`, and a rule that
+    # only knew the POSIX form let a sweep rewrite them to a directory that does not
+    # exist while the audit stayed green (EGPT-0.13 review, finding 1).
+    ("keep-directory-name", re.compile(r"libs[/\\]agno\b")),
+]
+
+
+# Docs-only KEEP rules. Kept separate from KEEP_RULES so the shipped pass is judged
+# by exactly the rules it had before EGPT-0.13.
+DOCS_KEEP_RULES: List[tuple] = KEEP_RULES + [
     # -- Verbatim captured output pasted into cookbook TEST_LOG.md ----------------
     # Python traceback frames from real runs, including the developer's workspace
     # path. Rewriting them would falsify the record the log exists to preserve, and
@@ -358,20 +388,22 @@ def classify(
     hit: Hit,
     rules: List[tuple] = DENY_RULES,
     prestrip: re.Pattern | None = None,
+    keep_rules: List[tuple] | None = None,
 ) -> str | None:
     """Return the KEEP category for this line, or None if it is a finding."""
+    keep_rules = KEEP_RULES if keep_rules is None else keep_rules
     if deny_reason(hit.path, hit.text, rules, prestrip) is not None:
         return None
     if MIGRATION_DOC.search(hit.text):
         return "keep-migration-doc"
 
     residue = hit.text
-    for _, pattern in KEEP_RULES:
+    for _, pattern in keep_rules:
         residue = pattern.sub("", residue)
     # A line is allowed only when stripping the KEEP patterns removes every mention.
     if re.search(r"agno|agentos", residue, re.I):
         return None
-    for category, pattern in KEEP_RULES:
+    for category, pattern in keep_rules:
         if pattern.search(hit.text):
             return category
     return "keep-uncategorised"
@@ -398,7 +430,7 @@ def self_test_failures() -> List[str]:
         if denied is not None:
             failures.append(f"{path}: {text.strip()[:80]!r}\n      expected to be allowed, denied by {denied}")
             continue
-        if classify(Hit(path, 0, text), DOCS_DENY_RULES, DOCS_PRESTRIP) is None:
+        if classify(Hit(path, 0, text), DOCS_DENY_RULES, DOCS_PRESTRIP, DOCS_KEEP_RULES) is None:
             failures.append(f"{path}: {text.strip()[:80]!r}\n      expected a KEEP rule to cover it, none did")
     return failures
 
@@ -420,18 +452,16 @@ def main() -> int:
         return 1
 
     passes = [
-        ("shipped", SHIPPED_PATHS, [], DENY_RULES, None),
-        ("docs", DOCS_PATHS, DOCS_EXEMPT_PATHSPECS, DOCS_DENY_RULES, DOCS_PRESTRIP),
+        ("shipped", SHIPPED_PATHS, [], DENY_RULES, None, KEEP_RULES),
+        ("docs", DOCS_PATHS, DOCS_EXEMPT_PATHSPECS, DOCS_DENY_RULES, DOCS_PRESTRIP, DOCS_KEEP_RULES),
     ]
 
     denied = []
     findings = []
     allowed = Counter()
-    scanned = 0
 
-    for label, paths, excludes, rules, prestrip in passes:
+    for label, paths, excludes, rules, prestrip, keeps in passes:
         hits = collect_hits(paths, excludes)
-        scanned += len(hits)
         pass_allowed = Counter()
 
         for hit in hits:
@@ -439,7 +469,7 @@ def main() -> int:
             if reason is not None:
                 denied.append((reason, hit))
                 continue
-            category = classify(hit, rules, prestrip)
+            category = classify(hit, rules, prestrip, keeps)
             if category is None:
                 findings.append(hit)
             else:

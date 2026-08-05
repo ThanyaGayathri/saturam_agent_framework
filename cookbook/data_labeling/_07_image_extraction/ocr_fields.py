@@ -55,7 +55,7 @@ agent = Agent(
 # Run Agent
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    url = "https://agno-public.s3.us-east-1.amazonaws.com/images/egpt-intro.png"
+    url = "https://agno-public.s3.us-east-1.amazonaws.com/images/agno-intro.png"
     run: RunOutput = agent.run(
         "Extract the text fields from this image.", images=[Image(url=url)]
     )

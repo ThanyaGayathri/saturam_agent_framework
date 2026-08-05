@@ -22,7 +22,7 @@ Tested 2026-05-22 against `gemini-3.5-flash`, egpt 2.6.9.
 
 **Result:** Reads the EGPT wordmark and body copy from the intro image into the typed schema.
 
-**Note:** Input switched from a Wikimedia "Welcome to Las Vegas" sign (Gemini can't fetch those URLs) to `agno-public.s3.us-east-1.amazonaws.com/images/egpt-intro.png`. The schema is still about extracting text from an image — content changed from a sign to a marketing graphic.
+**Note:** Input switched from a Wikimedia "Welcome to Las Vegas" sign (Gemini can't fetch those URLs) to `agno-public.s3.us-east-1.amazonaws.com/images/agno-intro.png`. The schema is still about extracting text from an image — content changed from a sign to a marketing graphic.
 
 ---
 

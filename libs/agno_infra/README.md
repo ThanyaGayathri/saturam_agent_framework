@@ -28,7 +28,7 @@ This needs `GITHUB_TOKEN` (or `GH_TOKEN`) with `contents:read` on `Saturam-Inc/s
 
 ## Command-line interface
 
-The legacy `ag` and `egpt` executables are no longer installed. Infrastructure CLI
+The legacy `ag` and `agno` executables are no longer installed. Infrastructure CLI
 integration with the branded `egpt` command is deferred to a separate release.
 
 ## Project Structure
