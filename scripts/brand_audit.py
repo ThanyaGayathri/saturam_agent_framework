@@ -21,8 +21,17 @@ Two layers, in order:
 The exemplars in SELF_TEST_CASES are re-checked on every run, so loosening a rule
 until it stops catching a known regression fails the gate immediately.
 
-Scope is *shipped* code only. Tests, cookbooks and benchmarks are excluded: they do
-not ship in a wheel and are not a brand surface.
+Two trees are scanned:
+
+* SHIPPED_PATHS -- the packages and packaging metadata that go into a wheel.
+* DOCS_PATHS -- cookbooks, setup scripts and repo docs (EGPT-0.13, #150). Not
+  shipped, but they are the onboarding path: a README that says `pip install agno`
+  installs a package we do not own, and a snippet that says `from agno.agent import`
+  teaches a namespace this repo does not install. Both get two extra DENY rules.
+
+Benchmarks and libs/*/tests stay out of scope: they are not a brand surface. The
+rebrand tooling itself (this file, the codemod templates) is excluded by pathspec --
+it has to quote the strings it exists to catch.
 """
 
 from __future__ import annotations
@@ -46,6 +55,43 @@ SHIPPED_PATHS = [
     "libs/agno_infra/pyproject.toml",
     "libs/egptctl/pyproject.toml",
 ]
+
+# EGPT-0.13 (aicoe-tracker#150): the docs tree. Not shipped in a wheel, but every
+# path here is a user-facing setup or learning surface, and the 0.12 gate excluded
+# it by design -- which is how `pip install agno` survived in 53 cookbook READMEs.
+DOCS_PATHS = [
+    "cookbook",
+    "scripts",
+    "README.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    ".cursorrules",
+    "libs/agno/README.md",
+    "libs/agno_infra/README.md",
+    "libs/egptctl/README.md",
+    "libs/agno/migrations/README.md",
+]
+
+# The rebrand tooling necessarily quotes the strings it exists to catch, so scanning
+# it would flag its own exemplars. Path-scoped, in the same spirit as
+# UPSTREAM_HOST_SITES below.
+DOCS_EXEMPT_PATHSPECS = [
+    ":!scripts/brand_audit.py",
+    ":!scripts/rebrand_namespace.py",
+    ":!scripts/templates",
+]
+
+# Stripped before the DENY pass, so an install line is judged on the package it
+# names rather than on incidental brand text:
+#   * real third-party distributions whose names embed the brand, and
+#   * references to the frozen libs/agno directory, including the shell and
+#     PowerShell variables that hold it. `pip install -e "${AGNO_DIR}"` installs
+#     this repo's own sources -- the opposite of an upstream install hint.
+DOCS_PRESTRIP = re.compile(
+    r"openinference[-_.]instrumentation[-_.]agno|lightrag[-_]agno"
+    r"|libs[/\\]agno(_infra)?|%AGNO(_INFRA)?_DIR%|\$\{?AGNO(_INFRA)?_DIR\}?|\$Agno(Infra)?Dir",
+    re.I,
+)
 
 # An f-string interpolation holds an identifier, not brand text: the value in
 # `"user-agent": f"{agno_api_settings.app_name}/..."` is branded at runtime even though
@@ -90,6 +136,19 @@ DENY_RULES: List[tuple] = [
     ("brand-url", re.compile(r"https?://(www\.|docs\.|os\.|app\.)?agno\.com", re.I), UPSTREAM_HOST_SITES),
 ]
 
+# The docs tree carries every shipped-code rule plus two of its own. Both describe
+# instructions a reader would follow and find broken, which is what makes them DENY
+# rather than KEEP candidates.
+DOCS_DENY_RULES: List[tuple] = DENY_RULES + [
+    # A snippet that imports `agno` teaches a namespace this repo does not install:
+    # the distribution is `egpt`. Cookbook .py was codemodded in EGPT-0.4, but the
+    # markdown around it and .cursorrules were not.
+    ("stale-import", re.compile(r"\bfrom agno(\.[\w.]+)? import\b|^\s*import agno\b"), ()),
+    # Clone and setup instructions must point at this repo. Citations of upstream
+    # issues stay -- they are factually about upstream (see keep-upstream-citation).
+    ("clone-url", re.compile(r"github\.com/agno-agi/(?!agno/issues/)"), ()),
+]
+
 # Regressions this gate must catch, re-verified on every run. Each entry is the real
 # pre-rebrand text from the file named, so a rule that stops catching one of these is
 # a rule that has been widened past its purpose. See EGPT-0.12.
@@ -115,6 +174,31 @@ SELF_TEST_CASES = [
     ("libs/agno/pyproject.toml", 'Documentation = "https://docs.agno.com"', "brand-url"),
 ]
 
+# The same idea for the docs tree: real pre-EGPT-0.13 text, re-checked every run.
+SELF_TEST_CASES_DOCS = [
+    ("cookbook/00_quickstart/README.md", "git clone https://github.com/agno-agi/agno.git", "clone-url"),
+    ("cookbook/90_models/cloudflare/README.md", "https://github.com/agno-agi/agno/blob/main/CONTRIBUTING.md", "clone-url"),
+    ("cookbook/93_components/README.md", "from agno.agent import Agent", "stale-import"),
+    (".cursorrules", "from agno.models.openai import OpenAIResponses", "stale-import"),
+    ("cookbook/02_agents/README.md", "uv pip install -U openai ddgs agno", "install-hint"),
+    ("cookbook/05_agent_os/scheduler/README.md", "pip install agno[scheduler]", "install-hint"),
+    ("scripts/perf_setup.sh", "uv pip install -U agno langgraph langchain_openai", "install-hint"),
+    (".cursorrules", "Docs: https://docs.agno.com", "brand-url"),
+    ("CODE_OF_CONDUCT.md", "reported to the community leaders at help@agno.com.", "packaging-contact"),
+    ("cookbook/00_quickstart/run.py", "2. Visit https://os.agno.com in your browser", "brand-url"),
+]
+
+# The mirror image: lines that must stay ALLOWED. A widened DENY rule or a deleted
+# KEEP rule shows up here as a failure instead of as a silent false positive.
+SELF_TEST_ALLOWED_DOCS = [
+    ("cookbook/scripts/run_pgvector.sh", "docker run -d ... agnohq/pgvector:16"),
+    ("cookbook/00_quickstart/requirements.txt", "openinference-instrumentation-agno==0.1.34"),
+    ("cookbook/07_knowledge/04_advanced/README.md", "For Graph RAG: `pip install lightrag-agno`"),
+    ("scripts/dev_setup.sh", 'AGNO_DIR="${REPO_ROOT}/libs/agno"'),
+    ("scripts/demo_setup.sh", "uv pip install -e libs/egptctl -e libs/agno[demo]"),
+    ("cookbook/91_tools/mcp/github.py", "https://github.com/agno-agi/agno/issues/123"),
+]
+
 # Every entry is a documented decision, not a convenience. Adding one means deciding
 # the brand leak is acceptable; say why in the comment.
 KEEP_RULES: List[tuple] = [
@@ -123,6 +207,8 @@ KEEP_RULES: List[tuple] = [
     ("false-positive", re.compile(r"[a-z]agno[a-z]", re.I)),
     # -- Third-party package and class names we do not own -----------------------
     ("third-party", re.compile(r"openinference[-_.]instrumentation[-_.]agno|AgnoInstrumentor")),
+    # `lightrag-agno` is a real PyPI package by another author (cookbook Graph RAG).
+    ("third-party", re.compile(r"lightrag[-_]agno", re.I)),
     # -- Upstream infrastructure with no Saturam equivalent (DEFER, see #149) -----
     # Live, working resources: agnohq/* images back `ag infra up` and this repo's own
     # system-test compose file; agno-public hosts the sample data the demos download.
@@ -143,6 +229,9 @@ KEEP_RULES: List[tuple] = [
             r"|agentos_aws|agentos_railway|agentos_fly|agentos_gcp)\b"
         ),
     ),
+    # The previous default EgptOS id, named in the upgrade note that tells operators
+    # their sessions get a new identity. Deleting the name deletes the warning.
+    ("keep-deprecated-alias", re.compile(r"egpt-agentos")),
     # -- Legacy env prefix, honoured for one release (see egpt.brand.LEGACY_ENV_PREFIX)
     ("keep-legacy-env", re.compile(r"\bAGNO_[A-Z0-9_]+|\bAGENTOS_[A-Z0-9_]+|\bAGNO_\b|\bLEGACY_ENV_PREFIX\b")),
     # -- Persistence identity: renaming re-points deployments at empty tables ------
@@ -194,6 +283,11 @@ KEEP_RULES: List[tuple] = [
     ("defer-infra-cli", re.compile(r"\bag infra\b|\bag ws\b")),
     # -- The libs/agno directory name (not user- or wire-facing) ------------------
     ("keep-directory-name", re.compile(r"libs/agno\b")),
+    # -- Verbatim captured output pasted into cookbook TEST_LOG.md ----------------
+    # Python traceback frames from real runs, including the developer's workspace
+    # path. Rewriting them would falsify the record the log exists to preserve, and
+    # a pasted traceback is not a brand surface anyone reads for instructions.
+    ("keep-captured-output", re.compile(r'File "/[^"]*"')),
 ]
 
 
@@ -213,9 +307,9 @@ class Hit(NamedTuple):
     text: str
 
 
-def collect_hits() -> List[Hit]:
+def collect_hits(paths: List[str] = SHIPPED_PATHS, excludes: List[str] = []) -> List[Hit]:
     proc = subprocess.run(
-        ["git", "grep", "-inE", "agno|agentos", "--", *SHIPPED_PATHS],
+        ["git", "grep", "-inE", "agno|agentos", "--", *paths, *excludes],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -232,14 +326,24 @@ def collect_hits() -> List[Hit]:
     return hits
 
 
-def deny_reason(path: str, text: str) -> str | None:
+def deny_reason(
+    path: str,
+    text: str,
+    rules: List[tuple] = DENY_RULES,
+    prestrip: re.Pattern | None = None,
+) -> str | None:
     """Return the name of the DENY rule this line violates, or None.
 
     Checked before everything else, including the migration-prose escape hatch: a
     protected surface is a finding no matter what else the line says.
+
+    `rules`/`prestrip` default to the shipped-code behaviour; the docs pass passes
+    its own so that widening the docs rules can never loosen the shipped gate.
     """
     stripped = INTERPOLATION.sub("", text)
-    for name, pattern, exempt_paths in DENY_RULES:
+    if prestrip is not None:
+        stripped = prestrip.sub("", stripped)
+    for name, pattern, exempt_paths in rules:
         # Compared element-wise rather than with `in`: were an exempt tuple ever written
         # without its trailing comma it would be a plain string, and `in` would match on
         # substrings and exempt far more than intended. This way it exempts nothing.
@@ -250,9 +354,13 @@ def deny_reason(path: str, text: str) -> str | None:
     return None
 
 
-def classify(hit: Hit) -> str | None:
+def classify(
+    hit: Hit,
+    rules: List[tuple] = DENY_RULES,
+    prestrip: re.Pattern | None = None,
+) -> str | None:
     """Return the KEEP category for this line, or None if it is a finding."""
-    if deny_reason(hit.path, hit.text) is not None:
+    if deny_reason(hit.path, hit.text, rules, prestrip) is not None:
         return None
     if MIGRATION_DOC.search(hit.text):
         return "keep-migration-doc"
@@ -277,6 +385,21 @@ def self_test_failures() -> List[str]:
         if actual != expected:
             got = actual or "nothing"
             failures.append(f"{path}: {text.strip()[:80]!r}\n      expected {expected}, caught by {got}")
+
+    for path, text, expected in SELF_TEST_CASES_DOCS:
+        actual = deny_reason(path, text, DOCS_DENY_RULES, DOCS_PRESTRIP)
+        if actual != expected:
+            got = actual or "nothing"
+            failures.append(f"{path}: {text.strip()[:80]!r}\n      expected {expected}, caught by {got}")
+
+    # And the inverse: a rule widened until it swallows a legitimate line.
+    for path, text in SELF_TEST_ALLOWED_DOCS:
+        denied = deny_reason(path, text, DOCS_DENY_RULES, DOCS_PRESTRIP)
+        if denied is not None:
+            failures.append(f"{path}: {text.strip()[:80]!r}\n      expected to be allowed, denied by {denied}")
+            continue
+        if classify(Hit(path, 0, text), DOCS_DENY_RULES, DOCS_PRESTRIP) is None:
+            failures.append(f"{path}: {text.strip()[:80]!r}\n      expected a KEEP rule to cover it, none did")
     return failures
 
 
@@ -296,27 +419,38 @@ def main() -> int:
         )
         return 1
 
-    hits = collect_hits()
+    passes = [
+        ("shipped", SHIPPED_PATHS, [], DENY_RULES, None),
+        ("docs", DOCS_PATHS, DOCS_EXEMPT_PATHSPECS, DOCS_DENY_RULES, DOCS_PRESTRIP),
+    ]
+
     denied = []
     findings = []
     allowed = Counter()
+    scanned = 0
 
-    for hit in hits:
-        reason = deny_reason(hit.path, hit.text)
-        if reason is not None:
-            denied.append((reason, hit))
-            continue
-        category = classify(hit)
-        if category is None:
-            findings.append(hit)
-        else:
-            allowed[category] += 1
+    for label, paths, excludes, rules, prestrip in passes:
+        hits = collect_hits(paths, excludes)
+        scanned += len(hits)
+        pass_allowed = Counter()
 
-    if args.summary:
-        print(f"scanned {len(hits)} matching lines across {len(SHIPPED_PATHS)} shipped paths")
-        for category, count in sorted(allowed.items(), key=lambda kv: -kv[1]):
-            print(f"  {count:5d}  {category}")
-        print()
+        for hit in hits:
+            reason = deny_reason(hit.path, hit.text, rules, prestrip)
+            if reason is not None:
+                denied.append((reason, hit))
+                continue
+            category = classify(hit, rules, prestrip)
+            if category is None:
+                findings.append(hit)
+            else:
+                pass_allowed[category] += 1
+
+        allowed.update(pass_allowed)
+        if args.summary:
+            print(f"{label}: scanned {len(hits)} matching lines across {len(paths)} path(s)")
+            for category, count in sorted(pass_allowed.items(), key=lambda kv: -kv[1]):
+                print(f"  {count:5d}  {category}")
+            print()
 
     if denied or findings:
         print(f"brand audit FAILED: {len(denied) + len(findings)} unexpected agno/agentos reference(s)\n")

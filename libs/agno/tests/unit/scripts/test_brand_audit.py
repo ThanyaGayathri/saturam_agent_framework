@@ -125,3 +125,60 @@ def test_upstream_repo_url_is_caught_by_the_residue_net():
 
     assert brand_audit.deny_reason(path, line) is None
     assert brand_audit.classify(brand_audit.Hit(path, 439, line)) is None
+
+
+# --- The docs tree (EGPT-0.13, aicoe-tracker#150) ----------------------------
+
+
+def test_docs_tree_is_clean():
+    """Cookbooks, scripts and repo docs pass. Also the zero-false-positive guard for
+    the two docs-only DENY rules: widening either one fails here first."""
+    hits = brand_audit.collect_hits(brand_audit.DOCS_PATHS, brand_audit.DOCS_EXEMPT_PATHSPECS)
+    assert hits, "expected the docs audit to find known references; git grep returned nothing"
+
+    findings = [
+        hit for hit in hits if brand_audit.classify(hit, brand_audit.DOCS_DENY_RULES, brand_audit.DOCS_PRESTRIP) is None
+    ]
+    assert findings == [], "\n".join(f"{h.path}:{h.line_no}: {h.text.strip()}" for h in findings)
+
+
+@pytest.mark.parametrize("path,line,expected", brand_audit.SELF_TEST_CASES_DOCS)
+def test_docs_deny_catches_known_regressions(path, line, expected):
+    """Each entry is real pre-0.13 text. A rule that stops catching one has been
+    widened past its purpose."""
+    assert brand_audit.deny_reason(path, line, brand_audit.DOCS_DENY_RULES, brand_audit.DOCS_PRESTRIP) == expected
+
+
+@pytest.mark.parametrize("path,line", brand_audit.SELF_TEST_ALLOWED_DOCS)
+def test_docs_allowed_exemplars_stay_allowed(path, line):
+    """The inverse pin: third-party distributions, agnohq images, local libs/agno
+    paths and upstream issue citations must not become findings."""
+    assert brand_audit.deny_reason(path, line, brand_audit.DOCS_DENY_RULES, brand_audit.DOCS_PRESTRIP) is None
+    assert (
+        brand_audit.classify(brand_audit.Hit(path, 0, line), brand_audit.DOCS_DENY_RULES, brand_audit.DOCS_PRESTRIP)
+        is not None
+    )
+
+
+def test_docs_exempt_pathspecs_are_negations():
+    """A pathspec that lost its `:!` prefix would *restrict* the scan to the rebrand
+    tooling instead of excluding it -- and the docs tree would stop being audited."""
+    for spec in brand_audit.DOCS_EXEMPT_PATHSPECS:
+        assert spec.startswith(":!"), spec
+        assert (ROOT / spec[2:]).exists(), f"exempts a path that no longer exists: {spec}"
+
+
+def test_docs_rules_extend_shipped_rules_without_mutating_them():
+    """The docs pass must never loosen the shipped gate: same objects, in order,
+    plus its own additions."""
+    assert brand_audit.DOCS_DENY_RULES[: len(brand_audit.DENY_RULES)] == brand_audit.DENY_RULES
+    assert len(brand_audit.DOCS_DENY_RULES) > len(brand_audit.DENY_RULES)
+
+
+def test_shipped_pass_defaults_are_unchanged_by_the_docs_pass():
+    """Calling deny_reason/classify without the docs arguments must behave exactly as
+    it did before EGPT-0.13 -- the shipped tree is judged by DENY_RULES alone."""
+    stale_import = "from agno.agent import Agent"
+    # A docs-only rule, applied to shipped code through the default path: still None.
+    assert brand_audit.deny_reason("libs/agno/egpt/agent/agent.py", stale_import) is None
+    assert brand_audit.deny_reason("cookbook/x/README.md", stale_import, brand_audit.DOCS_DENY_RULES) == "stale-import"
