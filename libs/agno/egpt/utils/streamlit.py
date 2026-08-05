@@ -9,7 +9,10 @@ try:
     from egpt.models.openai import OpenAIChat
     from egpt.utils.log import log_warning, logger
 except ImportError:
-    raise ImportError("`agno` not installed. Please install using `pip install agno`")
+    raise ImportError(
+        "`egpt` not installed. Install it from the release channel with "
+        "`scripts/install_from_github_release.sh egpt` (not from public PyPI)."
+    )
 
 try:
     import streamlit as st
@@ -443,7 +446,7 @@ def about_section(description: str):
     {description}
 
     Built with:
-    - 🚀 Agno
+    - 🚀 EGPT
     - 💫 Streamlit
     """)
 

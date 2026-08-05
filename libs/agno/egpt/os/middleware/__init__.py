@@ -8,13 +8,13 @@ except ImportError:
     class JWTMiddleware:  # type: ignore
         def __init__(self, *args, **kwargs):
             raise ImportError(
-                "PyJWT is not installed. Please install using `pip install 'agno[os]'` or `pip install PyJWT`"
+                "`PyJWT` not installed. Install it with `pip install PyJWT` (included in the `egpt[os]` extra)."
             )
 
     class TokenSource:  # type: ignore
         def __init__(self, *args, **kwargs):
             raise ImportError(
-                "PyJWT is not installed. Please install using `pip install 'agno[os]'` or `pip install PyJWT`"
+                "`PyJWT` not installed. Install it with `pip install PyJWT` (included in the `egpt[os]` extra)."
             )
 
 

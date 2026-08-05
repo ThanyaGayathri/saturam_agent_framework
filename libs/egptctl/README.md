@@ -100,9 +100,25 @@ Notes:
 
 When no explicit `id` is set on an EgptOS instance, both the REST `GET /` response and the MCP `get_agentos_config` tool now default to `egpt-os` (via `egpt.brand.DEFAULT_OS_ID`). Clients that keyed sessions on the previous defaults (`agno-agentos` / `AgentOS`) should treat this as a new identity after upgrade, or set an explicit `id`.
 
+### MCP server entry name
+
+`egpt connect` and `egpt status` default `--server-name` to `egpt`. It was `agno` before EGPT-0.12.
+
+This is a clean break, not a migration. An entry already written under the `agno` key is neither rewritten nor deleted, so after upgrading you will have both until you remove the old one:
+
+```bash
+egpt connect                    # writes the "egpt" entry
+# then delete the stale "agno" entry from the client's config, e.g.
+claude mcp remove --scope user agno
+```
+
+`egpt status` reports a leftover `agno` entry per client — as `legacy_entry` under `--json`, and as a removal hint in the human output — so you can find the stale ones without grepping each config by hand.
+
+Pass `--server-name agno` to keep writing under the old key instead; the leftover check is skipped in that case, since the old key is then the one you asked for.
+
 ### Outbound identity
 
-HTTP clients built from `egpt.api` send `egpt/<version>` in the `user-agent` header. Gemini clients send `egpt/<version>` in `x-goog-api-client`.
+HTTP clients built from `egpt.api` send `egpt/<version>` in the `user-agent` header. Gemini clients send `egpt/<version>` in `x-goog-api-client`. Knowledge's GitHub loader sends `EGPT-Knowledge`, and MongoDB connections identify as `EGPT` in the driver handshake.
 
 ### Deprecation window
 

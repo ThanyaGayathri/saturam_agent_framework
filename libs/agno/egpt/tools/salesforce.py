@@ -1,5 +1,5 @@
 """
-Salesforce CRM tools for Agno agents.
+Salesforce CRM tools for EGPT agents.
 
 Provides CRUD operations, SOQL queries, SOSL search, and metadata discovery
 for any Salesforce object (standard or custom).

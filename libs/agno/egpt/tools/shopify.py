@@ -1,5 +1,5 @@
 """
-Shopify Toolkit for Agno SDK
+Shopify Toolkit for EGPT SDK
 
 A toolkit for analyzing sales data, product performance, and customer insights using the Shopify Admin GraphQL API.
 Requires a valid Shopify access token with appropriate scopes.

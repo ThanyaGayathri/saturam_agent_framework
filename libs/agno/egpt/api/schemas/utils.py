@@ -9,7 +9,7 @@ class TelemetryRunEventType(str, Enum):
 
 
 def get_sdk_version() -> str:
-    """Return the installed agno SDK version from package metadata.
+    """Return the installed EGPT SDK version from package metadata.
 
     Falls back to "unknown" if the package metadata isn't available.
     """

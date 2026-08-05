@@ -197,7 +197,7 @@ class LightRag(VectorDb):
             return False
 
     # We use this method when content is coming from unsupported file types that LightRAG can't process
-    # For these we process the content in Agno and then insert it into LightRAG using text
+    # For these we process the content in EGPT and then insert it into LightRAG using text
     async def _insert_text(self, text: str) -> Dict[str, Any]:
         """Insert text into the LightRAG server."""
 

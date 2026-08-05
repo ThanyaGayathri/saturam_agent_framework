@@ -15,7 +15,11 @@ from egpt.utils.log import log_debug, log_error
 try:
     from egpt.aws.resource.s3.object import S3Object  # type: ignore
 except (ModuleNotFoundError, ImportError):
-    raise ImportError("`agno-aws` not installed. Please install using `pip install agno-aws`")
+    raise ImportError(
+        "`egpt-infra` not installed. It ships `egpt.aws` and is installed from the release "
+        "channel with `scripts/install_from_github_release.sh egpt` (not from public PyPI). "
+        "AWS support additionally needs `pip install boto3` (the `egpt[aws]` extra)."
+    )
 
 try:
     import textract  # noqa: F401

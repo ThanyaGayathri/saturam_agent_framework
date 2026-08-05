@@ -219,7 +219,7 @@ class AgentAsJudgeEval(BaseEval):
             except (ModuleNotFoundError, ImportError) as e:
                 logger.exception(e)
                 raise EvalError(
-                    "Agno uses `openai` as the default model provider. Please run `pip install openai` to use the default evaluator."
+                    "EGPT uses `openai` as the default model provider. Please run `pip install openai` to use the default evaluator."
                 )
 
         # Build instructions based on scoring strategy

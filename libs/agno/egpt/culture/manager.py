@@ -88,7 +88,7 @@ class CultureManager:
             except ModuleNotFoundError as e:
                 log_error(e)
                 log_error(
-                    "Agno uses `openai` as the default model provider. Please provide a `model` or install `openai`."
+                    "EGPT uses `openai` as the default model provider. Please provide a `model` or install `openai`."
                 )
                 exit(1)
             self.model = OpenAIChat(id="gpt-4o")

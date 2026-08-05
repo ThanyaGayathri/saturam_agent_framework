@@ -1493,7 +1493,7 @@ class Gemini(Model):
 
     def _get_metrics(self, response_usage: GenerateContentResponseUsageMetadata) -> MessageMetrics:
         """
-        Parse the given Google Gemini usage into an Agno MessageMetrics object.
+        Parse the given Google Gemini usage into an EGPT MessageMetrics object.
 
         Args:
             response_usage: Usage data from Google Gemini

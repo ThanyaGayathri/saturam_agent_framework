@@ -1,4 +1,4 @@
-"""Helpers for converting between Agno Trace/Span dataclasses and ClickHouse rows."""
+"""Helpers for converting between EGPT Trace/Span dataclasses and ClickHouse rows."""
 
 import json
 from datetime import datetime, timezone

@@ -1,65 +1,53 @@
-# Agno Infra
+# egpt-infra
 
-**A lightweight framework for managing Agentic Infrastructure**
+**A lightweight framework for managing agentic infrastructure**
 
-[![PyPI version](https://badge.fury.io/py/egpt-infra.svg)](https://badge.fury.io/py/egpt-infra)
 [![Python 3.7+](https://img.shields.io/badge/python-3.7+-blue.svg)](https://www.python.org/downloads/)
 
 ## Overview
 
-Agno Infra is a powerful infrastructure management framework designed specifically for building and deploying agentic applications. It provides a unified interface for managing infrastructure across multiple platforms including AWS, Docker, and local environments, making it easy to deploy AI agents and supporting services.
+`egpt-infra` is the infrastructure management layer for EGPT. It provides a unified interface for managing infrastructure across multiple platforms including AWS, Docker, and local environments, making it easy to deploy agents and their supporting services.
 
-## 🚀 Key Features
+## Key Features
 
-- **Multi-Platform Support**: Seamlessly manage infrastructure across AWS, Docker, and local environments
-- **Agent-Focused**: Purpose-built for deploying AI agents and their supporting infrastructure
+- **Multi-Platform Support**: Manage infrastructure across AWS, Docker, and local environments
+- **Agent-Focused**: Purpose-built for deploying agents and their supporting infrastructure
 - **Template-Based**: Quick start with pre-built infrastructure templates
-- **Resource Management**: Comprehensive resource management for databases, networking, storage, and compute
+- **Resource Management**: Resource management for databases, networking, storage, and compute
 - **Application Support**: Built-in support for FastAPI, Streamlit, Celery, Django, and more
 
-## 📦 Installation
+## Installation
 
-### Using pip
-
-```bash
-pip install egpt-infra
-```
-
-### With optional dependencies
+`egpt-infra` is published to a private channel as GitHub Release assets, not to public PyPI. Install it together with the rest of the first-party closure:
 
 ```bash
-# For AWS support
-pip install egpt-infra[aws]
-
-# For Docker support
-pip install egpt-infra[docker]
-
-# For development
-pip install egpt-infra[dev]
+./scripts/install_from_github_release.sh egpt
 ```
+
+This needs `GITHUB_TOKEN` (or `GH_TOKEN`) with `contents:read` on `Saturam-Inc/saturam-agent-framework`. Optional extras are `egpt-infra[aws]`, `egpt-infra[docker]` and `egpt-infra[dev]`; when installing from release assets, the underlying third-party requirements (`boto3`, `docker`) resolve from PyPI as usual.
 
 ## Command-line interface
 
 The legacy `ag` and `agno` executables are no longer installed. Infrastructure CLI
 integration with the branded `egpt` command is deferred to a separate release.
 
-## 🏗 Project Structure
+## Project Structure
 
 ```
 egpt/
 ├── aws/                    # AWS resource management
-│   ├── resource/          # AWS resource types (EC2, RDS, S3, etc.)
-│   └── app/              # AWS application deployments
-├── docker/                # Docker resource management
-│   ├── resource/         # Docker resources (containers, networks, volumes)
-│   └── app/             # Dockerized applications
-├── base/                  # Base classes and interfaces
-├── cli/                   # Command-line interface
-├── infra/                 # Core infrastructure management
-└── utilities/             # Helper utilities and tools
+│   ├── resource/           # AWS resource types (EC2, RDS, S3, etc.)
+│   └── app/                # AWS application deployments
+├── docker/                 # Docker resource management
+│   ├── resource/           # Docker resources (containers, networks, volumes)
+│   └── app/                # Dockerized applications
+├── base/                   # Base classes and interfaces
+├── cli/                    # Command-line interface
+├── infra/                  # Core infrastructure management
+└── utilities/              # Helper utilities and tools
 ```
 
-## 🌟 Supported Resources
+## Supported Resources
 
 ### AWS Resources
 - **Compute**: EC2 instances, ECS clusters, ECS services
@@ -84,33 +72,20 @@ egpt/
 - **PostgreSQL**: Database with pgvector support
 - **Redis**: Caching and message brokering
 
-## 📋 Requirements
+## Requirements
 
 - Python 3.7 or higher
 - For AWS: Valid AWS credentials configured
 - For Docker: Docker engine installed and running
 
-## 📚 Documentation
+## Documentation
 
-- **Main Documentation**: [docs.agno.com](https://docs.agno.com)
+Design documents and architecture decision records live in `docs/adr/` in the repository.
 
-## 🏘 Community
+## Support
 
-- **Discord**: [Join our community](https://discord.gg/4MtYHHrgA8)
-- **Discourse**: [Community forum](https://community.agno.com/)
-- **GitHub Issues**: [Report bugs or request features](https://github.com/agno-agi/agno/issues)
+Open an issue on [GitHub](https://github.com/Saturam-Inc/saturam-agent-framework/issues) for bugs or feature requests.
 
-## 📄 License
+## License
 
-This project is licensed under the Mozilla Public License 2.0 - see the [LICENSE](LICENSE) file for details.
-
-## 🙋‍♀️ Support
-
-- **Documentation**: Check our comprehensive docs at [docs.agno.com](https://docs.agno.com)
-- **Community**: Join our Discord or post on Discourse
-- **Issues**: Open an issue on GitHub for bugs or feature requests
-- **Commercial Support**: Contact us at [agno.com](https://agno.com)
-
----
-
-**Built with ❤️ by the Agno team**
+Apache-2.0. See the [LICENSE](LICENSE) file for details.

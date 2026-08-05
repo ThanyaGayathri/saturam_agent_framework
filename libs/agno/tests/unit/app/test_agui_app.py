@@ -772,7 +772,7 @@ async def test_raw_event_catch_all():
 
     raw_events = [e for e in events if e.type == EventType.RAW]
     assert len(raw_events) == 1
-    assert raw_events[0].source == "agno"
+    assert raw_events[0].source == "egpt"
 
     # Normal events should still work
     assert EventType.TEXT_MESSAGE_CONTENT in event_types

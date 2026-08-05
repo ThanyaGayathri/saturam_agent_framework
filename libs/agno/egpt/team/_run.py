@@ -4552,7 +4552,7 @@ def _persist_cancelled_team_run_in_background(
 
 # ---------------------------------------------------------------------------
 # Mid-run checkpointing (checkpoint="tool-batch") for Team
-# Mirrors the agent-side helpers in agno/agent/_run.py.
+# Mirrors the agent-side helpers in egpt/agent/_run.py.
 # ---------------------------------------------------------------------------
 
 
@@ -5992,7 +5992,7 @@ async def _ahandle_model_response_for_continue(
 
 # ---------------------------------------------------------------------------
 # Continue / fork / truncate helpers
-# Mirrors the agent-side helpers in agno/agent/_run.py with one additional
+# Mirrors the agent-side helpers in egpt/agent/_run.py with one additional
 # concern: team runs have member RunOutput rows in session.runs (linked via
 # parent_run_id). On fork, these get deep-copied with fresh run_ids so the
 # forked team owns its own member rows (per design decision).
@@ -6374,7 +6374,7 @@ def continue_run_dispatch(
 
     Handles both team-level tool pauses and member-agent tool pauses, plus
     the snapshot dispatch (regenerate / fork / time-travel) — see the
-    corresponding agent docstring in ``agno/agent/_run.py`` for the full
+    corresponding agent docstring in ``egpt/agent/_run.py`` for the full
     variant table. Auto-fork-on-COMPLETED is enforced: continuing a
     COMPLETED team run produces a new ``run_id`` with the member rows
     cloned (per ADR — forked teams own their member rows).
@@ -6472,7 +6472,7 @@ def continue_run_dispatch(
         regenerate=regenerate,
     )
     # Normalize sugar params into canonical (fork, continue_index, input)
-    # form. Mirrors the agent dispatch — see agno/agent/_run.py.
+    # form. Mirrors the agent dispatch — see egpt/agent/_run.py.
     fork, continue_index, input = _normalize_regenerate_params_team(
         run_response,
         regenerate=regenerate,

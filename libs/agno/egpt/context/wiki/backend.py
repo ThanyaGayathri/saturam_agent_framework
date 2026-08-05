@@ -229,8 +229,8 @@ class GitBackend(WikiBackend):
         github_token: str,
         local_path: Path | str | None = None,
         force_clone: bool = False,
-        author_name: str = "Agno Wiki Bot",
-        author_email: str = "wiki-bot@agno.local",
+        author_name: str = "EGPT Wiki Bot",
+        author_email: str = "wiki-bot@egpt.local",
     ) -> None:
         if not github_token:
             raise ValueError("GitBackend: github_token is required")

@@ -830,7 +830,7 @@ class AwsBedrock(Model):
 
     def _get_metrics(self, response_usage: Dict[str, Any]) -> MessageMetrics:
         """
-        Parse the given AWS Bedrock usage into an Agno MessageMetrics object.
+        Parse the given AWS Bedrock usage into an EGPT MessageMetrics object.
 
         Args:
             response_usage: Usage data from AWS Bedrock

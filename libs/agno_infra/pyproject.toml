@@ -6,7 +6,7 @@ requires-python = ">=3.7,<4"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-  {name = "Ashpreet Bedi", email = "ashpreet@agno.com"}
+  {name = "Saturam Inc"}
 ]
 keywords = [
   "aws",
@@ -56,8 +56,8 @@ aws = ["boto3"]
 
 
 [project.urls]
-homepage = "https://agno.com"
-documentation = "https://docs.agno.com"
+homepage = "https://github.com/Saturam-Inc/saturam-agent-framework"
+repository = "https://github.com/Saturam-Inc/saturam-agent-framework"
 
 [build-system]
 requires = ["setuptools"]

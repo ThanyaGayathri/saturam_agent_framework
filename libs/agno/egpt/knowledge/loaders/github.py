@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple, cast
 import httpx
 from httpx import AsyncClient
 
+from egpt.brand import PRODUCT_NAME
 from egpt.knowledge.content import Content, ContentStatus
 from egpt.knowledge.loaders.base import BaseLoader
 from egpt.knowledge.reader import Reader
@@ -77,7 +78,7 @@ class GitHubLoader(BaseLoader):
         jwt_headers = {
             "Authorization": f"Bearer {app_jwt}",
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Agno-Knowledge",
+            "User-Agent": f"{PRODUCT_NAME}-Knowledge",
         }
         return url, jwt_headers
 
@@ -222,7 +223,7 @@ class GitHubLoader(BaseLoader):
         """
         headers: Dict[str, str] = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Agno-Knowledge",
+            "User-Agent": f"{PRODUCT_NAME}-Knowledge",
         }
         if gh_config.app_id is not None:
             token = self._get_github_app_token(gh_config)
@@ -239,7 +240,7 @@ class GitHubLoader(BaseLoader):
         """
         headers: Dict[str, str] = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Agno-Knowledge",
+            "User-Agent": f"{PRODUCT_NAME}-Knowledge",
         }
         if gh_config.app_id is not None:
             token = await self._aget_github_app_token(gh_config)

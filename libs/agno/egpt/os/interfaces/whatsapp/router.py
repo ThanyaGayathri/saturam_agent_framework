@@ -283,7 +283,7 @@ def attach_routes(
                 except Exception as e:
                     log_warning(f"Session lookup failed, using default: {str(e)}")
 
-            # Download media from Meta servers and wrap as Agno media objects
+            # Download media from Meta servers and wrap as EGPT media objects
             media_kwargs, skipped_media = await download_event_media_async(parsed, config)
             run_kwargs: dict = {
                 "user_id": user_id,

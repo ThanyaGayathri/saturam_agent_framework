@@ -593,7 +593,7 @@ class Cerebras(Model):
         self, response_usage: Union[ChatCompletionResponseUsage, ChatChunkResponseUsage]
     ) -> MessageMetrics:
         """
-        Parse the given Cerebras usage into an Agno MessageMetrics object.
+        Parse the given Cerebras usage into an EGPT MessageMetrics object.
 
         Args:
             response_usage: Usage data from Cerebras

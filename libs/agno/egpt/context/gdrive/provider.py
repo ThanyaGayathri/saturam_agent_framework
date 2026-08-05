@@ -125,7 +125,7 @@ class GoogleDriveContextProvider(ContextProvider):
 
     # Wrap in a `query_gdrive` sub-agent because `GoogleDriveTools` exposes
     # `list_files` / `search_files` / `read_file` — names that collide with
-    # `FileTools`, and agno's tool resolver dedupes by name across the whole
+    # `FileTools`, and EGPT's tool resolver dedupes by name across the whole
     # list (silently dropping the second toolkit). mode=tools only works when
     # Drive is the sole file-like provider.
     def _default_tools(self) -> list:

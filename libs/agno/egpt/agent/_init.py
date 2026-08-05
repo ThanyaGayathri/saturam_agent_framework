@@ -92,7 +92,7 @@ def set_default_model(agent: Agent) -> None:
         except ModuleNotFoundError as e:
             log_exception(e)
             raise ImportError(
-                "Agno agents use `openai` as the default model provider. Please provide a `model` or install `openai`."
+                "EGPT agents use `openai` as the default model provider. Please provide a `model` or install `openai`."
             ) from e
 
         log_info("Setting default model to OpenAI Responses")

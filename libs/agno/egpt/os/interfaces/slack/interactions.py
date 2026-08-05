@@ -249,7 +249,8 @@ def parse_submit_payload(
     for requirement in requirements:
         kind = requirement.pause_type
         if kind == "confirmation":
-            # approval_type="required" tools are resolved via os.agno.com, not Slack
+            # approval_type="required" tools are resolved out of band by the operator's
+            # own control plane, not through Slack
             tool_exec = requirement.tool_execution
             if tool_exec and getattr(tool_exec, "approval_type", None) == "required":
                 continue

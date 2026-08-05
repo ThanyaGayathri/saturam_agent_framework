@@ -1,6 +1,6 @@
 # ClickHouse Traces Database
 
-`ClickhouseDb` is a **traces-only** Agno DB adapter backed by
+`ClickhouseDb` is a **traces-only** EGPT DB adapter backed by
 [ClickHouse](https://clickhouse.com/). It implements the trace/span surface of
 `BaseDb` and intentionally leaves session/memory/knowledge/eval methods
 unimplemented — ClickHouse is an OLAP columnar store and is not a good fit for
@@ -12,7 +12,7 @@ Traces are the canonical OLAP workload: append-heavy ingest, fast scans across
 billions of rows, time-bucketed aggregates, low cardinality on most filter
 columns. OpenAI publicly migrated their tracing infrastructure to ClickHouse
 for the same reason — if it scales for them, it scales for any agent
-deployment built on Agno.
+deployment built on EGPT.
 
 What ClickHouse is **not** good at:
 
@@ -21,16 +21,17 @@ What ClickHouse is **not** good at:
 - High-frequency single-row reads keyed by primary key
 
 That's why this adapter pairs cleanly with a row-store. Use Postgres (or any
-other Agno DB) for sessions, memories, knowledge content, and component
+other EGPT DB) for sessions, memories, knowledge content, and component
 configs; use `ClickhouseDb` only for traces.
 
 ## Installation
 
 ```bash
-pip install 'agno[clickhouse]'
-# or, equivalently
-pip install agno clickhouse-connect
+pip install clickhouse-connect
 ```
+
+`clickhouse-connect` is the only extra dependency; it is what the
+`egpt[clickhouse]` extra pulls in.
 
 You also need the OpenTelemetry packages used by `setup_tracing`:
 
@@ -40,7 +41,7 @@ pip install opentelemetry-api opentelemetry-sdk openinference-instrumentation-ag
 
 ## Running ClickHouse locally
 
-The Agno cookbook ships a helper script:
+The EGPT cookbook ships a helper script:
 
 ```bash
 ./cookbook/scripts/run_clickhouse.sh
@@ -57,11 +58,11 @@ when you set `secure=True` and the appropriate `port`/`host`.
 ### Basic
 
 ```python
-from agno.agent import Agent
-from agno.db.postgres import PostgresDb
-from agno.db.clickhouse import ClickhouseDb
-from agno.models.openai import OpenAIResponses
-from agno.tracing import setup_tracing
+from egpt.agent import Agent
+from egpt.db.postgres import PostgresDb
+from egpt.db.clickhouse import ClickhouseDb
+from egpt.models.openai import OpenAIResponses
+from egpt.tracing import setup_tracing
 
 primary_db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 traces_db = ClickhouseDb(
@@ -164,7 +165,7 @@ server build. Query individual fields with `JSONExtractString(attributes,
 
 ## How it integrates with `setup_tracing`
 
-Agno's tracing pipeline:
+EGPT's tracing pipeline:
 
 ```
 Agent run  ->  OpenInference instrumentation  ->  OpenTelemetry SDK
@@ -173,7 +174,7 @@ Agent run  ->  OpenInference instrumentation  ->  OpenTelemetry SDK
             ->  ClickhouseDb.upsert_trace + create_spans
 ```
 
-`DatabaseSpanExporter` (in `agno/tracing/exporter.py`) is provider-agnostic;
+`DatabaseSpanExporter` (in `egpt/tracing/exporter.py`) is provider-agnostic;
 it groups spans by `trace_id`, builds a `Trace` aggregate, and calls
 `upsert_trace` + `create_spans` on whichever DB it was given. ClickhouseDb
 plugs in unchanged.

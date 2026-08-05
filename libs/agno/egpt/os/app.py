@@ -286,7 +286,7 @@ class EgptOS:
             auto_provision_dbs: Whether to automatically provision databases
             authorization: Whether to enable authorization
             authorization_config: Configuration for the authorization middleware
-            cors_allowed_origins: List of allowed CORS origins (will be merged with default Agno domains)
+            cors_allowed_origins: List of allowed CORS origins (will be merged with default EGPT domains)
             tracing: If True, enables OpenTelemetry tracing for all agents and teams in the OS
             run_hooks_in_background: If True, run agent/team pre/post hooks as FastAPI background tasks (non-blocking)
             telemetry: Whether to enable telemetry
@@ -1859,18 +1859,14 @@ class EgptOS:
         if env_port is not None:
             port = int(env_port)
 
-        if (get_branded_env("API_RUNTIME") or "").lower() == "stg":
-            public_endpoint = "https://os-stg.agno.com/"
-        else:
-            public_endpoint = "https://os.agno.com/"
-
-        # Create a terminal panel to announce OS initialization and provide useful info
+        # Create a terminal panel to announce OS initialization and provide useful info.
+        # There is no hosted control-plane URL to advertise here; the panel points at the
+        # local endpoint only.
         from rich.align import Align
         from rich.console import Console, Group
 
         panel_group = [
-            Align.center(f"[bold cyan]{public_endpoint}[/bold cyan]"),
-            Align.center(f"\n\n[bold dark_orange]OS running on:[/bold dark_orange] http://{host}:{port}"),
+            Align.center(f"[bold dark_orange]OS running on:[/bold dark_orange] http://{host}:{port}"),
         ]
         if self.authorization:
             panel_group.append(

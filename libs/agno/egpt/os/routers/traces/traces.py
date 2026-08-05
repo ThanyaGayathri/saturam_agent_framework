@@ -505,7 +505,7 @@ def attach_routes(router: APIRouter, dbs: dict[str, list[Union[BaseDb, AsyncBase
                             "data": [
                                 {
                                     "session_id": "37029bc6-1794-4ba8-a629-1efedc53dcad",
-                                    "user_id": "kaustubh@agno.com",
+                                    "user_id": "user@example.com",
                                     "agent_id": "hackernews-agent",
                                     "team_id": None,
                                     "total_traces": 5,

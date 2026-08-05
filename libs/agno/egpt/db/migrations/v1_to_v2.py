@@ -1,4 +1,4 @@
-"""Migration utility to migrate your Agno tables from v1 to v2"""
+"""Migration utility to migrate your EGPT tables from v1 to v2"""
 
 import gc
 import json

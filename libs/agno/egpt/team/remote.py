@@ -36,7 +36,7 @@ class RemoteTeam(BaseRemote):
         """Initialize RemoteTeam for remote execution.
 
         Supports two protocols:
-        - "agentos": Agno's proprietary EgptOS REST API (default)
+        - "agentos": EGPT's proprietary EgptOS REST API (default)
         - "a2a": A2A (Agent-to-Agent) protocol for cross-framework communication
 
         Args:

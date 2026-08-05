@@ -1,0 +1,351 @@
+#!/usr/bin/env python3
+"""Brand audit gate for shipped code (EGPT-0.12, aicoe-tracker#149).
+
+Greps the shipped packages and their packaging metadata for `agno` / `agentos` and
+fails on anything that is not in the documented KEEP set below. The KEEP set is the
+point of this script: it is the difference between "we decided to leave that" and
+"nobody noticed".
+
+    ./scripts/brand_audit.py            # fail on unexpected hits
+    ./scripts/brand_audit.py --summary  # also show what was allowed, by category
+
+Two layers, in order:
+
+1. DENY_RULES -- the surfaces named in the ticket's acceptance criteria (install
+   hints, outbound identity headers, packaging contact and URLs). A hit here is
+   always a finding. It cannot be silenced by adding a KEEP rule, because an
+   over-broad KEEP rule is exactly how these leaked back in before.
+2. KEEP_RULES -- the allowlist. A line passes only when subtracting every KEEP
+   pattern removes every mention of the brand.
+
+The exemplars in SELF_TEST_CASES are re-checked on every run, so loosening a rule
+until it stops catching a known regression fails the gate immediately.
+
+Scope is *shipped* code only. Tests, cookbooks and benchmarks are excluded: they do
+not ship in a wheel and are not a brand surface.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import subprocess
+import sys
+from collections import Counter
+from pathlib import Path
+from typing import List, NamedTuple
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+SHIPPED_PATHS = [
+    "libs/agno/egpt",
+    "libs/agno_infra/egpt",
+    "libs/egptctl/egptctl",
+    # Packaging metadata ships to whoever installs the wheels (acceptance criterion 1).
+    "libs/agno/pyproject.toml",
+    "libs/agno_infra/pyproject.toml",
+    "libs/egptctl/pyproject.toml",
+]
+
+# An f-string interpolation holds an identifier, not brand text: the value in
+# `"user-agent": f"{agno_api_settings.app_name}/..."` is branded at runtime even though
+# the variable is not. Only quote-free braces are stripped, so a TOML inline table
+# (`{name = "Agno Team", email = "hello@agno.com"}`) stays intact and stays in scope.
+INTERPOLATION = re.compile(r"\{[^{}\n'\"]*\}")
+
+# The only files that legitimately name upstream agno hosts: the two CORS default
+# allowlists (#149 lists them as an explicit DEFER) and the telemetry blocklist, which
+# has to name the hosts in order to block them. Every other file is held to the rule.
+# Membership is exact -- `os/settings_v2.py` is not covered by `os/settings.py`.
+UPSTREAM_HOST_SITES = (
+    "libs/agno/egpt/os/settings.py",
+    "libs/agno/egpt/os/utils.py",
+    "libs/agno/egpt/api/settings.py",
+)
+
+# Surfaces the ticket exists to protect. A match here is always a finding: these are
+# the exact shapes that shipped as "Agno" through EGPT-0.4-0.10 while the code paths
+# underneath were already renamed. Entries are (name, pattern, exempt_paths).
+#
+# These patterns only ever see lines that already matched `agno|agentos`, so they can
+# be generous about surrounding text without becoming noisy.
+DENY_RULES: List[tuple] = [
+    # `pip install agno...` sends users to a package we do not own -- on public PyPI
+    # `egpt` is an unrelated project, so hints must name the real dependency instead.
+    # The window covers `pip install -U agno` and `uv pip install 'agno[slack]'`.
+    ("install-hint", re.compile(r"pip install[^\n]{0,24}?\bagno", re.I), ()),
+    # Identity we put on the wire. `user[-_]agent` catches both the header spelling
+    # and the module-constant spelling (`USER_AGENT = "agno-..."`).
+    (
+        "outbound-identity",
+        re.compile(r"(user[-_]agent|x-source|driverinfo\(name)\s*[\"':=(]?[^\n]{0,80}?agno", re.I),
+        (),
+    ),
+    # `headers["user-agent"] += "; Origin/agno"`. Its own rule rather than a branch of
+    # the alternation above, where the anchor is consumed and a second `agno` demanded.
+    ("outbound-identity", re.compile(r"origin/agno", re.I), ()),
+    # Author/maintainer contact in published wheel metadata.
+    ("packaging-contact", re.compile(r"@agno\.com", re.I), ()),
+    # Project URLs and doc links. Exempt only where the hosts are deliberately named.
+    ("brand-url", re.compile(r"https?://(www\.|docs\.|os\.|app\.)?agno\.com", re.I), UPSTREAM_HOST_SITES),
+]
+
+# Regressions this gate must catch, re-verified on every run. Each entry is the real
+# pre-rebrand text from the file named, so a rule that stops catching one of these is
+# a rule that has been widened past its purpose. See EGPT-0.12.
+SELF_TEST_CASES = [
+    ("libs/agno/egpt/tools/sofya.py", '"User-Agent": "agno-sofya",', "outbound-identity"),
+    ("libs/agno/egpt/knowledge/loaders/github.py", '"User-Agent": "Agno-Knowledge",', "outbound-identity"),
+    ("libs/agno/egpt/tools/perplexity.py", '"X-Source": "agno",', "outbound-identity"),
+    ("libs/agno/egpt/db/mongo/mongo.py", 'DriverInfo(name="Agno", version=v)', "outbound-identity"),
+    ("libs/agno/egpt/tools/apify.py", 'headers["user-agent"] += "; Origin/agno"', "outbound-identity"),
+    ("libs/agno/egpt/models/google/utils.py", '"User-Agent": "Mozilla/5.0 (compatible; agno/1.0)"', "outbound-identity"),
+    ("libs/agno/egpt/scheduler/cron.py", 'raise ImportError("pip install agno[scheduler]")', "install-hint"),
+    # The escape hatch for migration prose must not launder an install hint.
+    ("libs/agno/egpt/utils/streamlit.py", 'raise ImportError("pip install agno")  # legacy', "install-hint"),
+    ("libs/agno/pyproject.toml", '{name = "Agno Team", email = "hello@agno.com"}', "packaging-contact"),
+    ("libs/agno/pyproject.toml", 'Homepage = "https://agno.com"', "brand-url"),
+    # Evasions of an earlier, narrower draft of these rules. Each one shipped past the
+    # first version of DENY, so each stays pinned here.
+    ("libs/agno/egpt/tools/sofya.py", 'USER_AGENT = "agno-sofya"', "outbound-identity"),
+    ("libs/agno/egpt/tools/apify.py", 'user_agent = "Origin/agno"', "outbound-identity"),
+    ("libs/agno/egpt/models/google/utils.py", '"User-Agent": "Mozilla/5.0 (Macintosh; X 10_15_7) agno/1.0"', "outbound-identity"),
+    ("libs/agno/egpt/db/clickhouse/README.md", "pip install -U agno", "install-hint"),
+    ("libs/agno/egpt/db/clickhouse/README.md", "uv pip install 'agno[clickhouse]'", "install-hint"),
+    ("libs/agno/pyproject.toml", 'Documentation = "https://docs.agno.com"', "brand-url"),
+]
+
+# Every entry is a documented decision, not a convenience. Adding one means deciding
+# the brand leak is acceptable; say why in the comment.
+KEEP_RULES: List[tuple] = [
+    # -- English words that merely contain the substring (agnostic, diagnose, ...) -
+    ("false-positive", re.compile(r"agnostic", re.I)),
+    ("false-positive", re.compile(r"[a-z]agno[a-z]", re.I)),
+    # -- Third-party package and class names we do not own -----------------------
+    ("third-party", re.compile(r"openinference[-_.]instrumentation[-_.]agno|AgnoInstrumentor")),
+    # -- Upstream infrastructure with no Saturam equivalent (DEFER, see #149) -----
+    # Live, working resources: agnohq/* images back `ag infra up` and this repo's own
+    # system-test compose file; agno-public hosts the sample data the demos download.
+    ("defer-upstream-assets", re.compile(r"agnohq|agno-public")),
+    # -- Defensive telemetry blocklist: these hosts must stay listed to stay blocked
+    ("keep-telemetry-blocklist", re.compile(r"os-api\.agno\.com|api-stg\.agno\.com")),
+    # -- CORS default allowlist (EGPT-0.12 explicitly out of scope; own decision) --
+    ("defer-cors-allowlist", re.compile(r"https://(app|os|os-stg|www)?\.?agno\.com")),
+    ("defer-cors-allowlist", re.compile(r'"(www\.)?agno\.com"')),
+    # -- Factually correct citation of an upstream bug ----------------------------
+    ("keep-upstream-citation", re.compile(r"github\.com/agno-agi/agno/issues/")),
+    # -- Deprecated public aliases kept for one release (intentional back-compat) --
+    (
+        "keep-deprecated-alias",
+        re.compile(
+            r"\b(AgentOS[A-Za-z]*|AgnoError|AgnoLogger|AgnoCliConfig|AgnoAPISettings"
+            r"|AgnoMetadata[A-Za-z]*|agentos_client|agentos_config|agentos_docker"
+            r"|agentos_aws|agentos_railway|agentos_fly|agentos_gcp)\b"
+        ),
+    ),
+    # -- Legacy env prefix, honoured for one release (see egpt.brand.LEGACY_ENV_PREFIX)
+    ("keep-legacy-env", re.compile(r"\bAGNO_[A-Z0-9_]+|\bAGENTOS_[A-Z0-9_]+|\bAGNO_\b|\bLEGACY_ENV_PREFIX\b")),
+    # -- Persistence identity: renaming re-points deployments at empty tables ------
+    # Covers the documented `agno_*` legacy table prefix and its prose in db/README.
+    ("keep-persistence-identity", re.compile(r"agno_json_db|LEGACY_TABLE_PREFIX|agno_\*|agno_\b|agno_\"")),
+    # Container-level namespaces (schema, db name, key prefix, bucket path, docker
+    # network). Renaming silently orphans existing data one level up, so they are
+    # deliberately frozen -- see libs/agno/egpt/db/README.md.
+    (
+        "keep-persistence-identity",
+        re.compile(r"(db_schema|db_name|db_prefix|database|network|prefix|prefix_suffix)\s*[:=].{0,12}\"agno/?\""),
+    ),
+    ("keep-persistence-identity", re.compile(r"db_schema|\"agno/\"|or \"agno\"|get\(\"database\", \"agno\"\)")),
+    # Mongo keeps its legacy database name for the same reason.
+    ("keep-persistence-identity", re.compile(r"db_name.{0,40}else \"agno\"")),
+    # -- Local cache directory and logger namespace. Renaming the logger breaks
+    # operator logging configs that filter on `agno.*`; the cache dir is keyed to it.
+    ("defer-log-namespace", re.compile(r"\.agno\b|logging\.getLogger|\"agno\.\{|agno\.\{logger_name\}|name \"agno\.")),
+    # -- `[tool.agno]` pyproject section read from existing infra projects --------
+    ("keep-config-key", re.compile(r"\[?tool\.?\"?agno|\"agno\"\s*tool|get\(\"agno\"")),
+    # -- Wire field on GET /, consumed by egptctl discovery. Renaming breaks every
+    # existing client; tracked as a follow-up (additive `egpt_version`).
+    ("defer-wire-api-name", re.compile(r"agno_version|the agno framework")),
+    # -- Legacy `-t` template values still accepted by `ag infra create` ----------
+    ("keep-legacy-alias", re.compile(r"\"agentos-(docker|aws|railway|fly|gcp)\"")),
+    # -- Internal, non-user-facing identifiers: locals, dict keys, redis keys ------
+    ("keep-internal-identifier", re.compile(r"_?agno[_-][a-z0-9_]+\b")),
+    ("keep-internal-identifier", re.compile(r"agno:[a-z:_]+")),
+    ("keep-internal-identifier", re.compile(r"[A-Z0-9_]*AGNO[A-Z0-9_]*")),
+    ("keep-internal-identifier", re.compile(r"\bAgno[A-Z]\w*")),
+    # `_agno` is the reserved metadata key stripped from user-supplied metadata.
+    ("keep-internal-identifier", re.compile(r"_agno\b|``_agno``|\bagno_infra\b")),
+    ("keep-internal-identifier", re.compile(r"agentos_client|_warned_agentos\w*")),
+    # -- Live MCP tool name and public Literal values. Renaming `get_agentos_config`
+    # breaks every connected MCP client mid-session; `preserve_agentos` is a public
+    # API option value. Both are back-compat surface, tracked as a follow-up.
+    ("defer-wire-api-name", re.compile(r"get_agentos_config|preserve_agentos")),
+    # `protocol="agentos"` is the wire value of the REST transport, not a brand string
+    ("keep-internal-identifier", re.compile(r"\"agentos\"|'agentos'")),
+    # -- OpenTelemetry span attribute names. Wire-facing, but renaming silently
+    # breaks every existing dashboard and saved query; tracked as a follow-up
+    # alongside the `agno_version` field (see #149 "out of scope").
+    ("defer-otel-attributes", re.compile(r"agno\.(run|team|agent|workflow|session|user)\.[a-z_]+")),
+    # -- Paths into the private specs/ repo, which keeps its upstream layout -------
+    ("keep-specs-path", re.compile(r"specs/agno/")),
+    # -- Real credential prefix minted by the server; renaming breaks live tokens --
+    ("keep-token-prefix", re.compile(r"agno_pat_")),
+    # -- The `ag` infra CLI command name; rename deferred past Epic 0 --------------
+    ("defer-infra-cli", re.compile(r"\bag infra\b|\bag ws\b")),
+    # -- The libs/agno directory name (not user- or wire-facing) ------------------
+    ("keep-directory-name", re.compile(r"libs/agno\b")),
+]
+
+
+# Line-level allow: prose that DOCUMENTS a deferred or legacy name. These lines exist
+# *because* the old name does -- stripping it would delete the migration note that makes
+# the decision discoverable. Matched against the whole line, not subtracted from it.
+MIGRATION_DOC = re.compile(
+    r"legacy|renamed|earlier versions|clean break|intentionally kept|upstream"
+    r"|not migrated|pre-rename|deprecat",
+    re.I,
+)
+
+
+class Hit(NamedTuple):
+    path: str
+    line_no: int
+    text: str
+
+
+def collect_hits() -> List[Hit]:
+    proc = subprocess.run(
+        ["git", "grep", "-inE", "agno|agentos", "--", *SHIPPED_PATHS],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    # git grep exits 1 when there are no matches at all, which is a clean result.
+    if proc.returncode not in (0, 1):
+        raise SystemExit(f"git grep failed: {proc.stderr.strip()}")
+
+    hits = []
+    for raw in proc.stdout.splitlines():
+        path, _, rest = raw.partition(":")
+        line_no, _, text = rest.partition(":")
+        hits.append(Hit(path, int(line_no), text))
+    return hits
+
+
+def deny_reason(path: str, text: str) -> str | None:
+    """Return the name of the DENY rule this line violates, or None.
+
+    Checked before everything else, including the migration-prose escape hatch: a
+    protected surface is a finding no matter what else the line says.
+    """
+    stripped = INTERPOLATION.sub("", text)
+    for name, pattern, exempt_paths in DENY_RULES:
+        # Compared element-wise rather than with `in`: were an exempt tuple ever written
+        # without its trailing comma it would be a plain string, and `in` would match on
+        # substrings and exempt far more than intended. This way it exempts nothing.
+        if any(path == exempt for exempt in exempt_paths):
+            continue
+        if pattern.search(stripped):
+            return name
+    return None
+
+
+def classify(hit: Hit) -> str | None:
+    """Return the KEEP category for this line, or None if it is a finding."""
+    if deny_reason(hit.path, hit.text) is not None:
+        return None
+    if MIGRATION_DOC.search(hit.text):
+        return "keep-migration-doc"
+
+    residue = hit.text
+    for _, pattern in KEEP_RULES:
+        residue = pattern.sub("", residue)
+    # A line is allowed only when stripping the KEEP patterns removes every mention.
+    if re.search(r"agno|agentos", residue, re.I):
+        return None
+    for category, pattern in KEEP_RULES:
+        if pattern.search(hit.text):
+            return category
+    return "keep-uncategorised"
+
+
+def self_test_failures() -> List[str]:
+    """Check that each known regression is still caught by the rule that should catch it."""
+    failures = []
+    for path, text, expected in SELF_TEST_CASES:
+        actual = deny_reason(path, text)
+        if actual != expected:
+            got = actual or "nothing"
+            failures.append(f"{path}: {text.strip()[:80]!r}\n      expected {expected}, caught by {got}")
+    return failures
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--summary", action="store_true", help="show allowed hits by category")
+    args = parser.parse_args()
+
+    regressions = self_test_failures()
+    if regressions:
+        print(f"brand audit SELF-TEST FAILED: {len(regressions)} known regression(s) no longer caught\n")
+        for failure in regressions:
+            print(f"  {failure}")
+        print(
+            "\nA DENY rule in scripts/brand_audit.py has been widened past its purpose. "
+            "Tighten it rather than removing the exemplar."
+        )
+        return 1
+
+    hits = collect_hits()
+    denied = []
+    findings = []
+    allowed = Counter()
+
+    for hit in hits:
+        reason = deny_reason(hit.path, hit.text)
+        if reason is not None:
+            denied.append((reason, hit))
+            continue
+        category = classify(hit)
+        if category is None:
+            findings.append(hit)
+        else:
+            allowed[category] += 1
+
+    if args.summary:
+        print(f"scanned {len(hits)} matching lines across {len(SHIPPED_PATHS)} shipped paths")
+        for category, count in sorted(allowed.items(), key=lambda kv: -kv[1]):
+            print(f"  {count:5d}  {category}")
+        print()
+
+    if denied or findings:
+        print(f"brand audit FAILED: {len(denied) + len(findings)} unexpected agno/agentos reference(s)\n")
+
+    if denied:
+        print(f"  Protected surfaces ({len(denied)}) -- these must be rebranded, not allowlisted:")
+        for reason, hit in denied:
+            print(f"    [{reason}] {hit.path}:{hit.line_no}: {hit.text.strip()[:120]}")
+        print(
+            "\n  These surfaces are acceptance criteria of aicoe-tracker#149: install hints,\n"
+            "  outbound identity headers, and published packaging metadata. Adding a KEEP rule\n"
+            "  will not silence them.\n"
+        )
+
+    if findings:
+        print(f"  Unclassified ({len(findings)}):")
+        for hit in findings:
+            print(f"    {hit.path}:{hit.line_no}: {hit.text.strip()[:140]}")
+        print(
+            "\n  Either rebrand the reference, or add it to KEEP_RULES in scripts/brand_audit.py "
+            "with a comment explaining the decision."
+        )
+
+    if denied or findings:
+        return 1
+
+    print(f"brand audit passed: {sum(allowed.values())} known reference(s), 0 findings")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -473,7 +473,7 @@ class GeminiInteractions(Model):
 
         if system_message and not use_agent_path:
             # Agent path (Deep Research, etc.) rejects `system_instruction` and
-            # treats anything in `input` as the research request. Agno's
+            # treats anything in `input` as the research request. EGPT's
             # auto-injected formatting boilerplate is not user research intent,
             # so it is dropped on the agent path rather than folded in.
             kwargs["system_instruction"] = system_message
@@ -614,7 +614,7 @@ class GeminiInteractions(Model):
         return kwargs
 
     def _parse_image_content(self, content_item: Any) -> Optional[Image]:
-        """Parse an ImageContent response item into an Agno Image."""
+        """Parse an ImageContent response item into an EGPT Image."""
         image_data = getattr(content_item, "data", None)
         mime_type = getattr(content_item, "mime_type", None) or "image/png"
 
@@ -633,7 +633,7 @@ class GeminiInteractions(Model):
         return None
 
     def _parse_audio_content(self, content_item: Any) -> Optional[Audio]:
-        """Parse an AudioContent response item into an Agno Audio."""
+        """Parse an AudioContent response item into an EGPT Audio."""
         audio_data = getattr(content_item, "data", None)
         mime_type = getattr(content_item, "mime_type", None) or "audio/wav"
 

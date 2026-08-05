@@ -3,6 +3,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
+from egpt import __version__
+from egpt.brand import PRODUCT_NAME
 from egpt.media import Audio, File, Image, Video
 from egpt.utils.log import log_warning
 
@@ -54,7 +56,7 @@ def get_mime_type(media: Union[Image, Audio, Video, File], default: str) -> str:
 def media_to_content_item(
     media: Union[Image, Audio, Video, File], content_type: str, default_mime: str
 ) -> Optional[Dict[str, Any]]:
-    """Convert an Agno media object to a content item dict for the Interactions API.
+    """Convert an EGPT media object to a content item dict for the Interactions API.
 
     Supports four content sources: URL/URI, raw bytes, filepath, and external GeminiFile.
     Returns a dict like {"type": "image", "data": base64_str, "mime_type": "image/jpeg"}.
@@ -73,7 +75,7 @@ def media_to_content_item(
         try:
             import httpx
 
-            headers = {"User-Agent": "Mozilla/5.0 (compatible; agno/1.0)"}
+            headers = {"User-Agent": f"Mozilla/5.0 (compatible; {PRODUCT_NAME.lower()}/{__version__})"}
             response = httpx.get(url, follow_redirects=True, headers=headers)
             response.raise_for_status()
             item["data"] = base64.b64encode(response.content).decode("utf-8")

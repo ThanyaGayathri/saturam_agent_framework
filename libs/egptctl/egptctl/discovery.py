@@ -1,6 +1,6 @@
 """EgptOS discovery: find a running OS and learn its capabilities before touching it.
 
-Prefers the structured discovery fields on GET /info (agno >= the /info discovery release):
+Prefers the structured discovery fields on GET /info (EGPT >= the /info discovery release):
 ``mcp: {enabled, path}`` and ``auth_mode``. Falls back to probing for older servers:
 POST to /mcp distinguishes mounted-vs-404, and an unauthenticated GET /config
 distinguishes the auth modes by status code and 401 detail wording.

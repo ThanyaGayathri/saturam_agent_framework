@@ -520,7 +520,7 @@ class LiteLLM(Model):
 
     def _get_metrics(self, response_usage: Any) -> MessageMetrics:
         """
-        Parse the given LiteLLM usage into an Agno MessageMetrics object.
+        Parse the given LiteLLM usage into an EGPT MessageMetrics object.
 
         Args:
             response_usage: Usage data from LiteLLM

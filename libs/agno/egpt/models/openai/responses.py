@@ -1364,7 +1364,7 @@ class OpenAIResponses(Model):
 
     def _get_metrics(self, response_usage: ResponseUsage) -> MessageMetrics:
         """
-        Parse the given OpenAI-specific usage into an Agno MessageMetrics object.
+        Parse the given OpenAI-specific usage into an EGPT MessageMetrics object.
 
         Args:
             response: The response from the provider.

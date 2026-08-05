@@ -1,9 +1,9 @@
 """
-Agno Tracing Module
+EGPT Tracing Module
 
-This module provides OpenTelemetry-based tracing capabilities for Agno agents.
+This module provides OpenTelemetry-based tracing capabilities for EGPT agents.
 It uses the openinference-instrumentation-agno package for automatic instrumentation
-and provides a custom DatabaseSpanExporter to store traces in the Agno database.
+and provides a custom DatabaseSpanExporter to store traces in the EGPT database.
 """
 
 from egpt.tracing.exporter import DatabaseSpanExporter

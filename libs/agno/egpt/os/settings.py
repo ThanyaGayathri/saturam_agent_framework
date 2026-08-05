@@ -39,7 +39,10 @@ class AgnoAPISettings(BaseSettings):
     def set_cors_origin_list(cls, cors_origin_list):
         valid_cors = cors_origin_list or []
 
-        # Add Agno domains to cors origin list
+        # Legacy upstream (agno.com) origins, deliberately retained: removing them would
+        # cut off consoles already pointed at this API. Out of scope for the EGPT-0.12
+        # rebrand (aicoe-tracker#149) and tracked as its own decision — not an oversight.
+        # Kept in sync with the identical default list in egpt/os/utils.py::resolve_origins.
         valid_cors.extend(
             [
                 "http://localhost:3000",

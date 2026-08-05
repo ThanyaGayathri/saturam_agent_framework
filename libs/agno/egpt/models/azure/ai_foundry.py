@@ -467,7 +467,7 @@ class AzureAIFoundry(Model):
 
     def _get_metrics(self, response_usage) -> MessageMetrics:
         """
-        Parse the given Azure AI Foundry usage into an Agno MessageMetrics object.
+        Parse the given Azure AI Foundry usage into an EGPT MessageMetrics object.
         """
         metrics = MessageMetrics()
 

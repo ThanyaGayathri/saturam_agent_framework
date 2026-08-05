@@ -76,7 +76,7 @@ class ClaudeAgent(BaseExternalAgent):
     options_kwargs: Dict[str, Any] = field(default_factory=dict)
     framework: str = "claude-agent-sdk"
 
-    # Maps Agno session_id -> SDK session id. Keyed per session to avoid cross-session bleed.
+    # Maps EGPT session_id -> SDK session id. Keyed per session to avoid cross-session bleed.
     _sdk_session_ids: Dict[str, str] = field(default_factory=dict, init=False, repr=False)
 
     def _build_options(self, *, streaming: bool = False, **kwargs: Any) -> Any:
@@ -108,7 +108,7 @@ class ClaudeAgent(BaseExternalAgent):
         if streaming:
             opts["include_partial_messages"] = True
 
-        # Resume only the SDK session tied to this Agno session_id.
+        # Resume only the SDK session tied to this EGPT session_id.
         session_id = kwargs.get("session_id")
         if session_id:
             sdk_session_id = self._sdk_session_ids.get(session_id)

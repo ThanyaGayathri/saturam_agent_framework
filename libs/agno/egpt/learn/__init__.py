@@ -1,5 +1,5 @@
 """
-Agno Learning Module
+EGPT Learning Module
 ====================
 Gives agents the ability to learn and remember.
 
