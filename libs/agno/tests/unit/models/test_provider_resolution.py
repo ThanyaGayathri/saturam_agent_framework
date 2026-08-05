@@ -236,19 +236,37 @@ def test_resolve_model_passes_through_unhandled_values():
 # Abstract/intermediate Model subclasses that are not concrete providers and so must not appear
 # in MODEL_PROVIDER_CLASSES. Add a class here only after a deliberate decision that it is not a
 # user-selectable provider. Keyed by (defining_module, class_name).
-_NON_PROVIDER_MODEL_CLASSES = {("egpt.integrations.models._openai_like.like", "OpenAILike")}
+_NON_PROVIDER_MODEL_CLASSES = {("egpt.integrations.models.openai_like.like", "OpenAILike")}
+
+
+def _package_root():
+    """The directory `egpt` itself lives in, so dotted module names start with `egpt.`."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    assert (root / "egpt").is_dir(), f"package root not found: {root}"
+    return root
 
 
 def _models_root():
-    from pathlib import Path
+    """Provider implementations live in the integrations layer as of EGPT-1.4.
 
-    root = Path(__file__).resolve().parents[3] / "egpt" / "models"
+    Anchored on `_package_root()` rather than a `parents[N]` walk from this path: the previous
+    form derived the dotted prefix from the root's own depth, so moving the providers one level
+    deeper silently yielded an empty scan and a vacuously passing guard.
+    """
+    root = _package_root() / "egpt" / "integrations" / "models"
     assert root.is_dir(), f"models root not found: {root}"
     return root
 
 
-def _module_name(path, root):
-    name = ".".join(path.relative_to(root.parents[1]).with_suffix("").parts)
+def _deprecated_models_root():
+    """The pre-EGPT-1.4 `egpt/models` tree, which must now hold only compatibility shims."""
+    return _package_root() / "egpt" / "models"
+
+
+def _module_name(path, _root=None):
+    name = ".".join(path.relative_to(_package_root()).with_suffix("").parts)
     return name[: -len(".__init__")] if name.endswith(".__init__") else name
 
 
@@ -324,10 +342,34 @@ def test_every_model_subclass_is_registered():
     discovered = _discover_model_subclasses(root)
     covered = _registered_defining_classes(root) | _NON_PROVIDER_MODEL_CLASSES
 
+    # Without this the guard degrades silently: if the scan root ever stops matching where
+    # providers actually live, `discovered` is empty, the assertion below can never fire, and the
+    # test reports PASS while checking nothing. Exactly what happened when EGPT-1.4 moved the
+    # providers into the integrations layer.
+    assert len(discovered) > 40, (
+        f"Only {len(discovered)} Model subclasses discovered under {root}; expected the full "
+        "provider set. The scan root is probably stale, which makes this guard vacuous."
+    )
+
     missing = sorted(f"{name} ({module})" for (module, name) in discovered - covered)
     assert not missing, (
         "Model subclasses missing from MODEL_PROVIDER_CLASSES: "
         + ", ".join(missing)
         + ". Add each to the registry in agno/models/utils.py (or to the test allowlist if it is "
         "not a user-selectable provider)."
+    )
+
+
+def test_deprecated_models_tree_holds_only_shims():
+    """No provider implementation may be added back under the deprecated `egpt/models` tree.
+
+    That tree is compatibility shims only (EGPT-1.4). A Model subclass defined there would be
+    invisible to `test_every_model_subclass_is_registered`, which now scans the integrations
+    layer, so it could ship unregistered.
+    """
+    stragglers = _discover_model_subclasses(_deprecated_models_root())
+    assert not stragglers, (
+        "Model subclasses found under the deprecated egpt/models tree: "
+        + ", ".join(sorted(f"{name} ({module})" for (module, name) in stragglers))
+        + ". Provider implementations belong under egpt/integrations/models/."
     )

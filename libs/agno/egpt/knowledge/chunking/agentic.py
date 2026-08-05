@@ -37,8 +37,11 @@ class AgenticChunking(ChunkingStrategy):
         if model is None:
             try:
                 model = get_model(f"openai-chat:{DEFAULT_OPENAI_MODEL_ID}")
-            except Exception:
-                raise ValueError("`openai` isn't installed. Please install it with `pip install openai`")
+            except ImportError as e:
+                # Only a genuinely missing SDK gets the "install openai" message. get_model also
+                # parses the model string and resolves the registry, and reporting those failures
+                # as a missing dependency sends the user chasing an install that will not help.
+                raise ValueError("`openai` isn't installed. Please install it with `pip install openai`") from e
             if model is None:
                 raise ValueError("Could not resolve the default chunking model.")
 

@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from egpt.exceptions import ModelAuthenticationError
-from egpt.integrations.models._openai_like import OpenAILike
+from egpt.integrations.models.openai_like import OpenAILike
 from egpt.utils.log import log_debug
 
 

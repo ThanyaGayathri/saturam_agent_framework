@@ -3,7 +3,7 @@ from os import getenv
 from typing import Any, Dict, Optional
 
 from egpt.exceptions import ModelAuthenticationError
-from egpt.integrations.models._openai_like import OpenAILike
+from egpt.integrations.models.openai_like import OpenAILike
 
 
 @dataclass

@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Type, Union
 from pydantic import BaseModel
 
 from egpt.exceptions import ModelAuthenticationError
-from egpt.integrations.models._openai_like import OpenAILike
+from egpt.integrations.models.openai_like import OpenAILike
 from egpt.models.message import Citations, UrlCitation
 from egpt.models.response import ModelResponse
 from egpt.utils.log import log_debug

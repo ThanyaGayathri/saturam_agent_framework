@@ -3,7 +3,7 @@ from os import getenv
 from typing import Any, Dict, Optional
 
 from egpt.exceptions import ModelAuthenticationError, ModelProviderError
-from egpt.integrations.models._openai_like import OpenAILike
+from egpt.integrations.models.openai_like import OpenAILike
 
 # Default: Workers AI binding id as shown in the catalog "copy" box (see Workers AI docs).
 DEFAULT_GATEWAY_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"

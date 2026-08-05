@@ -145,10 +145,6 @@ class Model(ABC):
     supports_native_structured_outputs: bool = False
     # True if the Model requires a json_schema for structured outputs (e.g. LMStudio)
     supports_json_schema_outputs: bool = False
-    # True if the Model is a third-party provider served over the OpenAI API schema
-    # (i.e. an OpenAILike subclass). Lets core/orchestration branch on the capability
-    # without importing the concrete integrations base class.
-    is_openai_compatible_proxy: bool = False
 
     # Controls which (if any) function is called by the model.
     # "none" means the model will not call a function and instead generates a message.
@@ -185,6 +181,14 @@ class Model(ABC):
     retry_with_guidance: bool = True
     # Set the number of times to retry the model invocation with guidance.
     retry_with_guidance_limit: int = 1
+
+    # True if the Model is a third-party provider served over the OpenAI API schema (i.e. an
+    # OpenAILike subclass). Lets core/orchestration branch on the capability without importing
+    # the concrete integrations base class (EGPT-1.4).
+    # Appended at the end of the field block on purpose: inserting a dataclass field mid-list
+    # shifts the positional __init__ order of every field after it, for Model and all 46
+    # provider subclasses. Keep new fields here.
+    is_openai_compatible_proxy: bool = False
 
     def __post_init__(self):
         if self.provider is None and self.name is not None:

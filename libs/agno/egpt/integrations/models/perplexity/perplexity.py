@@ -21,7 +21,7 @@ try:
 except ModuleNotFoundError:
     raise ImportError("`openai` not installed. Please install using `pip install openai`")
 
-from egpt.integrations.models._openai_like import OpenAILike
+from egpt.integrations.models.openai_like import OpenAILike
 
 
 @dataclass

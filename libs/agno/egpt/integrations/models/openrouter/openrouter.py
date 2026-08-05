@@ -6,7 +6,7 @@ from openai.types.chat import ChatCompletion, ChatCompletionChunk
 from pydantic import BaseModel
 
 from egpt.exceptions import ModelAuthenticationError
-from egpt.integrations.models._openai_like import OpenAILike
+from egpt.integrations.models.openai_like import OpenAILike
 from egpt.models.message import Message
 from egpt.models.response import ModelResponse
 from egpt.run.agent import RunOutput

@@ -1,10 +1,28 @@
 """Deprecated compatibility shim (EGPT-1.4).
 
 Import from ``egpt.integrations.models.vertexai.claude`` instead; this module will be removed.
+
+Names are re-exported explicitly (not proxied through ``__getattr__`` alone) so that
+star-imports, ``dir()`` and static type checking keep working on this path.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
 """
 
-from egpt.integrations.models.vertexai import claude as _target
+import warnings as _warnings
+
+import egpt.integrations.models.vertexai.claude as _target
+from egpt.integrations.models.vertexai.claude import *  # noqa: F401,F403
+
+_warnings.warn(
+    "egpt.models.vertexai.claude is deprecated; import from egpt.integrations.models.vertexai.claude instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 def __getattr__(name: str):
+    # Fallback for names the target provides lazily (google's GeminiInteractions) or via
+    # an optional-dependency fallback (aws Claude), which must not be imported eagerly.
     return getattr(_target, name)

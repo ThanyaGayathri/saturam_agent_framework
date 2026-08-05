@@ -8,9 +8,9 @@ except ImportError:
     raise ImportError("`openai` not installed. Please install using `pip install openai`")
 
 from egpt.exceptions import ModelAuthenticationError
-from egpt.integrations.models._openai_like import OpenAILike
 from egpt.integrations.models._utils.llama import format_message
 from egpt.integrations.models.meta.llama import Message
+from egpt.integrations.models.openai_like import OpenAILike
 
 
 @dataclass

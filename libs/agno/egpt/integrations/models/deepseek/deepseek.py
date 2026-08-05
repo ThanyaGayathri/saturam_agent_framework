@@ -3,8 +3,8 @@ from os import getenv
 from typing import Any, ClassVar, Dict, Optional, Set
 
 from egpt.exceptions import ModelAuthenticationError
-from egpt.integrations.models._openai_like import OpenAILike
 from egpt.integrations.models._utils.openai import _format_file_for_message, audio_to_message, images_to_message
+from egpt.integrations.models.openai_like import OpenAILike
 from egpt.models.message import Message
 from egpt.utils.log import log_warning
 

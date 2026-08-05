@@ -18,8 +18,8 @@ import pytest
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
 from egpt.exceptions import AgentRunException
-from egpt.integrations.models._openai_like import OpenAILike
 from egpt.integrations.models.openai.chat import OpenAIChat
+from egpt.integrations.models.openai_like import OpenAILike
 from egpt.models.base import _handle_agent_exception
 from egpt.models.message import Message
 from egpt.models.response import ModelResponse

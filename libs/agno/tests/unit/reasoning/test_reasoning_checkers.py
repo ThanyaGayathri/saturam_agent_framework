@@ -210,7 +210,7 @@ def test_azure_openai_with_reasoning_model():
 
 def test_openai_like_with_deepseek_r1():
     """Test OpenAILike model with deepseek-r1 in ID returns True."""
-    from egpt.integrations.models._openai_like import OpenAILike
+    from egpt.integrations.models.openai_like import OpenAILike
 
     # Create a proper OpenAILike instance
     model = OpenAILike(
@@ -240,7 +240,7 @@ def test_openai_non_openai_model():
 
 def test_openai_like_without_deepseek_r1():
     """Test OpenAILike model without deepseek-r1 returns False."""
-    from egpt.integrations.models._openai_like import OpenAILike
+    from egpt.integrations.models.openai_like import OpenAILike
 
     # Create a proper OpenAILike instance
     model = OpenAILike(
@@ -259,10 +259,10 @@ def test_is_openai_compatible_proxy_flag_matches_openai_like_subclassing():
     parent OpenAIChat -- setting it on the parent would silently flip plain
     OpenAIChat/OpenAIResponses into the proxy branch.
     """
-    from egpt.integrations.models._openai_like import OpenAILike
     from egpt.integrations.models.azure import AzureOpenAI
     from egpt.integrations.models.deepseek import DeepSeek
     from egpt.integrations.models.openai import OpenAIChat, OpenAIResponses
+    from egpt.integrations.models.openai_like import OpenAILike
 
     for cls in (OpenAILike, DeepSeek, AzureOpenAI):
         instance = cls(id="x")

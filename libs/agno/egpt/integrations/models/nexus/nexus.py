@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from egpt.integrations.models._openai_like import OpenAILike
+from egpt.integrations.models.openai_like import OpenAILike
 
 
 @dataclass
