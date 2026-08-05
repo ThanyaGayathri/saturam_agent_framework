@@ -28,9 +28,9 @@ One row per external touchpoint in the framework, each carrying the core interfa
 | Model providers | ~46 | **46** provider dirs (+ `models/utils.py`) | Matches. Ticket omits `models/utils.py`, which ADR prereq #2 requires to move. |
 | Vector DB backends | ~18 | **18** | Matches. |
 | DB backends | ~14 | **14** (+ `schemas/`, `migrations/`) | Matches. |
-| Tools/toolkits | ~137 | **136** top-level `.py` + **14** in subpackages | Ticket's 137 counts `__init__.py`. Ticket omits `tools/google/` (8), `tools/models/` (5), `tools/streamlit/` (1). |
-| MCP client | 4 (+`os/mcp`) | **3** modules + `__init__.py` | Matches once `__init__.py` is excluded. **`os/mcp` does not exist** -- drop it from the ticket. |
-| Knowledge readers | ~22 | **19** concrete (+ `base.py`, `reader_factory.py`) | Ticket's 22 counts `__init__.py` and `base.py`. |
+| Tools/toolkits | ~137 | **136** top-level `.py` + **18** in subpackages | Ticket's 137 counts `__init__.py`. Ticket omits `tools/google/` (8), `tools/google/auth/` (4), `tools/models/` (5), `tools/streamlit/` (1). |
+| MCP client + server | 4 (+`os/mcp`) | **3** client modules in `tools/mcp/`, **2** server modules in `os/` | Client count matches once `__init__.py` is excluded. The ticket's `os/mcp` is `os/mcp.py` (plus `os/mcp_results.py`) -- a **file, not a directory**, and a genuine `fastmcp` touchpoint. See A12. |
+| Knowledge readers | ~22 | **19** concrete (+ `base.py`, `reader_factory.py`, **2** in `reader/utils/`) | Ticket's 22 counts `__init__.py` and `base.py`, and misses the `reader/utils/` subpackage. |
 | Knowledge embedders | ~20 | **18** concrete (+ `base.py`) | Same off-by-two. |
 | Knowledge chunkers | ~10 | **8** concrete (+ `strategy.py`) | Same off-by-two. ADR keeps chunking in core -- see A1. |
 | Knowledge rerankers | *not listed* | **4** (+ `base.py`) | **Gap in the ticket.** ADR 0001 assigns to integrations. |
@@ -40,10 +40,10 @@ One row per external touchpoint in the framework, each carrying the core interfa
 | Tracing exporters | "OTel" | **1** in-tree (`exporter.py`); **0** vendor exporters | No Langfuse/Arize code exists in-tree -- see A9. |
 | Context providers | "~context" | **11** provider dirs (8 move, 3 stay) | Ticket never fixed a number and routes all of `context/` to integrations; ADR splits it -- see A8. |
 | Cloud provider adapters | *not listed* | **4** modules under `cloud/aws/` | **Gap in the ticket.** ADR 0001 line 164 extracts these to integrations. |
-| Provider-specific `utils/` | *not listed* | **13** (`gemini`, `openai`, `mcp`, `streamlit` + 9 in `utils/models/`) | **Gap in the ticket.** ADR 0001 D5 splits `utils/`. |
+| Provider-specific `utils/` | *not listed* | **14** (`gemini`, `openai`, `mcp`, `streamlit` + **10** in `utils/models/`) | **Gap in the ticket.** ADR 0001 decision 5 + split table (lines 152/178) split `utils/`. |
 | Channel integrations | "only `discord/`" | **1** | Matches; already in the target layer. |
 
-**Totals: 340 modules inventoried.** 260 move to the integrations layer unambiguously; 49 need a decision first (section 6), of which 37 are proposed to move and 12 to stay or split; 25 are interfaces, domain types or pure logic that stay in core / orchestration; 6 are deprecation shims to delete. That is **~297 modules destined for the integrations layer**, against the ticket's ~270 estimate. The excess is the rerankers, loaders, remote content, cloud adapters and provider utils the ticket's table did not account for.
+**Totals: 349 modules inventoried.** 266 move to the integrations layer unambiguously; 50 need a decision first (section 6), of which 39 are proposed to move and 11 to stay or split; 27 are interfaces, domain types or pure logic that stay in core / orchestration; 6 are deprecation shims to delete. That is **~305 modules destined for the integrations layer**, against the ticket's ~270 estimate. The excess is the rerankers, loaders, remote content, cloud adapters and provider utils the ticket's table did not account for.
 
 ### Disposition legend
 
@@ -158,9 +158,9 @@ One row per external touchpoint in the framework, each carrying the core interfa
 | `db/sqlite/` | `BaseDb` / `AsyncBaseDb` | `integrations/db/sqlite` | EGPT-1.6 | MOVE |  |
 | `db/surrealdb/` | `BaseDb` / `AsyncBaseDb` | `integrations/db/surrealdb` | EGPT-1.6 | MOVE |  |
 | `db/schemas/` | -- | stay in core | -- | STAY | shared table schemas, not a backend |
-| `db/migrations/` | -- | stay in core | -- | STAY | shared migrations, not a backend |
+| `db/migrations/` | -- | stay in core | -- | STAY | shared migrations (incl. `migrations/versions/`), not a backend |
 
-### 4.4 Tools and toolkits (150)
+### 4.4 Tools and toolkits (154)
 
 `Toolkit` in `tools/toolkit.py`, `Function` in `tools/function.py`. Target `integrations/tools/*`, owner EGPT-1.7.
 
@@ -310,6 +310,10 @@ One row per external touchpoint in the framework, each carrying the core interfa
 | `tools/google/maps.py` | `Toolkit` | `integrations/tools/google/maps` | EGPT-1.7 | MOVE | real implementation behind the top-level shims |
 | `tools/google/sheets.py` | `Toolkit` | `integrations/tools/google/sheets` | EGPT-1.7 | MOVE | real implementation behind the top-level shims |
 | `tools/google/slides.py` | `Toolkit` | `integrations/tools/google/slides` | EGPT-1.7 | MOVE | real implementation behind the top-level shims |
+| `tools/google/auth/credentials.py` | `Toolkit` (`toolkit.py`) / OAuth helpers | `integrations/tools/google/auth/credentials` | EGPT-1.7 | MOVE | imported by `base.py`, `gmail`, `drive`, `calendar`, `sheets`, `slides` -- **must move with them or their imports break**; **missing from the EGPT-1.3 ticket table** |
+| `tools/google/auth/decorator.py` | `Toolkit` (`toolkit.py`) / OAuth helpers | `integrations/tools/google/auth/decorator` | EGPT-1.7 | MOVE | imported by `base.py`, `gmail`, `drive`, `calendar`, `sheets`, `slides` -- **must move with them or their imports break**; **missing from the EGPT-1.3 ticket table** |
+| `tools/google/auth/tokens.py` | `Toolkit` (`toolkit.py`) / OAuth helpers | `integrations/tools/google/auth/tokens` | EGPT-1.7 | MOVE | imported by `base.py`, `gmail`, `drive`, `calendar`, `sheets`, `slides` -- **must move with them or their imports break**; **missing from the EGPT-1.3 ticket table** |
+| `tools/google/auth/toolkit.py` | `Toolkit` (`toolkit.py`) / OAuth helpers | `integrations/tools/google/auth/toolkit` | EGPT-1.7 | MOVE | imported by `base.py`, `gmail`, `drive`, `calendar`, `sheets`, `slides` -- **must move with them or their imports break**; **missing from the EGPT-1.3 ticket table** |
 | `tools/models/azure_openai.py` | `Toolkit` | `integrations/tools/models/azure_openai` | EGPT-1.7 | FLAG | model-backed toolkit -- `integrations/tools/models` or `integrations/models`? see A5 |
 | `tools/models/gemini.py` | `Toolkit` | `integrations/tools/models/gemini` | EGPT-1.7 | FLAG | model-backed toolkit -- `integrations/tools/models` or `integrations/models`? see A5 |
 | `tools/models/groq.py` | `Toolkit` | `integrations/tools/models/groq` | EGPT-1.7 | FLAG | model-backed toolkit -- `integrations/tools/models` or `integrations/models`? see A5 |
@@ -317,17 +321,19 @@ One row per external touchpoint in the framework, each carrying the core interfa
 | `tools/models/nebius.py` | `Toolkit` | `integrations/tools/models/nebius` | EGPT-1.7 | FLAG | model-backed toolkit -- `integrations/tools/models` or `integrations/models`? see A5 |
 | `tools/streamlit/components.py` | -- | `integrations/tools/streamlit/components` | EGPT-1.7 | FLAG | UI components, not a `Toolkit` -- see A6 |
 
-### 4.5 MCP client (3)
+### 4.5 MCP client and server (5)
 
-Tool interface. Target `integrations/tools/mcp`, owner EGPT-1.7.
+Tool interface. Target `integrations/tools/mcp`, owner EGPT-1.7. The client lives in `tools/mcp/`; the server lives in `os/` and is flagged under A12.
 
 | Module | Interface (core) | Target module | Ticket | Disposition | Note |
 |---|---|---|---|---|---|
-| `tools/mcp/mcp.py` | `Toolkit` (tool interface) | `integrations/tools/mcp/mcp` | EGPT-1.7 | MOVE |  |
-| `tools/mcp/multi_mcp.py` | `Toolkit` (tool interface) | `integrations/tools/mcp/multi_mcp` | EGPT-1.7 | MOVE |  |
-| `tools/mcp/params.py` | `Toolkit` (tool interface) | `integrations/tools/mcp/params` | EGPT-1.7 | MOVE |  |
+| `tools/mcp/mcp.py` | `Toolkit` (tool interface) | `integrations/tools/mcp/mcp` | EGPT-1.7 | MOVE | MCP **client** -- consumes external MCP servers |
+| `tools/mcp/multi_mcp.py` | `Toolkit` (tool interface) | `integrations/tools/mcp/multi_mcp` | EGPT-1.7 | MOVE | MCP **client** -- consumes external MCP servers |
+| `tools/mcp/params.py` | `Toolkit` (tool interface) | `integrations/tools/mcp/params` | EGPT-1.7 | MOVE | MCP **client** -- consumes external MCP servers |
+| `os/mcp.py` | -- | integrations/tools/mcp/server (proposed) | EGPT-1.7 | FLAG | MCP **server** -- exposes EgptOS over MCP; imports `fastmcp` directly from the api layer. See A12 |
+| `os/mcp_results.py` | -- | integrations/tools/mcp/server (proposed) | EGPT-1.7 | FLAG | result shaping for the MCP server; imports `mcp.types`. See A12 |
 
-### 4.6 Knowledge -- readers (21)
+### 4.6 Knowledge -- readers (23)
 
 `Reader` in `knowledge/reader/base.py`. Owner EGPT-1.8.
 
@@ -353,6 +359,8 @@ Tool interface. Target `integrations/tools/mcp`, owner EGPT-1.7.
 | `knowledge/reader/wikipedia_reader.py` | `Reader` (`knowledge/reader/base.py`) | `integrations/knowledge/reader/wikipedia_reader` | EGPT-1.8 | MOVE |  |
 | `knowledge/reader/youtube_reader.py` | `Reader` (`knowledge/reader/base.py`) | `integrations/knowledge/reader/youtube_reader` | EGPT-1.8 | MOVE |  |
 | `knowledge/reader/base.py` | `Reader` | stay in core | -- | STAY | interface |
+| `knowledge/reader/utils/spreadsheet.py` | -- | `integrations/knowledge/reader/utils/spreadsheet` | EGPT-1.8 | MOVE | imported by the csv / excel / website / firecrawl / docling / llms_txt readers -- **must move with them or their imports break**; **missing from the EGPT-1.3 ticket table** |
+| `knowledge/reader/utils/url_validation.py` | -- | `integrations/knowledge/reader/utils/url_validation` | EGPT-1.8 | MOVE | imported by the csv / excel / website / firecrawl / docling / llms_txt readers -- **must move with them or their imports break**; **missing from the EGPT-1.3 ticket table** |
 | `knowledge/reader/reader_factory.py` | -- | `integrations/knowledge/reader/reader_factory` | EGPT-1.8 | FLAG | maps extensions -> concrete readers; same constructor-registration prereq as `models/utils.py` -- see A7 |
 
 ### 4.7 Knowledge -- embedders (19)
@@ -422,7 +430,7 @@ Tool interface. Target `integrations/tools/mcp`, owner EGPT-1.7.
 | `knowledge/loaders/sharepoint.py` | `BaseLoader` (`knowledge/loaders/base.py`) | `integrations/knowledge/loaders/sharepoint` | EGPT-1.8 | MOVE | **missing from the EGPT-1.3 ticket table** |
 | `knowledge/loaders/base.py` | `BaseLoader` | stay in core | -- | STAY | interface |
 
-### 4.11 Knowledge -- remote content (8)
+### 4.11 Knowledge -- remote content (9)
 
 `BaseStorageConfig` in `knowledge/remote_content/base.py`. Owner EGPT-1.8. **Absent from the ticket's mapping table.**
 
@@ -435,6 +443,7 @@ Tool interface. Target `integrations/tools/mcp`, owner EGPT-1.7.
 | `knowledge/remote_content/sharepoint.py` | `BaseStorageConfig` | `integrations/knowledge/remote_content/sharepoint` | EGPT-1.8 | MOVE | **missing from the EGPT-1.3 ticket table** |
 | `knowledge/remote_content/base.py` | `BaseStorageConfig` | stay in core | -- | STAY | interface |
 | `knowledge/remote_content/remote_content.py` | -- | `integrations/knowledge/remote_content` | EGPT-1.8 | FLAG | concrete `*Content` classes per backend; move with the backends |
+| `knowledge/document/` | `Document` | stay in core | -- | STAY | knowledge domain type (ADR 0001 line 103); listed so no subpackage is unaccounted for |
 | `knowledge/remote_knowledge.py` | -- | `integrations/knowledge/remote_knowledge` | EGPT-1.8 | MOVE | ADR 0001 assigns to integrations; **missing from the EGPT-1.3 ticket table** |
 
 ### 4.12 Context providers (15)
@@ -459,7 +468,7 @@ Tool interface. Target `integrations/tools/mcp`, owner EGPT-1.7.
 | `context/mode.py` | -- | stay in core/orchestration | -- | STAY | context mode enum |
 | `context/_utils.py` | -- | stay in core/orchestration | -- | STAY | shared helpers |
 
-### 4.13 Tracing (4)
+### 4.13 Tracing (3)
 
 OTel `SpanExporter`. Owner Epic 4.
 
@@ -468,7 +477,6 @@ OTel `SpanExporter`. Owner Epic 4.
 | `tracing/exporter.py` | OTel `SpanExporter` | `integrations/tracing/exporter` | Epic 4 | MOVE | ADR 0001 assigns to integrations |
 | `tracing/schemas.py` | -- | stay in core | -- | STAY | tracing domain types (ADR 0001) |
 | `tracing/setup.py` | -- | composition root | Epic 4 | FLAG | ADR prereq #5: imports `tracing.exporter` + `remote.base`; stays out of enforceable core until it takes an exporter port |
-| (vendor exporters: Langfuse, Arize, ...) | OTel `SpanExporter` | `integrations/tracing/*` | Epic 4 | FLAG | **zero in-tree files today** -- they plug in via OTel config. Epic 4 wires Langfuse. See A9 |
 
 ### 4.14 Cloud provider adapters (4)
 
@@ -481,16 +489,16 @@ No core interface today. ADR 0001 line 164 requires extraction so `cloud/` stays
 | `cloud/aws/s3/bucket.py` | -- | `integrations/cloud/aws/*` | EGPT-1.7 (TBC) | MOVE | ADR 0001: provider-specific deploy code extracts to integrations; **missing from the EGPT-1.3 ticket table** |
 | `cloud/aws/s3/object.py` | -- | `integrations/cloud/aws/*` | EGPT-1.7 (TBC) | MOVE | ADR 0001: provider-specific deploy code extracts to integrations; **missing from the EGPT-1.3 ticket table** |
 
-### 4.15 Provider-specific utils (14)
+### 4.15 Provider-specific utils (15)
 
-No core interface. ADR 0001 D5 splits `utils/`. **Absent from the ticket's mapping table.**
+No core interface. ADR 0001 decision 5 and its split table (lines 152/178) assign these to integrations. **Absent from the ticket's mapping table.**
 
 | Module | Interface (core) | Target module | Ticket | Disposition | Note |
 |---|---|---|---|---|---|
-| `utils/gemini.py` | -- | integrations/... (with its provider) | EGPT-1.4/1.7 | MOVE | Google GenAI SDK helpers; ADR 0001 D5 splits `utils/`; **missing from the EGPT-1.3 ticket table** |
-| `utils/openai.py` | -- | integrations/... (with its provider) | EGPT-1.4/1.7 | MOVE | OpenAI-shaped payload helpers; ADR 0001 D5 splits `utils/`; **missing from the EGPT-1.3 ticket table** |
-| `utils/mcp.py` | -- | integrations/... (with its provider) | EGPT-1.4/1.7 | MOVE | MCP SDK helpers; ADR 0001 D5 splits `utils/`; **missing from the EGPT-1.3 ticket table** |
-| `utils/streamlit.py` | -- | integrations/... (with its provider) | EGPT-1.4/1.7 | MOVE | Streamlit SDK helpers; ADR 0001 D5 splits `utils/`; **missing from the EGPT-1.3 ticket table** |
+| `utils/gemini.py` | -- | integrations/... (with its provider) | EGPT-1.4/1.7 | MOVE | Google GenAI SDK helpers; ADR 0001 decision 5 + split table (line 178); **missing from the EGPT-1.3 ticket table** |
+| `utils/openai.py` | -- | integrations/... (with its provider) | EGPT-1.4/1.7 | MOVE | OpenAI-shaped payload helpers; ADR 0001 decision 5 + split table (line 178); **missing from the EGPT-1.3 ticket table** |
+| `utils/mcp.py` | -- | integrations/... (with its provider) | EGPT-1.4/1.7 | MOVE | MCP SDK helpers; ADR 0001 decision 5 + split table (line 178); **missing from the EGPT-1.3 ticket table** |
+| `utils/streamlit.py` | -- | integrations/... (with its provider) | EGPT-1.4/1.7 | MOVE | Streamlit SDK helpers; ADR 0001 decision 5 + split table (line 178); **missing from the EGPT-1.3 ticket table** |
 | `utils/models/_genai_compat.py` | -- | integrations/... (with its provider) | EGPT-1.4 | MOVE | Google GenAI SDK version shims -- move with `models/google`; ADR 0001 lines 152/178 assign `utils/models/` to integrations; **missing from the EGPT-1.3 ticket table** |
 | `utils/models/_mistral_compat.py` | -- | integrations/... (with its provider) | EGPT-1.4 | MOVE | Mistral SDK version shims -- move with `models/mistral`; ADR 0001 lines 152/178 assign `utils/models/` to integrations; **missing from the EGPT-1.3 ticket table** |
 | `utils/models/ai_foundry.py` | -- | integrations/... (with its provider) | EGPT-1.4 | MOVE | Azure AI Foundry helpers -- move with `models/azure`; ADR 0001 lines 152/178 assign `utils/models/` to integrations; **missing from the EGPT-1.3 ticket table** |
@@ -501,6 +509,7 @@ No core interface. ADR 0001 D5 splits `utils/`. **Absent from the ticket's mappi
 | `utils/models/openai_responses.py` | -- | integrations/... (with its provider) | EGPT-1.4 | MOVE | OpenAI Responses helpers -- move with `models/openai`; ADR 0001 lines 152/178 assign `utils/models/` to integrations; **missing from the EGPT-1.3 ticket table** |
 | `utils/models/schema_utils.py` | -- | integrations/... (with its provider) | EGPT-1.4 | FLAG | shared schema helpers used across providers -- see A11; ADR 0001 lines 152/178 assign `utils/models/` to integrations; **missing from the EGPT-1.3 ticket table** |
 | `utils/models/watsonx.py` | -- | integrations/... (with its provider) | EGPT-1.4 | MOVE | IBM watsonx helpers -- move with `models/ibm`; ADR 0001 lines 152/178 assign `utils/models/` to integrations; **missing from the EGPT-1.3 ticket table** |
+| `utils/print_response/` | -- | orchestration (not integrations) | -- | STAY | ADR 0001 line 178 assigns to orchestration alongside `utils/{agent,team,events,reasoning,response,hooks}.py`; listed here only so the `utils/` split is fully accounted for |
 
 ### 4.16 Channel integrations (1)
 
@@ -520,17 +529,19 @@ These are real touchpoints with no row in the ticket's mapping table. All are al
 |---|---|---|
 | `knowledge/reranker/` | 4 | EGPT-1.8 |
 | `knowledge/loaders/` | 5 | EGPT-1.8 |
-| `knowledge/remote_content/` | 5 (+ `remote_content.py`) | EGPT-1.8 |
+| `knowledge/remote_content/` | 6 | EGPT-1.8 |
 | `knowledge/remote_knowledge.py` | 1 | EGPT-1.8 |
 | `tools/google/` | 8 | EGPT-1.7 |
+| `tools/google/auth/` | 4 | EGPT-1.7 |
 | `tools/models/` | 5 | EGPT-1.7 |
 | `tools/streamlit/` | 1 | EGPT-1.7 |
 | `cloud/aws/` | 4 | EGPT-1.7 (to be confirmed) |
 | `utils/{gemini,openai,mcp,streamlit}.py` | 4 | EGPT-1.4 / 1.7 |
-| `utils/models/` | 9 | EGPT-1.4 |
+| `utils/models/` | 10 | EGPT-1.4 |
+| `knowledge/reader/utils/` | 2 | EGPT-1.8 |
 | `models/utils.py` | 1 | EGPT-1.4 |
 
-**47 modules.** Conversely, the ticket lists `os/mcp` as an MCP touchpoint; that path does not exist.
+**55 modules.** Six of these -- `tools/google/auth/` (4) and `knowledge/reader/utils/` (2) -- are not merely unlisted but load-bearing: they are imported by nearly every module scheduled to move alongside them (`tools/google/{base,gmail,drive,calendar,sheets,slides}.py` and the csv / excel / website / firecrawl / docling / llms_txt readers respectively). Moving the listed modules without them breaks those imports.
 
 ---
 
@@ -611,6 +622,12 @@ The other eight modules in `utils/models/` are each tied to one provider and tra
 
 **Proposed disposition:** move to a shared spot inside the integrations layer (e.g. `integrations/models/_shared`), not core -- it exists only to serve provider adapters. Confirm with the EGPT-1.4 owner.
 
+### A12 -- MCP server in the api layer (`os/mcp.py`)
+
+`tools/mcp/` is the MCP **client**: it consumes external MCP servers and is an unambiguous integration. `os/mcp.py` and `os/mcp_results.py` are the **server** side -- they expose EgptOS itself over MCP and import `fastmcp` and `mcp.types` directly from what ADR 0001 classifies as the api / control-plane layer. ADR rule 4 says api must not import concrete integrations outside the composition-root allowlist.
+
+**Proposed disposition:** move the SDK-facing transport to `integrations/tools/mcp/server` and leave a thin control-plane surface in `os/` that wires it at the composition root, matching the treatment of `tracing/setup.py` in A9. The alternative -- an explicit composition-root exemption for `os/mcp.py` -- is also defensible; the EGPT-1.7 owner should pick one before extraction starts.
+
 ---
 
 ## 7. Open questions for reviewers
@@ -625,6 +642,16 @@ The other eight modules in `utils/models/` are each tied to one provider and tra
 ## 8. Reconciliation commands
 
 Run from `libs/agno/egpt`. Re-run before each extraction ticket starts; any delta means this document is stale.
+
+> A `*.py` glob does not see subpackages. Three were missed on the first pass for exactly that reason (`tools/google/auth/`, `knowledge/reader/utils/`, `utils/models/`), so the directory checks below are part of the reconciliation, not an optional extra:
+
+```bash
+# every subpackage under the areas this inventory covers -- each must appear in section 4
+find models db vectordb tools knowledge context tracing cloud utils integrations \
+     -mindepth 1 -type d ! -name __pycache__ | sort
+```
+
+```bash
 
 ```bash
 find models    -maxdepth 1 -type d ! -name __pycache__ | tail -n +2 | wc -l   # 46
@@ -642,7 +669,10 @@ ls knowledge/loaders/*.py | grep -v __init__ | wc -l                          # 
 ls knowledge/remote_content/*.py | grep -v __init__ | wc -l                   # 7  (5 + base + remote_content)
 find context   -maxdepth 1 -type d ! -name __pycache__ | tail -n +2 | wc -l   # 11
 find cloud -name '*.py' ! -name __init__.py | wc -l                           # 4
-ls utils/models/*.py      | grep -v __init__ | wc -l                          # 9
+ls utils/models/*.py      | grep -v __init__ | wc -l                          # 10
+ls tools/google/auth/*.py | grep -v __init__ | wc -l                          # 4
+ls knowledge/reader/utils/*.py | grep -v __init__ | wc -l                     # 2
+ls os/mcp*.py                                                                 # 2
 ```
 
 ---
@@ -651,9 +681,9 @@ ls utils/models/*.py      | grep -v __init__ | wc -l                          # 
 
 | Criterion | Status |
 |---|---|
-| Inventory lists every external touchpoint | Done -- section 4, 340 modules across 16 areas |
+| Inventory lists every external touchpoint | Done -- section 4, 349 modules across 16 areas |
 | Each entry has interface, target module, owning ticket | Done -- all four columns populated in every table |
-| Counts reconcile with a fresh tree scan, no orphans | Done -- section 3 reconciles each area; section 5 lists the 47 modules the ticket's table omitted; commands in section 8 |
-| Ambiguous items flagged with a proposed disposition | Done -- A1 through A11 in section 6 (A10 resolved during review), each with a proposal |
+| Counts reconcile with a fresh tree scan, no orphans | Done -- section 3 reconciles each area; section 5 lists the 55 modules the ticket's table omitted; commands in section 8 |
+| Ambiguous items flagged with a proposed disposition | Done -- A1 through A12 in section 6 (A10 resolved during review), each with a proposal |
 | Peer review by an EGPT-1.4-1.8 executor | **Pending** |
 
