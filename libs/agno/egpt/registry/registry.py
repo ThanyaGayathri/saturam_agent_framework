@@ -252,28 +252,31 @@ class Registry:
         return None
 
     def get_vector_db(self, vector_db_id: str) -> Optional[VectorDb]:
-        """Get a vector database by id (or name) from the registry.
+        """Get a vector database by id, falling back to name.
 
-        Matched on the same key ``add_vector_db`` dedupes on -- ``id`` when set, otherwise
-        ``name`` -- so a vector db registered without an explicit id is still reachable under
-        the name it was registered with.
+        Both keys are matched, and deliberately not with an ``id or name`` expression:
+        ``VectorDb.__init__`` derives an id from the name whenever one is not supplied
+        (``self.id = id if id else generate_id(name)``), so ``id`` is never falsy on a real
+        instance and an ``id or name`` key would make the name branch unreachable. Ids are
+        tried first across all entries so an explicit id always wins over a coincidental
+        name match.
 
         Returns the live, fully-configured instance. Vector dbs hold connection state (engines,
         clients, credentials) that no serialized form round-trips, so rebuilding one from config
         is not equivalent to retrieving it.
 
         Args:
-            vector_db_id: The vector database id, or its name when it has no id
+            vector_db_id: The vector database id, or the name it was registered under
 
         Returns:
             The vector database instance if found, None otherwise
         """
         if not self.vector_dbs or not vector_db_id:
             return None
-        return next(
-            (v for v in self.vector_dbs if (getattr(v, "id", None) or getattr(v, "name", None)) == vector_db_id),
-            None,
-        )
+        by_id = next((v for v in self.vector_dbs if getattr(v, "id", None) == vector_db_id), None)
+        if by_id is not None:
+            return by_id
+        return next((v for v in self.vector_dbs if getattr(v, "name", None) == vector_db_id), None)
 
     def get_model(self, model_id: str, provider: Optional[str] = None, name: Optional[str] = None) -> Optional[Model]:
         """Get a registered model instance by id, disambiguating by provider/name when given.

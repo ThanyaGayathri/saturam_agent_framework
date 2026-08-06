@@ -41,6 +41,9 @@ class RedisDB(VectorDb):
         distance: Distance = Distance.cosine,
         vector_score_weight: float = 0.7,
         reranker: Optional[Reranker] = None,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        id: Optional[str] = None,
         **redis_kwargs,
     ):
         """
@@ -55,6 +58,9 @@ class RedisDB(VectorDb):
             distance (Distance): Distance metric for vector comparisons.
             vector_score_weight (float): Weight for vector similarity in hybrid search.
             reranker (Optional[Reranker]): Reranker instance.
+            name (Optional[str]): Name for this vector db, used for registry lookup.
+            description (Optional[str]): Description of this vector db.
+            id (Optional[str]): Custom id; derived from the name when omitted.
             **redis_kwargs: Additional Redis connection parameters.
         """
         if not index_name:
@@ -62,6 +68,10 @@ class RedisDB(VectorDb):
 
         if redis_client is None and redis_url is None:
             raise ValueError("Either 'redis_url' or 'redis_client' must be provided.")
+
+        # Every other backend calls this; RedisDB did not, so it had neither `id` nor `name`
+        # and was unreachable through Registry.get_vector_db() under any key.
+        super().__init__(id=id, name=name, description=description)
 
         self.redis_url = redis_url
 

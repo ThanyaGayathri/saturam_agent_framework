@@ -753,6 +753,23 @@ class TestGetDb:
 # =============================================================================
 
 
+def _real_vector_db(name=None, id=None):
+    """A concrete VectorDb, not a MagicMock.
+
+    `VectorDb.__init__` derives an id from the name when none is given, so a mock with
+    ``id=None`` is a shape no real backend ever has. Testing the accessor against mocks is
+    what let an unreachable ``id or name`` lookup ship and pass: no real instance could
+    reach the name branch.
+    """
+    from egpt.vectordb.base import VectorDb
+
+    # Stubs are generated from __abstractmethods__ so this helper cannot drift out of sync
+    # when the ABC gains or loses a method.
+    body = {method: (lambda self, *a, **kw: None) for method in VectorDb.__abstractmethods__}
+    store_cls = type("_Store", (VectorDb,), body)
+    return store_cls(id=id, name=name)
+
+
 def _mock_vector_db(id=None, name=None):
     from egpt.vectordb.base import VectorDb
 
@@ -773,23 +790,43 @@ class TestGetVectorDb:
         assert reg.get_vector_db("vec-1") is vector_db
 
     def test_get_vector_db_found_by_name_when_id_is_none(self):
-        """A vector db registered without an id is reachable by name.
-
-        add_vector_db() dedupes on ``id or name``, so get_vector_db() must resolve the same
-        key or name-only registrations would be unretrievable.
-        """
+        """A vector db with no id is reachable by name."""
         vector_db = _mock_vector_db(name="vectors")
         reg = Registry(vector_dbs=[vector_db])
 
         assert reg.get_vector_db("vectors") is vector_db
 
-    def test_get_vector_db_prefers_id_over_name(self):
-        """When both are set the id is the key, so the name does not resolve."""
+    def test_get_vector_db_real_instance_is_reachable_by_name(self):
+        """A concrete backend must be reachable by the name it was registered under.
+
+        Regression guard: `VectorDb.__init__` always populates `id` (deriving it from the
+        name when not supplied), so an ``id or name`` lookup key can never reach the name
+        branch for any real backend. Only a MagicMock with ``id=None`` could, which is why
+        the mock-based tests above passed while the accessor was broken in practice.
+        """
+        vector_db = _real_vector_db(name="my_vectors")
+        reg = Registry()
+        reg.add_vector_db(vector_db)
+
+        assert vector_db.id, "VectorDb always populates id; the premise of this test"
+        assert reg.get_vector_db("my_vectors") is vector_db
+        assert reg.get_vector_db(vector_db.id) is vector_db
+
+    def test_get_vector_db_matches_id_and_name(self):
+        """Both keys resolve; an explicit id wins over another entry's name."""
         vector_db = _mock_vector_db(id="vec-1", name="vectors")
         reg = Registry(vector_dbs=[vector_db])
 
         assert reg.get_vector_db("vec-1") is vector_db
-        assert reg.get_vector_db("vectors") is None
+        assert reg.get_vector_db("vectors") is vector_db
+
+    def test_get_vector_db_prefers_id_over_a_colliding_name(self):
+        """When one entry's name equals another's id, the id match wins."""
+        by_id = _mock_vector_db(id="shared", name="a")
+        by_name = _mock_vector_db(id="b", name="shared")
+        reg = Registry(vector_dbs=[by_name, by_id])
+
+        assert reg.get_vector_db("shared") is by_id
 
     def test_get_vector_db_multiple(self):
         """Test getting different vector dbs."""
@@ -829,15 +866,23 @@ class TestGetVectorDb:
         assert reg.get_vector_db("VEC-1") is None
 
     def test_get_vector_db_roundtrips_with_add_vector_db(self):
-        """add_vector_db() and get_vector_db() must agree on the lookup key.
+        """Anything add_vector_db() accepts must be retrievable by get_vector_db().
 
-        Pins the two to the same ``id or name`` expression so editing one without the other
-        fails here rather than silently making registered vector dbs unretrievable.
+        Uses concrete backends rather than mocks so the round trip is exercised against the
+        identity real instances actually carry.
         """
-        with_id = _mock_vector_db(id="vec-1", name="ignored")
-        name_only = _mock_vector_db(name="vectors")
+        registered = [_real_vector_db(name="alpha"), _real_vector_db(name="beta"), _real_vector_db()]
 
         reg = Registry()
+        for vector_db in registered:
+            reg.add_vector_db(vector_db)
+
+        for vector_db in registered:
+            assert reg.get_vector_db(vector_db.id) is vector_db
+            assert reg.get_vector_db(vector_db.name) is vector_db
+
+        with_id = _mock_vector_db(id="vec-1", name="ignored")
+        name_only = _mock_vector_db(name="vectors")
         reg.add_vector_db(with_id)
         reg.add_vector_db(name_only)
 
