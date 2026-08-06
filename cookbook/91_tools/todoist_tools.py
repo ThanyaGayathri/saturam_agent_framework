@@ -1,5 +1,5 @@
 """
-Example showing how to use the Todoist Tools with Agno
+Example showing how to use the Todoist Tools with EGPT
 
 Requirements:
 - Sign up/login to Todoist and get a Todoist API Token (get from https://app.todoist.com/app/settings/integrations/developer)

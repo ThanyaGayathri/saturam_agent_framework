@@ -1,0 +1,130 @@
+{
+  "q01": {
+    "mode": "paraphrase",
+    "text": "What color theme does the user like for their apps?"
+  },
+  "q02": {
+    "mode": "paraphrase",
+    "text": "Does the user eat meat?"
+  },
+  "q03": {
+    "mode": "paraphrase",
+    "text": "How does the user take their coffee?"
+  },
+  "q04": {
+    "mode": "paraphrase",
+    "text": "When is the best time to schedule a meeting with the user?"
+  },
+  "q05": {
+    "mode": "paraphrase",
+    "text": "What should reviewers prioritise when reviewing the user's code?"
+  },
+  "q06": {
+    "mode": "coreference",
+    "text": "How does the user like to be contacted?"
+  },
+  "q07": {
+    "mode": "temporal",
+    "text": "When did the user first ship billing to prod?"
+  },
+  "q08": {
+    "mode": "temporal",
+    "text": "What database change did the user make in the previous quarter?"
+  },
+  "q09": {
+    "mode": "paraphrase",
+    "text": "Where did the user speak about vector databases?"
+  },
+  "q10": {
+    "mode": "temporal",
+    "text": "What did the user break at the end of last week?"
+  },
+  "q11": {
+    "mode": "coreference",
+    "text": "Who joined the backend team recently?"
+  },
+  "q12": {
+    "mode": "temporal",
+    "text": "What happened during the June outage?"
+  },
+  "q13": {
+    "mode": "paraphrase",
+    "text": "What was the user debugging over the weekend?"
+  },
+  "q14": {
+    "mode": "coreference",
+    "text": "Which service does the new engineer own?"
+  },
+  "q15": {
+    "mode": "paraphrase",
+    "text": "What language and platform is the billing service built on?"
+  },
+  "q16": {
+    "mode": "paraphrase",
+    "text": "What is the analytics database running now?"
+  },
+  "q17": {
+    "mode": "coreference",
+    "text": "Who is the user's biggest customer and where are they?"
+  },
+  "q18": {
+    "mode": "coreference",
+    "text": "Who does the user report to?"
+  },
+  "q19": {
+    "mode": "paraphrase",
+    "text": "How does the ingestion worker move data?"
+  },
+  "q20": {
+    "mode": "paraphrase",
+    "text": "How many machines are in production versus staging?"
+  },
+  "q21": {
+    "mode": "paraphrase",
+    "text": "What did the user commit to sending their manager?"
+  },
+  "q22": {
+    "mode": "paraphrase",
+    "text": "What security chore is still outstanding?"
+  },
+  "q23": {
+    "mode": "coreference",
+    "text": "What did the user agree to teach the new hire?"
+  },
+  "q24": {
+    "mode": "paraphrase",
+    "text": "What protection does the user want before the API launch?"
+  },
+  "q25": {
+    "mode": "paraphrase",
+    "text": "What evaluation is the user planning this month?"
+  },
+  "q26": {
+    "mode": "hard-negative",
+    "text": "What operating system does the user's work machine run?"
+  },
+  "q27": {
+    "mode": "hard-negative",
+    "text": "What does the user drink in the mornings?"
+  },
+  "q28": {
+    "mode": "hard-negative",
+    "text": "When did the user present a talk in Berlin?"
+  },
+  "q29": {
+    "mode": "coreference",
+    "text": "What was Dana's job before management?"
+  },
+  "q30": {
+    "mode": "temporal",
+    "text": "What logging migration happened last year?"
+  },
+  "q31": {
+    "mode": "coreference",
+    "text": "Which office looks after the payments service?"
+  },
+  "q32": {
+    "mode": "coreference",
+    "text": "Who did the user pair with on the auth token bug?"
+  }
+}

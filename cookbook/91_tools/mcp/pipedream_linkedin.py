@@ -1,12 +1,12 @@
 """
  Pipedream LinkedIn MCP
 
-This example shows how to use Pipedream MCP servers (in this case the LinkedIn one) with Agno Agents.
+This example shows how to use Pipedream MCP servers (in this case the LinkedIn one) with EGPT Agents.
 
 1. Connect your Pipedream and LinkedIn accounts: https://mcp.pipedream.com/app/linkedin
 2. Get your Pipedream MCP server url: https://mcp.pipedream.com/app/linkedin
 3. Set the MCP_SERVER_URL environment variable to the MCP server url you got above
-4. Install dependencies: uv pip install agno mcp
+4. Install dependencies: uv pip install mcp
 """
 
 import asyncio

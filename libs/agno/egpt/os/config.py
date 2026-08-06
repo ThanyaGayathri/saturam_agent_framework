@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # Tags carried by the built-in MCP tools, exposed here so callers (and the IDE) can see
 # the valid values for ``MCPServerConfig.include_tags`` / ``exclude_tags`` without reading
-# ``agno/os/mcp.py``. Keep in sync with the ``tags={...}`` argument on each
+# ``egpt/os/mcp.py``. Keep in sync with the ``tags={...}`` argument on each
 # ``@register_builtin_tool(...)`` in that module.
 MCP_BUILTIN_TAGS: frozenset = frozenset({"core", "session"})
 
@@ -37,7 +37,7 @@ class MCPServerConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     # Custom tools to register on the MCP server. Each entry may be a plain callable
-    # (name/description inferred from ``__name__``/docstring) or an Agno tool/``Function``
+    # (name/description inferred from ``__name__``/docstring) or an EGPT tool/``Function``
     # (name/description taken from the tool, entrypoint used as the callable).
     #
     # Identity: a custom tool may declare a ``user_id`` parameter. EgptOS fills it with

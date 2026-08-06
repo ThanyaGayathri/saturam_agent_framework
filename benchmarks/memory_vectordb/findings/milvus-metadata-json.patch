@@ -1,0 +1,212 @@
+diff --git a/libs/agno/egpt/vectordb/milvus/milvus.py b/libs/agno/egpt/vectordb/milvus/milvus.py
+index 97abb12..c423ee0 100644
+--- a/libs/agno/egpt/vectordb/milvus/milvus.py
++++ b/libs/agno/egpt/vectordb/milvus/milvus.py
+@@ -176,7 +176,6 @@ class Milvus(VectorDb):
+             ("content_id", DataType.VARCHAR, 1000, False),
+             ("content_hash", DataType.VARCHAR, 1000, False),
+             ("text", DataType.VARCHAR, 65535, False),
+-            ("meta_data", DataType.VARCHAR, 65535, False),
+             ("usage", DataType.VARCHAR, 65535, False),
+         ]
+ 
+@@ -184,6 +183,10 @@ class Milvus(VectorDb):
+         for field_name, datatype, max_length, is_primary in fields:
+             schema.add_field(field_name=field_name, datatype=datatype, max_length=max_length, is_primary=is_primary)
+ 
++        # meta_data is JSON (not VARCHAR) so metadata filters like meta_data["tenant_id"]
++        # work; a VARCHAR JSON string cannot be filtered by JSON path.
++        schema.add_field(field_name="meta_data", datatype=DataType.JSON)
++
+         # Add vector fields
+         schema.add_field(field_name="dense_vector", datatype=DataType.FLOAT_VECTOR, dim=self.dimensions)
+         schema.add_field(field_name="sparse_vector", datatype=DataType.SPARSE_FLOAT_VECTOR)
+@@ -233,16 +236,16 @@ class Milvus(VectorDb):
+         base_id = document.id or md5(cleaned_content.encode()).hexdigest()
+         doc_id = md5(f"{base_id}_{content_hash}".encode()).hexdigest()
+ 
+-        # Convert dictionary fields to JSON strings
+-        meta_data_str = json.dumps(document.meta_data) if document.meta_data else "{}"
++        # meta_data is stored as a native JSON object so filter expressions like
++        # meta_data["tenant_id"] == v work; usage stays a JSON string (never filtered).
+         usage_str = json.dumps(document.usage) if document.usage else "{}"
+ 
+-        data: Dict[str, Union[str, List[float], Dict[int, float], None]] = {
++        data: Dict[str, Any] = {
+             "id": doc_id,
+             "text": cleaned_content,
+             "name": document.name,
+             "content_id": document.content_id or "",
+-            "meta_data": meta_data_str,
++            "meta_data": document.meta_data or {},
+             "content": cleaned_content,
+             "usage": usage_str,
+             "content_hash": content_hash,
+@@ -432,7 +435,10 @@ class Milvus(VectorDb):
+                     "vector": document.embedding,
+                     "name": document.name,
+                     "content_id": document.content_id or "",
+-                    "meta_data": json.dumps(meta_data),
++                    # Store as a native JSON object (not a json.dumps string) so that
++                    # filter expressions like meta_data["tenant_id"] == v match. Storing a
++                    # string here makes all metadata filters (incl. tenant_id) return nothing.
++                    "meta_data": meta_data,
+                     "content": cleaned_content,
+                     "usage": json.dumps(document.usage) if document.usage else "{}",
+                     "content_hash": content_hash,
+@@ -515,7 +521,10 @@ class Milvus(VectorDb):
+                     "vector": document.embedding,
+                     "name": document.name,
+                     "content_id": document.content_id or "",
+-                    "meta_data": json.dumps(meta_data),
++                    # Store as a native JSON object (not a json.dumps string) so that
++                    # filter expressions like meta_data["tenant_id"] == v match. Storing a
++                    # string here makes all metadata filters (incl. tenant_id) return nothing.
++                    "meta_data": meta_data,
+                     "content": cleaned_content,
+                     "usage": json.dumps(document.usage) if document.usage else "{}",
+                     "content_hash": content_hash,
+@@ -574,7 +583,10 @@ class Milvus(VectorDb):
+                     "vector": document.embedding,
+                     "name": document.name,
+                     "content_id": document.content_id or "",
+-                    "meta_data": json.dumps(meta_data),
++                    # Store as a native JSON object (not a json.dumps string) so that
++                    # filter expressions like meta_data["tenant_id"] == v match. Storing a
++                    # string here makes all metadata filters (incl. tenant_id) return nothing.
++                    "meta_data": meta_data,
+                     "content": cleaned_content,
+                     "usage": json.dumps(document.usage) if document.usage else "{}",
+                     "content_hash": content_hash,
+@@ -656,7 +668,10 @@ class Milvus(VectorDb):
+                     "vector": document.embedding,
+                     "name": document.name,
+                     "content_id": document.content_id or "",
+-                    "meta_data": json.dumps(meta_data),
++                    # Store as a native JSON object (not a json.dumps string) so that
++                    # filter expressions like meta_data["tenant_id"] == v match. Storing a
++                    # string here makes all metadata filters (incl. tenant_id) return nothing.
++                    "meta_data": meta_data,
+                     "content": cleaned_content,
+                     "usage": json.dumps(document.usage) if document.usage else "{}",
+                     "content_hash": content_hash,
+@@ -1214,14 +1229,15 @@ class Milvus(VectorDb):
+ 
+                 updated_metadata = {**current_metadata, **metadata}
+ 
+-                # Rebuild the full row
++                # Rebuild the full row. meta_data / filters are stored as native JSON
++                # objects (not json.dumps strings) so metadata filters keep working.
+                 new_row: Dict[str, Any] = dict(row)
+-                new_row["meta_data"] = json.dumps(updated_metadata)
++                new_row["meta_data"] = updated_metadata
+                 if "filters" in row:
+                     current_filters = self._decode_json_field(row.get("filters"), default={})
+                     if not isinstance(current_filters, dict):
+                         current_filters = {}
+-                    new_row["filters"] = json.dumps({**current_filters, **metadata})
++                    new_row["filters"] = {**current_filters, **metadata}
+ 
+                 usage_value = row.get("usage")
+                 if isinstance(usage_value, (dict, list)):
+diff --git a/libs/agno/tests/unit/vectordb/test_milvusdb.py b/libs/agno/tests/unit/vectordb/test_milvusdb.py
+index d94a49c..f97eba9 100644
+--- a/libs/agno/tests/unit/vectordb/test_milvusdb.py
++++ b/libs/agno/tests/unit/vectordb/test_milvusdb.py
+@@ -618,8 +618,9 @@ def test_hybrid_schema_text_field_max_length(mock_embedder):
+     assert text_field.params["max_length"] == 65535
+ 
+ 
+-def test_non_hybrid_insert_serializes_meta_data_and_usage_as_json(milvus_db, mock_milvus_client):
+-    """non-hybrid insert must json.dumps meta_data and usage."""
++def test_non_hybrid_insert_stores_meta_data_as_json_object(milvus_db, mock_milvus_client):
++    """non-hybrid insert must store meta_data as a native JSON object (dict) so that
++    filter expressions like meta_data["key"] == v match; usage stays a JSON string."""
+ 
+     import json
+ 
+@@ -629,16 +630,16 @@ def test_non_hybrid_insert_serializes_meta_data_and_usage_as_json(milvus_db, moc
+ 
+     _, kwargs = mock_milvus_client.insert.call_args
+     data = kwargs["data"]
+-    assert isinstance(data["meta_data"], str), "meta_data must be a JSON string, not a dict"
+-    assert isinstance(data["usage"], str), "usage must be a JSON string, not a dict"
+-    assert json.loads(data["meta_data"]) == {"cuisine": "Thai"}
++    assert isinstance(data["meta_data"], dict), "meta_data must be a JSON object, not a string"
++    assert data["meta_data"] == {"cuisine": "Thai"}
++    # usage is never filtered, so it stays a JSON string.
++    assert isinstance(data["usage"], str)
+     # mock_embedder fixture sets usage to {"prompt_tokens": 10, "total_tokens": 10}
+     assert json.loads(data["usage"]) == {"prompt_tokens": 10, "total_tokens": 10}
+ 
+ 
+-def test_non_hybrid_upsert_serializes_meta_data_and_usage_as_json(milvus_db, mock_milvus_client):
+-    """non-hybrid upsert must json.dumps meta_data and usage."""
+-    import json
++def test_non_hybrid_upsert_stores_meta_data_as_json_object(milvus_db, mock_milvus_client):
++    """non-hybrid upsert must store meta_data as a native JSON object (dict)."""
+ 
+     doc = Document(
+         content="Some content",
+@@ -651,9 +652,22 @@ def test_non_hybrid_upsert_serializes_meta_data_and_usage_as_json(milvus_db, moc
+ 
+     _, kwargs = mock_milvus_client.upsert.call_args
+     data = kwargs["data"]
+-    assert isinstance(data["meta_data"], str)
++    assert isinstance(data["meta_data"], dict)
+     assert isinstance(data["usage"], str)
+-    assert json.loads(data["meta_data"]) == {"k": "v"}
++    assert data["meta_data"] == {"k": "v"}
++
++
++def test_hybrid_schema_meta_data_is_json_field(mock_embedder):
++    """meta_data must be a JSON field (not VARCHAR) so metadata filters work."""
++    from pymilvus import DataType
++
++    from egpt.vectordb.search import SearchType
++
++    db = Milvus(embedder=mock_embedder, collection="test_collection", search_type=SearchType.hybrid)
++    schema = db._create_hybrid_schema()
++
++    meta_field = next(f for f in schema.fields if f.name == "meta_data")
++    assert meta_field.dtype == DataType.JSON
+ 
+ 
+ def test_update_metadata_sends_full_row_and_preserves_fields(milvus_db, mock_milvus_client):
+@@ -685,11 +699,11 @@ def test_update_metadata_sends_full_row_and_preserves_fields(milvus_db, mock_mil
+     _, kwargs = mock_milvus_client.upsert.call_args
+     sent = kwargs["data"][0]
+ 
+-    # meta_data / filters merged and JSON-encoded
+-    assert isinstance(sent["meta_data"], str)
+-    assert isinstance(sent["filters"], str)
+-    assert json.loads(sent["meta_data"]) == {"cuisine": "Thai", "type": "soup"}
+-    assert json.loads(sent["filters"]) == {"cuisine": "Thai", "type": "soup"}
++    # meta_data / filters merged and stored as native JSON objects (not strings)
++    assert isinstance(sent["meta_data"], dict)
++    assert isinstance(sent["filters"], dict)
++    assert sent["meta_data"] == {"cuisine": "Thai", "type": "soup"}
++    assert sent["filters"] == {"cuisine": "Thai", "type": "soup"}
+ 
+     # Every other field round-trips untouched
+     for field in ("id", "name", "content", "content_id", "content_hash", "text", "usage", "vector"):
+@@ -699,8 +713,6 @@ def test_update_metadata_sends_full_row_and_preserves_fields(milvus_db, mock_mil
+ def test_update_metadata_handles_dict_shaped_existing_meta_data(milvus_db, mock_milvus_client):
+     """update_metadata must tolerate older rows where meta_data was stored as
+     a raw dict."""
+-    import json
+-
+     existing_row = {
+         "id": "doc_id_1",
+         "content_id": "content_xyz",
+@@ -714,8 +726,8 @@ def test_update_metadata_handles_dict_shaped_existing_meta_data(milvus_db, mock_
+ 
+     _, kwargs = mock_milvus_client.upsert.call_args
+     sent = kwargs["data"][0]
+-    assert json.loads(sent["meta_data"]) == {"cuisine": "Thai", "type": "soup"}
+-    assert json.loads(sent["filters"]) == {"cuisine": "Thai", "type": "soup"}
++    assert sent["meta_data"] == {"cuisine": "Thai", "type": "soup"}
++    assert sent["filters"] == {"cuisine": "Thai", "type": "soup"}
+ 
+ 
+ def test_update_metadata_noop_when_content_id_missing(milvus_db, mock_milvus_client):

@@ -1,6 +1,6 @@
 """GibsonAI MCP Server - Create and manage databases with prompts
 
-This example shows how to connect a local GibsonAI MCP to Agno agent.
+This example shows how to connect a local GibsonAI MCP to EGPT agent.
 You can instantly generate, modify database schemas
 and chat with your relational database using natural language.
 From prompt to a serverless database (MySQL, PostgresQL, etc.), auto-generated REST APIs for your data.
@@ -21,7 +21,7 @@ How to setup and run:
     ```
 3. Install the required dependencies:
     ```bash
-    uv pip install agno mcp openai
+    uv pip install mcp openai
     ```
 4. Export your API key:
     ```bash

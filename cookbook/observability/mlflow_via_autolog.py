@@ -2,10 +2,10 @@
 MLflow Via Autolog
 ==================
 
-Demonstrates tracing an Agno agent with MLflow's built-in autolog integration.
+Demonstrates tracing an EGPT agent with MLflow's built-in autolog integration.
 
 Requirements:
-    pip install mlflow agno
+    pip install mlflow
 
 Start MLflow:
     mlflow server --host 127.0.0.1 --port 5000
@@ -16,7 +16,7 @@ NOTE: You can also configure the tracking URI and experiment via environment
 variables instead of calling the Python APIs:
 
     export MLFLOW_TRACKING_URI="http://127.0.0.1:5000"
-    export MLFLOW_EXPERIMENT_NAME="Agno Agent"
+    export MLFLOW_EXPERIMENT_NAME="EGPT Agent"
 """
 
 import mlflow
@@ -25,15 +25,15 @@ from egpt.models.openai import OpenAIChat
 from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
-# Setup — must be called BEFORE mlflow.agno.autolog()
+# Setup — must be called BEFORE mlflow.egpt.autolog()
 # ---------------------------------------------------------------------------
 
 # Point MLflow at a running tracking server
 mlflow.set_tracking_uri("http://127.0.0.1:5000")
-mlflow.set_experiment("Agno Agent")
+mlflow.set_experiment("EGPT Agent")
 
-# Enable MLflow tracing for Agno
-mlflow.agno.autolog()
+# Enable MLflow tracing for EGPT
+mlflow.egpt.autolog()
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -6,11 +6,11 @@ import pytest
 from pydantic import BaseModel
 
 from egpt.agent import Agent
+from egpt.integrations.models.anthropic.claude import Claude
+from egpt.integrations.models.google.gemini import Gemini
+from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader.csv_reader import CSVReader
-from egpt.models.anthropic.claude import Claude
-from egpt.models.google.gemini import Gemini
-from egpt.models.openai.chat import OpenAIChat
 from egpt.vectordb.lancedb import LanceDb
 
 # Sample CSV data to use in tests

@@ -34,13 +34,13 @@ the built-ins, gate the server, and protect it — all with data, no middleware 
 
 ```python
 from egpt.os import EgptOS
-from agno.os.config import MCPServerConfig
+from egpt.os.config import MCPServerConfig
 
 agent_os = EgptOS(
     agents=[my_agent],
     enable_mcp_server=True,
     mcp_config=MCPServerConfig(
-        tools=[my_tool],            # custom tools (plain callables or Agno @tool / Function)
+        tools=[my_tool],            # custom tools (plain callables or EGPT @tool / Function)
         enable_builtin_tools=False,  # ship ONLY your tools; or scope with:
         # include_tags={"core"},     # keep only tools tagged "core"
         # exclude_tags={"session"},  # drop the read-only session tools

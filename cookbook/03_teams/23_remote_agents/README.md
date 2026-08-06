@@ -11,7 +11,7 @@ A `RemoteAgent` is a proxy that connects to an agent running on a remote EgptOS 
 ### RemoteAgent Basics
 
 ```python
-from agno.agent.remote import RemoteAgent
+from egpt.agent.remote import RemoteAgent
 
 remote_agent = RemoteAgent(
     base_url="http://remote-server:7777",  # EgptOS server URL
@@ -30,7 +30,7 @@ remote_agent = RemoteAgent(
 
 1. **Start a remote EgptOS server:**
    ```bash
-   python -m agno.os --agents path/to/agents.py --port 7777
+   python -m egpt.os --agents path/to/agents.py --port 7777
    ```
 
 2. **Update the cookbook with your server URL:**

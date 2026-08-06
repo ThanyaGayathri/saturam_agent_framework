@@ -1,6 +1,6 @@
 """Seltz Tools Example.
 
-Run `pip install seltz agno openai python-dotenv` to install dependencies.
+Run `pip install seltz openai python-dotenv` to install dependencies.
 """
 
 from dotenv import load_dotenv

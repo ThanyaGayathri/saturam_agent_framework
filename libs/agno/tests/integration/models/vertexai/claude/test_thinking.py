@@ -6,8 +6,8 @@ import pytest
 
 from egpt.agent import Agent
 from egpt.db.json import JsonDb
+from egpt.integrations.models.vertexai.claude import Claude
 from egpt.models.message import Message
-from egpt.models.vertexai.claude import Claude
 from egpt.run.agent import RunOutput
 from egpt.tools.yfinance import YFinanceTools
 

@@ -15,7 +15,7 @@ import typer
 
 from egptctl import CLI_NAME
 from egptctl.clients import CLIENT_ALIASES, build_adapters
-from egptctl.clients.base import ClientAdapter
+from egptctl.clients.base import DEFAULT_MCP_SERVER_NAME, ClientAdapter
 from egptctl.commands._common import (
     _is_loopback_host,
     handle_cli_error,
@@ -221,7 +221,9 @@ def connect(
     privileged: bool = typer.Option(
         False, "--privileged", help="Required when --scopes grants write/delete/admin or service_accounts scopes."
     ),
-    server_name: str = typer.Option("agno", "--server-name", help="MCP server entry name written to client configs."),
+    server_name: str = typer.Option(
+        DEFAULT_MCP_SERVER_NAME, "--server-name", help="MCP server entry name written to client configs."
+    ),
     project: bool = typer.Option(
         False, "--project", help="Write project-scoped configs (.mcp.json / .cursor/mcp.json) instead of user-level."
     ),

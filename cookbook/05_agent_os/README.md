@@ -4,7 +4,7 @@ Top-level EgptOS quickstart and entrypoint examples.
 
 ## Files
 
-- `agno_assist.py` — Agno Agent.
+- `egpt_assist.py` — EGPT Agent backed by the MCP docs.
 - `basic.py` — Minimal example for EgptOS.
 - `demo.py` — EgptOS Demo.
 

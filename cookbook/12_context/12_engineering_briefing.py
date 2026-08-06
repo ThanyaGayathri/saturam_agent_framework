@@ -35,7 +35,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 provider_model = OpenAIResponses(id="gpt-5.4-mini")
 
 slack = SlackContextProvider(model=provider_model)
-codebase = WorkspaceContextProvider(id="agno", root=PROJECT_ROOT, model=provider_model)
+codebase = WorkspaceContextProvider(id="egpt", root=PROJECT_ROOT, model=provider_model)
 web = WebContextProvider(backend=ParallelBackend(), model=provider_model)
 
 agent = Agent(

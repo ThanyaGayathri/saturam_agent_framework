@@ -15,7 +15,7 @@ from egpt.tools.file_generation import FileGenerationTools
 # Create Example
 # ---------------------------------------------------------------------------
 
-db = SqliteDb(db_file="tmp/agentos.db")
+db = SqliteDb(db_file="tmp/egptos.db")
 
 file_agent = Agent(
     name="File Output Agent",
@@ -27,7 +27,7 @@ file_agent = Agent(
 )
 
 agent_os = EgptOS(
-    id="agentos-demo",
+    id="egptos-demo",
     agents=[file_agent],
 )
 app = agent_os.get_app()

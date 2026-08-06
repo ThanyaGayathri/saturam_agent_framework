@@ -3,8 +3,8 @@ import pytest
 from egpt.agent import Agent
 from egpt.exceptions import CheckTrigger, InputCheckError
 from egpt.guardrails import OpenAIModerationGuardrail, PIIDetectionGuardrail, PromptInjectionGuardrail
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.media import Image
-from egpt.models.openai import OpenAIChat
 from egpt.run.agent import RunInput
 from egpt.run.base import RunStatus
 from egpt.run.team import TeamRunInput

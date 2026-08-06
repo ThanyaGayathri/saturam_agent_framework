@@ -1,5 +1,5 @@
 """
-Standalone usage of Google's Gemini Agents API (Antigravity) via Agno's
+Standalone usage of Google's Gemini Agents API (Antigravity) via EGPT's
 .run() and .print_response() methods.
 
 Requirements:

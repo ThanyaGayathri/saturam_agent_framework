@@ -2,7 +2,7 @@
 
 The litellm optional extra is temporarily disabled in egpt[tests] pending PyPI
 security review. Collection must be skipped to avoid ImportError on
-`from egpt.models.litellm import LiteLLM`.
+`from egpt.integrations.models.litellm import LiteLLM`.
 """
 
 from __future__ import annotations
@@ -10,8 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 QUARANTINE_REASON = (
-    "Quarantined (EGPT-0.10): litellm extra disabled pending PyPI security review; "
-    "run manually with egpt[litellm]"
+    "Quarantined (EGPT-0.10): litellm extra disabled pending PyPI security review; run manually with egpt[litellm]"
 )
 
 

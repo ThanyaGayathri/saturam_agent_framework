@@ -1,6 +1,6 @@
 # egptctl
 
-The CLI for [EgptOS](https://docs.agno.com), built for humans and coding agents.
+The CLI for [EgptOS](https://github.com/Saturam-Inc/saturam-agent-framework), built for humans and coding agents.
 
 Install the `egptctl` distribution from the workspace or your configured package
 index, then run the branded `egpt` command:
@@ -18,6 +18,40 @@ uvx --from egptctl egpt --help
 ```
 
 Do not use `uvx egpt`: the public `egpt` distribution is unrelated to this CLI.
+
+## Creating a project (`egpt create`)
+
+`egpt create <name>` scaffolds a new EgptOS project by shallow-cloning a starter
+template and stripping its git history:
+
+```bash
+egpt create my-os                 # default template (docker)
+egpt create my-os -t railway      # pick a deployment target
+egpt create my-os -u <git-url>    # any custom template repository
+```
+
+Templates live in the `Saturam-Inc` GitHub org (EGPT-0.11); they are rebranded,
+EGPT-adapted forks of the upstream `agentos-*` starters:
+
+| Key | Repository | Target |
+|-----|------------|--------|
+| `docker` (default) | [`egpt-os-docker`](https://github.com/Saturam-Inc/egpt-os-docker) | Self-hosted Docker Compose |
+| `aws` | [`egpt-os-aws`](https://github.com/Saturam-Inc/egpt-os-aws) | AWS ECS |
+| `fly` | [`egpt-os-fly`](https://github.com/Saturam-Inc/egpt-os-fly) | Fly.io |
+| `gcp` | [`egpt-os-gcp`](https://github.com/Saturam-Inc/egpt-os-gcp) | Google Cloud Run |
+| `railway` | [`egpt-os-railway`](https://github.com/Saturam-Inc/egpt-os-railway) | Railway |
+
+Notes:
+
+- The template repositories are **private**: `egpt create` runs a plain
+  `git clone`, so git must be authenticated with GitHub access to
+  `Saturam-Inc` (e.g. `gh auth login` or a credential helper).
+- The scaffolded project installs the `egpt` framework from GitHub release
+  wheels at image-build time (egpt is not on PyPI), so building or running it
+  (`egpt up`) needs a `GITHUB_TOKEN` with read access to the framework
+  releases exported in the environment. Each template's README documents this.
+- After `egpt create`: `cd <name>`, `cp example.env .env` (fill in secrets),
+  `egpt up` to start it, `egpt connect` to register it with your coding agents.
 
 ## EGPT-0.6 migration: product strings and environment variables
 
@@ -66,9 +100,25 @@ Notes:
 
 When no explicit `id` is set on an EgptOS instance, both the REST `GET /` response and the MCP `get_agentos_config` tool now default to `egpt-os` (via `egpt.brand.DEFAULT_OS_ID`). Clients that keyed sessions on the previous defaults (`agno-agentos` / `AgentOS`) should treat this as a new identity after upgrade, or set an explicit `id`.
 
+### MCP server entry name
+
+`egpt connect` and `egpt status` default `--server-name` to `egpt`. It was `agno` before EGPT-0.12.
+
+This is a clean break, not a migration. An entry already written under the `agno` key is neither rewritten nor deleted, so after upgrading you will have both until you remove the old one:
+
+```bash
+egpt connect                    # writes the "egpt" entry
+# then delete the stale "agno" entry from the client's config, e.g.
+claude mcp remove --scope user agno
+```
+
+`egpt status` reports a leftover `agno` entry per client — as `legacy_entry` under `--json`, and as a removal hint in the human output — so you can find the stale ones without grepping each config by hand.
+
+Pass `--server-name agno` to keep writing under the old key instead; the leftover check is skipped in that case, since the old key is then the one you asked for.
+
 ### Outbound identity
 
-HTTP clients built from `egpt.api` send `egpt/<version>` in the `user-agent` header. Gemini clients send `egpt/<version>` in `x-goog-api-client`.
+HTTP clients built from `egpt.api` send `egpt/<version>` in the `user-agent` header. Gemini clients send `egpt/<version>` in `x-goog-api-client`. Knowledge's GitHub loader sends `EGPT-Knowledge`, and MongoDB connections identify as `EGPT` in the driver handshake.
 
 ### Deprecation window
 

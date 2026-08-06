@@ -25,7 +25,7 @@ def create_sync_knowledge() -> tuple[Knowledge, ChromaDb]:
     )
     knowledge = Knowledge(
         name="Basic SDK Knowledge Base",
-        description="Agno 2.0 Knowledge Implementation with ChromaDB",
+        description="EGPT Knowledge Implementation with ChromaDB",
         vector_db=vector_db,
     )
     return knowledge, vector_db
@@ -82,9 +82,11 @@ async def run_async(enable_batch: bool = False) -> None:
     if enable_batch:
         await knowledge.ainsert(path="cookbook/07_knowledge/testing_resources/cv_1.pdf")
     else:
-        await knowledge.ainsert(url="https://docs.agno.com/agents/overview.md")
+        await knowledge.ainsert(
+            url="https://modelcontextprotocol.io/docs/learn/architecture"
+        )
 
-    await agent.aprint_response("What is the purpose of an Agno Agent?", markdown=True)
+    await agent.aprint_response("What is the purpose of an MCP server?", markdown=True)
 
 
 if __name__ == "__main__":

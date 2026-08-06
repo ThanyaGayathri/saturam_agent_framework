@@ -1,8 +1,8 @@
 """
-Agno Mcp
+MCP Docs Server
 =============================
 
-Demonstrates agno mcp.
+Demonstrates connecting an agent to the Model Context Protocol docs MCP server.
 """
 
 import asyncio
@@ -18,11 +18,11 @@ from egpt.tools.mcp import MCPTools
 
 async def run_agent(message: str) -> None:
     async with MCPTools(
-        transport="streamable-http", url="https://docs.agno.com/mcp"
-    ) as agno_mcp_server:
+        transport="streamable-http", url="https://modelcontextprotocol.io/mcp"
+    ) as mcp_docs_server:
         agent = Agent(
             model=Claude(id="claude-sonnet-4-5"),
-            tools=[agno_mcp_server],
+            tools=[mcp_docs_server],
             markdown=True,
         )
         await agent.aprint_response(input=message, stream=True)
@@ -33,4 +33,4 @@ async def run_agent(message: str) -> None:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    asyncio.run(run_agent("What is Agno?"))
+    asyncio.run(run_agent("What is the Model Context Protocol?"))

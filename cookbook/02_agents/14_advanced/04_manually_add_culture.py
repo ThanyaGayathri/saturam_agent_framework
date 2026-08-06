@@ -27,7 +27,7 @@ culture_manager = CultureManager(db=db)
 # ---------------------------------------------------------------------------
 # Example: Response Format Standard (short and actionable)
 response_format = CulturalKnowledge(
-    name="Response Format Standard (Agno)",
+    name="Response Format Standard (EGPT)",
     summary="Keep responses concise, scannable, and runnable-first where applicable.",
     categories=["communication", "ux"],
     content=(

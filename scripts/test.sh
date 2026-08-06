@@ -12,7 +12,7 @@ source ${CURR_DIR}/_utils.sh
 
 print_heading "Running tests with coverage for all libraries"
 
-# agno-infra is not part of the dev venv; it tests in its own CI job.
+# egpt-infra is not part of the dev venv; it tests in its own CI job.
 source ${AGNO_DIR}/scripts/test.sh
 
 # Combine coverage reports (optional)

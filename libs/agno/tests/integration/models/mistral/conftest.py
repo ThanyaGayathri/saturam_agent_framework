@@ -2,7 +2,7 @@
 
 The mistralai optional extra is temporarily disabled in egpt[tests] pending
 PyPI quarantine. Collection must be skipped to avoid ImportError on
-`from egpt.models.mistral import MistralChat`.
+`from egpt.integrations.models.mistral import MistralChat`.
 """
 
 from __future__ import annotations
@@ -10,8 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 QUARANTINE_REASON = (
-    "Quarantined (EGPT-0.10): mistral extra disabled pending PyPI quarantine; "
-    "run manually with egpt[mistral]"
+    "Quarantined (EGPT-0.10): mistral extra disabled pending PyPI quarantine; run manually with egpt[mistral]"
 )
 
 

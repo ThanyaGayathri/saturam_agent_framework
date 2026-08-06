@@ -278,7 +278,7 @@ def test_count_tokens_conversation_with_media():
 @pytest.mark.asyncio
 async def test_model_acount_tokens():
     """Test async token counting on Model base class."""
-    from egpt.models.openai import OpenAIChat
+    from egpt.integrations.models.openai import OpenAIChat
 
     model = OpenAIChat(id="gpt-4o")
     messages = [Message(role="user", content="Hello world")]
@@ -293,7 +293,7 @@ async def test_model_acount_tokens():
 @pytest.mark.asyncio
 async def test_model_acount_tokens_with_tools():
     """Test async token counting with tools."""
-    from egpt.models.openai import OpenAIChat
+    from egpt.integrations.models.openai import OpenAIChat
     from egpt.tools.function import Function
 
     model = OpenAIChat(id="gpt-4o")
@@ -389,7 +389,7 @@ def test_model_count_tokens_with_schema():
     """Test model.count_tokens includes schema tokens."""
     from pydantic import BaseModel
 
-    from egpt.models.openai import OpenAIChat
+    from egpt.integrations.models.openai import OpenAIChat
 
     class SimpleSchema(BaseModel):
         answer: str
@@ -428,7 +428,7 @@ async def test_model_acount_tokens_with_schema():
     """Test model.acount_tokens includes schema tokens."""
     from pydantic import BaseModel
 
-    from egpt.models.openai import OpenAIChat
+    from egpt.integrations.models.openai import OpenAIChat
 
     class SimpleSchema(BaseModel):
         answer: str

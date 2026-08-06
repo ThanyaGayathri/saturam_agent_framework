@@ -5,7 +5,7 @@ Deploy all agents, teams, and workflows from this guide as a single web service.
 
 How to use:
 1. Start the server: python cookbook/gemini_3/21_agent_os.py
-2. Visit https://os.agno.com in your browser
+2. Visit http://localhost:7777/docs in your browser
 3. Add your local endpoint: http://localhost:7777
 4. Select any agent, team, or workflow and start chatting
 

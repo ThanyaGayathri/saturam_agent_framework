@@ -1,4 +1,4 @@
-"""Run `uv pip install openai agno` to install dependencies.
+"""Run `uv pip install openai` to install dependencies.
 
 This example demonstrates how to use NebiusTools for text-to-image generation with Nebius Token Factory.
 """

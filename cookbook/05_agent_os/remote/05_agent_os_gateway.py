@@ -3,13 +3,13 @@ Example showing how to use an EgptOS instance as a gateway to remote agents, tea
 
 This gateway demonstrates combining multiple remote agent sources:
 1. EgptOS protocol agents (from server.py on port 7778)
-2. Agno A2A protocol agents (from agno_a2a_server.py on port 7779)
+2. EGPT A2A protocol agents (from egpt_a2a_server.py on port 7779)
 3. Google ADK A2A protocol agents (from adk_server.py on port 7780)
 4. Local agents and workflows
 
 Prerequisites:
 - Start server.py on port 7778
-- Start agno_a2a_server.py on port 7779
+- Start egpt_a2a_server.py on port 7779
 - Start adk_server.py on port 7780 (requires GOOGLE_API_KEY)
 
 # Note:
@@ -71,7 +71,10 @@ def add_references(step_input: StepInput):
     previous_output = step_input.previous_step_content
 
     if isinstance(previous_output, str):
-        return previous_output + "\n\nReferences: https://www.agno.com"
+        return (
+            previous_output
+            + "\n\nReferences: https://github.com/Saturam-Inc/saturam-agent-framework"
+        )
 
 
 write_step = Step(
@@ -115,12 +118,12 @@ advanced_workflow = Workflow(
 
 # Setup our EgptOS app
 agent_os = EgptOS(
-    description="Gateway combining EgptOS, Agno A2A, and Google ADK agents",
+    description="Gateway combining EgptOS, EGPT A2A, and Google ADK agents",
     agents=[
         # EgptOS protocol agents (from server.py on port 7778)
         RemoteAgent(base_url="http://localhost:7778", agent_id="assistant-agent"),
         RemoteAgent(base_url="http://localhost:7778", agent_id="researcher-agent"),
-        # Agno A2A protocol agents (from agno_a2a_server.py on port 7779)
+        # EGPT A2A protocol agents (from egpt_a2a_server.py on port 7779)
         RemoteAgent(
             base_url="http://localhost:7779/a2a/agents/assistant-agent-2",
             agent_id="assistant-agent-2",
@@ -164,7 +167,7 @@ if __name__ == "__main__":
     
     This gateway combines:
     - Remote EgptOS agents (port 7778)
-    - Remote Agno A2A agents (port 7779)
+    - Remote EGPT A2A agents (port 7779)
     - Remote Google ADK agents (port 7780)
     - Local agents and workflows
     

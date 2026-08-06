@@ -1,4 +1,4 @@
-from egpt.utils.gemini import (
+from egpt.integrations.models._utils.gemini import (
     convert_schema,
     format_function_definitions,
     inject_agno_client_header,

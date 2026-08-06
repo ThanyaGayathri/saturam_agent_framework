@@ -5,7 +5,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.models.openai import OpenAIResponses
+from egpt.integrations.models.openai import OpenAIResponses
 from egpt.tools.websearch import WebSearchTools
 
 

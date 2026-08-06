@@ -1,4 +1,4 @@
-"""Async router handling exposing an Agno Agent or Team in an A2A compatible format."""
+"""Async router handling exposing an EGPT Agent or Team in an A2A compatible format."""
 
 from typing import Optional, Union
 from uuid import uuid4
@@ -93,7 +93,7 @@ def attach_routes(
             id=agent.id or "",
             name=agent.name or "",
             description=agent_description,
-            tags=["agno"],
+            tags=["egpt"],
             examples=["search", "ok"],
             output_modes=["application/json"],
         )
@@ -114,7 +114,7 @@ def attach_routes(
         "/agents/{id}/v1/message:send",
         operation_id="run_message_agent",
         name="run_message_agent",
-        description="Send a message to an Agno Agent (non-streaming). The Agent is identified via the path parameter '{id}'. "
+        description="Send a message to an EGPT Agent (non-streaming). The Agent is identified via the path parameter '{id}'. "
         "Optional: Pass user ID via X-User-ID header (recommended) or 'userId' in params.message.metadata.",
         response_model_exclude_none=True,
         responses={
@@ -331,7 +331,7 @@ def attach_routes(
         "/agents/{id}/v1/message:stream",
         operation_id="stream_message_agent",
         name="stream_message_agent",
-        description="Stream a message to an Agno Agent (streaming). The Agent is identified via the path parameter '{id}'. "
+        description="Stream a message to an EGPT Agent (streaming). The Agent is identified via the path parameter '{id}'. "
         "Optional: Pass user ID via X-User-ID header (recommended) or 'userId' in params.message.metadata. "
         "Returns real-time updates as newline-delimited JSON (NDJSON).",
         response_model_exclude_none=True,
@@ -403,7 +403,7 @@ def attach_routes(
             id=team.id or "",
             name=team.name or "",
             description=team.description or "",
-            tags=["agno"],
+            tags=["egpt"],
             examples=["search", "ok"],
             output_modes=["application/json"],
         )
@@ -423,7 +423,7 @@ def attach_routes(
         "/teams/{id}/v1/message:send",
         operation_id="run_message_team",
         name="run_message_team",
-        description="Send a message to an Agno Team (non-streaming). The Team is identified via the path parameter '{id}'. "
+        description="Send a message to an EGPT Team (non-streaming). The Team is identified via the path parameter '{id}'. "
         "Optional: Pass user ID via X-User-ID header (recommended) or 'userId' in params.message.metadata.",
         response_model_exclude_none=True,
         responses={
@@ -634,7 +634,7 @@ def attach_routes(
         "/teams/{id}/v1/message:stream",
         operation_id="stream_message_team",
         name="stream_message_team",
-        description="Stream a message to an Agno Team (streaming). The Team is identified via the path parameter '{id}'. "
+        description="Stream a message to an EGPT Team (streaming). The Team is identified via the path parameter '{id}'. "
         "Optional: Pass user ID via X-User-ID header (recommended) or 'userId' in params.message.metadata. "
         "Returns real-time updates as newline-delimited JSON (NDJSON).",
         response_model_exclude_none=True,
@@ -706,7 +706,7 @@ def attach_routes(
             id=workflow.id or "",
             name=workflow.name or "",
             description=workflow.description or "",
-            tags=["agno"],
+            tags=["egpt"],
             examples=["search", "ok"],
             output_modes=["application/json"],
         )
@@ -726,7 +726,7 @@ def attach_routes(
         "/workflows/{id}/v1/message:send",
         operation_id="run_message_workflow",
         name="run_message_workflow",
-        description="Send a message to an Agno Workflow (non-streaming). The Workflow is identified via the path parameter '{id}'. "
+        description="Send a message to an EGPT Workflow (non-streaming). The Workflow is identified via the path parameter '{id}'. "
         "Optional: Pass user ID via X-User-ID header (recommended) or 'userId' in params.message.metadata.",
         response_model_exclude_none=True,
         responses={
@@ -825,7 +825,7 @@ def attach_routes(
         "/workflows/{id}/v1/message:stream",
         operation_id="stream_message_workflow",
         name="stream_message_workflow",
-        description="Stream a message to an Agno Workflow (streaming). The Workflow is identified via the path parameter '{id}'. "
+        description="Stream a message to an EGPT Workflow (streaming). The Workflow is identified via the path parameter '{id}'. "
         "Optional: Pass user ID via X-User-ID header (recommended) or 'userId' in params.message.metadata. "
         "Returns real-time updates as newline-delimited JSON (NDJSON).",
         response_model_exclude_none=True,
@@ -891,7 +891,7 @@ def attach_routes(
         "/message/send",
         operation_id="send_message",
         name="send_message",
-        description="[DEPRECATED] Send a message to an Agno Agent, Team, or Workflow. "
+        description="[DEPRECATED] Send a message to an EGPT Agent, Team, or Workflow. "
         "The Agent, Team or Workflow is identified via the 'agentId' field in params.message or X-Agent-ID header. "
         "Optional: Pass user ID via X-User-ID header (recommended) or 'userId' in params.message.metadata.",
         response_model_exclude_none=True,
@@ -1020,7 +1020,7 @@ def attach_routes(
         "/message/stream",
         operation_id="stream_message",
         name="stream_message",
-        description="[DEPRECATED] Stream a message to an Agno Agent, Team, or Workflow. "
+        description="[DEPRECATED] Stream a message to an EGPT Agent, Team, or Workflow. "
         "The Agent, Team or Workflow is identified via the 'agentId' field in params.message or X-Agent-ID header. "
         "Optional: Pass user ID via X-User-ID header (recommended) or 'userId' in params.message.metadata. "
         "Returns real-time updates as newline-delimited JSON (NDJSON).",

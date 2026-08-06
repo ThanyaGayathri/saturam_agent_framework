@@ -1,0 +1,109 @@
+{
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "k": 5,
+  "relevance": "synthetic",
+  "comparisons": [
+    {
+      "comparison": "importance_weighted vs no_decay [recall]",
+      "metric": "recall",
+      "rival": "no_decay",
+      "delta": -0.0621,
+      "ci_lo": -0.0774,
+      "ci_hi": -0.0478,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs exp_recency [recall]",
+      "metric": "recall",
+      "rival": "exp_recency",
+      "delta": 0.2206,
+      "ci_lo": 0.1939,
+      "ci_hi": 0.2474,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs ttl_halflife [recall]",
+      "metric": "recall",
+      "rival": "ttl_halflife",
+      "delta": 0.2722,
+      "ci_lo": 0.2455,
+      "ci_hi": 0.2999,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs ebbinghaus [recall]",
+      "metric": "recall",
+      "rival": "ebbinghaus",
+      "delta": 0.3883,
+      "ci_lo": 0.3563,
+      "ci_hi": 0.4193,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs no_decay [ndcg]",
+      "metric": "ndcg",
+      "rival": "no_decay",
+      "delta": -0.0267,
+      "ci_lo": -0.0456,
+      "ci_hi": -0.0078,
+      "p_raw": 0.0056,
+      "n": 1047,
+      "p_holm": 0.0056,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs exp_recency [ndcg]",
+      "metric": "ndcg",
+      "rival": "exp_recency",
+      "delta": 0.2531,
+      "ci_lo": 0.2299,
+      "ci_hi": 0.2767,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs ttl_halflife [ndcg]",
+      "metric": "ndcg",
+      "rival": "ttl_halflife",
+      "delta": 0.2796,
+      "ci_lo": 0.2531,
+      "ci_hi": 0.3059,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs ebbinghaus [ndcg]",
+      "metric": "ndcg",
+      "rival": "ebbinghaus",
+      "delta": 0.3799,
+      "ci_lo": 0.3503,
+      "ci_hi": 0.4085,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    }
+  ]
+}

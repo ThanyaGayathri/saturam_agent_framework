@@ -1,6 +1,6 @@
-"""Agno cli
+"""EGPT cli
 
-This is the entrypoint for the `agno` cli application.
+This is the entrypoint for the `ag` CLI application.
 """
 
 import typer
@@ -9,7 +9,7 @@ from egpt.cli.infra_cli import infra_cli as infra_subcommands
 
 agno_cli = typer.Typer(
     help="""\b
-Agno is a lightweight framework for building Agent Systems.
+EGPT is a lightweight framework for building Agent Systems.
 \b
 Usage:
 1. Run `ag infra create` to create a new Agentics Infrastructure project from a template

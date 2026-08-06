@@ -1,6 +1,6 @@
 # Parallel
 
-Build web-research agents on [Parallel](https://parallel.ai) with Agno.
+Build web-research agents on [Parallel](https://parallel.ai) with EGPT.
 
 Parallel offers APIs built for agents:
 
@@ -21,7 +21,7 @@ A progression from a single agent to a deployable research app:
 | [`02_extract_content.py`](./02_extract_content.py) | Read specific URLs with the Extract API |
 | [`03_deep_research.py`](./03_deep_research.py) | Cited reports with the Task API |
 | [`04_research_assistant.py`](./04_research_assistant.py) | Persistent assistant (DB, session, memory) using every agent API |
-| [`05_web_plus_knowledge.py`](./05_web_plus_knowledge.py) | Hybrid: Parallel live web + Agno Knowledge (vector RAG) |
+| [`05_web_plus_knowledge.py`](./05_web_plus_knowledge.py) | Hybrid: Parallel live web + EGPT Knowledge (vector RAG) |
 | [`06_research_team.py`](./06_research_team.py) | A Team of Parallel-backed agents |
 | [`07_research_workflow.py`](./07_research_workflow.py) | A deterministic gather-then-synthesize pipeline |
 | [`08_competitive_intel_monitor.py`](./08_competitive_intel_monitor.py) | Monitor API as a standing intelligence desk |
@@ -43,9 +43,9 @@ for the local vector store.
 ## Quick Start
 
 ```python
-from agno.agent import Agent
-from agno.models.openai import OpenAIResponses
-from agno.tools.parallel import ParallelTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIResponses
+from egpt.tools.parallel import ParallelTools
 
 agent = Agent(
     model=OpenAIResponses(id="gpt-5.4"),

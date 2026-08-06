@@ -2,7 +2,7 @@
 Memori Integration
 ==================
 
-Demonstrates conversational memory persistence with Memori and Agno.
+Demonstrates conversational memory persistence with Memori and EGPT.
 """
 
 import os

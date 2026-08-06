@@ -1,43 +1,28 @@
-from dataclasses import dataclass, field
-from os import getenv
-from typing import Any, Dict, Optional
+"""Deprecated compatibility shim (EGPT-1.4).
 
-from egpt.exceptions import ModelAuthenticationError
-from egpt.models.openai import OpenAILike
+Import from ``egpt.integrations.models.fireworks.fireworks`` instead; this module will be removed.
+
+Names are re-exported explicitly (not proxied through ``__getattr__`` alone) so that
+star-imports, ``dir()`` and static type checking keep working on this path.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.models.fireworks.fireworks as _target
+from egpt.integrations.models.fireworks.fireworks import *  # noqa: F401,F403
+
+_warnings.warn(
+    "egpt.models.fireworks.fireworks is deprecated; import from egpt.integrations.models.fireworks.fireworks instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-@dataclass
-class Fireworks(OpenAILike):
-    """
-    A class for interacting with models hosted on Fireworks.
-
-    Attributes:
-        id (str): The model name to use. Defaults to "accounts/fireworks/models/gpt-oss-120b".
-        name (str): The model name to use. Defaults to "Fireworks".
-        provider (str): The provider to use. Defaults to "Fireworks".
-        api_key (Optional[str]): The API key to use.
-        base_url (str): The base URL to use. Defaults to "https://api.fireworks.ai/inference/v1".
-    """
-
-    id: str = "accounts/fireworks/models/gpt-oss-120b"
-    name: str = "Fireworks"
-    provider: str = "Fireworks"
-
-    api_key: Optional[str] = field(default_factory=lambda: getenv("FIREWORKS_API_KEY"))
-    base_url: str = "https://api.fireworks.ai/inference/v1"
-
-    def _get_client_params(self) -> Dict[str, Any]:
-        """
-        Returns client parameters for API requests, checking for FIREWORKS_API_KEY.
-
-        Returns:
-            Dict[str, Any]: A dictionary of client parameters for API requests.
-        """
-        if not self.api_key:
-            self.api_key = getenv("FIREWORKS_API_KEY")
-            if not self.api_key:
-                raise ModelAuthenticationError(
-                    message="FIREWORKS_API_KEY not set. Please set the FIREWORKS_API_KEY environment variable.",
-                    model_name=self.name,
-                )
-        return super()._get_client_params()
+def __getattr__(name: str):
+    # Fallback for names the target provides lazily (google's GeminiInteractions) or via
+    # an optional-dependency fallback (aws Claude), which must not be imported eagerly.
+    return getattr(_target, name)

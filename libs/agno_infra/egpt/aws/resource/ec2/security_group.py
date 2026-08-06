@@ -149,7 +149,7 @@ class SecurityGroup(AwsResource):
         not_null_args: Dict[str, Any] = {}
 
         # Build description
-        description = self.description or "Created by Agno"
+        description = self.description or "Created by EGPT"
         if description is not None:
             not_null_args["Description"] = description
 

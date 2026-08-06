@@ -1,10 +1,10 @@
 """
 ‍ Mem0 MCP - Personalized Code Reviewer
 
-This example demonstrates how to use Agno's MCP integration together with Mem0, to build a personalized code reviewer.
+This example demonstrates how to use EGPT's MCP integration together with Mem0, to build a personalized code reviewer.
 
 - Run your Mem0 MCP server. Full instructions: https://github.com/mem0ai/mem0-mcp
-- Run: `uv pip install agno mcp` to install the dependencies
+- Run: `uv pip install mcp` to install the dependencies
 """
 
 import asyncio

@@ -103,7 +103,7 @@ re-clone safety are covered by the unit tests.
 exercised locally)
 
 **Description:** Three-provider engineering briefing demo. Slack
-topics are matched against the local Agno workspace and enriched with
+topics are matched against the local EGPT workspace and enriched with
 Parallel web search.
 
 **Result:** `py_compile` passed; targeted Ruff passed. Import smoke
@@ -122,7 +122,7 @@ when Slack interface metadata provides an action token.
 **Status:** PASS
 
 **Description:** `FilesystemContextProvider` rooted at the cookbook
-directory; agent walks the directory to explain agno.context setup.
+directory; agent walks the directory to explain egpt.context setup.
 
 **Result:** Agent called `query_cookbooks`, read the README and the
 custom-provider example, laid out the minimal setup steps, and cited

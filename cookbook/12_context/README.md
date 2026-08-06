@@ -1,6 +1,6 @@
 # Context Providers
 
-`agno.context` exposes a uniform API for plugging an external source
+`egpt.context` exposes a uniform API for plugging an external source
 into an agent as a natural-language tool.
 
 A `ContextProvider` owns two things:

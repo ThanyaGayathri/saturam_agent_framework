@@ -1,6 +1,6 @@
 # Gemini Interactions API
 
-Examples using Google's Interactions API with Agno.
+Examples using Google's Interactions API with EGPT.
 
 The Interactions API is a new primitive that provides:
 
@@ -38,8 +38,8 @@ Requires `google-genai>=2.0.0`.
 ## Usage
 
 ```python
-from agno.agent import Agent
-from agno.models.google import GeminiInteractions
+from egpt.agent import Agent
+from egpt.models.google import GeminiInteractions
 
 agent = Agent(
     model=GeminiInteractions(id="gemini-3.5-flash"),
@@ -51,7 +51,7 @@ agent.print_response("Hello!")
 ### Image Understanding
 
 ```python
-from agno.media import Image
+from egpt.media import Image
 
 agent.print_response(
     "What is in this image?",

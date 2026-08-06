@@ -171,11 +171,12 @@ class DockerImage(DockerResource):
             logger.debug("Using buildx for multi-platform build")
             return self.buildx(docker_client=docker_client)
 
-        from docker import DockerClient
-        from docker.errors import APIError, BuildError
         from rich import box
         from rich.live import Live
         from rich.table import Table
+
+        from docker import DockerClient
+        from docker.errors import APIError, BuildError
 
         print_info(f"Building image: {self.get_image_str()}")
         nocache = self.skip_docker_cache or self.force

@@ -52,7 +52,7 @@ def header_provider(
     }
 
 
-db = SqliteDb(db_file="tmp/agentos.db")
+db = SqliteDb(db_file="tmp/egptos.db")
 
 # MCP tools with dynamic headers - shared by all agents
 mcp_tools = MCPTools(

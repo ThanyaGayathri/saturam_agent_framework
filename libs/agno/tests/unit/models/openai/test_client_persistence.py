@@ -1,4 +1,4 @@
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 
 
 class _FakeOpenAIClient:
@@ -18,7 +18,7 @@ class _FakeAsyncOpenAIClient:
 
 
 def test_sync_client_persistence(monkeypatch):
-    monkeypatch.setattr("egpt.models.openai.chat.OpenAIClient", _FakeOpenAIClient)
+    monkeypatch.setattr("egpt.integrations.models.openai.chat.OpenAIClient", _FakeOpenAIClient)
 
     model = OpenAIChat(id="gpt-4o-mini", api_key="test-key")
 
@@ -38,7 +38,7 @@ def test_sync_client_persistence(monkeypatch):
 
 
 def test_sync_client_recreated_when_closed(monkeypatch):
-    monkeypatch.setattr("egpt.models.openai.chat.OpenAIClient", _FakeOpenAIClient)
+    monkeypatch.setattr("egpt.integrations.models.openai.chat.OpenAIClient", _FakeOpenAIClient)
 
     model = OpenAIChat(id="gpt-4o-mini", api_key="test-key")
 
@@ -56,7 +56,7 @@ def test_sync_client_recreated_when_closed(monkeypatch):
 
 
 def test_async_client_persistence(monkeypatch):
-    monkeypatch.setattr("egpt.models.openai.chat.AsyncOpenAIClient", _FakeAsyncOpenAIClient)
+    monkeypatch.setattr("egpt.integrations.models.openai.chat.AsyncOpenAIClient", _FakeAsyncOpenAIClient)
 
     model = OpenAIChat(id="gpt-4o-mini", api_key="test-key")
 
@@ -76,7 +76,7 @@ def test_async_client_persistence(monkeypatch):
 
 
 def test_async_client_recreated_when_closed(monkeypatch):
-    monkeypatch.setattr("egpt.models.openai.chat.AsyncOpenAIClient", _FakeAsyncOpenAIClient)
+    monkeypatch.setattr("egpt.integrations.models.openai.chat.AsyncOpenAIClient", _FakeAsyncOpenAIClient)
 
     model = OpenAIChat(id="gpt-4o-mini", api_key="test-key")
 

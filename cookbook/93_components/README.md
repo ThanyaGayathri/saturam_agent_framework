@@ -42,9 +42,9 @@ The Agent-as-Config feature allows you to:
 ### Saving an Agent
 
 ```python
-from agno.agent import Agent
+from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
+from egpt.models.openai import OpenAIChat
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 
@@ -63,7 +63,7 @@ print(f"Saved agent as version {version}")
 ### Loading an Agent
 
 ```python
-from agno.agent import get_agent_by_id
+from egpt.agent import get_agent_by_id
 from egpt.db.postgres import PostgresDb
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
@@ -78,7 +78,7 @@ agent.print_response("Hello!")
 ### Listing All Agents
 
 ```python
-from agno.agent import get_agents
+from egpt.agent import get_agents
 
 agents = get_agents(db=db)
 for agent in agents:
@@ -104,10 +104,10 @@ Teams automatically save their member agents as linked components.
 ### Saving a Team
 
 ```python
-from agno.agent import Agent
-from agno.team import Team
+from egpt.agent import Agent
+from egpt.team import Team
 from egpt.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
+from egpt.models.openai import OpenAIChat
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 
@@ -143,7 +143,7 @@ print(f"Saved team as version {version}")
 ### Loading a Team
 
 ```python
-from agno.team import get_team_by_id
+from egpt.team import get_team_by_id
 
 team = get_team_by_id(db=db, id="content-team")
 
@@ -154,7 +154,7 @@ team.print_response("Write about AI trends", stream=True)
 ### Listing All Teams
 
 ```python
-from agno.team import get_teams
+from egpt.team import get_teams
 
 teams = get_teams(db=db)
 for team in teams:
@@ -170,10 +170,10 @@ Workflows save their steps with links to the agents/teams that execute them.
 ### Saving a Workflow
 
 ```python
-from agno.agent import Agent
-from agno.workflow import Workflow, Step
+from egpt.agent import Agent
+from egpt.workflow import Workflow, Step
 from egpt.db.postgres import PostgresDb
-from agno.models.openai import OpenAIChat
+from egpt.models.openai import OpenAIChat
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 
@@ -212,7 +212,7 @@ print(f"Saved workflow as version {version}")
 ### Loading a Workflow
 
 ```python
-from agno.workflow import get_workflow_by_id
+from egpt.workflow import get_workflow_by_id
 
 workflow = get_workflow_by_id(db=db, id="content-workflow")
 
@@ -223,7 +223,7 @@ workflow.print_response(input="AI trends in 2024", markdown=True)
 ### Listing All Workflows
 
 ```python
-from agno.workflow import get_workflows
+from egpt.workflow import get_workflows
 
 workflows = get_workflows(db=db)
 for workflow in workflows:
@@ -239,9 +239,9 @@ Some components cannot be serialized to JSON (tools, custom functions, Pydantic 
 ### Creating a Registry
 
 ```python
-from agno.registry import Registry
-from agno.tools.duckduckgo import DuckDuckGoTools
-from agno.models.openai import OpenAIChat
+from egpt.registry import Registry
+from egpt.tools.duckduckgo import DuckDuckGoTools
+from egpt.models.openai import OpenAIChat
 from pydantic import BaseModel
 
 # Custom tool function
@@ -268,7 +268,7 @@ registry = Registry(
 ### Loading with a Registry
 
 ```python
-from agno.agent import get_agent_by_id
+from egpt.agent import get_agent_by_id
 
 # When loading an agent that uses tools or schemas,
 # pass the registry to restore non-serializable components
@@ -304,11 +304,11 @@ the registry automatically. This keeps `GET /registry` consistent with what is
 actually wired into your OS.
 
 ```python
-from agno.agent import Agent
-from agno.db.sqlite import SqliteDb
-from agno.models.openai import OpenAIResponses
+from egpt.agent import Agent
+from egpt.db.sqlite import SqliteDb
+from egpt.models.openai import OpenAIResponses
 from egpt.os import EgptOS
-from agno.team import Team
+from egpt.team import Team
 
 db = SqliteDb(db_file="tmp/auto_registry.db", id="auto-registry-db")
 
@@ -352,7 +352,7 @@ db = PostgresDb(db_url="postgresql+psycopg://user:pass@host:port/dbname")
 ### SQLite (Development Only)
 
 ```python
-from agno.db.sqlite import SqliteDb
+from egpt.db.sqlite import SqliteDb
 
 db = SqliteDb(db_url="sqlite:///agents.db")
 ```

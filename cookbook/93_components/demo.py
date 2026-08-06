@@ -49,7 +49,7 @@ def custom_tool(input: str) -> str:
 # Create Registry
 # ---------------------------------------------------------------------------
 registry = Registry(
-    name="Agno Registry",
+    name="EGPT Registry",
     tools=[ParallelTools(), CalculatorTools(), YouTubeTools(), custom_tool],
     functions=[custom_function],
     schemas=[CustomInputSchema, CustomOutputSchema],

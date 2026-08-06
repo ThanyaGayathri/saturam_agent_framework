@@ -50,7 +50,7 @@ agent = Agent(
 ### 3. Install libraries
 
 ```shell
-uv pip install -U boto3 ddgs agno
+uv pip install -U boto3 ddgs
 ```
 
 ### 4. Run basic agent

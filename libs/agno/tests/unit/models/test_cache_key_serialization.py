@@ -12,8 +12,8 @@ from pydantic import BaseModel
 
 os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
+from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.models.message import Message
-from egpt.models.openai.chat import OpenAIChat
 
 
 class DummyResponseFormat(BaseModel):

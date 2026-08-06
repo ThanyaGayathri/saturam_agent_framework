@@ -2,11 +2,11 @@
 
 > Tests not yet run. Run each file and update this log.
 
-### agno_server.py
+### egpt_server.py
 
 **Status:** PENDING
 
-**Description:** Agno EgptOS A2A Server for testing A2AClient.
+**Description:** EGPT EgptOS A2A Server for testing A2AClient.
 
 ---
 

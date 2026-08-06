@@ -74,9 +74,9 @@ def test_connect_happy_path(monkeypatch, fake_os, fake_clients):
 
     # Tokens landed in the client configs (Claude user scope = ~/.claude.json).
     claude_config = json.loads((fake_clients / ".claude.json").read_text())
-    assert claude_config["mcpServers"]["agno"]["url"] == MCP_URL
+    assert claude_config["mcpServers"]["egpt"]["url"] == MCP_URL
     cursor_config = json.loads((fake_clients / ".cursor" / "mcp.json").read_text())
-    token = cursor_config["mcpServers"]["agno"]["headers"]["Authorization"]
+    token = cursor_config["mcpServers"]["egpt"]["headers"]["Authorization"]
     assert token == "Bearer " + fake_os.accounts["cursor"]["token"]
 
 
@@ -119,7 +119,7 @@ def test_connect_rotate_replaces_accounts(monkeypatch, fake_os, fake_clients):
     assert new_token != old_token
 
     cursor_config = json.loads((fake_clients / ".cursor" / "mcp.json").read_text())
-    assert cursor_config["mcpServers"]["agno"]["headers"]["Authorization"] == "Bearer " + new_token
+    assert cursor_config["mcpServers"]["egpt"]["headers"]["Authorization"] == "Bearer " + new_token
 
 
 def test_connect_rotate_flags_rotated_in_json(monkeypatch, fake_os, fake_clients):
@@ -171,7 +171,7 @@ def test_connect_no_auth_mode(monkeypatch, fake_clients):
     assert all(r["status"] == "connected" for r in payload["results"])
     assert fake.create_calls == 0
     cursor_config = json.loads((fake_clients / ".cursor" / "mcp.json").read_text())
-    assert "headers" not in cursor_config["mcpServers"]["agno"]
+    assert "headers" not in cursor_config["mcpServers"]["egpt"]
 
 
 def test_connect_mcp_disabled(monkeypatch, fake_clients):
@@ -271,7 +271,7 @@ def test_connect_skip_existing_leaves_broken_entry(monkeypatch, fake_os, fake_cl
 def test_connect_skip_existing_never_touches_foreign_entry(monkeypatch, fake_os, fake_clients):
     """An entry pointing at a DIFFERENT EgptOS is untouchable under --skip-existing."""
     monkeypatch.setenv("EGPT_ADMIN_TOKEN", fake_os.security_key)
-    foreign = {"mcpServers": {"agno": {"url": "http://other-os:9999/mcp", "headers": {"Authorization": "Bearer keep"}}}}
+    foreign = {"mcpServers": {"egpt": {"url": "http://other-os:9999/mcp", "headers": {"Authorization": "Bearer keep"}}}}
     (fake_clients / ".cursor" / "mcp.json").write_text(json.dumps(foreign))
 
     result = _connect(["--clients", "cursor", "--skip-existing"])
@@ -279,20 +279,42 @@ def test_connect_skip_existing_never_touches_foreign_entry(monkeypatch, fake_os,
     assert payload["results"][0]["status"] == "skipped"
     assert "other-os" in payload["results"][0]["error"]
     config = json.loads((fake_clients / ".cursor" / "mcp.json").read_text())
-    assert config["mcpServers"]["agno"]["url"] == "http://other-os:9999/mcp"
-    assert config["mcpServers"]["agno"]["headers"]["Authorization"] == "Bearer keep"
+    assert config["mcpServers"]["egpt"]["url"] == "http://other-os:9999/mcp"
+    assert config["mcpServers"]["egpt"]["headers"]["Authorization"] == "Bearer keep"
     assert fake_os.create_calls == 0
 
 
 def test_connect_replacing_foreign_entry_is_reported(monkeypatch, fake_os, fake_clients):
     monkeypatch.setenv("EGPT_ADMIN_TOKEN", fake_os.security_key)
-    foreign = {"mcpServers": {"agno": {"url": "http://other-os:9999/mcp"}}}
+    foreign = {"mcpServers": {"egpt": {"url": "http://other-os:9999/mcp"}}}
     (fake_clients / ".cursor" / "mcp.json").write_text(json.dumps(foreign))
 
     result = _connect(["--clients", "cursor"])
     payload = json.loads(result.output)
     assert payload["results"][0]["status"] == "connected"
     assert payload["results"][0]["replaced_url"] == "http://other-os:9999/mcp"
+
+
+def test_connect_leaves_legacy_agno_entry_alone(monkeypatch, fake_os, fake_clients):
+    """EGPT-0.12 moved the default --server-name from "agno" to "egpt" as a clean break.
+
+    An entry written under the old key by a previous version is neither migrated nor
+    removed: connect writes "egpt" alongside it and the operator deletes the stale one.
+    """
+    monkeypatch.setenv("EGPT_ADMIN_TOKEN", fake_os.security_key)
+    legacy = {"mcpServers": {"agno": {"url": "http://old-os:7777/mcp", "headers": {"Authorization": "Bearer old"}}}}
+    (fake_clients / ".cursor" / "mcp.json").write_text(json.dumps(legacy))
+
+    result = _connect(["--clients", "cursor"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["results"][0]["status"] == "connected"
+    # The new entry is a fresh write, not a replacement of the legacy one.
+    assert payload["results"][0].get("replaced_url") is None
+
+    servers = json.loads((fake_clients / ".cursor" / "mcp.json").read_text())["mcpServers"]
+    assert servers["egpt"]["url"] == MCP_URL
+    assert servers["agno"] == legacy["mcpServers"]["agno"]
 
 
 def test_connect_partial_failure_keeps_json_contract(monkeypatch, fake_os, fake_clients):
@@ -314,7 +336,7 @@ def test_connect_detects_shadowing_claude_local_entry(monkeypatch, fake_os, fake
     """A stale local-scope entry shadows the user-scope write; connect must fail loudly, not lie."""
     monkeypatch.setenv("EGPT_ADMIN_TOKEN", fake_os.security_key)
     (fake_clients / ".claude.json").write_text(
-        json.dumps({"projects": {str(fake_clients): {"mcpServers": {"agno": {"url": "http://stale:1/mcp"}}}}})
+        json.dumps({"projects": {str(fake_clients): {"mcpServers": {"egpt": {"url": "http://stale:1/mcp"}}}}})
     )
 
     result = _connect(["--clients", "claude-code", "--rotate"])
@@ -494,7 +516,7 @@ def test_connect_shared_account_reuses_token_for_new_client(monkeypatch, fake_os
     assert fake_os.create_calls == 1
 
     claude_config = json.loads((fake_clients / ".claude.json").read_text())
-    shared_token = claude_config["mcpServers"]["agno"]["headers"]["Authorization"].split(" ", 1)[1]
+    shared_token = claude_config["mcpServers"]["egpt"]["headers"]["Authorization"].split(" ", 1)[1]
 
     # A new client appears after the first run: cursor has no entry yet.
     (fake_clients / ".cursor" / "mcp.json").unlink(missing_ok=True)
@@ -510,4 +532,4 @@ def test_connect_shared_account_reuses_token_for_new_client(monkeypatch, fake_os
     assert fake_os.create_calls == 1
     assert fake_os.active_tokens() == [shared_token]
     cursor_config = json.loads((fake_clients / ".cursor" / "mcp.json").read_text())
-    assert cursor_config["mcpServers"]["agno"]["headers"]["Authorization"] == "Bearer " + shared_token
+    assert cursor_config["mcpServers"]["egpt"]["headers"]["Authorization"] == "Bearer " + shared_token

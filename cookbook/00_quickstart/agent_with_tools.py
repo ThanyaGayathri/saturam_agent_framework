@@ -1,7 +1,7 @@
 """
 Agent with Tools - Finance Agent
 =================================
-Your first Agno agent: a data-driven financial analyst that retrieves
+Your first EGPT agent: a data-driven financial analyst that retrieves
 market data, computes key metrics, and delivers concise insights.
 
 This example shows how to give an agent tools to interact with external

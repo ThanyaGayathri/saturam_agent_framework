@@ -1,5 +1,5 @@
 """
-Standalone usage of a LangGraph agent with Agno's .run() and .print_response() methods.
+Standalone usage of a LangGraph agent with EGPT's .run() and .print_response() methods.
 
 Requirements:
     pip install langgraph langchain-openai
@@ -24,11 +24,11 @@ graph.set_entry_point("chatbot")
 compiled = graph.compile()
 
 
-# ----- Wrap it for Agno -----
+# ----- Wrap it for EGPT -----
 agent = LangGraphAgent(
     name="LangGraph Chatbot",
     graph=compiled,
 )
 
-# Use .print_response() just like a native Agno agent
+# Use .print_response() just like a native EGPT agent
 agent.print_response("What is quantum computing?", stream=True)

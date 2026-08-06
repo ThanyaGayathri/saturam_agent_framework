@@ -14,6 +14,7 @@ from egpt.eval.base import BaseEval
 from egpt.eval.utils import async_log_eval, log_eval_run, spinner_live, store_result_in_file
 from egpt.exceptions import EvalError
 from egpt.models.base import Model
+from egpt.models.utils import get_model
 from egpt.run.agent import RunInput, RunOutput
 from egpt.run.team import TeamRunInput, TeamRunOutput
 from egpt.utils.env import get_branded_env_bool
@@ -213,13 +214,11 @@ class AgentAsJudgeEval(BaseEval):
         model = self.model
         if model is None:
             try:
-                from egpt.models.openai import OpenAIChat
-
-                model = OpenAIChat(id="gpt-5-mini")
+                model = get_model("openai-chat:gpt-5-mini")
             except (ModuleNotFoundError, ImportError) as e:
                 logger.exception(e)
                 raise EvalError(
-                    "Agno uses `openai` as the default model provider. Please run `pip install openai` to use the default evaluator."
+                    "EGPT uses `openai` as the default model provider. Please run `pip install openai` to use the default evaluator."
                 )
 
         # Build instructions based on scoring strategy

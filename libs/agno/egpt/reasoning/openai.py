@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, AsyncIterator, Iterator, List, Optional, Tuple
 
 from egpt.models.base import Model
 from egpt.models.message import Message
-from egpt.models.openai.like import OpenAILike
 from egpt.utils.log import log_warning
 
 if TYPE_CHECKING:
@@ -26,7 +25,7 @@ def is_openai_reasoning_model(reasoning_model: Model) -> bool:
             or ("5.2" in reasoning_model.id)
         )
     ) or (
-        isinstance(reasoning_model, OpenAILike)
+        getattr(reasoning_model, "is_openai_compatible_proxy", False)
         and (
             "deepseek-r1" in reasoning_model.id.lower()
             or "minimax-m2" in reasoning_model.id.lower()

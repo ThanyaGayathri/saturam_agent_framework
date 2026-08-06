@@ -1,0 +1,2167 @@
+{
+  "name": "2wiki-multihop",
+  "seed": 7,
+  "n_passages": 285,
+  "n_items": 30,
+  "passages": [
+    {
+      "pid": "p0000",
+      "title": "Kekuʻiapoiwa II",
+      "text": "Kekuʻiapoiwa II was a Hawaiian chiefess and the mother of the king Kamehameha I."
+    },
+    {
+      "pid": "p0001",
+      "title": "Æthelgifu, abbess of Shaftesbury",
+      "text": "Æthelgifu , was a daughter of King Alfred the Great, an Anglo-Saxon king of the 9th century. She was the third of Alfred and his wife Ealhswith's five children and the second eldest daughter. She was likely born sometime in the 870s. A Welsh monk named Asser who wrote a biography of Alfred the Great, described her as 'devoted to God through her holy virginity, subject and consecrated to the rule of monastic life, entered the service of God'. She was said to have become a nun as a result of her bad health. Alfred founded Shaftesbury Abbey ca. 890 and placed Æthelgifu as its first abbess. This Abbey along with Athelney monastery (for monks) received 1/8 of Alfred's annual revenue in support. It appears to have housed nuns from an upper-class background. Very little is known about Æthelgifu's time as abbess. In Alfred's will, there is mention of two estates left 'to his middle daughter Æthelgifu' at Kingsclere and at Candover in Hampshire, and the will itself makes no mention of her role as abbess. It is possible that the will was written before Æthelgifu became abbess, or it is possible that these estates were given to her while she was abbess, but they reverted to the male line once she died."
+    },
+    {
+      "pid": "p0002",
+      "title": "Minamoto no Chikako",
+      "text": "She was the mother of Prince Morinaga."
+    },
+    {
+      "pid": "p0003",
+      "title": "Lord Edmund Howard",
+      "text": "Lord Edmund Howard( – 19 March 1539) was the third son of Thomas Howard, 2nd Duke of Norfolk, and his first wife, Elizabeth Tilney. His sister, Elizabeth, was the mother of Henry VIII's second wife, Anne Boleyn, and he was the father of the king's fifth wife, Catherine Howard. His first cousin, Margery Wentworth, was the mother of Henry's third wife, Jane Seymour."
+    },
+    {
+      "pid": "p0004",
+      "title": "Julia Warhola",
+      "text": "Julia Warhola( November 20, 1891 — November 22, 1972) was the mother of the American artist Andy Warhol."
+    },
+    {
+      "pid": "p0005",
+      "title": "Lomawa Ndwandwe",
+      "text": "laNgolotsheni( Lomawa) Ndwandwe( died September 1938) was the Ndlovukati( Queen Mother) of Swaziland, the wife of King Ngwane V, and the mother of King Sobhuza II."
+    },
+    {
+      "pid": "p0006",
+      "title": "Trinidad Tecson",
+      "text": "Trinidad Perez Tecson (November 18, 1848 – January 28, 1928), known as the \"Mother of Biak-na-Bato\" and \"Mother of Mercy\", fought to gain Philippines independence. She was given the title \"Mother of Biak-na-Bato\" by Gen. Emilio Aguinaldo. She was also cited as the \"Mother of the Philippine National Red Cross\" for her service to her fellow Katipuneros."
+    },
+    {
+      "pid": "p0007",
+      "title": "Somnjalose Simelane",
+      "text": "Somnjalose Simelane was the mother of King Sobhuza I and wife of King Ndvungunye."
+    },
+    {
+      "pid": "p0008",
+      "title": "Fatima bint Mubarak Al Ketbi",
+      "text": "Fatima bint Mubarak Al Ketbi is the third wife of Sheikh Zayed bin Sultan Al Nahyan, the founder and inaugural president of United Arab Emirates, and late emir( ruler) of Abu Dhabi. She is referred to as the mother of sheikhs and as the Mother of the UAE."
+    },
+    {
+      "pid": "p0009",
+      "title": "Ealhswith",
+      "text": "Ealhswith or Ealswitha (died 5 December 902) was the wife of King Alfred the Great. Her father was a Mercian nobleman, Æthelred Mucel, Ealdorman of the Gaini, which is thought to be an old Mercian tribal group. Her mother was Eadburh, a member of the Mercian royal family, and according to the historian Cyril Hart she was a descendant of King Coenwulf of Mercia. She is commemorated as a saint in the Christian East and the West on 20 July."
+    },
+    {
+      "pid": "p0010",
+      "title": "Robert Le Poer Trench",
+      "text": "Robert Le Poer Trench( c.1811 – 8 February 1895) was a judge and an Attorney- General of Victoria. Trench was the third son of Ven. Charles Le Poer Trench, D.D., of Ballinasloe, County Galway, Archdeacon of Ardagh, and grandson of the first Earl of Clancarty. He entered as a student of the Middle Temple in May 1839, and was called to the Bar in June 1842. Having emigrated to Victoria, he was clerk of petty sessions at Kilmore, Victoria and afterwards at Ballarat. In 1855 he was admitted to the Victorian Bar, and quickly obtained a large practice, especially in mining cases. Though he never entered parliament he was Attorney- General in the first Graham Berry Government from August to October 1875, and in Berry's second Administration, from May 1877 to March 1878, when he was appointed a Commissioner of Land Tax, and a County Court Judge in April 1880. Mr. Trench, who was appointed Q.C. in 1878, subsequently retired on a pension."
+    },
+    {
+      "pid": "p0011",
+      "title": "Power Le Poer Trench",
+      "text": "Power Le Poer Trench DD( 1770 – 1839) was an Anglican clergyman who served in the Church of Ireland as firstly Bishop of Waterford and Lismore, then Bishop of Elphin and finally Archbishop of Tuam."
+    },
+    {
+      "pid": "p0012",
+      "title": "Brinsley Le Poer Trench, 8th Earl of Clancarty",
+      "text": "William Francis Brinsley Le Poer Trench, 8th Earl of Clancarty, 7th Marquess of Heusden( 18 September 191118 May 1995) was a prominent ufologist. He was an Irish peer, as well as a nobleman in the Dutch nobility."
+    },
+    {
+      "pid": "p0013",
+      "title": "Power Henry Le Poer Trench",
+      "text": "Power Henry Le Poer Trench( 11 May 1841 – 30 April 1899) was a British diplomat. Trench was the son of William Thomas Le Poer Trench, 3rd Earl of Clancarty and Lady Sarah Juliana Butler."
+    },
+    {
+      "pid": "p0014",
+      "title": "Richard Trench, 2nd Earl of Clancarty",
+      "text": "Richard Le Poer Trench, 2nd Earl of Clancarty, 1st Marquess of Heusden (19 May 1767 – 24 November 1837), styled The Honourable from 1797 to 1803 and then Viscount Dunlo to 1805, was an Irish peer, a nobleman in the Dutch nobility, and a diplomat. He was an Irish, and later British, Member of Parliament and a supporter of Pitt. Additionally he was appointed Postmaster General of Ireland, and later, of the United Kingdom."
+    },
+    {
+      "pid": "p0015",
+      "title": "Theodred II (Bishop of Elmham)",
+      "text": "Theodred II was a medieval Bishop of Elmham. The date of Theodred's consecration unknown, but the date of his death was sometime between 995 and 997."
+    },
+    {
+      "pid": "p0016",
+      "title": "William Le Poer Trench (Royal Navy officer)",
+      "text": "Rear- Admiral The Hon. William Le Poer Trench( 4 July 1771 – 14 August 1846) was born in Garbally, Galway, Ireland to William Power Keating Trench, 1st Earl of Clancarty and Anne Gardiner. He acted for a considerable period as the agent of the estates of his father's family in Ireland. He was made a Lieutenant in the Royal Navy in 1793; promoted to the rank of Commander in 1799; to that of Post Captain 1802; and to that of Rear Admiral in 1840. In 1819 he was appointed Secretary to the Board of Customs and Port Duties in Ireland."
+    },
+    {
+      "pid": "p0017",
+      "title": "Nicholas Trench, 9th Earl of Clancarty",
+      "text": "Nicholas Le Poer Trench, 9th Earl of Clancarty, 8th Marquess of Heusden( born 1 May 1952), is an Anglo- Irish peer, as well as a nobleman in the Dutch nobility. Lord Clancarty serves as an elected Crossbench hereditary peer in the British House of Lords. His earldom is in the Peerage of Ireland. He was educated at Westminster School."
+    },
+    {
+      "pid": "p0018",
+      "title": "William Le Poer Trench",
+      "text": "Colonel The Hon. William Le Poer Trench CVO, JP (17 June 1837 – 16 September 1920) was an Anglo-Irish politician and British army officer. He was the third son of William Trench, 3rd Earl of Clancarty and Lady Sarah Juliana Butler. He married Harriet Maria Georgina Martins, daughter of Sir William Martins, on 21 April 1864. He fought in the Second Opium War between 1857 and 1858, commanding a ladder company at the capture of Guangzhou and Nankow, and was mentioned in despatches. He gained the rank of Colonel in the service of the Royal Engineers. Between 1872 and 1874, he was Member of Parliament (MP) for County Galway, having unseated the elected MP, John Philip Nolan, on petition; the case was one of the most controversial Irish cases of its time and permanently damaged the reputation of the judge, William Keogh. He held the office of Justice of the Peace for Westminster, London, Buckinghamshire, and Middlesex. He was made a Commander of the Royal Victorian Order in 1912."
+    },
+    {
+      "pid": "p0019",
+      "title": "William Trench, 3rd Earl of Clancarty",
+      "text": "William Thomas Le Poer Trench, 3rd Earl of Clancarty, 2nd Marquess of Heusden (21 September 1803 – 26 April 1872), styled Viscount Dunlo between 1805 and 1837, was an Irish peer, as well a nobleman in the Dutch nobility. He was educated at St John's College, Cambridge. Trench was born in Castleton, County Kildare, Ireland the son of Richard Trench, 2nd Earl of Clancarty and Henrietta Margaret Staples. On 8 September 1832, he married Lady Sarah Juliana Butler. They had six children."
+    },
+    {
+      "pid": "p0020",
+      "title": "The Lone Rider in Cheyenne",
+      "text": "The Lone Rider in Cheyenne is a 1942 American Western film directed by Sam Newfield and written by Oliver Drake and Elizabeth Beecher. The film stars George Houston, Al St. John, Dennis Moore, Ella Neal, Roy Barcroft and Kenne Duncan. The film was released on March 20, 1942, by Producers Releasing Corporation."
+    },
+    {
+      "pid": "p0021",
+      "title": "Hassan Zee",
+      "text": "Hassan Zee is a Pakistani- American film director who was born in Chakwal, Pakistan."
+    },
+    {
+      "pid": "p0022",
+      "title": "Ringo the Lone Rider",
+      "text": "Ringo the Lone Rider is a 1968 Spanish- Italian Spaghetti western film directed by Rafael Romero Marchent."
+    },
+    {
+      "pid": "p0023",
+      "title": "Lone Rider",
+      "text": "Lone Rider is a 2008 made for television Western. It was directed by David S. Cass Sr. and stars Lou Diamond Phillips and Stacy Keach."
+    },
+    {
+      "pid": "p0024",
+      "title": "Knut Andersen",
+      "text": "Knut Andersen( 9 May 1931 – 17 June 2019) was a Norwegian film director. He was born in Harstad. He directed a series of films, including\" Ballad of the Masterthief Ole Hoiland\"( 1970),\" Marikens bryllup\"( 1972),\" Under a Stone Sky\"( 1974),\" Karjolsteinen\"( 1977), and\" Den sommeren jeg fylte 15\"( 1975). He received the Amanda Committee's Honorary Award in 2007. His 1969 film\" Scorched Earth\" was entered into the 6th Moscow International Film Festival where it won a diploma."
+    },
+    {
+      "pid": "p0025",
+      "title": "Rafael Romero Marchent",
+      "text": "Rafael Romero Marchent( born 3 May 1926) is a Spanish director, screenwriter and actor."
+    },
+    {
+      "pid": "p0026",
+      "title": "The Lone Rider and the Bandit",
+      "text": "The Lone Rider and the Bandit is a 1942 American Western film directed by Sam Newfield and written by Sam Robins. The film stars George F. Houston, Al St. John, Dennis Moore, Vickie Lester, Glenn Strange and Jack Ingram. The film was released on January 16, 1942, by Producers Releasing Corporation."
+    },
+    {
+      "pid": "p0027",
+      "title": "Kaare Kroppan",
+      "text": "Kaare Kroppan( 25 April 1933 – 11 May 2014) was a Norwegian actor. He was employed at Trøndelag Teater, Riksteatret, Rogaland Teater, Fjernsynsteatret and Den Nationale Scene during his career. In addition to being a stage actor he had film parts, among others in\" Kimen\" and\" Ransom\"( both 1974),\" Den sommeren jeg fylte 15\"( 1976),\" Kamilla og tyven\"( 1988) and the television series\" Offshore\"( 1996- 1999). He was born in Trondheim, and died there in May 2014."
+    },
+    {
+      "pid": "p0028",
+      "title": "Den sommeren jeg fylte 15",
+      "text": "Den sommeren jeg fylte 15 is a 1976 Norwegian drama film directed by Knut Andersen, starring Steffen Rothschild, and music composed by Eyvind Solås. The film is based on Knut Faldbakken's novel\" Insektsommer\"( insect summer). Peter( Rothschild), who was a teenager in the 1950s, is reminiscing about the days of his youth, and his awakening sexuality."
+    },
+    {
+      "pid": "p0029",
+      "title": "The Lone Rider in Frontier Fury",
+      "text": "The Lone Rider in Frontier Fury is a 1941 American film directed by Sam Newfield. The film is also known as Frontier Fury in the United Kingdom and Rangeland Racket( American reissue title)."
+    },
+    {
+      "pid": "p0030",
+      "title": "Artaynte",
+      "text": "Artaynte( f. 478 BC), was the wife of the Crown Prince Darius."
+    },
+    {
+      "pid": "p0031",
+      "title": "Eunoë (wife of Bogudes)",
+      "text": "Eunoë was the wife of Bogudes, King of Mauretania."
+    },
+    {
+      "pid": "p0032",
+      "title": "Empress Shōken",
+      "text": ", also known as, was the wife of Emperor Meiji of Japan."
+    },
+    {
+      "pid": "p0033",
+      "title": "Catherine Exley",
+      "text": "Catherine Exley was the wife of a soldier and accompanied her husband when he served in Portugal, Spain and Ireland during the Napoleonic Wars. She is best known as the author of a diary that gives an account of military life in that era from the viewpoint of the wife of a common soldier."
+    },
+    {
+      "pid": "p0034",
+      "title": "Beryl Fox",
+      "text": "Beryl Fox (born December 10, 1931 in Winnipeg, Manitoba) is a Canadian documentary film director and film producer."
+    },
+    {
+      "pid": "p0035",
+      "title": "Agatha (wife of Samuel of Bulgaria)",
+      "text": "Agatha was the wife of Emperor Samuel of Bulgaria."
+    },
+    {
+      "pid": "p0036",
+      "title": "Douglas Leiterman",
+      "text": "Douglas Leiterman (1927 – 19 December 2012) was a Canadian television producer. He was born in 1927 in South Porcupine, Ontario. During the early 1950s, he attended the University of British Columbia for a Bachelor of Arts degree, while also working as a \"Vancouver Province\" reporter. He had a brother, cinematographer Richard Leiterman, and a sister, Elaine Campbell, who was married to producer Norman Campbell. His sister Phyllis, a teacher and poet, was married to acclaimed film director Allan King. He had a sister Mary, a teacher and founder of a school, who was married to renowned Ibiza architect and artist Rolph Blakstad. He attended Harvard University in 1954 on a Nieman Fellowship. Leiterman had five children with his first wife, Mary. He toured Eastern Europe with Mary in 1955. In 1968 he divorced Mary and married Beryl Fox, who had worked for him at CBC, and had one daughter. Leiterman got his start in journalism in British Columbia, before becoming a correspondent on Parliament Hill in Ottawa for the Southam News Service. His television credits include \"This Hour Has Seven Days\" which he co-produced with Patrick Watson from 1964 to 1966. It was the second most popular CBC program. After that series was cancelled, Leiterman joined CBS to provide advice for the development of the \"60 Minutes\" series. He produced a special \"Sixteen in Webster Grove\" for CBS. He produced other series such as \"The Fabulous Sixties\" and \"Here Come the Seventies\" (CTV, 1969-1972). He produced documentaries for the United Nations and a nature film documentary series. He founded WIred CIty Communications, a cable company in Toronto, in the 1970s. He founded Motion Picture Guarantors Inc., in the 1970s in Canada and The Motion PIcture Bond Company Ltd., in the 1980s, the second largest completion bond company in the world for motion pictures. He operated both companies internationally and bonded such films as \"Peter The Great\" and TV series such as \"Baywatch\". He sold MPB to AIG in the early 2000s. Leiterman died at his winter residence in Vero Beach, Florida on 19 December 2012. He was survived by his partner of 50 years, documentary filmmaker Beryl Fox and their daughter and three of his daughters from his first marriage. He was predeceased by his first wife Mary and two of their five children, Mark and Lisa."
+    },
+    {
+      "pid": "p0037",
+      "title": "Lucy Kurtz",
+      "text": "Lucy Cometina Kurtz( 11 April 1861 – 31 December 1937) was the wife of the 1st President of Ireland, Douglas Hyde. She was born on 11 April 1861, in Berlin, Germany, and christened on 4 September 1861, in Liverpool, United Kingdom. She was the wife of Douglas Hyde, the first President of Ireland. She died on 31 December 1937, at Ratra in Frenchpark, County Roscommon in Ireland, just before her husband was elected as President."
+    },
+    {
+      "pid": "p0038",
+      "title": "Archibald I, Lord of Douglas",
+      "text": "Archibald of Douglas( before 1198 – d.c. 1238) was a Scottish Nobleman. He was the son of William of Douglas."
+    },
+    {
+      "pid": "p0039",
+      "title": "Margaret Douglas, Fair Maid of Galloway",
+      "text": "Margaret Douglas, Countess of Douglas( died c. 1474), known as the Fair Maid of Galloway, was a Scottish noblewoman, a member of the Black Douglas family towards the end of the family's position as a major force in Scotland. She was the daughter of Archibald Douglas, 5th Earl of Douglas, and Eupheme Graham, daughter of Patrick Graham, Earl of Strathearn and Euphemia Stewart, Countess of Strathearn. She acquired Galloway when her two brothers( one of whom was William Douglas, 6th Earl of Douglas) were murdered at the Black Dinner in Edinburgh Castle. She married her cousin William Douglas, 8th Earl of Douglas. When he was assassinated she obtained permission to marry his brother, James Douglas, 9th Earl of Douglas, but it is not entirely clear that the marriage ever happened, if it did it must have ended in divorce since they both married again. She then married John Stewart, 1st Earl of Atholl. She had no children by the Earls of Douglas, but two daughters by the Earl of Atholl. These were Janet, wife of Alexander Gordon, 3rd Earl of Huntly and Elizabeth, wife of Andrew Gray, 2nd Lord Gray. They both had issue by their respective husbands."
+    },
+    {
+      "pid": "p0040",
+      "title": "Keith Nichol",
+      "text": "Keith Nichol( born December 24, 1988 in Lowell, Michigan) is a Financial Advisor, and a former wide receiver. He played college football for Michigan State University. Before Michigan State, he played for the Oklahoma Sooners."
+    },
+    {
+      "pid": "p0041",
+      "title": "Joe Primeau",
+      "text": "Alfred Joseph Francis\" Gentleman Joe\" Primeau( January 29, 1906 – May 14, 1989), was a Canadian professional ice hockey player. He is of no relation to Wayne Primeau or Keith Primeau."
+    },
+    {
+      "pid": "p0042",
+      "title": "Bill Keith (musician)",
+      "text": "William Bradford \"Bill\" Keith (December 20, 1939 – October 23, 2015) was a five-string banjoist who made a significant contribution to the stylistic development of the instrument. In the 1960s he introduced a variation on the popular \"Scruggs style\" of banjo playing (an integral element of bluegrass music) which would soon become known as melodic style, or \"Keith style\"."
+    },
+    {
+      "pid": "p0043",
+      "title": "W. Augustus Barratt",
+      "text": "W. Augustus Barratt( 1873- 1947) was a Scottish- born, later American, songwriter and musician."
+    },
+    {
+      "pid": "p0044",
+      "title": "Keith Slater",
+      "text": "Keith Nichol Slater( born 12 March 1936 in Midland, Western Australia) is a former Western Australian and Australian cricketer and West Australian Football League( WAFL) player."
+    },
+    {
+      "pid": "p0045",
+      "title": "Ravindra Pushpakumara",
+      "text": "Deshabandu Karuppiahyage Ravindra Pushpakumara( born 21 July 1975), or Keith Pushpakumara, is a former Sri Lankan cricketer of Tamil- Sinhalese mixed ancestry. He is a right- handed batsman and a right- arm medium- fast bowler. He was a key member of Sri Lanka's 1996 Cricket World Cup winning team."
+    },
+    {
+      "pid": "p0046",
+      "title": "James Keith Louden",
+      "text": "James Keith( Keith or J. Keith) Louden( March 4, 1905 — August 12, 1994) was an American industrial engineer, business executive, and management author. He served as the 4th president of the Society for Advancement of Management in the year 1941- 1942, and was the recipient of the 1949 Gilbreth Medal."
+    },
+    {
+      "pid": "p0047",
+      "title": "Alexander Fuks",
+      "text": "Alexander Fuks( 30 May 1917 – 29 November 1978) was a German- born, later Israeli historian, archaeologist and papyrologist. He worked with Victor Tcherikover and Menahem Stern on the standard edition of Jewish papyri. He was a specialist in the study of Hellenistic Judaism."
+    },
+    {
+      "pid": "p0048",
+      "title": "Andrzej Kryński",
+      "text": "Andrzej Kryński( born 16 July 1931) is a Polish fencer. He competed in the team épée event at the 1960 Summer Olympics."
+    },
+    {
+      "pid": "p0049",
+      "title": "Catherine I of Russia",
+      "text": "Catherine I( born, later known as Marta Samuilovna Skavronskaya; –) was the second wife of Peter the Great and Empress of Russia from 1725 until her death."
+    },
+    {
+      "pid": "p0050",
+      "title": "Elisabeth of the Palatinate",
+      "text": "Elisabeth of the Palatinate( 26 December 1618 – 11 February 1680), also known as Elisabeth of Bohemia, Princess Elisabeth of the Palatinate, or Princess- Abbess of Herford Abbey, was the eldest daughter of Frederick V, Elector Palatine( who was briefly King of Bohemia), and Elizabeth Stuart. Elisabeth of the Palatinate is a philosopher best known for her correspondence with René Descartes. She was critical of Descartes' dualistic metaphysics and her work anticipated the metaphysical concerns of later philosophers."
+    },
+    {
+      "pid": "p0051",
+      "title": "Karl Theodor, Duke in Bavaria",
+      "text": "Karl- Theodor, Duke in Bavaria( 9 August 1839 – 30 November 1909), was a member of the House of Wittelsbach and a professional oculist. He was the favorite brother of the Empress Elisabeth of Austria, and father of Queen Elisabeth of the Belgians."
+    },
+    {
+      "pid": "p0052",
+      "title": "Elisabeth of Wrocław",
+      "text": "Elisabeth of Wrocław (Polish: Elżbieta wrocławska) (c. 1232 – 16 January 1265), also known as \"Elisabeth of Poland\", was a daughter of Henry II the Pious and his wife, Anna of Bohemia. She was a member of the House of Piast and was Duchess consort of Greater Poland by marriage."
+    },
+    {
+      "pid": "p0053",
+      "title": "Arthur Beauchamp",
+      "text": "Arthur Beauchamp( 1827 – 28 April 1910) was a Member of Parliament from New Zealand. He is remembered as the father of Harold Beauchamp, who rose to fame as chairman of the Bank of New Zealand and was the father of writer Katherine Mansfield."
+    },
+    {
+      "pid": "p0054",
+      "title": "Obata Toramori",
+      "text": "He was the father of Obata Masamori."
+    },
+    {
+      "pid": "p0055",
+      "title": "Henry II the Pious",
+      "text": "Henry II the Pious  (1196 – 9 April 1241), of the Silesian line of the Piast dynasty, was Duke of Silesia at Wrocław and Duke of Kraków and thus High Duke of all Poland as well as Duke of Southern Greater Poland from 1238 until his death. During 1238–1239 he also served as a regent of two other Piast duchies: Sandomierz and Upper Silesian Opole–Racibórz. On October 2015, the Roman Catholic Diocese of Legnica opened up his cause for beatification, obtaining him the title of Servant of God."
+    },
+    {
+      "pid": "p0056",
+      "title": "Cleomenes II",
+      "text": "Cleomenes II( died 309 BC) was Agiad King of Sparta from 369 to 309 BC. The son of Cleombrotus I, he succeeded his brother Agesipolis II. He was the father of Acrotatus I, the father of Areus I, and of Cleonymus, the father of Leonidas II."
+    },
+    {
+      "pid": "p0057",
+      "title": "John Templeton (botanist)",
+      "text": "John Templeton( 1766–1825) was an early Irish naturalist and botanist. He is often referred to as the\" Father of Irish Botany\". He was the father of naturalist, artist and entomologist Robert Templeton."
+    },
+    {
+      "pid": "p0058",
+      "title": "Preczlaw of Pogarell",
+      "text": "Przecław of Pogarell( 5 May 1310 – 6 April 1376) was a Cardinal of the Roman Catholic Church and Bishop of Wrocław from 1342- 1376. Przecław of Pogorzela was born on 5 May 1310 into a noble family from Pogorzela and by April 1329 was Canon of Wrocław. In 1336 he visited Bologna to study. On 5 May 1341 he was elected Bishop of Wrocław, however due to opposition of the Archbishop of Gniezno, Janisław, he had to personally go to Avignon for Papal approval, which was confirmed on 28 January 1342. A tireless builder, he oversaw the completion of Wroclaw Cathedral, built the Church of St. Stanislaus, and Dorothy, the chapel of St. Mary's Church and Joseph's Hospital in Nysa. He also founded Carmelite, Carthusian, Augustinian and Benedictine monasteries. He introduced the feast of St. Jadwiga and also had audiences with Emperor Charles IV of Luxembourg and Casimir the Great. In 1348, he purchased the castle of Jánský vrch from Bolko II of Świdnica, and turned it into the palace of the prince- bishops of Wrocław. He died on the night of 5 to 6 April 1376 and was buried in the chapel of St. Mary's Church, Wrocław Cathedral, in a marble sarcophagus. His has been considered a\" golden age\" of the bishopric of Wrocław."
+    },
+    {
+      "pid": "p0059",
+      "title": "Anacyndaraxes",
+      "text": "Anacyndaraxes was the father of Sardanapalus, king of Assyria."
+    },
+    {
+      "pid": "p0060",
+      "title": "My Little Eye",
+      "text": "My Little Eye is a 2002 British horror film directed by Marc Evans about five adults who agree to spend six months together in an isolated mansion while being filmed at all times. The idea for the film came from reality television shows such as\" Big Brother\". The title refers to the guessing game I spy."
+    },
+    {
+      "pid": "p0061",
+      "title": "At Sword's Edge",
+      "text": "At Sword's Edge( Italian A fil di spada) is a 1952 Italian swashbuckler film directed by Carlo Ludovico Bragaglia and starring Frank Latimore, Milly Vitale and Pierre Cressoy. It was shot at Cinecittà Studios in Rome. The film's sets were designed by the art directors Mario Chiari and Gianni Polidori."
+    },
+    {
+      "pid": "p0062",
+      "title": "Kabani Nadi Chuvannappol",
+      "text": "Kabani Nadi Chuvannappol(\" When the River Kabani Turned Red\") is a 1975 Malayalam feature film directed by P. A. Backer, produced by Pavithran, and starring T. V. Chandran, Shalini, Raveendran and J. Siddiqui. This leftist political drama film came out during the Emergency period. It was the directorial debut of P. A. Backer, who won that year's awards for Best Director and Second Best Film at the Kerala State Film Awards. Pavithran, who later directed many critically acclaimed Malayalam films produced the film. T. V. Chandran, who also later went on to direct a bevy of award- winning films in Malayalam and Tamil, played the lead role. After certain post-production controversies, the film debuted in theatres on 16 July 1976."
+    },
+    {
+      "pid": "p0063",
+      "title": "The Night of Nights",
+      "text": "The Night of Nights is a 1939 black- and- white drama film written by Donald Ogden Stewart and directed by Lewis Milestone for Paramount Pictures that starred Pat O' Brien, Olympe Bradna, and Roland Young. The film received positive contemporary reviews from publications such as\" The New York Times\". Director Milestone went on to other successful productions after the film came out, including\" Ocean's 11\" and\" Pork Chop Hill\". The movie has no relation to the use of the phrase\" Night of Nights\" for the night of the Academy Awards ceremony, the album by musical group The Seekers, or the Touhou Project song."
+    },
+    {
+      "pid": "p0064",
+      "title": "Operation Leopard",
+      "text": "La légion saute sur Kolwezi also known as\" Operation Leopard\" is a French war film directed by Raoul Coutard filmed in French Guiana. The script is based on the true story of the Battle of Kolwezi that happened in 1978. It was diligently described in a book of the same name by former 1 REP Captain Pierre Sergent. He published his book in 1979; the film came out in 1980. Raoul Coutard shot the film in a documentary style."
+    },
+    {
+      "pid": "p0065",
+      "title": "Crimson Gold",
+      "text": "Crimson Gold is a 2003 Iranian film directed by Jafar Panahi, and written by Abbas Kiarostami. The film was never distributed in Iranian theatres, because it was considered too\" dark\". Therefore, it was not possible that\" Crimson Gold\" be considered as the Iranian entry for Best Foreign Language Film for the 2003 Oscars as it was not released in Iran."
+    },
+    {
+      "pid": "p0066",
+      "title": "Crimson Gold (apple)",
+      "text": "' Crimson Gold' is a modern cultivar of applecrab, meaning that it is a cross between a crabapple and a domesticated apple. It is a small apple. It is one of the last apples to be developed by the American breeder Albert Etter in 1944, who named it' Little Rosybloom'. Etter died in 1950 before completing the patent filing, and it was later rediscovered and renamed as' Crimson Gold'. The skin of' Crimson Gold' has a yellow background which is visual only at the shaded areas of the skin and around the stem. Otherwise it is covered with a ruby red. Flesh is crisp, with a balance of sweet and tart. Delicious for fresh eating, and also good for baking, retains its shape and texture even with high temperature. In fact, when the apple was rediscovered, about 1970, on a single limb of an old test orchard, Etter's\" boil test\" was used to confirm that the found apple was in fact Crimson Gold/ Little Rosybloom. The genuine apple holds its shape after 2 hours of boiling, while the similar Wickson Crab, also an Etter introduction, does not. Things became confused when\" Svatava\" a totally different, modern, variety from Europe, was introduced under the same name,\" Crimson Gold\". The new introduction was trademarked in the US, so now the\" original\" Crimson Gold is again being called Little Rosybloom, although a few, wholesale, specialty fruit distribution companies continue to promote the original as Crimson Gold. Both apples are grown in very small volumes, and are mostly grown by home growers, or small direct retail orchards. Several companies sell scion wood, but it is hard to find nursery trees for sale."
+    },
+    {
+      "pid": "p0067",
+      "title": "Edge",
+      "text": "Edge or EDGE may refer to:"
+    },
+    {
+      "pid": "p0068",
+      "title": "The Fabulous Senorita",
+      "text": "The Fabulous Senorita is a 1952 American musical comedy film directed by R.G. Springsteen and starring Estelita Rodriguez, Robert Clarke and Nestor Paiva. The film came at the tail- end of a cycle of Latin American- themed films, through it did introduce a new star Rita Moreno."
+    },
+    {
+      "pid": "p0069",
+      "title": "At Sword's Point",
+      "text": "At Sword's Point, also known as The Sons of the Three Musketeers, is a 1952 American historical action film directed by Lewis Allen and starring Cornel Wilde and Maureen O' Hara. It was shot in Technicolor by RKO Radio Pictures. The film was completed in 1949, but was not released until 1952. The Three Musketeers' offsprings of Aramis, Porthos, D'Artagnan and Claire, the daughter of Athos, are reunited by the ageing Queen Anne to halt the villainy of her treacherous nephew, the Duc de Lavalle."
+    },
+    {
+      "pid": "p0070",
+      "title": "The Gaze of Orpheus",
+      "text": "The Gaze of Orpheus is derived from the antiquarian Greek myth of Orpheus and Eurydice. Following his descent into the Underworld Orpheus disobeys Hades ’ and Persephone ’s condition for release of his wife Eurydice. \" To you this tale refers, Who seek to lead your mind Into the upper day; For he who overcome should turn back his gaze Towards the Tartarean cave, Whatever excellence he takes with him He loses when he looks on those below.\" [ “ Boethius, Consolation of Philosophy 3.52] The Gaze of Orpheus has since been evaluated by many a philosopher and literary critic. Common analogies are made between Orpheus ’s gaze and writing processes, philosophical interpretation, and artistic origins. Some of the most famous uses of the gaze of Orpheus can be found in Maurice Blanchot ’s work The Gaze of Orpheus, Geoffrey Sirc ’s, The Composition ’s Eye/ Orpheus ’s Gaze/ Cobain ’s Journals, and Jaques Lacan ’s work on the mirror stage"
+    },
+    {
+      "pid": "p0071",
+      "title": "L'Orfeide",
+      "text": "L'Orfeide is an opera composed by Gian Francesco Malipiero who also wrote the Italian libretto, partly based on the myth of Orpheus and incorporating texts by Italian Renaissance poets. The work consists of three parts –\" La morte delle maschere\"( The death of the masks),\" Sette canzoni\"( Seven songs), and\" Orfeo, ovvero L'ottava canzone\"( Orpheus, or The eighth song). It received its first complete performance on 5 November 1925 at the Stadttheater in Düsseldorf."
+    },
+    {
+      "pid": "p0072",
+      "title": "Testament of Youth",
+      "text": "Testament of Youth is the first instalment, covering 1900 – 1925, in the memoir of Vera Brittain( 1893 – 1970). It was published in 1933. Brittain's memoir continues with\" Testament of Experience\", published in 1957, and encompassing the years 1925 – 1950. Between these two books comes\" Testament of Friendship\"( published in 1940), which is essentially a memoir of Brittain's close colleague and friend Winifred Holtby. A final segment of memoir, to be called\" Testament of Faith\" or\" Testament of Time\", was planned by Brittain but remained unfinished at her death. \" Testament of Youth\" has been acclaimed as a classic for its description of the impact of World War I on the lives of women and the middle- class civilian population of Great Britain. The book shows how the impact extended into the postwar years. It is also considered a classic in feminist literature for its depiction of a woman's pioneering struggle to forge an independent career in a society only grudgingly tolerant of educated women."
+    },
+    {
+      "pid": "p0073",
+      "title": "Wandering Fires",
+      "text": "Wandering Fires is a 1925 silent film drama produced and directed by Maurice Campbell and stars Constance Bennett. It was distributed in the U.S. by Arrow Film Corporation and in the UK by Film Booking Offices of America. Campbell's wife, stage star Henrietta Crosman, appears in the film. A print is held by the George Eastman House."
+    },
+    {
+      "pid": "p0074",
+      "title": "The Blood of a Poet",
+      "text": "The Blood of a Poet( 1930) is an avant- garde film directed by Jean Cocteau, financed by Charles de Noailles and starring Enrique Riveros, a Chilean actor who had a successful career in European films. Photographer Lee Miller made her only film appearance in this movie, which features an appearance by the famed aerialist Barbette. It is the first part of the Orphic Trilogy, which is continued in\" Orphée\"( 1950) and concludes with\" Testament of Orpheus\"( 1960)."
+    },
+    {
+      "pid": "p0075",
+      "title": "Testament of Orpheus",
+      "text": "Testament of Orpheus is a 1960 black- and- white film with a few seconds of color film spliced in. Directed by and starring Jean Cocteau, who plays himself as an 18th- century poet, the film includes cameo appearances by Pablo Picasso, Jean Marais, Charles Aznavour, Jean- Pierre Leaud and Yul Brynner. It is considered the final part of the Orphic Trilogy, following\" The Blood of a Poet\"( 1930) and\" Orphée\"( 1950). One critic described it as a\" wry, self- conscious re-examination of a lifetime's obsessions\" with Cocteau placing himself at the center of the mythological and fictional world he spun throughout his books, films, plays and paintings. The film includes numerous instances of\" double takes\", including one scene where Cocteau, walking past himself, looks back to see himself in what was described by one scholar as\" a retrospective on the Cocteau\" œuvre. \" The New York Times\" calls it\" self- serving\", noting that the pretension of the film was certainly intended by Cocteau as his last statement made on film:\" as much a long- winded self- analysis as an extraordinary succession of visually arresting images\"."
+    },
+    {
+      "pid": "p0076",
+      "title": "The Lyre of Orpheus",
+      "text": "The Lyre of Orpheus may refer to:"
+    },
+    {
+      "pid": "p0077",
+      "title": "Orpheus (film)",
+      "text": "Orpheus( also the title used in the UK) is a 1950 French film directed by Jean Cocteau and starring Jean Marais. It is the central part of Cocteau's Orphic Trilogy, which consists of\" The Blood of a Poet\"( 1930),\" Orpheus\"( 1950) and\" Testament of Orpheus\"( 1960)."
+    },
+    {
+      "pid": "p0078",
+      "title": "The Testament of Billions",
+      "text": "' The Testament of Billions( German: Das Milliardentestament) is a 1920 German silent film directed by Franz Seitz."
+    },
+    {
+      "pid": "p0079",
+      "title": "It's My Way!",
+      "text": "It’s My Way! is the first album by folk singer Buffy Sainte-Marie. Though the album did not chart it proved influential in the folk community. It is most famous for two widely covered folk standards, \"Universal Soldier\" and \"Cod'ine\", as well as \"Now That the Buffalo's Gone\", a lament about the continued confiscation of Indian lands, as evidenced by the building of the Kinzua Dam in about 1964. The cover features a mouthbow, which was to be a trademark of her sound on her first three albums. \"Cod'ine\" was also lyrically altered by Janis Joplin and appears on \"This is Janis Joplin 1965\". In 2016, \"It's My Way!\" was inducted by the Library of Congress into the National Recording Registry."
+    },
+    {
+      "pid": "p0080",
+      "title": "It's My Way (Dizzy Gillespie album)",
+      "text": "It's My Way( also released as My Way) is an album by American jazz trumpeter Dizzy Gillespie featuring performances of popular songs recorded in 1969 and originally released on the Solid State label."
+    },
+    {
+      "pid": "p0081",
+      "title": "Doing It My Way",
+      "text": "Doing It My Way is the debut studio album by\" The X Factor\" series 3 runner up Ray Quinn. The album was recorded at Capitol Records Tower in Los Angeles in January 2007. It was released on 12 March 2007 and entered the UK Albums Chart at number one the following week, making Quinn the first person ever to have a number- one album without releasing a single. It sold 126,985 copies in its first week, enough to be certified Gold."
+    },
+    {
+      "pid": "p0082",
+      "title": "Doing It to Death (album)",
+      "text": "Doing It to Death is an album by The J.B.'s, released in 1973 by People Records. The album includes a ten- minute version of the# 1 R&B hit\" Doing It to Death\", which is led by Danny Ray's introduction to simulate his MC in concerts."
+    },
+    {
+      "pid": "p0083",
+      "title": "A Town South of Bakersfield",
+      "text": "A Town South of Bakersfield was a series of three compilation CDs showcasing New Country musicians in the late 1980s and early 1990s. The first album came out in 1986 and featured acts such as Dwight Yoakam. The Lonesome Strangers, and Candye Kane. The second album came out in 1988 and the third in 1992}."
+    },
+    {
+      "pid": "p0084",
+      "title": "I Will Survive (Doin' It My Way)",
+      "text": "I Will Survive( Doin' It My Way) is the second studio album by American R&B singer- songwriter Chantay Savage, released March 1996 on RCA Records. Production for the album was handled by several producers, including Tim& Bob, Kay Fingers, Steve\" Silk\" Hurley, Grand Puba, Chucky Thompson, and others. \" I Will Survive( Doin' It My Way)\" peaked at number 14 on the\" Billboard\" Top R&B Albums chart. The album's lead single, a downtempo cover of Gloria Gaynor's\" I Will Survive\", peaked at number 5 on the Hot R&B Singles chart."
+    },
+    {
+      "pid": "p0085",
+      "title": "No Talking, Just Head",
+      "text": "No Talking, Just Head is an album released in 1996 by The Heads, a band composed of Jerry Harrison, Tina Weymouth, and Chris Frantz of Talking Heads, joined by a variety of guest singers. It s name may be seen as an allusion to the fact that Talking Heads' former vocalist, David Byrne, is the only member not involved. This was, at the time, intended to turn into a full- time project, with further studio albums and tour. Furthermore, a live CD/ video of the first tour was planned, featuring performances of songs originally recorded by Talking Heads reinterpreted by the album's guest artists. However, David Byrne sued the band, asserting that their name and presentation was too evocative of Talking Heads, and put an end to those further- reaching plans, although the suit was settled out of court, and the album was released. The band toured the US in the fall of 1996 with Johnette Napolitano serving as the primary lead vocalist. \" Damage I've Done\" and\" Do n't Take My Kindness for Weakness\" were released as singles. The album received negative reviews."
+    },
+    {
+      "pid": "p0086",
+      "title": "It's My Time (Jeanie Tracy album)",
+      "text": "It's My Time is the second studio album by Jeanie Tracy."
+    },
+    {
+      "pid": "p0087",
+      "title": "Dat Whoopty Woop",
+      "text": "Dat Whoopty Woop is the debut album from Long Beach, California producer and rapper Soopafly. The album came out on July 31, 2001."
+    },
+    {
+      "pid": "p0088",
+      "title": "Mulberry Violence",
+      "text": "Mulberry Violence is the debut album by American experimental artist Trevor Powers. The album came out on August 17, 2018 .."
+    },
+    {
+      "pid": "p0089",
+      "title": "Edward L. Cahn",
+      "text": "Edward L. Cahn( February 12, 1899 – August 25, 1963) was an American film director."
+    },
+    {
+      "pid": "p0090",
+      "title": "Shin A-lam",
+      "text": "Shin A-lam( or; born 23 September 1986) is a South Korean épée fencer."
+    },
+    {
+      "pid": "p0091",
+      "title": "Roman Polanski",
+      "text": "Roman Polański( born 18 August 1933 in Paris; original name Raymond Thierry Liebling) is a French- Polish film director, producer, writer, and actor. Since 1978, Polanski has been a fugitive from the U.S. criminal justice system; he fled the country while awaiting sentencing in his sexual abuse case, in which he pleaded guilty to statutory rape. His Polish- Jewish parents moved the family back from Paris to Kraków in 1937. Two years later, Poland was invaded by Nazi Germany starting World War II and the Polanskis found themselves trapped in the Kraków Ghetto. After his mother and father were taken in raids, Polanski spent his formative years in foster homes under an adopted identity, trying to survive the Holocaust. Polanski's first feature- length film,\" Knife in the Water\"( 1962), was made in Poland and was nominated for a United States Academy Award for Best Foreign Language Film. He has since received five more Oscar nominations, along with two BAFTAs, four Césars, a Golden Globe Award and the Palme d' Or of the Cannes Film Festival in France. In the United Kingdom he directed three films, beginning with\" Repulsion\"( 1965). In 1968, he moved to the United States and cemented his status by directing the horror film\" Rosemary's Baby\"( 1968). A turning point in his life took place in 1969, when his pregnant wife, Sharon Tate, and four friends were brutally murdered by members of the Manson Family. Following her death, Polanski returned to Europe and eventually continued directing. He made\" Macbeth\"( 1971) in England and back in Hollywood,\" Chinatown\"( 1974), which was nominated for eleven Academy Awards. In 1977, Polanski was arrested and charged with drugging and raping a 13- year- old girl. He subsequently pled guilty to the lesser offence of unlawful sex with a minor. After spending 42 days undergoing psychiatric evaluation in prison in preparation for sentencing, Polanski, who had expected to be put on probation, fled to Paris after learning that the judge planned to reject his plea deal and impose a prison term. In Europe, Polanski continued to make films, including\" Tess\"( 1979), starring Nastassja Kinski. It won France's César Awards for Best Picture and Best Director, and received three Oscars. He later produced and directed\" The Pianist\"( 2002), a drama about a Jewish- Polish musician escaping Nazi persecution, starring Adrien Brody and Emilia Fox. The film won three Academy Awards including Best Director, along with numerous international awards. He also directed\" Oliver Twist\"( 2005), a story which parallels his own life as a\" young boy attempting to triumph over adversity\". He was awarded Best Director for\" The Ghost Writer\"( 2010) at the 23rd European Film Awards. He also received Best Screenwriter nomination at the aforementioned awards for\" Carnage\"( 2011). In 2018, the Academy of Motion Picture Arts and Sciences voted to expel Polanski from its membership."
+    },
+    {
+      "pid": "p0092",
+      "title": "Tomer Or",
+      "text": "Tomer Or( born September 26, 1978) is an Israeli foil fencer."
+    },
+    {
+      "pid": "p0093",
+      "title": "Born to Speed",
+      "text": "Born to Speed is a 1947 American action film directed by Edward L. Cahn and written by Crane Wilbur, Scott Darling and Robert B. Churchill. The film stars Johnny Sands, Vivian Austin, Don Castle, Frank Orth, Geraldine Wall and Joe Haworth. The film was released on January 12, 1947, by Producers Releasing Corporation."
+    },
+    {
+      "pid": "p0094",
+      "title": "Knife in the Water",
+      "text": "Knife in the Water is a 1962 Polish drama film co-written and directed by Roman Polanski, which was nominated for Academy Award for Best Foreign Language Film. Polanski's first feature film, it features three characters in a story of rivalry and sexual tension. \" Knife in the Water\" has garnered acclaim from film critics since its release, and is one of Polanski's best- reviewed works."
+    },
+    {
+      "pid": "p0095",
+      "title": "Park Hee-young (footballer, born 1985)",
+      "text": "Park Hee-young( or; born 11 June 1985) is a South Korean football player."
+    },
+    {
+      "pid": "p0096",
+      "title": "Rumbi Katedza",
+      "text": "Rumbi Katedza is a Zimbabwean Film Producer and Director who was born on 17 January 1974."
+    },
+    {
+      "pid": "p0097",
+      "title": "Fujiko (actress)",
+      "text": ", real name or, born 5 March 1980, is Japanese actress and model."
+    },
+    {
+      "pid": "p0098",
+      "title": "Joan, Countess of Chiny",
+      "text": "Joan( c. 1205 – 17 January 1271) was the Countess of Chiny. Joan was the daughter of Louis IV, Count of Chiny, and Matilda of Avesnes, and became ruler of the county upon her father ’s death on 7 October 1226. She married Arnold IV, Count of Loon, son of Gerard III, Count of Rieneck, and Kunigunde von Zimmern, in 1228, whereupon he assumed the role of Count of Chiny. Joan and Arnold had the following children: She was succeeded as ruler of Chiny by her husband, Arnold II, Count of Chiny."
+    },
+    {
+      "pid": "p0099",
+      "title": "Reginar IV, Count of Mons",
+      "text": "Reginar IV, Count of Mons (c. 950–1013) was the son of Reginar III, Count of Hainaut. Lambert I of Leuven was his brother."
+    },
+    {
+      "pid": "p0100",
+      "title": "Lambert I, Count of Louvain",
+      "text": "Lambert I of Louvain nicknamed\" The Bearded\"( born in Louvain, Duchy of Lotharingia, East Francia c. 950, died in Florennes, County of Namur, Duchy of Lower Lorraine, Holy Roman Empire on 12 September 1015) was the first Count of Louvain in 1003. He was killed by Godfrey II, Duke of Lower Lorraine in battle for Godfrey's claim of Count of Verdun. He was the son of Reginar III, Count of Hainaut and Adela d' Eguisheim, daughter of Hugh V, Count of Eguisheim. His brother was Reginar IV, Count of Mons. He was the husband of Gerberga of Lower Lorraine, and father of:"
+    },
+    {
+      "pid": "p0101",
+      "title": "Werner, Count of Valenciennes",
+      "text": "Werner( Garnier, Warin)( died 973), Count of Valenciennes and Count of Hesbaye and Zülpich, brother of Renaud, Count of Mons. His parentage is unknown. In 953, Reginar III was defeated by King Lothair and Archbishop Bruno, and banished to Bavaria. At that time, Werner became the successor of Rudolf as Count of Hesbaye, Werner, is referred to as count in a charter confirmed by Bruno. Before 966, it appears that at least some of Rudolf's property was confiscated and placed under Werner. After the disgrace of Count Reginar III, Godfrey I, Duke of Lower Lorraine, received the County of Hainaut, which included the cities of Mons and Valenciennes. After the death of Godfrey, Amaury became Count of Valenciennes, while Richer assumed the countship of Mons. After the death of Amaury, Emperor Otto I appointed Werner as the Count of Valenciennes. Returning from exile in 973, the sons of Reginar III, Reginar IV, Count of Mons, and Lambert I, Count of Louvain, killed both Werner and his brother Renaud at the battle of Peronne. Werner had no known children."
+    },
+    {
+      "pid": "p0102",
+      "title": "Reginar III, Count of Hainaut",
+      "text": "Reginar III (c. 920 – 973) was a Count of Hainaut from approximately 940 until his exile in 958. He was the son of Reginar II, Count of Hainaut. He took part in the rebellion of his uncle Gilbert, Duke of Lorraine. When Gilbert was killed in 939, Regnier had to pledge fealty to King Otto the Great. He then allied himself with King Louis IV of France, but King Otto sent duke Hermann of Swabia to quell the rebels in 944. Otto appointed Conrad the Red as duke of Lotharingia, who tried to diminish the power of Reginar. However, when Conrad rose against Otto, Reginar supported him. In an anarchic situation, Reginar appropriated the dowry of Gerberga of Saxony, Otto's sister and mother of the French king, and also church property. In 953, Bruno, Archbishop of Cologne, who had also been appointed duke of Lotharingia, restored order and defeated Reginar. As Reginar refused to submit, he was exiled to Bohemia, where he died."
+    },
+    {
+      "pid": "p0103",
+      "title": "Baldwin II, Count of Hainaut",
+      "text": "Baldwin II of Mons( 1056–1098?) was count of Hainaut from 1071 to his death. He was the younger son of Baldwin VI, Count of Flanders and Richilde, Countess of Mons and Hainaut."
+    },
+    {
+      "pid": "p0104",
+      "title": "Manasses de Ramerupt",
+      "text": "Manasses( died after 4 February 1031), son of Hilduin III, Count of Montdidier. He was often mistaken for his uncle Manasses, Count of Dammartin. Manasses married Beatrix of Hainaut, daughter of Reginar IV, Count of Mons, and Hedwig, daughter of Hugh Capet, widow of Ebles I, Count of Roucy. They had three children: No further information could be found on the descendants of Manasses."
+    },
+    {
+      "pid": "p0105",
+      "title": "Reginar V, Count of Mons",
+      "text": "Reginar V( c. 995–1039), Count of Mons, was the eldest son of Reginar IV, Count of Mons and Hedwig of France. His maternal grandparents were Hugh Capet of France and Adelaide of Aquitaine."
+    },
+    {
+      "pid": "p0106",
+      "title": "Herman, Count of Hainaut",
+      "text": "Herman (died 3 July 1049), Count of Mons and Hainaut, son of Reginar V, Count of Mons, and Mathilde of Verdun, daughter of Herman, Count of Verdun. As the Count of Mons, a title inherited from his father, he allied with Godfrey the Bearded, Duke of Lorraine, and Baldwin V, Count of Flanders, against Emperor Henry III. This won the countship of Valenciennes, completing the reconstruction of Hainaut. His wife, who preferred an alliance with the emperor, attempted to get Herman to imprison Wazo, Bishop of Liège, but he refused. In 1040, Herman married Richilde, whose origins are uncertain. Herman and Richilde had two children:\nAfter the death of Herman, Richilde married the son of Baldwin V, who arranged for Herman's children to be disinherited. Richilde's new husband, Baldwin VI the Good, became Herman's successor and count of a unified Hainaut/Flanders. Because of this passage of Hainaut to her new husband and children, Richilde is sometimes wrongly portrayed as daughter of Reginar V. Her true parentage is subject to speculation, one theory being that she was the daughter of a count of Eguisheim and Dagsbourg."
+    },
+    {
+      "pid": "p0107",
+      "title": "Ebles I of Roucy",
+      "text": "Ebles I of Roucy( died 11 May 1033) was count of Roucy from 1000 to 1033 and archbishop of Reims from 1021 to 1033. His father has traditionally been considered to have been Giselbert, Count of Roucy and Reims. A by Jean- Noël Mathieu resolves some inconsistencies by instead placing Giselbert as his matrilineal great uncle, and Eble de Poitiers as his father. He married Beatrix, the daughter of Reginar IV, Count of Mons and Hedwig of France( daughter of Hugh Capet)."
+    },
+    {
+      "pid": "p0108",
+      "title": "Jason Moore (director)",
+      "text": "Jason Moore( born October 22, 1970) is an American director of film, theatre and television."
+    },
+    {
+      "pid": "p0109",
+      "title": "Dana Blankstein",
+      "text": "Dana Blankstein- Cohen( born March 3, 1981) is the director of the Israeli Academy of Film and Television. She is a film director, and an Israeli culture entrepreneur."
+    },
+    {
+      "pid": "p0110",
+      "title": "Paul Scheuring",
+      "text": "Paul T. Scheuring( born November 20, 1968) is an American screenwriter and director of films and television shows. His work includes the 2003 film\" A Man Apart\" and the creation of the television drama\" Prison Break\", for which he was also credited as an executive producer and head writer."
+    },
+    {
+      "pid": "p0111",
+      "title": "Peter Levin",
+      "text": "Peter Levin is an American director of film, television and theatre."
+    },
+    {
+      "pid": "p0112",
+      "title": "Brian Kennedy (gallery director)",
+      "text": "Brian Patrick Kennedy( born 5 November 1961) is an Irish- born art museum director who has worked in Ireland and Australia, and now lives and works in the United States. He is currently the director of the Peabody Essex Museum. He was the director of the Toledo Museum of Art in Ohio from 2010 to 2019. He was the director of the Hood Museum of Art from 2005 to 2010, and the National Gallery of Australia( Canberra) from 1997- 2004."
+    },
+    {
+      "pid": "p0113",
+      "title": "Man at the Top (film)",
+      "text": "Man at the Top is a 1973 British drama film directed by Mike Vardy and starring Kenneth Haigh, spun off from the television series\" Man at the Top\" which itself was inspired by the 1959 film\" Room at the Top\" and its sequel\" Life at the Top\"."
+    },
+    {
+      "pid": "p0114",
+      "title": "Ian Barry (director)",
+      "text": "Ian Barry is an Australian director of film and TV."
+    },
+    {
+      "pid": "p0115",
+      "title": "Man at Bath",
+      "text": "Man at Bath  is a 2010 French film by Christophe Honoré starring François Sagat and Chiara Mastroianni. The film premiered in competition at Locarno International Film Festival in Switzerland in 2010 and was released in cinemas on 22 September 2010. This is gay pornographic actor François Sagat's second major role in general release non-pornographic film as Emmanuel after his role in \"L.A. Zombie\". Director Christopher Honoré told French gay website Yagg.com that he was interested in Sagat because he \"redefines the notion of masculinity\". Sagat was the only actor to feature in two competition entries during the festival."
+    },
+    {
+      "pid": "p0116",
+      "title": "Christophe Honoré",
+      "text": "Christophe Honoré (born 10 April 1970) is a French writer and film director. Honoré was born in Carhaix, Finistère. After moving to Paris in 1995, he wrote articles in \"Les Cahiers du Cinéma\". He started writing soon after. His 1996 book \"Tout contre LéoClose to Leo\") talks about HIV and is aimed at young adults; he made it into a film in 2002. He wrote other books for young adults throughout the late 1990s. His first play, \"Les Débutantes\", was performed at Avignon's Off Festival in 1998. In 2005, he returned to Avignon to present \"Dionysos impuissant\" in the \"In\" Festival, with Joana Preiss and Louis Garrel playing the leads. A well-known director, he is considered an \"auteur\" in French cinema. His 2006 film \"Dans Paris\" has led him to be considered by French critics as the heir to the Nouvelle Vague cinema. In 2007, \"Les Chansons d'amour\" was one of the films selected to be in competition at the 2007 Cannes Film Festival. Honoré is openly gay, and some of his movies or screenplays (among them \"Les Filles ne savent pas nagerDix-sept fois Cécile Cassard\" and \"Les Chansons d'amour\") deal with gay or lesbian relations. Honoré has been the screenwriter for some of Gaël Morel's films. He has also directed Louis Garrel in five different films."
+    },
+    {
+      "pid": "p0117",
+      "title": "Olav Aaraas",
+      "text": "Olav Aaraas( born 10 July 1950) is a Norwegian historian and museum director. He was born in Fredrikstad. From 1982 to 1993 he was the director of Sogn Folk Museum, from 1993 to 2010 he was the director of Maihaugen and from 2001 he has been the director of the Norwegian Museum of Cultural History. In 2010 he was decorated with the Royal Norwegian Order of St. Olav."
+    },
+    {
+      "pid": "p0118",
+      "title": "Reginald Jackson (bishop)",
+      "text": "Bishop Reginald Thomas Jackson( born April 26, 1954, Dover, Delaware) is the 132nd elected and consecrated bishop of the African Methodist Episcopal Church. Jackson is the husband of Christy Davis- Jackson, Esquire and the father of two children, daughter Regina Victoria Jackson and son Seth Joshua Jackson. Jackson received a bachelor's degree in history from Delaware State University( Dover, Delaware) and a Masters of Divinity from the Interdenominational Theological Center( Atlanta, Georgia)."
+    },
+    {
+      "pid": "p0119",
+      "title": "Joël Henry (journalist)",
+      "text": "Joël Henry( born 1955) is a French journalist who was born in Strasbourg."
+    },
+    {
+      "pid": "p0120",
+      "title": "Domenico Conti Bazzani",
+      "text": "Domenico Maria Conti or Conti Bazzani( or Bazzano/ Bozani) ( Mantua, 1740- Rome, February 19, 1815) was an Italian painter, bridging Rococo and Neoclassical styles. He is described as a disciple, and adoptive son of Giuseppe Bazzani, who was director of the Academy of Mantua after 1767."
+    },
+    {
+      "pid": "p0121",
+      "title": "Shashi Kant Seth",
+      "text": "Shashi Kant Seth or S. K. Seth( born 28 August 1931) was an Indian Judge and Chief Justice of the Himachal Pradesh High Court."
+    },
+    {
+      "pid": "p0122",
+      "title": "Sutekh",
+      "text": "Sutekh, the alias of Seth Joshua Horvitz, is a music composer and performer of experimental electronic and techno music. He has released on several international record labels such as Mille Plateaux, Plug Research, Soul Jazz, Leaf, Kit Clayton's Orthlorng Musork and his own Context Free Media. He performed under the name Moron together with Safety Scissors, with whom he shared a flat in Oakland in 1997. Along with Kit Clayton, the three released two albums as Pigeon Funk( the second one without Safety Scissors). He has also performed and recorded under the names\" Rrose\" and\" Suite K\". Horvitz was born in 1973 and grew up in Venice Beach. He holds a BA in Cognitive Science from the University of California at Berkeley( 1995) and an MFA in Electronic Music and Recording Media from Mills College( 2010)."
+    },
+    {
+      "pid": "p0123",
+      "title": "Evan Crooks",
+      "text": "Evan Crooks is an American actor who was born in Fresno County, California."
+    },
+    {
+      "pid": "p0124",
+      "title": "Elmer W. Conti",
+      "text": "Elmer W. Conti( April 9, 1921 – January 4, 1988) was an American politician and businessman. Born in Elmwood Park, Illinois, Conti went to Proviso High School. He served in the United States Navy during World War II. Conti went to Western Illinois University. He was in the real estate and insurance business. Conti served on the Elmwood Park Village Board and was the village board president. In 1966 he was the target of a political assassination attempt involving a massive black powder bomb placed at his home at 2211 North 77th Ave, which left a 6- inch deep impression on the concrete floor of his garage. Conti was involved with the Republican Party. Conti served in the Illinois House of Representatives from 1957 until 1983. Conti died at his home in Elmwood Park, Illinois."
+    },
+    {
+      "pid": "p0125",
+      "title": "Crazy Legs Conti",
+      "text": "Crazy Legs Conti( formerly known as John Conti or Jason Conti, prior to a legal name change) is an American competitive eater. In 2011, he was ranked 21st in the world by the International Federation of Competitive Eating."
+    },
+    {
+      "pid": "p0126",
+      "title": "Seth Joshua",
+      "text": "Seth Joshua( 10 April 1858 – 21 May 1925), was a Welsh Presbyterian minister and Evangelist who was noted for his influence before during and after the 1904- 1905 Welsh Revival as well as for being a direct influence on the ministry of Evan Roberts, one of the leading figures of that revival."
+    },
+    {
+      "pid": "p0127",
+      "title": "Jeff Barlow",
+      "text": "Jeff Barlow was a British actor who was born in Lancashire in 1871."
+    },
+    {
+      "pid": "p0128",
+      "title": "The Making of Plus One",
+      "text": "The Making of Plus One is a 2010 British-Canadian comedy film about the independent filmmaking industry. The film was set and shot at the Cannes Film Festival and takes a satirical look at the film industry's obsession with celebrity. It was written and directed by Mary McGuckian and stars Michael Eklund, Suzan-Lori Parks, Lothaire Bluteau, Geraldine Chaplin, Donna D'Errico, Jordi Mollà and Jennifer Tilly."
+    },
+    {
+      "pid": "p0129",
+      "title": "Mary McGuckian",
+      "text": "Mary McGuckian (born 27 May 1963) is a film director, producer and screenwriter from Northern Ireland."
+    },
+    {
+      "pid": "p0130",
+      "title": "Inside the Square",
+      "text": "Inside the Square is a 2009 documentary film directed by David Michod. It is a 30 minutes behind- the- scenes look at the making of 2008 neo- noir thriller film\" The Square\" directed by Nash Edgerton, with particular emphasis on the style and difficulties arose during the shooting and the experience of cast and crew during the making of film. It had a limited release in Australia on 5 March 2009."
+    },
+    {
+      "pid": "p0131",
+      "title": "Elstree 1976",
+      "text": "Elstree 1976 is a 2015 documentary film about the making of the original\" Star Wars\" film and the legacy that it left behind."
+    },
+    {
+      "pid": "p0132",
+      "title": "Aljean Harmetz",
+      "text": "Aljean Harmetz is a Hollywood journalist and film historian. She was the Hollywood correspondent for\" The New York Times\" from 1978 to 1990. Her film books include:\" The Making of The Wizard of Oz\", a detailed book about the classic 1939 film\" The Wizard of OzRound Up the Usual Suspects: The Making of Casablanca: Bogart, Bergman, and World War II\"( NY: Hyperion, 1992),\" On the Road to Tara: the Making of Gone with the Wind\", and\" Rolling Breaks and Other Movie Business\", which was a collection of her articles. Harmetz is also the author of the fictional work\" Off the Face of the Earth,\" a suspense novel about a boy's abduction and the efforts to free him. She has written for various national magazines, publishing poetry in\" The Atlantic\" and a Best First Story in\" Ellery Queen's Mystery Magazine\". She has contributed articles to\" Esquire The New RepublicCosmopolitan The New York Time s TV GuideArchitectural Digest\", the\" Los Angeles Times\", etc. She is related by marriage to the corporate lawyer, Lloyd Harmetz."
+    },
+    {
+      "pid": "p0133",
+      "title": "Plus One: The Home Video",
+      "text": "Plus One: The Home Video is a VHS released in 2001 by Word Entertainment and Atlantic Records that shows behind the scenes of what the boys of Plus One do everyday on stage and off."
+    },
+    {
+      "pid": "p0134",
+      "title": "In the World Tonight",
+      "text": "In the World Tonight is a 1997 documentary about the making of Paul McCartney's\" Flaming Pie\" album."
+    },
+    {
+      "pid": "p0135",
+      "title": "Andrés Jaque",
+      "text": "Andrés Jaque is an architect. His work explores the role architecture plays in the making of societies. In 2003 he founded the Office for Political Innovation, a trandisciplinary agency working in the making of urban networks. In 2014 he won the Silver Lion to the Best Research Project at the 14th Venice Biennale. In 2016 he was awarded with the 10th Frederick Kiesler Prize, the most respected prize recognizing creators working in the intersection of art and architecture."
+    },
+    {
+      "pid": "p0136",
+      "title": "Heart (1987 film)",
+      "text": "Heart is a 1987 film directed by James Lemmo."
+    },
+    {
+      "pid": "p0137",
+      "title": "Pathfinder (1987 film)",
+      "text": "Pathfinder( original title in Sami: Ofelaš and in Norwegian: Veiviseren) is a 1987 Norwegian action- adventure film written and directed by Nils Gaup. The film is based on an old Sami legend. It was the first full- length film in Sami, and it was nominated for the Academy Award for Best Foreign Language Film in 1988. The leading role was played by Mikkel Gaup as Aigin. Nils- Aslak Valkeapää played one of the parts as well as writing the music to the film, together with Kjetil Bjerkestrand and Marius Müller."
+    },
+    {
+      "pid": "p0138",
+      "title": "Iron Warrior",
+      "text": "Iron Warrior is 1987 film directed by Alfonso Brescia."
+    },
+    {
+      "pid": "p0139",
+      "title": "Girls in Prison",
+      "text": "Girls in Prison is a 1956 drama/ sexploitation women in prison film about a young woman who is convicted of being an accomplice to a bank robbery and is sent to an all- female prison. The film was directed by Edward L. Cahn, and stars Richard Denning, Joan Taylor, and Mae Marsh. American International Pictures released the film as a double feature with\" Hot Rod Girl\"."
+    },
+    {
+      "pid": "p0140",
+      "title": "Jilted (film)",
+      "text": "Jilted is a 1987 film directed by Bill Bennett."
+    },
+    {
+      "pid": "p0141",
+      "title": "Nils Gaup",
+      "text": "Nils Gaup( born 12 April 1955) is a Sámi film director from Norway."
+    },
+    {
+      "pid": "p0142",
+      "title": "Attention bandits!",
+      "text": "Attention bandits! is a 1987 film directed by Claude Lelouch."
+    },
+    {
+      "pid": "p0143",
+      "title": "Henry Moore (cricketer)",
+      "text": "Henry Walter Moore( 1849 – 20 August 1916) was an English- born first- class cricketer who spent most of his life in New Zealand."
+    },
+    {
+      "pid": "p0144",
+      "title": "Wale Adebanwi",
+      "text": "Wale Adebanwi( born 1969) is a Nigerian- born first Black Rhodes Professor at St Antony's College, Oxford."
+    },
+    {
+      "pid": "p0145",
+      "title": "Peter Crüger",
+      "text": "Peter Crüger or Peter Krüger( 20 October 1580 – 6 June 1639) was a mathematician, astronomer, polymath, and teacher of Johannes Hevelius."
+    },
+    {
+      "pid": "p0146",
+      "title": "Peter Elmsley (bookseller)",
+      "text": "Peter Elmsley or Elmsly( 1736–1802) was a British bookseller, born in Aberdeenshire in 1736, who succeeded Paul Vaillant( 1716 – 1802), whose family had carried on a foreign bookselling business in the Strand, London, opposite Southampton Street, since 1686."
+    },
+    {
+      "pid": "p0147",
+      "title": "Grete Meisel-Hess",
+      "text": "Grete Meisel- Hess( 18 April 1879, Prague- 18 April 1922, Berlin) was an Austrian Jewish feminist, who wrote novels, short stories and essays about women's need for sexual liberation. Meisel- Hess lived in Vienna from 1893 to 1908. She viewed both anti-Semitism and anti-feminism as signs of degeneration which needed to be overcome by progressive politics. She wrote for Franz Pfemfert's journal\" Die Aktion\"."
+    },
+    {
+      "pid": "p0148",
+      "title": "Peter Elmsley",
+      "text": "Peter Elmsley( 1773 – 1825) was an English classical scholar. He was educated at Westminster and Christ Church, Oxford, and having inherited a fortune from his uncle, also Peter Elmsley, a well- known bookseller, devoted himself to the study of classical authors and manuscripts. He took Holy Orders and in 1798 was appointed to the chapelry of Little Horkesley in Essex, which he held until his death. He was elected a Fellow of the Royal Society in 1814. He travelled extensively in France and Italy, and spent the winter of 1818 in examining the manuscripts in the Laurentian Library at Florence. In 1819 he was commissioned, with Sir Humphry Davy, to decipher the papyri found at Herculaneum, but the results proved insignificant. In 1823 he was appointed principal of St. Alban Hall, Oxford, and Camden Professor of Ancient History. He died in St Alban Hall, Oxford on 8 March 1825. Elmsley was a man of most extensive learning and European reputation, and was considered to be the best ecclesiastical scholar in England. But it is chiefly by his collation of the manuscripts of the Greek tragedians and his critical labours on the restoration of their text that he will be remembered. He edited\" The Acharnians\" of Aristophanes, and several of the plays and scholia of Sophocles and Euripides. He was the first to recognize the importance of the Laurentian manuscript 32.9."
+    },
+    {
+      "pid": "p0149",
+      "title": "Péter Bod",
+      "text": "Péter Bod or Peter Bod( February 22, 1712 – 1768) was a Hungarian theologian and historian."
+    },
+    {
+      "pid": "p0150",
+      "title": "Johann Jacob Hess",
+      "text": "Johann Jacob Hess( or Johann Jakob Hess)( 21 October 1741 in Zürich- 29 May 1828 in Zürich) was a Protestant Swiss theologian and clergyman."
+    },
+    {
+      "pid": "p0151",
+      "title": "Carl Ernst Christoph Hess",
+      "text": "Carl Ernst Christoph Hess, or Carl Ernst Heß( 22 January 1755, Darmstadt- 25 July 1828, Munich) was a German copper engraver and painter."
+    },
+    {
+      "pid": "p0152",
+      "title": "Peter the Hermit",
+      "text": "Peter the Hermit( also known as Cucupeter, Little Peter or Peter of Amiens; 1050 – 8 July 1115) was a priest of Amiens and a key figure during the First Crusade."
+    },
+    {
+      "pid": "p0153",
+      "title": "Peter Kerr (priest)",
+      "text": "Black Pete, or Peter Kerr, was an early member of The Church of Jesus Christ of Latter- Day Saints, and the second black man to be ordained to the priesthood in that faith."
+    },
+    {
+      "pid": "p0154",
+      "title": "Peter Ololo",
+      "text": "Peter Ololo or Peter Ukuoritsemofe Ololo was a Nigerian stockbroker who was implicated in the 2009 Financial crisis in Nigeria."
+    },
+    {
+      "pid": "p0155",
+      "title": "Billy Milano",
+      "text": "Billy Milano is a Bronx- born heavy metal musician now based in Austin, Texas. He is the singer and- occasionally- guitarist and bassist of crossover thrash band M.O.D., and he was also the singer of its predecessor, Stormtroopers of Death. He was also the singer of United Forces, which also featured his Stormtroopers of Death bandmate Dan Lilker."
+    },
+    {
+      "pid": "p0156",
+      "title": "The Singer of All Songs",
+      "text": "The Singer of All Songs is the first novel in the Chanters of Tremaris trilogy by Kate Constable."
+    },
+    {
+      "pid": "p0157",
+      "title": "Hong Kong Film Award for Best Asian Film",
+      "text": "The Hong Kong Film Award for Best Asian Film is a retired Hong Kong Film Award that was presented from 2003- 2011. The award has since been replaced by the award for Best Film from Mainland and Taiwan."
+    },
+    {
+      "pid": "p0158",
+      "title": "Bernie Bonvoisin",
+      "text": "Bernard Bonvoisin, known as Bernie Bonvoisin( born 9 July 1956 in Nanterre, Hauts- de- Seine), is a French hard rock singer and film director. He is best known for having been the singer of Trust. He was one of the best friends of Bon Scott the singer of AC/ DC and together they recorded the song\" Ride On\" which was one of the last songs by Bon Scott."
+    },
+    {
+      "pid": "p0159",
+      "title": "Ghost (Swedish band)",
+      "text": "Ghost, also formerly known as Ghost B.C. in the United States, is a Swedish rock band that was formed in Linköping, Sweden in 2006. In 2010, they released a 3-track demo followed by a 7\" vinyl titled \"Elizabeth\", and later their debut full-length album \"Opus Eponymous\". The song \"Ritual\" was chosen by \"Kerrang!\" as one of \"The 50 Most Evil Songs Ever. \" The Grammis-nominated album was widely praised and significantly increased their popularity. Their second album and major label debut, \"Infestissumam\", was released in 2013, debuted at number one in Sweden, and won the Grammis Award for Best Hard Rock/Metal Album. The band released their third studio album, \"Meliora\", in 2015 to much critical acclaim and high record sales, reaching number one in their home country of Sweden, and number eight in the United States. Its lead single, \"Cirice\", earned them the 2016 Grammy Award for Best Metal Performance. The band released their fourth studio album, \"Prequelle\", in 2018. Ghost is easily recognizable owing greatly to its eccentric on-stage presence. Seven of the group's eight members, its 'Nameless Ghouls', wear virtually identical, face-concealing costumes. Prior to a 2017 lawsuit filed by former members of the band, lead singer Tobias Forge obscured his identity behind the character \"Papa Emeritus\". The character, which consists of Forge in a prosthetic mask and makeup, can be best described as a 'demonic anti-pope'. The Papa Emeritus Character has gone through four incarnations - I, II, III, and Nihil. As of the 2018 album \"Prequelle\" and subsequent world tour, Forge portrays a character known as \"Cardinal Copia\", who is described as being unrelated to any of the Papa Emeritus characters and whose costume consists of either Cardinal vestments or a black or white tuxedo alongside a prosthetic mask with black eye makeup and the multi-colored eyes which had been present in each Papa character."
+    },
+    {
+      "pid": "p0160",
+      "title": "Since When (song)",
+      "text": "\" Since When\" is a song by Canadian rock band 54- 40. The song is the first single and title track of the band's eighth studio album,\" Since When\". The song is the highest charting single in the band's history, peaking at No. 11 on the\" RPM\" singles chart in Canada. The song won the award for\" Best Song\" at the West Coast Music Awards, with the song's music video winning the award for\" Best Video\"."
+    },
+    {
+      "pid": "p0161",
+      "title": "The Singer",
+      "text": "The Singer may refer to:"
+    },
+    {
+      "pid": "p0162",
+      "title": "O Valencia!",
+      "text": "\" O Valencia!\" is the fifth single by the indie rock band The Decemberists, and the first released from their fourth studio album,\" The Crane Wife\". The music was written by The Decemberists and the lyrics by Colin Meloy. It tells a story of two star- crossed lovers. The singer falls in love with a person who belongs to an opposing gang. At the end of the song, the singer's lover jumps in to defend the singer, who is confronting his lover's brother( the singer's\" sworn enemy\") and is killed by the bullet intended for the singer."
+    },
+    {
+      "pid": "p0163",
+      "title": "Etan Boritzer",
+      "text": "Etan Boritzer( born 1950) is an American writer of children ’s literature who is best known for his book\" What is God?\" first published in 1989. His best selling\" What is?\" illustrated children's book series on character education and difficult subjects for children is a popular teaching guide for parents, teachers and child- life professionals. Boritzer gained national critical acclaim after\" What is God?\" was published in 1989 although the book has caused controversy from religious fundamentalists for its universalist views. The other current books in the\" What is?\" series include What is Love?, What is Death?, What is Beautiful?, What is Funny?, What is Right?, What is Peace?, What is Money?, What is Dreaming?, What is a Friend?, What is True?, What is a Family?, What is a Feeling?\" The series is now also translated into 15 languages. Boritzer was first published in 1963 at the age of 13 when he wrote an essay in his English class at Wade Junior High School in the Bronx, New York on the assassination of John F. Kennedy. His essay was included in a special anthology by New York City public school children compiled and published by the New York City Department of Education. Boritzer now lives in Venice, California and maintains his publishing office there also. He has helped numerous other authors to get published through\" How to Get Your Book Published!\" programs. Boritzer is also a yoga teacher who teaches regular classes locally and guest- teaches nationally. He is also recognized nationally as an erudite speaker on\" The Teachings of the Buddha.\""
+    },
+    {
+      "pid": "p0164",
+      "title": "He Is (Ghost song)",
+      "text": "\"He Is\" is a song by Swedish rock band Ghost. The fifth track from the group's third studio album \"Meliora\", it was released as a promotional single on May 31, 2015. The song reached number 64 on the Sverigetopplistan chart. A live recording was later released in 2017."
+    },
+    {
+      "pid": "p0165",
+      "title": "Stolen Identity",
+      "text": "Stolen Identity is a 1953 Austrian film directed by Gunther von Fritsch and starring Donald Buka, Joan Camden and Francis Lederer. The film is the English- language version of the film( 1952), directed by Emil- Edwin Reinert, starring Gustav Fröhlich and Cornell Borchers. Besides the two leading roles the cast of both films is essentially the same."
+    },
+    {
+      "pid": "p0166",
+      "title": "Fred Roy Krug",
+      "text": "Fred R. Krug is an American film and television producer- director born in Bern, Switzerland."
+    },
+    {
+      "pid": "p0167",
+      "title": "Jacques Décombe",
+      "text": "Jacques Décombe is a French author, actor and director born in 1953."
+    },
+    {
+      "pid": "p0168",
+      "title": "Claude Weisz",
+      "text": "Claude Weisz is a French film director born in Paris."
+    },
+    {
+      "pid": "p0169",
+      "title": "Gordon Douglas (director)",
+      "text": "Gordon Douglas( December 15, 1907 – September 29, 1993) was an American film director, who directed many different genres of films over the course of a five- decade career in motion pictures. He was a native of New York City."
+    },
+    {
+      "pid": "p0170",
+      "title": "Gunther von Fritsch",
+      "text": "Gunther von Fritsch( 15 July 1906, Pula – 27 August 1988, Pasadena) was an American film director born in the Austro- Hungarian Empire."
+    },
+    {
+      "pid": "p0171",
+      "title": "Them!",
+      "text": "Them! is a 1954 American black- and- white science fiction monster film from Warner Bros. Pictures, produced by David Weisbart, directed by Gordon Douglas, and starring James Whitmore, Edmund Gwenn, Joan Weldon, and James Arness. The film is based on an original story treatment by George Worthing Yates, which was then developed into a screenplay by Ted Sherdeman and Russell Hughes. \" Them!\" is one of the first of the 1950s\" nuclear monster\" films, and the first\" big bug\" feature. A nest of gigantic irradiated ants is discovered in the New Mexico desert; they quickly become a national threat when it is discovered that two young queen ants and their consorts have escaped to establish new nests. The national search that follows finally culminates in a battle with\" Them\" in the concrete spillways and storm drain system of Los Angeles."
+    },
+    {
+      "pid": "p0172",
+      "title": "Yolonda Ross",
+      "text": "Yolonda Ross is an American character actress, writer and director born (31 July 1974)."
+    },
+    {
+      "pid": "p0173",
+      "title": "Sepideh Farsi",
+      "text": "Sepideh Farsi is an Iranian film director, born in Tehran in 1965."
+    },
+    {
+      "pid": "p0174",
+      "title": "Felicia Pride",
+      "text": "Felicia Pride( born 1979) is an American author, screenwriter, and producer based in Los Angeles, California."
+    },
+    {
+      "pid": "p0175",
+      "title": "The Autumn of Pride",
+      "text": "The Autumn of Pride is a 1921 British silent romance film directed by W.P. Kellino and starring Nora Swinburne, David Hawthorne and Mary Dibley. It was an adaptation of a novel by E. Newton Bungay."
+    },
+    {
+      "pid": "p0176",
+      "title": "W. P. Kellino",
+      "text": "William Philip Gislingham (About 1874 London, England – 31 Dec 1957 London, Middlesex, England) was a British circus clown, acrobat (part of the Flying Kellinos) and, using the name W.P. Kelino, film director. He was the father of the cinematographer Roy Kellino."
+    },
+    {
+      "pid": "p0177",
+      "title": "Jesse E. Hobson",
+      "text": "Jesse Edward Hobson( May 2, 1911 – November 5, 1970) was the director of SRI International from 1947 to 1955. Prior to SRI, he was the director of the Armour Research Foundation."
+    },
+    {
+      "pid": "p0178",
+      "title": "Boni Pride",
+      "text": "Boni Pride( born 10 September 1995) is a Solomon Islands international footballer who plays as a defender for Telekom S- League side Henderson Eels."
+    },
+    {
+      "pid": "p0179",
+      "title": "S. N. Mathur",
+      "text": "S.N. Mathur was the Director of the Indian Intelligence Bureau between September 1975 and February 1980. He was also the Director General of Police in Punjab."
+    },
+    {
+      "pid": "p0180",
+      "title": "Prince Igor Constantinovich of Russia",
+      "text": "Prince Igor Constantinovich of Russia(\" Игорь Константинович\"; 10 June 1894 – 18 July 1918) was the sixth child of Grand Duke Constantine Constantinovich of Russia by his wife Elisaveta Mavrikievna née Princess Elisabeth of Saxe- Altenburg."
+    },
+    {
+      "pid": "p0181",
+      "title": "Princess Elisabeth of Saxe-Altenburg (1865–1927)",
+      "text": "Elizabeth Mavrikievna (\"née\" Princess Elisabeth Auguste Marie Agnes of Saxe-Altenburg; 25 January 1865 – 24 March 1927) was a Russian Grand Duchess by marriage. She was the wife of Grand Duke Konstantin Konstantinovich of Russia (1858–1915), whom she married in 1884 in Saint Petersburg, Russia."
+    },
+    {
+      "pid": "p0182",
+      "title": "Thomas Scott (diver)",
+      "text": "Thomas Scott( 1907- date of death unknown) was an English diver."
+    },
+    {
+      "pid": "p0183",
+      "title": "Grand Duke Nicholas Konstantinovich of Russia",
+      "text": "Grand Duke Nicholas Constantinovich of Russia( 14 February 1850 – 26 January 1918) was the first- born son of Grand Duke Konstantin Nikolayevich and Grand Duchess Alexandra Iosifovna of Russia and a grandson of Nicholas I of Russia."
+    },
+    {
+      "pid": "p0184",
+      "title": "Prince Constantine Constantinovich of Russia",
+      "text": "Prince Constantine Constantinovich of Russia(\" Константин Константинович\"; 1 January 1891 – 18 July 1918), nicknamed Kostya by the family, was the fourth child of Grand Duke Constantine Constantinovich of Russia by his wife Grand Duchess Elizabeth Mavrikievna of Russia. The Prince was a silent, shy person who fancied theatre and was educated in the Corps des Pages, a military academy in Saint Petersburg. He served in the army during the First World War. A priest who met him at the front, Hegumen Seraphim, wrote:\" He was an extremely modest officer of the Guard of the Izmaylovsky Regiment, much beloved by officers and soldiers alike; along with them he was a brave soldier who distinguished himself. I personally remember seeing him in the trenches among the soldiers, risking his life.\" After seeing the happiness of his two elder siblings, John and Tatiana, Konstantin was keen to start his own family. He fancied the Tsar's oldest daughter, Olga, but was also keen on Princess Elisabeth of Romania. Elisabeth's grandmother, the former Grand Duchess Maria Alexandrovna of Russia, wrote to her daughter, the Crown Princess Marie of Romania in 1911, saying,\" The young Kostya is seized now with terror that she will be snatched away, as he says, before he has even made her acquaintance. The young man seems really quite nice, is much liked in his regiment, and they have really been very well brought up. This one is full of life ... if you have nothing against this youth coming on a passing visit, will you telegraph to me.\" However, the request was denied on political grounds, as Prince John was married to Helen of Serbia, and Konstantin never did find the marriage he longed for. In March 1918 he was exiled to the Urals by the Bolsheviks and murdered in a mineshaft near Alapayevsk, along with his brothers Prince John Constantinovich and Prince Igor Konstantinovich, his cousin Prince Vladimir Pavlovich Paley and other relatives and friends. His body was eventually buried in the Russian Orthodox Church cemetery in Beijing, which was destroyed in 1986 to build a park."
+    },
+    {
+      "pid": "p0185",
+      "title": "Prince John Konstantinovich of Russia",
+      "text": "Prince Ioann Konstantinovich of Russia (5 July 1886 – 18 July 1918), sometimes also known as Prince John, Prince Ivan or Prince Johan, was the eldest son of Grand Duke Konstantin Konstantinovich of Russia by his wife Yelizaveta Mavrikievna, née Princess Elisabeth of Saxe-Altenburg. He was described by contemporaries as a gentle, religious person, nicknamed \"Ioannchik\" by his relatives."
+    },
+    {
+      "pid": "p0186",
+      "title": "Abdul-Vahed Niyazov",
+      "text": "' of Russia."
+    },
+    {
+      "pid": "p0187",
+      "title": "Prince Gabriel Constantinovich of Russia",
+      "text": "Prince Gabriel Constantinovich of Russia( 15 July 1887 – 28 February 1955) was the second son of Grand Duke Konstantin Konstantinovich of Russia and his wife, Grand Duchess Elizabeth Mavrikievna of Russia. A great- grandson of Tsar Nicholas I, he was born in Imperial Russia and served in the army during World War I. He lost much of his family during the war and the Russian Revolution. He narrowly escaped execution by the Bolsheviks and spent the rest of his life living in exile in France."
+    },
+    {
+      "pid": "p0188",
+      "title": "The Blood of Fu Manchu",
+      "text": "The Blood of Fu Manchu, also known as Fu Manchu and the Kiss of Death, Kiss of Death, Kiss and Kill( U.S. title) and Against All Odds( original U.S. video title), is a 1968 British adventure crime film directed by Jesús Franco, based on the fictional Asian villain Dr. Fu Manchu created by Sax Rohmer. It was the fourth film in a series, and was preceded by\" The Vengeance of Fu Manchu The Castle of Fu Manchu\" followed in 1969. It was produced by Harry Alan Towers for Udastex Films. It starred Christopher Lee as Dr. Fu Manchu, Richard Greene as Scotland Yard detective Nayland Smith, and Howard Marion- Crawford as Dr. Petrie. The movie was filmed in Spain and Brazil. Shirley Eaton appears in a scene that she claimed she was never paid for; apparently, the director Jesús Franco had inserted some stock footage of her from one of her films(\" The Girl from Rio\"( 1968)) into the film without telling her. She only found out years later that she had been in a Fu Manchu film."
+    },
+    {
+      "pid": "p0189",
+      "title": "The Mask of Fu Manchu",
+      "text": "The Mask of Fu Manchu is a 1932 pre-Code adventure film directed by Charles Brabin. It was written by Irene Kuhn, Edgar Allan Woolf and John Willard based on the 1932 novel of the same name by Sax Rohmer. Starring Boris Karloff as Fu Manchu, and featuring Myrna Loy as his depraved daughter, the movie revolves around Fu Manchu's quest for the golden sword and mask of Genghis Khan. Lewis Stone plays his nemesis. Dr. Petrie is absent from this film."
+    },
+    {
+      "pid": "p0190",
+      "title": "The Brides of Fu Manchu",
+      "text": "The Brides of Fu Manchu is a 1966 British/ West German Constantin Film co-production adventure crime film based on the fictional Chinese villain Dr. Fu Manchu, created by Sax Rohmer. It was the second film in a series, and was preceded by\" The Face of Fu ManchuThe Vengeance of Fu Manchu\" followed in 1967,\" The Blood of Fu Manchu\" in 1968, and\" The Castle of Fu Manchu\" in 1969. It was produced by Harry Alan Towers for Hallam Productions. Like the first film, it was directed by Don Sharp, and starred Christopher Lee as Fu Manchu. Nigel Green was replaced by Douglas Wilmer as Scotland Yard detective Nayland Smith. The action takes place mainly in London, where much of the location filming took place."
+    },
+    {
+      "pid": "p0191",
+      "title": "Fu Xuan",
+      "text": "Fu Xuan( 217–278), courtesy name Xiuyi, was a Chinese historian, poet, and politician who lived in the state of Cao Wei during the Three Kingdoms period and later under the Jin dynasty. He was one of the most prolific authors of\" fu\" poetry of his time. He was a grandson of Fu Xie( 傅燮), a son of Fu Gan( 傅幹), and the father of Fu Xian( 傅咸)."
+    },
+    {
+      "pid": "p0192",
+      "title": "The Face of Fu Manchu",
+      "text": "The Face of Fu Manchu is a 1965 thriller film directed by Don Sharp and based on the characters created by Sax Rohmer. It stars Christopher Lee as the eponymous villain, a Chinese criminal mastermind, and Nigel Green as his pursuing rival Nayland Smith, a Scotland Yard detective. The film was a British- West German co-production, and was the first in a five- part series starring Lee and produced by Harry Alan Towers for Constantin Film, the second of which was\" The Brides of Fu Manchu\" released the next year, with the final entry being\" The Castle of Fu Manchu\" in 1969. It was shot in Technicolor and Techniscope, on- location in County Dublin, Ireland."
+    },
+    {
+      "pid": "p0193",
+      "title": "The Hidden One",
+      "text": "The Hidden One is a 1956 Mexican drama film directed by Roberto Gavaldón. It was entered into the 1956 Cannes Film Festival."
+    },
+    {
+      "pid": "p0194",
+      "title": "Glen Gordon",
+      "text": "Glen Charles Gordon( March 13, 1914 September 16, 1977) was an American actor. Among other roles, Gordon played the role of Fu Manchu in the 1956 television series\" The Adventures of Dr. Fu Manchu\"."
+    },
+    {
+      "pid": "p0195",
+      "title": "The Castle of Fu Manchu",
+      "text": "The Castle of Fu Manchu( also known as The Torture Chamber of Dr. Fu Manchu and also known by its German title Die Folterkammer des Dr. Fu Man Chu) is a 1969 film and the fifth and final Dr. Fu Manchu film with Christopher Lee portraying the title character."
+    },
+    {
+      "pid": "p0196",
+      "title": "Roberto Gavaldón",
+      "text": "Roberto Gavaldón( June 7, 1909 in Jiménez, Chihuahua – September 4, 1986 in Mexico City) was a Mexican film director. Eight of Gavaldón's films were featured on the list 100 Best Movies of the Cinema of Mexico. His 1958 film\" Ash Wednesday\" was entered into the 8th Berlin International Film Festival and his 1959 film\" Beyond All Limits\" was entered into the following years festival. His 1960 film\" Macario\" was entered into the 1960 Cannes Film Festival and was nominated for an Academy Award for Best Foreign Language Film."
+    },
+    {
+      "pid": "p0197",
+      "title": "Don Sharp",
+      "text": "Donald Herman Sharp( 19 April 192114 December 2011) was an Australian- born British film director. His best known films were made for Hammer in the 1960s, and included\" The Kiss of the Vampire\"( 1962) and\" Rasputin, the Mad Monk\"( 1966). In 1965 he directed\" The Face of Fu Manchu\", based on the character created by Sax Rohmer, and starring Christopher Lee. Sharp also directed the sequel\" The Brides of Fu Manchu\"( 1966). In the 1980s he was also responsible for several hugely popular miniseries adapted from the novels of Barbara Taylor Bradford."
+    },
+    {
+      "pid": "p0198",
+      "title": "Ali Rahuma",
+      "text": "Ali Khalifa Rahuma( born May 16, 1982) is a Libyan football midfielder who's nationality is Libyan. He currently plays for Al- Ittihad, and is a member of the Libya national football team."
+    },
+    {
+      "pid": "p0199",
+      "title": "Fulco",
+      "text": "Fulco was the first known missionary Bishop of Estonia. He was appointed in 1165 by Eskil, the Danish Archbishop of Lund. Before his appointment, Fulco was a Benedictine monk in the abbey of Moutier- la- Celle, near Troyes in France. His nationality is not known. After his appointment, Fulco appears in sources only once. In 1171, Pope Alexander III asked the Archbishop of Trondheim to assign an Estonian monk Nicolaus living in Stavanger to go to Fulco's assistance. No further information survives about Fulco's work in Estonia, or whether he ever even got there."
+    },
+    {
+      "pid": "p0200",
+      "title": "Eleni Gabre-Madhin",
+      "text": "Eleni Zaude Gabre- Madhin, an Ethiopian economist with Swiss nationality, is a former Chief Executive Officer of the Ethiopia Commodity Exchange( ECX). She has had many years of experience working on agricultural markets – particularly in Sub- Saharan Africa – and has held senior positions in the World Bank, the International Food Policy Research Institute( Washington), and United Nations( Geneva)."
+    },
+    {
+      "pid": "p0201",
+      "title": "Rumbold of Mechelen",
+      "text": "Saint Rumbold( or\" RumoldRomuold\") was an Irish or Scottish Christian missionary, although his true nationality is not known for certain. He was martyred near Mechelen by two men, whom he had denounced for their evil ways. Saint Rumbold's feast day is celebrated by the Roman Catholic Church, and Western Rite Orthodox Churches, on 24 June; and it is celebrated in Ireland on 3 July. He is the patron saint of Mechelen, where St. Rumbold's Cathedral possesses an elaborate golden shrine on its high altar, containing relics attributed to the saint. It is rumoured that his remains are buried inside the cathedral. Twenty- five paintings in the choir illustrate his life."
+    },
+    {
+      "pid": "p0202",
+      "title": "Nayelly Hernández",
+      "text": "Nayelly Hernández( born 23 February 1986) is a former Mexican female professional squash player. She has represented Mexico internationally in several international competitions including the Central American and Caribbean Games, Pan American Games, Women's World Team Squash Championships. Nayelly achieved her highest career ranking of 57 in October 2011 during the 2011 PSA World Tour. Her husband Chris Walker whose nationality is English is also a professional squash player. She joined the Trinity College in 2008 as the first Mexican female to join a US college for squash and graduated in 2010."
+    },
+    {
+      "pid": "p0203",
+      "title": "Khalid al-Habib",
+      "text": "Khalid al- Habib also believed to use the nom de guerre Khalid al Harbi is an Al- Qaeda leader who has overseen Al- Qaeda operations in Afghanistan. In 2005 it was reported that al- Habib died in a US missile strike on the Pakistani village of Damadola though it is unclear whether this is the case as Pakistani officials have claimed that no Al- Qaeda leaders died in the attack. al- Habib's nationality is not clear with sources claiming he may be Egyptian or Moroccan."
+    },
+    {
+      "pid": "p0204",
+      "title": "Roberto Savio",
+      "text": "Roberto Savio( born in Rome, Italy, but also holding Argentine nationality) is a journalist, communication expert, political commentator, activist for social and climate justice and advocate of global governance. He has spent most of his career with Inter Press Service( IPS), the news agency which he founded in 1964 along with Argentine journalist Pablo Piacentini. Savio studied Economics at the University of Parma, followed by post -graduate courses in Development Economics under Gunnar Myrdal, History of Art and International Law in Rome. He started his professional career as a research assistant in International Law at the University of Parma."
+    },
+    {
+      "pid": "p0205",
+      "title": "Baglan Mailybayev",
+      "text": "Baglan Mailybayev( in Kazakh Бағлан Асаубайұлы Майлыбаев) was born on 20 May 1975 in Zhambyl region, Kazakhstan. His nationality is Kazakh. He is a politician of the Republic of Kazakhstan, Deputy Head of the Presidential Administration of the Republic of Kazakhstan, Doctor of Law( 2002)( under the supervision of Professor Zimanov S.Z.- scientific advisor and academician of National Academy of Sciences of the Republic of Kazakhstan) and Ph.D. in Political Science( 1998)."
+    },
+    {
+      "pid": "p0206",
+      "title": "Kham Keut",
+      "text": "Kham Keut (also \"Kham-KertKham Keul\") was a king of Lan Xang, and ruled from 1436 to 1438. He was the son of King Samsenethai, who had ruled from 1373 to 1416, and his mother was said to be a palace slave. On his accession to the throne in 1436, he claimed to be a reincarnation of his father. His reign was ended by his death, from a fit, in 1438."
+    },
+    {
+      "pid": "p0207",
+      "title": "Samsenethai",
+      "text": "Samsenethai also called Oun Huan was the second king of Lan Xang, the son of Fa Ngum, whom he succeeded. He ruled from 1372 until 1417. The origin of the name Samsenethai is thought to be a reflection of the political and social upheaval occurring within the area at the time of his rule. Samsenethai literally means \"300,000 Thai,\" thus reflected the result of a census conducted in his reign. It is unclear whether the census included the entire population or just men capable of bearing arms. There is also discussion as to whether during this period, the terms \"Thai\" and \"Lao\" were interchangeable, whether the term \"Lao\" yet existed, or whether \"Thai\" was used in his name to refer to the fact that the census included all Tai groups. Local Thai history records that Samsenethai's Mother was a high born lady of Ayuttaya (Siam - Thailand) and that she had brought Thai Ministers for the government of Lan Xiang (Lan Chiang). Also noteworthy, the flag adopted for Lan Xiang is a near copy of the flag of Ayuttaya. Red background with a White elephant in the center. For the duration of his 43-year reign, Lan Xang did not fight a single battle. Wat Manorom, Wat Oubôsôt, and Wat Xiang Kham were built in Samsenethai's reign. He was succeeded by his son Lan Kham Deng."
+    },
+    {
+      "pid": "p0208",
+      "title": "Chang Po-ya",
+      "text": "Chang Po-ya( born 5 October 1942) is a Taiwanese politician who is the current President of the Control Yuan and founder of the Non-Partisan Solidarity Union, a political party in Taiwan."
+    },
+    {
+      "pid": "p0209",
+      "title": "Ou Ya",
+      "text": "Ou Ya( born 14 February 1986 in Baoding) is a Chinese footballer."
+    },
+    {
+      "pid": "p0210",
+      "title": "Znayu Ya",
+      "text": "\"Znayu YaI know\") is a song of Ukrainian singer Ruslana released in 2001."
+    },
+    {
+      "pid": "p0211",
+      "title": "Nicholas Chabraja",
+      "text": "Nicholas D. Chabraja( pronounced cha- brah- ya)( born November 6, 1942 in Gary, Indiana) is an American lawyer and former Chief Executive Officer of General Dynamics Corporation."
+    },
+    {
+      "pid": "p0212",
+      "title": "Ruslana",
+      "text": "Ruslana Stepanivna Lyzhychko (\"Ruslana Lyžyčko\"; born 24 May 1973), known mononymously as Ruslana, is a World Music Award and Eurovision Song Contest winning recording artist, holding the title of People's Artist of Ukraine. She is also a former MP serving as deputy in the Ukrainian parliament (Verkhovna Rada) for the Our Ukraine Party. Ruslana was the UNICEF Goodwill Ambassador in Ukraine in 2004-2005. She is recognized as the most successful Ukrainian female solo artist internationally and was included in the top 10 most influential women of 2013 by the Forbes magazine. The U.S. Secretary of State honored her with the International Women of Courage Award in March 2014. She has been named an honorary citizen of her hometown L'viv and was nominated to receive the title Hero of Ukraine. She is a singer, songwriter, producer, musical conductor, multi-instrumentalist, dancer, voice actress and social activist. She writes, composes and produces her own songs and music videos. Since 28 December 1995 she has been married to Oleksandr Ksenofontov, a Ukrainian record producer. Together they have run the company \"Luxen Studio\" since 1993, producing radio and film trailers. Ruslana was the first artist from the former Soviet Union to officially receive a platinum disc, her \"Dyki tantsi\" album selling more than 170,000 copies in the first 100 days after its release. This album is the best selling Ukrainian album to date, together with its English version, more than 500,000 copies being sold solely in Ukraine. She won the 2004 Eurovision Song Contest with the song \"Wild Dances\" receiving 280 points, which at that time was a record of points. Following her victory, she rose to fame in Europe and became one of the biggest pop stars from the Eastern part of the continent. Her winning song \"Wild Dances\" dominated the European charts for 97 weeks peaking at number one in Belgium for 10 consecutive weeks. Her Eurovision winning song was included on the official compilation album called \"The Very Best of Eurovision\" celebrating the 60th anniversary of the contest. Her repertoire includes songs performed mainly in Ukrainian and English, but she also recorded cover versions in Spanish and Latin languages."
+    },
+    {
+      "pid": "p0213",
+      "title": "Liu Ya",
+      "text": "Liu Ya( born) is a Chinese female volleyball player. With her club Bohai Bank Tianjin she competed at the 2012 FIVB Volleyball Women's Club World Championship."
+    },
+    {
+      "pid": "p0214",
+      "title": "Cheng Chi-ya",
+      "text": "Cheng Chi-ya( born 26 December 1992) is a Taiwanese badminton player. She won her first international title at the 2013 Polish International Series in the women's singles event."
+    },
+    {
+      "pid": "p0215",
+      "title": "Cosima von Bülow Pavoncelli",
+      "text": "Countess Cosima von Bülow Pavoncelli( born 15 April 1967) is a British socialite and philanthropist of American, Danish and German ancestry and daughter of the lawyer Claus von Bülow and Sunny von Bülow. She was named on the International Best Dressed List Hall of Fame in 1999."
+    },
+    {
+      "pid": "p0216",
+      "title": "Mona Hopton Bell",
+      "text": "Mona Hopton Bell( 1867- 1940) was a British artist, best known for her portraits of civic figures. She was the grandmother of the painter Jean H. Bell."
+    },
+    {
+      "pid": "p0217",
+      "title": "Kaoru Hatoyama",
+      "text": "After the elections of 2009, she became more widely known as the grandmother of Prime Minister Yukio Hatoyama and his politician brother Kunio Hatoyama."
+    },
+    {
+      "pid": "p0218",
+      "title": "Eva Chamberlain",
+      "text": "Eva Chamberlain (1867–1942) born Eva Maria von Bülow, was the daughter of Richard Wagner and Cosima Wagner, and the wife of Houston Stewart Chamberlain. When she was born, her mother was still married to Hans von Bülow. Through her mother, she was also a granddaughter of Franz Liszt. With her siblings Isolde and Siegfried, Eva was brought up by a house teacher. In 1906 Eva took over the care of the sick mother at Villa Wahnfried in Bayreuth, took care of her mail, and was the only family member to have access to the family archive. In 1908 she married Houston Stewart Chamberlain. They acquired a stately villa – now the Jean Paul Museum – next to the Villa Wahnfried, and moved into it in 1916 In the 1920s and 1930s, she and her sister Daniela were the head of the Altwagnerians who opposed any modernization of Richard Wagner's works. In 1933 she received the honorary citizenship of the city of Bayreuth. She was also a bearer of the Golden Party Badge of the Nazi Party. When she died of cancer in 1942, she was given an honorary funeral of the NSDAP, in which Adolf Wagner gave the eulogy."
+    },
+    {
+      "pid": "p0219",
+      "title": "Tjuyu",
+      "text": "Tjuyu( sometimes transliterated as Thuya or Thuyu) was an Egyptian noblewoman and the mother of queen Tiye, and the wife of Yuya. She is the grandmother of Akhenaten, and great grandmother of Tutankhamun."
+    },
+    {
+      "pid": "p0220",
+      "title": "Hannah Arnold",
+      "text": "Hannah Arnold, also known as Hannah Waterman King, was the grandmother of Benedict Arnolds children."
+    },
+    {
+      "pid": "p0221",
+      "title": "Cosima Wagner",
+      "text": "Cosima Wagner (born Francesca Gaetana Cosima Liszt; 24 December 1837 – 1 April 1930) was the illegitimate daughter of the Hungarian pianist and composer Franz Liszt and Marie d'Agoult. She became the second wife of the German composer Richard Wagner, and with him founded the Bayreuth Festival as a showcase for his stage works; after his death she devoted the rest of her life to the promotion of his music and philosophy. Commentators have recognised Cosima as the principal inspiration for Wagner's later works, particularly \"Parsifal\". In 1857, after a childhood largely spent under the care of her grandmother and with governesses, Cosima married the conductor Hans von Bülow. Although the marriage produced two children, it was largely a loveless union, and in 1863 Cosima began a relationship with Wagner, who was 24 years her senior. She married him in 1870; after his death in 1883 she directed the Bayreuth Festival for more than 20 years, increasing its repertoire to form the Bayreuth canon of ten operas and establishing the festival as a major event in the world of musical theatre. During her directorship, Cosima opposed theatrical innovations and adhered closely to Wagner's original productions of his works, an approach continued by her successors long after her retirement in 1907. She shared Wagner's convictions of German cultural and racial superiority, and under her influence, Bayreuth became increasingly identified with antisemitism. This was a defining aspect of Bayreuth for decades, into the Nazi era which closely followed her death in 1930. Thus, although she is widely perceived as the saviour of the festival, her legacy remains controversial."
+    },
+    {
+      "pid": "p0222",
+      "title": "Anne Denman",
+      "text": "Anne Denman( 1587–1661) was born in Olde Hall, Retford, Nottinghamshire. Through a fortunate second marriage with Thomas Aylesbury, she became the grandmother of Lady Anne Hyde, Duchess of York and great- grandmother of Queen Mary II and Queen Anne."
+    },
+    {
+      "pid": "p0223",
+      "title": "Hubba bint Hulail",
+      "text": "Hubba bint Hulail was the grandmother of Hashim ibn' Abd Manaf, thus the great- great- great- grandmother of the Islamic\" Nabī\"( Prophet) Muhammad ibn Abdullah."
+    },
+    {
+      "pid": "p0224",
+      "title": "Marie von Buelow",
+      "text": "Marie Schanzer von Bülow( 1857–1941) was an Austrian- German stage and film actress. In July 1882, she married the pianist and conductor Hans von Bülow."
+    },
+    {
+      "pid": "p0225",
+      "title": "Pauly Shore",
+      "text": "Paul Montgomery Shore( born February 1, 1968) is an American actor, comedian and filmmaker best known for his roles in several comedy films in the 1990s. Shore began as a stand up comedian at the age of 17, before becoming an MTV VJ in 1989. This led to a starring role in comedy film\" Encino Man\" in 1992 which was a modest hit. Roles in other films followed, including\" Son in Law\"( 1993) and\" Bio- Dome\"( 1996)."
+    },
+    {
+      "pid": "p0226",
+      "title": "Kim Jung-man",
+      "text": "Kim Jung-man( born October 30, 1954) is a South Korean photographer."
+    },
+    {
+      "pid": "p0227",
+      "title": "Huh Young-man",
+      "text": "Huh Young- man( born June 26, 1947) is a South Korean manhwa artist."
+    },
+    {
+      "pid": "p0228",
+      "title": "Les Mayfield",
+      "text": "Les Mayfield (born in Albuquerque, New Mexico) is an American film director and producer."
+    },
+    {
+      "pid": "p0229",
+      "title": "Victor Man",
+      "text": "Victor Man( born 1974) is a Romanian- born artist and painter."
+    },
+    {
+      "pid": "p0230",
+      "title": "Sharla Cheung",
+      "text": "Sharla Cheung Man( born 7 February 1967) is a Hong Kong actress and film producer."
+    },
+    {
+      "pid": "p0231",
+      "title": "Encino Man",
+      "text": "Encino Man (known as California Man in Europe and New Zealand) is a 1992 American comedy film directed by Les Mayfield and starring Brendan Fraser, Sean Astin and Pauly Shore. The plot revolves around two geeky teenagers from Encino, Los Angeles, California, played by Astin and Shore, who discover a caveman in Morgan's backyard frozen in a block of ice. The caveman, played by Fraser, has to learn to live in the 20th century. Along the way, he teaches them about life."
+    },
+    {
+      "pid": "p0232",
+      "title": "Bryan Man",
+      "text": "Bryan Man( born December 8, 1983) is an Argentine- Israeli professional football( soccer) player."
+    },
+    {
+      "pid": "p0233",
+      "title": "Benny Chan (actor)",
+      "text": "Benny Chan Ho-man( born 7 October 1969) is a Hong Kong actor and singer."
+    },
+    {
+      "pid": "p0234",
+      "title": "Janice Man",
+      "text": "Janice Man( born December 29, 1988) is a Hong Kong actress and fashion model."
+    },
+    {
+      "pid": "p0235",
+      "title": "Ogawa Mataji",
+      "text": "Viscount was a general in the early Imperial Japanese Army. He was also the father- in- law of Field Marshal Gen Sugiyama."
+    },
+    {
+      "pid": "p0236",
+      "title": "Ludwig von Westphalen",
+      "text": "Johann Ludwig von Westphalen( 11 July 1770 – 3 March 1842) was a liberal Prussian civil servant and the father- in- law of Karl Marx."
+    },
+    {
+      "pid": "p0237",
+      "title": "Duchess Gustave Caroline of Mecklenburg-Strelitz",
+      "text": "Duchess Gustave Caroline of Mecklenburg- Strelitz( 12 July 1694 – 13 April 1748) was a daughter of Adolphus Frederick II, Duke of Mecklenburg and Princess Maria of Mecklenburg."
+    },
+    {
+      "pid": "p0238",
+      "title": "Barthold A. Butenschøn Sr.",
+      "text": "Hans Barthold Andresen Butenschøn( 27 December 1877 – 28 November 1971) was a Norwegian businessperson. He was born in Kristiania as a son of Nils August Andresen Butenschøn and Hanna Butenschøn, and grandson of Nicolay Andresen. Together with Mabel Anette Plahte( 1877 – 1973, a daughter of Frithjof M. Plahte) he had the son Hans Barthold Andresen Butenschøn Jr. and was through him the father- in- law of Ragnhild Butenschøn and grandfather of Peter Butenschøn. Through his daughter Marie Claudine he was the father- in- law of Joakim Lehmkuhl, through his daughter Mabel Anette he was the father- in- law of Harald Astrup( a son of Sigurd Astrup) and through his daughter Nini Augusta he was the father- in- law of Ernst Torp. He took commerce school and agricultural school. He was hired in the family company N. A. Andresen& Co, and became a co-owner in 1910. He eventually became chief executive officer. The bank changed its name to Andresens Bank in 1913 and merged with Bergens Kreditbank in 1920. The merger was dissolved later in the 1920s. He was also a landowner, owning Nedre Skøyen farm and a lot of land in Enebakk. He chaired the board of Nydalens Compagnie from 1926, having not been a board member before that. He also chaired the supervisory council of Forsikringsselskapet Viking and Nedre Glommen salgsforening, and was a supervisory council member of Filharmonisk Selskap. He was a member of the gentlemen's club SK Fram since 1890, and was proclaimed a lifetime member in 1964. He was buried in Enebakk."
+    },
+    {
+      "pid": "p0239",
+      "title": "Duke Louis of Mecklenburg-Schwerin",
+      "text": "Duke Louis of Mecklenburg- Schwerin( 6 August 172512 September 1778) was heir to the Dukedom of Mecklenburg- Schwerin from 1756 to his death. He was also the father of the first Grand Duke of Mecklenburg- Schwerin Frederick Francis I"
+    },
+    {
+      "pid": "p0240",
+      "title": "Princess Alexandrine of Prussia (1842–1906)",
+      "text": "Princess Frederica Wilhelmina Louise Elisabeth \"Alexandrine\" of Prussia (1 February 1842 – 26 March 1906) was a member of the House of Hohenzollern as the daughter of Prince Albert of Prussia and his wife Princess Marianne of the Netherlands."
+    },
+    {
+      "pid": "p0241",
+      "title": "Prince Wilhelm of Prussia (1906–1940)",
+      "text": "Prince Wilhelm of Prussia (Wilhelm Friedrich Franz Joseph Christian Olaf; 4 July 1906 – 26 May 1940) was the eldest child of Crown Prince Wilhelm of Germany and Duchess Cecilie of Mecklenburg-Schwerin. At his birth, he was second in line to the German throne and was expected to succeed to the throne after the deaths of his paternal grandfather and father. Both of whom, however, outlived him."
+    },
+    {
+      "pid": "p0242",
+      "title": "John VI, Duke of Mecklenburg",
+      "text": "John VI, Duke of Mecklenburg( 1439 – 1474) was a Duke of Mecklenburg."
+    },
+    {
+      "pid": "p0243",
+      "title": "Duke William of Mecklenburg-Schwerin",
+      "text": "Willem of Mecklenburg-Schwerin (Ludwigsburg, 5 March 1827 - Heidelberg, 28 July 1879), was the second son of Hereditary Grand Duke Paul Friedrich of Mecklenburg and his wife Princess Alexandrine of Prussia, daughter of Frederick William III."
+    },
+    {
+      "pid": "p0244",
+      "title": "John Adams (merchant)",
+      "text": "John Adams( 1672 or 1673 – 1745) was an American- born Canadian merchant and member of the Nova Scotia Council. He was the father- in- law of Henry Newton( politician)."
+    },
+    {
+      "pid": "p0245",
+      "title": "Ray Dennis Steckler",
+      "text": "Ray Dennis Steckler( January 25, 1938 – January 7, 2009), also known by the pseudonym Cash Flagg, was an American film director, producer, screenwriter and actor best known as the low- budget auteur of such cult films as\" The Incredibly Strange Creatures Who Stopped Living and Became Mixed- Up Zombies\". In addition to Cash Flagg, Steckler was also known by the pseudonyms Sven Christian, Sven Hellstrom, Harry Nixon, Michael J. Rogers, Michel J. Rogers, Wolfgang Schmidt, Cindy Lou Steckler, R.D. Steckler, Ray Steckler, and Cindy Lou Sutters — the last being his\" porn name\"."
+    },
+    {
+      "pid": "p0246",
+      "title": "Mary Moore (pitcher)",
+      "text": "Mary Frances Moore( March 6, 1922 – July 12, 1962) was a pitcher who played in the All- American Girls Professional Baseball League. She was born in Lemon Grove, California. Moore spent one season in the league with the 1948 Rockford Peaches champion team. She posted a 2- 3 pitching record in eight games and batted an average of .222( 4- for- 18). She died in 1962 in her home of Lemon Grove, California, at the age of 40. In 1988 was inaugurated a permanent display at the Baseball Hall of Fame and Museum in Cooperstown, New York that honors those who were part of the All- American Girls Professional Baseball League. Mary Moore, along with the rest of the girls and the league staff, is included at the display/ exhibit."
+    },
+    {
+      "pid": "p0247",
+      "title": "Abhishek Saxena",
+      "text": "Abhishek Saxena is an Indian Bollywood and Punjabi film director who directed the movie Phullu. The Phullu movie was released in theaters on 16 June 2017, in which film Sharib Hashmi is the lead role. Apart from these, he has also directed Patiala Dreamz, this is a Punjabi film. This film was screened in cinemas in 2014."
+    },
+    {
+      "pid": "p0248",
+      "title": "Ben Palmer",
+      "text": "Ben Palmer is a British film and television director who is known for being the director of\" Bo' Selecta\" and\" The Inbetweeners\"."
+    },
+    {
+      "pid": "p0249",
+      "title": "I Learned It from Father",
+      "text": "I Learned It from Father  is a 1964 German comedy film directed by Axel von Ambesser and starring Willy Fritsch, Thomas Fritsch and Gertraud Jesserer. The son of a respectable industrialist leads a wild second life."
+    },
+    {
+      "pid": "p0250",
+      "title": "Axel von Ambesser",
+      "text": "Axel Eugen Alexander von Oesterreich( 22 June 1910 – 6 September 1988), better known as Axel von Ambesser, was a German actor and film director. Ambesser's father was Alexander Constantin von Oesterreich. Ambesser was born in Hamburg and attended Wilhelm- Gymnasium. He appeared as a stage actor in the Hamburg Kammerspiele, and went on to play in the Stadttheater Augsburg, the Münchner Kammerspiele, from 1937 the Deutsche Theater Berlin, from 1942 the Staatstheater Berlin, and the Theater in der Josefstadt in Vienna."
+    },
+    {
+      "pid": "p0251",
+      "title": "The Bowery Boys Meet the Monsters",
+      "text": "The Bowery Boys Meet the Monsters is a 1954 comedy film starring The Bowery Boys. The film was released on June 6, 1954 by Allied Artists and is the thirty-fourth film in the series."
+    },
+    {
+      "pid": "p0252",
+      "title": "Lemon Grove Kids Meet the Monsters",
+      "text": "Lemon Grove Kids Meet the Monsters is a trilogy of short movies released during 1965. The movies are homages to the Bowery Boys series of movies from the mid-1940s to late 1950s. Each movie of the trilogy features the antics of the bumbling Lemon Grove Kids. They are titled \"The Lemon Grove KidsThe Lemon Grove Kids Meet the Green Grasshopper and the Vampire Lady from Outer Space\", and \"The Lemon Grove Kids Go Hollywood!\". Moviemaker Ray Dennis Steckler created the characters, wrote 'Hollywood', and directed the first movie of the trilogy. He also features in each segment, billed as Cash Flagg. The three shorts were edited into a feature, \" The Lemon Grove Kids Meet The Monsters\". For theatrical showings, the movie was interrupted by the mummy from the movie going into the audience."
+    },
+    {
+      "pid": "p0253",
+      "title": "Drew Esocoff",
+      "text": "Drew Esocoff( born c. 1957) is an American television sports director, who as of 2006 has been the director of NBC Sunday Night Football."
+    },
+    {
+      "pid": "p0254",
+      "title": "G. Marthandan",
+      "text": "G. Marthandan is an Indian film director who works in Malayalam cinema."
+    },
+    {
+      "pid": "p0255",
+      "title": "John VII, Count of Oldenburg",
+      "text": "Count John VII of Oldenburg and Delmenhorst( nicknamed\" the Dike Builder\"; 9 September 1540 in Oldenburg – 12 November 1603 in Oldenburg) was a member of the House of Oldenburg and was the ruling Count of County of Oldenburg from 1573 until his death. His parents were Count Anthony I of Oldenburg and Sophie of Saxe- Lauenburg."
+    },
+    {
+      "pid": "p0256",
+      "title": "Christian II, Count of Oldenburg",
+      "text": "Christian II, Count of Oldenburg( died 1233) was a German nobleman. He was the ruling Count of Oldenburg from 1209 until his death."
+    },
+    {
+      "pid": "p0257",
+      "title": "Conrad I, Count of Oldenburg",
+      "text": "Conrad I of Oldenburg (died 1347) was the Count of Oldenburg from 1344 to 1347. He succeeded his brother, John III of Oldenburg. He was the son of John II of Oldenburg and Hedwig of Diepholz. Conrad married Ingeborg, the daughter of Count Gerhard IV of Holstein-Plön. They had four children: Conrad I of Oldenburg is also a male-line ancestor of Queen Margrethe II of Denmark, King Harald V of Norway, and of Philip, Duke of Edinburgh, and thus of Charles, Prince of Wales, and Prince William, Duke of Cambridge."
+    },
+    {
+      "pid": "p0258",
+      "title": "John II, Count of Oldenburg",
+      "text": "John II of Oldenburg (died c. 1314 or 1316) was Count of Oldenburg from 1275 until around 1301. He was the son of Christian III, Count of Oldenburg and Hedwig von Oldenburg in Wildeshausen. John married twice. His first marriage was to Elisabeth, the daughter of John, Duke of Brunswick and Lunenburg and Liutgard von Holstein-Itzehoe. His second marriage was to Countess Hedwig of Diepholz. John had five children:\nJohn II of Oldenburg is also the patriline ancestor of Queen Margrethe II of Denmark, Philip, Duke of Edinburgh, and thus of Charles, Prince of Wales and Prince William, Duke of Cambridge."
+    },
+    {
+      "pid": "p0259",
+      "title": "John VI, Count of Oldenburg",
+      "text": "John VI, Count of Oldenburg( 1501 in Oldenburg – 1548 in Bremen) was a Count of Oldenburg. He was the eldest son of John V, Count of Oldenburg and his wife, Anna of Anhalt- Bernburg. He was supposed to rule jointly with his younger brothers. However, his time in office was marked by conflicts between John VI and his co-rulers."
+    },
+    {
+      "pid": "p0260",
+      "title": "Christian, Duke of Oldenburg",
+      "text": "Christian, Duke of Oldenburg( born 1 February 1955) is the head of the Grand Ducal Family of Oldenburg."
+    },
+    {
+      "pid": "p0261",
+      "title": "John V, Count of Oldenburg",
+      "text": "John V, Count of Oldenburg and Delmenhorst (also counted as John XIV, including also non-ruling namesake siblings; 1460, Oldenburg – 10 February 1526, Oldenburg) was a member of the House of Oldenburg. He was the ruling Count of Oldenburg from 1500 to 1526. His parents were Gerhard VI, Count of Oldenburg and Adelheid of Tecklenburg."
+    },
+    {
+      "pid": "p0262",
+      "title": "Adolph, Count of Oldenburg-Delmenhorst",
+      "text": "Adolph, Count of Oldenburg- Delmenhorst( b. before 1463 – 17 February 1500) was a Count of Oldenburg from 1482 until his death."
+    },
+    {
+      "pid": "p0263",
+      "title": "Christian V, Count of Oldenburg",
+      "text": "Christian V, Count of Oldenburg( sometimes called\" Christian VI\"; – after 6 April 1399) was the ruling count of Oldenburg from 1368 until 1398. He was born sometime before 1347 to Count Conrad I of Oldenburg and Ingeborg of Brunswick. After his father died in 1368, he ruled Oldenburg jointly with his elder brother Conrad II, and after Conrad II's deaths in 1386, with the latter's son, Maurice II. He married Agnes of Honstein, and the Danish Royal houses of Oldenburg and Schleswig- Holstein- Sonderburg- Glücksburg descend from him via his son and successor Dietrich, Count of Oldenburg. Through the dynastic marriages of his descendants, he is an ancestor of many European Royal houses."
+    },
+    {
+      "pid": "p0264",
+      "title": "Anthony I, Count of Oldenburg",
+      "text": "Anthony I, Count of Oldenburg and Delmenhorst( 1505 – 22 January 1573, Oldenburg) was a member of the House of Oldenburg and was the Imperial Count of the Counties of Oldenburg and Delmenhorst within the Holy Roman Empire of German Nation. His parents were John V, Count of Oldenburg( 1460- 1525) and Anna of Anhalt- Zerbst."
+    },
+    {
+      "pid": "p0265",
+      "title": "Priscilla Pointer",
+      "text": "Priscilla Marie Pointer( born May 18, 1924) is an American stage, film and television character actress. She began her career in the theater, including productions on Broadway. Later, Pointer moved to Hollywood to act in films and on television. She is the mother of Amy Irving, therefore making her the former mother- in- law of filmmakers Steven Spielberg and Bruno Barreto and the mother- in- law of documentary filmmaker Kenneth Bowser, Jr."
+    },
+    {
+      "pid": "p0266",
+      "title": "Baroness Gösta von dem Bussche-Haddenhausen",
+      "text": "Baroness Gösta von dem Bussche- Haddenhausen( 26 January 1902 – 13 June 1996) was the mother of Prince Claus of the Netherlands, who was the Prince Consort of Queen Beatrix of the Netherlands, thus making her the mother- in- law of the former Dutch Queen. She is also the paternal grandmother of King Willem- Alexander of the Netherlands, who is the current Dutch King."
+    },
+    {
+      "pid": "p0267",
+      "title": "Adelaide of Paris",
+      "text": "Adélaïde of Paris (or Aélis) (c. 850/853 – 10 November 901) was a Frankish queen. She was the second wife of Louis the Stammerer, King of West Francia, and was the mother of Charles the Simple."
+    },
+    {
+      "pid": "p0268",
+      "title": "Vera Miletić",
+      "text": "Vera Miletić (Serbian Cyrillic: Вера Милетић; 8 March 1920 – 7 September 1944) was a Serbian student and soldier. She was notable for being the mother of Mira Marković, posthumously making her the mother-in-law of Serbian president Slobodan Milošević."
+    },
+    {
+      "pid": "p0269",
+      "title": "Doria Ragland",
+      "text": "Doria L. Ragland( born September 2, 1956) is the mother of Meghan, Duchess of Sussex, the mother- in- law of Prince Harry, and the maternal grandmother of Archie Mountbatten- Windsor, who is seventh in line to the British throne. She is a former makeup artist, business owner, yoga instructor, and former social worker who worked in the mental health sector from 2015 to 2018."
+    },
+    {
+      "pid": "p0270",
+      "title": "Marian Shields Robinson",
+      "text": "Marian Lois Robinson( née Shields; born July 29, 1937) is the mother of Michelle Obama, former First Lady of the United States, and Craig Robinson, a basketball executive, and the mother- in- law of former U.S. President Barack Obama."
+    },
+    {
+      "pid": "p0271",
+      "title": "Louis the Stammerer",
+      "text": "Louis II, known as Louis the Stammerer (1 November 846 – 10 April 879), was the King of Aquitaine and later the King of West Francia. He was the eldest son of emperor Charles the Bald and Ermentrude of Orléans. Louis the Stammerer was physically weak and outlived his father by only two years. He succeeded his younger brother Charles the Child as the ruler of Aquitaine in 866 and his father in West Francia in 877, but he was never crowned Holy Roman Emperor. Louis was crowned king on 8 October 877 by Hincmar, archbishop of Reims, at Compiegne and was crowned a second time in August 878 by Pope John VIII at Troyes while the pope was attending a council there. The pope may have even offered him the imperial crown, but it was declined. Louis had relatively little impact on politics. He was described \"a simple and sweet man, a lover of peace, justice, and religion\". In 878, he gave the counties of Barcelona, Girona, and Besalú to Wilfred the Hairy. His final act was to march against the invading Vikings, but he fell ill and died on 9 April or 10 April 879, not long after beginning this final campaign. On his death, his realms were divided between his two sons, Carloman II and Louis III of France."
+    },
+    {
+      "pid": "p0272",
+      "title": "Adelaide of Rheinfelden",
+      "text": "Adelaide of Rheinfelden( or Adelaide of Swabia)( 1060s – May 1090), was Queen Consort of Hungary by marriage to King Ladislaus I of Hungary."
+    },
+    {
+      "pid": "p0273",
+      "title": "Maria Thins",
+      "text": "Maria Thins( c. 1593 – 27 December 1680) was the mother- in- law of Johannes Vermeer and a member of the Gouda Thins family."
+    },
+    {
+      "pid": "p0274",
+      "title": "Eldon Howard",
+      "text": "Eldon Howard was a British screenwriter. She was the mother- in- law of Edward J. Danziger and wrote a number of the screenplays for films by his company Danziger Productions."
+    },
+    {
+      "pid": "p0275",
+      "title": "Constance Anne Herschel",
+      "text": "Constance Anne Herschel( 1855- 1939), later known as Lady Lubbock, was a scientist and mathematician. Herschel held the post of resident lecturer in natural sciences and mathematics at Girton College, Cambridge. She was the child of Sir John Frederick William Herschel, and the grandchild of William Herschel. She wrote a family history of the famous scientific dynasty by compiling family sources,' The Herschel Chronicle'. She married Sir Neville Lubbock."
+    },
+    {
+      "pid": "p0276",
+      "title": "Tulasi (actress)",
+      "text": "Priya bhandhavi-Sarada Heroine Ranganath Hero tulasi as their daughter (1974)\nTulasi (or Tulasi Shivamani) (born 20 June 1967) is an Indian actress. She is the grandchild of Dr. Muthuvenkataraman, who was a personal advisor in spiritual and astrology and an acquaintance of Indira Gandhi, served 30 years of service in Delhi with her and resigned two years before she was assassinated, he is also the founder of the All India Sai Samaj (based in Mylapore), Chennai, Tamil Nadu, India,and went on to take service of Sri Shirdi Sai Baba and developed the Mylapore Temple. The statue was installed by him and the Annadānam was started in the year 1990, grandchild Tulasi ’s name in Mylapore and Coimbatore, simultaneously. She started her career as a child actress, then became a lead actress and later did supporting roles in mother characters. She has acted in over 300 films in Tamil, Malayalam, Kannada, Telugu and Hindi languages."
+    },
+    {
+      "pid": "p0277",
+      "title": "Jim Ramel Kjellgren",
+      "text": "Jim Love Ramel Kjellgren,( born 18 July 1987) is a Swedish actor. He is the son of Lotta Ramel and and the grandchild of Povel Ramel. He is perhaps best known as the character Jonte in the SVT series Eva& Adam, he reprised the role in the film\" Eva& Adam – fyra födelsedagar och ett fiasko\"."
+    },
+    {
+      "pid": "p0278",
+      "title": "Elizabeth (biblical figure)",
+      "text": "Elizabeth, also spelled Elisabeth derives from \"Elisheba\": (in the Hebrew אֱלִישֶׁבַע / אֱלִישָׁבַע \"My God has sworn\"; Standard Hebrew Elišévaʿ Elišávaʿ, Tiberian Hebrew ʾĔlîšéḇaʿ ʾĔlîšāḇaʿ; Arabic أليصابات, \"Alyassabat\"; in Greek Ἐλισάβετ (Elisavet)), was the mother of John the Baptist and the wife of Zechariah, according to the Gospel of Luke. She was at least 60 years of age and well past child bearing years when she gave birth to John."
+    },
+    {
+      "pid": "p0279",
+      "title": "Merlin Holland",
+      "text": "Christopher Merlin Vyvyan Holland( born 1945 in London) is a biographer and editor. He is the only grandchild of Oscar Wilde, whose life he has researched and written about extensively."
+    },
+    {
+      "pid": "p0280",
+      "title": "Albina du Boisrouvray",
+      "text": "Countess Albina du Boisrouvray( born 1941) is a former journalist and film producer who has become a global philanthropist and social entrepreneur working with AIDS victims and impoverished communities around the world. She is the founder of FXB International, a non-governmental organization established in memory of her son, François- Xavier Bagnoud. Du Boisrouvray is the grandchild of the Bolivian\" King of Tin\", Simón Patiño. She is the cousin of Prince Rainier of Monaco and godmother to Charlotte Casiraghi, daughter of Princess Caroline of Monaco."
+    },
+    {
+      "pid": "p0281",
+      "title": "Diana Weston",
+      "text": "Diana Weston( born 13 November 1953 in Toronto, Ontario, Canada) is an English actress who has been on British television since 1975. She is a grandchild of Charles Basil Price."
+    },
+    {
+      "pid": "p0282",
+      "title": "Stokkseyrar-Dísa",
+      "text": "Thordis Markusdottir(\" Þórdís Markúsdóttir\"), known as Stokkseyrar- Dísa( 1668 – 1728), was an Icelandic magician( Galdrmaster). She is known in history for her alleged magical powers. She is the subject of a least ten different folk sagas depicting her experiments within magic or Galdr. Thordis Markusdottir belonged to the elite of the Iceland and was the grandchild of sheriff Torfi Erlendsson of Stafnes and related to Thormodus Torfæus, historian of the King of Denmark. She lived in Stokkseyri, thereby the name Stokkseyrar- Dísa. Some of the sagas around her centers on her magical duels with Eiríkur í Vogsósum."
+    },
+    {
+      "pid": "p0283",
+      "title": "Princess Elizabeth of Great Britain",
+      "text": "Princess Elizabeth (Elizabeth Caroline; 10 January 1741 – 4 September 1759) was a member of the British Royal Family, a grandchild of King George II and sister of King George III."
+    },
+    {
+      "pid": "p0284",
+      "title": "Sobe (sister of Saint Anne)",
+      "text": "Sobe, also known as Sovin, was the mother of St. Elizabeth and sister of St. Anne. The Bible records only that Elizabeth was a descendant of Aaron and a cousin (or relative) of Mary. The name of Sobe first appears in writings of about the 8th century by Hippolytus of Thebes, Andrew of Crete, and Epiphanius Monachus, and later in Nicephorus Callistus and Andronicus. All recount essentially the same passage, given by the last two as follows: There were three sisters of Bethlehem, daughters of Matthan the priest, and Mary his wife, under the reign of Cleopatra and Sosipatrus, before the reign of Herod, the son of Antipater: the eldest was Mary, the second was Sobe, the youngest's name was Anne. The eldest being married in Bethlehem, had for daughter Salome the midwife; Sobe the second likewise married in Bethlehem, and was the mother of Elizabeth; last of all the third married in Galilee, and brought forth Mary the mother of Christ. The 19th-century mystic Anne Catherine Emmerich claims that according to her visions (which give a detailed genealogy of Mary), Sobe was a sister of Anne, but the mother of Elizabeth was Emerentia, Sobe and Anne's maternal aunt."
+    }
+  ],
+  "items": [
+    {
+      "qid": "9d527e340bdd11eba7f7acde48001122",
+      "question": "What is the place of birth of Æthelgifu, Abbess Of Shaftesbury's mother?",
+      "answer": "Mercia",
+      "qtype": "compositional",
+      "gold_titles": [
+        "Ealhswith",
+        "Æthelgifu, abbess of Shaftesbury"
+      ],
+      "evidences": [
+        [
+          "Æthelgifu",
+          "mother",
+          "Ealhswith"
+        ],
+        [
+          "Ealhswith",
+          "place of birth",
+          "Mercia"
+        ]
+      ]
+    },
+    {
+      "qid": "578ac41e0bde11eba7f7acde48001122",
+      "question": "When did William Le Poer Trench's father die?",
+      "answer": "26 April 1872",
+      "qtype": "compositional",
+      "gold_titles": [
+        "William Le Poer Trench",
+        "William Trench, 3rd Earl of Clancarty"
+      ],
+      "evidences": [
+        [
+          "William Le Poer Trench",
+          "father",
+          "William Trench, 3rd Earl of Clancarty"
+        ],
+        [
+          "William Trench, 3rd Earl of Clancarty",
+          "date of death",
+          "26 April 1872"
+        ]
+      ]
+    },
+    {
+      "qid": "24408f4b084f11ebbd56ac1f6bf848b6",
+      "question": "Which film has the director who was born earlier, Ringo The Lone Rider or Den Sommeren Jeg Fylte 15?",
+      "answer": "Ringo The Lone Rider",
+      "qtype": "bridge_comparison",
+      "gold_titles": [
+        "Den sommeren jeg fylte 15",
+        "Knut Andersen",
+        "Rafael Romero Marchent",
+        "Ringo the Lone Rider"
+      ],
+      "evidences": [
+        [
+          "Ringo the Lone Rider",
+          "director",
+          "Rafael Romero Marchent"
+        ],
+        [
+          "Den sommeren jeg fylte 15",
+          "director",
+          "Knut Andersen"
+        ],
+        [
+          "Rafael Romero Marchent",
+          "date of birth",
+          "3 May 1926"
+        ],
+        [
+          "Knut Andersen",
+          "date of birth",
+          "9 May 1931"
+        ]
+      ]
+    },
+    {
+      "qid": "258867240bdd11eba7f7acde48001122",
+      "question": "Where was the wife of Douglas Leiterman born?",
+      "answer": "Winnipeg, Manitoba",
+      "qtype": "compositional",
+      "gold_titles": [
+        "Beryl Fox",
+        "Douglas Leiterman"
+      ],
+      "evidences": [
+        [
+          "Douglas Leiterman",
+          "spouse",
+          "Beryl Fox"
+        ],
+        [
+          "Beryl Fox",
+          "place of birth",
+          "Winnipeg, Manitoba"
+        ]
+      ]
+    },
+    {
+      "qid": "ec292cde089e11ebbd78ac1f6bf848b6",
+      "question": "Who was born later, Andrzej Kryński or Keith Nichol?",
+      "answer": "Keith Nichol",
+      "qtype": "comparison",
+      "gold_titles": [
+        "Andrzej Kryński",
+        "Keith Nichol"
+      ],
+      "evidences": [
+        [
+          "Andrzej Kryński",
+          "date of birth",
+          "16 July 1931"
+        ],
+        [
+          "Keith Nichol",
+          "date of birth",
+          "December 24, 1988"
+        ]
+      ]
+    },
+    {
+      "qid": "fb65a4c40bdd11eba7f7acde48001122",
+      "question": "What is the place of birth of Elisabeth Of Wrocław's father?",
+      "answer": "Kraków",
+      "qtype": "compositional",
+      "gold_titles": [
+        "Elisabeth of Wrocław",
+        "Henry II the Pious"
+      ],
+      "evidences": [
+        [
+          "Elisabeth of Wrocław",
+          "father",
+          "Henry II the Pious"
+        ],
+        [
+          "Henry II the Pious",
+          "place of birth",
+          "Kraków"
+        ]
+      ]
+    },
+    {
+      "qid": "ebf11d8e089c11ebbd78ac1f6bf848b6",
+      "question": "Which film came out first, At Sword'S Edge or Crimson Gold?",
+      "answer": "At Sword'S Edge",
+      "qtype": "comparison",
+      "gold_titles": [
+        "At Sword's Edge",
+        "Crimson Gold"
+      ],
+      "evidences": [
+        [
+          "At Sword's Edge",
+          "publication date",
+          "1952"
+        ],
+        [
+          "Crimson Gold",
+          "publication date",
+          "2003"
+        ]
+      ]
+    },
+    {
+      "qid": "ac3e7fc3093711ebbdaeac1f6bf848b6",
+      "question": "Which film came out earlier, Testament Of Orpheus or Wandering Fires?",
+      "answer": "Wandering Fires",
+      "qtype": "comparison",
+      "gold_titles": [
+        "Testament of Orpheus",
+        "Wandering Fires"
+      ],
+      "evidences": [
+        [
+          "Testament of Orpheus",
+          "publication date",
+          "1960"
+        ],
+        [
+          "Wandering Fires",
+          "publication date",
+          "1925"
+        ]
+      ]
+    },
+    {
+      "qid": "ad059f55093611ebbdaeac1f6bf848b6",
+      "question": "Which album came out first, No Talking, Just Head or Doing It My Way?",
+      "answer": "No Talking, Just Head",
+      "qtype": "comparison",
+      "gold_titles": [
+        "Doing It My Way",
+        "No Talking, Just Head"
+      ],
+      "evidences": [
+        [
+          "No Talking, Just Head",
+          "publication date",
+          "1996"
+        ],
+        [
+          "Doing It My Way",
+          "publication date",
+          "2007"
+        ]
+      ]
+    },
+    {
+      "qid": "1cf4c9e208ca11ebbd92ac1f6bf848b6",
+      "question": "Which film has the director who was born earlier, Knife In The Water or Born To Speed?",
+      "answer": "Born To Speed",
+      "qtype": "bridge_comparison",
+      "gold_titles": [
+        "Born to Speed",
+        "Edward L. Cahn",
+        "Knife in the Water",
+        "Roman Polanski"
+      ],
+      "evidences": [
+        [
+          "Knife in the Water",
+          "director",
+          "Roman Polanski"
+        ],
+        [
+          "Born to Speed",
+          "director",
+          "Edward L. Cahn"
+        ],
+        [
+          "Roman Polanski",
+          "date of birth",
+          "18 August 1933"
+        ],
+        [
+          "Edward L. Cahn",
+          "date of birth",
+          "February 12, 1899"
+        ]
+      ]
+    },
+    {
+      "qid": "200805ca0bb011ebab90acde48001122",
+      "question": "Who is Reginar Iv, Count Of Mons's paternal grandfather?",
+      "answer": "Reginar II, Count of Hainaut",
+      "qtype": "inference",
+      "gold_titles": [
+        "Reginar III, Count of Hainaut",
+        "Reginar IV, Count of Mons"
+      ],
+      "evidences": [
+        [
+          "Reginar IV, Count of Mons",
+          "father",
+          "Reginar III"
+        ],
+        [
+          "Reginar III",
+          "father",
+          "Reginar II, Count of Hainaut"
+        ]
+      ]
+    },
+    {
+      "qid": "e41c14820bd911eba7f7acde48001122",
+      "question": "Where does the director of film Man At Bath work at?",
+      "answer": "Cahiers du cinéma",
+      "qtype": "compositional",
+      "gold_titles": [
+        "Christophe Honoré",
+        "Man at Bath"
+      ],
+      "evidences": [
+        [
+          "Man at Bath",
+          "director",
+          "Christophe Honoré"
+        ],
+        [
+          "Christophe Honoré",
+          "employer",
+          "Cahiers du cinéma"
+        ]
+      ]
+    },
+    {
+      "qid": "26f25e9d089c11ebbd78ac1f6bf848b6",
+      "question": "Who was born earlier, Elmer W. Conti or Seth Joshua?",
+      "answer": "Seth Joshua",
+      "qtype": "comparison",
+      "gold_titles": [
+        "Elmer W. Conti",
+        "Seth Joshua"
+      ],
+      "evidences": [
+        [
+          "Elmer W. Conti",
+          "date of birth",
+          "April 9, 1921"
+        ],
+        [
+          "Seth Joshua",
+          "date of birth",
+          "10 April 1858"
+        ]
+      ]
+    },
+    {
+      "qid": "b2a8d7b60bdc11eba7f7acde48001122",
+      "question": "Where was the director of film The Making Of Plus One born?",
+      "answer": "Northern Ireland",
+      "qtype": "compositional",
+      "gold_titles": [
+        "Mary McGuckian",
+        "The Making of Plus One"
+      ],
+      "evidences": [
+        [
+          "The Making of Plus One",
+          "director",
+          "Mary McGuckian"
+        ],
+        [
+          "Mary McGuckian",
+          "place of birth",
+          "Northern Ireland"
+        ]
+      ]
+    },
+    {
+      "qid": "a1e68bee08c111ebbd8bac1f6bf848b6",
+      "question": "Which film whose director was born first, Girls In Prison or Pathfinder (1987 Film)?",
+      "answer": "Girls In Prison",
+      "qtype": "bridge_comparison",
+      "gold_titles": [
+        "Edward L. Cahn",
+        "Girls in Prison",
+        "Nils Gaup",
+        "Pathfinder (1987 film)"
+      ],
+      "evidences": [
+        [
+          "Girls in Prison",
+          "director",
+          "Edward L. Cahn"
+        ],
+        [
+          "Pathfinder (1987 film)",
+          "director",
+          "nils gaup"
+        ],
+        [
+          "Edward L. Cahn",
+          "date of birth",
+          "February 12, 1899"
+        ],
+        [
+          "Nils Gaup",
+          "date of birth",
+          "12 April 1955"
+        ]
+      ]
+    },
+    {
+      "qid": "f08298de08ef11ebbda8ac1f6bf848b6",
+      "question": "Who died first, Grete Meisel-Hess or Peter Elmsley?",
+      "answer": "Peter Elmsley",
+      "qtype": "comparison",
+      "gold_titles": [
+        "Grete Meisel-Hess",
+        "Peter Elmsley"
+      ],
+      "evidences": [
+        [
+          "Grete Meisel-Hess",
+          "date of death",
+          "18 April 1922"
+        ],
+        [
+          "Peter Elmsley",
+          "date of death",
+          "8 March 1825"
+        ]
+      ]
+    },
+    {
+      "qid": "2425931a0bde11eba7f7acde48001122",
+      "question": "Which award the performer of song He Is (Ghost Song) got?",
+      "answer": "Grammy Award for Best Metal Performance",
+      "qtype": "compositional",
+      "gold_titles": [
+        "Ghost (Swedish band)",
+        "He Is (Ghost song)"
+      ],
+      "evidences": [
+        [
+          "He Is",
+          "performer",
+          "Ghost"
+        ],
+        [
+          "Ghost",
+          "award received",
+          "Grammy Award for Best Metal Performance"
+        ]
+      ]
+    },
+    {
+      "qid": "87c2be8908ab11ebbd82ac1f6bf848b6",
+      "question": "Which film has the director born later, Stolen Identity or Them!?",
+      "answer": "Them!",
+      "qtype": "bridge_comparison",
+      "gold_titles": [
+        "Gordon Douglas (director)",
+        "Gunther von Fritsch",
+        "Stolen Identity",
+        "Them!"
+      ],
+      "evidences": [
+        [
+          "Stolen Identity",
+          "director",
+          "Gunther von Fritsch"
+        ],
+        [
+          "Them!",
+          "director",
+          "Gordon Douglas"
+        ],
+        [
+          "Gunther von Fritsch",
+          "date of birth",
+          "15 July 1906"
+        ],
+        [
+          "Gordon Douglas (director)",
+          "date of birth",
+          "December 15, 1907"
+        ]
+      ]
+    },
+    {
+      "qid": "d1065ffa0bda11eba7f7acde48001122",
+      "question": "Where was the director of film The Autumn Of Pride born?",
+      "answer": "London",
+      "qtype": "compositional",
+      "gold_titles": [
+        "The Autumn of Pride",
+        "W. P. Kellino"
+      ],
+      "evidences": [
+        [
+          "The Autumn of Pride",
+          "director",
+          "W.P. Kellino"
+        ],
+        [
+          "W. P. Kellino",
+          "place of birth",
+          "London"
+        ]
+      ]
+    },
+    {
+      "qid": "6b55ac320bdb11eba7f7acde48001122",
+      "question": "When did Prince John Konstantinovich Of Russia's mother die?",
+      "answer": "24 March 1927",
+      "qtype": "compositional",
+      "gold_titles": [
+        "Prince John Konstantinovich of Russia",
+        "Princess Elisabeth of Saxe-Altenburg (1865–1927)"
+      ],
+      "evidences": [
+        [
+          "Prince Ioann Konstantinovich of Russia",
+          "mother",
+          "Princess Elisabeth of Saxe-Altenburg"
+        ],
+        [
+          "Princess Elisabeth of Saxe-Altenburg",
+          "date of death",
+          "24 March 1927"
+        ]
+      ]
+    },
+    {
+      "qid": "6e5f2a2f085d11ebbd5cac1f6bf848b6",
+      "question": "Which film has the director born first, The Face Of Fu Manchu or The Hidden One?",
+      "answer": "The Hidden One",
+      "qtype": "bridge_comparison",
+      "gold_titles": [
+        "Don Sharp",
+        "Roberto Gavaldón",
+        "The Face of Fu Manchu",
+        "The Hidden One"
+      ],
+      "evidences": [
+        [
+          "The Face of Fu Manchu",
+          "director",
+          "Don Sharp"
+        ],
+        [
+          "The Hidden One",
+          "director",
+          "Roberto Gavaldón"
+        ],
+        [
+          "Don Sharp",
+          "date of birth",
+          "19 April 1921"
+        ],
+        [
+          "Roberto Gavaldón",
+          "date of birth",
+          "June 7, 1909"
+        ]
+      ]
+    },
+    {
+      "qid": "0234f1ec0bde11eba7f7acde48001122",
+      "question": "What nationality is Kham Keut's father?",
+      "answer": "Lao",
+      "qtype": "compositional",
+      "gold_titles": [
+        "Kham Keut",
+        "Samsenethai"
+      ],
+      "evidences": [
+        [
+          "Kham Keut",
+          "father",
+          "Samsenethai"
+        ],
+        [
+          "Samsenethai",
+          "country of citizenship",
+          "Lao"
+        ]
+      ]
+    },
+    {
+      "qid": "b42ac0920bda11eba7f7acde48001122",
+      "question": "Where was the performer of song Znayu Ya born?",
+      "answer": "L'viv",
+      "qtype": "compositional",
+      "gold_titles": [
+        "Ruslana",
+        "Znayu Ya"
+      ],
+      "evidences": [
+        [
+          "Znayu Ya",
+          "performer",
+          "Ruslana"
+        ],
+        [
+          "Ruslana",
+          "place of birth",
+          "L'viv"
+        ]
+      ]
+    },
+    {
+      "qid": "5569eb4e0baf11ebab90acde48001122",
+      "question": "Who is Eva Chamberlain's maternal grandmother?",
+      "answer": "Marie d'Agoult",
+      "qtype": "inference",
+      "gold_titles": [
+        "Cosima Wagner",
+        "Eva Chamberlain"
+      ],
+      "evidences": [
+        [
+          "Eva Chamberlain",
+          "mother",
+          "Cosima Wagner"
+        ],
+        [
+          "Cosima Wagner",
+          "mother",
+          "Marie d'Agoult"
+        ]
+      ]
+    },
+    {
+      "qid": "3ae059580bdb11eba7f7acde48001122",
+      "question": "What is the place of birth of the director of film Encino Man?",
+      "answer": "Albuquerque, New Mexico",
+      "qtype": "compositional",
+      "gold_titles": [
+        "Encino Man",
+        "Les Mayfield"
+      ],
+      "evidences": [
+        [
+          "Encino Man",
+          "director",
+          "Les Mayfield"
+        ],
+        [
+          "Les Mayfield",
+          "place of birth",
+          "Albuquerque, New Mexico"
+        ]
+      ]
+    },
+    {
+      "qid": "b9a3d70a0baf11ebab90acde48001122",
+      "question": "Who is the father-in-law of Duke William Of Mecklenburg-Schwerin?",
+      "answer": "Prince Albert of Prussia",
+      "qtype": "inference",
+      "gold_titles": [
+        "Duke William of Mecklenburg-Schwerin",
+        "Princess Alexandrine of Prussia (1842–1906)"
+      ],
+      "evidences": [
+        [
+          "Willem of Mecklenburg-Schwerin",
+          "spouse",
+          "Princess Alexandrine of Prussia"
+        ],
+        [
+          "Princess Alexandrine of Prussia",
+          "father",
+          "Prince Albert of Prussia"
+        ]
+      ]
+    },
+    {
+      "qid": "3f136b03086e11ebbd62ac1f6bf848b6",
+      "question": "Which film has the director who died later, Lemon Grove Kids Meet The Monsters or I Learned It From Father?",
+      "answer": "Lemon Grove Kids Meet The Monsters",
+      "qtype": "bridge_comparison",
+      "gold_titles": [
+        "Axel von Ambesser",
+        "I Learned It from Father",
+        "Lemon Grove Kids Meet the Monsters",
+        "Ray Dennis Steckler"
+      ],
+      "evidences": [
+        [
+          "Lemon Grove Kids Meet the Monsters",
+          "director",
+          "Ray Dennis Steckler"
+        ],
+        [
+          "I Learned It from Father",
+          "director",
+          "Axel von Ambesser"
+        ],
+        [
+          "Ray Dennis Steckler",
+          "date of death",
+          "January 7, 2009"
+        ],
+        [
+          "Axel von Ambesser",
+          "date of death",
+          "6 September 1988"
+        ]
+      ]
+    },
+    {
+      "qid": "2ed33a200bb011ebab90acde48001122",
+      "question": "Who is Conrad I, Count Of Oldenburg's paternal grandmother?",
+      "answer": "Hedwig von Oldenburg in Wildeshausen",
+      "qtype": "inference",
+      "gold_titles": [
+        "Conrad I, Count of Oldenburg",
+        "John II, Count of Oldenburg"
+      ],
+      "evidences": [
+        [
+          "Conrad I of Oldenburg",
+          "father",
+          "John II of Oldenburg"
+        ],
+        [
+          "John II of Oldenburg",
+          "mother",
+          "Hedwig von Oldenburg in Wildeshausen"
+        ]
+      ]
+    },
+    {
+      "qid": "eb26a9e20baf11ebab90acde48001122",
+      "question": "Who is the mother-in-law of Adelaide Of Paris?",
+      "answer": "Ermentrude of Orléans",
+      "qtype": "inference",
+      "gold_titles": [
+        "Adelaide of Paris",
+        "Louis the Stammerer"
+      ],
+      "evidences": [
+        [
+          "Adélaïde of Paris",
+          "spouse",
+          "Louis the Stammerer"
+        ],
+        [
+          "Louis the Stammerer",
+          "mother",
+          "Ermentrude of Orléans"
+        ]
+      ]
+    },
+    {
+      "qid": "170b21e60bb011ebab90acde48001122",
+      "question": "Who is Sobe (Sister Of Saint Anne)'s grandchild?",
+      "answer": "John the Baptist",
+      "qtype": "inference",
+      "gold_titles": [
+        "Elizabeth (biblical figure)",
+        "Sobe (sister of Saint Anne)"
+      ],
+      "evidences": [
+        [
+          "Sobe",
+          "child",
+          "St. Elizabeth"
+        ],
+        [
+          "Elizabeth",
+          "child",
+          "John the Baptist"
+        ]
+      ]
+    }
+  ]
+}

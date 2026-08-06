@@ -1,0 +1,67 @@
+{
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "k": 5,
+  "rows": [
+    {
+      "importance_noise": 0.0,
+      "iw_recall": 0.9370964310609485,
+      "iw_idle30": 0.3616693248272196,
+      "best_peer_recall": 0.7182481561573284,
+      "best_peer_idle30": 0.1295209124493012,
+      "recall_margin": 0.21884827490362013,
+      "idle30_margin": 0.2321484123779184,
+      "no_decay_recall": 1.0,
+      "iw_stale_versioned": 0.25352139995783246
+    },
+    {
+      "importance_noise": 0.25,
+      "iw_recall": 0.9208479532163742,
+      "iw_idle30": 0.2883356895527281,
+      "best_peer_recall": 0.699879496721602,
+      "best_peer_idle30": 0.10329649704649704,
+      "recall_margin": 0.22096845649477226,
+      "idle30_margin": 0.18503919250623105,
+      "no_decay_recall": 1.0,
+      "iw_stale_versioned": 0.23236579698109183
+    },
+    {
+      "importance_noise": 0.5,
+      "iw_recall": 0.8965054049264576,
+      "iw_idle30": 0.2151010101010101,
+      "best_peer_recall": 0.6440173666489456,
+      "best_peer_idle30": 0.04670625594538638,
+      "recall_margin": 0.252488038277512,
+      "idle30_margin": 0.16839475415562372,
+      "no_decay_recall": 1.0,
+      "iw_stale_versioned": 0.2176633911563143
+    },
+    {
+      "importance_noise": 0.75,
+      "iw_recall": 0.8576820839978735,
+      "iw_idle30": 0.14132894736842105,
+      "best_peer_recall": 0.5538295233032074,
+      "best_peer_idle30": 0.009849849849849851,
+      "recall_margin": 0.30385256069466604,
+      "idle30_margin": 0.1314790975185712,
+      "no_decay_recall": 1.0,
+      "iw_stale_versioned": 0.20809596713027298
+    },
+    {
+      "importance_noise": 1.0,
+      "iw_recall": 0.8056760588339535,
+      "iw_idle30": 0.11843585119882455,
+      "best_peer_recall": 0.4987019315966684,
+      "best_peer_idle30": 0.03859336205840765,
+      "recall_margin": 0.3069741272372851,
+      "idle30_margin": 0.07984248914041689,
+      "no_decay_recall": 1.0,
+      "iw_stale_versioned": 0.19477769457966312
+    }
+  ]
+}

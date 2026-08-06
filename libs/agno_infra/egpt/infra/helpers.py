@@ -38,7 +38,7 @@ def is_docker_only_project(infra_root_path: Path) -> bool:
 def get_infra_dir_path(infra_root_path: Path) -> Optional[Path]:
     """
     Get the infra directory path from the given project root path.
-    Agno infra dir can be found at:
+    EGPT infra dir can be found at:
         1. subdirectory: infra
         2. In a folder defined by the pyproject.toml file
         3. Fallback to root directory if it contains infrastructure files

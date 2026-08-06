@@ -95,7 +95,7 @@ def team_with_members(member_agent):
 @pytest.fixture
 def team_with_model():
     """Create a team with a real model."""
-    from egpt.models.openai import OpenAIChat
+    from egpt.integrations.models.openai import OpenAIChat
 
     model = OpenAIChat(id="gpt-4o-mini")
     return Team(
@@ -311,7 +311,7 @@ class TestTeamFromDict:
 
     def test_from_dict_with_model(self):
         """Test from_dict reconstructs model from config."""
-        from egpt.models.openai import OpenAIResponses
+        from egpt.integrations.models.openai import OpenAIResponses
 
         config = {
             "id": "model-team",

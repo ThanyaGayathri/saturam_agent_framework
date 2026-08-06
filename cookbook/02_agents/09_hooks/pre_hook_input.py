@@ -2,7 +2,7 @@
 Pre Hook Input
 =============================
 
-Example demonstrating how to use a pre_hook to perform comprehensive input validation for your Agno Agent.
+Example demonstrating how to use a pre_hook to perform comprehensive input validation for your EGPT Agent.
 """
 
 from egpt.agent import Agent

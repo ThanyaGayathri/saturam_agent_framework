@@ -4,13 +4,13 @@ This agent performs iterative searches through its knowledge base, breaking down
 queries into sub-questions, and synthesizing comprehensive answers. It's designed to explore
 topics deeply and thoroughly by following chains of reasoning.
 
-In this example, the agent uses the Agno documentation as a knowledge base
+In this example, the agent uses the Model Context Protocol documentation as a knowledge base
 
 Key Features:
 - Iteratively searches a knowledge base
 - Source attribution and citations
 
-Run `uv pip install openai lancedb inquirer agno groq` to install dependencies.
+Run `uv pip install openai lancedb inquirer groq` to install dependencies.
 """
 
 from textwrap import dedent
@@ -33,7 +33,7 @@ from rich import print
 
 def initialize_knowledge_base():
     """Initialize the knowledge base with your preferred documentation or knowledge source
-    Here we use Agno docs as an example, but you can replace with any relevant URLs
+    Here we use the Model Context Protocol docs as an example, but you can replace with any relevant URLs
     """
     agent_knowledge = Knowledge(
         vector_db=LanceDb(
@@ -43,7 +43,7 @@ def initialize_knowledge_base():
             embedder=OpenAIEmbedder(id="text-embedding-3-small"),
         ),
     )
-    agent_knowledge.insert(url="https://docs.agno.com/llms-full.txt")
+    agent_knowledge.insert(url="https://modelcontextprotocol.io/llms-full.txt")
     return agent_knowledge
 
 
@@ -116,11 +116,11 @@ def create_agent(session_id: Optional[str] = None) -> Agent:
 def get_example_topics() -> List[str]:
     """Return a list of example topics for the agent."""
     return [
-        "What are AI agents and how do they work in Agno?",
-        "What chunking strategies does Agno support for text processing?",
-        "How can I implement custom tools in Agno?",
-        "How does knowledge retrieval work in Agno?",
-        "What types of embeddings does Agno support?",
+        "What is the Model Context Protocol and what problem does it solve?",
+        "What is an MCP server and what can it expose?",
+        "How does an MCP client connect to an MCP server?",
+        "What are tools, resources and prompts in MCP?",
+        "What transports does MCP support?",
     ]
 
 
@@ -210,13 +210,13 @@ if __name__ == "__main__":
 
 # Example prompts to try:
 """
-Explore Agno's capabilities with these queries:
-1. "What are the different types of agents in Agno?"
-2. "How does Agno handle knowledge base management?"
-3. "What embedding models does Agno support?"
-4. "How can I implement custom tools in Agno?"
-5. "What storage options are available for workflow caching?"
-6. "How does Agno handle streaming responses?"
-7. "What types of LLM providers does Agno support?"
-8. "How can I implement custom knowledge sources?"
+Explore the Model Context Protocol with these queries:
+1. "What problem does the Model Context Protocol solve?"
+2. "What is the difference between an MCP client and an MCP server?"
+3. "How does capability negotiation work in MCP?"
+4. "What are MCP resources and how are they exposed?"
+5. "How does sampling work in MCP?"
+6. "What transports does MCP define?"
+7. "How does an MCP server advertise its tools?"
+8. "What happens during the MCP initialization handshake?"
 """

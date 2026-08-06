@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from egpt.exceptions import ModelAuthenticationError
-from egpt.models.inception import Inception
+from egpt.integrations.models.inception import Inception
 
 
 def test_inception_initialization_with_api_key():

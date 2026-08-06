@@ -7,7 +7,7 @@ This example uses the MCP GitHub Agent. Example prompts to try:
 - "Find issues labeled as bugs"
 - "Show me contributor activity"
 
-Run: `uv pip install agno mcp openai` to install the dependencies
+Run: `uv pip install mcp openai` to install the dependencies
 """
 
 import asyncio
@@ -49,6 +49,6 @@ if __name__ == "__main__":
     # Pull request example
     asyncio.run(
         run_agent(
-            "Tell me about Agno. Github repo: https://github.com/agno-agi/agno. You can read the README for more information."
+            "Tell me about the Model Context Protocol. Github repo: https://github.com/modelcontextprotocol/modelcontextprotocol. You can read the README for more information."
         )
     )

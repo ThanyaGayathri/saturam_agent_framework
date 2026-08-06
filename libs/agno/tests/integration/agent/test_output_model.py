@@ -1,6 +1,6 @@
 from egpt.agent import Agent
-from egpt.models.anthropic import Claude
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.anthropic import Claude
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.run.agent import IntermediateRunContentEvent, RunContentEvent
 
 

@@ -50,12 +50,14 @@ if __name__ == "__main__":
 
     async def main():
         print("\n" + "=" * 60)
-        print("Loading README.md from agno-agi/agno")
+        print("Loading README.md from modelcontextprotocol/modelcontextprotocol")
         print("=" * 60 + "\n")
 
         await knowledge.ainsert(
-            name="Agno README",
-            remote_content=github_config.file("README.md", repo="agno-agi/agno"),
+            name="EGPT README",
+            remote_content=github_config.file(
+                "README.md", repo="modelcontextprotocol/modelcontextprotocol"
+            ),
         )
 
         print("\n" + "=" * 60)
@@ -73,7 +75,7 @@ if __name__ == "__main__":
         print("Searching across both repos")
         print("=" * 60 + "\n")
 
-        results = await knowledge.asearch("What is Agno?")
+        results = await knowledge.asearch("What is EGPT?")
         for doc in results:
             print("- %s" % doc.name)
 

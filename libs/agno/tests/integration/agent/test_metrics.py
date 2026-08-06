@@ -7,9 +7,9 @@ from egpt.culture.manager import CultureManager
 from egpt.db.base import SessionType
 from egpt.eval.accuracy import AccuracyEval
 from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.memory.manager import MemoryManager
 from egpt.metrics import ModelMetrics, RunMetrics, SessionMetrics, ToolCallMetrics
-from egpt.models.openai import OpenAIChat
 from egpt.tools.websearch import WebSearchTools
 
 
@@ -472,7 +472,7 @@ def test_provider_metrics_openai_with_tools():
 
 
 def test_provider_metrics_gemini():
-    from egpt.models.google import Gemini
+    from egpt.integrations.models.google import Gemini
 
     agent = Agent(model=Gemini(id="gemini-2.5-flash"))
     response = agent.run("Hello")

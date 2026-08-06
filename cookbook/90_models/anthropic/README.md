@@ -20,7 +20,7 @@ export ANTHROPIC_API_KEY=xxx
 ### 3. Install libraries
 
 ```shell
-uv pip install -U anthropic ddgs duckdb yfinance agno
+uv pip install -U anthropic ddgs duckdb yfinance
 ```
 
 ### 4. Run basic Agent
@@ -107,7 +107,7 @@ python cookbook/90_models/anthropic/adaptive_thinking.py
 ```
 
 ```python
-from agno.models.anthropic import Claude
+from egpt.models.anthropic import Claude
 
 model = Claude(
     id="claude-sonnet-4-6",

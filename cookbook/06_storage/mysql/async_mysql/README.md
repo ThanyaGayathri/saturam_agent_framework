@@ -1,6 +1,6 @@
 # Async MySQL Integration
 
-Examples demonstrating asynchronous MySQL integration with Agno agents, teams, and workflows.
+Examples demonstrating asynchronous MySQL integration with EGPT agents, teams, and workflows.
 
 ## Setup
 
@@ -11,7 +11,7 @@ uv pip install sqlalchemy asyncmy
 ## Configuration
 
 ```python
-from agno.db.mysql import AsyncMySQLDb
+from egpt.db.mysql import AsyncMySQLDb
 
 db = AsyncMySQLDb(db_url="mysql+asyncmy://username:password@localhost:3306/database")
 ```

@@ -2,7 +2,7 @@
 Langtrace Integration
 =====================
 
-Demonstrates instrumenting an Agno agent with Langtrace.
+Demonstrates instrumenting an EGPT agent with Langtrace.
 """
 
 # Must precede other imports

@@ -1,0 +1,151 @@
+{
+  "embedder": "local:BAAI/bge-base-en-v1.5@768",
+  "k": 5,
+  "link_threshold": 0.65,
+  "rrf": {
+    "fusion": "rrf(k=60)",
+    "recall@k": 0.8833,
+    "all_hops_hit": 0.7,
+    "chaining_recall@k": 0.8542,
+    "chaining_all_hops_hit": 0.625
+  },
+  "weighted_sweep": [
+    {
+      "fusion": "weighted",
+      "vector_weight": 0.0,
+      "recall@k": 0.8167,
+      "all_hops_hit": 0.6333,
+      "chaining_recall@k": 0.8125,
+      "chaining_all_hops_hit": 0.625
+    },
+    {
+      "fusion": "weighted",
+      "vector_weight": 0.1,
+      "recall@k": 0.8083,
+      "all_hops_hit": 0.6,
+      "chaining_recall@k": 0.7604,
+      "chaining_all_hops_hit": 0.5
+    },
+    {
+      "fusion": "weighted",
+      "vector_weight": 0.2,
+      "recall@k": 0.8,
+      "all_hops_hit": 0.6,
+      "chaining_recall@k": 0.75,
+      "chaining_all_hops_hit": 0.5
+    },
+    {
+      "fusion": "weighted",
+      "vector_weight": 0.3,
+      "recall@k": 0.7667,
+      "all_hops_hit": 0.5333,
+      "chaining_recall@k": 0.7083,
+      "chaining_all_hops_hit": 0.4167
+    },
+    {
+      "fusion": "weighted",
+      "vector_weight": 0.4,
+      "recall@k": 0.7667,
+      "all_hops_hit": 0.5333,
+      "chaining_recall@k": 0.7083,
+      "chaining_all_hops_hit": 0.4167
+    },
+    {
+      "fusion": "weighted",
+      "vector_weight": 0.5,
+      "recall@k": 0.8,
+      "all_hops_hit": 0.5667,
+      "chaining_recall@k": 0.75,
+      "chaining_all_hops_hit": 0.4583
+    },
+    {
+      "fusion": "weighted",
+      "vector_weight": 0.6,
+      "recall@k": 0.7833,
+      "all_hops_hit": 0.5333,
+      "chaining_recall@k": 0.7292,
+      "chaining_all_hops_hit": 0.4167
+    },
+    {
+      "fusion": "weighted",
+      "vector_weight": 0.7,
+      "recall@k": 0.7667,
+      "all_hops_hit": 0.5,
+      "chaining_recall@k": 0.7083,
+      "chaining_all_hops_hit": 0.375
+    },
+    {
+      "fusion": "weighted",
+      "vector_weight": 0.8,
+      "recall@k": 0.7667,
+      "all_hops_hit": 0.5,
+      "chaining_recall@k": 0.7083,
+      "chaining_all_hops_hit": 0.375
+    },
+    {
+      "fusion": "weighted",
+      "vector_weight": 0.9,
+      "recall@k": 0.7333,
+      "all_hops_hit": 0.4333,
+      "chaining_recall@k": 0.6667,
+      "chaining_all_hops_hit": 0.2917
+    },
+    {
+      "fusion": "weighted",
+      "vector_weight": 1.0,
+      "recall@k": 0.7417,
+      "all_hops_hit": 0.4667,
+      "chaining_recall@k": 0.6771,
+      "chaining_all_hops_hit": 0.3333
+    }
+  ],
+  "loocv_vector_weight": {
+    "recall@k": {
+      "loocv_mean": 0.7833,
+      "in_sample_best": 0.8167,
+      "in_sample_best_weight": 0.0,
+      "selected_weights": [
+        0.0,
+        0.1
+      ]
+    },
+    "all_hops_hit": {
+      "loocv_mean": 0.6333,
+      "in_sample_best": 0.6333,
+      "in_sample_best_weight": 0.0,
+      "selected_weights": [
+        0.0
+      ]
+    }
+  },
+  "rrf_vs_weighted_significance": {
+    "recall@k": {
+      "best_weighted_w": 0.0,
+      "mean_diff": 0.0667,
+      "ci95": [
+        -0.0333,
+        0.175
+      ],
+      "p_two_sided": 0.2546,
+      "significant_at_05": false
+    },
+    "all_hops_hit": {
+      "best_weighted_w": 0.0,
+      "mean_diff": 0.0667,
+      "ci95": [
+        -0.1,
+        0.2667
+      ],
+      "p_two_sided": 0.5834,
+      "significant_at_05": false
+    }
+  },
+  "llm_usage": {
+    "calls": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "total_tokens": 0,
+    "latency_s": 0.0,
+    "usd_cost": 0.0
+  }
+}

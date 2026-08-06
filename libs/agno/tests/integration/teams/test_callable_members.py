@@ -10,7 +10,7 @@ Key scenarios tested:
 """
 
 from egpt.agent.agent import Agent
-from egpt.models.openai.chat import OpenAIChat
+from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.team.team import Team
 
 

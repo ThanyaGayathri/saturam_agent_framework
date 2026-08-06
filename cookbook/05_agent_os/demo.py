@@ -30,19 +30,21 @@ db = PostgresDb(db_url=db_url)
 # Create Postgres-backed vector store
 vector_db = PgVector(
     db_url=db_url,
-    table_name="agno_docs",
+    table_name="mcp_docs",
 )
 knowledge = Knowledge(
-    name="Agno Docs",
+    name="MCP Docs",
     contents_db=db,
     vector_db=vector_db,
 )
 
 # Create your agents
-agno_agent = Agent(
-    name="Agno Agent",
+mcp_docs_agent = Agent(
+    name="MCP Docs Agent",
     model=OpenAIChat(id="gpt-4.1"),
-    tools=[MCPTools(transport="streamable-http", url="https://docs.agno.com/mcp")],
+    tools=[
+        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io/mcp")
+    ],
     db=db,
     update_memory_on_run=True,
     knowledge=knowledge,
@@ -88,8 +90,8 @@ research_team = Team(
 
 # Create the EgptOS
 agent_os = EgptOS(
-    id="agentos-demo",
-    agents=[agno_agent],
+    id="egptos-demo",
+    agents=[mcp_docs_agent],
     teams=[research_team],
 )
 app = agent_os.get_app()

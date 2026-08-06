@@ -27,7 +27,7 @@ vector_db = PgVector(
 knowledge = Knowledge(vector_db=vector_db)
 
 knowledge.insert(
-    url="https://docs.agno.com/llms-full.txt",
+    url="https://modelcontextprotocol.io/llms-full.txt",
 )
 
 

@@ -84,7 +84,7 @@ from egpt.run.base import RunStatus
 
 
 async def map_a2a_request_to_run_input(request_body: dict, stream: bool = True) -> RunInput:
-    """Map A2A SendMessageRequest to Agno RunInput.
+    """Map A2A SendMessageRequest to EGPT RunInput.
 
     1. Validate the request
     2. Process message parts
@@ -109,7 +109,7 @@ async def map_a2a_request_to_run_input(request_body: dict, stream: bool = True) 
         ```
 
     Returns:
-        RunInput: The Agno RunInput
+        RunInput: The EGPT RunInput
         stream: Whether we are in stream mode
     """
 
@@ -178,7 +178,7 @@ async def map_a2a_request_to_run_input(request_body: dict, stream: bool = True) 
 
 
 def _map_run_status_to_task_state(status: Optional[RunStatus]) -> TaskState:
-    """Map Agno RunStatus to A2A TaskState."""
+    """Map EGPT RunStatus to A2A TaskState."""
     if status is None:
         return TaskState.completed
     _mapping = {
@@ -201,7 +201,7 @@ def map_run_output_to_a2a_task(run_output: Union[RunOutput, WorkflowRunOutput]) 
     4. Build and return the A2A task
 
     Args:
-        run_output: The Agno RunOutput or WorkflowRunOutput
+        run_output: The EGPT RunOutput or WorkflowRunOutput
 
     Returns:
         Task: The A2A Task
@@ -313,7 +313,7 @@ async def stream_a2a_response(
     4. Send final complete task
 
     Args:
-        event_stream: The async iterator of Agno events from agent/team/workflow.arun(stream=True)
+        event_stream: The async iterator of EGPT events from agent/team/workflow.arun(stream=True)
         request_id: The JSON-RPC request ID
 
     Yields:

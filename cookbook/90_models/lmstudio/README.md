@@ -16,7 +16,7 @@ source ~/.venvs/aienv/bin/activate
 ### 3. Install libraries
 
 ```shell
-uv pip install -U ddgs duckdb yfinance agno
+uv pip install -U ddgs duckdb yfinance
 ```
 
 ### 4. Run basic Agent

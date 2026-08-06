@@ -1,6 +1,6 @@
 from typing import Optional
 
-from egpt.models.openai.chat import OpenAIChat
+from egpt.integrations.models.openai.chat import OpenAIChat
 
 
 class _FakeChoiceDeltaToolCallFunction:

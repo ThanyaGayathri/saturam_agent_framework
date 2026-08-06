@@ -19,7 +19,7 @@ The system supports:
 
 RBAC on EgptOS is compatible with the EgptOS Control Plane. When connecting your EgptOS, you'll need to enable "Authorization" for traffic from the control plane to have the required JWT token with the correct scopes.
 
-See the [documentation](https://docs.agno.com/agent-os/security/overview) for more information about EgptOS Security.
+See the examples in this folder for more information about EgptOS Security.
 
 Note: Only Asymmetric keys are supported for EgptOS Control Plane traffic.  The public key will be provided by the control plane when you connect your EgptOS.
 
@@ -183,7 +183,7 @@ app = agent_os.get_app()
 **Option B: Via JWTMiddleware directly**
 ```python
 from egpt.os import EgptOS
-from agno.os.middleware import JWTMiddleware
+from egpt.os.middleware import JWTMiddleware
 
 agent_os = EgptOS(
     id="my-agent-os",
@@ -293,7 +293,7 @@ See `/libs/agno/egpt/os/scopes.py` for the default scope mappings.
 You can override or extend default mappings:
 
 ```python
-from agno.os.middleware import JWTMiddleware
+from egpt.os.middleware import JWTMiddleware
 
 app.add_middleware(
     JWTMiddleware,
@@ -345,5 +345,5 @@ app.add_middleware(
 
 ## Additional Resources
 
-- [EgptOS Documentation](https://docs.agno.com/agent-os/security/overview)
+- [EgptOS cookbooks](../README.md)
 - [JWT.io](https://jwt.io) - JWT debugging tool

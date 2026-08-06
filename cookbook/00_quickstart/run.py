@@ -1,13 +1,13 @@
 """
-Agent OS - Web Interface for Your Agents
+EgptOS - HTTP Runtime for Your Agents
 =========================================
-This file starts an Agent OS server that provides a web interface for all
-the agents, teams, and workflows in this Quick Start guide.
+This file starts an EgptOS server that exposes all the agents, teams, and
+workflows in this Quick Start guide over a local HTTP API.
 
-What is Agent OS?
------------------
-Agent OS is Agno's runtime that lets you:
-- Chat with your agents through a beautiful web UI
+What is EgptOS?
+---------------
+EgptOS is the EGPT runtime that lets you:
+- Run your agents behind an HTTP API
 - Explore session history
 - Monitor traces and debug agent behavior
 - Manage knowledge bases and memories
@@ -18,9 +18,9 @@ How to Use
 1. Start the server:
    python cookbook/00_quickstart/run.py
 
-2. Visit https://os.agno.com in your browser
+2. Open the interactive API docs: http://localhost:7777/docs
 
-3. Add your local endpoint: http://localhost:7777
+3. Or point a coding agent at the running server: egpt connect
 
 4. Select any agent, team, or workflow and start chatting
 
@@ -32,8 +32,8 @@ Prerequisites
 
 Learn More
 ----------
-- Agent OS Overview: https://docs.agno.com/agent-os/overview
-- Agno Documentation: https://docs.agno.com
+- Model Context Protocol architecture: https://modelcontextprotocol.io/docs/learn/architecture
+- Model Context Protocol docs: https://modelcontextprotocol.io/docs/getting-started/intro
 """
 
 from pathlib import Path

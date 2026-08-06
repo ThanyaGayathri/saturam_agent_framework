@@ -1,6 +1,6 @@
 from egpt.agent import Agent
+from egpt.integrations.models.xai import xAI
 from egpt.media import Image
-from egpt.models.xai import xAI
 from egpt.tools.websearch import WebSearchTools
 
 

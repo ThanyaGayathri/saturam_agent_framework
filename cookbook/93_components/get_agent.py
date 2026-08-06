@@ -17,7 +17,7 @@ db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 # Run Agent Load Example
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    agent = get_agent_by_id(db=db, id="agno-agent")
+    agent = get_agent_by_id(db=db, id="egpt-agent")
 
     if agent:
         agent.print_response("How many people live in Canada?")

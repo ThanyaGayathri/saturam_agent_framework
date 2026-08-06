@@ -1,6 +1,6 @@
 # CometAPI Cookbook
 
-This cookbook demonstrates how to use CometAPI with the Agno framework. CometAPI provides unified access to multiple LLM providers (GPT, Claude, Gemini, DeepSeek, Qwen, and more) through a single OpenAI-compatible interface.
+This cookbook demonstrates how to use CometAPI with the EGPT framework. CometAPI provides unified access to multiple LLM providers (GPT, Claude, Gemini, DeepSeek, Qwen, and more) through a single OpenAI-compatible interface.
 
 > **Prerequisites**: Fork and clone this repository if needed
 
@@ -24,7 +24,7 @@ export COMETAPI_KEY=sk-***
 ### 3. Install libraries
 
 ```shell
-uv pip install -U openai duckduckgo-search duckdb agno
+uv pip install -U openai duckduckgo-search duckdb
 ```
 
 ### 4. Run basic Agent
@@ -158,7 +158,7 @@ CometAPI provides access to multiple LLM providers through a unified interface. 
 If you encounter authentication errors, make sure your API key is correctly set:
 
 ```python
-from agno.models.cometapi import CometAPI
+from egpt.models.cometapi import CometAPI
 
 # Test API key
 model = CometAPI()
@@ -169,7 +169,7 @@ print(f"Found {len(available_models)} available models")
 ## Resources & Support
 
 ### 🔗 Official Links
-- [Website](https://www.cometapi.com/?utm_source=agno&utm_campaign=integration&utm_medium=integration&utm_content=integration)
+- [Website](https://www.cometapi.com/?utm_source=egpt&utm_campaign=integration&utm_medium=integration&utm_content=integration)
 - [API Documentation](https://api.cometapi.com/doc)
 - [Model List & Pricing](https://api.cometapi.com/pricing)
 - [Get API Key](https://api.cometapi.com/console/token)

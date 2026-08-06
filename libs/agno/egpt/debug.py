@@ -1,5 +1,5 @@
 def enable_debug_mode() -> None:
-    """Enable debug mode for the agno library.
+    """Enable debug mode for the EGPT library.
 
     This function sets the logging level to DEBUG
     """
@@ -9,7 +9,7 @@ def enable_debug_mode() -> None:
 
 
 def disable_debug_mode() -> None:
-    """Disable debug mode for the agno library.
+    """Disable debug mode for the EGPT library.
 
     This function resets the logging level to INFO
     """

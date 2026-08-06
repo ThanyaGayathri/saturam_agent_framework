@@ -84,14 +84,15 @@ class CultureManager:
     def get_model(self) -> Model:
         if self.model is None:
             try:
-                from egpt.models.openai import OpenAIChat
+                self.model = get_model("openai-chat:gpt-4o")
             except ModuleNotFoundError as e:
                 log_error(e)
                 log_error(
-                    "Agno uses `openai` as the default model provider. Please provide a `model` or install `openai`."
+                    "EGPT uses `openai` as the default model provider. Please provide a `model` or install `openai`."
                 )
                 exit(1)
-            self.model = OpenAIChat(id="gpt-4o")
+        if self.model is None:
+            raise ValueError("Could not resolve the default model.")
         return self.model
 
     def set_log_level(self):

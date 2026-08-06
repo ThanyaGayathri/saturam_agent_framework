@@ -26,7 +26,10 @@ from egpt.workflow import RemoteWorkflow, Workflow
 try:
     from telebot.async_telebot import AsyncTeleBot
 except ImportError as e:
-    raise ImportError("`pyTelegramBotAPI` not installed. Please install using `pip install 'agno[telegram]'`") from e
+    raise ImportError(
+        "`pyTelegramBotAPI` not installed. Install it with `pip install pyTelegramBotAPI` "
+        "(included in the `egpt[telegram]` extra)."
+    ) from e
 
 # Session scope format (no-DB fallback uses these as literal session IDs):
 #   tg:{entity_id}:{chat_id}                           — DMs, basic groups, forum General topic

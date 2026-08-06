@@ -18,7 +18,7 @@ export SILICONFLOW_API_KEY=***
 ### 3. Install libraries
 
 ```shell
-uv pip install -U openai duckduckgo-search duckdb agno
+uv pip install -U openai duckduckgo-search duckdb
 ```
 
 ### 4. Run basic Agent

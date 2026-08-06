@@ -35,7 +35,7 @@ Special cases:
 - `mcp_demo/` contains MCP server examples — validate startup only.
 - `background_tasks/` examples may spawn background tasks — validate execution starts and terminate after initial output.
 - `rbac/` contains symmetric and asymmetric encryption examples — both subdirectories should be tested independently.
-- Root-level files (`agno_agent.py`, `basic.py`, `demo.py`) should be tested as standalone examples.
+- Root-level files (`egpt_agent.py`, `basic.py`, `demo.py`) should be tested as standalone examples.
 
 Validation commands (must all pass before finishing):
 - `.venvs/demo/bin/python cookbook/scripts/check_cookbook_pattern.py --base-dir cookbook/05_agent_os/<SUBDIR> --recursive` (for each subdirectory)

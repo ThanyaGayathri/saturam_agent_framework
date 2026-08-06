@@ -11,8 +11,8 @@ Last updated: 2026-06-05
   (`WIKI_REPO_URL` + `WIKI_GITHUB_TOKEN`), Notion wiki (`NOTION_API_KEY` +
   `NOTION_DATABASE_ID`).
 
-> HTML generation requires agno's file-generation support (#8241), which ships
-> in agno >= 2.6.12. `demo_setup.sh` installs the local editable agno, which
+> HTML generation requires egpt's file-generation support (#8241), which ships
+> in egpt >= 2.6.12. `demo_setup.sh` installs the local editable egpt, which
 > includes it; a released wheel <= 2.6.11 does not register `generate_html_file`.
 
 ---

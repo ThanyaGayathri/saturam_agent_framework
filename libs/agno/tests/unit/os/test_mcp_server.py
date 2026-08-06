@@ -43,6 +43,58 @@ from egpt.tools import tool  # noqa: E402
 from egpt.workflow.step import Step  # noqa: E402
 from egpt.workflow.workflow import Workflow  # noqa: E402
 
+# ---------------------------------------------------------------------------
+# Quarantined on Python 3.10 (EGPT-0.10 follow-up)
+# ---------------------------------------------------------------------------
+# Tests in this module wedge -- hang, not fail -- on Python 3.10, intermittently. In CI that
+# trips pytest-timeout's kill, and with --max-worker-restart=0 it ends the whole unit session
+# wherever it happens to be (runs 30906120666 and 30912122340 died at 28%, ~7300 tests unrun).
+#
+# ROOT CAUSE (confirmed, not hypothesised). Reproduced in a linux/amd64 python:3.10.20 container
+# -- 3 wedges in 14 runs of this file -- and pinned down by dumping the pending asyncio tasks:
+#
+#   Task <the test> running at `async with _mcp_http_client(...)`
+#     wait_for=<Task <docket.worker.Worker.run_forever()>
+#                 wait_for=<taskgroup.install.WaitTaskRescheduled>>
+#
+# fastmcp's server lifespan (fastmcp/server/server.py) unconditionally starts a pydocket Worker
+# plus six background tasks, then on exit does `worker_task.cancel(); await worker_task`. On
+# py3.10 that cancel/await runs through the `taskgroup` and `backports.asyncio.runner` shims --
+# backports of asyncio.TaskGroup / asyncio.Runner, installed ONLY below 3.11. The cancellation is
+# lost, run_forever() never completes, and the lifespan blocks forever. On 3.11+ the native
+# implementations are used and it does not happen.
+#
+# WHY WHOLE MODULES, not the individual tests that were seen to hang. This is one race in the
+# lifespan, not a defect in particular tests: across 14 runs it landed on three DIFFERENT tests,
+# one of which was never quarantined at all. Both ways of driving a server here enter that
+# lifespan -- `_mcp_http_client` (20 tests) via app.router.lifespan_context, and
+# `Client(build_mcp_server(...))` (11 tests) via FastMCPTransport -> server._lifespan_manager().
+# Naming individual tests is whack-a-mole; the next one to lose the race takes CI down again.
+# And the same holds across modules: test_mcp_surface_v2.py, test_mcp_run_results.py and
+# test_mcp_resolution.py enter the same lifespan 26 more times, so the quarantine lives in
+# conftest.py (_PY310_MCP_QUARANTINED) and covers all four MCP modules, not just this file.
+#
+# Cost: the ~26 tests here that never start a lifespan are collateral, skipped on 3.10 too.
+# The bigger loss is the MCP HTTP auth surface (security-key rejection, PAT verifier status
+# mapping, Host/Origin rebinding protection, service-accounts-disabled 401): this module is
+# its only unit coverage, and those tests all drive the lifespan via `_mcp_http_client`, so
+# they cannot be split out of the quarantine -- py3.10 loses that coverage until the upstream
+# fix. Python 3.12 runs all four modules in full, and CI covers both versions.
+#
+# An earlier revision of this comment blamed a Starlette BaseHTTPMiddleware/anyio teardown on an
+# undrained short-circuited request. That was wrong -- no such teardown is involved -- and the six
+# tests it described as deterministic hangs all pass when run alone.
+#
+# NOT fixable here: pydocket is a hard dependency across the whole fastmcp>=2.14.1,<3.0.0 range we
+# allow, and DocketSettings has no opt-out. Not dependency drift either -- fastmcp 2.14.6 /
+# pydocket 0.23.1 / taskgroup 0.2.2 are identical across the passing and failing CI runs. The fix
+# is upstream. Reproducing needs a LINUX py3.10 interpreter looping this file; a single run of a
+# single test passes essentially always.
+#
+# Worth noting beyond the test suite: this is a shutdown deadlock in fastmcp's lifespan, and
+# requires-python is >=3.9, so an EgptOS deployment serving MCP on Python 3.10 may hang on
+# shutdown the same way.
+
 # The full set of built-in tools, keyed by their tag group. The surface is deliberately
 # 8 tools: an operator surface for LLM frontends, not a database console.
 CORE_TOOLS = {"get_agentos_config", "run_agent", "run_team", "run_workflow", "continue_run", "cancel_run"}

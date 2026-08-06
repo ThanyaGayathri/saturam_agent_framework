@@ -1135,7 +1135,10 @@ def resolve_origins(user_origins: Optional[List[str]] = None, default_origins: O
     if user_origins:
         return user_origins
 
-    # Default Agno domains
+    # Legacy upstream (agno.com) origins, deliberately retained: removing them would cut
+    # off consoles already pointed at this API. Out of scope for the EGPT-0.12 rebrand
+    # (aicoe-tracker#149) and tracked as its own decision — not an oversight.
+    # Kept in sync with the identical default list in egpt/os/settings.py.
     return default_origins or [
         "http://localhost:3000",
         "https://agno.com",

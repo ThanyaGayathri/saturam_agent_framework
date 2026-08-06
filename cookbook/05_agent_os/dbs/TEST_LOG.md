@@ -2,7 +2,7 @@
 
 > Tests not yet run. Run each file and update this log.
 
-### agentos_default_db.py
+### egptos_default_db.py
 
 **Status:** PENDING
 

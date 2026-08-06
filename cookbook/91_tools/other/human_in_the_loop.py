@@ -1,6 +1,6 @@
 """Human-in-the-Loop: Adding User Confirmation to Tool Calls
 
-This example shows how to implement human-in-the-loop functionality in your Agno tools.
+This example shows how to implement human-in-the-loop functionality in your EGPT tools.
 It shows how to:
 - Add pre-hooks to tools for user confirmation
 - Handle user input during tool execution
@@ -12,7 +12,7 @@ Some practical applications:
 - Validating data transformations
 - Approving automated actions in critical systems
 
-Run `uv pip install openai httpx rich agno` to install dependencies.
+Run `uv pip install openai httpx rich` to install dependencies.
 """
 
 import json

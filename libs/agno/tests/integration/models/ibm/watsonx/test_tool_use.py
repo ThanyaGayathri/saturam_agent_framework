@@ -3,7 +3,7 @@ from typing import Optional
 import pytest
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.models.ibm import WatsonX
+from egpt.integrations.models.ibm import WatsonX
 from egpt.tools.exa import ExaTools
 from egpt.tools.websearch import WebSearchTools
 from egpt.tools.yfinance import YFinanceTools

@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.db.sqlite import SqliteDb
-from egpt.models.dashscope import DashScope
+from egpt.integrations.models.dashscope import DashScope
 
 
 def _assert_metrics(response: RunOutput):

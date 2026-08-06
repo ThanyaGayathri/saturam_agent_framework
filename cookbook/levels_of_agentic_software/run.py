@@ -16,7 +16,7 @@ How to Use
 2. Start the server:
    python cookbook/levels_of_agentic_software/run.py
 
-3. Visit https://os.agno.com in your browser
+3. Visit http://localhost:7777/docs in your browser
 
 4. Add your local endpoint: http://localhost:7777
 

@@ -3,7 +3,7 @@ Gemini Interactions - Deep Research with multimodal input
 ==========================================================
 
 Deep Research accepts images and documents (PDFs) as input, then conducts
-web-based research grounded in that content. Pass them as Agno `Image` /
+web-based research grounded in that content. Pass them as EGPT `Image` /
 `File` objects with a URL (GCS / Gemini URIs pass through; regular HTTP
 URLs are downloaded and base64-encoded automatically).
 """

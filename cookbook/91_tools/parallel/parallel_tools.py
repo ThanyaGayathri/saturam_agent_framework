@@ -26,7 +26,7 @@ agent = Agent(
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     agent.print_response(
-        "Tell me about Agno's EgptOS?",
+        "Tell me about EGPT's EgptOS?",
         stream=True,
         stream_events=True,
     )

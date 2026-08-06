@@ -5,9 +5,9 @@ import pytest
 import pytest_asyncio
 
 from egpt.agent.agent import Agent
+from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.models.openai.chat import OpenAIChat
 from egpt.vectordb.lancedb.lance_db import LanceDb
 from egpt.vectordb.search import SearchType
 

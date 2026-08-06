@@ -1,6 +1,6 @@
 """Tests for Gemini Dict field support in convert_schema"""
 
-from egpt.utils.gemini import convert_schema
+from egpt.integrations.models._utils.gemini import convert_schema
 
 
 def test_convert_schema_dict_field_integer():

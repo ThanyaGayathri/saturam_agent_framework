@@ -449,7 +449,7 @@ class StudioTools(Toolkit):
 
     def _load_agent_from_db(self, agent_id: str, version: Optional[int] = None) -> Optional["Agent"]:
         """Load an agent from DB via config + from_dict. Bypasses Agent.load() to
-        avoid Agno's load_component_graph signature mismatch."""
+        avoid EGPT's load_component_graph signature mismatch."""
         from egpt.db.base import ComponentType
 
         config = self._load_config_from_db(agent_id, version=version, component_type=ComponentType.AGENT)
@@ -1824,7 +1824,7 @@ def _summarize_tools(tools: Any) -> List[str]:
 def _persist_only(component: Component, db: Optional["BaseDb"], stage: str = "published") -> Optional[int]:
     """Save a component WITHOUT cascading to members or step agents.
 
-    Agno's built-in ``component.save()`` recursively persists every member of
+    EGPT's built-in ``component.save()`` recursively persists every member of
     a team and every agent/team referenced by a workflow step. That pulls
     code-defined agents (ones you passed via ``agents_list`` or the registry)
     into the DB as components, which is not what studio should do.

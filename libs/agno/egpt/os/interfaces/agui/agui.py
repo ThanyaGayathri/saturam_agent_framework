@@ -1,4 +1,4 @@
-"""Main class for the AG-UI app, used to expose an Agno Agent or Team in an AG-UI compatible format."""
+"""Main class for the AG-UI app, used to expose an EGPT Agent or Team in an AG-UI compatible format."""
 
 from typing import List, Optional, Union
 

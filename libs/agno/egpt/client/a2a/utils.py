@@ -1,8 +1,8 @@
-"""Utility functions for mapping between A2A and Agno data structures.
+"""Utility functions for mapping between A2A and EGPT data structures.
 
 This module provides bidirectional mapping between:
-- A2A TaskResult ↔ Agno RunOutput / TeamRunOutput / WorkflowRunOutput
-- A2A StreamEvent ↔ Agno RunOutputEvent / TeamRunOutputEvent / WorkflowRunOutputEvent
+- A2A TaskResult ↔ EGPT RunOutput / TeamRunOutput / WorkflowRunOutput
+- A2A StreamEvent ↔ EGPT RunOutputEvent / TeamRunOutputEvent / WorkflowRunOutputEvent
 """
 
 from typing import AsyncIterator, List, Optional, Union
@@ -42,10 +42,10 @@ def map_task_result_to_run_output(
     agent_id: str,
     user_id: Optional[str] = None,
 ) -> RunOutput:
-    """Convert A2A TaskResult to Agno RunOutput.
+    """Convert A2A TaskResult to EGPT RunOutput.
 
-    Maps the A2A protocol response structure to Agno's internal format,
-    enabling seamless integration with Agno's agent infrastructure.
+    Maps the A2A protocol response structure to EGPT's internal format,
+    enabling seamless integration with EGPT's agent infrastructure.
 
     Args:
         task_result: A2A TaskResult from send_message()
@@ -53,7 +53,7 @@ def map_task_result_to_run_output(
         user_id: Optional user identifier to include in output
 
     Returns:
-        RunOutput: Agno-compatible run output
+        RunOutput: EGPT-compatible run output
     """
     # Extract media from artifacts
     images: List[Image] = []
@@ -114,10 +114,10 @@ async def map_stream_events_to_run_events(
     stream: AsyncIterator[StreamEvent],
     agent_id: str,
 ) -> AsyncIterator[RunOutputEvent]:
-    """Convert A2A stream events to Agno run events.
+    """Convert A2A stream events to EGPT run events.
 
-    Transforms the A2A streaming protocol events into Agno's event system,
-    enabling real-time streaming from A2A servers to work with Agno consumers.
+    Transforms the A2A streaming protocol events into EGPT's event system,
+    enabling real-time streaming from A2A servers to work with EGPT consumers.
 
     Args:
         stream: AsyncIterator of A2A StreamEvents
@@ -125,7 +125,7 @@ async def map_stream_events_to_run_events(
         user_id: Optional user identifier to include in events
 
     Yields:
-        RunOutputEvent: Agno-compatible run output events
+        RunOutputEvent: EGPT-compatible run output events
     """
     run_id: Optional[str] = None
     session_id: Optional[str] = None
@@ -186,17 +186,17 @@ def map_task_result_to_team_run_output(
     team_id: str,
     user_id: Optional[str] = None,
 ) -> TeamRunOutput:
-    """Convert A2A TaskResult to Agno TeamRunOutput.
+    """Convert A2A TaskResult to EGPT TeamRunOutput.
 
-    Maps the A2A protocol response structure to Agno's team format,
-    enabling seamless integration with Agno's team infrastructure.
+    Maps the A2A protocol response structure to EGPT's team format,
+    enabling seamless integration with EGPT's team infrastructure.
 
     Args:
         task_result: A2A TaskResult from send_message()
         team_id: Optional team identifier to include in output
         user_id: Optional user identifier to include in output
     Returns:
-        TeamRunOutput: Agno-compatible team run output
+        TeamRunOutput: EGPT-compatible team run output
     """
     # Extract media from artifacts
     images: List[Image] = []
@@ -225,17 +225,17 @@ async def map_stream_events_to_team_run_events(
     stream: AsyncIterator[StreamEvent],
     team_id: str,
 ) -> AsyncIterator[TeamRunOutputEvent]:
-    """Convert A2A stream events to Agno team run events.
+    """Convert A2A stream events to EGPT team run events.
 
-    Transforms the A2A streaming protocol events into Agno's team event system,
-    enabling real-time streaming from A2A servers to work with Agno team consumers.
+    Transforms the A2A streaming protocol events into EGPT's team event system,
+    enabling real-time streaming from A2A servers to work with EGPT team consumers.
 
     Args:
         stream: AsyncIterator of A2A StreamEvents
         team_id: Optional team identifier to include in events
         user_id: Optional user identifier to include in events
     Yields:
-        TeamRunOutputEvent: Agno-compatible team run output events
+        TeamRunOutputEvent: EGPT-compatible team run output events
     """
     run_id: Optional[str] = None
     session_id: Optional[str] = None
@@ -296,17 +296,17 @@ def map_task_result_to_workflow_run_output(
     workflow_id: str,
     user_id: Optional[str] = None,
 ) -> WorkflowRunOutput:
-    """Convert A2A TaskResult to Agno WorkflowRunOutput.
+    """Convert A2A TaskResult to EGPT WorkflowRunOutput.
 
-    Maps the A2A protocol response structure to Agno's workflow format,
-    enabling seamless integration with Agno's workflow infrastructure.
+    Maps the A2A protocol response structure to EGPT's workflow format,
+    enabling seamless integration with EGPT's workflow infrastructure.
 
     Args:
         task_result: A2A TaskResult from send_message()
         workflow_id: Optional workflow identifier to include in output
         user_id: Optional user identifier to include in output
     Returns:
-        WorkflowRunOutput: Agno-compatible workflow run output
+        WorkflowRunOutput: EGPT-compatible workflow run output
     """
     # Extract media from artifacts
     images: List[Image] = []
@@ -334,17 +334,17 @@ async def map_stream_events_to_workflow_run_events(
     stream: AsyncIterator[StreamEvent],
     workflow_id: str,
 ) -> AsyncIterator[Union[WorkflowRunOutputEvent, TeamRunOutputEvent, RunOutputEvent]]:
-    """Convert A2A stream events to Agno workflow run events.
+    """Convert A2A stream events to EGPT workflow run events.
 
-    Transforms the A2A streaming protocol events into Agno's workflow event system,
-    enabling real-time streaming from A2A servers to work with Agno workflow consumers.
+    Transforms the A2A streaming protocol events into EGPT's workflow event system,
+    enabling real-time streaming from A2A servers to work with EGPT workflow consumers.
 
     Args:
         stream: AsyncIterator of A2A StreamEvents
         workflow_id: Optional workflow identifier to include in events
         user_id: Optional user identifier to include in events
     Yields:
-        WorkflowRunOutputEvent: Agno-compatible workflow run output events
+        WorkflowRunOutputEvent: EGPT-compatible workflow run output events
     """
     run_id: Optional[str] = None
     session_id: Optional[str] = None

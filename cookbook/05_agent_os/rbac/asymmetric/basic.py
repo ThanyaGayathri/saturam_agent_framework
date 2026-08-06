@@ -31,7 +31,7 @@ from egpt.utils.cryptography import generate_rsa_keys
 # ---------------------------------------------------------------------------
 
 # Keys file path for persistence across reloads
-_KEYS_FILE = "/tmp/agno_rbac_demo_keys.json"
+_KEYS_FILE = "/tmp/egpt_rbac_demo_keys.json"
 
 
 def _load_or_generate_keys():

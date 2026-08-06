@@ -3,14 +3,14 @@ You.com Tools
 =============================
 
 Demonstrates the YouTools toolkit which exposes the You.com Search API as a
-first-class Agno tool.
+first-class EGPT tool.
 
 Set ``YDC_API_KEY`` in your environment before running this example.
 Get a key at https://you.com/platform/api-keys.
 
 No API key? You.com also hosts a free MCP profile at
 ``https://api.you.com/mcp?profile=free`` (``you-search`` with 100 queries/day,
-no key or sign-up required). To use it, plug that URL into Agno's MCPTools
+no key or sign-up required). To use it, plug that URL into EGPT's MCPTools
 instead of YouTools.
 """
 

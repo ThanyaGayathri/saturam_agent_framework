@@ -10,6 +10,7 @@ os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
 from egpt.agent.agent import Agent
 from egpt.exceptions import ContextWindowExceededError, ModelProviderError, ModelRateLimitError
+from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.models.base import Model
 from egpt.models.fallback import (
     FallbackConfig,
@@ -20,7 +21,6 @@ from egpt.models.fallback import (
     get_fallback_models,
 )
 from egpt.models.message import Message
-from egpt.models.openai.chat import OpenAIChat
 from egpt.models.response import ModelResponse, ModelResponseEvent
 
 

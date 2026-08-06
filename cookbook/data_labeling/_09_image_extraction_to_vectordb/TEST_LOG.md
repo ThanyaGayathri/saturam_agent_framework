@@ -1,6 +1,6 @@
 # Test Log - _09_image_extraction_to_vectordb
 
-Tested 2026-05-22 against `gemini-3.5-flash` + `gemini-embedding-001` (embedder), agno 2.6.9.
+Tested 2026-05-22 against `gemini-3.5-flash` + `gemini-embedding-001` (embedder), egpt 2.6.9.
 
 ### basic.py
 
@@ -10,6 +10,6 @@ Tested 2026-05-22 against `gemini-3.5-flash` + `gemini-embedding-001` (embedder)
 
 **Result:** "a historic city at night" returns the Krakow basilica as top hit; "wildlife on the savanna" returns the elephants/giraffes/zebras scene.
 
-**Note:** Requires `lancedb` (not in the `agno[demo]` extras). Install with `uv pip install lancedb` into `.venvs/demo`. Test inputs were also swapped off Wikimedia URLs since Gemini can't fetch those.
+**Note:** Requires `lancedb` (not in the `egpt[demo]` extras). Install with `uv pip install lancedb` into `.venvs/demo`. Test inputs were also swapped off Wikimedia URLs since Gemini can't fetch those.
 
 ---

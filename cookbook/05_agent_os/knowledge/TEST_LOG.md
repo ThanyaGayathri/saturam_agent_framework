@@ -2,15 +2,15 @@
 
 > Tests not yet run. Run each file and update this log.
 
-### agentos_excel_analyst.py
+### egptos_excel_analyst.py
 
 **Status:** PENDING
 
-**Description:** Agentos Excel Analyst.
+**Description:** EgptOS Excel Analyst.
 
 ---
 
-### agentos_knowledge.py
+### egptos_knowledge.py
 
 **Status:** PENDING
 
@@ -18,10 +18,10 @@
 
 ---
 
-### agno_docs_agent.py
+### mcp_docs_agent.py
 
 **Status:** PENDING
 
-**Description:** Agno Docs Agent.
+**Description:** EGPT Docs Agent.
 
 ---

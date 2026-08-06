@@ -14,7 +14,10 @@ try:
     from egpt.os.interfaces.slack.helpers import BotNameResolver
     from egpt.os.interfaces.slack.hitl import HITLHandler
 except ImportError as e:
-    raise ImportError("Slack dependencies not installed. Please install using `pip install 'agno[slack]'`") from e
+    raise ImportError(
+        "Slack dependencies not installed. Install them with `pip install slack_sdk aiohttp` "
+        "(included in the `egpt[slack]` extra)."
+    ) from e
 
 from egpt.os.interfaces.slack.ids import (
     ACTION_CHECK_STATUS,

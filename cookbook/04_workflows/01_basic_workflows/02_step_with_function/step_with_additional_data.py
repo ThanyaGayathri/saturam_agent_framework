@@ -242,7 +242,7 @@ if __name__ == "__main__":
     content_creation_workflow.print_response(
         input="AI trends in 2024",
         additional_data={
-            "user_email": "kaustubh@agno.com",
+            "user_email": "user@example.com",
             "priority": "high",
             "client_type": "enterprise",
         },
@@ -257,7 +257,7 @@ if __name__ == "__main__":
         async_content_creation_workflow.aprint_response(
             input="AI trends in 2024",
             additional_data={
-                "user_email": "kaustubh@agno.com",
+                "user_email": "user@example.com",
                 "priority": "high",
                 "client_type": "enterprise",
             },

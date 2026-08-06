@@ -1,4 +1,4 @@
-# CLAUDE.md — Agno
+# CLAUDE.md — EGPT
 
 Instructions for Claude Code when working on this codebase.
 
@@ -223,10 +223,10 @@ The `gh pr edit` command may fail with GraphQL errors related to classic project
 
 ```bash
 # Update PR body
-gh api repos/agno-agi/agno/pulls/<PR_NUMBER> -X PATCH -f body="<PR_BODY>"
+gh api repos/Saturam-Inc/saturam-agent-framework/pulls/<PR_NUMBER> -X PATCH -f body="<PR_BODY>"
 
 # Or with a file
-gh api repos/agno-agi/agno/pulls/<PR_NUMBER> -X PATCH -f body="$(cat /path/to/body.md)"
+gh api repos/Saturam-Inc/saturam-agent-framework/pulls/<PR_NUMBER> -X PATCH -f body="$(cat /path/to/body.md)"
 ```
 
 ---
@@ -250,7 +250,7 @@ Every non-draft PR automatically receives a review from Opus using both `code-re
 
 When running in GitHub Actions (CI), always end your response with a plain-text summary of findings. Never let the final action be a tool call. If there are no issues, say "No high-confidence findings."
 
-Agno-specific checks to always verify:
+EGPT-specific checks to always verify:
 - Both sync and async variants exist for all new public methods
 - No agent creation inside loops (agents should be reused)
 - CLAUDE.md coding patterns are followed

@@ -71,7 +71,7 @@ agent_raw = Agent(
 if __name__ == "__main__":
     print("=== Comprehensive Web Analysis Example ===")
     agent_full.print_response(
-        "Give me a detailed summary of the Agno project from https://github.com/agno-agi/agno and what are its main features?"
+        "Give me a detailed summary of the EGPT project from https://github.com/modelcontextprotocol/modelcontextprotocol and what are its main features?"
     )
 
     print("\n=== Basic Content Extraction Example ===")

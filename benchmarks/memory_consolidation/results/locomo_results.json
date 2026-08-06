@@ -1,0 +1,97 @@
+[
+  {
+    "strategy": "baseline",
+    "dataset": "locomo[0]",
+    "n_episodes": 76,
+    "n_sessions": 4,
+    "usage": {
+      "llm_calls": 30,
+      "input_tokens": 20544,
+      "output_tokens": 195,
+      "total_tokens": 20739,
+      "latency_s": 75.445,
+      "usd_cost": 0.02763
+    },
+    "qa": {
+      "qa_correct": 6,
+      "qa_total": 15,
+      "qa_accuracy": 0.4
+    }
+  },
+  {
+    "strategy": "mem0",
+    "dataset": "locomo[0]",
+    "n_episodes": 76,
+    "n_sessions": 4,
+    "usage": {
+      "llm_calls": 95,
+      "input_tokens": 33551,
+      "output_tokens": 4799,
+      "total_tokens": 38350,
+      "latency_s": 266.496,
+      "usd_cost": 0.089929
+    },
+    "qa": {
+      "qa_correct": 5,
+      "qa_total": 15,
+      "qa_accuracy": 0.3333
+    }
+  },
+  {
+    "strategy": "reflection",
+    "dataset": "locomo[0]",
+    "n_episodes": 76,
+    "n_sessions": 4,
+    "usage": {
+      "llm_calls": 38,
+      "input_tokens": 16430,
+      "output_tokens": 2154,
+      "total_tokens": 18584,
+      "latency_s": 105.512,
+      "usd_cost": 0.042077
+    },
+    "qa": {
+      "qa_correct": 6,
+      "qa_total": 15,
+      "qa_accuracy": 0.4
+    }
+  },
+  {
+    "strategy": "hierarchical",
+    "dataset": "locomo[0]",
+    "n_episodes": 76,
+    "n_sessions": 4,
+    "usage": {
+      "llm_calls": 38,
+      "input_tokens": 17653,
+      "output_tokens": 1490,
+      "total_tokens": 19143,
+      "latency_s": 237.422,
+      "usd_cost": 0.036966
+    },
+    "qa": {
+      "qa_correct": 5,
+      "qa_total": 15,
+      "qa_accuracy": 0.3333
+    }
+  },
+  {
+    "strategy": "hybrid",
+    "dataset": "locomo[0]",
+    "n_episodes": 76,
+    "n_sessions": 4,
+    "usage": {
+      "llm_calls": 97,
+      "input_tokens": 37671,
+      "output_tokens": 5265,
+      "total_tokens": 42936,
+      "latency_s": 276.778,
+      "usd_cost": 0.099739
+    },
+    "qa": {
+      "qa_correct": 5,
+      "qa_total": 15,
+      "qa_accuracy": 0.3333
+    }
+  }
+]

@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.models.google import Gemini
+from egpt.integrations.models.google import Gemini
 
 
 class SimpleMovieScript(BaseModel):

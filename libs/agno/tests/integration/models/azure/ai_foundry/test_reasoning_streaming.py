@@ -10,7 +10,7 @@ is delivered incrementally via RunEvent.reasoning_content_delta events.
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.azure import AzureAIFoundry
+from egpt.integrations.models.azure import AzureAIFoundry
 from egpt.run.agent import RunEvent
 
 

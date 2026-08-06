@@ -1,5 +1,5 @@
 """
-Trace data models for Agno tracing.
+Trace data models for EGPT tracing.
 """
 
 from dataclasses import asdict, dataclass

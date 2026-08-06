@@ -49,8 +49,8 @@ agent = Agent(
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     agent.print_response(
-        "Load the documentation from https://docs.agno.com/llms.txt into the knowledge base, "
-        "then tell me how to create an agent with Agno",
+        "Load the documentation from https://modelcontextprotocol.io/llms.txt into the knowledge base, "
+        "then tell me how to build an MCP server",
         markdown=True,
         stream=True,
     )

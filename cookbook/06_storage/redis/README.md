@@ -1,6 +1,6 @@
 # Redis Integration
 
-Examples demonstrating Redis integration with Agno agents, teams, and workflows.
+Examples demonstrating Redis integration with EGPT agents, teams, and workflows.
 
 ## Setup
 
@@ -14,8 +14,8 @@ docker run --name my-redis -p 6379:6379 -d redis
 ## Configuration
 
 ```python
-from agno.agent import Agent
-from agno.db.redis import RedisDb
+from egpt.agent import Agent
+from egpt.db.redis import RedisDb
 
 db = RedisDb(db_url="redis://localhost:6379")
 

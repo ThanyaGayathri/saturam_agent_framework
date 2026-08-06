@@ -1,5 +1,5 @@
 """
-Agno Demo — EgptOS Entrypoint
+EGPT Demo — EgptOS Entrypoint
 ===============================
 
 A demo EgptOS made of wiki agents.

@@ -1,6 +1,6 @@
-# Agno Agents Cookbook
+# EGPT Agents Cookbook
 
-Practical examples for building agents with Agno, organized by feature area.
+Practical examples for building agents with EGPT, organized by feature area.
 
 ## Directories
 

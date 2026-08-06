@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.models.groq import Groq
+from egpt.integrations.models.groq import Groq
 from egpt.tools.exa import ExaTools
 from egpt.tools.yfinance import YFinanceTools
 

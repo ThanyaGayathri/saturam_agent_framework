@@ -10,7 +10,7 @@ from egpt.utilities.logging import logger
 
 
 class AgnoCliConfig:
-    """The AgnoCliConfig class manages user data for the agno cli"""
+    """The AgnoCliConfig class manages user data for the EGPT CLI"""
 
     def __init__(
         self,

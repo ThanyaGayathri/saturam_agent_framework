@@ -3,8 +3,8 @@ from typing import Any
 import requests
 
 from egpt.agent.agent import Agent
+from egpt.integrations.models.litellm import LiteLLM
 from egpt.media import Audio, Image
-from egpt.models.litellm import LiteLLM
 from egpt.tools.websearch import WebSearchTools
 
 

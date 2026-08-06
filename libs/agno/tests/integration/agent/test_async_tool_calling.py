@@ -5,7 +5,7 @@ import pytest
 
 from egpt.agent import Agent
 from egpt.db.in_memory import InMemoryDb
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.run import RunContext
 from egpt.run.base import RunStatus
 

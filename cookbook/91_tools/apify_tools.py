@@ -21,7 +21,7 @@ The Apify ecosystem has 4000+ pre-built Actors for almost any web data extractio
 ---
 Configuration Instructions:
 1. Install required dependencies:
-   uv pip install agno langchain-apify apify-client
+   uv pip install langchain-apify apify-client
 
 2. Set the APIFY_API_TOKEN environment variable:
    Add a .env file with APIFY_API_TOKEN=your_apify_api_token
@@ -59,7 +59,7 @@ def demonstrate_tools():
     agent.print_response(prompt, show_full_reasoning=True)
 
     print("\n1.2 RAG Web Search Scenarios:")
-    prompt = "Carefully extract the key introduction details from https://docs.agno.com/introduction"  #  Extract content from specific website
+    prompt = "Carefully extract the key introduction details from https://modelcontextprotocol.io/docs/getting-started/intro"  #  Extract content from specific website
     agent.print_response(prompt)
 
     # Google Places Demonstration

@@ -1,5 +1,5 @@
 """
-Claude Agent SDK with built-in tool calls, wrapped in Agno's ClaudeAgent.
+Claude Agent SDK with built-in tool calls, wrapped in EGPT's ClaudeAgent.
 
 The Claude Agent SDK has built-in tools (Read, Edit, Bash, Glob, Grep, WebSearch, etc.)
 that are executed internally by the SDK. You just specify which tools to allow.

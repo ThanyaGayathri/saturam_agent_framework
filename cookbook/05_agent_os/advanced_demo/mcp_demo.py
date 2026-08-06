@@ -1,10 +1,10 @@
-"""This example shows how to run an Agent using our MCP integration in the Agno OS.
+"""This example shows how to run an Agent using our MCP integration in the EgptOS.
 
 For this example to run you need:
 - Create a GitHub personal access token following these steps:
     - https://github.com/modelcontextprotocol/servers/tree/main/src/github#setup
 - Set the GITHUB_TOKEN environment variable: `export GITHUB_TOKEN=<Your GitHub access token>`
-- Run: `uv pip install agno mcp openai` to install the dependencies
+- Run: `uv pip install mcp openai` to install the dependencies
 """
 
 from contextlib import asynccontextmanager

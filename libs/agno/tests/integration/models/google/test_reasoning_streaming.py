@@ -10,7 +10,7 @@ is delivered incrementally via RunEvent.reasoning_content_delta events.
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.google import Gemini
+from egpt.integrations.models.google import Gemini
 from egpt.run.agent import RunEvent
 
 

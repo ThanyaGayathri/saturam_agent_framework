@@ -6,8 +6,8 @@ Cookbook example for `anthropic/mcp_connector.py`.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.models._utils.claude import MCPServerConfiguration
 from egpt.models.anthropic import Claude
-from egpt.utils.models.claude import MCPServerConfiguration
 
 # ---------------------------------------------------------------------------
 # Create Agent
@@ -29,7 +29,7 @@ agent = Agent(
 )
 
 agent.print_response(
-    "Tell me about https://github.com/agno-agi/agno",
+    "Tell me about https://github.com/modelcontextprotocol/modelcontextprotocol",
     stream=True,
 )
 

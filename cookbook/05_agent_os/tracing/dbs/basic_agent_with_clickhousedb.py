@@ -11,7 +11,7 @@ level updates, no transactions). The recommended pattern is:
 session, memory, or knowledge method on it will raise `NotImplementedError`.
 
 Requirements:
-    uv pip install agno opentelemetry-api opentelemetry-sdk \\
+    uv pip install opentelemetry-api opentelemetry-sdk \\
         openinference-instrumentation-agno clickhouse-connect
 
 Bring up local services with:

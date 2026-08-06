@@ -21,7 +21,7 @@ def create_sync_knowledge() -> tuple[Knowledge, LanceDb]:
     vector_db = LanceDb(table_name="vectors", uri="tmp/lancedb")
     knowledge = Knowledge(
         name="Basic SDK Knowledge Base",
-        description="Agno 2.0 Knowledge Implementation with LanceDB",
+        description="EGPT 2.0 Knowledge Implementation with LanceDB",
         vector_db=vector_db,
     )
     return knowledge, vector_db

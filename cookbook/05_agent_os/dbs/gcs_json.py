@@ -28,7 +28,7 @@ from egpt.team.team import Team
 # ---------------------------------------------------------------------------
 
 # Setup the GCS JSON database
-db = GcsJsonDb(bucket_name="agno_tests")
+db = GcsJsonDb(bucket_name="egpt_tests")
 
 
 # Setup a basic agent and a basic team

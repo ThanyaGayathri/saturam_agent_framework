@@ -1,6 +1,6 @@
 # PostgreSQL Integration
 
-Examples demonstrating PostgreSQL database integration with Agno agents, teams, and workflows.
+Examples demonstrating PostgreSQL database integration with EGPT agents, teams, and workflows.
 
 ## Setup
 
@@ -11,7 +11,7 @@ uv pip install psycopg2-binary
 ## Configuration
 
 ```python
-from agno.agent import Agent
+from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 
 db = PostgresDb(db_url="postgresql+psycopg://username:password@localhost:5432/database")
@@ -24,11 +24,11 @@ agent = Agent(
 
 ## Async usage
 
-Agno also supports using your PostgreSQL database asynchronously, via the `AsyncPostgresDb` class:
+EGPT also supports using your PostgreSQL database asynchronously, via the `AsyncPostgresDb` class:
 
 ```python
-from agno.agent import Agent
-from agno.db.postgres import AsyncPostgresDb
+from egpt.agent import Agent
+from egpt.db.postgres import AsyncPostgresDb
 
 db = AsyncPostgresDb(db_url="postgresql+psycopg://username:password@localhost:5432/database")
 

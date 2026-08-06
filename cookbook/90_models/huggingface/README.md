@@ -18,7 +18,7 @@ export HF_TOKEN=***
 ### 3. Install libraries
 
 ```shell
-uv pip install -U huggingface_hub agno
+uv pip install -U huggingface_hub
 ```
 
 ### 4. Run basic Agent

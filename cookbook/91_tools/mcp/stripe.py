@@ -1,12 +1,12 @@
 """Stripe MCP Agent - Manage Your Stripe Operations
 
-This example demonstrates how to create an Agno agent that interacts with the Stripe API via the Model Context Protocol (MCP). This agent can create and manage Stripe objects like customers, products, prices, and payment links using natural language commands.
+This example demonstrates how to create an EGPT agent that interacts with the Stripe API via the Model Context Protocol (MCP). This agent can create and manage Stripe objects like customers, products, prices, and payment links using natural language commands.
 
 
 Setup:
 2. Install Python dependencies:
    ```bash
-   uv pip install agno mcp
+   uv pip install mcp
    ```
 3. Set Environment Variable: export STRIPE_SECRET_KEY=***.
 
@@ -28,7 +28,7 @@ from egpt.utils.log import log_error, log_exception, log_info
 
 async def run_agent(message: str) -> None:
     """
-    Sets up the Stripe MCP server and initialize the Agno agent
+    Sets up the Stripe MCP server and initialize the EGPT agent
     """
     # Verify Stripe API Key is available
     stripe_api_key = os.getenv("STRIPE_SECRET_KEY")

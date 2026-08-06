@@ -38,7 +38,7 @@
 
 **Status:** PENDING
 
-**Description:** This example shows how to run an Agent using our MCP integration in the Agno OS.
+**Description:** This example shows how to run an Agent using our MCP integration in the EgptOS.
 
 ---
 
@@ -54,7 +54,7 @@
 
 **Status:** PENDING
 
-**Description:** Run `uv pip install openai exa_py ddgs yfinance pypdf sqlalchemy 'fastapi[standard]' youtube-transcript-api python-docx agno` to install dependencies.
+**Description:** Run `uv pip install openai exa_py ddgs yfinance pypdf sqlalchemy 'fastapi[standard]' youtube-transcript-api python-docx` to install dependencies.
 
 ---
 

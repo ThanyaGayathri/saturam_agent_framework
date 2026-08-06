@@ -11,7 +11,7 @@ from fastmcp import Context, FastMCP
 from fastmcp.server.http import (
     StarletteWithLifespan,
 )
-from fastmcp.tools import ToolResult
+from fastmcp.tools.tool import ToolResult
 
 from egpt.db.base import SessionType
 from egpt.os.mcp_results import build_run_tool_result, trim_session_run
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Built-in MCP tools are tagged by domain so they can be scoped as a group. The canonical
-# tag set lives in agno/os/config.py next to the MCPServerConfig fields that consume it --
+# tag set lives in egpt/os/config.py next to the MCPServerConfig fields that consume it --
 # single source of truth so adding a new tag is a one-place change.
 from egpt.os.config import MCP_BUILTIN_TAGS as _BUILTIN_TOOL_TAGS  # noqa: E402
 
@@ -97,10 +97,10 @@ def _register_custom_tools(mcp: FastMCP, config: "Optional[MCPServerConfig]") ->
 
 
 def _register_custom_tool(mcp: FastMCP, tool: Any) -> None:
-    """Register a single custom tool, supporting plain callables and Agno tools/Functions."""
+    """Register a single custom tool, supporting plain callables and EGPT tools/Functions."""
     from fastmcp.tools import Tool
 
-    # Agno tool / Function: a callable ``entrypoint`` plus name/description metadata.
+    # EGPT tool / Function: a callable ``entrypoint`` plus name/description metadata.
     entrypoint = getattr(tool, "entrypoint", None)
     if callable(entrypoint):
         name = getattr(tool, "name", None) or getattr(entrypoint, "__name__", None)
@@ -114,7 +114,7 @@ def _register_custom_tool(mcp: FastMCP, tool: Any) -> None:
         return
 
     raise TypeError(
-        f"Cannot register MCP tool of type {type(tool).__name__!r}; expected a callable or an Agno tool/Function."
+        f"Cannot register MCP tool of type {type(tool).__name__!r}; expected a callable or an EGPT tool/Function."
     )
 
 
@@ -371,7 +371,7 @@ def _detached_trace_context() -> Iterator[None]:
     """Run a component in a fresh OTel root trace, detached from FastMCP's tool-call span.
 
     FastMCP wraps every tool call in an identity-less ``tools/call ...`` SERVER span. Left
-    attached, the agno run span nests under it, and the trace layer -- which reads a trace's
+    attached, the EGPT run span nests under it, and the trace layer -- which reads a trace's
     identity (run_id / session_id / user_id / agent_id) from its root span -- takes it from
     that context-less protocol span instead of the run, so runs invoked over MCP land with a
     NULL, mislabeled trace. Detaching to an invalid parent makes the run span its own root,
@@ -1150,7 +1150,7 @@ def get_mcp_server(
     DNS-rebinding protection from ``mcp_config``.
 
     Authentication is NOT layered here: the parent app's single ``AuthMiddleware``
-    (agno/os/app.py::_add_auth_middleware) runs before Starlette dispatches to this
+    (egpt/os/app.py::_add_auth_middleware) runs before Starlette dispatches to this
     mount, so it already verified the token and attached the identity to
     request.state. Per-tool scope enforcement lives in the tools themselves
     (``_require_tool_scopes``).

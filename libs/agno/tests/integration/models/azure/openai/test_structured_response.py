@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.azure import AzureOpenAI
+from egpt.integrations.models.azure import AzureOpenAI
 
 
 class MovieScript(BaseModel):

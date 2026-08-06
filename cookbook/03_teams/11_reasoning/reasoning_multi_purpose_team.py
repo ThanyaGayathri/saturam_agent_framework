@@ -32,10 +32,10 @@ from egpt.vectordb.search import SearchType
 # ---------------------------------------------------------------------------
 cwd = Path(__file__).parent.resolve()
 
-agno_assist_knowledge = Knowledge(
+mcp_docs_knowledge = Knowledge(
     vector_db=LanceDb(
         uri="tmp/lancedb",
-        table_name="agno_assist_knowledge",
+        table_name="mcp_docs_knowledge",
         search_type=SearchType.hybrid,
         embedder=OpenAIEmbedder(id="text-embedding-3-small"),
     ),
@@ -93,14 +93,14 @@ calculator_agent = Agent(
     tools=[CalculatorTools()],
 )
 
-agno_assist = Agent(
-    name="Agno Assist",
-    role="You help answer questions about the Agno framework.",
+mcp_docs_agent = Agent(
+    name="MCP Docs Agent",
+    role="You help answer questions about the Model Context Protocol.",
     model=OpenAIResponses(id="gpt-5-mini"),
-    instructions="Search your knowledge before answering the question. Help me to write working code for Agno Agents.",
+    instructions="Search your knowledge before answering the question. Cite the Model Context Protocol documentation you used.",
     tools=[
         KnowledgeTools(
-            knowledge=agno_assist_knowledge,
+            knowledge=mcp_docs_knowledge,
             add_instructions=True,
             add_few_shot=True,
         ),
@@ -114,7 +114,7 @@ github_agent = Agent(
     role="Do analysis on Github repositories",
     model=OpenAIResponses(id="gpt-5-mini"),
     instructions=[
-        "Use your tools to answer questions about the repo: agno-agi/agno",
+        "Use your tools to answer questions about the repo: modelcontextprotocol/modelcontextprotocol",
         "Do not create any issues or pull requests unless explicitly asked to do so",
     ],
     tools=[
@@ -173,7 +173,7 @@ sync_agent_team = Team(
         finance_agent,
         writer_agent,
         calculator_agent,
-        agno_assist,
+        mcp_docs_agent,
         github_agent,
         local_python_agent,
     ],
@@ -198,7 +198,7 @@ async_agent_team = Team(
         finance_agent,
         medical_agent,
         calculator_agent,
-        agno_assist,
+        mcp_docs_agent,
         code_agent,
     ],
     instructions=[
@@ -215,7 +215,9 @@ async_agent_team = Team(
 
 
 async def run_async_reasoning_demo() -> None:
-    await agno_assist_knowledge.ainsert(url="https://docs.agno.com/llms-full.txt")
+    await mcp_docs_knowledge.ainsert(
+        url="https://modelcontextprotocol.io/llms-full.txt"
+    )
     await async_agent_team.aprint_response(input="Hi! What are you capable of doing?")
 
 
@@ -224,7 +226,7 @@ async def run_async_reasoning_demo() -> None:
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     asyncio.run(
-        agno_assist_knowledge.ainsert(url="https://docs.agno.com/llms-full.txt")
+        mcp_docs_knowledge.ainsert(url="https://modelcontextprotocol.io/llms-full.txt")
     )
 
     txt_path = Path(__file__).parent.resolve() / "medical_history.txt"

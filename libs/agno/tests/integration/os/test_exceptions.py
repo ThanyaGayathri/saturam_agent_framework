@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.os import EgptOS
 
 

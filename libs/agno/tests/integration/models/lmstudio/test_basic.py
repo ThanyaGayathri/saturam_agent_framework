@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.db.sqlite import SqliteDb
-from egpt.models.lmstudio import LMStudio
+from egpt.integrations.models.lmstudio import LMStudio
 
 
 def _assert_metrics(response: RunOutput):

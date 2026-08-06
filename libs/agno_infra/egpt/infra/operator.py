@@ -13,18 +13,20 @@ from egpt.cli.console import (
     print_subheading,
 )
 from egpt.infra.config import InfraConfig
-from egpt.infra.enums import InfraStarterTemplate
+from egpt.infra.enums import LEGACY_TEMPLATE_ALIASES, InfraStarterTemplate
 from egpt.utilities.logging import log_info, log_warning, logger
 
 TEMPLATE_TO_NAME_MAP: Dict[InfraStarterTemplate, str] = {
-    InfraStarterTemplate.agentos_docker: "agentos-docker",
-    InfraStarterTemplate.agentos_aws: "agentos-aws",
-    InfraStarterTemplate.agentos_railway: "agentos-railway",
+    InfraStarterTemplate.agentos_docker: "egpt-os-docker",
+    InfraStarterTemplate.agentos_aws: "egpt-os-aws",
+    InfraStarterTemplate.agentos_railway: "egpt-os-railway",
 }
+# Rebranded starter templates under Saturam-Inc (EGPT-0.11); same mapping the
+# `egpt create` command uses in egptctl/commands/create.py.
 TEMPLATE_TO_REPO_MAP: Dict[InfraStarterTemplate, str] = {
-    InfraStarterTemplate.agentos_docker: "https://github.com/agno-agi/agentos-docker-template",
-    InfraStarterTemplate.agentos_aws: "https://github.com/agno-agi/agentos-aws-template",
-    InfraStarterTemplate.agentos_railway: "https://github.com/agno-agi/agentos-railway-template",
+    InfraStarterTemplate.agentos_docker: "https://github.com/Saturam-Inc/egpt-os-docker",
+    InfraStarterTemplate.agentos_aws: "https://github.com/Saturam-Inc/egpt-os-aws",
+    InfraStarterTemplate.agentos_railway: "https://github.com/Saturam-Inc/egpt-os-railway",
 }
 
 
@@ -49,7 +51,7 @@ def create_infra_from_template(
 
     current_dir: Path = Path("").resolve()
 
-    # Initialize Agno before creating a Infra
+    # Initialize EGPT before creating a Infra
     agno_config: Optional[AgnoCliConfig] = AgnoCliConfig.from_saved_config()
     if not agno_config:
         agno_config = initialize_agno_cli()
@@ -70,7 +72,7 @@ def create_infra_from_template(
         if template is None:
             # Get starter template from the user if template is not provided
             # Display available starter templates and ask user to select one
-            print_info("Select starter template or press Enter for default (agentos-docker)")
+            print_info("Select starter template or press Enter for default (egpt-os-docker)")
             for template_id, template_name in enumerate(templates, start=1):
                 print_info("  [b][{}][/b] {}".format(template_id, InfraStarterTemplate(template_name).value))
 
@@ -90,20 +92,26 @@ def create_infra_from_template(
                 infra_template = InfraStarterTemplate(templates[template_inp_idx])
         elif template.lower() in InfraStarterTemplate.__members__.values():
             infra_template = InfraStarterTemplate(template)
+        elif template.lower() in LEGACY_TEMPLATE_ALIASES:
+            infra_template = LEGACY_TEMPLATE_ALIASES[template.lower()]
+            log_warning(f"Template '{template}' was renamed to '{infra_template.value}'; using the new template.")
         else:
-            raise Exception(f"{template} is not a supported template, please choose from: {templates}")
+            # `.value` because the member names still carry their upstream spelling; the
+            # values are what a user actually types after `-t`.
+            supported = ", ".join(t.value for t in templates)
+            raise Exception(f"{template} is not a supported template, please choose from: {supported}")
 
         logger.debug(f"Selected Template: {infra_template.value}")
         repo_to_clone = TEMPLATE_TO_REPO_MAP.get(infra_template)
 
     if infra_dir_name is None:
-        default_infra_name = "agno-infra-project"
+        default_infra_name = "egpt-infra-project"
         if url is not None:
             # Get default_infra_name from url
             default_infra_name = url.split("/")[-1].split(".")[0]
         else:
             # Get default_infra_name from template
-            default_infra_name = TEMPLATE_TO_NAME_MAP.get(infra_template, "agentos-docker")
+            default_infra_name = TEMPLATE_TO_NAME_MAP.get(infra_template, "egpt-os-docker")
         logger.debug(f"Asking for infra name with default: {default_infra_name}")
         # Ask user for infra name if not provided
         infra_dir_name = Prompt.ask("Infra Project Directory", default=default_infra_name, console=console)
@@ -116,7 +124,7 @@ def create_infra_from_template(
     infra_root_path: Path = current_dir.joinpath(infra_dir_name)
     if infra_root_path.exists():
         logger.error(
-            f"Directory {infra_root_path} exists, please delete the directory or choose another name for your Agno Infra project."
+            f"Directory {infra_root_path} exists, please delete the directory or choose another name for your EGPT Infra project."
         )
         return None
 
@@ -176,7 +184,6 @@ def create_infra_from_template(
         print_info(f"Please run `cd ./{str(relative_infra_root_path)}` and:\n")
         print_info("1. Start your EgptOS -> `ag infra up`")
         print_info("2. Stop your EgptOS -> `ag infra down`")
-        print_info("\nView your EgptOS on https://os.agno.com")
         print_info("--------------------------------")
 
         return infra_config
@@ -296,7 +303,7 @@ def stop_infra(
     auto_confirm: Optional[bool] = False,
     force: Optional[bool] = None,
 ) -> None:
-    """Stop an Agno Infra. This is called from `ag infra down`"""
+    """Stop an EGPT Infra. This is called from `ag infra down`"""
     print_heading("Stopping infra: {}".format(str(infra_config.infra_root_path.stem)))
     logger.debug(f"\ttarget_env   : {target_env}")
     logger.debug(f"\ttarget_infra : {target_infra}")
@@ -368,7 +375,7 @@ def update_infra(
     force: Optional[bool] = None,
     pull: Optional[bool] = False,
 ) -> None:
-    """Update an Agno Infra. This is called from `ag infra patch`"""
+    """Update an EGPT Infra. This is called from `ag infra patch`"""
     print_heading("Updating infra: {}".format(str(infra_config.infra_root_path.stem)))
     logger.debug(f"\ttarget_env   : {target_env}")
     logger.debug(f"\ttarget_infra : {target_infra}")

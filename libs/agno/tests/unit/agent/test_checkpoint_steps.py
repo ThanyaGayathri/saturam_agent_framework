@@ -31,8 +31,8 @@ from egpt.agent._run import (
 )
 from egpt.agent.agent import Agent
 from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.models.openai.responses import OpenAIResponses
 from egpt.models.message import Message
-from egpt.models.openai.responses import OpenAIResponses
 from egpt.models.response import ModelResponse, ToolExecution
 from egpt.run import RunContext, RunStatus
 from egpt.run.agent import RunOutput

@@ -4,16 +4,16 @@ Download an Antigravity sandbox snapshot through AntigravityTools.
 `download_antigravity_environment_snapshot` hits the Files API endpoint:
     GET /v1beta/files/environment-{env_id}:download?alt=media
 
-Pass `environment_id="current"` to resolve the env id from the calling Agno
+Pass `environment_id="current"` to resolve the env id from the calling EGPT
 agent's `session_state` — it's set there by a prior `run_antigravity_task` call
 within the same session.
 
-Useful for letting an Agno agent introspect or archive what the Antigravity
+Useful for letting an EGPT agent introspect or archive what the Antigravity
 sandbox produced during a task.
 
 Requirements:
     export GEMINI_API_KEY=...
-    uv pip install agno google-genai
+    uv pip install google-genai
 
 Usage:
     .venvs/demo/bin/python cookbook/91_tools/antigravity/antigravity_snapshot_tools.py

@@ -15,8 +15,8 @@ Build a coding agent from scratch, progressively adding capabilities at each lev
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/agno-agi/agno.git
-cd agno
+git clone https://github.com/Saturam-Inc/saturam-agent-framework.git
+cd saturam-agent-framework
 ```
 
 ### 2. Create and activate a virtual environment
@@ -78,7 +78,7 @@ Agent OS provides a web interface for interacting with your agents. All 5 levels
 python cookbook/levels_of_agentic_software/run.py
 ```
 
-Then visit [os.agno.com](https://os.agno.com) and add `http://localhost:7777` as an endpoint.
+Then open the interactive API docs at <http://localhost:7777/docs>, or attach a coding agent with `egpt connect`.
 
 | Agent in UI | What You Get |
 |:------------|:-------------|
@@ -92,19 +92,19 @@ Then visit [os.agno.com](https://os.agno.com) and add `http://localhost:7777` as
 
 ## Swap Models
 
-These examples use OpenAI but Agno is model-agnostic:
+These examples use OpenAI but EGPT is model-agnostic:
 
 ```python
 # OpenAI (default in these examples)
-from agno.models.openai import OpenAIResponses
+from egpt.models.openai import OpenAIResponses
 model = OpenAIResponses(id="gpt-5.2")
 
 # Google
-from agno.models.google import Gemini
+from egpt.models.google import Gemini
 model = Gemini(id="gemini-3.5-flash")
 
 # Anthropic
-from agno.models.anthropic import Claude
+from egpt.models.anthropic import Claude
 model = Claude(id="claude-sonnet-4-5")
 ```
 

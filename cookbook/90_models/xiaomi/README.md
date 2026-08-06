@@ -2,8 +2,8 @@
 
 [Xiaomi MiMo](https://platform.xiaomimimo.com/) exposes its models through an
 [OpenAI-compatible API](https://platform.xiaomimimo.com/docs/en-US/api/chat/openai-api),
-so you can drive them through Agno the same way you'd drive any OpenAI-compatible
-provider. The Agno `MiMo` class defaults to `mimo-v2.5-pro` and points at
+so you can drive them through EGPT the same way you'd drive any OpenAI-compatible
+provider. The EGPT `MiMo` class defaults to `mimo-v2.5-pro` and points at
 `https://api.xiaomimimo.com/v1`.
 
 ## Thinking mode
@@ -28,7 +28,7 @@ for a first request.
 
 ### 1. Create and activate a virtual environment
 
-See the repository [Development setup](https://github.com/agno-agi/agno/blob/main/CONTRIBUTING.md#development-setup).
+See the repository [Development setup](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/CONTRIBUTING.md#development-setup).
 
 ### 2. Export your API key
 
@@ -39,7 +39,7 @@ export MIMO_API_KEY=***
 ### 3. Install libraries
 
 ```shell
-uv pip install -U openai ddgs agno
+uv pip install -U openai ddgs
 ```
 
 ## Examples

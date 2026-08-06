@@ -259,7 +259,7 @@ class ReliabilityEval:
         if self.print_results or print_results:
             self.result.print_eval(console)
 
-        # Log results to the Agno platform if requested
+        # Log results to the EGPT platform if requested
         if self.db:
             if self.agent_response is not None:
                 agent_id = self.agent_response.agent_id
@@ -341,7 +341,7 @@ class ReliabilityEval:
         if self.print_results or print_results:
             self.result.print_eval(console)
 
-        # Log results to the Agno platform if requested
+        # Log results to the EGPT platform if requested
         if self.db:
             if self.agent_response is not None:
                 agent_id = self.agent_response.agent_id

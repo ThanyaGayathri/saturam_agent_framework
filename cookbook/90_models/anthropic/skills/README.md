@@ -1,4 +1,4 @@
-# Claude Agent Skills for Agno
+# Claude Agent Skills for EGPT
 
 ## What are Claude Agent Skills?
 
@@ -18,7 +18,7 @@ Before you can use Claude Agent Skills, you'll need:
 2. **Anthropic API key** with access to Claude models
 3. **Required Python packages (Only for file handling post its creation in Sandbox)**:
    - `anthropic` (for direct API access)
-   - `agno` (for agent framework)
+   - `egpt` (for agent framework)
    - `python-pptx` (optional, for PowerPoint manipulation)
    - `openpyxl` (optional, for Excel file handling)
    - `python-docx` (optional, for Word document handling)
@@ -28,7 +28,7 @@ Before you can use Claude Agent Skills, you'll need:
 
 1. Install the required packages:
 ```bash
-uv pip install anthropic agno
+uv pip install anthropic
 
 # Optional: Install document manipulation libraries
 uv pip install python-pptx openpyxl python-docx PyPDF2 pdfplumber
@@ -74,13 +74,13 @@ response = client.messages.create(
 )
 ```
 
-### Integration with Agno Agents
+### Integration with EGPT Agents
 
-Agno now has native support for Claude Agent Skills! Simply pass the `skills` parameter to the Claude model:
+EGPT now has native support for Claude Agent Skills! Simply pass the `skills` parameter to the Claude model:
 
 ```python
-from agno.agent import Agent
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.models.anthropic import Claude
 
 # Enable PowerPoint skill
 agent = Agent(
@@ -121,7 +121,7 @@ The framework automatically:
 ## Available Examples
 
 ### 1. `agent_with_powerpoint.py`
-Shows how to create an Agno agent specialized in PowerPoint presentations:
+Shows how to create an EGPT agent specialized in PowerPoint presentations:
 - Business presentation generation
 - Market analysis reports
 - Slide design and formatting
@@ -150,7 +150,7 @@ Advanced example combining multiple skills:
 - **Native Code Execution**: Skills can execute Python code to create/modify documents
 - **File Output**: Generated documents are created in execution sandbox (see File Downloads below)
 - **Format Support**: Full support for PPTX, XLSX, DOCX, and PDF formats
-- **Agno Integration**: Seamless integration with Agno's agent framework
+- **EGPT Integration**: Seamless integration with EGPT's agent framework
 
 ## ⚠️ Important: File Downloads
 
@@ -285,18 +285,18 @@ container={
 
 If you encounter any issues or have questions, please:
 1. Check the [Anthropic Documentation](https://docs.anthropic.com/en/docs/agents-and-tools/agent-skills/quickstart)
-2. Check the [Agno documentation](https://docs.agno.com)
-3. Open an issue on the Agno GitHub repository
-4. Join the Agno community for support
+2. Check the [EGPT package README](../../../../libs/agno/README.md)
+3. Open an issue on the EGPT GitHub repository
+4. Join the EGPT community for support
 
 ## Additional Resources
 
 - [Claude Agent Skills Quickstart](https://docs.anthropic.com/en/docs/agents-and-tools/agent-skills/quickstart)
 - [Anthropic API Reference](https://docs.anthropic.com/en/api)
-- [Agno Documentation](https://docs.agno.com)
+- [EGPT package README](../../../../libs/agno/README.md)
 - [Python-PPTX Documentation](https://python-pptx.readthedocs.io/)
 - [Openpyxl Documentation](https://openpyxl.readthedocs.io/)
 
 ## License
 
-This integration follows the same license as the Agno framework.
+This integration follows the same license as the EGPT framework.

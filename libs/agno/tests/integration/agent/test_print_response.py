@@ -5,7 +5,7 @@ from rich.console import Console
 from rich.text import Text
 
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 
 
 def test_print_response_with_message_panel():

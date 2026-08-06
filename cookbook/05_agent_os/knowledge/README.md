@@ -3,9 +3,9 @@
 Examples for `knowledge` in EgptOS.
 
 ## Files
-- `agentos_excel_analyst.py` — Agentos Excel Analyst.
-- `agentos_knowledge.py` — EgptOS Knowledge (Sync And Async).
-- `agno_docs_agent.py` — Agno Docs Agent.
+- `egptos_excel_analyst.py` — EgptOS Excel Analyst.
+- `egptos_knowledge.py` — EgptOS Knowledge (Sync And Async).
+- `mcp_docs_agent.py` — MCP Docs Agent.
 
 ## Prerequisites
 - Load environment variables with `direnv allow` (requires `.envrc`).

@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets — never commit real keys. Use .env (loaded by the harness) locally.
+.env
+.env.local

@@ -12,13 +12,13 @@ DEFAULT_BASE_URL = "https://ydc-index.io"
 
 class YouTools(Toolkit):
     """
-    YouTools exposes the You.com Search API as a first-class Agno tool.
+    YouTools exposes the You.com Search API as a first-class EGPT tool.
 
     Get an API key at https://you.com/platform/api-keys and set ``YDC_API_KEY``.
 
     Tip: You.com also hosts a free MCP profile at
     ``https://api.you.com/mcp?profile=free`` (``you-search`` with 100 queries/day,
-    no API key required). To use it instead, point Agno's ``MCPTools`` at that URL.
+    no API key required). To use it instead, point EGPT's ``MCPTools`` at that URL.
 
     Args:
         api_key (Optional[str]): You.com API key. Falls back to the ``YDC_API_KEY`` env var.

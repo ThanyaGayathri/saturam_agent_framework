@@ -51,8 +51,8 @@ try:
     import clickhouse_connect
 except ImportError as e:
     raise ImportError(
-        "`clickhouse-connect` not installed. Install with `pip install clickhouse-connect` "
-        "or `pip install 'agno[clickhouse]'`."
+        "`clickhouse-connect` not installed. Install it with `pip install clickhouse-connect` "
+        "(included in the `egpt[clickhouse]` extra)."
     ) from e
 
 

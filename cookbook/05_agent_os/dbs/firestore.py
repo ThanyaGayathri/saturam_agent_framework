@@ -11,7 +11,7 @@ from egpt.team.team import Team
 # Create Example
 # ---------------------------------------------------------------------------
 
-PROJECT_ID = "agno-os-test"
+PROJECT_ID = "egpt-os-test"
 
 # Setup the Firestore database
 db = FirestoreDb(

@@ -28,9 +28,9 @@ Inspired by the Pi coding agent: a small number of composable tools is more powe
 ## Usage
 
 ```python
-from agno.agent import Agent
-from agno.models.openai import OpenAIChat
-from agno.tools.coding import CodingTools
+from egpt.agent import Agent
+from egpt.models.openai import OpenAIChat
+from egpt.tools.coding import CodingTools
 
 # Core tools only (default)
 agent = Agent(

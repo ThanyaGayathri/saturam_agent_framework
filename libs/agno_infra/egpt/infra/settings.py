@@ -18,10 +18,10 @@ class InfraSettings(BaseModel):
     # infrastructure git repo url
     infra_repo: Optional[str] = None
 
-    # default env for agno infra commands
+    # default env for `ag infra` commands
     default_env: Optional[str] = "dev"
 
-    # default infra for agno infra commands
+    # default infra for `ag infra` commands
     default_infra: Optional[str] = None
 
     # Image Settings
@@ -55,14 +55,14 @@ class InfraSettings(BaseModel):
     prd_key: Optional[str] = None
 
     # ag cli settings
-    # Set to True if Agno should continue creating
+    # Set to True if EGPT should continue creating
     # resources after a resource creation has failed
     continue_on_create_failure: bool = False
-    # Set to True if Agno should continue deleting
+    # Set to True if EGPT should continue deleting
     # resources after a resource deleting has failed
     # Defaults to True because we normally want to continue deleting
     continue_on_delete_failure: bool = True
-    # Set to True if Agno should continue patching
+    # Set to True if EGPT should continue patching
     # resources after a resource patch has failed
     continue_on_patch_failure: bool = False
     # Other Settings

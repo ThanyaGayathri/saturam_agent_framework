@@ -1,6 +1,6 @@
 # DeepSeek Cookbook
 
-[DeepSeek](https://api-docs.deepseek.com/) provides an OpenAI-compatible API. Agno's
+[DeepSeek](https://api-docs.deepseek.com/) provides an OpenAI-compatible API. EGPT's
 `DeepSeek` model defaults to `deepseek-v4-flash`.
 
 ## Models
@@ -46,7 +46,7 @@ export DEEPSEEK_API_KEY=***
 ### 3. Install libraries
 
 ```shell
-uv pip install -U openai ddgs duckdb yfinance agno
+uv pip install -U openai ddgs duckdb yfinance
 ```
 
 ## Examples

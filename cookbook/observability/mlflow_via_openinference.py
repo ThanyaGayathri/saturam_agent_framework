@@ -2,7 +2,7 @@
 MLflow Via OpenInference
 ========================
 
-Demonstrates instrumenting an Agno agent with OpenInference and sending traces to MLflow.
+Demonstrates instrumenting an EGPT agent with OpenInference and sending traces to MLflow.
 
 Requirements:
     pip install -U mlflow opentelemetry-exporter-otlp-proto-http openinference-instrumentation-agno
@@ -38,7 +38,7 @@ tracer_provider.add_span_processor(
         )
     )
 )
-# Start instrumenting agno
+# Start instrumenting egpt
 AgnoInstrumentor().instrument(tracer_provider=tracer_provider)
 
 

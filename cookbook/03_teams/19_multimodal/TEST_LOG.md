@@ -25,7 +25,7 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/19_multimodal/image_to_image_transformation.py", line 11, in <module>
-    from agno.tools.fal import FalTools
+    from egpt.tools.fal import FalTools
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/tools/fal.py", line 19, in <module>
     raise ImportError("`fal_client` not installed. Please install using `pip install fal-client`")
 ImportError: `fal_client` not installed. Please install using `pip install fal-client`
@@ -120,7 +120,7 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/19_multimodal/video_caption_generation.py", line 11, in <module>
-    from agno.tools.moviepy_video import MoviePyVideoTools
+    from egpt.tools.moviepy_video import MoviePyVideoTools
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/tools/moviepy_video.py", line 9, in <module>
     raise ImportError("`moviepy` not installed. Please install using `pip install moviepy ffmpeg`")
 ImportError: `moviepy` not installed. Please install using `pip install moviepy ffmpeg`

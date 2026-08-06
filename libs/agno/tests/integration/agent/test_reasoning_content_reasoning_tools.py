@@ -9,7 +9,7 @@ from textwrap import dedent
 import pytest
 
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.tools.reasoning import ReasoningTools
 
 

@@ -2,7 +2,7 @@ import json
 
 from egpt.agent import Agent, RunOutput
 from egpt.db.in_memory import InMemoryDb
-from egpt.models.openai.chat import OpenAIChat
+from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.run.base import RunContext
 
 

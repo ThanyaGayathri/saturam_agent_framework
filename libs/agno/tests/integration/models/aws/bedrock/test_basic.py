@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
 from egpt.db.sqlite.sqlite import SqliteDb
-from egpt.models.aws import AwsBedrock
+from egpt.integrations.models.aws import AwsBedrock
 
 
 def _assert_metrics(response: RunOutput):

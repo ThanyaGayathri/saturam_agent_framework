@@ -1,7 +1,7 @@
 """Google ADK A2A Server for testing A2AClient.
 
 This server uses Google's Agent Development Kit (ADK) to create an A2A-compatible
-agent that can be tested with Agno's A2AClient.
+agent that can be tested with EGPT's A2AClient.
 
 Note: To enable streaming, you need to set the `streaming` capability to `true` in the agent card. This means creating a custom agent card and providing it to the `to_a2a` function.
 

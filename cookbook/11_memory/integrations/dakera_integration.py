@@ -2,7 +2,7 @@
 Dakera Integration
 ==================
 
-Demonstrates persistent cross-session memory for Agno agents using
+Demonstrates persistent cross-session memory for EGPT agents using
 Dakera — a self-hosted, decay-weighted vector memory server.
 
 Unlike cloud memory providers (Mem0, Zep), Dakera runs entirely on your
@@ -14,7 +14,7 @@ Prerequisites:
         -e DAKERA_API_KEY=demo \\
         ghcr.io/dakera-ai/dakera:latest
 
-    uv pip install agno dakera
+    uv pip install dakera
 
 Usage:
     DAKERA_API_KEY=demo python cookbook/11_memory/integrations/dakera_integration.py
@@ -58,7 +58,7 @@ class DakeraMemoryStore:
         default_factory=lambda: os.getenv("DAKERA_URL", "http://localhost:3300")
     )
     api_key: str = field(default_factory=lambda: os.getenv("DAKERA_API_KEY", ""))
-    namespace: str = "agno-agent"
+    namespace: str = "egpt-agent"
 
     def _headers(self) -> dict:
         return {
@@ -108,7 +108,7 @@ class DakeraMemoryStore:
 # ---------------------------------------------------------------------------
 
 memory = DakeraMemoryStore()
-user_id = "agno-demo"
+user_id = "egpt-demo"
 
 # Store some initial memories — comment out after first run
 initial_facts = [
@@ -130,7 +130,7 @@ print(f"Stored {len(initial_facts)} memories.\n")
 
 
 def build_agent_with_memory(task: str) -> Agent:
-    """Build an Agno agent with prior memories injected into the system prompt."""
+    """Build an EGPT agent with prior memories injected into the system prompt."""
     recalled = memory.recall(task, user_id=user_id, top_k=5)
     memory_context = (
         "Relevant memories about this user:\n" + "\n".join(f"- {m}" for m in recalled)

@@ -15,13 +15,13 @@ from textwrap import dedent
 
 import pytest
 
-from egpt.models.anthropic import Claude
-from egpt.models.azure import AzureAIFoundry
-from egpt.models.deepseek import DeepSeek
-from egpt.models.google import Gemini
-from egpt.models.groq import Groq
-from egpt.models.ollama import Ollama
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.anthropic import Claude
+from egpt.integrations.models.azure import AzureAIFoundry
+from egpt.integrations.models.deepseek import DeepSeek
+from egpt.integrations.models.google import Gemini
+from egpt.integrations.models.groq import Groq
+from egpt.integrations.models.ollama import Ollama
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.team.team import Team
 
 

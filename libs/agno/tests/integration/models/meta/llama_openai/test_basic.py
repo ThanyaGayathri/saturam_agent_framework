@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
 from egpt.db.sqlite import SqliteDb
-from egpt.models.meta.llama_openai import LlamaOpenAI
+from egpt.integrations.models.meta.llama_openai import LlamaOpenAI
 
 
 @pytest.fixture(scope="module")

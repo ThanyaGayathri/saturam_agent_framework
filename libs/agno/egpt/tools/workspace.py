@@ -196,7 +196,7 @@ class Workspace(Toolkit):
     partitions of short aliases:
 
     - An alias in ``allowed`` runs silently.
-    - An alias in ``confirm`` requires user approval (Agno's HITL pause/resume).
+    - An alias in ``confirm`` requires user approval (EGPT's HITL pause/resume).
     - An alias in **neither** list is not registered with the toolkit — the LLM doesn't see it.
     - An alias in **both** lists raises ``ValueError``.
 

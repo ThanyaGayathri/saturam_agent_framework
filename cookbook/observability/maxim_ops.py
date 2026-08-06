@@ -2,7 +2,7 @@
 Maxim Integration
 =================
 
-Demonstrates using Maxim to trace and log Agno agent and team calls.
+Demonstrates using Maxim to trace and log EGPT agent and team calls.
 """
 
 from egpt.agent import Agent
@@ -13,7 +13,7 @@ from egpt.tools.yfinance import YFinanceTools
 
 try:
     from maxim import Maxim
-    from maxim.logger.agno import instrument_agno
+    from maxim.logger.egpt import instrument_agno
 except ImportError:
     raise ImportError(
         "`maxim` not installed. Please install using `uv pip install maxim-py`"
@@ -23,7 +23,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
-# Instrument Agno with Maxim for automatic tracing and logging
+# Instrument EGPT with Maxim for automatic tracing and logging
 instrument_agno(Maxim().logger())
 
 

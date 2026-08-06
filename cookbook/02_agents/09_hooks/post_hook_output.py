@@ -2,7 +2,7 @@
 Post Hook Output
 =============================
 
-Example demonstrating output validation using post-hooks with Agno Agent.
+Example demonstrating output validation using post-hooks with EGPT Agent.
 """
 
 import asyncio

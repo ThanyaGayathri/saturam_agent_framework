@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team import Team
 

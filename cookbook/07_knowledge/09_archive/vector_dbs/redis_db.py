@@ -20,7 +20,7 @@ from egpt.vectordb.search import SearchType
 # Setup
 # ---------------------------------------------------------------------------
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-INDEX_NAME = os.getenv("REDIS_INDEX", "agno_cookbook_vectors")
+INDEX_NAME = os.getenv("REDIS_INDEX", "egpt_cookbook_vectors")
 
 vector_db = RedisVectorDb(
     index_name=INDEX_NAME,

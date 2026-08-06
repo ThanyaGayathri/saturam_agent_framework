@@ -3,7 +3,7 @@ This recipe shows how to store agent sessions in a Firestore database.
 
 Steps:
 1. Ensure your gcloud project is enabled with Firestore. Reference https://cloud.google.com/firestore/docs/create-database-server-client-library ?
-2. Run: `uv pip install openai google-cloud-firestore agno` to install dependencies
+2. Run: `uv pip install openai google-cloud-firestore` to install dependencies
 3. Make sure your gcloud project is set up and you have the necessary permissions to access Firestore
 4. Run: `python cookbook/storage/firestore_storage.py` to run the agent
 """
@@ -12,7 +12,7 @@ from egpt.agent import Agent
 from egpt.db.firestore import FirestoreDb
 from egpt.tools.websearch import WebSearchTools
 
-PROJECT_ID = "agno-os-test"  # Use your project ID here
+PROJECT_ID = "egpt-os-test"  # Use your project ID here
 
 # ---------------------------------------------------------------------------
 # Setup

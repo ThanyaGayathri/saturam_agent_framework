@@ -9,7 +9,7 @@ Example prompts to try:
 - "Generate a 5-second video of a kitten playing a piano"
 - "Create a short looping animation of a neon city skyline at dusk"
 
-Run `uv pip install google-genai agno` to install the necessary dependencies.
+Run `uv pip install google-genai` to install the necessary dependencies.
 """
 
 from egpt.agent import Agent

@@ -1,6 +1,6 @@
-# Discord Client for Agno
+# Discord Client for EGPT
 
-This module provides a Discord client implementation for Agno, allowing you to create AI-powered Discord bots using Agno's agent framework.
+This module provides a Discord client implementation for EGPT, allowing you to create AI-powered Discord bots using EGPT's agent framework.
 
 ## Prerequisites
 
@@ -10,13 +10,13 @@ Before you can use the Discord client, you'll need:
 2. A Discord bot token
 3. Required Python packages:
    - discord.py
-   - agno
+   - egpt
 
 ## Installation
 
 1. Install the required packages:
 ```bash
-uv pip install discord.py agno
+uv pip install discord.py
 ```
 
 2. Create a Discord bot:
@@ -46,9 +46,9 @@ uv pip install discord.py agno
 Here's a basic example of how to use the DiscordClient:
 
 ```python
-from agno.agent import Agent
-from agno.integrations.discord import DiscordClient
-from agno.models.anthropic import Claude
+from egpt.agent import Agent
+from egpt.integrations.discord import DiscordClient
+from egpt.models.anthropic import Claude
 
 # Create your agent
 agent = Agent(
@@ -64,7 +64,7 @@ if __name__ == "__main__":
 
 ## Features
 
-- Seamless integration with Agno's agent framework
+- Seamless integration with EGPT's agent framework
 - Support for all Discord bot features through discord.py
 - Easy to extend and customize
 
@@ -72,7 +72,7 @@ if __name__ == "__main__":
 
 The DiscordClient accepts the following parameters:
 
-- `agent`: An Agno Agent instance that will handle the bot's responses
+- `agent`: An EGPT Agent instance that will handle the bot's responses
 - Additional discord.py client parameters can be passed as keyword arguments
 
 ## Security Notes
@@ -84,6 +84,6 @@ The DiscordClient accepts the following parameters:
 ## Support
 
 If you encounter any issues or have questions, please:
-1. Check the [Agno documentation](https://docs.agno.com)
-2. Open an issue on the Agno GitHub repository
-3. Join the Agno Discord server for community support
+1. Check the [EgptOS cookbooks](../../README.md)
+2. Open an issue on the EGPT GitHub repository
+3. Join the EGPT Discord server for community support

@@ -1,4 +1,4 @@
-"""Use Agno with Tuning Engines as an OpenAI-compatible endpoint."""
+"""Use EGPT with Tuning Engines as an OpenAI-compatible endpoint."""
 
 from os import getenv
 

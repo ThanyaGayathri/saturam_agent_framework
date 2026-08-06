@@ -2,7 +2,7 @@
 Mem0 Integration
 ================
 
-Demonstrates using Mem0 as an external memory service for an Agno agent.
+Demonstrates using Mem0 as an external memory service for an EGPT agent.
 """
 
 from egpt.agent import Agent, RunOutput
@@ -22,7 +22,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 client = MemoryClient()
 
-user_id = "agno"
+user_id = "egpt"
 messages = [
     {"role": "user", "content": "My name is John Billings."},
     {"role": "user", "content": "I live in NYC."},

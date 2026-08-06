@@ -544,16 +544,16 @@ def _set_default_model(team: "Team") -> None:
     # Set the default model
     if team.model is None:
         try:
-            from egpt.models.openai import OpenAIResponses
+            model = get_model("openai-responses:gpt-5.4")
         except ModuleNotFoundError as e:
             log_exception(e)
             log_error(
-                "Agno agents use `openai` as the default model provider. Please provide a `model` or install `openai`."
+                "EGPT agents use `openai` as the default model provider. Please provide a `model` or install `openai`."
             )
             exit(1)
 
         log_info("Setting default model to OpenAI Responses")
-        team.model = OpenAIResponses(id="gpt-5.4")
+        team.model = model
 
 
 def _set_memory_manager(team: "Team") -> None:

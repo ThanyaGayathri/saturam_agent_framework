@@ -2,8 +2,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.knowledge.knowledge import Knowledge
-from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.vectordb.chroma import ChromaDb
 

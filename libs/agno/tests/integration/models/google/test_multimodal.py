@@ -6,8 +6,8 @@ from PIL import Image as PILImage
 
 from egpt.agent.agent import Agent
 from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.models.google import Gemini
 from egpt.media import Audio, File, Image, Video
-from egpt.models.google import Gemini
 
 
 def test_image_input(image_path):

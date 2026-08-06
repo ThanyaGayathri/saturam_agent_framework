@@ -83,6 +83,6 @@ company_info_team = Team(
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     company_info_team.print_response(
-        "Write me a full report on everything you can find about Agno, the company building AI agent infrastructure.",
+        "Write me a full report on everything you can find about EGPT, the company building AI agent infrastructure.",
         stream=True,
     )

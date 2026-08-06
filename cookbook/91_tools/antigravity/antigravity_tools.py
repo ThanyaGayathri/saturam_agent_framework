@@ -1,19 +1,19 @@
 """
 Agent with Antigravity tools
 
-This example shows how to use Agno's integration with Google's Gemini Agents API
-(Antigravity) as a tool. The Agno agent's brain (Gemini, here) decides when to
+This example shows how to use EGPT's integration with Google's Gemini Agents API
+(Antigravity) as a tool. The EGPT agent's brain (Gemini, here) decides when to
 delegate a sub-task to a managed Antigravity sandbox, which runs an autonomous
 loop with web search, code execution, and file I/O built in.
 
-The sandbox persists across calls within the same Agno session, so subsequent
+The sandbox persists across calls within the same EGPT session, so subsequent
 calls can build on prior files and state.
 
 1. Get a Gemini API key enrolled in the Agents API EAP.
 2. Set the API key as an environment variable:
     export GEMINI_API_KEY=<your_api_key>
 3. Install the dependencies:
-    uv pip install agno google-genai
+    uv pip install google-genai
 """
 
 from egpt.agent import Agent

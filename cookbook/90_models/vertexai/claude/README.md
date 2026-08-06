@@ -29,7 +29,7 @@ or
 ### 4. Install libraries
 
 ```shell
-uv pip install -U anthropic ddgs duckdb agno
+uv pip install -U anthropic ddgs duckdb
 ```
 
 ### 5. Run basic Agent
@@ -113,7 +113,7 @@ python cookbook/90_models/vertexai/claude/adaptive_thinking.py
 ```
 
 ```python
-from agno.models.vertexai import Claude
+from egpt.models.vertexai.claude import Claude
 
 model = Claude(
     id="claude-sonnet-4-6@20250514",

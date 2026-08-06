@@ -28,7 +28,9 @@ agent1 = Agent(
 agent2 = Agent(
     id="second-agent",
     name="Second Agent",
-    tools=[MCPTools(transport="streamable-http", url="https://docs.agno.com/mcp")],
+    tools=[
+        MCPTools(transport="streamable-http", url="https://modelcontextprotocol.io/mcp")
+    ],
     markdown=True,
     db=db,
 )

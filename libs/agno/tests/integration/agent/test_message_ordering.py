@@ -1,5 +1,5 @@
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 
 
 def test_message_ordering_run():

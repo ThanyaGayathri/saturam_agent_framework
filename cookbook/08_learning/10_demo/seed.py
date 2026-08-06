@@ -12,7 +12,7 @@ Requires the pgvector container:
 Run:
     .venvs/demo/bin/python cookbook/08_learning/10_demo/seed.py
 
-Then start the EgptOS server with run.py and connect from os.agno.com.
+Then start the EgptOS server with run.py and connect from http://localhost:7777/docs.
 """
 
 from agents import ops_assistant

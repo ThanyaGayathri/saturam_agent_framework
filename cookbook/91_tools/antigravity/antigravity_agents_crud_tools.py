@@ -2,7 +2,7 @@
 Manage Antigravity custom agents via the Agents API toolkit.
 
 `AntigravityTools` exposes the full CRUD surface of `/v1beta/agents` as tools
-that an Agno agent can call:
+that an EGPT agent can call:
 
   - create_custom_antigravity_agent: POST /agents
   - get_custom_antigravity_agent:    GET  /agents/{name}
@@ -14,12 +14,12 @@ that an Agno agent can call:
 
 Plus `run_antigravity_task` for one-off invocations of the base antigravity agent.
 
-This cookbook shows a Gemini-driven Agno agent driving the full lifecycle:
+This cookbook shows a Gemini-driven EGPT agent driving the full lifecycle:
 create a haiku-bot definition, invoke it, then clean up.
 
 Requirements:
     export GEMINI_API_KEY=...
-    uv pip install agno google-genai
+    uv pip install google-genai
 
 Usage:
     .venvs/demo/bin/python cookbook/91_tools/antigravity/antigravity_agents_crud_tools.py

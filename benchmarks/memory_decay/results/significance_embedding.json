@@ -1,0 +1,109 @@
+{
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4
+  ],
+  "k": 5,
+  "relevance": "embedding",
+  "comparisons": [
+    {
+      "comparison": "importance_weighted vs no_decay [recall]",
+      "metric": "recall",
+      "rival": "no_decay",
+      "delta": -0.2168,
+      "ci_lo": -0.2416,
+      "ci_hi": -0.192,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs exp_recency [recall]",
+      "metric": "recall",
+      "rival": "exp_recency",
+      "delta": 0.2932,
+      "ci_lo": 0.2646,
+      "ci_hi": 0.3228,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs ttl_halflife [recall]",
+      "metric": "recall",
+      "rival": "ttl_halflife",
+      "delta": 0.341,
+      "ci_lo": 0.3123,
+      "ci_hi": 0.3696,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs ebbinghaus [recall]",
+      "metric": "recall",
+      "rival": "ebbinghaus",
+      "delta": 0.3508,
+      "ci_lo": 0.316,
+      "ci_hi": 0.3851,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs no_decay [ndcg]",
+      "metric": "ndcg",
+      "rival": "no_decay",
+      "delta": -0.2,
+      "ci_lo": -0.2263,
+      "ci_hi": -0.1734,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs exp_recency [ndcg]",
+      "metric": "ndcg",
+      "rival": "exp_recency",
+      "delta": 0.2876,
+      "ci_lo": 0.2625,
+      "ci_hi": 0.3127,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs ttl_halflife [ndcg]",
+      "metric": "ndcg",
+      "rival": "ttl_halflife",
+      "delta": 0.3193,
+      "ci_lo": 0.2934,
+      "ci_hi": 0.3456,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    },
+    {
+      "comparison": "importance_weighted vs ebbinghaus [ndcg]",
+      "metric": "ndcg",
+      "rival": "ebbinghaus",
+      "delta": 0.3269,
+      "ci_lo": 0.2954,
+      "ci_hi": 0.3581,
+      "p_raw": 0.0,
+      "n": 1047,
+      "p_holm": 0.0,
+      "significant": true
+    }
+  ]
+}

@@ -1,11 +1,11 @@
 """
-Agno Agent with Excel Skills.
+EGPT Agent with Excel Skills.
 
 This cookbook demonstrates how to use Claude's xlsx skill to create Excel
-spreadsheets through Agno agents.
+spreadsheets through EGPT agents.
 
 Prerequisites:
-- uv pip install agno anthropic
+- uv pip install anthropic
 - export ANTHROPIC_API_KEY="your_api_key_here"
 """
 
@@ -47,7 +47,7 @@ if __name__ == "__main__":
         raise ValueError("ANTHROPIC_API_KEY environment variable not set")
 
     print("=" * 60)
-    print("Agno Agent with Excel Skills")
+    print("EGPT Agent with Excel Skills")
     print("=" * 60)
 
     # Example: Sales dashboard using the agent

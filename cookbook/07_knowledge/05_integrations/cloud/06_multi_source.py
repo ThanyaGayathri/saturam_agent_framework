@@ -66,7 +66,7 @@ if getenv("GITHUB_TOKEN"):
     github_private = GitHubConfig(
         id="github-private",
         name="GitHub (authenticated)",
-        repo=getenv("GITHUB_DEFAULT_REPO", "agno-agi/agno"),
+        repo=getenv("GITHUB_DEFAULT_REPO", "modelcontextprotocol/modelcontextprotocol"),
         token=getenv("GITHUB_TOKEN"),
         branch="main",
     )
@@ -145,11 +145,15 @@ if __name__ == "__main__":
         # Distinct names to avoid the content_hash collision that occurs when
         # two uploads share the same logical name across different providers.
         print("\n" + "=" * 60)
-        print("Loading README.md from agno-agi/agno (github-public)")
+        print(
+            "Loading README.md from modelcontextprotocol/modelcontextprotocol (github-public)"
+        )
         print("=" * 60 + "\n")
         await knowledge.ainsert(
-            name="Agno README",
-            remote_content=github_public.file("README.md", repo="agno-agi/agno"),
+            name="EGPT README",
+            remote_content=github_public.file(
+                "README.md", repo="modelcontextprotocol/modelcontextprotocol"
+            ),
         )
 
         print("\n" + "=" * 60)
@@ -176,7 +180,7 @@ if __name__ == "__main__":
         print("\n" + "=" * 60)
         print("Searching across all registered sources")
         print("=" * 60 + "\n")
-        results = await knowledge.asearch("What is Agno?")
+        results = await knowledge.asearch("What is EGPT?")
         for doc in results:
             print("- %s" % doc.name)
 

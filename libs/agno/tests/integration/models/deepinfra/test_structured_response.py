@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.deepinfra import DeepInfra
+from egpt.integrations.models.deepinfra import DeepInfra
 
 
 class MovieScript(BaseModel):

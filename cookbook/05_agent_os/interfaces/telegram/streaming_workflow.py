@@ -15,7 +15,7 @@ Key concepts:
   - Each step has its own agent with specialised instructions and tools.
 
 Setup:
-  1. ``pip install 'agno[telegram,openai]'``
+  1. ``pip install pyTelegramBotAPI aiohttp openai``
   2. ``export TELEGRAM_TOKEN="..." OPENAI_API_KEY="..."``
   3. Run this file, then expose via ngrok and set the Telegram webhook.
 """

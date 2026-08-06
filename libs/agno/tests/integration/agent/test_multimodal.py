@@ -1,7 +1,7 @@
 from egpt.agent.agent import Agent
 from egpt.db.base import SessionType
+from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.media import Image
-from egpt.models.openai.chat import OpenAIChat
 
 
 def test_agent_image_input(shared_db, image_path):

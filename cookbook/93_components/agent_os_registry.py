@@ -29,7 +29,7 @@ def sample_tool():
 # Create Registry
 # ---------------------------------------------------------------------------
 registry = Registry(
-    name="Agno Registry",
+    name="EGPT Registry",
     tools=[DuckDuckGoTools(), sample_tool, CalculatorTools()],
     models=[
         OpenAIChat(id="gpt-5-mini"),

@@ -1,6 +1,6 @@
 # Firestore Integration
 
-Examples demonstrating Google Cloud Firestore integration with Agno agents.
+Examples demonstrating Google Cloud Firestore integration with EGPT agents.
 
 ## Setup
 
@@ -11,8 +11,8 @@ uv pip install google-cloud-firestore
 ## Configuration
 
 ```python
-from agno.agent import Agent
-from agno.db.firestore import FirestoreDb
+from egpt.agent import Agent
+from egpt.db.firestore import FirestoreDb
 
 db = FirestoreDb(project_id="your-project-id")
 

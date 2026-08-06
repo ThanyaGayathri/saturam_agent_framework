@@ -12,7 +12,7 @@ nested events from each.
 Run locally:
     python cookbook/12_context/24_multi_context_streaming.py
 
-Then open os.agno.com and ask: 'Compare our architecture wiki with our docs wiki'
+Then open http://localhost:7777/docs and ask: 'Compare our architecture wiki with our docs wiki'
 
 Requires: OPENAI_API_KEY
 """
@@ -117,7 +117,7 @@ if __name__ == "__main__":
         print(f"  - {f.name}")
     print()
     print("Starting EgptOS on http://localhost:7777")
-    print("Connect via os.agno.com and try:")
+    print("Connect via http://localhost:7777/docs and try:")
     print("  - 'What microservices do we have?'")
     print("  - 'How do I handle an on-call page?'")
     print("  - 'Compare our architecture with our deployment process'")

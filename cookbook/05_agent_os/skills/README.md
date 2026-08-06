@@ -3,7 +3,7 @@
 Examples for `skills` in EgptOS.
 
 ## Files
-- `skills_with_agentos.py` — Skills With Agentos.
+- `skills_with_egptos.py` — Skills With EgptOS.
 
 ## Prerequisites
 - Load environment variables with `direnv allow` (requires `.envrc`).

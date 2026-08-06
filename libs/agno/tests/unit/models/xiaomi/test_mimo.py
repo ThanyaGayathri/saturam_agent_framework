@@ -4,9 +4,9 @@ from unittest.mock import patch
 import pytest
 
 from egpt.exceptions import ModelAuthenticationError
+from egpt.integrations.models.xiaomi import MiMo
 from egpt.models.message import Message
 from egpt.models.utils import get_model
-from egpt.models.xiaomi import MiMo
 
 
 def test_mimo_initialization_with_api_key():

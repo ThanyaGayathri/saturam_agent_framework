@@ -4,7 +4,7 @@ Give agents access to your documents, databases, and APIs through Retrieval-Augm
 
 ## Overview
 
-Knowledge is Agno's RAG framework. It handles the full pipeline: reading documents, chunking them, embedding chunks, storing them in a vector database, and retrieving relevant content when agents need it.
+Knowledge is EGPT's RAG framework. It handles the full pipeline: reading documents, chunking them, embedding chunks, storing them in a vector database, and retrieving relevant content when agents need it.
 
 | Component | What It Does | Options |
 |-----------|-------------|---------|
@@ -17,11 +17,11 @@ Knowledge is Agno's RAG framework. It handles the full pipeline: reading documen
 ## Quick Start
 
 ```python
-from agno.agent import Agent
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.knowledge.knowledge import Knowledge
-from agno.models.openai import OpenAIResponses
-from agno.vectordb.qdrant import Qdrant, SearchType
+from egpt.agent import Agent
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.knowledge.knowledge import Knowledge
+from egpt.models.openai import OpenAIResponses
+from egpt.vectordb.qdrant import Qdrant, SearchType
 
 knowledge = Knowledge(
     vector_db=Qdrant(

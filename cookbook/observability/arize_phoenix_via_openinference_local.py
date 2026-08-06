@@ -2,7 +2,7 @@
 Arize Phoenix Local Via OpenInference
 =====================================
 
-Demonstrates instrumenting an Agno agent and sending traces to a local Phoenix instance.
+Demonstrates instrumenting an EGPT agent and sending traces to a local Phoenix instance.
 """
 
 import os
@@ -19,7 +19,7 @@ os.environ["PHOENIX_COLLECTOR_ENDPOINT"] = "http://localhost:6006"
 
 # Configure the Phoenix tracer
 tracer_provider = register(
-    project_name="agno-stock-price-agent",  # Default is 'default'
+    project_name="egpt-stock-price-agent",  # Default is 'default'
     auto_instrument=True,  # Automatically use the installed OpenInference instrumentation
 )
 

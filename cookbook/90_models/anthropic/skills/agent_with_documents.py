@@ -1,11 +1,11 @@
 """
-Agno Agent with Word Document Skills.
+EGPT Agent with Word Document Skills.
 
 This cookbook demonstrates how to use Claude's docx skill to create Word
-documents through Agno agents.
+documents through EGPT agents.
 
 Prerequisites:
-- uv pip install agno anthropic
+- uv pip install anthropic
 - export ANTHROPIC_API_KEY="your_api_key_here"
 """
 
@@ -47,7 +47,7 @@ if __name__ == "__main__":
         raise ValueError("ANTHROPIC_API_KEY environment variable not set")
 
     print("=" * 60)
-    print("Agno Agent with Word Document Skills")
+    print("EGPT Agent with Word Document Skills")
     print("=" * 60)
 
     # Example: Project proposal using the agent

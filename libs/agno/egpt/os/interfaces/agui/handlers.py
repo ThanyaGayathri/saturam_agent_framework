@@ -305,7 +305,7 @@ def on_unknown_event(chunk: BaseRunOutputEvent, state: StreamState) -> List[Base
         raw_dict: Dict[str, Any] = chunk.to_dict()
     except Exception:
         raw_dict = {"event": str(getattr(chunk, "event", "unknown"))}
-    return [RawEvent(type=EventType.RAW, event=raw_dict, source="agno")]
+    return [RawEvent(type=EventType.RAW, event=raw_dict, source="egpt")]
 
 
 def on_run_completed(chunk: BaseRunOutputEvent, state: StreamState) -> List[BaseEvent]:
@@ -428,7 +428,7 @@ def is_completion_event(chunk: BaseRunOutputEvent) -> bool:
 
 
 def process_event(chunk: BaseRunOutputEvent, state: StreamState) -> List[BaseEvent]:
-    """Process a single Agno event and return AG-UI events to emit."""
+    """Process a single EGPT event and return AG-UI events to emit."""
     event = getattr(chunk, "event", None)
     if event is None:
         return on_unknown_event(chunk, state)

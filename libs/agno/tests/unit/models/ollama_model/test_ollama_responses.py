@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from egpt.models.ollama import OllamaResponses
+from egpt.integrations.models.ollama import OllamaResponses
 
 
 def test_ollama_responses_default_config():
@@ -17,7 +17,7 @@ def test_ollama_responses_local_base_url():
     """Test OllamaResponses uses local base URL by default."""
     model = OllamaResponses(id="llama3.1")
 
-    with patch("egpt.models.openai.responses.OpenAI") as mock_client:
+    with patch("egpt.integrations.models.openai.responses.OpenAI") as mock_client:
         model.get_client()
 
         _, kwargs = mock_client.call_args
@@ -29,7 +29,7 @@ def test_ollama_responses_custom_host():
     """Test OllamaResponses with custom host."""
     model = OllamaResponses(id="llama3.1", host="http://192.168.1.100:11434")
 
-    with patch("egpt.models.openai.responses.OpenAI") as mock_client:
+    with patch("egpt.integrations.models.openai.responses.OpenAI") as mock_client:
         model.get_client()
 
         _, kwargs = mock_client.call_args
@@ -40,7 +40,7 @@ def test_ollama_responses_custom_host_with_v1():
     """Test OllamaResponses with custom host that already has /v1."""
     model = OllamaResponses(id="llama3.1", host="http://192.168.1.100:11434/v1")
 
-    with patch("egpt.models.openai.responses.OpenAI") as mock_client:
+    with patch("egpt.integrations.models.openai.responses.OpenAI") as mock_client:
         model.get_client()
 
         _, kwargs = mock_client.call_args
@@ -51,7 +51,7 @@ def test_ollama_responses_cloud():
     """Test OllamaResponses with Ollama Cloud API key."""
     model = OllamaResponses(id="llama3.1", api_key="test-api-key")
 
-    with patch("egpt.models.openai.responses.OpenAI") as mock_client:
+    with patch("egpt.integrations.models.openai.responses.OpenAI") as mock_client:
         model.get_client()
 
         _, kwargs = mock_client.call_args

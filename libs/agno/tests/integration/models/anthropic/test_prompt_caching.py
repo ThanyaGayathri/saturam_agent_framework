@@ -14,7 +14,7 @@ from unittest.mock import Mock
 import pytest
 
 from egpt.agent import Agent, RunOutput
-from egpt.models.anthropic import Claude, SystemPromptBlock
+from egpt.integrations.models.anthropic import Claude, SystemPromptBlock
 from egpt.session.agent import AgentSession
 from egpt.utils.media import download_file
 
@@ -569,7 +569,7 @@ def test_cache_tools_no_tools():
 
 def test_vertexai_cache_tools():
     """VertexAI Claude also adds cache_control to the last tool."""
-    from egpt.models.vertexai.claude import Claude as VertexClaude
+    from egpt.integrations.models.vertexai.claude import Claude as VertexClaude
 
     claude = VertexClaude(cache_system_prompt=True, cache_tools=True)
     tools = [
@@ -598,7 +598,7 @@ def test_vertexai_cache_tools():
 
 def test_aws_cache_tools():
     """AWS Bedrock Claude also adds cache_control to the last tool."""
-    from egpt.models.aws.claude import Claude as AwsClaude
+    from egpt.integrations.models.aws.claude import Claude as AwsClaude
 
     claude = AwsClaude(cache_system_prompt=True, cache_tools=True)
     tools = [
@@ -629,7 +629,7 @@ def test_azure_cache_tools_and_blocks():
     """Azure Foundry Claude routes through the shared _build_system and
     _apply_cache_tools helpers, so it gets system_prompt_blocks and cache_tools
     support for free."""
-    from egpt.models.azure.claude import Claude as AzureClaude
+    from egpt.integrations.models.azure.claude import Claude as AzureClaude
 
     blocks = [SystemPromptBlock(text="User static.", cache=True, ttl="1h")]
     claude = AzureClaude(

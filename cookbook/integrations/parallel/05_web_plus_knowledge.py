@@ -5,7 +5,7 @@ Web + Knowledge - Live Search Meets Your Own Documents
 Real agents need two kinds of information: what is in your own documents, and
 what is happening on the web right now. This example gives one agent both:
 
-- Agno Knowledge (a local Chroma vector store) for internal or static docs
+- EGPT Knowledge (a local Chroma vector store) for internal or static docs
 - Parallel Search for fresh, live information from the web
 
 The agent decides which to use: it searches its knowledge base for grounded

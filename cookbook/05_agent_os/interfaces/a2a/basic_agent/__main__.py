@@ -2,7 +2,7 @@
 Basic A2A Server
 ================
 
-Starts a local A2A server backed by an Agno agent executor.
+Starts a local A2A server backed by an EGPT agent executor.
 """
 
 import uvicorn
@@ -23,16 +23,16 @@ from basic_agent import BasicAgentExecutor
 # ---------------------------------------------------------------------------
 def create_server() -> A2AStarletteApplication:
     skill = AgentSkill(
-        id="agno_agent",
-        name="Agno Agent",
-        description="Agno Agent",
-        tags=["Agno agent"],
+        id="egpt_agent",
+        name="EGPT Agent",
+        description="EGPT Agent",
+        tags=["EGPT agent"],
         examples=["hi", "hello"],
     )
 
     agent_card = AgentCard(
-        name="Agno Agent",
-        description="Agno Agent",
+        name="EGPT Agent",
+        description="EGPT Agent",
         url="http://localhost:9999/",
         version="1.0.0",
         defaultInputModes=["text"],

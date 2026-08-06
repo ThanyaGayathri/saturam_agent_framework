@@ -1,4 +1,4 @@
-"""Main class for the A2A app, used to expose an Agno Agent, Team, or Workflow in an A2A compatible format."""
+"""Main class for the A2A app, used to expose an EGPT Agent, Team, or Workflow in an A2A compatible format."""
 
 from typing import Optional, Union
 

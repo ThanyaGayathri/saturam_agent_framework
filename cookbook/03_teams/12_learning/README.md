@@ -1,6 +1,6 @@
 # Team Learning
 
-Examples demonstrating team learning capabilities in Agno. Teams can automatically capture user profiles, memories, entity information, session context, learned knowledge, and decision logs across conversations.
+Examples demonstrating team learning capabilities in EGPT. Teams can automatically capture user profiles, memories, entity information, session context, learned knowledge, and decision logs across conversations.
 
 ## Prerequisites
 

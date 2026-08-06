@@ -1,7 +1,7 @@
 from typing import List, Optional, Union
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 
 
 def test_tool_call_custom_tool_no_parameters():

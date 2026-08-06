@@ -1,8 +1,8 @@
 from pathlib import Path
 
 from egpt.agent.agent import Agent
+from egpt.integrations.models.ibm import WatsonX
 from egpt.media import Image
-from egpt.models.ibm import WatsonX
 
 
 def test_image_input():

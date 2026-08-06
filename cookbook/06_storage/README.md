@@ -1,6 +1,6 @@
 # Database Integration
 
-This directory contains examples demonstrating how to integrate various databases with Agno agents, teams, and workflows for persistent storage.
+This directory contains examples demonstrating how to integrate various databases with EGPT agents, teams, and workflows for persistent storage.
 
 ## Setup
 
@@ -21,7 +21,7 @@ Navigate to the specific integration directory for detailed documentation and ex
 ## Basic Integration
 
 ```python
-from agno.agent import Agent
+from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
 
 db = PostgresDb(db_url="postgresql+psycopg://user:password@localhost:5432/dbname")

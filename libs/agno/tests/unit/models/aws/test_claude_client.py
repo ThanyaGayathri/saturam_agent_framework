@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from boto3.session import Session
 
-from egpt.models.aws import Claude
+from egpt.integrations.models.aws import Claude
 
 
 def _make_frozen_creds(access_key="ASIATEMP", secret_key="secret", token="token"):
@@ -29,7 +29,7 @@ class TestSessionClientNotCached:
         mock_session, _ = _make_mock_session()
         model = Claude(id="anthropic.claude-3-sonnet-20240229-v1:0", session=mock_session)
 
-        with patch("egpt.models.aws.claude.AnthropicBedrock") as MockBedrock:
+        with patch("egpt.integrations.models.aws.claude.AnthropicBedrock") as MockBedrock:
             mock_client = MagicMock()
             mock_client.is_closed.return_value = False
             MockBedrock.return_value = mock_client
@@ -43,7 +43,7 @@ class TestSessionClientNotCached:
         mock_session, _ = _make_mock_session()
         model = Claude(id="anthropic.claude-3-sonnet-20240229-v1:0", session=mock_session)
 
-        with patch("egpt.models.aws.claude.AsyncAnthropicBedrock") as MockAsyncBedrock:
+        with patch("egpt.integrations.models.aws.claude.AsyncAnthropicBedrock") as MockAsyncBedrock:
             mock_client = MagicMock()
             mock_client.is_closed.return_value = False
             MockAsyncBedrock.return_value = mock_client
@@ -59,7 +59,7 @@ class TestSessionCredsReadEachTime:
         mock_session, mock_creds = _make_mock_session(access_key="KEY_V1", token="TOKEN_V1")
         model = Claude(id="anthropic.claude-3-sonnet-20240229-v1:0", session=mock_session)
 
-        with patch("egpt.models.aws.claude.AnthropicBedrock") as MockBedrock:
+        with patch("egpt.integrations.models.aws.claude.AnthropicBedrock") as MockBedrock:
             mock_client = MagicMock()
             mock_client.is_closed.return_value = False
             MockBedrock.return_value = mock_client
@@ -81,7 +81,7 @@ class TestSessionCredsReadEachTime:
         mock_session, mock_creds = _make_mock_session(access_key="KEY_V1", token="TOKEN_V1")
         model = Claude(id="anthropic.claude-3-sonnet-20240229-v1:0", session=mock_session)
 
-        with patch("egpt.models.aws.claude.AsyncAnthropicBedrock") as MockAsyncBedrock:
+        with patch("egpt.integrations.models.aws.claude.AsyncAnthropicBedrock") as MockAsyncBedrock:
             mock_client = MagicMock()
             mock_client.is_closed.return_value = False
             MockAsyncBedrock.return_value = mock_client
@@ -109,7 +109,7 @@ class TestStaticKeyClientCached:
             aws_region="us-east-1",
         )
 
-        with patch("egpt.models.aws.claude.AnthropicBedrock") as MockBedrock:
+        with patch("egpt.integrations.models.aws.claude.AnthropicBedrock") as MockBedrock:
             mock_client = MagicMock()
             mock_client.is_closed.return_value = False
             MockBedrock.return_value = mock_client
@@ -128,7 +128,7 @@ class TestStaticKeyClientCached:
             aws_region="us-east-1",
         )
 
-        with patch("egpt.models.aws.claude.AsyncAnthropicBedrock") as MockAsyncBedrock:
+        with patch("egpt.integrations.models.aws.claude.AsyncAnthropicBedrock") as MockAsyncBedrock:
             mock_client = MagicMock()
             mock_client.is_closed.return_value = False
             MockAsyncBedrock.return_value = mock_client
@@ -149,7 +149,7 @@ class TestAsyncIsClosedCheck:
             aws_region="us-east-1",
         )
 
-        with patch("egpt.models.aws.claude.AsyncAnthropicBedrock") as MockAsyncBedrock:
+        with patch("egpt.integrations.models.aws.claude.AsyncAnthropicBedrock") as MockAsyncBedrock:
             closed_client = MagicMock()
             closed_client.is_closed.return_value = True
             model.async_client = closed_client

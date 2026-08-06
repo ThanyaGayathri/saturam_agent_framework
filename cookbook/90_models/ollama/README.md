@@ -22,7 +22,7 @@ source ~/.venvs/aienv/bin/activate
 ### 3. Install libraries
 
 ```shell
-pip install -U ollama agno
+pip install -U ollama
 ```
 
 ### 4. (Optional) Export your `OLLAMA_API_KEY` for Ollama Cloud

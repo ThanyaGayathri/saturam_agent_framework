@@ -1,4 +1,4 @@
-"""Example showing how to use Azure OpenAI Tools with Agno.
+"""Example showing how to use Azure OpenAI Tools with EGPT.
 
 Requirements:
 1. Azure OpenAI service setup with DALL-E deployment and chat model deployment

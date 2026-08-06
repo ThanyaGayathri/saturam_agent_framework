@@ -25,10 +25,10 @@ def _adapter(tmp_path: Path, npx: bool = True) -> ClaudeDesktopAdapter:
 
 def test_write_creates_mcp_remote_bridge(tmp_path: Path):
     adapter = _adapter(tmp_path)
-    result = adapter.write("agno", URL, TOKEN)
+    result = adapter.write("egpt", URL, TOKEN)
 
     assert result.method == "file"
-    entry = json.loads(adapter.config_path.read_text())["mcpServers"]["agno"]
+    entry = json.loads(adapter.config_path.read_text())["mcpServers"]["egpt"]
     assert entry["command"] == "npx"
     # URL is bridged as a positional arg; the token rides an env var, not argv.
     assert entry["args"][:3] == ["-y", "mcp-remote", URL]
@@ -39,8 +39,8 @@ def test_write_creates_mcp_remote_bridge(tmp_path: Path):
 
 def test_write_without_token_omits_header_and_env(tmp_path: Path):
     adapter = _adapter(tmp_path)
-    adapter.write("agno", URL, None)
-    entry = json.loads(adapter.config_path.read_text())["mcpServers"]["agno"]
+    adapter.write("egpt", URL, None)
+    entry = json.loads(adapter.config_path.read_text())["mcpServers"]["egpt"]
     assert entry["args"] == ["-y", "mcp-remote", URL]
     assert "env" not in entry
     assert "--header" not in entry["args"]
@@ -48,8 +48,8 @@ def test_write_without_token_omits_header_and_env(tmp_path: Path):
 
 def test_read_existing_roundtrip(tmp_path: Path):
     adapter = _adapter(tmp_path)
-    adapter.write("agno", URL, TOKEN)
-    entry = adapter.read_existing("agno")
+    adapter.write("egpt", URL, TOKEN)
+    entry = adapter.read_existing("egpt")
     assert entry is not None
     assert entry.url == URL
     assert entry.token == TOKEN
@@ -62,7 +62,7 @@ def test_read_existing_resolves_env_ref_token(tmp_path: Path):
         json.dumps(
             {
                 "mcpServers": {
-                    "agno": {
+                    "egpt": {
                         "command": "npx",
                         "args": ["-y", "mcp-remote", URL, "--header", "Authorization:${MY_KEY}"],
                         "env": {"MY_KEY": "Bearer " + TOKEN},
@@ -71,7 +71,7 @@ def test_read_existing_resolves_env_ref_token(tmp_path: Path):
             }
         )
     )
-    entry = adapter.read_existing("agno")
+    entry = adapter.read_existing("egpt")
     assert entry is not None
     assert entry.token == TOKEN
 
@@ -82,7 +82,7 @@ def test_read_existing_inline_header_token(tmp_path: Path):
         json.dumps(
             {
                 "mcpServers": {
-                    "agno": {
+                    "egpt": {
                         "command": "npx",
                         "args": ["-y", "mcp-remote", URL, "--header", "Authorization: Bearer " + TOKEN],
                     }
@@ -90,7 +90,7 @@ def test_read_existing_inline_header_token(tmp_path: Path):
             }
         )
     )
-    entry = adapter.read_existing("agno")
+    entry = adapter.read_existing("egpt")
     assert entry is not None
     assert entry.token == TOKEN
 
@@ -100,17 +100,17 @@ def test_read_existing_native_remote_entry_forward_compat(tmp_path: Path):
     adapter = _adapter(tmp_path)
     adapter.config_path.write_text(
         json.dumps(
-            {"mcpServers": {"agno": {"type": "http", "url": URL, "headers": {"Authorization": "Bearer " + TOKEN}}}}
+            {"mcpServers": {"egpt": {"type": "http", "url": URL, "headers": {"Authorization": "Bearer " + TOKEN}}}}
         )
     )
-    entry = adapter.read_existing("agno")
+    entry = adapter.read_existing("egpt")
     assert entry is not None
     assert entry.url == URL
     assert entry.token == TOKEN
 
 
 def test_read_existing_missing_returns_none(tmp_path: Path):
-    assert _adapter(tmp_path).read_existing("agno") is None
+    assert _adapter(tmp_path).read_existing("egpt") is None
 
 
 def test_write_preserves_other_servers(tmp_path: Path):
@@ -118,30 +118,30 @@ def test_write_preserves_other_servers(tmp_path: Path):
     adapter.config_path.write_text(
         json.dumps({"globalShortcut": "Cmd+X", "mcpServers": {"other": {"command": "node", "args": ["x.js"]}}})
     )
-    adapter.write("agno", URL, TOKEN)
+    adapter.write("egpt", URL, TOKEN)
     config = json.loads(adapter.config_path.read_text())
     assert config["globalShortcut"] == "Cmd+X"
     assert config["mcpServers"]["other"]["command"] == "node"
-    assert config["mcpServers"]["agno"]["command"] == "npx"
+    assert config["mcpServers"]["egpt"]["command"] == "npx"
 
 
 def test_write_refuses_corrupt_config(tmp_path: Path):
     adapter = _adapter(tmp_path)
     adapter.config_path.write_text("{not json")
     with pytest.raises(CLIError) as exc_info:
-        adapter.write("agno", URL, TOKEN)
+        adapter.write("egpt", URL, TOKEN)
     assert "Refusing to modify" in exc_info.value.message
     assert adapter.config_path.read_text() == "{not json"
 
 
 def test_write_notes_missing_npx(tmp_path: Path):
     adapter = _adapter(tmp_path, npx=False)
-    result = adapter.write("agno", URL, TOKEN)
+    result = adapter.write("egpt", URL, TOKEN)
     assert result.note is not None and "npx" in result.note
 
 
 def test_write_no_note_when_npx_present(tmp_path: Path):
-    assert _adapter(tmp_path).write("agno", URL, TOKEN).note is None
+    assert _adapter(tmp_path).write("egpt", URL, TOKEN).note is None
 
 
 def test_detect(tmp_path: Path):
@@ -182,7 +182,7 @@ def test_connect_configures_claude_desktop_end_to_end(monkeypatch, fake_os, tmp_
     assert payload["results"][0]["status"] == "connected"
     assert payload["results"][0]["verify"]["ok"] is True
 
-    entry = json.loads(cfg.read_text())["mcpServers"]["agno"]
+    entry = json.loads(cfg.read_text())["mcpServers"]["egpt"]
     assert entry["env"]["EGPT_AUTH_HEADER"].startswith("Bearer agno_pat_")
     # The minted token never leaks into the JSON report.
     assert fake_os.accounts["claude-desktop"]["token"] not in result.output

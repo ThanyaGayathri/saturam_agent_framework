@@ -26,7 +26,7 @@ vector_db = PgVector(
 # ---------------------------------------------------------------------------
 knowledge = Knowledge(
     name="Basic SDK Knowledge Base",
-    description="Agno 2.0 Knowledge Implementation",
+    description="EGPT 2.0 Knowledge Implementation",
     contents_db=contents_db,
     vector_db=vector_db,
 )
@@ -36,7 +36,7 @@ knowledge = Knowledge(
 # ---------------------------------------------------------------------------
 agent = Agent(
     name="My Agent",
-    description="Agno 2.0 Agent Implementation",
+    description="EGPT 2.0 Agent Implementation",
     knowledge=knowledge,
     search_knowledge=True,
     add_search_knowledge_instructions=False,

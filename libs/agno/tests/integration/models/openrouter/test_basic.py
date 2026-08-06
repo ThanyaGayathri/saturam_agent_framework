@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from egpt.agent import Agent, RunOutput
 from egpt.db.in_memory import InMemoryDb
 from egpt.db.sqlite.sqlite import SqliteDb
-from egpt.models.openrouter import OpenRouter
+from egpt.integrations.models.openrouter import OpenRouter
 
 
 def _assert_metrics(response: RunOutput):

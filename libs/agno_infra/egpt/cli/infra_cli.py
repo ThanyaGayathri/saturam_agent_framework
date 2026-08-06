@@ -1,6 +1,6 @@
-"""Agno Infra Cli
+"""EGPT Infra Cli
 
-This is the entrypoint for the `agno infra` application.
+This is the entrypoint for the `ag infra` application.
 """
 
 from pathlib import Path
@@ -38,14 +38,14 @@ def create(
         None,
         "-n",
         "--name",
-        help="Name of the new EgptOS codebase directory (e.g. `my-agentos-project`).",
+        help="Name of the new EgptOS codebase directory (e.g. `my-egpt-os-project`).",
         show_default=False,
     ),
     template: Optional[str] = typer.Option(
         None,
         "-t",
         "--template",
-        help="Starter template for the Agno EgptOS codebase.",
+        help="Starter template for the EGPT EgptOS codebase.",
         show_default=False,
     ),
     url: Optional[str] = typer.Option(
@@ -66,8 +66,8 @@ def create(
     Create a new EgptOS Infrastructure project in the current directory using a starter template
     \b
     Examples:
-    > ag infra create -t agentos-aws-template                        -> Create an `agentos-aws-template` in the current directory
-    > ag infra create -t agentos-aws-template -n my-agentos-template     -> Create an `agentos-aws-template` named `my-agentos-template` in the current directory
+    > ag infra create -t egpt-os-aws                        -> Create an `egpt-os-aws` in the current directory
+    > ag infra create -t egpt-os-aws -n my-egpt-os     -> Create an `egpt-os-aws` named `my-egpt-os` in the current directory
     """
     if print_debug_log:
         set_log_level_to_debug()
@@ -170,9 +170,9 @@ def up(
     current_path: Path = Path(".").resolve()
     infra_at_current_path: Optional[InfraConfig] = agno_config.get_infra_config_by_path(current_path)
     if infra_at_current_path is not None:
-        logger.debug(f"Found Agno Infra project at: {infra_at_current_path.infra_root_path}")
+        logger.debug(f"Found EGPT Infra project at: {infra_at_current_path.infra_root_path}")
         if str(infra_at_current_path.infra_root_path) != agno_config.active_infra_dir:
-            logger.debug(f"Updating active Agno Infra project to {infra_at_current_path.infra_root_path}")
+            logger.debug(f"Updating active EGPT Infra project to {infra_at_current_path.infra_root_path}")
             agno_config.set_active_infra_dir(infra_at_current_path.infra_root_path)
         infra_to_start = infra_at_current_path
 
@@ -783,7 +783,7 @@ def delete(
 
     \b
     Examples:
-    $ `ag infra delete`         -> Delete the active EgptOS codebase from Agno
+    $ `ag infra delete`         -> Delete the active EgptOS codebase from EGPT
     """
     if print_debug_log:
         set_log_level_to_debug()

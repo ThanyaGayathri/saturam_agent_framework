@@ -12,7 +12,7 @@ import pytest
 
 from egpt.agent import Agent
 from egpt.db.sqlite import SqliteDb
-from egpt.models.openai import OpenAIResponses
+from egpt.integrations.models.openai import OpenAIResponses
 from egpt.registry import Registry
 from egpt.tools.calculator import CalculatorTools
 from egpt.tools.duckduckgo import DuckDuckGoTools

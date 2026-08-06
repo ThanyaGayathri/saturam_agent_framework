@@ -1,12 +1,12 @@
 """
 Pipedream Slack MCP
 
-This example shows how to use Pipedream MCP servers (in this case the Slack one) with Agno Agents.
+This example shows how to use Pipedream MCP servers (in this case the Slack one) with EGPT Agents.
 
 1. Connect your Pipedream and Slack accounts: https://mcp.pipedream.com/app/slack
 2. Get your Pipedream MCP server url: https://mcp.pipedream.com/app/slack
 3. Set the MCP_SERVER_URL environment variable to the MCP server url you got above
-4. Install dependencies: uv pip install agno mcp
+4. Install dependencies: uv pip install mcp
 
 """
 
@@ -51,5 +51,5 @@ if __name__ == "__main__":
 
     # Use your real Slack name for this one to work!
     asyncio.run(
-        run_agent("Send a message to <YOUR_NAME> saying 'Hello, I'm your Agno Agent!'")
+        run_agent("Send a message to <YOUR_NAME> saying 'Hello, I'm your EGPT Agent!'")
     )

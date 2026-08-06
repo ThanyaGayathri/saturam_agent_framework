@@ -1,6 +1,6 @@
 # Learnings CRUD Cookbook - Test Log
 
-### learnings_with_agentos.py
+### learnings_with_egptos.py
 
 **Status:** PASS
 

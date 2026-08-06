@@ -15,7 +15,7 @@ def stream_agno_response_as_agui_events(
     run_id: str,
     run_state: Optional[Dict[str, Any]] = None,
 ) -> Iterator[BaseEvent]:
-    """Map the Agno response stream to AG-UI format."""
+    """Map the EGPT response stream to AG-UI format."""
     state = StreamState(thread_id=thread_id, run_id=run_id, run_state=run_state)
 
     if run_state is not None:
@@ -42,7 +42,7 @@ async def async_stream_agno_response_as_agui_events(
     run_id: str,
     run_state: Optional[Dict[str, Any]] = None,
 ) -> AsyncIterator[BaseEvent]:
-    """Map the Agno response stream to AG-UI format."""
+    """Map the EGPT response stream to AG-UI format."""
     state = StreamState(thread_id=thread_id, run_id=run_id, run_state=run_state)
 
     if run_state is not None:

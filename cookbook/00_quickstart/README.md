@@ -39,8 +39,8 @@ Each example can be run independently and contains detailed comments to help you
 
 ### 1. Clone the repo
 ```bash
-git clone https://github.com/agno-agi/agno.git
-cd agno
+git clone https://github.com/Saturam-Inc/saturam-agent-framework.git
+cd saturam-agent-framework
 ```
 
 ### 2. Create and activate a virtual environment
@@ -50,9 +50,15 @@ source .venvs/quickstart/bin/activate
 ```
 
 ### 3. Install dependencies
+
+Run this from the repo root — it installs `egpt` from the local `libs/agno` sources
+in editable mode, plus the third-party packages these examples use.
+
 ```bash
 uv pip install -r cookbook/00_quickstart/requirements.txt
 ```
+
+> `egpt` is not published to public PyPI — do not `pip install egpt`.
 
 ### 4. Set your API key
 ```bash
@@ -66,19 +72,17 @@ python cookbook/00_quickstart/agent_with_tools.py
 
 **That's it.** No Docker, no Postgres — just Python and an API key.
 
-## Run via Agent OS
+## Run via EgptOS
 
-Agent OS provides a web interface for interacting with your agents. Start the server:
+EgptOS serves your agents as a production API. Start the server:
 
 ```bash
 python cookbook/00_quickstart/run.py
 ```
 
-Then visit [os.agno.com](https://os.agno.com?utm_source=github&utm_medium=example-repo&utm_campaign=ab-examples-data-labeling&utm_term=data-labeling&utm_content=agentos) and add `http://localhost:7777` as an endpoint.
-
-Here's how it looks in action — chat with your agents, explore sessions, monitor traces, manage knowledge and memories, all through a beautiful visual UI.
-
-https://github.com/user-attachments/assets/aae0086b-86f6-4939-a0ce-e1ec9b87ba1f
+Then open the interactive API docs at <http://localhost:7777/docs> to chat with your
+agents, inspect sessions and traces, and manage knowledge and memories over REST.
+A coding agent can attach to the same server with `egpt connect`.
 
 > [!TIP]
 > To run the agent-with-knowledge, remember to load the knowledge base first using:
@@ -88,19 +92,19 @@ https://github.com/user-attachments/assets/aae0086b-86f6-4939-a0ce-e1ec9b87ba1f
 
 ## Swap Models Anytime
 
-Agno is model-agnostic. Same code, different provider:
+EGPT is model-agnostic. Same code, different provider:
 
 ```python
 # Gemini (default in these examples)
-from agno.models.google import Gemini
+from egpt.models.google import Gemini
 model = Gemini(id="gemini-3.5-flash")
 
 # OpenAI
-from agno.models.openai import OpenAIResponses
+from egpt.models.openai import OpenAIResponses
 model = OpenAIResponses(id="gpt-5.2")
 
 # Anthropic
-from agno.models.anthropic import Claude
+from egpt.models.anthropic import Claude
 model = Claude(id="claude-sonnet-4-5")
 ```
 
@@ -150,5 +154,5 @@ All examples in this Quick Start use synchronous code for simplicity. For async/
 
 ## Learn More
 
-- [Agno Documentation](https://docs.agno.com?utm_source=github&utm_medium=example-repo&utm_campaign=ab-examples-data-labeling&utm_term=data-labeling&utm_content=docs)
-- [Agent OS Overview](https://docs.agno.com/agent-os/introduction?utm_source=github&utm_medium=example-repo&utm_campaign=ab-examples-data-labeling&utm_term=data-labeling&utm_content=docs)
+- [EGPT package README](../../libs/agno/README.md)
+- [EgptOS cookbooks](../05_agent_os/README.md)

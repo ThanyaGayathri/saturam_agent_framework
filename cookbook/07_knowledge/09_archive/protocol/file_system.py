@@ -16,7 +16,7 @@ from egpt.agent import Agent
 from egpt.knowledge.filesystem import FileSystemKnowledge
 from egpt.models.openai import OpenAIChat
 
-# Create a filesystem knowledge base pointing to the agno library source
+# Create a filesystem knowledge base pointing to the egpt library source
 fs_knowledge = FileSystemKnowledge(
     base_dir="libs/agno/egpt",
     include_patterns=["*.py"],
@@ -35,7 +35,7 @@ if __name__ == "__main__":
         knowledge=fs_knowledge,
         search_knowledge=True,
         instructions=(
-            "You are a code assistant that helps users explore the agno codebase. "
+            "You are a code assistant that helps users explore the egpt codebase. "
             "Use the available tools to search, list, and read files."
         ),
         markdown=True,

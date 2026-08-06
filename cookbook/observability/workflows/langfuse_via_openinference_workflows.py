@@ -2,7 +2,7 @@
 Langfuse Workflows Via OpenInference
 ====================================
 
-Demonstrates tracing a multi-step Agno workflow in Langfuse.
+Demonstrates tracing a multi-step EGPT workflow in Langfuse.
 """
 
 import base64
@@ -38,7 +38,7 @@ os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=Basic {LANGFUSE_AUTH}
 tracer_provider = TracerProvider()
 tracer_provider.add_span_processor(SimpleSpanProcessor(OTLPSpanExporter()))
 
-# Start instrumenting agno
+# Start instrumenting egpt
 AgnoInstrumentor().instrument(tracer_provider=tracer_provider)
 
 

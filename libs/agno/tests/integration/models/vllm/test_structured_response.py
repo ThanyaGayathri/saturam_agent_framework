@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.vllm import VLLM
+from egpt.integrations.models.vllm import VLLM
 
 VLLM_MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 

@@ -19,10 +19,10 @@ from egpt.vectordb.lancedb import LanceDb, SearchType
 # Setup
 # ---------------------------------------------------------------------------
 knowledge = Knowledge(
-    # Use LanceDB as the vector database, store embeddings in the `agno_docs` table
+    # Use LanceDB as the vector database, store embeddings in the `mcp_docs` table
     vector_db=LanceDb(
         uri="tmp/lancedb",
-        table_name="agno_docs",
+        table_name="mcp_docs",
         search_type=SearchType.hybrid,
         embedder=CohereEmbedder(id="embed-v4.0"),
         reranker=CohereReranker(model="rerank-v3.5"),
@@ -41,6 +41,7 @@ agent = Agent(
     search_knowledge=True,
     tools=[ReasoningTools(add_instructions=True)],
     instructions=[
+        "You are an expert on the Model Context Protocol (MCP).",
         "Include sources in your response.",
         "Always search your knowledge before answering the question.",
     ],
@@ -52,10 +53,12 @@ agent = Agent(
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     asyncio.run(
-        knowledge.ainsert_many(urls=["https://docs.agno.com/agents/overview.md"])
+        knowledge.ainsert_many(
+            urls=["https://modelcontextprotocol.io/docs/learn/architecture"]
+        )
     )
     agent.print_response(
-        "What are Agents?",
+        "What is the Model Context Protocol?",
         stream=True,
         show_full_reasoning=True,
     )

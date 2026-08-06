@@ -1,6 +1,6 @@
 """Quarantine litellm_openai integration tests (EGPT-0.10).
 
-Importing LiteLLMOpenAI still loads egpt.models.litellm.chat, which requires
+Importing LiteLLMOpenAI still loads egpt.integrations.models.litellm.chat, which requires
 the disabled litellm extra.
 """
 
@@ -9,8 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 QUARANTINE_REASON = (
-    "Quarantined (EGPT-0.10): litellm extra disabled pending PyPI security review; "
-    "run manually with egpt[litellm]"
+    "Quarantined (EGPT-0.10): litellm extra disabled pending PyPI security review; run manually with egpt[litellm]"
 )
 
 

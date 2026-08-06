@@ -1,8 +1,8 @@
 import pytest
 
 from egpt.agent.agent import Agent
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.knowledge.knowledge import Knowledge
-from egpt.models.openai import OpenAIChat
 from egpt.run.agent import RunOutput
 from egpt.team.team import Team
 from egpt.vectordb.chroma import ChromaDb

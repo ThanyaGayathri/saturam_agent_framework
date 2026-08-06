@@ -38,6 +38,6 @@
 
 **Status:** PENDING
 
-**Description:** Connect Agno A2AClient to Google ADK A2A Server.
+**Description:** Connect EGPT A2AClient to Google ADK A2A Server.
 
 ---

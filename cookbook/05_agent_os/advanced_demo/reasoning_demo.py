@@ -1,4 +1,4 @@
-"""Run `uv pip install openai exa_py ddgs yfinance pypdf sqlalchemy 'fastapi[standard]' youtube-transcript-api python-docx agno` to install dependencies."""
+"""Run `uv pip install openai exa_py ddgs yfinance pypdf sqlalchemy 'fastapi[standard]' youtube-transcript-api python-docx` to install dependencies."""
 
 from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
@@ -86,17 +86,17 @@ web_agent = Agent(
     db=db,
 )
 
-agno_docs = Knowledge(
-    # Use LanceDB as the vector database and store embeddings in the `agno_docs` table
+egpt_docs = Knowledge(
+    # Use LanceDB as the vector database and store embeddings in the `egpt_docs` table
     vector_db=LanceDb(
         uri="tmp/lancedb",
-        table_name="agno_docs",
+        table_name="egpt_docs",
         search_type=SearchType.hybrid,
     ),
 )
 
 knowledge_tools = KnowledgeTools(
-    knowledge=agno_docs,
+    knowledge=egpt_docs,
     enable_think=True,
     enable_search=True,
     enable_analyze=True,
@@ -154,5 +154,5 @@ app = agent_os.get_app()
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    agno_docs.insert(name="Agno Docs", url="https://www.paulgraham.com/read.html")
+    egpt_docs.insert(name="EGPT Docs", url="https://www.paulgraham.com/read.html")
     agent_os.serve(app="reasoning_demo:app", reload=True)

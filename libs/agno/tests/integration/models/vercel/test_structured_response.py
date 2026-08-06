@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.vercel import V0
+from egpt.integrations.models.vercel import V0
 
 
 class MovieScript(BaseModel):

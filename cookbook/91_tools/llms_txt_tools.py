@@ -35,7 +35,7 @@ agent = Agent(
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     agent.print_response(
-        "Using the llms.txt at https://docs.agno.com/llms.txt, "
+        "Using the llms.txt at https://modelcontextprotocol.io/llms.txt, "
         "find and read the documentation about how to create an agent with tools",
         markdown=True,
         stream=True,

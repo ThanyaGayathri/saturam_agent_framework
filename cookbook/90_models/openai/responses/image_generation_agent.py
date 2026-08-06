@@ -1,6 +1,6 @@
 """Example: Using the OpenAITools Toolkit for Image Generation
 
-This script demonstrates how to use the `OpenAITools` toolkit, which includes a tool for generating images using OpenAI's DALL-E within an Agno Agent.
+This script demonstrates how to use the `OpenAITools` toolkit, which includes a tool for generating images using OpenAI's DALL-E within an EGPT Agent.
 
 Example prompts to try:
 - "Create a surreal painting of a floating city in the clouds at sunset"
@@ -8,7 +8,7 @@ Example prompts to try:
 - "Design a cute cartoon mascot for a tech startup"
 - "Create an artistic portrait of a cyberpunk samurai"
 
-Run `uv pip install openai agno` to install the necessary dependencies.
+Run `uv pip install openai` to install the necessary dependencies.
 """
 
 from egpt.agent import Agent

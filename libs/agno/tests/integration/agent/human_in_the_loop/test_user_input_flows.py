@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.tools.decorator import tool
 
 

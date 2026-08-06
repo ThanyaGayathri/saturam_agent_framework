@@ -21,10 +21,10 @@ from egpt.utils.log import log_debug
 
 
 def _get_chonkie_embedder_wrapper(embedder: Embedder):
-    """Create a wrapper that adapts Agno Embedder to chonkie's BaseEmbeddings interface."""
+    """Create a wrapper that adapts EGPT Embedder to chonkie's BaseEmbeddings interface."""
 
     class _ChonkieEmbedderWrapper(BaseEmbeddings):
-        """Wrapper to make Agno Embedders compatible with chonkie."""
+        """Wrapper to make EGPT Embedders compatible with chonkie."""
 
         def __init__(self, agno_embedder: Embedder):
             super().__init__()
@@ -52,7 +52,7 @@ class SemanticChunking(ChunkingStrategy):
         embedder: The embedder to use for generating embeddings. Can be:
             - A string model identifier (e.g., "minishlab/potion-base-32M") for chonkie's built-in models
             - A chonkie BaseEmbeddings instance (used directly)
-            - An Agno Embedder (wrapped for chonkie compatibility)
+            - An EGPT Embedder (wrapped for chonkie compatibility)
         chunk_size: Maximum tokens allowed per chunk.
         similarity_threshold: Threshold for semantic similarity (0-1).
         similarity_window: Number of sentences to consider for similarity calculation.
@@ -111,7 +111,7 @@ class SemanticChunking(ChunkingStrategy):
         # Determine embedding model based on type:
         # - str: pass directly to chonkie (uses chonkie's built-in models)
         # - BaseEmbeddings: pass directly to chonkie
-        # - Agno Embedder: wrap for chonkie compatibility
+        # - EGPT Embedder: wrap for chonkie compatibility
         embedding_model: Union[str, BaseEmbeddings]
         if isinstance(self.embedder, str):
             embedding_model = self.embedder

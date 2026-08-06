@@ -2,7 +2,7 @@
 
 ############################################################################
 #
-#    Agno Demo Environment Setup
+#    EGPT Demo Environment Setup
 #
 #    Usage: ./scripts/demo_setup.sh
 #    Run:   python cookbook/01_demo/run.py
@@ -60,7 +60,7 @@ uv venv "${VENV_DIR}" --python 3.12 --quiet
 
 # Install the separately distributed CLI and core library together for demos.
 echo ""
-echo -e "    ${DIM}Installing egptctl and agno[demo] in editable mode...${NC}"
+echo -e "    ${DIM}Installing egptctl and egpt[demo] in editable mode...${NC}"
 echo -e "    ${DIM}> uv pip install -e libs/egptctl -e libs/agno[demo]${NC}"
 VIRTUAL_ENV="${VENV_DIR}" uv pip install -e "${EGPTCTL_DIR}" -e "${AGNO_DIR}[demo]" --quiet
 

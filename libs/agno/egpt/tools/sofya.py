@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 import requests
 
+from egpt.brand import PRODUCT_NAME
 from egpt.tools import Toolkit
 from egpt.utils.log import log_debug, log_error
 
@@ -79,7 +80,7 @@ class SofyaTools(Toolkit):
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            "User-Agent": "agno-sofya",
+            "User-Agent": f"{PRODUCT_NAME.lower()}-sofya",
         }
         log_debug(f"Calling Sofya {path}")
         response = requests.post(url, json=payload, headers=headers, timeout=self.timeout)

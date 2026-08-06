@@ -65,7 +65,7 @@ if __name__ == "__main__":
 # More Examples
 # ---------------------------------------------------------------------------
 """
-Tools are Python classes that inherit from Toolkit. Agno includes many built-in:
+Tools are Python classes that inherit from Toolkit. EGPT includes many built-in:
 
 1. Web search (no API key needed)
    from egpt.tools.websearch import WebSearchTools

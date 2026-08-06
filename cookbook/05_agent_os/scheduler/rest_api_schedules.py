@@ -11,7 +11,7 @@ This example demonstrates:
 
 Requires: a running EgptOS server with scheduler=True
 
-    .venvs/demo/bin/python cookbook/05_agent_os/scheduler/scheduler_with_agentos.py
+    .venvs/demo/bin/python cookbook/05_agent_os/scheduler/scheduler_with_egptos.py
 
 Then in another terminal:
 

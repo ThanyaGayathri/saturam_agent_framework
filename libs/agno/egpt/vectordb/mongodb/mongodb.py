@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from bson import ObjectId
 
+from egpt.brand import PRODUCT_NAME
 from egpt.filters import FilterExpr
 from egpt.knowledge.document import Document
 from egpt.knowledge.embedder import Embedder
@@ -27,7 +28,7 @@ try:
 except ImportError:
     raise ImportError("`pymongo` not installed. Please install using `pip install pymongo`")
 
-DRIVER_METADATA = DriverInfo(name="Agno", version=metadata.version("egpt"))
+DRIVER_METADATA = DriverInfo(name=PRODUCT_NAME, version=metadata.version("egpt"))
 
 
 class MongoDb(VectorDb):

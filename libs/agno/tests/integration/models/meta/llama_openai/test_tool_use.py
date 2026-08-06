@@ -3,7 +3,7 @@ from typing import Optional
 import pytest
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.models.meta import LlamaOpenAI
+from egpt.integrations.models.meta import LlamaOpenAI
 from egpt.tools.websearch import WebSearchTools
 from egpt.tools.yfinance import YFinanceTools
 

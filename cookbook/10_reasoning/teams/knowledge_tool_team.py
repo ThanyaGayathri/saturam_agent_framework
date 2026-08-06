@@ -18,19 +18,19 @@ from egpt.vectordb.lancedb import LanceDb, SearchType
 # Create Example
 # ---------------------------------------------------------------------------
 def run_example() -> None:
-    agno_docs = Knowledge(
-        # Use LanceDB as the vector database and store embeddings in the `agno_docs` table
+    egpt_docs = Knowledge(
+        # Use LanceDB as the vector database and store embeddings in the `egpt_docs` table
         vector_db=LanceDb(
             uri="tmp/lancedb",
-            table_name="agno_docs",
+            table_name="egpt_docs",
             search_type=SearchType.hybrid,
         ),
     )
     # Add content to the knowledge
-    agno_docs.insert(url="https://www.paulgraham.com/read.html")
+    egpt_docs.insert(url="https://www.paulgraham.com/read.html")
 
     knowledge_tools = KnowledgeTools(
-        knowledge=agno_docs,
+        knowledge=egpt_docs,
         enable_think=True,
         enable_search=True,
         enable_analyze=True,

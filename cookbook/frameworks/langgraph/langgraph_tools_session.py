@@ -2,7 +2,7 @@
 LangGraph agent with tools and session persistence.
 
 Demonstrates multi-turn conversations with tool calls, where the full
-conversation history (including tool results) is persisted to Agno's DB.
+conversation history (including tool results) is persisted to EGPT's DB.
 
 Requirements:
     pip install langchain-openai langgraph

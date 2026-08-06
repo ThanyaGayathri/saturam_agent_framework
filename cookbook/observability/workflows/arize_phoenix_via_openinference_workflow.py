@@ -2,7 +2,7 @@
 Arize Phoenix Workflow Via OpenInference
 ========================================
 
-Demonstrates tracing a multi-step Agno workflow in Arize Phoenix.
+Demonstrates tracing a multi-step EGPT workflow in Arize Phoenix.
 """
 
 import os

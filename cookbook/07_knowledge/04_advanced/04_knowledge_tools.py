@@ -61,14 +61,14 @@ agent = Agent(
 if __name__ == "__main__":
 
     async def main():
-        await knowledge.ainsert(url="https://docs.agno.com/llms-full.txt")
+        await knowledge.ainsert(url="https://modelcontextprotocol.io/llms-full.txt")
 
         print("\n" + "=" * 60)
         print("KnowledgeTools: think + search + analyze")
         print("=" * 60 + "\n")
 
         agent.print_response(
-            "How do I build a team of agents in Agno?",
+            "How does an MCP client connect to an MCP server?",
             stream=True,
         )
 

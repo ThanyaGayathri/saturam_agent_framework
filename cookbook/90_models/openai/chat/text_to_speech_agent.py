@@ -2,7 +2,7 @@
 
 This script demonstrates how to use an agent to generate speech from a given text input and optionally save it to a specified audio file.
 
-Run `uv pip install openai agno` to install the necessary dependencies.
+Run `uv pip install openai` to install the necessary dependencies.
 """
 
 import base64
@@ -27,7 +27,7 @@ agent: Agent = Agent(
 
 # Ask the agent to generate speech, but not save it
 response = agent.run(
-    'Please generate speech for the following text: "Hello from Agno! This is a demonstration of the text-to-speech capability using OpenAI"'
+    'Please generate speech for the following text: "Hello from EGPT! This is a demonstration of the text-to-speech capability using OpenAI"'
 )
 
 print(f"Agent response: {response.get_content_as_string()}")

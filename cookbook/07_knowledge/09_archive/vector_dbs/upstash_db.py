@@ -29,7 +29,7 @@ def create_sync_knowledge() -> tuple[Knowledge, UpstashVectorDb]:
     )
     knowledge = Knowledge(
         name="Basic SDK Knowledge Base",
-        description="Agno 2.0 Knowledge Implementation with Upstash Vector DB",
+        description="EGPT 2.0 Knowledge Implementation with Upstash Vector DB",
         vector_db=vector_db,
     )
     return knowledge, vector_db

@@ -17,7 +17,7 @@ message in #bots"), compose ``query_slack`` → ``update_slack`` at the
 caller.
 
 Uses ``SLACK_BOT_TOKEN`` (bot tokens start with ``xoxb-``). Falls
-back to ``SLACK_TOKEN`` since that's the variable agno's
+back to ``SLACK_TOKEN`` since that's the variable EGPT's
 ``SlackTools`` documents.
 """
 

@@ -1,6 +1,6 @@
 # Async SQLite Integration
 
-Examples demonstrating asynchronous SQLite integration with Agno agents, teams, and workflows.
+Examples demonstrating asynchronous SQLite integration with EGPT agents, teams, and workflows.
 
 ## Setup
 
@@ -11,7 +11,7 @@ uv pip install sqlalchemy aiosqlite
 ## Configuration
 
 ```python
-from agno.db.sqlite import AsyncSqliteDb
+from egpt.db.sqlite import AsyncSqliteDb
 
 db = AsyncSqliteDb(db_file="path/to/database.db")
 ```

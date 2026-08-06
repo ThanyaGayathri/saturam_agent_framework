@@ -25,7 +25,7 @@ vector_db = PgVector(
 def create_knowledge() -> Knowledge:
     return Knowledge(
         name="Basic SDK Knowledge Base",
-        description="Agno 2.0 Knowledge Implementation",
+        description="EGPT 2.0 Knowledge Implementation",
         vector_db=vector_db,
     )
 
@@ -36,7 +36,7 @@ def create_knowledge() -> Knowledge:
 def create_agent(knowledge: Knowledge) -> Agent:
     return Agent(
         name="My Agent",
-        description="Agno 2.0 Agent Implementation",
+        description="EGPT 2.0 Agent Implementation",
         knowledge=knowledge,
         search_knowledge=True,
         debug_mode=True,

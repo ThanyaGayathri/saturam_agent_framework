@@ -2,11 +2,11 @@
 
 > Tests not yet run. Run each file and update this log.
 
-### agno_agent.py
+### egpt_agent.py
 
 **Status:** PENDING
 
-**Description:** Agno Agent.
+**Description:** EGPT Agent.
 
 ---
 

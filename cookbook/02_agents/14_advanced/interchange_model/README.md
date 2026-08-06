@@ -12,7 +12,7 @@ An agent with `add_history_to_context=True` uses tools across multiple turns, sw
 - **OpenAI Responses** (`OpenAIResponses`)
 - **Anthropic Claude** (`Claude`)
 - **Google Gemini** (`Gemini`)
-- **AWS Claude** (via `agno.models.aws.Claude`)
+- **AWS Claude** (via `egpt.models.aws.Claude`)
 
 ## Scripts
 

@@ -1,50 +1,23 @@
-from typing import Any, Dict
+"""Deprecated compatibility shim (EGPT-1.4).
 
-from egpt.models.message import Message
-from egpt.utils.log import log_warning
-from egpt.utils.openai import images_to_message
+Moved to ``egpt.integrations.models._utils.ai_foundry`` with the model providers; this module will be removed.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.models._utils.ai_foundry as _target
+from egpt.integrations.models._utils.ai_foundry import *  # noqa: F401,F403
+
+_warnings.warn(
+    "egpt.utils.models.ai_foundry is deprecated; import from egpt.integrations.models._utils.ai_foundry instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-def format_message(message: Message, compress_tool_results: bool = False) -> Dict[str, Any]:
-    """
-    Format a message into the format expected by OpenAI.
-
-    Args:
-        message (Message): The message to format.
-        compress_tool_results: Whether to compress tool results.
-
-    Returns:
-        Dict[str, Any]: The formatted message.
-    """
-    # Use compressed content for tool messages if compression is active
-    content = message.content
-
-    if message.role == "tool":
-        content = message.get_content(use_compressed_content=compress_tool_results)
-
-    message_dict: Dict[str, Any] = {
-        "role": message.role,
-        "content": content,
-        "name": message.name,
-        "tool_call_id": message.tool_call_id,
-        "tool_calls": message.tool_calls,
-    }
-    message_dict = {k: v for k, v in message_dict.items() if v is not None}
-
-    if message.images is not None and len(message.images) > 0:
-        # Ignore non-string message content
-        # because we assume that the images/audio are already added to the message
-        if isinstance(message.content, str):
-            message_dict["content"] = [{"type": "text", "text": message.content}]
-            message_dict["content"].extend(images_to_message(images=message.images))
-
-    if message.audio is not None and len(message.audio) > 0:
-        log_warning("Audio input is currently unsupported.")
-
-    if message.files is not None and len(message.files) > 0:
-        log_warning("File input is currently unsupported.")
-
-    if message.videos is not None and len(message.videos) > 0:
-        log_warning("Video input is currently unsupported.")
-
-    return message_dict
+def __getattr__(name: str):
+    return getattr(_target, name)

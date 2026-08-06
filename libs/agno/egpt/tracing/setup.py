@@ -1,5 +1,5 @@
 """
-Setup helper functions for configuring Agno tracing.
+Setup helper functions for configuring EGPT tracing.
 """
 
 from typing import Union
@@ -28,9 +28,9 @@ def setup_tracing(
     schedule_delay_millis: int = 5000,
 ) -> None:
     """
-    Set up OpenTelemetry tracing with database export for Agno agents.
+    Set up OpenTelemetry tracing with database export for EGPT agents.
 
-    This function configures automatic tracing for all Agno agents, teams, and workflows.
+    This function configures automatic tracing for all EGPT agents, teams, and workflows.
     Traces are automatically captured for:
     - Agent runs (agent.run, agent.arun)
     - Model calls (model.response)
@@ -103,10 +103,11 @@ def setup_tracing(
         # Set the global tracer provider
         trace_api.set_tracer_provider(tracer_provider)
 
-        # Instrument Agno with OpenInference
+        # Instrument EGPT with OpenInference (the instrumentor package retains its
+        # upstream `agno` name -- it is a third-party distribution, not our brand).
         AgnoInstrumentor().instrument(tracer_provider=tracer_provider)
 
-        log_info("Agno tracing successfully set up with database storage")
+        log_info("EGPT tracing successfully set up with database storage")
     except Exception as e:
         log_error(f"Failed to set up tracing: {str(e)}")
         raise

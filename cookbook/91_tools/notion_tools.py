@@ -21,12 +21,12 @@ Automatically categorize, store, and retrieve information from your Notion works
 ---
 Configuration Instructions:
 1. Install required dependencies:
-   uv pip install agno notion-client
+   uv pip install notion-client
 
 2. Create a Notion Integration:
    - Go to https://www.notion.so/my-integrations
    - Click "+ New integration"
-   - Name it (e.g., "Agno Agent")
+   - Name it (e.g., "EGPT Agent")
    - Copy the "Internal Integration Token"
 
 3. Create a Notion Database:

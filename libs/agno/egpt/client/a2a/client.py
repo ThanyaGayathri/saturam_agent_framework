@@ -1,4 +1,4 @@
-"""A2A (Agent-to-Agent) protocol client for Agno.
+"""A2A (Agent-to-Agent) protocol client for EGPT.
 
 This module provides a Pythonic client for communicating with any A2A-compatible
 agent server, enabling cross-framework agent communication.
@@ -28,7 +28,7 @@ class A2AClient:
     """Async client for A2A (Agent-to-Agent) protocol communication.
 
     Provides a Pythonic interface for communicating with any A2A-compatible
-    agent server, including Agno EgptOS with a2a_interface=True.
+    agent server, including EGPT EgptOS with a2a_interface=True.
 
     The A2A protocol is a standard for agent-to-agent communication that enables
     interoperability between different AI agent frameworks.

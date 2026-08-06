@@ -1,6 +1,6 @@
-# MCP Agents using Agno
+# MCP Agents using EGPT
 
-Model Context Protocol (MCP) gives Agents the ability to interact with external systems through a standardized interface. Using Agno's MCP integration, you can build Agents that can connect to any MCP-compatible service.
+Model Context Protocol (MCP) gives Agents the ability to interact with external systems through a standardized interface. Using EGPT's MCP integration, you can build Agents that can connect to any MCP-compatible service.
 
 ## Examples in this Directory
 
@@ -44,7 +44,7 @@ This example shows how to create an agent that uses MCP and Gemini 2.5 Pro to se
 Install the required dependencies:
 
 ```bash
-uv pip install agno mcp openai
+uv pip install mcp openai
 ```
 
 Export your API keys:
@@ -65,7 +65,7 @@ python bgpt.py
 
 ## How It Works
 
-These examples use Agno to create agents that leverage MCP servers. The MCP servers provide standardized access to different data sources (filesystem, GitHub), and the agents use these servers to answer questions and perform tasks.
+These examples use EGPT to create agents that leverage MCP servers. The MCP servers provide standardized access to different data sources (filesystem, GitHub), and the agents use these servers to answer questions and perform tasks.
 
 The workflow is:
 1. Agent receives a query from the user
@@ -84,4 +84,4 @@ You can modify these examples to:
 ## More Information
 
 - Read more about [MCP](https://modelcontextprotocol.io/introduction)
-- Read about [Agno's MCP integration](https://docs.agno.com/tools/mcp)
+- Read the [Model Context Protocol documentation](https://modelcontextprotocol.io)

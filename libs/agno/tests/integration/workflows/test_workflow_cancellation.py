@@ -6,7 +6,7 @@ from typing import Any, AsyncIterator, Iterator
 import pytest
 
 from egpt.agent.agent import Agent
-from egpt.models.openai import OpenAIChat
+from egpt.integrations.models.openai import OpenAIChat
 from egpt.run.agent import RunContentEvent
 from egpt.run.base import RunStatus
 from egpt.run.cancel import cancel_run

@@ -14,8 +14,8 @@ How to pick another **Workers AI** model (see https://developers.cloudflare.com/
 
 1. Open the catalog and choose a **Text generation** model.
 2. On that model's doc page, copy the binding id from the box (e.g. ``@cf/google/gemma-4-26b-a4b-it``).
-3. Paste it straight into Agno: ``Cloudflare(id="@cf/google/gemma-4-26b-a4b-it")`` or
-   ``Agent(model="cloudflare:@cf/google/gemma-4-26b-a4b-it")``. Agno prepends ``workers-ai/`` for the gateway.
+3. Paste it straight into EGPT: ``Cloudflare(id="@cf/google/gemma-4-26b-a4b-it")`` or
+   ``Agent(model="cloudflare:@cf/google/gemma-4-26b-a4b-it")``. EGPT prepends ``workers-ai/`` for the gateway.
    You can still pass the full form ``workers-ai/@cf/...`` if you prefer.
 
 **Gemini** (Google's API product) is not the same as **Gemma** / Llama on Workers AI. Do not invent

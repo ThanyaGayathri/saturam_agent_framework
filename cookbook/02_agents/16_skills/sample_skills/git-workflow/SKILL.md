@@ -4,7 +4,7 @@ description: Git workflow guidance for commits, branches, and pull requests
 license: Apache-2.0
 metadata:
   version: "1.0.0"
-  author: agno-team
+  author: egpt-team
   tags: ["git", "version-control", "workflow"]
 ---
 # Git Workflow Skill

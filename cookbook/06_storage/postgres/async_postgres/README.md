@@ -1,6 +1,6 @@
 # Async Postgres Integration
 
-Examples demonstrating asynchronous PostgreSQL integration with Agno agents, teams, and workflows.
+Examples demonstrating asynchronous PostgreSQL integration with EGPT agents, teams, and workflows.
 
 ## Setup
 
@@ -11,7 +11,7 @@ uv pip install sqlalchemy psycopg
 ## Configuration
 
 ```python
-from agno.db.postgres import AsyncPostgresDb
+from egpt.db.postgres import AsyncPostgresDb
 
 db = AsyncPostgresDb(db_url="postgresql+psycopg_async://username:password@localhost:5432/database")
 ```

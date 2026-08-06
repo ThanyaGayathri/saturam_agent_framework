@@ -4,7 +4,7 @@ from typing import List
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent
-from egpt.models.cometapi import CometAPI
+from egpt.integrations.models.cometapi import CometAPI
 
 
 class MovieScript(BaseModel):

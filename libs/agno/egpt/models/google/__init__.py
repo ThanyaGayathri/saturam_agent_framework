@@ -1,9 +1,25 @@
-from typing import TYPE_CHECKING
+"""Deprecated compatibility shim (EGPT-1.4).
 
-from egpt.models.google.gemini import Gemini
+Import from ``egpt.integrations.models.google`` instead; this module will be removed.
 
-if TYPE_CHECKING:
-    from egpt.models.google.gemini_interactions import GeminiInteractions
+Names are re-exported explicitly (not proxied through ``__getattr__`` alone) so that
+star-imports, ``dir()`` and static type checking keep working on this path.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.models.google as _target
+from egpt.integrations.models.google.gemini import Gemini  # noqa: F401
+
+_warnings.warn(
+    "egpt.models.google is deprecated; import from egpt.integrations.models.google instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __all__ = [
     "Gemini",
@@ -12,9 +28,6 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    """Lazy import of GeminiInteractions to avoid requiring google-genai>=2.0.0 for standard Gemini usage."""
-    if name == "GeminiInteractions":
-        from egpt.models.google.gemini_interactions import GeminiInteractions
-
-        return GeminiInteractions
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    # Fallback for names the target provides lazily (google's GeminiInteractions) or via
+    # an optional-dependency fallback (aws Claude), which must not be imported eagerly.
+    return getattr(_target, name)

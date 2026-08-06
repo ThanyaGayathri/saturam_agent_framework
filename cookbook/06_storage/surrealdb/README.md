@@ -1,6 +1,6 @@
 # SurrealDB Integration
 
-Examples demonstrating SurrealDB integration with Agno agents, teams, and workflows.
+Examples demonstrating SurrealDB integration with EGPT agents, teams, and workflows.
 
 ## Setup
 
@@ -16,7 +16,7 @@ db = SurrealDb(
   None,                   # existing connection
   "ws://localhost:8000",  # url
   credentials,            # credentials
-  "agno_ns",              # namespace
+  "egpt_ns",              # namespace
   "example_db",           # database
 )
 ```

@@ -1,11 +1,11 @@
 """
-Agno Agent with PowerPoint Skills.
+EGPT Agent with PowerPoint Skills.
 
 This cookbook demonstrates how to use Claude's pptx skill to create PowerPoint
-presentations through Agno agents.
+presentations through EGPT agents.
 
 Prerequisites:
-- uv pip install agno anthropic
+- uv pip install anthropic
 - export ANTHROPIC_API_KEY="your_api_key_here"
 """
 
@@ -47,7 +47,7 @@ if __name__ == "__main__":
         raise ValueError("ANTHROPIC_API_KEY environment variable not set")
 
     print("=" * 60)
-    print("Agno Agent with PowerPoint Skills")
+    print("EGPT Agent with PowerPoint Skills")
     print("=" * 60)
 
     # Example: Business presentation using the agent

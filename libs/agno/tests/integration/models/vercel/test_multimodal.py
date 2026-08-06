@@ -1,6 +1,6 @@
 from egpt.agent import Agent
+from egpt.integrations.models.vercel import V0
 from egpt.media import Image
-from egpt.models.vercel import V0
 from egpt.tools.websearch import WebSearchTools
 
 

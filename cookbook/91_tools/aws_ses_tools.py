@@ -33,7 +33,7 @@ AWS SES (Simple Email Service) Setup Instructions:
 
 3. Install required Python packages:
    ```
-   uv pip install boto3 agno
+   uv pip install boto3
    ```
 
 4. Update the variables below with your configuration:
@@ -74,7 +74,7 @@ agent = Agent(
         "   - Brief explanations of why they matter",
         "   - Links to sources",
         "4. Format the content in a clean, readable way",
-        "5. Send the email using AWS SES. IMPORTANT: The receiver_email parameter must be the COMPLETE email address including the @ symbol and domain (e.g., if the user says 'send to mustafa@agno.com', you must use receiver_email='mustafa@agno.com', NOT 'mustafacom' or any other variation).",
+        "5. Send the email using AWS SES. IMPORTANT: The receiver_email parameter must be the COMPLETE email address including the @ symbol and domain (e.g., if the user says 'send to user@example.com', you must use receiver_email='user@example.com', NOT 'mustafacom' or any other variation).",
     ],
     tools=[
         AWSSESTool(
@@ -92,7 +92,7 @@ agent = Agent(
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     agent.print_response(
-        "Research AI developments in healthcare from the past week with a focus on practical applications in clinical settings. Send the summary via email to mustafa@agno.com"
+        "Research AI developments in healthcare from the past week with a focus on practical applications in clinical settings. Send the summary via email to user@example.com"
     )
 
     """

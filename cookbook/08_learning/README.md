@@ -18,9 +18,9 @@ LearningMachine is a unified learning system that enables agents to learn from e
 ## Quick Start
 
 ```python
-from agno.agent import Agent
+from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
-from agno.models.openai import OpenAIResponses
+from egpt.models.openai import OpenAIResponses
 
 # Setup
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
@@ -103,8 +103,8 @@ cookbook/08_learning/
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/agno-agi/agno.git
-cd agno
+git clone https://github.com/Saturam-Inc/saturam-agent-framework.git
+cd saturam-agent-framework
 ```
 
 ### 2. Create a virtual environment and install dependencies
@@ -209,7 +209,7 @@ agent = Agent(
 Each Learning Store can be configured to run in different modes:
 
 ```python
-from agno.learn import LearningMode
+from egpt.learn import LearningMode
 
 # ALWAYS (default for user_profile, session_context)
 # - Automatic extraction after conversations
@@ -240,9 +240,9 @@ Captures structured profile fields about users. Persists forever. Updated as new
 See also: **Memories Store** for unstructured observations that don't fit fields.
 
 ```python
-from agno.agent import Agent
+from egpt.agent import Agent
 from egpt.db.postgres import PostgresDb
-from agno.learn import LearningMachine, UserProfileConfig
+from egpt.learn import LearningMachine, UserProfileConfig
 
 agent = Agent(
     model=OpenAIResponses(id="gpt-5.5"),
@@ -271,7 +271,7 @@ Captures unstructured observations about users that don't fit into structured pr
 **When to use:** For context like "prefers detailed explanations", "works on ML projects" - observations that are useful but not structured.
 
 ```python
-from agno.learn import LearningMachine, UserMemoryConfig, LearningMode
+from egpt.learn import LearningMachine, UserMemoryConfig, LearningMode
 
 agent = Agent(
     model=OpenAIResponses(id="gpt-5.5"),
@@ -304,7 +304,7 @@ Captures state and summary for the current session.
 - **Progress**: Completed steps (requires `enable_planning=True`)
 
 ```python
-from agno.learn import LearningMachine, SessionContextConfig
+from egpt.learn import LearningMachine, SessionContextConfig
 
 agent = Agent(
     model=OpenAIResponses(id="gpt-5.5"),
@@ -328,10 +328,10 @@ Captures reusable insights, patterns, and rules that apply across users and sess
 **Requires a Knowledge base** (vector database) for semantic search.
 
 ```python
-from agno.knowledge import Knowledge
-from agno.knowledge.embedder.openai import OpenAIEmbedder
-from agno.learn import LearningMachine, LearnedKnowledgeConfig, LearningMode
-from agno.vectordb.pgvector import PgVector, SearchType
+from egpt.knowledge import Knowledge
+from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.learn import LearningMachine, LearnedKnowledgeConfig, LearningMode
+from egpt.vectordb.pgvector import PgVector, SearchType
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"
 
@@ -368,7 +368,7 @@ Captures knowledge about external entities: companies, projects, people, product
 - **Relationships** (graph edges): Connections - "Bob is CTO of Acme"
 
 ```python
-from agno.learn import LearningMachine, EntityMemoryConfig
+from egpt.learn import LearningMachine, EntityMemoryConfig
 
 agent = Agent(
     model=OpenAIResponses(id="gpt-5.5"),
@@ -397,7 +397,7 @@ Records decisions the agent makes, with reasoning and alternatives considered. U
 **Scope:** Per agent - stored and retrieved by `agent_id`.
 
 ```python
-from agno.learn import DecisionLogConfig, LearningMachine, LearningMode
+from egpt.learn import DecisionLogConfig, LearningMachine, LearningMode
 
 agent = Agent(
     model=OpenAIResponses(id="gpt-5.5"),
@@ -420,7 +420,7 @@ Extend the base schemas with typed fields for your domain:
 ```python
 from dataclasses import dataclass, field
 from typing import Optional
-from agno.learn.schemas import UserProfile
+from egpt.learn.schemas import UserProfile
 
 @dataclass
 class CustomerProfile(UserProfile):
@@ -445,7 +445,7 @@ learning = LearningMachine(
 
 ## View Learnings in EgptOS
 
-Everything the learning system captures is browsable in the EgptOS UI and over REST. EgptOS exposes `/learnings` CRUD endpoints backed by the `egpt_learnings` table, and [os.agno.com](https://os.agno.com) renders them as dedicated Learning pages: User Profiles, User Memories, Entity Memories, Session Context, and Decision Logs.
+Everything the learning system captures is browsable over REST. EgptOS exposes `/learnings` CRUD endpoints backed by the `egpt_learnings` table, covering User Profiles, User Memories, Entity Memories, Session Context, and Decision Logs. Browse them from the interactive API docs at <http://localhost:7777/docs>.
 
 Try it with the demo in this cookbook:
 
@@ -453,7 +453,7 @@ Try it with the demo in this cookbook:
 # Seed every learning store with real conversations
 .venvs/demo/bin/python cookbook/08_learning/10_demo/seed.py
 
-# Serve the EgptOS app, then connect at os.agno.com
+# Serve the EgptOS app, then browse http://localhost:7777/docs
 .venvs/demo/bin/python cookbook/08_learning/10_demo/run.py
 ```
 
@@ -461,6 +461,6 @@ See [10_demo](10_demo/) for the walkthrough, and [cookbook/05_agent_os/learnings
 
 ## Learn More
 
-- [Agno Documentation](https://docs.agno.com)
+- [EGPT package README](../../libs/agno/README.md)
 
-Built with 💜 by the Agno team
+Built with 💜 by the EGPT team

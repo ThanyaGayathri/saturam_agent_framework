@@ -71,7 +71,7 @@ class PerplexitySearch(Toolkit):
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            "X-Source": "agno",
+            "X-Source": "egpt",
         }
 
         body: Dict[str, Any] = {
@@ -130,7 +130,7 @@ class PerplexitySearch(Toolkit):
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
-            "X-Source": "agno",
+            "X-Source": "egpt",
         }
 
         body: Dict[str, Any] = {

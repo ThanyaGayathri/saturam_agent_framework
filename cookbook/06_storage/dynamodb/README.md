@@ -1,6 +1,6 @@
 # DynamoDB Integration
 
-Examples demonstrating AWS DynamoDB integration with Agno agents.
+Examples demonstrating AWS DynamoDB integration with EGPT agents.
 
 ## Setup
 
@@ -11,8 +11,8 @@ uv pip install boto3
 ## Configuration
 
 ```python
-from agno.agent import Agent
-from agno.db.dynamodb import DynamoDb
+from egpt.agent import Agent
+from egpt.db.dynamodb import DynamoDb
 
 db = DynamoDb(
     region_name="us-east-1"

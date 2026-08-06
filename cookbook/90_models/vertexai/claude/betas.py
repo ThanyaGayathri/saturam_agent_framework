@@ -1,7 +1,7 @@
 """Example demonstrating how to use Anthropic beta features.
 
 Beta features are experimental capability extensions for Anthropic models.
-You can use them with the `betas` parameter of the Agno Claude model class.
+You can use them with the `betas` parameter of the EGPT Claude model class.
 """
 
 import anthropic

@@ -1,6 +1,6 @@
 from egpt.agent.agent import Agent
+from egpt.integrations.models.mistral import MistralChat
 from egpt.media import Image
-from egpt.models.mistral import MistralChat
 
 
 def test_image_input():

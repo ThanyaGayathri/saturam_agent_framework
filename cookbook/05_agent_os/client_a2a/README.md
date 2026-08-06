@@ -7,7 +7,7 @@ Examples for `client_a2a` in EgptOS.
 - `02_streaming.py` — Streaming A2A Messages with A2AClient.
 - `03_multi_turn.py` — Multi-Turn Conversations with A2AClient.
 - `04_error_handling.py` — Error Handling with A2AClient.
-- `05_connect_to_google_adk.py` — Connect Agno A2AClient to Google ADK A2A Server.
+- `05_connect_to_google_adk.py` — Connect EGPT A2AClient to Google ADK A2A Server.
 
 ## Prerequisites
 - Load environment variables with `direnv allow` (requires `.envrc`).

@@ -28,9 +28,9 @@ async def upload_text_content():
 
     # Text content to upload
     content = """
-    # Agno Framework Guide
+    # EGPT Framework Guide
     
-    Agno is a powerful framework for building AI agents and teams.
+    EGPT is a powerful framework for building AI agents and teams.
     
     ## Key Features
     - Agent creation with custom tools
@@ -40,7 +40,7 @@ async def upload_text_content():
     - Memory management
     
     ## Getting Started
-    1. Install agno: uv pip install agno
+    1. Install egpt from this repo: ./scripts/demo_setup.sh
     2. Create an agent with a model
     3. Add tools for specific capabilities
     4. Deploy with EgptOS
@@ -52,8 +52,8 @@ async def upload_text_content():
         # Upload the content using text_content parameter
         result = await client.upload_knowledge_content(
             text_content=content,
-            name="Agno Guide",
-            description="A guide to the Agno framework",
+            name="EGPT Guide",
+            description="A guide to the EGPT framework",
         )
 
         print("\nUpload successful!")
@@ -106,7 +106,7 @@ async def search_uploaded_content():
     try:
         # Search for content
         results = await client.search_knowledge(
-            query="What is Agno?",
+            query="What is EGPT?",
             limit=5,
         )
 

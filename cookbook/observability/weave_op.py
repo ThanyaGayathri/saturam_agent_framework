@@ -2,7 +2,7 @@
 Weave Integration
 =================
 
-Demonstrates logging Agno model calls with Weave.
+Demonstrates logging EGPT model calls with Weave.
 """
 
 import weave
@@ -12,7 +12,7 @@ from egpt.models.openai import OpenAIChat
 # ---------------------------------------------------------------------------
 # Setup
 # ---------------------------------------------------------------------------
-weave.init("agno")
+weave.init("egpt")
 
 
 # ---------------------------------------------------------------------------

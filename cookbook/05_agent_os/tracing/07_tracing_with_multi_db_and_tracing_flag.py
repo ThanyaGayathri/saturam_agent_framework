@@ -1,7 +1,7 @@
 """
 Traces with EgptOS
 Requirements:
-    pip install agno opentelemetry-api opentelemetry-sdk openinference-instrumentation-agno
+    pip install opentelemetry-api opentelemetry-sdk openinference-instrumentation-agno
 """
 
 from egpt.agent import Agent
