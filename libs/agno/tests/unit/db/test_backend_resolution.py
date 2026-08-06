@@ -483,8 +483,7 @@ def test_db_from_dict_rejects_backends_that_cannot_be_rebuilt(key, caplog):
     caplog.clear()
     assert db_from_dict({"type": key, "id": "x"}) is None
     assert any("cannot be rebuilt from a stored config" in r.message for r in caplog.records), (
-        f"expected a 'cannot be rebuilt' warning naming '{key}', got: "
-        + "; ".join(r.message for r in caplog.records)
+        f"expected a 'cannot be rebuilt' warning naming '{key}', got: " + "; ".join(r.message for r in caplog.records)
     )
     assert not any("Unknown database type" in r.message for r in caplog.records), (
         f"'{key}' is a supported backend, so reporting it as an unknown type misdirects the operator"
