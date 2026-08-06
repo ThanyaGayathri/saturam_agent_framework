@@ -1,6 +1,30 @@
-from egpt.vectordb.distance import Distance
-from egpt.vectordb.singlestore.index import HNSWFlat, Ivfflat
-from egpt.vectordb.singlestore.singlestore import SingleStore
+"""Deprecated compatibility shim (EGPT-1.5).
+
+Import from ``egpt.integrations.vectordb.singlestore`` instead; this module will be removed.
+
+Names are re-exported explicitly (not proxied through ``__getattr__`` alone) so that
+star-imports, ``dir()`` and static type checking keep working on this path.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.vectordb.singlestore as _target
+from egpt.integrations.vectordb.singlestore import (  # noqa: F401
+    Distance,
+    HNSWFlat,
+    Ivfflat,
+    SingleStore,
+)
+
+_warnings.warn(
+    "egpt.vectordb.singlestore is deprecated; import from egpt.integrations.vectordb.singlestore instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __all__ = [
     "Distance",
@@ -8,3 +32,10 @@ __all__ = [
     "Ivfflat",
     "SingleStore",
 ]
+
+
+def __getattr__(name: str):
+    # Fallback so a name added to the target later still resolves through this path.
+    # No vectordb target binds names lazily or behind an optional-dependency guard today,
+    # unlike the EGPT-1.4 provider shims this mirrors.
+    return getattr(_target, name)

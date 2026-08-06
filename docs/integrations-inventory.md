@@ -141,6 +141,14 @@ If a reviewer disagrees with any exclusion, the fix is a row in section 4, not a
 
 `VectorDb` in `vectordb/base.py`. Target `integrations/vectordb/*`, owner EGPT-1.5.
 
+**API note (EGPT-1.5):** the AgentOS `/registry` response embeds `cls.__module__` via
+`_class_path()` as `VectorDbMetadata.class_path` and `KnowledgeMetadata.vector_db_class`.
+Moving the backends changed those values from `egpt.vectordb.<backend>...` to
+`egpt.integrations.vectordb.<backend>...`. Deprecation shims cannot mask it, because they
+re-export the same class object. Consumers matching on the old string must be updated;
+`tests/unit/vectordb/test_backend_layout.py` pins the new prefix so a further move surfaces
+as a failing test rather than a silent payload change.
+
 | Module | Interface (core) | Target module | Ticket | Disposition | Note |
 |---|---|---|---|---|---|
 | `vectordb/cassandra/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/cassandra` | EGPT-1.5 | MOVE |  |
@@ -148,9 +156,9 @@ If a reviewer disagrees with any exclusion, the fix is a row in section 4, not a
 | `vectordb/clickhouse/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/clickhouse` | EGPT-1.5 | MOVE |  |
 | `vectordb/couchbase/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/couchbase` | EGPT-1.5 | MOVE |  |
 | `vectordb/lancedb/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/lancedb` | EGPT-1.5 | MOVE |  |
-| `vectordb/langchaindb/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/langchaindb` | EGPT-1.5 | FLAG | wraps another framework, not a store -- confirm it belongs in `integrations/vectordb` |
-| `vectordb/lightrag/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/lightrag` | EGPT-1.5 | FLAG | wraps another framework, not a store -- confirm it belongs in `integrations/vectordb` |
-| `vectordb/llamaindex/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/llamaindex` | EGPT-1.5 | FLAG | wraps another framework, not a store -- confirm it belongs in `integrations/vectordb` |
+| `vectordb/langchaindb/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/langchaindb` | EGPT-1.5 | MOVE | wraps another framework, not a store; FLAG resolved in EGPT-1.5 -- it implements `VectorDb` and pulls an optional third-party SDK, which is what the integrations layer is for |
+| `vectordb/lightrag/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/lightrag` | EGPT-1.5 | MOVE | wraps another framework, not a store; FLAG resolved in EGPT-1.5 -- same reasoning as `langchaindb` |
+| `vectordb/llamaindex/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/llamaindex` | EGPT-1.5 | MOVE | wraps another framework, not a store; FLAG resolved in EGPT-1.5 -- same reasoning as `langchaindb` |
 | `vectordb/milvus/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/milvus` | EGPT-1.5 | MOVE |  |
 | `vectordb/mongodb/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/mongodb` | EGPT-1.5 | MOVE |  |
 | `vectordb/pgvector/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/pgvector` | EGPT-1.5 | MOVE |  |

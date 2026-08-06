@@ -1,41 +1,29 @@
-from typing import Any, Dict, Optional
+"""Deprecated compatibility shim (EGPT-1.5).
 
-from pydantic import BaseModel
+Import from ``egpt.integrations.vectordb.singlestore.index`` instead; this module will be removed.
 
+Names are re-exported explicitly (not proxied through ``__getattr__`` alone) so that
+star-imports, ``dir()`` and static type checking keep working on this path.
 
-class Ivfflat(BaseModel):
-    name: Optional[str] = None
-    nlist: int = 128  # Number of inverted lists
-    nprobe: int = 8  # Number of probes at query time
-    metric_type: str = "DOT_PRODUCT"  # Can be "DOT_PRODUCT" or "DOT_PRODUCT"
-    configuration: Dict[str, Any] = {}
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
 
+import warnings as _warnings
 
-class IvfPQ(BaseModel):
-    name: Optional[str] = None
-    nlist: int = 128  # Number of inverted lists
-    m: int = 32  # Number of subquantizers
-    nbits: int = 8  # Number of bits per quantization index
-    nprobe: int = 8  # Number of probes at query time
-    metric_type: str = "DOT_PRODUCT"  # Can be "DOT_PRODUCT" or "DOT_PRODUCT"
-    configuration: Dict[str, Any] = {}
+import egpt.integrations.vectordb.singlestore.index as _target
+from egpt.integrations.vectordb.singlestore.index import *  # noqa: F401,F403
 
-
-class HNSWFlat(BaseModel):
-    name: Optional[str] = None
-    M: int = 30  # Number of neighbors
-    ef_construction: int = 200  # Expansion factor at construction time
-    ef_search: int = 200  # Expansion factor at search time
-    metric_type: str = "DOT_PRODUCT"  # Can be "DOT_PRODUCT" or "DOT_PRODUCT"
-    configuration: Dict[str, Any] = {}
+_warnings.warn(
+    "egpt.vectordb.singlestore.index is deprecated; import from egpt.integrations.vectordb.singlestore.index instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-class HNSWPQ(BaseModel):
-    name: Optional[str] = None
-    M: int = 30  # Number of neighbors
-    ef_construction: int = 200  # Expansion factor at construction time
-    m: int = 4  # Number of sub-quantizers
-    nbits: int = 8  # Number of bits per quantization index
-    ef_search: int = 200  # Expansion factor at search time
-    metric_type: str = "DOT_PRODUCT"  # Can be "DOT_PRODUCT" or "DOT_PRODUCT"
-    configuration: Dict[str, Any] = {}
+def __getattr__(name: str):
+    # Fallback so a name added to the target later still resolves through this path.
+    # No vectordb target binds names lazily or behind an optional-dependency guard today,
+    # unlike the EGPT-1.4 provider shims this mirrors.
+    return getattr(_target, name)

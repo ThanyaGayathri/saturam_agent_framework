@@ -11,7 +11,7 @@ pgvector, as shipped, silently runs exact scans instead of HNSW.
 
 ## Finding 1 — Milvus adapter cannot filter by metadata (breaks `tenant_id` multi-tenancy)
 
-- **Where:** `libs/agno/egpt/vectordb/milvus/milvus.py`
+- **Where:** `libs/agno/egpt/integrations/vectordb/milvus/milvus.py`
 - **Symptom:** any metadata-filtered search (e.g. `filters={"tenant_id": t}`) returns 0
   rows. In the benchmark, Milvus `filter` tenancy scores **recall@10 = 0.0**; per-collection
   works (recall 1.0).
@@ -33,7 +33,7 @@ pgvector, as shipped, silently runs exact scans instead of HNSW.
 
 ## Finding 2 — Qdrant adapter creates no tenant payload index (filtered recall collapses at scale)
 
-- **Where:** `libs/agno/egpt/vectordb/qdrant/qdrant.py`
+- **Where:** `libs/agno/egpt/integrations/vectordb/qdrant/qdrant.py`
 - **Symptom:** at 1M vectors / 50 tenants, Qdrant `tenant_id`-filtered search scores
   **recall@10 = 0.29** (vs 1.0 at 100k and 1.0 for per-collection at 1M).
 - **Root cause (expected Qdrant behaviour, not a bug):** Qdrant filters *inside* HNSW. At
@@ -50,7 +50,7 @@ pgvector, as shipped, silently runs exact scans instead of HNSW.
 
 ## Finding 3 — pgvector runs EXACT SCANS: `create()` builds no ANN index (high impact)
 
-- **Where:** `libs/agno/egpt/vectordb/pgvector/pgvector.py`
+- **Where:** `libs/agno/egpt/integrations/vectordb/pgvector/pgvector.py`
 - **Symptom:** the whole v1 benchmark (PR #7) reported pgvector recall@10 = 1.0 with
   scan-level latency. Root cause: `PgVector.create()` only creates the **table**; the HNSW
   index is built by a *separate* `optimize()` call. Nothing in normal insert/search calls it,
@@ -64,7 +64,7 @@ pgvector, as shipped, silently runs exact scans instead of HNSW.
 
 ## Finding 4 — pgvector `optimize()` is itself broken (bind param in `SET`)
 
-- **Where:** `libs/agno/egpt/vectordb/pgvector/pgvector.py` (`_create_vector_index` /
+- **Where:** `libs/agno/egpt/integrations/vectordb/pgvector/pgvector.py` (`_create_vector_index` /
   `optimize()` path)
 - **Symptom:** calling `optimize()` (the intended way to build the index for Finding 3)
   raises `ProgrammingError: syntax error at or near "$1"` — it runs
@@ -76,7 +76,7 @@ pgvector, as shipped, silently runs exact scans instead of HNSW.
 
 ## Finding 5 — Milvus `_build_expr` expression injection [PR review #7]
 
-- **Where:** `libs/agno/egpt/vectordb/milvus/milvus.py` `_build_expr`
+- **Where:** `libs/agno/egpt/integrations/vectordb/milvus/milvus.py` `_build_expr`
 - **Symptom:** filter expressions interpolate keys and string values unescaped, e.g.
   `f'meta_data["{k}"] == "{v}"'`. Safe in this benchmark only because `tenant_id`s are
   integers, but a string value/key containing a quote breaks or injects into the expression.

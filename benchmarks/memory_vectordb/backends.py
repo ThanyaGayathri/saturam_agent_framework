@@ -32,8 +32,8 @@ Builder = Callable[[str], VectorDb]
 
 
 def _pgvector_builder(embedder: Embedder, search_type: SearchType, ef_search: int) -> Builder:
-    from egpt.vectordb.pgvector import PgVector
-    from egpt.vectordb.pgvector.index import HNSW
+    from egpt.integrations.vectordb.pgvector import PgVector
+    from egpt.integrations.vectordb.pgvector.index import HNSW
 
     def build(name: str) -> VectorDb:
         return PgVector(
@@ -54,7 +54,7 @@ def _pgvector_builder(embedder: Embedder, search_type: SearchType, ef_search: in
 def _qdrant_builder(
     embedder: Embedder, search_type: SearchType, ef_search: int
 ) -> Builder:
-    from egpt.vectordb.qdrant import Qdrant
+    from egpt.integrations.vectordb.qdrant import Qdrant
 
     # NOTE: the egpt Qdrant adapter exposes no search-time hnsw_ef, so ef_search cannot be
     # matched exactly here; Qdrant uses its (non-degenerate) default. Recall is reported
@@ -75,7 +75,7 @@ def _qdrant_builder(
 def _milvus_builder(
     embedder: Embedder, search_type: SearchType, ef_search: int
 ) -> Builder:
-    from egpt.vectordb.milvus import Milvus
+    from egpt.integrations.vectordb.milvus import Milvus
 
     def build(name: str) -> VectorDb:
         return Milvus(

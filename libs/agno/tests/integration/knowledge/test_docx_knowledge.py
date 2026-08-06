@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 
 from egpt.agent import Agent
+from egpt.integrations.vectordb.chroma import ChromaDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.vectordb.chroma import ChromaDb
 
 
 @pytest.fixture

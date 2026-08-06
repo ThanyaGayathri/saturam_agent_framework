@@ -3,9 +3,9 @@ from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
 from egpt.integrations.models.openai import OpenAIChat
+from egpt.integrations.vectordb.chroma import ChromaDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.os import EgptOS
-from egpt.vectordb.chroma import ChromaDb
 
 
 @pytest.fixture

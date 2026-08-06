@@ -4,8 +4,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from egpt.integrations.vectordb.upstashdb import UpstashVectorDb
 from egpt.knowledge.document import Document
-from egpt.vectordb.upstashdb import UpstashVectorDb
 
 
 @pytest.fixture

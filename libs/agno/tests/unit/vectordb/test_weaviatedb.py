@@ -5,10 +5,10 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from egpt.integrations.vectordb.weaviate import Weaviate
+from egpt.integrations.vectordb.weaviate.index import Distance, VectorIndex
 from egpt.knowledge.document import Document
 from egpt.vectordb.search import SearchType
-from egpt.vectordb.weaviate import Weaviate
-from egpt.vectordb.weaviate.index import Distance, VectorIndex
 
 
 @pytest.fixture
