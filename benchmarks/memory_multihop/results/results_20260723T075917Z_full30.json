@@ -1,0 +1,353 @@
+{
+  "vector": {
+    "method": "vector",
+    "k": 5,
+    "n_items": 30,
+    "index_stats": {
+      "n_passages": 285,
+      "n_entities": 0,
+      "n_edges": 0,
+      "llm": {
+        "calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "latency_s": 0.0,
+        "usd_cost": 0.0
+      },
+      "embed_calls": 2,
+      "index_seconds": 34.69
+    },
+    "openie_failures": 0,
+    "reader_usage": {
+      "calls": 30,
+      "input_tokens": 23108,
+      "output_tokens": 237,
+      "total_tokens": 23345,
+      "latency_s": 52.856,
+      "usd_cost": 0.0313
+    },
+    "query_latency_s": {
+      "mean": 1.853,
+      "p95": 2.199
+    },
+    "overall": {
+      "recall@k": {
+        "mean": 0.75,
+        "ci95": [
+          0.6667,
+          0.8333
+        ],
+        "n": 30
+      },
+      "all_hops_hit": {
+        "mean": 0.4667,
+        "ci95": [
+          0.3,
+          0.6667
+        ],
+        "n": 30
+      },
+      "em": {
+        "mean": 0.5667,
+        "ci95": [
+          0.4,
+          0.7333
+        ],
+        "n": 30
+      },
+      "f1": {
+        "mean": 0.5833,
+        "ci95": [
+          0.4,
+          0.75
+        ],
+        "n": 30
+      },
+      "cover": {
+        "mean": 0.5667,
+        "ci95": [
+          0.4,
+          0.7333
+        ],
+        "n": 30
+      }
+    },
+    "chaining_only": {
+      "recall@k": {
+        "mean": 0.6875,
+        "ci95": [
+          0.6042,
+          0.7812
+        ],
+        "n": 24
+      },
+      "all_hops_hit": {
+        "mean": 0.3333,
+        "ci95": [
+          0.1667,
+          0.5417
+        ],
+        "n": 24
+      },
+      "em": {
+        "mean": 0.4583,
+        "ci95": [
+          0.25,
+          0.6667
+        ],
+        "n": 24
+      },
+      "f1": {
+        "mean": 0.4792,
+        "ci95": [
+          0.2917,
+          0.6667
+        ],
+        "n": 24
+      },
+      "cover": {
+        "mean": 0.4583,
+        "ci95": [
+          0.25,
+          0.6667
+        ],
+        "n": 24
+      }
+    }
+  },
+  "hippo": {
+    "method": "hippo",
+    "k": 5,
+    "n_items": 30,
+    "index_stats": {
+      "n_passages": 285,
+      "n_entities": 3393,
+      "n_edges": 7199,
+      "llm": {
+        "calls": 315,
+        "input_tokens": 53384,
+        "output_tokens": 56904,
+        "total_tokens": 110288,
+        "latency_s": 934.896,
+        "usd_cost": 0.6358
+      },
+      "embed_calls": 43,
+      "index_seconds": 1058.29
+    },
+    "openie_failures": 0,
+    "reader_usage": {
+      "calls": 30,
+      "input_tokens": 26723,
+      "output_tokens": 235,
+      "total_tokens": 26958,
+      "latency_s": 43.817,
+      "usd_cost": 0.0358
+    },
+    "query_latency_s": {
+      "mean": 2.514,
+      "p95": 3.836
+    },
+    "overall": {
+      "recall@k": {
+        "mean": 0.9083,
+        "ci95": [
+          0.8417,
+          0.9667
+        ],
+        "n": 30
+      },
+      "all_hops_hit": {
+        "mean": 0.7667,
+        "ci95": [
+          0.6,
+          0.9
+        ],
+        "n": 30
+      },
+      "em": {
+        "mean": 0.7,
+        "ci95": [
+          0.5333,
+          0.8667
+        ],
+        "n": 30
+      },
+      "f1": {
+        "mean": 0.7306,
+        "ci95": [
+          0.5667,
+          0.875
+        ],
+        "n": 30
+      },
+      "cover": {
+        "mean": 0.7333,
+        "ci95": [
+          0.5667,
+          0.8667
+        ],
+        "n": 30
+      }
+    },
+    "chaining_only": {
+      "recall@k": {
+        "mean": 0.8854,
+        "ci95": [
+          0.8021,
+          0.9583
+        ],
+        "n": 24
+      },
+      "all_hops_hit": {
+        "mean": 0.7083,
+        "ci95": [
+          0.5,
+          0.875
+        ],
+        "n": 24
+      },
+      "em": {
+        "mean": 0.625,
+        "ci95": [
+          0.4167,
+          0.8333
+        ],
+        "n": 24
+      },
+      "f1": {
+        "mean": 0.6632,
+        "ci95": [
+          0.4688,
+          0.8438
+        ],
+        "n": 24
+      },
+      "cover": {
+        "mean": 0.6667,
+        "ci95": [
+          0.4583,
+          0.8333
+        ],
+        "n": 24
+      }
+    }
+  },
+  "hybrid": {
+    "method": "hybrid",
+    "k": 5,
+    "n_items": 30,
+    "index_stats": {
+      "n_passages": 285,
+      "n_entities": 3393,
+      "n_edges": 7199,
+      "llm": {
+        "calls": 315,
+        "input_tokens": 53384,
+        "output_tokens": 56904,
+        "total_tokens": 110288,
+        "latency_s": 934.896,
+        "usd_cost": 0.6358
+      },
+      "embed_calls": 59,
+      "index_seconds": 8.84
+    },
+    "openie_failures": 0,
+    "reader_usage": {
+      "calls": 30,
+      "input_tokens": 24087,
+      "output_tokens": 239,
+      "total_tokens": 24326,
+      "latency_s": 47.799,
+      "usd_cost": 0.0325
+    },
+    "query_latency_s": {
+      "mean": 0.056,
+      "p95": 0.065
+    },
+    "overall": {
+      "recall@k": {
+        "mean": 0.8917,
+        "ci95": [
+          0.825,
+          0.95
+        ],
+        "n": 30
+      },
+      "all_hops_hit": {
+        "mean": 0.7,
+        "ci95": [
+          0.5333,
+          0.8667
+        ],
+        "n": 30
+      },
+      "em": {
+        "mean": 0.6333,
+        "ci95": [
+          0.4667,
+          0.8
+        ],
+        "n": 30
+      },
+      "f1": {
+        "mean": 0.6556,
+        "ci95": [
+          0.4889,
+          0.8222
+        ],
+        "n": 30
+      },
+      "cover": {
+        "mean": 0.6667,
+        "ci95": [
+          0.5,
+          0.8333
+        ],
+        "n": 30
+      }
+    },
+    "chaining_only": {
+      "recall@k": {
+        "mean": 0.8646,
+        "ci95": [
+          0.7917,
+          0.9375
+        ],
+        "n": 24
+      },
+      "all_hops_hit": {
+        "mean": 0.625,
+        "ci95": [
+          0.4583,
+          0.7917
+        ],
+        "n": 24
+      },
+      "em": {
+        "mean": 0.5417,
+        "ci95": [
+          0.3333,
+          0.75
+        ],
+        "n": 24
+      },
+      "f1": {
+        "mean": 0.5694,
+        "ci95": [
+          0.375,
+          0.7639
+        ],
+        "n": 24
+      },
+      "cover": {
+        "mean": 0.5833,
+        "ci95": [
+          0.375,
+          0.7917
+        ],
+        "n": 24
+      }
+    }
+  }
+}
