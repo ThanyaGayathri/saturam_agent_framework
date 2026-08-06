@@ -54,7 +54,7 @@ def cartesia_tools(mock_cartesia_client):
     """Create CartesiaTools instance with mocked API client."""
     # Patch the Cartesia class during instantiation
     with (
-        patch("egpt.integrations.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class,
+        patch("egpt.integrations.tools.cartesia.cartesia.cartesia.Cartesia") as mock_cartesia_class,
         patch.dict("os.environ", {"CARTESIA_API_KEY": "test_key"}),
     ):
         # Make the patched class return our mock client instance
@@ -72,7 +72,7 @@ def mock_agent():
 
 def test_init_with_api_key(mock_cartesia_client):
     """Test initialization with API key."""
-    with patch("egpt.integrations.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class:
+    with patch("egpt.integrations.tools.cartesia.cartesia.cartesia.Cartesia") as mock_cartesia_class:
         mock_cartesia_class.return_value = mock_cartesia_client
         tools = CartesiaTools(api_key="test_key")
         mock_cartesia_class.assert_called_once_with(api_key="test_key")
@@ -85,7 +85,7 @@ def test_init_with_api_key(mock_cartesia_client):
 def test_init_with_env_var(mock_cartesia_client):
     """Test initialization with environment variable."""
     with (
-        patch("egpt.integrations.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class,
+        patch("egpt.integrations.tools.cartesia.cartesia.cartesia.Cartesia") as mock_cartesia_class,
         patch.dict("os.environ", {"CARTESIA_API_KEY": "env_key"}),
         patch("os.getenv", return_value="env_key"),
     ):
@@ -100,7 +100,7 @@ def test_init_with_env_var(mock_cartesia_client):
 def test_init_override_defaults(mock_cartesia_client):
     """Test initialization overriding default model/voice IDs."""
     with (
-        patch("egpt.integrations.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class,
+        patch("egpt.integrations.tools.cartesia.cartesia.cartesia.Cartesia") as mock_cartesia_class,
         patch.dict("os.environ", {"CARTESIA_API_KEY": "test_key"}),
     ):
         mock_cartesia_class.return_value = mock_cartesia_client
@@ -120,7 +120,7 @@ def test_init_missing_api_key():
 def test_feature_registration(mock_cartesia_client):
     """Test that features are correctly registered based on flags."""
     with (
-        patch("egpt.integrations.tools.cartesia.cartesia.Cartesia") as mock_cartesia_class,
+        patch("egpt.integrations.tools.cartesia.cartesia.cartesia.Cartesia") as mock_cartesia_class,
         patch.dict("os.environ", {"CARTESIA_API_KEY": "dummy"}),
     ):
         mock_cartesia_class.return_value = mock_cartesia_client

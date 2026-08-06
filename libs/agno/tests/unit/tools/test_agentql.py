@@ -34,7 +34,7 @@ def mock_playwright():
 @pytest.fixture
 def mock_agentql():
     """Create a mock AgentQL wrapper."""
-    with patch("egpt.integrations.tools.agentql.agentql") as mock_agentql:
+    with patch("egpt.integrations.tools.agentql.agentql.agentql") as mock_agentql:
         wrapped_page = Mock()
         mock_agentql.wrap.return_value = wrapped_page
         return mock_agentql, wrapped_page
