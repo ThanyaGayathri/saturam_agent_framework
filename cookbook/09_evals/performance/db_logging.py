@@ -6,8 +6,8 @@ Demonstrates storing performance evaluation results in PostgreSQL.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres.postgres import PostgresDb
 from egpt.eval.performance import PerformanceEval
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 
 

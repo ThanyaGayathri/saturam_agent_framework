@@ -90,7 +90,7 @@ team = Team(
 Workflow Pattern:
 ```python
 from egpt.workflow.workflow import Workflow
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 
 # Define agents first (researcher, writer)
 async def blog_workflow(session_state, topic: str):
@@ -161,7 +161,7 @@ result: Result = agent.run(query).content
 EgptOS Production:
 ```python
 from egpt.os import EgptOS
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 
 agent_os = EgptOS(
     agents=[agent],

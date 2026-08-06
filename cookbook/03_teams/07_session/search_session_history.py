@@ -18,7 +18,7 @@ the preview (default 3).
 import asyncio
 import os
 
-from egpt.db.sqlite import AsyncSqliteDb
+from egpt.integrations.db.sqlite import AsyncSqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 

@@ -7,7 +7,7 @@ import asyncio
 from typing import List
 
 from egpt.agent import Agent
-from egpt.db.sqlite import AsyncSqliteDb
+from egpt.integrations.db.sqlite import AsyncSqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools

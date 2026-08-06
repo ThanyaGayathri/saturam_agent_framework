@@ -8,7 +8,7 @@ Compare with learning=True (ALWAYS mode) where extraction happens automatically.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.learn import (
     LearningMachine,
     LearningMode,

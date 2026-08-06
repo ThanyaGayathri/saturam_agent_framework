@@ -27,7 +27,7 @@ Then call the API:
 """
 
 from egpt.agents.langgraph import LangGraphAgent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.os import EgptOS
 from langchain_community.tools import DuckDuckGoSearchResults
 from langchain_openai import ChatOpenAI

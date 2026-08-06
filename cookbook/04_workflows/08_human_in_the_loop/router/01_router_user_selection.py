@@ -17,7 +17,7 @@ Flow:
 4. Generate report (automatic step)
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.workflow.router import Router
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput

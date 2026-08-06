@@ -6,8 +6,8 @@ Demonstrates stop agent exception.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
 from egpt.exceptions import StopAgentRun
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.run import RunContext
 from egpt.utils.log import logger

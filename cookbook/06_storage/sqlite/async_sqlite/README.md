@@ -11,7 +11,7 @@ uv pip install sqlalchemy aiosqlite
 ## Configuration
 
 ```python
-from egpt.db.sqlite import AsyncSqliteDb
+from egpt.integrations.db.sqlite import AsyncSqliteDb
 
 db = AsyncSqliteDb(db_file="path/to/database.db")
 ```

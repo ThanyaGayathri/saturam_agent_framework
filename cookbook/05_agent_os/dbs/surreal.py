@@ -1,7 +1,7 @@
 """Example showing how to use EgptOS with SurrealDB as database"""
 
 from egpt.agent import Agent
-from egpt.db.surrealdb import SurrealDb
+from egpt.integrations.db.surrealdb import SurrealDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS

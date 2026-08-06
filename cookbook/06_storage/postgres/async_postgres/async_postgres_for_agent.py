@@ -5,7 +5,7 @@ Run `uv pip install openai ddgs sqlalchemy psycopg` to install dependencies."""
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres import AsyncPostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------

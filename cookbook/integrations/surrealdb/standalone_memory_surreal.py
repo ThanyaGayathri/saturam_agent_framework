@@ -2,7 +2,7 @@
 Standalone SurrealDB Memory Operations
 """
 
-from egpt.db.surrealdb import SurrealDb
+from egpt.integrations.db.surrealdb import SurrealDb
 from egpt.memory import MemoryManager, UserMemory
 from rich.pretty import pprint
 

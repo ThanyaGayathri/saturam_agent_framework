@@ -14,7 +14,7 @@ Three modes:
                    user can resolve by choosing to retry or skip.
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.workflow import Condition, OnError
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput

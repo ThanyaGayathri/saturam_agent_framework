@@ -14,7 +14,7 @@ See also: 01_basics/5a_entity_memory_always.py for the basics.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import EntityMemoryConfig, LearningMachine, LearningMode
 from egpt.models.openai import OpenAIResponses
 

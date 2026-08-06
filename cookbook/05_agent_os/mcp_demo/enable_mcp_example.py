@@ -5,7 +5,7 @@ After starting this EgptOS app, you can test the MCP server with the test_client
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.anthropic import Claude
 from egpt.os import EgptOS
 from egpt.tools.websearch import WebSearchTools

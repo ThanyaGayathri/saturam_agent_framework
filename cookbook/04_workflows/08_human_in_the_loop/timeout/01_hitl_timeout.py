@@ -18,7 +18,7 @@ StepRequirement for UI countdown display.
 import time
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.workflow.step import Step
 from egpt.workflow.types import HumanReview, OnTimeout

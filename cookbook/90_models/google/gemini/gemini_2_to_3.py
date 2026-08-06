@@ -6,7 +6,7 @@ import asyncio
 from uuid import uuid4
 
 from egpt.agent import Agent
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.models.google import Gemini
 from egpt.tools.websearch import WebSearchTools
 

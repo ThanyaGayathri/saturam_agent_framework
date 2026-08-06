@@ -21,7 +21,7 @@ Key Concepts:
 from os import getenv
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.remote_content import (
     AzureBlobConfig,

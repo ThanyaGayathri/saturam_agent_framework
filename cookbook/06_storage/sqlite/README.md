@@ -6,7 +6,7 @@ Examples demonstrating SQLite database integration with EGPT agents, teams, and 
 
 ```python
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 
 db = SqliteDb(db_file="path/to/database.db")
 
@@ -22,7 +22,7 @@ EGPT also supports using your SQLite database asynchronously, via the `AsyncSqli
 
 ```python
 from egpt.agent import Agent
-from egpt.db.sqlite import AsyncSqliteDb
+from egpt.integrations.db.sqlite import AsyncSqliteDb
 
 db = AsyncSqliteDb(db_file="path/to/database.db")
 

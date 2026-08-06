@@ -10,7 +10,7 @@ In agentic mode:
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn.machine import LearningMachine
 from egpt.learn.mode import LearningMode
 from egpt.models.openai import OpenAIResponses

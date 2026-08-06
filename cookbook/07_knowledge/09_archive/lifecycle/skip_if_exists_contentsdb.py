@@ -7,7 +7,7 @@ Demonstrates adding existing vector content into a contents database using skip-
 
 import asyncio
 
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

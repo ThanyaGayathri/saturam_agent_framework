@@ -9,7 +9,7 @@ import json
 from typing import Any, Dict
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.models.openai import OpenAIResponses
 from egpt.run import RunContext
 from egpt.tools.toolkit import Toolkit

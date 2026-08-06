@@ -6,7 +6,7 @@ Run: `python cookbook/db/async_sqlite/async_sqlite_for_workflow.py` to run the w
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.sqlite import AsyncSqliteDb
+from egpt.integrations.db.sqlite import AsyncSqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools

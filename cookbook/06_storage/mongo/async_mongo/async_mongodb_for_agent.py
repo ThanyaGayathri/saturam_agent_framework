@@ -20,7 +20,7 @@ or use our script:
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.mongo import AsyncMongoDb
+from egpt.integrations.db.mongo import AsyncMongoDb
 from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------

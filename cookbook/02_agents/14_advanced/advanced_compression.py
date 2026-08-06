@@ -7,7 +7,7 @@ This example shows how to set a context token based limit for tool call compress
 
 from egpt.agent import Agent
 from egpt.compression.manager import CompressionManager
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.tools.websearch import WebSearchTools
 

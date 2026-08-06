@@ -5,7 +5,7 @@ Overwrite Stored Session State
 Demonstrates replacing persisted session_state with run-time session_state.
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 

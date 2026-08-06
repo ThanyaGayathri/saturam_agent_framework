@@ -14,7 +14,7 @@ Usage:
 """
 
 from egpt.agents.antigravity import AntigravityAgent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 
 db = SqliteDb(db_file="tmp/antigravity.db")
 

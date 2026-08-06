@@ -6,7 +6,7 @@ This example shows two agents sharing the same user memory.
 """
 
 from egpt.agent.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.tools.websearch import WebSearchTools
 from rich.pretty import pprint

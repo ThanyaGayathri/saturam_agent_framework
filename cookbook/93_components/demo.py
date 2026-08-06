@@ -6,7 +6,7 @@ Demonstrates using Registry with EgptOS for tools, functions, schemas,
 models, and vector database components.
 """
 
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.anthropic import Claude
 from egpt.models.google.gemini import Gemini
 from egpt.models.openai import OpenAIChat

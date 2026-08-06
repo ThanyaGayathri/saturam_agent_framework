@@ -8,7 +8,7 @@ Start this server before running 04_remote_agno_a2a_agent.py
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat

@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.tools.workspace import Workspace
 from egpt.utils import pprint

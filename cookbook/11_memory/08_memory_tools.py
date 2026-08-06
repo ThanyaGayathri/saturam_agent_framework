@@ -9,7 +9,7 @@ can store and use user memory while planning a trip.
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.tools.memory import MemoryTools
 from egpt.tools.websearch import WebSearchTools

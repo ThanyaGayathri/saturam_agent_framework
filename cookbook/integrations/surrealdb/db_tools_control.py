@@ -3,7 +3,7 @@ SurrealDB Memory DB Tools Control
 """
 
 from egpt.agent.agent import Agent
-from egpt.db.surrealdb import SurrealDb
+from egpt.integrations.db.surrealdb import SurrealDb
 from egpt.memory.manager import MemoryManager
 from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint

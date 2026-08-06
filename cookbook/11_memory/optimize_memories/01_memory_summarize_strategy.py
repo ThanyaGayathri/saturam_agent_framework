@@ -7,7 +7,7 @@ which combines all memories into one summary for token reduction.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.memory import MemoryManager, SummarizeStrategy
 from egpt.memory.strategies.types import MemoryOptimizationStrategyType
 from egpt.models.openai import OpenAIChat

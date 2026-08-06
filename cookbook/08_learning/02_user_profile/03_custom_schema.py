@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import LearningMachine, LearningMode, UserProfileConfig
 from egpt.learn.schemas import UserProfile
 from egpt.models.openai import OpenAIResponses

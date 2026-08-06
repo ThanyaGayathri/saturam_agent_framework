@@ -1,5 +1,5 @@
 from egpt.agent import Agent
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.utils.media import (
     SampleDataFileExtension,

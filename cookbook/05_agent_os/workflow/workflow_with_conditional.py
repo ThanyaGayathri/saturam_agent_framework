@@ -6,7 +6,7 @@ Demonstrates workflow with conditional.
 """
 
 from egpt.agent.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 
 # ---------------------------------------------------------------------------
 # Create Example

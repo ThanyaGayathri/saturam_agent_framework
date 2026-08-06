@@ -8,7 +8,7 @@ Human-in-the-Loop: Adding User Confirmation to Tool Calls with MCP Servers.
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.tools.mcp import MCPTools
 from rich.console import Console

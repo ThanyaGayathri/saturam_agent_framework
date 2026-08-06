@@ -24,7 +24,7 @@ Setup:
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import LearningMachine, LearningMode, UserMemoryConfig
 from egpt.models.openai import OpenAIResponses
 from egpt.tools.google.gmail import GmailTools

@@ -5,7 +5,7 @@ Db
 Demonstrates db.
 """
 
-from egpt.db.surrealdb import SurrealDb
+from egpt.integrations.db.surrealdb import SurrealDb
 
 # ---------------------------------------------------------------------------
 # Create Example

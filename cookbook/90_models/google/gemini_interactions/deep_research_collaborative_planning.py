@@ -25,7 +25,7 @@ and polls until the result is ready.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.google import GeminiInteractions
 
 # add_history_to_context + db are required so each turn carries the prior

@@ -2,7 +2,7 @@
 SurrealDB Custom Memory Instructions
 """
 
-from egpt.db.surrealdb import SurrealDb
+from egpt.integrations.db.surrealdb import SurrealDb
 from egpt.memory import MemoryManager
 from egpt.models.anthropic.claude import Claude
 from egpt.models.message import Message

@@ -7,7 +7,7 @@ During each run, the Agent can create, update, and delete user memories.
 """
 
 from egpt.agent.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 

@@ -6,8 +6,8 @@ Set the OS_SECURITY_KEY environment variable to your OS security key to enable a
 
 from _agents import egpt_assist, sage  # type: ignore[import-not-found]
 from _teams import finance_reasoning_team  # type: ignore[import-not-found]
-from egpt.db.postgres.postgres import PostgresDb  # noqa: F401
 from egpt.eval.accuracy import AccuracyEval
+from egpt.integrations.db.postgres.postgres import PostgresDb  # noqa: F401
 from egpt.models.anthropic.claude import Claude
 from egpt.os import EgptOS
 

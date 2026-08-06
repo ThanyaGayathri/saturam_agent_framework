@@ -9,7 +9,7 @@ Run: ./cookbook/scripts/run_pgvector.sh
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
 from rich.pretty import pprint

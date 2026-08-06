@@ -8,8 +8,8 @@ Background hooks execute after the API response is sent, making them non-blockin
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.sqlite import AsyncSqliteDb
 from egpt.hooks.decorator import hook
+from egpt.integrations.db.sqlite import AsyncSqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.run.team import TeamRunOutput

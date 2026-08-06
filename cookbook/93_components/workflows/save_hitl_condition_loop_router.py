@@ -12,7 +12,7 @@ all settings round-trip through save/load via to_dict / from_dict.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.registry import Registry
 from egpt.workflow import OnReject

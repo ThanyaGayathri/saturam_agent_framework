@@ -7,7 +7,7 @@ and apply custom memory capture instructions.
 """
 
 from egpt.agent.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.memory import MemoryManager
 from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint

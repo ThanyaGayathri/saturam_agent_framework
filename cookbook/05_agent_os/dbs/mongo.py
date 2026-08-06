@@ -6,8 +6,8 @@ Demonstrates EgptOS with MongoDB storage using both sync and async setups.
 """
 
 from egpt.agent import Agent
-from egpt.db.mongo import AsyncMongoDb, MongoDb
 from egpt.eval.accuracy import AccuracyEval
+from egpt.integrations.db.mongo import AsyncMongoDb, MongoDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team

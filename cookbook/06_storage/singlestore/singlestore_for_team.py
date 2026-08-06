@@ -7,7 +7,7 @@ from os import getenv
 from typing import List
 
 from egpt.agent import Agent
-from egpt.db.singlestore.singlestore import SingleStoreDb
+from egpt.integrations.db.singlestore.singlestore import SingleStoreDb
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools

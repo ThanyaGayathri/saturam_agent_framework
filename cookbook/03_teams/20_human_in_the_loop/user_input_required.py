@@ -6,7 +6,7 @@ Demonstrates collecting required user input during paused team tool execution.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 from egpt.tools import tool

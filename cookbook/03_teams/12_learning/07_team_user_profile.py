@@ -9,7 +9,7 @@ This demonstrates that Team.add_learnings_to_context works correctly:
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 

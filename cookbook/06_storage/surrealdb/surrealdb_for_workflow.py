@@ -18,7 +18,7 @@ Then:
 """
 
 from egpt.agent import Agent
-from egpt.db.surrealdb import SurrealDb
+from egpt.integrations.db.surrealdb import SurrealDb
 from egpt.models.anthropic import Claude
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools

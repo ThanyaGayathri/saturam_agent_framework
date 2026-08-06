@@ -43,7 +43,7 @@ The Agent-as-Config feature allows you to:
 
 ```python
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
@@ -64,7 +64,7 @@ print(f"Saved agent as version {version}")
 
 ```python
 from egpt.agent import get_agent_by_id
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 
@@ -106,7 +106,7 @@ Teams automatically save their member agents as linked components.
 ```python
 from egpt.agent import Agent
 from egpt.team import Team
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
@@ -172,7 +172,7 @@ Workflows save their steps with links to the agents/teams that execute them.
 ```python
 from egpt.agent import Agent
 from egpt.workflow import Workflow, Step
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
@@ -305,7 +305,7 @@ actually wired into your OS.
 
 ```python
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.os import EgptOS
 from egpt.team import Team
@@ -344,7 +344,7 @@ See `auto_populate_registry.py` (offline inspection) and
 ### PostgreSQL (Recommended for Production)
 
 ```python
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 
 db = PostgresDb(db_url="postgresql+psycopg://user:pass@host:port/dbname")
 ```
@@ -352,7 +352,7 @@ db = PostgresDb(db_url="postgresql+psycopg://user:pass@host:port/dbname")
 ### SQLite (Development Only)
 
 ```python
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 
 db = SqliteDb(db_url="sqlite:///agents.db")
 ```

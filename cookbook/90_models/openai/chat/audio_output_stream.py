@@ -10,7 +10,7 @@ import wave
 from typing import Iterator
 
 from egpt.agent import Agent, RunOutputEvent  # noqa
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------

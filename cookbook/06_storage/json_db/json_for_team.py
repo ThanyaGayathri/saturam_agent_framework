@@ -8,7 +8,7 @@ Run `uv pip install openai ddgs newspaper4k lxml_html_clean` to install the depe
 from typing import List
 
 from egpt.agent import Agent
-from egpt.db.json import JsonDb
+from egpt.integrations.db.json import JsonDb
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools

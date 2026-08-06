@@ -1,7 +1,7 @@
 """Run `uv pip install ddgs sqlalchemy anthropic` to install dependencies."""
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.vertexai.claude import Claude
 from egpt.tools.websearch import WebSearchTools
 

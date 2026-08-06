@@ -1,7 +1,7 @@
 """Example for EgptOS to show how to pass dependencies to an agent."""
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.os import EgptOS
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ Simple example demonstrating store_history_messages option.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.utils.pprint import pprint_run_response
 

@@ -11,7 +11,7 @@ Pattern:
 3. Condition HITL: Choose output format
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.workflow import OnReject
 from egpt.workflow.condition import Condition
 from egpt.workflow.loop import Loop

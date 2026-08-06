@@ -13,7 +13,7 @@ calls are made, so this runs offline without any API key.
 """
 
 from egpt.agent.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.os import EgptOS
 from egpt.team import Team

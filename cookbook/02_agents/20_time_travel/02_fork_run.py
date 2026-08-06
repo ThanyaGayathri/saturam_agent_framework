@@ -27,7 +27,7 @@ mechanic, no message index math required. See ../19_regenerate/01_regenerate.py.
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"

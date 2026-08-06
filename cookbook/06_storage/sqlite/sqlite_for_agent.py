@@ -4,7 +4,7 @@ Run `uv pip install ddgs sqlalchemy openai` to install dependencies.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------

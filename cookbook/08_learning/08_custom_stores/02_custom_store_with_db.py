@@ -17,7 +17,7 @@ from textwrap import dedent
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import LearningMachine
 from egpt.models.openai import OpenAIResponses
 

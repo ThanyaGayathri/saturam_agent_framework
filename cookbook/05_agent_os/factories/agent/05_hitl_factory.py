@@ -45,8 +45,8 @@ import json
 
 import httpx
 from egpt.agent import Agent, AgentFactory
-from egpt.db.postgres import PostgresDb
 from egpt.factory import RequestContext
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.os import EgptOS
 from egpt.tools import tool

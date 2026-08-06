@@ -9,8 +9,8 @@ import asyncio
 from typing import AsyncIterator, Iterator, Union
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.in_memory import InMemoryDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.run.workflow import WorkflowRunOutputEvent
 from egpt.team import Team

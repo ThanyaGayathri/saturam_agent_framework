@@ -6,7 +6,7 @@ Demonstrates creating a team with member agents and saving it to the database.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
 

@@ -6,7 +6,7 @@ Demonstrates passing file inputs through workflow steps for reading and summariz
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.media import File
 from egpt.models.anthropic import Claude
 from egpt.models.openai import OpenAIChat

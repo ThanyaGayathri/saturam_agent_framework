@@ -1,8 +1,8 @@
 """Example showing how to use EgptOS with a Firestore database"""
 
 from egpt.agent import Agent
-from egpt.db.firestore import FirestoreDb
 from egpt.eval.accuracy import AccuracyEval
+from egpt.integrations.db.firestore import FirestoreDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team

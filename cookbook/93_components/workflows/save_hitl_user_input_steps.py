@@ -8,7 +8,7 @@ input, saving it to the database, and loading it back. The user_input_schema
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.registry import Registry
 from egpt.workflow.step import Step

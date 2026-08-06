@@ -8,9 +8,9 @@ Demonstrates EgptOS workflows using both sync and streaming custom function step
 from typing import AsyncIterator, Union
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
-from egpt.db.postgres import PostgresDb
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.in_memory import InMemoryDb
+from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team import Team

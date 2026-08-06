@@ -14,7 +14,7 @@ This is useful for:
 - User-controlled workflow sections
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.workflow.step import Step
 from egpt.workflow.steps import Steps
 from egpt.workflow.types import StepInput, StepOutput

@@ -8,8 +8,8 @@ Demonstrates response quality evaluation for team outputs.
 from typing import Optional
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
 from egpt.eval.agent_as_judge import AgentAsJudgeEval, AgentAsJudgeResult
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.team.team import Team
 

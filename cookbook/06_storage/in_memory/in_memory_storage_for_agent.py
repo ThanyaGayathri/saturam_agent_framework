@@ -1,7 +1,7 @@
 """Run `uv pip install ddgs openai` to install dependencies."""
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 
 # ---------------------------------------------------------------------------
 # Setup

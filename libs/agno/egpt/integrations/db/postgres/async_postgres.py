@@ -175,6 +175,7 @@ class AsyncPostgresDb(AsyncBaseDb):
             db_url=self.db_url,
             db_engine=self.db_engine,
             db_schema=self.db_schema,
+            create_schema=self.create_schema,
             id=self.id,
             **overrides,
         )

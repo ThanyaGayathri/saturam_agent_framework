@@ -7,7 +7,7 @@ Steps:
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.perplexity import Perplexity
 from rich.pretty import pprint
 

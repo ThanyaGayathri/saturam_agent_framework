@@ -13,7 +13,7 @@ from egpt.agent.agent import Agent
 # Create Example
 # ---------------------------------------------------------------------------
 # Import the workflows
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai.chat import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team

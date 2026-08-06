@@ -8,7 +8,7 @@ Example demonstrating how to use a pre_hook to update the session_state.
 from typing import List
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.run import RunContext
 from egpt.run.agent import RunInput

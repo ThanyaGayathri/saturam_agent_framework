@@ -14,7 +14,7 @@ directory (text, image, audio, document).
 from typing import List, Optional
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.workflow import Step, Workflow
 from egpt.workflow.condition import Condition
 from egpt.workflow.parallel import Parallel

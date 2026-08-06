@@ -5,7 +5,7 @@ Standalone Memory Manager CRUD
 This example shows how to add, get, delete, and replace user memories manually.
 """
 
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.memory import MemoryManager, UserMemory
 from rich.pretty import pprint
 

@@ -10,7 +10,7 @@ Run: .venvs/demo/bin/python cookbook/90_models/anthropic/server_tools_multi_turn
 """
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.models.anthropic import Claude
 
 agent = Agent(

@@ -5,7 +5,7 @@ Load Workflow from Database
 Demonstrates loading a workflow from the database by ID and running it.
 """
 
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.workflow.workflow import get_workflow_by_id, get_workflows  # noqa: F401
 
 # ---------------------------------------------------------------------------

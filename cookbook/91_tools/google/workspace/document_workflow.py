@@ -26,7 +26,7 @@ Run:
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.tools.google.auth import AuthConfig
 from egpt.tools.google.drive import GoogleDriveTools

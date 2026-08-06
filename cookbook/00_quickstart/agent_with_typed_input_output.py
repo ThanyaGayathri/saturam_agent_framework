@@ -20,7 +20,7 @@ Example inputs to try:
 from typing import List, Literal, Optional
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.google import Gemini
 from egpt.tools.yfinance import YFinanceTools
 from pydantic import BaseModel, Field

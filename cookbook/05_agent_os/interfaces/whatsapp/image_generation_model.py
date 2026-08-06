@@ -6,7 +6,7 @@ Demonstrates image generation model.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.google import Gemini
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp

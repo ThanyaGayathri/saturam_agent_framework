@@ -8,7 +8,7 @@ Demonstrates EGPT's two-table trace design and how to inspect traces and spans.
 import time  # noqa
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.tools.hackernews import HackerNewsTools
 from egpt.tracing import setup_tracing

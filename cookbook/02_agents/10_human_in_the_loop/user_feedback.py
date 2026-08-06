@@ -7,7 +7,7 @@ Uses UserFeedbackTools to pause the agent and collect user selections.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.tools.user_feedback import UserFeedbackTools
 from egpt.utils import pprint

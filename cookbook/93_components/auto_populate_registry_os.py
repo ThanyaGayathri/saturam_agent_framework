@@ -17,7 +17,7 @@ and the discovered components are merged in (deduplicated by id/name).
 """
 
 from egpt.agent.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.os import EgptOS
 from egpt.team import Team

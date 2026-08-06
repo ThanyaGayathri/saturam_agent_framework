@@ -8,7 +8,7 @@ Demonstrates reading workflow and step-level metrics from `WorkflowRunOutput`.
 import json
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.run.workflow import WorkflowRunOutput
 from egpt.team import Team

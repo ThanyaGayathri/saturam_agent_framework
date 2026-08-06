@@ -17,7 +17,7 @@ Run:
     .venvs/demo/bin/python cookbook/04_workflows/08_human_in_the_loop/router/07_router_output_review.py
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.workflow import OnReject
 from egpt.workflow.router import Router
 from egpt.workflow.step import Step

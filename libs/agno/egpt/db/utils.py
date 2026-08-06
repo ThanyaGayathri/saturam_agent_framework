@@ -27,41 +27,62 @@ DB_CONFIG_OVERRIDE_KEYS: frozenset = frozenset({"table_prefix"}) | DB_TABLE_NAME
 
 # Single source of truth for every DB backend shipped in the integrations layer.
 # One row per backend package:
-#     key -> (module, sync_class_name, async_class_name or None)
+#     key -> (module, sync_class_name, async_class_name or None, reconstructable)
 #
 # `key` is the string a backend serializes as to_dict()["type"], so db_from_dict can
 # resolve a stored config without an if/elif chain and without core naming any backend
-# module. Backends that do not serialize a "type" yet are listed anyway: the table fixes
-# the canonical key up front, so adding serialization to a backend is a one-line change
-# there and none here. `async_postgres` has no row of its own -- it is an alias package
-# re-exporting the AsyncPostgresDb this table already reaches through the postgres row.
-_DB_BACKENDS: Dict[str, Tuple[str, str, Optional[str]]] = {
-    "clickhouse": ("egpt.integrations.db.clickhouse", "ClickhouseDb", None),
-    "dynamo": ("egpt.integrations.db.dynamo", "DynamoDb", None),
-    "firestore": ("egpt.integrations.db.firestore", "FirestoreDb", None),
-    "gcs_json": ("egpt.integrations.db.gcs_json", "GcsJsonDb", None),
-    "in_memory": ("egpt.integrations.db.in_memory", "InMemoryDb", None),
-    "json": ("egpt.integrations.db.json", "JsonDb", None),
-    "mongo": ("egpt.integrations.db.mongo", "MongoDb", "AsyncMongoDb"),
-    "mysql": ("egpt.integrations.db.mysql", "MySQLDb", "AsyncMySQLDb"),
-    "postgres": ("egpt.integrations.db.postgres", "PostgresDb", "AsyncPostgresDb"),
-    "redis": ("egpt.integrations.db.redis", "RedisDb", None),
-    "singlestore": ("egpt.integrations.db.singlestore", "SingleStoreDb", None),
-    "sqlite": ("egpt.integrations.db.sqlite", "SqliteDb", "AsyncSqliteDb"),
-    "surrealdb": ("egpt.integrations.db.surrealdb", "SurrealDb", None),
+# module. `async_postgres` has no row of its own -- it is an alias package re-exporting
+# the AsyncPostgresDb this table already reaches through the postgres row.
+#
+# `reconstructable` says whether db_from_dict may build this backend from a stored config.
+# It is NOT the same question as "is this class importable". A backend that does not
+# override BaseDb.from_dict inherits an implementation that forwards all 18 TABLE_SUFFIXES
+# keyword arguments, which its __init__ does not accept -- so dispatching to it turns an
+# accurate "Unknown database type" warning into an obscure TypeError about a table-name
+# kwarg, and the caller still ends up with no db. Keeping the flag false preserves the
+# pre-EGPT-1.6 behaviour exactly. `in_memory` is false for a different reason: its
+# from_dict does succeed, but rebuilding an ephemeral store from a persisted config hands
+# the caller a live empty db instead of the None that makes the caller fall back to the
+# AgentOS-level db -- silent data loss in place of a visible warning.
+#
+# Adding serialization to a backend is a two-part change: give it a from_dict that accepts
+# its own constructor's arguments, then flip this flag.
+_DB_BACKENDS: Dict[str, Tuple[str, str, Optional[str], bool]] = {
+    "clickhouse": ("egpt.integrations.db.clickhouse", "ClickhouseDb", None, True),
+    "dynamo": ("egpt.integrations.db.dynamo", "DynamoDb", None, False),
+    "firestore": ("egpt.integrations.db.firestore", "FirestoreDb", None, False),
+    "gcs_json": ("egpt.integrations.db.gcs_json", "GcsJsonDb", None, False),
+    "in_memory": ("egpt.integrations.db.in_memory", "InMemoryDb", None, False),
+    "json": ("egpt.integrations.db.json", "JsonDb", None, True),
+    "mongo": ("egpt.integrations.db.mongo", "MongoDb", "AsyncMongoDb", False),
+    "mysql": ("egpt.integrations.db.mysql", "MySQLDb", "AsyncMySQLDb", False),
+    "postgres": ("egpt.integrations.db.postgres", "PostgresDb", "AsyncPostgresDb", True),
+    "redis": ("egpt.integrations.db.redis", "RedisDb", None, False),
+    "singlestore": ("egpt.integrations.db.singlestore", "SingleStoreDb", None, False),
+    "sqlite": ("egpt.integrations.db.sqlite", "SqliteDb", "AsyncSqliteDb", True),
+    "surrealdb": ("egpt.integrations.db.surrealdb", "SurrealDb", None, False),
 }
 
-# key -> (module, class_name) for the synchronous BaseDb implementations. This is the
-# construction table db_from_dict resolves through, and what the drift guard checks.
+# key -> (module, class_name) for every synchronous BaseDb implementation. This is the
+# class-lookup table (used by egpt.db's legacy re-exports and by the drift guard); it is
+# NOT what db_from_dict dispatches through -- see RECONSTRUCTABLE_DB_CLASSES.
 DB_BACKEND_CLASSES: Dict[str, Tuple[str, str]] = {
-    key: (module, sync_cls) for key, (module, sync_cls, _async_cls) in _DB_BACKENDS.items()
+    key: (module, sync_cls) for key, (module, sync_cls, _async_cls, _rebuild) in _DB_BACKENDS.items()
+}
+
+# The subset db_from_dict will actually construct: backends whose from_dict accepts a
+# serialized config. Matches the four types the pre-EGPT-1.6 if/elif chain handled.
+RECONSTRUCTABLE_DB_CLASSES: Dict[str, Tuple[str, str]] = {
+    key: (module, sync_cls) for key, (module, sync_cls, _async_cls, rebuild) in _DB_BACKENDS.items() if rebuild
 }
 
 # key -> (module, class_name) for the AsyncBaseDb implementations, where one exists.
 # Not reachable from db_from_dict (no async backend defines from_dict, and Registry.add_db
 # only tracks BaseDb instances); present so the drift guard covers them too.
 ASYNC_DB_BACKEND_CLASSES: Dict[str, Tuple[str, str]] = {
-    key: (module, async_cls) for key, (module, _sync_cls, async_cls) in _DB_BACKENDS.items() if async_cls is not None
+    key: (module, async_cls)
+    for key, (module, _sync_cls, async_cls, _rebuild) in _DB_BACKENDS.items()
+    if async_cls is not None
 }
 
 
@@ -359,9 +380,15 @@ def db_from_dict(db_data: Dict[str, Any]) -> Optional["BaseDb"]:
     """
     Create a database instance from a dictionary.
 
-    The backend class is resolved through ``DB_BACKEND_CLASSES`` and imported lazily, so
-    core carries no import of any concrete backend and no optional driver is pulled in for
-    a backend that is not being reconstructed.
+    The backend class is resolved through ``RECONSTRUCTABLE_DB_CLASSES`` and imported
+    lazily, so core carries no import of any concrete backend and no optional driver is
+    pulled in for a backend that is not being reconstructed.
+
+    A backend that ships but cannot be rebuilt from a config is refused here rather than
+    dispatched to, and says so in its own words. Dispatching would raise a TypeError about
+    a table-name keyword deep inside the inherited ``BaseDb.from_dict`` -- the caller gets
+    None either way, but that message names the wrong culprit, and "unknown type" is no
+    better when the type is plainly one the framework supports.
 
     Args:
         db_data: Dictionary containing database configuration, keyed on ``type``
@@ -370,9 +397,15 @@ def db_from_dict(db_data: Dict[str, Any]) -> Optional["BaseDb"]:
         Database instance or None if creation fails
     """
     db_type = db_data.get("type")
-    entry = DB_BACKEND_CLASSES.get(db_type) if isinstance(db_type, str) else None
+    entry = RECONSTRUCTABLE_DB_CLASSES.get(db_type) if isinstance(db_type, str) else None
     if entry is None:
-        log_warning(f"Unknown database type: {db_type}")
+        if isinstance(db_type, str) and db_type in DB_BACKEND_CLASSES:
+            log_warning(
+                f"Database type '{db_type}' cannot be rebuilt from a stored config; "
+                "pass the instance through the registry instead."
+            )
+        else:
+            log_warning(f"Unknown database type: {db_type}")
         return None
 
     module_name, class_name = entry

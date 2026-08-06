@@ -6,7 +6,7 @@ Demonstrates configuring EgptOS with a Registry and serving the app.
 """
 
 from egpt.agent.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.anthropic import Claude
 from egpt.models.azure import AzureOpenAI
 from egpt.models.openai import OpenAIChat

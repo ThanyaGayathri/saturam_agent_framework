@@ -31,7 +31,7 @@ Example prompt:
 from pathlib import Path
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.knowledge import Knowledge
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.learn import LearnedKnowledgeConfig, LearningMachine, LearningMode

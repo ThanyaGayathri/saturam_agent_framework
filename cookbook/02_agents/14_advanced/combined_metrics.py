@@ -21,8 +21,8 @@ from typing import List
 from egpt.agent import Agent
 from egpt.compression.manager import CompressionManager
 from egpt.culture.manager import CultureManager
-from egpt.db.postgres import PostgresDb
 from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.memory.manager import MemoryManager
 from egpt.models.openai import OpenAIChat
 from egpt.session.summary import SessionSummaryManager

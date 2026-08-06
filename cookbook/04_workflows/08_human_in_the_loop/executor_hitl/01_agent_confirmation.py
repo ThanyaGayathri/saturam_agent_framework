@@ -11,7 +11,7 @@ Usage:
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.tools import tool
 from egpt.workflow.step import Step

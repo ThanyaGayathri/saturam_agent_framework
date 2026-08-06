@@ -1,5 +1,5 @@
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.tools.file_generation import FileGenerationTools
 from egpt.workflow.step import Step

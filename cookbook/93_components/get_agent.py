@@ -6,7 +6,7 @@ Demonstrates loading an agent from the database by ID and running it.
 """
 
 from egpt.agent.agent import get_agent_by_id, get_agents  # noqa: F401
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 
 # ---------------------------------------------------------------------------
 # Create Database Client

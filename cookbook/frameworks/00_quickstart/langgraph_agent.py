@@ -11,7 +11,7 @@ Usage:
 """
 
 from egpt.agents.langgraph import LangGraphAgent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.os import EgptOS
 from langchain_openai import ChatOpenAI
 from langgraph.graph import MessagesState, StateGraph

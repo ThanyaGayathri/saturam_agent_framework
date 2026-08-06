@@ -3,7 +3,7 @@ Image analysis with memory example using CometAPI.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.media import Image
 from egpt.models.cometapi import CometAPI
 

@@ -18,7 +18,7 @@ import asyncio
 from uuid import uuid4
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.models.openai import OpenAIResponses
 from egpt.tools.mcp import MCPTools
 

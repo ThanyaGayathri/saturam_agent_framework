@@ -13,7 +13,7 @@ Compare with: 5b_entity_memory_agentic.py for explicit tool-based management.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import EntityMemoryConfig, LearningMachine, LearningMode
 from egpt.models.openai import OpenAIResponses
 

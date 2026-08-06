@@ -8,7 +8,7 @@ Demonstrates simple intent routing where all specialist steps share workflow his
 from typing import List
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.workflow.router import Router
 from egpt.workflow.step import Step

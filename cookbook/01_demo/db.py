@@ -8,7 +8,7 @@ Stored at ``data/demo.db`` next to this cookbook (gitignored).
 
 from pathlib import Path
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 
 DB_ID = "demo-db"
 DB_FILE = str(Path(__file__).parent / "data" / "demo.db")

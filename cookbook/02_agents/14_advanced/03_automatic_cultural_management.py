@@ -6,7 +6,7 @@ Automatically update cultural knowledge based on Agent interactions.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------

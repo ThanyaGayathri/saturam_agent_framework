@@ -12,7 +12,7 @@ uv pip install google-cloud-firestore
 
 ```python
 from egpt.agent import Agent
-from egpt.db.firestore import FirestoreDb
+from egpt.integrations.db.firestore import FirestoreDb
 
 db = FirestoreDb(project_id="your-project-id")
 

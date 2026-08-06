@@ -16,7 +16,7 @@ from typing import Any, Dict
 
 from egpt.agent import Agent
 from egpt.approval import approval
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack

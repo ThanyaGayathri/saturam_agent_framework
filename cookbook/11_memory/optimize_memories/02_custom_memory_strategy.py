@@ -11,7 +11,7 @@ from typing import List
 
 from egpt.agent import Agent
 from egpt.db.schemas import UserMemory
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.memory import MemoryManager, MemoryOptimizationStrategy
 from egpt.models.base import Model
 from egpt.models.openai import OpenAIChat

@@ -17,8 +17,8 @@ Prerequisites:
 """
 
 from egpt.agent import Agent
-from egpt.db.gcs_json import GcsJsonDb
 from egpt.eval.accuracy import AccuracyEval
+from egpt.integrations.db.gcs_json import GcsJsonDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team

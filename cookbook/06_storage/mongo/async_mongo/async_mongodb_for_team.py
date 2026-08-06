@@ -22,7 +22,7 @@ import asyncio
 from typing import List
 
 from egpt.agent import Agent
-from egpt.db.mongo import AsyncMongoDb
+from egpt.integrations.db.mongo import AsyncMongoDb
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools

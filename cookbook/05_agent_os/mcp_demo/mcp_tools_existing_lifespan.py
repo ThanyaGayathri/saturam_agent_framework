@@ -9,7 +9,7 @@ In addition you can pass your own lifespan to EgptOS.
 from contextlib import asynccontextmanager
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.anthropic import Claude
 from egpt.os import EgptOS
 from egpt.tools.mcp import MCPTools

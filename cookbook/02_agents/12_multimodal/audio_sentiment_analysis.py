@@ -7,7 +7,7 @@ Audio Sentiment Analysis.
 
 import requests
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.media import Audio
 from egpt.models.google import Gemini
 

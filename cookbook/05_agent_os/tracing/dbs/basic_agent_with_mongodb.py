@@ -5,7 +5,7 @@ Requirements:
 """
 
 from egpt.agent import Agent
-from egpt.db.mongo import MongoDb
+from egpt.integrations.db.mongo import MongoDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.tools.hackernews import HackerNewsTools

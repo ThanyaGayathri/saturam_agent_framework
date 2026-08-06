@@ -13,7 +13,7 @@ See also: 01_basics/1a_user_profile_always.py for the basics.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import LearningMachine, LearningMode, UserProfileConfig
 from egpt.models.openai import OpenAIResponses
 

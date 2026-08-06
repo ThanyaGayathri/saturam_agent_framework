@@ -17,7 +17,7 @@ This is useful for:
 - A/B testing with human judgment
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.workflow.condition import Condition
 from egpt.workflow.step import Step
 from egpt.workflow.types import OnReject, StepInput, StepOutput

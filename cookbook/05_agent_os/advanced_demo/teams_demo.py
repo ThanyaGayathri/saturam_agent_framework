@@ -6,7 +6,7 @@ Demonstrates teams demo.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.anthropic import Claude
 from egpt.models.google.gemini import Gemini
 from egpt.models.openai import OpenAIChat

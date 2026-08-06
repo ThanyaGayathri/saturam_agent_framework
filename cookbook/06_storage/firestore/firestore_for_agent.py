@@ -9,7 +9,7 @@ Steps:
 """
 
 from egpt.agent import Agent
-from egpt.db.firestore import FirestoreDb
+from egpt.integrations.db.firestore import FirestoreDb
 from egpt.tools.websearch import WebSearchTools
 
 PROJECT_ID = "egpt-os-test"  # Use your project ID here

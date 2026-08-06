@@ -8,8 +8,8 @@ Demonstrates 03 agent with knowledge tracing.
 from textwrap import dedent
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat

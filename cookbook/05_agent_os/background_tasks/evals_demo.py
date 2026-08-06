@@ -1,8 +1,8 @@
 """Simple example creating a session and using the EgptOS with a SessionApp to expose it"""
 
 from egpt.agent import Agent
-from egpt.db.postgres.postgres import PostgresDb
 from egpt.eval.accuracy import AccuracyEval
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team

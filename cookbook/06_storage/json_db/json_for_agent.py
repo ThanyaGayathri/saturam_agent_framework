@@ -5,7 +5,7 @@ Useful for simple demos where performance is not critical.
 Run `uv pip install ddgs openai` to install dependencies."""
 
 from egpt.agent import Agent
-from egpt.db.json import JsonDb
+from egpt.integrations.db.json import JsonDb
 from egpt.models.openai import OpenAIChat
 from egpt.tools.websearch import WebSearchTools
 

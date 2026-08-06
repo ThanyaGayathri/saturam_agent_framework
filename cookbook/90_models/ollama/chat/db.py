@@ -1,7 +1,7 @@
 """Run `uv pip install ddgs sqlalchemy ollama` to install dependencies."""
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.ollama import Ollama
 from egpt.tools.websearch import WebSearchTools
 

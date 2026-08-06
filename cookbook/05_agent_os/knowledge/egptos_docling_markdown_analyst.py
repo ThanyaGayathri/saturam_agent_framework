@@ -8,7 +8,7 @@ Demonstrates EgptOS markdown analyst using Docling reader.
 from pathlib import Path
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader.docling_reader import DoclingReader
 from egpt.models.openai import OpenAIChat

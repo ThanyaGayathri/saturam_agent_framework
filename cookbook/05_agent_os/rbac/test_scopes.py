@@ -18,7 +18,7 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.workflow.workflow import Workflow

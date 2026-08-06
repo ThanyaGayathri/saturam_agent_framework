@@ -6,7 +6,7 @@ Cookbook example for `openai/responses/pdf_input_url.py`.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.media import File
 from egpt.models.openai.responses import OpenAIResponses
 

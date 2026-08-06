@@ -12,7 +12,7 @@ uv pip install psycopg2-binary
 
 ```python
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 
 db = PostgresDb(db_url="postgresql+psycopg://username:password@localhost:5432/database")
 
@@ -28,7 +28,7 @@ EGPT also supports using your PostgreSQL database asynchronously, via the `Async
 
 ```python
 from egpt.agent import Agent
-from egpt.db.postgres import AsyncPostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb
 
 db = AsyncPostgresDb(db_url="postgresql+psycopg://username:password@localhost:5432/database")
 

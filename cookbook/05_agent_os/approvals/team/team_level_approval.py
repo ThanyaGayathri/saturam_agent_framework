@@ -12,7 +12,7 @@ Flow:
 """
 
 from egpt.approval import approval
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.os import EgptOS
 from egpt.team import Team

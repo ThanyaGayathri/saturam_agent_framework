@@ -7,7 +7,7 @@ Demonstrates remote vLLM embeddings and knowledge insertion with optional batchi
 
 import asyncio
 
-from egpt.db.json import JsonDb
+from egpt.integrations.db.json import JsonDb
 from egpt.knowledge.embedder.vllm import VLLMEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector

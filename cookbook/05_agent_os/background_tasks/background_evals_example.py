@@ -7,8 +7,8 @@ This example demonstrates fine-grained control over which hooks run in backgroun
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import AsyncSqliteDb
 from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.integrations.db.sqlite import AsyncSqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 

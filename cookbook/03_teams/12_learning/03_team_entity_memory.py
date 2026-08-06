@@ -14,7 +14,7 @@ like project management, CRM, or research coordination.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import (
     EntityMemoryConfig,
     LearningMachine,

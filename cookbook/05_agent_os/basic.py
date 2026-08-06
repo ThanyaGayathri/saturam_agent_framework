@@ -1,7 +1,7 @@
 """Minimal example for EgptOS."""
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team import Team

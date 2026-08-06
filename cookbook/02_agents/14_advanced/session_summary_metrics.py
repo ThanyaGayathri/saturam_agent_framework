@@ -13,7 +13,7 @@ summary of the conversation so far.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.session.summary import SessionSummaryManager
 from rich.pretty import pprint

@@ -8,7 +8,7 @@ Cookbook example for `openai/chat/basic_stream_metrics.py`.
 from typing import Iterator  # noqa
 from egpt.agent import Agent, RunOutputEvent  # noqa
 from egpt.models.openai import OpenAIChat
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 
 # ---------------------------------------------------------------------------
 # Create Agent

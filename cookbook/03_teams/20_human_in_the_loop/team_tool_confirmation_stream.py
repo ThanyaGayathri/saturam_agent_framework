@@ -11,7 +11,7 @@ no member agent pause to confuse it with.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.run.team import RunPausedEvent as TeamRunPausedEvent
 from egpt.team.team import Team

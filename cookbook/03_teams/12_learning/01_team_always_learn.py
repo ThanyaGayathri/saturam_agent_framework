@@ -12,7 +12,7 @@ This is the simplest way to add learning to a team.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 

@@ -5,7 +5,7 @@ Read more about ZDR mode here: https://openai.com/enterprise-privacy/.
 """
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------

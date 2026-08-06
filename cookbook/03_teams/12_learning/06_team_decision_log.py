@@ -14,7 +14,7 @@ like architecture decisions, security reviews, or compliance.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import (
     DecisionLogConfig,
     LearningMachine,

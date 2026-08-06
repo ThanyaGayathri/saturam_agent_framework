@@ -12,7 +12,7 @@ Usage:
 
 import dspy
 from egpt.agents.dspy import DSPyAgent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.os import EgptOS
 
 dspy.configure(lm=dspy.LM("openai/gpt-5.4"))

@@ -190,12 +190,16 @@ class PostgresDb(BaseDb):
         """Clone this db with table-name overrides, reusing the same engine.
 
         Passing ``db_engine`` through is what keeps the clone on the existing connection
-        pool instead of opening a second one per component load.
+        pool instead of opening a second one per component load. ``create_schema`` must be
+        carried over too: it defaults to True, so a deployment that set it False because
+        its role has no CREATE privilege would otherwise have schema DDL silently
+        re-enabled on the clone.
         """
         return PostgresDb(
             db_url=self.db_url,
             db_engine=self.db_engine,
             db_schema=self.db_schema,
+            create_schema=self.create_schema,
             id=self.id,
             **overrides,
         )

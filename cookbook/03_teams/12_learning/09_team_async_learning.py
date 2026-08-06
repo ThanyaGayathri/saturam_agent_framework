@@ -9,7 +9,7 @@ Uses AsyncPostgresDb for non-blocking database access.
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres import AsyncPostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 

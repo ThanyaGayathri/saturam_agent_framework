@@ -9,7 +9,7 @@ import asyncio
 import os
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.models.openai import OpenAIChat
 from egpt.tools.yfinance import YFinanceTools
 from phoenix.otel import register

@@ -16,7 +16,7 @@ Flow:
 4. Summarize results (automatic)
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.workflow.router import Router
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput

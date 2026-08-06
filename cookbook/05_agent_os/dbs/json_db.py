@@ -1,8 +1,8 @@
 """Example showing how to use EgptOS with JSON files as database"""
 
 from egpt.agent import Agent
-from egpt.db.json import JsonDb
 from egpt.eval.accuracy import AccuracyEval
+from egpt.integrations.db.json import JsonDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team

@@ -6,7 +6,7 @@ Demonstrates multiple instances.
 """
 
 from egpt.agent.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.os import EgptOS
 from egpt.os.interfaces.agui import AGUI

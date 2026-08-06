@@ -6,8 +6,8 @@ Demonstrates EgptOS with MySQL storage using both sync and async setups.
 """
 
 from egpt.agent import Agent
-from egpt.db.mysql import AsyncMySQLDb, MySQLDb
 from egpt.eval.accuracy import AccuracyEval
+from egpt.integrations.db.mysql import AsyncMySQLDb, MySQLDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team

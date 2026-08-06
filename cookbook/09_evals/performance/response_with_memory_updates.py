@@ -6,8 +6,8 @@ Demonstrates measuring performance when memory updates are enabled.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
 from egpt.eval.performance import PerformanceEval
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------

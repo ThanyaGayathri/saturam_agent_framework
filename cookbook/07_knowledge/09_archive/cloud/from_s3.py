@@ -8,7 +8,7 @@ Demonstrates loading knowledge from S3 remote content using sync and async inser
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.remote_content.remote_content import S3Content
 from egpt.vectordb.pgvector import PgVector

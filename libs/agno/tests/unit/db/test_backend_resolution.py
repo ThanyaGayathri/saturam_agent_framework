@@ -17,20 +17,90 @@ of the optional DB drivers installed.
 
 import ast
 import importlib
+import inspect
+import re
+import sys
 import warnings
 from pathlib import Path
 
 import pytest
 
+from egpt.db.base import BaseDb
+from egpt.db.table_names import TABLE_SUFFIXES
 from egpt.db.utils import (
     ASYNC_DB_BACKEND_CLASSES,
     DB_BACKEND_CLASSES,
+    RECONSTRUCTABLE_DB_CLASSES,
     db_from_dict,
 )
 
 # Backend packages that moved in EGPT-1.6. `async_postgres` is an alias package with no
 # `_DB_BACKENDS` row of its own; it still needs a shim, so it is listed here.
 _MOVED_PACKAGES = frozenset(DB_BACKEND_CLASSES) | {"async_postgres"}
+
+# Every .py file that had a public `egpt.db.<backend>` import path before EGPT-1.6, taken
+# from the tree at the move commit. Frozen on purpose -- see test_every_moved_module_has_a_shim
+# for why this cannot be re-derived from the live integrations tree.
+_MOVED_MODULES = frozenset(
+    {
+        "async_postgres/__init__.py",
+        "clickhouse/__init__.py",
+        "clickhouse/clickhouse.py",
+        "clickhouse/schemas.py",
+        "clickhouse/utils.py",
+        "dynamo/__init__.py",
+        "dynamo/dynamo.py",
+        "dynamo/schemas.py",
+        "dynamo/utils.py",
+        "firestore/__init__.py",
+        "firestore/firestore.py",
+        "firestore/schemas.py",
+        "firestore/utils.py",
+        "gcs_json/__init__.py",
+        "gcs_json/gcs_json_db.py",
+        "gcs_json/utils.py",
+        "in_memory/__init__.py",
+        "in_memory/in_memory_db.py",
+        "in_memory/utils.py",
+        "json/__init__.py",
+        "json/json_db.py",
+        "json/utils.py",
+        "mongo/__init__.py",
+        "mongo/async_mongo.py",
+        "mongo/mongo.py",
+        "mongo/schemas.py",
+        "mongo/utils.py",
+        "mysql/__init__.py",
+        "mysql/async_mysql.py",
+        "mysql/mysql.py",
+        "mysql/schemas.py",
+        "mysql/utils.py",
+        "postgres/__init__.py",
+        "postgres/async_postgres.py",
+        "postgres/postgres.py",
+        "postgres/schemas.py",
+        "postgres/utils.py",
+        "redis/__init__.py",
+        "redis/redis.py",
+        "redis/schemas.py",
+        "redis/utils.py",
+        "singlestore/__init__.py",
+        "singlestore/schemas.py",
+        "singlestore/singlestore.py",
+        "singlestore/utils.py",
+        "sqlite/__init__.py",
+        "sqlite/async_sqlite.py",
+        "sqlite/schemas.py",
+        "sqlite/sqlite.py",
+        "sqlite/utils.py",
+        "surrealdb/__init__.py",
+        "surrealdb/metrics.py",
+        "surrealdb/models.py",
+        "surrealdb/queries.py",
+        "surrealdb/surrealdb.py",
+        "surrealdb/utils.py",
+    }
+)
 
 
 def _package_root():
@@ -153,8 +223,12 @@ def test_deprecated_db_tree_holds_only_shims():
     That tree is the interface, the domain schemas, the migrations and compatibility shims.
     A backend defined there would be invisible to test_every_db_subclass_is_registered,
     which scans the integrations layer, so it could ship unregistered.
+
+    Scans the whole tree, not just the 14 moved package names. Filtering to those names
+    would miss a backend added in a *new* directory under egpt/db/ -- the likeliest way
+    this rule actually gets broken, and precisely the case the rule exists for.
     """
-    stragglers = _discover_db_subclasses(_deprecated_db_root(), packages=_MOVED_PACKAGES)
+    stragglers = _discover_db_subclasses(_deprecated_db_root())
     assert not stragglers, (
         "Backend classes found under the deprecated egpt/db tree: "
         + ", ".join(sorted(f"{name} ({module})" for (module, name) in stragglers))
@@ -247,34 +321,89 @@ def test_deprecated_shims_reexport_everything_their_target_exports():
     assert not problems, "Compatibility shims out of sync with their targets:\n" + "\n".join(problems)
 
 
-def test_every_target_module_has_a_shim():
-    """Every module under a moved package needs a shim at the matching deprecated path.
+# Names a shim lists in __all__ but deliberately does not bind eagerly. mongo's target
+# provides AsyncMongoDb through its own __getattr__ so that `import egpt.db.mongo` does not
+# pull in motor; binding it here would break that.
+_LAZILY_BOUND_SHIM_EXPORTS = {"mongo": {"AsyncMongoDb"}}
 
-    Stricter than the models equivalent, which skips absent pairs so that providers added
-    after the move need no deprecated path. The db backend set is closed -- all 14 packages
-    moved at once -- so a missing file here is a generator slip, not a new backend.
+
+@pytest.mark.parametrize("package", sorted(_MOVED_PACKAGES))
+def test_shim_names_are_really_bound_not_just_listed(package):
+    """Every name a shim advertises must be in its module dict, not only reachable via __getattr__.
+
+    The AST parity check above compares two ``__all__`` literals, which a shim consisting of
+    nothing but ``__all__`` plus the catch-all ``__getattr__`` would satisfy while binding
+    nothing. Such a shim still works at runtime, so only this check would catch it -- and
+    the explicit imports are exactly what makes ``mypy`` resolve the deprecated path and
+    what gives ``mock.patch`` a real target.
     """
-    targets_root = _backends_root()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        try:
+            shim = importlib.import_module(f"egpt.db.{package}")
+        except ImportError as e:
+            pytest.skip(f"optional driver for '{package}' not installed: {e}")
+
+    lazy = _LAZILY_BOUND_SHIM_EXPORTS.get(package, set())
+    unbound = sorted(name for name in shim.__all__ if name not in lazy and name not in vars(shim))
+    assert not unbound, (
+        f"egpt.db.{package} lists {unbound} in __all__ but does not bind them eagerly; they "
+        "resolve only through __getattr__, so mypy and mock.patch cannot see them. Import "
+        "them explicitly, or record the reason in _LAZILY_BOUND_SHIM_EXPORTS."
+    )
+
+
+@pytest.mark.parametrize("key", sorted(ASYNC_DB_BACKEND_CLASSES))
+def test_every_registered_async_backend_resolves(key):
+    """The async half of the table needs the same resolution check as the sync half."""
+    module_name, class_name = ASYNC_DB_BACKEND_CLASSES[key]
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as e:
+        pytest.skip(f"optional driver for '{key}' not installed: {e}")
+
+    assert getattr(module, class_name, None) is not None, f"{module_name} does not export {class_name}"
+
+
+def test_every_moved_module_has_a_shim():
+    """Every module that had a public egpt.db path before EGPT-1.6 still has one.
+
+    Checked against a frozen list rather than against whatever is on disk under
+    egpt/integrations/db today. Enumerating the live tree would demand a shim for modules
+    added *after* the move -- paths no one could ever have imported -- so unrelated future
+    work would go red and the only way to green it would be to hand-write a deprecation
+    shim for a never-public path, growing the surface this is meant to retire.
+
+    The list is the closed set of .py files under egpt/db/<backend>/ at the move commit.
+    A shim may be deleted from it only when the whole deprecation layer is retired.
+    """
     shims_root = _deprecated_db_root()
 
-    checked = 0
-    missing = []
-    for path in sorted(targets_root.rglob("*.py")):
-        rel = path.relative_to(targets_root)
-        if rel.parts[0] not in _MOVED_PACKAGES:
-            continue
-        checked += 1
-        if not (shims_root / rel).exists():
-            missing.append(str(rel))
-
-    assert checked >= 56, (
-        f"Only {checked} target modules scanned; expected the full backend set. The scan root is "
-        "probably stale, which makes this guard vacuous."
-    )
+    missing = sorted(rel for rel in _MOVED_MODULES if not (shims_root / rel).exists())
     assert not missing, (
-        "Moved modules with no compatibility shim at their old path: "
+        "Modules that had a public egpt.db path before EGPT-1.6 and now have no shim: "
         + ", ".join(missing)
         + ". Old import paths must keep resolving until the shims are retired."
+    )
+
+
+def test_no_shim_outlives_its_target():
+    """The reverse direction: a shim whose target is gone is a dangling import path."""
+    shims_root = _deprecated_db_root()
+    targets_root = _backends_root()
+
+    dangling = []
+    for path in sorted(shims_root.rglob("*.py")):
+        rel = path.relative_to(shims_root)
+        if rel.parts[0] not in _MOVED_PACKAGES:
+            continue
+        if not (targets_root / rel).exists():
+            dangling.append(str(rel))
+
+    assert not dangling, (
+        "Shims whose target module no longer exists: "
+        + ", ".join(dangling)
+        + ". Delete the shim alongside the module it forwards to."
     )
 
 
@@ -304,14 +433,34 @@ def test_every_registered_backend_resolves(key):
 
 
 def test_db_from_dict_does_not_touch_the_deprecated_shims():
-    """Resolution must go straight to the integrations layer.
+    """Resolution must go straight to the integrations layer, importing no shim.
 
-    Turning DeprecationWarning into an error proves it mechanically: before EGPT-1.6 this
-    path imported `egpt.db.sqlite`, which is now a shim and would raise here.
+    Asserted on sys.modules rather than on a DeprecationWarning. The warning fires in a
+    shim's module body, which Python executes only once per process, so an earlier test
+    that imported the shim leaves the warning permanently spent and a
+    ``simplefilter("error")`` guard here can never trip -- the check would report PASS
+    against the exact regression it exists to catch. Purging the shim modules first makes
+    both signals live again, and the sys.modules assertion holds even if the warning is
+    later removed from the shims.
     """
-    with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)
-        db = db_from_dict({"type": "sqlite", "db_file": ":memory:", "id": "guard"})
+    shim_modules = [f"egpt.db.{key}" for key in _MOVED_PACKAGES]
+    saved = {name: mod for name, mod in sys.modules.items() if any(name.startswith(s) for s in shim_modules)}
+    for name in saved:
+        del sys.modules[name]
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            db = db_from_dict({"type": "sqlite", "db_file": ":memory:", "id": "guard"})
+
+        leaked = sorted(name for name in sys.modules if any(name.startswith(s) for s in shim_modules))
+        assert not leaked, (
+            "db_from_dict imported deprecated shim modules: "
+            + ", ".join(leaked)
+            + ". Core must resolve through egpt.integrations.db.* directly."
+        )
+    finally:
+        sys.modules.update(saved)
 
     assert db is not None
     assert type(db).__module__.startswith("egpt.integrations.db.sqlite")
@@ -320,6 +469,80 @@ def test_db_from_dict_does_not_touch_the_deprecated_shims():
 def test_db_from_dict_returns_none_for_unknown_type():
     assert db_from_dict({"type": "definitely-not-a-backend"}) is None
     assert db_from_dict({}) is None
+
+
+@pytest.mark.parametrize("key", sorted(set(DB_BACKEND_CLASSES) - set(RECONSTRUCTABLE_DB_CLASSES)))
+def test_db_from_dict_rejects_backends_that_cannot_be_rebuilt(key, caplog):
+    """A backend that cannot be rebuilt is reported as unknown, not dispatched to.
+
+    Dispatching to a backend that inherits ``BaseDb.from_dict`` raises a TypeError naming
+    a table-name keyword, which sends the operator debugging the wrong thing, and for
+    ``in_memory`` it is worse than that: from_dict succeeds and the caller silently gets a
+    live empty db instead of the None that makes it fall back to the AgentOS-level db.
+    """
+    caplog.clear()
+    assert db_from_dict({"type": key, "id": "x"}) is None
+    assert any("cannot be rebuilt from a stored config" in r.message for r in caplog.records), (
+        f"expected a 'cannot be rebuilt' warning naming '{key}', got: "
+        + "; ".join(r.message for r in caplog.records)
+    )
+    assert not any("Unknown database type" in r.message for r in caplog.records), (
+        f"'{key}' is a supported backend, so reporting it as an unknown type misdirects the operator"
+    )
+
+
+@pytest.mark.parametrize("key", sorted(RECONSTRUCTABLE_DB_CLASSES))
+def test_reconstructable_backends_really_define_from_dict(key):
+    """The reconstructable flag must track reality, not intent.
+
+    A backend flagged True that only inherits ``BaseDb.from_dict`` would forward all 18
+    TABLE_SUFFIXES kwargs into an __init__ that does not accept them.
+    """
+    module_name, class_name = RECONSTRUCTABLE_DB_CLASSES[key]
+    try:
+        cls = getattr(importlib.import_module(module_name), class_name)
+    except ImportError as e:
+        pytest.skip(f"optional driver for '{key}' not installed: {e}")
+
+    assert cls.from_dict.__func__ is not BaseDb.from_dict.__func__, (
+        f"{class_name} is flagged reconstructable in _DB_BACKENDS but does not override "
+        "from_dict, so db_from_dict would fail on a table-name kwarg."
+    )
+
+
+def test_clone_preserves_every_non_table_constructor_setting():
+    """A clone must carry over all connection/behaviour state, not just the obvious fields.
+
+    `create_schema` was dropped by both Postgres clones: it defaults to True, so a
+    deployment that set it False because its role lacks CREATE privilege had schema DDL
+    silently re-enabled the moment a config carried a table override. Enumerating the
+    constructor rather than listing fields by hand is what makes this catch the next one.
+    """
+    from egpt.integrations.db.postgres import PostgresDb
+    from egpt.integrations.db.sqlite import SqliteDb
+
+    table_params = set(TABLE_SUFFIXES) | {"table_prefix"}
+    cases = [
+        PostgresDb(db_url="postgresql+psycopg://u:p@h/db", db_schema="custom", create_schema=False),
+        SqliteDb(db_file=":memory:"),
+    ]
+
+    for source in cases:
+        clone = source.clone_with_table_overrides(session_table="cloned_sessions")
+        assert clone is not None
+        assert clone.session_table_name == "cloned_sessions"
+
+        carried = [
+            name
+            for name in inspect.signature(type(source).__init__).parameters
+            if name not in table_params and name not in ("self", "db_engine") and hasattr(source, name)
+        ]
+        dropped = [name for name in carried if getattr(clone, name) != getattr(source, name)]
+        assert not dropped, (
+            f"{type(source).__name__}.clone_with_table_overrides dropped {dropped}; the clone "
+            "must carry over every non-table constructor setting."
+        )
+        assert clone.db_engine is source.db_engine, "clone must share the engine, not open a new pool"
 
 
 def test_default_clone_with_table_overrides_returns_none():
@@ -331,6 +554,36 @@ def test_default_clone_with_table_overrides_returns_none():
     from egpt.integrations.db.in_memory import InMemoryDb
 
     assert InMemoryDb().clone_with_table_overrides(session_table="x") is None
+
+
+def test_no_test_patches_a_deprecated_shim_path():
+    """No test may aim mock.patch at an `egpt.db.<backend>` path.
+
+    A submodule shim is `from <target> import *`, so patching a name on the shim rebinds
+    the shim's own copy while the implementation keeps reading its module globals. The
+    patch silently no-ops -- a patched `create_engine` would let the test open a real
+    connection instead of failing loudly about a bad target. The shim docstrings record
+    this, but prose does not stop anyone re-introducing it, so it gets a check.
+    """
+    tests_root = Path(__file__).resolve().parents[1]
+    pattern = re.compile(
+        r"""["']egpt\.db\.(?:%s)\b""" % "|".join(sorted(_MOVED_PACKAGES)),
+    )
+
+    offenders = []
+    for path in sorted(tests_root.rglob("test_*.py")):
+        if path == Path(__file__).resolve():
+            continue  # this file names the paths on purpose
+        for lineno, line in enumerate(path.read_text().splitlines(), 1):
+            if pattern.search(line):
+                offenders.append(f"{path.relative_to(tests_root)}:{lineno}")
+
+    assert not offenders, (
+        "Tests referencing a deprecated shim path as a string (mock.patch targets patch the "
+        "shim's binding, not the implementation):\n"
+        + "\n".join(offenders)
+        + "\nPoint them at egpt.integrations.db.* instead."
+    )
 
 
 def _iter_core_db_modules():

@@ -14,7 +14,7 @@ Usage:
 """
 
 from egpt.agents.claude import ClaudeAgent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.os import EgptOS
 
 agent = ClaudeAgent(

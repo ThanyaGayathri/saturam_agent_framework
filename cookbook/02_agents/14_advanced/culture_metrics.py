@@ -8,7 +8,7 @@ calls are tracked under the "culture_model" detail key.
 
 from egpt.agent import Agent
 from egpt.culture.manager import CultureManager
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 

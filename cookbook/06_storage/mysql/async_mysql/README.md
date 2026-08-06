@@ -11,7 +11,7 @@ uv pip install sqlalchemy asyncmy
 ## Configuration
 
 ```python
-from egpt.db.mysql import AsyncMySQLDb
+from egpt.integrations.db.mysql import AsyncMySQLDb
 
 db = AsyncMySQLDb(db_url="mysql+asyncmy://username:password@localhost:3306/database")
 ```

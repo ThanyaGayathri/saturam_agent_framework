@@ -18,7 +18,7 @@ or use our script:
 """
 
 from egpt.agent import Agent
-from egpt.db.mongo import MongoDb
+from egpt.integrations.db.mongo import MongoDb
 from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------

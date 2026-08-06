@@ -12,7 +12,7 @@ uv pip install boto3
 
 ```python
 from egpt.agent import Agent
-from egpt.db.dynamodb import DynamoDb
+from egpt.integrations.db.dynamo import DynamoDb
 
 db = DynamoDb(
     region_name="us-east-1"

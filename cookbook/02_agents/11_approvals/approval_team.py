@@ -10,7 +10,7 @@ import time
 
 from egpt.agent import Agent
 from egpt.approval import approval
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.team.team import Team
 from egpt.tools import tool

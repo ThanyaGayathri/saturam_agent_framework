@@ -13,7 +13,7 @@ Usage:
 """
 
 from egpt.agents.langgraph import LangGraphAgent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from langchain_openai import ChatOpenAI
 from langgraph.graph import MessagesState, StateGraph
 
