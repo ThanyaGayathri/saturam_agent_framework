@@ -8,8 +8,8 @@ Run: `uv pip install crawl4ai` to install the dependencies
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.crawl4ai import Crawl4aiTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.crawl4ai import Crawl4aiTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

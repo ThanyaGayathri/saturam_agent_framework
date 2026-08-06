@@ -6,8 +6,8 @@ Demonstrates giphy tools.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.giphy import GiphyTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.giphy import GiphyTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

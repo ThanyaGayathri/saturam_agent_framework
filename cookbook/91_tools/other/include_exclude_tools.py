@@ -8,9 +8,9 @@ Demonstrates include exclude tools.
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.calculator import CalculatorTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.calculator import CalculatorTools
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -30,8 +30,8 @@ Run:
 from os import getenv
 
 from egpt.agent import Agent
+from egpt.integrations.tools.google.sheets import GoogleSheetsTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.google.sheets import GoogleSheetsTools
 
 agent = Agent(
     name="Action Tracker",

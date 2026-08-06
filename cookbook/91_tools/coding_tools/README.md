@@ -30,7 +30,7 @@ Inspired by the Pi coding agent: a small number of composable tools is more powe
 ```python
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIChat
-from egpt.tools.coding import CodingTools
+from egpt.integrations.tools.coding import CodingTools
 
 # Core tools only (default)
 agent = Agent(

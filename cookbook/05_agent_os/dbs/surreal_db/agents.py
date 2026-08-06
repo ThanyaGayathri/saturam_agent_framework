@@ -9,8 +9,8 @@ from textwrap import dedent
 
 from db import db
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.anthropic import Claude
-from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -58,7 +58,7 @@ egpt_assist = Agent(
         - Create a complete, working EGPT Agent that users can run to demonstrate EGPT's capabilities. For example:
         ```python
         from egpt.agent import Agent
-        from egpt.tools.websearch import WebSearchTools
+        from egpt.integrations.tools.websearch import WebSearchTools
 
         agent = Agent(tools=[WebSearchTools()])
 

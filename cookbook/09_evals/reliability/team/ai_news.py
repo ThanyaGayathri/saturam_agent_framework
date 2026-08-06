@@ -9,10 +9,10 @@ from typing import Optional
 
 from egpt.agent import Agent
 from egpt.eval.reliability import ReliabilityEval, ReliabilityResult
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
 from egpt.run.team import TeamRunOutput
 from egpt.team.team import Team
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Team

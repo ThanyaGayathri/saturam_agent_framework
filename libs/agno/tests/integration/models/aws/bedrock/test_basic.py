@@ -275,8 +275,8 @@ def test_count_tokens():
 
 
 def test_count_tokens_with_tools():
+    from egpt.integrations.tools.calculator import CalculatorTools
     from egpt.models.message import Message
-    from egpt.tools.calculator import CalculatorTools
 
     model = AwsBedrock(id="anthropic.claude-3-sonnet-20240229-v1:0")
     messages = [
@@ -313,8 +313,8 @@ async def test_acount_tokens():
 @pytest.mark.asyncio
 async def test_acount_tokens_with_tools():
     """Test async token counting with tools uses the async client."""
+    from egpt.integrations.tools.calculator import CalculatorTools
     from egpt.models.message import Message
-    from egpt.tools.calculator import CalculatorTools
 
     model = AwsBedrock(id="anthropic.claude-3-sonnet-20240229-v1:0")
     messages = [

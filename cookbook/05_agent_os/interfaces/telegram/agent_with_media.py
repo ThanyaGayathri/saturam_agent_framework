@@ -16,11 +16,11 @@ Setup: Set TELEGRAM_TOKEN env var from @BotFather.
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.dalle import DalleTools
+from egpt.integrations.tools.eleven_labs import ElevenLabsTools
 from egpt.models.google import Gemini
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.telegram import Telegram
-from egpt.tools.dalle import DalleTools
-from egpt.tools.eleven_labs import ElevenLabsTools
 
 # ---------------------------------------------------------------------------
 # Create Example

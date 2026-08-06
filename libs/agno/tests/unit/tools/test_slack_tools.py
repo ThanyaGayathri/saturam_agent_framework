@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 import pytest
 from slack_sdk.errors import SlackApiError
 
-from egpt.tools.slack import SlackTools
+from egpt.integrations.tools.slack import SlackTools
 
 
 def _make_slack_tools_with_output_dir(output_dir: str) -> SlackTools:
@@ -18,7 +18,7 @@ def _make_slack_tools_with_output_dir(output_dir: str) -> SlackTools:
 @pytest.fixture
 def slack_tools():
     with patch.dict("os.environ", {"SLACK_TOKEN": "test-token"}):
-        with patch("egpt.tools.slack.WebClient") as mock_web_client:
+        with patch("egpt.integrations.tools.slack.slack.WebClient") as mock_web_client:
             mock_client = Mock()
             mock_web_client.return_value = mock_client
             tools = SlackTools()
@@ -37,7 +37,7 @@ def test_init_requires_token():
 
 def test_init_registers_default_tools():
     with patch.dict("os.environ", {"SLACK_TOKEN": "test"}):
-        with patch("egpt.tools.slack.WebClient"):
+        with patch("egpt.integrations.tools.slack.slack.WebClient"):
             tools = SlackTools()
             names = [f.name for f in tools.functions.values()]
             assert "send_message" in names
@@ -47,14 +47,14 @@ def test_init_registers_default_tools():
 
 def test_init_all_flag_enables_all():
     with patch.dict("os.environ", {"SLACK_TOKEN": "test", "SLACK_USER_TOKEN": "xoxp-user"}):
-        with patch("egpt.tools.slack.WebClient"):
+        with patch("egpt.integrations.tools.slack.slack.WebClient"):
             tools = SlackTools(all=True)
             assert len(tools.functions) == 12
 
 
 def test_init_creates_user_client_when_user_token_provided():
     with patch.dict("os.environ", {"SLACK_TOKEN": "xoxb-bot"}):
-        with patch("egpt.tools.slack.WebClient") as mock_client:
+        with patch("egpt.integrations.tools.slack.slack.WebClient") as mock_client:
             tools = SlackTools(user_token="xoxp-user")
             assert mock_client.call_count == 2
             assert tools._user_token == "xoxp-user"
@@ -63,7 +63,7 @@ def test_init_creates_user_client_when_user_token_provided():
 
 def test_init_reads_user_token_from_env():
     with patch.dict("os.environ", {"SLACK_TOKEN": "xoxb-bot", "SLACK_USER_TOKEN": "xoxp-env"}):
-        with patch("egpt.tools.slack.WebClient") as mock_client:
+        with patch("egpt.integrations.tools.slack.slack.WebClient") as mock_client:
             tools = SlackTools()
             assert mock_client.call_count == 2
             assert tools._user_token == "xoxp-env"
@@ -71,7 +71,7 @@ def test_init_reads_user_token_from_env():
 
 def test_init_no_user_client_without_user_token():
     with patch.dict("os.environ", {"SLACK_TOKEN": "xoxb-bot"}, clear=True):
-        with patch("egpt.tools.slack.WebClient") as mock_client:
+        with patch("egpt.integrations.tools.slack.slack.WebClient") as mock_client:
             tools = SlackTools()
             assert mock_client.call_count == 1
             assert tools._user_client is None
@@ -79,8 +79,8 @@ def test_init_no_user_client_without_user_token():
 
 def test_search_messages_disabled_without_user_token():
     with patch.dict("os.environ", {"SLACK_TOKEN": "xoxb-bot"}, clear=True):
-        with patch("egpt.tools.slack.WebClient"):
-            with patch("egpt.tools.slack.log_warning") as mock_warn:
+        with patch("egpt.integrations.tools.slack.slack.WebClient"):
+            with patch("egpt.integrations.tools.slack.slack.log_warning") as mock_warn:
                 tools = SlackTools(enable_search_messages=True)
                 assert "search_messages" not in tools.functions
                 mock_warn.assert_called_once()
@@ -88,7 +88,7 @@ def test_search_messages_disabled_without_user_token():
 
 def test_explicit_flags_expose_expected_surfaces():
     with patch.dict("os.environ", {"SLACK_TOKEN": "test"}):
-        with patch("egpt.tools.slack.WebClient"):
+        with patch("egpt.integrations.tools.slack.slack.WebClient"):
             read = SlackTools(
                 enable_send_message=False,
                 enable_send_message_thread=False,
@@ -213,7 +213,7 @@ def test_download_file_saves_to_disk(slack_tools, tmp_path):
     slack_tools.client.files_info.return_value = {
         "file": {"id": "F1", "name": "f.txt", "size": 10, "url_private": "https://files.slack.com/f.txt"}
     }
-    with patch("egpt.tools.slack.httpx.get") as mock_get:
+    with patch("egpt.integrations.tools.slack.slack.httpx.get") as mock_get:
         mock_get.return_value.content = b"data"
         mock_get.return_value.raise_for_status = Mock()
         result = slack_tools.download_file("F1")
@@ -250,7 +250,7 @@ def test_download_file_dest_path_traversal_falls_back_to_base64(slack_tools, tmp
     slack_tools.client.files_info.return_value = {
         "file": {"id": "F1", "name": "f.txt", "size": 4, "url_private": "https://files.slack.com/f.txt"}
     }
-    with patch("egpt.tools.slack.httpx.get") as mock_get:
+    with patch("egpt.integrations.tools.slack.slack.httpx.get") as mock_get:
         mock_get.return_value.content = b"data"
         mock_get.return_value.raise_for_status = Mock()
         result = slack_tools.download_file("F1", dest_path="../../escape.bin")
@@ -268,7 +268,7 @@ def test_download_file_dest_path_subdir_lands_inside_output_directory(slack_tool
         "file": {"id": "F1", "name": "f.txt", "size": 4, "url_private": "https://files.slack.com/f.txt"}
     }
     (tmp_path / "subdir").mkdir()
-    with patch("egpt.tools.slack.httpx.get") as mock_get:
+    with patch("egpt.integrations.tools.slack.slack.httpx.get") as mock_get:
         mock_get.return_value.content = b"data"
         mock_get.return_value.raise_for_status = Mock()
         result = slack_tools.download_file("F1", dest_path="subdir/foo.bin")
@@ -357,7 +357,7 @@ def test_get_channel_info(slack_tools):
 
 def test_search_workspace_no_action_token():
     with patch.dict("os.environ", {"SLACK_TOKEN": "test"}):
-        with patch("egpt.tools.slack.WebClient"):
+        with patch("egpt.integrations.tools.slack.slack.WebClient"):
             tools = SlackTools(enable_search_workspace=True)
             # No action_token in metadata
             ctx = Mock()
@@ -369,7 +369,7 @@ def test_search_workspace_no_action_token():
 
 def test_search_workspace_no_run_context():
     with patch.dict("os.environ", {"SLACK_TOKEN": "test"}):
-        with patch("egpt.tools.slack.WebClient"):
+        with patch("egpt.integrations.tools.slack.slack.WebClient"):
             tools = SlackTools(enable_search_workspace=True)
             result = json.loads(tools.search_workspace(None, "test query"))
             assert "error" in result
@@ -377,7 +377,7 @@ def test_search_workspace_no_run_context():
 
 def test_search_workspace_success():
     with patch.dict("os.environ", {"SLACK_TOKEN": "test"}):
-        with patch("egpt.tools.slack.WebClient") as mock_cls:
+        with patch("egpt.integrations.tools.slack.slack.WebClient") as mock_cls:
             mock_client = Mock()
             mock_cls.return_value = mock_client
             mock_client.api_call.return_value = {
@@ -443,7 +443,7 @@ def test_search_workspace_success():
 
 def test_search_workspace_api_error():
     with patch.dict("os.environ", {"SLACK_TOKEN": "test"}):
-        with patch("egpt.tools.slack.WebClient") as mock_cls:
+        with patch("egpt.integrations.tools.slack.slack.WebClient") as mock_cls:
             mock_client = Mock()
             mock_cls.return_value = mock_client
             mock_client.api_call.return_value = {"ok": False, "error": "not_allowed_token_type"}

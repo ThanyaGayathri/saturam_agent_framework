@@ -7,8 +7,8 @@ The agent can create files and read their contents using the local file system.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.local_file_system import LocalFileSystemTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.local_file_system import LocalFileSystemTools
 
 # ---------------------------------------------------------------------------
 # Create Agents

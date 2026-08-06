@@ -1,8 +1,8 @@
 """Run `uv pip install ddgs` to install dependencies."""
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.ollama import Ollama
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

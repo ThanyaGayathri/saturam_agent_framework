@@ -26,8 +26,8 @@ Usage:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.antigravity import AntigravityTools
 from egpt.models.google import Gemini
-from egpt.tools.antigravity import AntigravityTools
 
 agent = Agent(
     name="Antigravity Admin",

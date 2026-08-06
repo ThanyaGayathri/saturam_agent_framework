@@ -6,8 +6,8 @@ Demonstrates fal tools.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.fal import FalTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.fal import FalTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

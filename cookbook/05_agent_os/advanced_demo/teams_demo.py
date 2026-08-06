@@ -7,14 +7,14 @@ Demonstrates teams demo.
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.exa import ExaTools
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.anthropic import Claude
 from egpt.models.google.gemini import Gemini
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team
-from egpt.tools.exa import ExaTools
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Example

@@ -2,13 +2,13 @@
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team import Team
 from egpt.tools.knowledge import KnowledgeTools
 from egpt.tools.reasoning import ReasoningTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.vectordb.lancedb import LanceDb, SearchType
 
 # ---------------------------------------------------------------------------

@@ -80,8 +80,8 @@ class ParallelMCPBackend(ContextBackend):
     def _build_tools(self) -> Any:
         from datetime import timedelta
 
-        from egpt.tools.mcp import MCPTools
-        from egpt.tools.mcp.params import StreamableHTTPClientParams
+        from egpt.integrations.tools.mcp import MCPTools
+        from egpt.integrations.tools.mcp.params import StreamableHTTPClientParams
 
         headers: dict[str, Any] = {"User-Agent": f"{PRODUCT_NAME.lower()}/{__version__}"}
         if self.api_key:

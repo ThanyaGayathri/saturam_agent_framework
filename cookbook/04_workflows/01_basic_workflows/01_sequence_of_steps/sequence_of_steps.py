@@ -11,11 +11,11 @@ from typing import AsyncIterator
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
 from egpt.run.workflow import WorkflowRunEvent, WorkflowRunOutputEvent
 from egpt.team import Team
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput
 from egpt.workflow.workflow import Workflow

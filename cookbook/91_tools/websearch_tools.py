@@ -6,7 +6,7 @@ Demonstrates websearch tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

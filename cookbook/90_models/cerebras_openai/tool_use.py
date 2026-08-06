@@ -8,8 +8,8 @@ Cookbook example for `cerebras_openai/tool_use.py`.
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.cerebras import CerebrasOpenAI
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

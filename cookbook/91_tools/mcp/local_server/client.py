@@ -8,8 +8,8 @@ Demonstrates client.
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.groq import Groq
-from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

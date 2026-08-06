@@ -6,9 +6,9 @@ Demonstrates capturing typed team responses as variables for downstream logic.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team, TeamMode
-from egpt.tools.yfinance import YFinanceTools
 from egpt.utils.pprint import pprint_run_response
 from pydantic import BaseModel
 

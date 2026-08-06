@@ -2,8 +2,8 @@ import pytest
 
 from egpt.agent.agent import Agent
 from egpt.integrations.models.openai import OpenAIChat
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.run.agent import RunEvent
-from egpt.tools.yfinance import YFinanceTools
 
 
 def test_tool_use_tool_call_limit():

@@ -6,7 +6,7 @@ Demonstrates jinareader tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.jina import JinaReaderTools
+from egpt.integrations.tools.jina import JinaReaderTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

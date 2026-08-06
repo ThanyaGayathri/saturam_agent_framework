@@ -6,8 +6,8 @@ Cookbook example for `ollama/chat/demo_qwen.py`.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.ollama import Ollama
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

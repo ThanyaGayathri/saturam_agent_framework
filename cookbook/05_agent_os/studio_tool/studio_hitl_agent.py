@@ -26,13 +26,13 @@ from typing import List
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.calculator import CalculatorTools
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
+from egpt.integrations.tools.hackernews import HackerNewsTools
 from egpt.models.anthropic import Claude
 from egpt.models.openai import OpenAIResponses
 from egpt.registry import Registry
-from egpt.tools.calculator import CalculatorTools
-from egpt.tools.duckduckgo import DuckDuckGoTools
 from egpt.tools.function import UserInputField
-from egpt.tools.hackernews import HackerNewsTools
 from egpt.tools.studio import StudioTools
 from egpt.tools.user_control_flow import UserControlFlowTools
 from egpt.tools.user_feedback import UserFeedbackTools

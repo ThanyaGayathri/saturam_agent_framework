@@ -6,7 +6,7 @@ Demonstrates notion tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.notion import NotionTools
+from egpt.integrations.tools.notion import NotionTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

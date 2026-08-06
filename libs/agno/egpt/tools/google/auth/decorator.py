@@ -1,39 +1,19 @@
-import json
-from functools import wraps
+"""Deprecated compatibility shim (EGPT-1.7).
 
-from egpt.utils.log import log_error
+Import from ``egpt.integrations.tools.google.auth.decorator`` instead; this module will be removed.
 
+The star-import keeps ``from egpt.tools.google.auth.decorator import *`` and plain attribute access working on the
+legacy dotted path. ``mock.patch`` against this module patches the shim's binding rather
+than the implementation -- patch the target path instead.
+"""
 
-def google_authenticate(service_name: str):
-    """Shared auth decorator for all Google toolkits.
+import warnings as _warnings
 
-    Each toolkit creates a module-level alias:
-        authenticate = google_authenticate("gmail")
+from egpt.integrations.tools.google.auth.decorator import *  # noqa: F401,F403
 
-    Expects the toolkit class to define:
-        - self.creds: Google OAuth credentials
-        - self._service: Built API client (set by _build_service)
-        - self._resolve_creds(): Loads or refreshes credentials
-        - self._build_service(creds): Returns build(api_name, api_version, credentials=creds)
-    """
-
-    def decorator(func):
-        @wraps(func)
-        def wrapper(self, *args, **kwargs):
-            if not self.creds or not self.creds.valid:
-                try:
-                    self.creds = self._resolve_creds()
-                except Exception as e:
-                    log_error(f"{service_name.title()} authentication failed: {e}")
-                    return json.dumps({"error": f"{service_name.title()} authentication failed: {e}"})
-            if not self._service:
-                try:
-                    self._service = self._build_service(self.creds)
-                except Exception as e:
-                    log_error(f"{service_name.title()} service initialization failed: {e}")
-                    return json.dumps({"error": f"{service_name.title()} service initialization failed: {e}"})
-            return func(self, *args, **kwargs)
-
-        return wrapper
-
-    return decorator
+_warnings.warn(
+    "egpt.tools.google.auth.decorator is deprecated; import from egpt.integrations.tools.google.auth.decorator instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

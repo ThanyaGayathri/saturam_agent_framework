@@ -13,8 +13,8 @@ Usage:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.todoist import TodoistTools
 from egpt.models.google.gemini import Gemini
-from egpt.tools.todoist import TodoistTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

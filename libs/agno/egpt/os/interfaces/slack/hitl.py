@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from slack_sdk.web.async_client import AsyncWebClient
 
 from egpt.agent import Agent, RemoteAgent
+from egpt.integrations.tools.slack import SlackTools
 from egpt.os.interfaces.slack.builders import (
     append_submit_if_needed,
     build_admin_approval_status_card,
@@ -29,7 +30,6 @@ from egpt.os.interfaces.slack.state import StreamState, TaskStatus
 from egpt.os.interfaces.slack.types import SubmitContext, tool_args, tool_name, truncate
 from egpt.run.approval import aresolve_approval
 from egpt.team import RemoteTeam, Team
-from egpt.tools.slack import SlackTools
 from egpt.utils.log import log_error, log_info
 from egpt.workflow import RemoteWorkflow, Workflow
 

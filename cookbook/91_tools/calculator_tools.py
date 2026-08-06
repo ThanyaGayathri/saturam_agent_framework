@@ -6,7 +6,7 @@ Demonstrates calculator tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.calculator import CalculatorTools
+from egpt.integrations.tools.calculator import CalculatorTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -16,8 +16,8 @@ Prerequisites:
 """
 
 from egpt.agent import Agent
-from egpt.tools.crawl4ai import Crawl4aiTools
-from egpt.tools.google.maps import GoogleMapTools
+from egpt.integrations.tools.crawl4ai import Crawl4aiTools
+from egpt.integrations.tools.google.maps import GoogleMapTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

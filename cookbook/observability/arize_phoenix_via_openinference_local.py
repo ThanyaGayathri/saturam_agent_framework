@@ -8,8 +8,8 @@ Demonstrates instrumenting an EGPT agent and sending traces to a local Phoenix i
 import os
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.yfinance import YFinanceTools
 from phoenix.otel import register
 
 # ---------------------------------------------------------------------------

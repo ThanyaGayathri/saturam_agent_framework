@@ -17,9 +17,9 @@ import sys
 from os import getenv
 
 from egpt.agent import Agent
+from egpt.integrations.tools.models.azure_openai import AzureOpenAITools
 from egpt.models.azure import AzureOpenAI
 from egpt.models.openai import OpenAIChat
-from egpt.tools.models.azure_openai import AzureOpenAITools
 
 # ---------------------------------------------------------------------------
 # Create Agent

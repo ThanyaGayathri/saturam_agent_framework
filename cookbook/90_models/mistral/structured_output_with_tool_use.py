@@ -6,8 +6,8 @@ Cookbook example for `mistral/structured_output_with_tool_use.py`.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.mistral import MistralChat
-from egpt.tools.websearch import WebSearchTools
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------

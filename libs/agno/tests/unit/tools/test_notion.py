@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from egpt.tools.notion import NotionTools
+from egpt.integrations.tools.notion import NotionTools
 
 
 @pytest.fixture(autouse=True)

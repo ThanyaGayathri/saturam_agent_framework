@@ -11,8 +11,8 @@ export MEM0_PROJECT_ID=<your-mem0-project-id> (Optional)
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mem0 import Mem0Tools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.mem0 import Mem0Tools
 
 # ---------------------------------------------------------------------------
 # Create Agent

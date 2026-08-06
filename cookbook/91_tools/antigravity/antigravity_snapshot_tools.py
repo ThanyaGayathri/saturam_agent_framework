@@ -23,8 +23,8 @@ import tarfile
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.antigravity import AntigravityTools
 from egpt.models.google import Gemini
-from egpt.tools.antigravity import AntigravityTools
 
 OUT_PATH = Path("tmp/antigravity_snapshot_from_tools.tar")
 OUT_PATH.parent.mkdir(parents=True, exist_ok=True)

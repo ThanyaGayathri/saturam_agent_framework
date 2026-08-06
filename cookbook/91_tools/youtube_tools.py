@@ -6,7 +6,7 @@ Demonstrates youtube tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.youtube import YouTubeTools
+from egpt.integrations.tools.youtube import YouTubeTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -8,7 +8,7 @@ Set SOFYA_API_KEY in your environment. Get a key at https://sofya.co
 """
 
 from egpt.agent import Agent
-from egpt.tools.sofya import SofyaTools
+from egpt.integrations.tools.sofya import SofyaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

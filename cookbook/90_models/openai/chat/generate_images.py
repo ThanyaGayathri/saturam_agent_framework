@@ -6,8 +6,8 @@ Cookbook example for `openai/chat/generate_images.py`.
 """
 
 from egpt.agent import Agent, RunOutput
+from egpt.integrations.tools.dalle import DalleTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.dalle import DalleTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

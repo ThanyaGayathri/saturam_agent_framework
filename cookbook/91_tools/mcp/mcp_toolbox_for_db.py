@@ -4,7 +4,7 @@ import asyncio
 from textwrap import dedent
 
 from egpt.agent import Agent
-from egpt.tools.mcp_toolbox import MCPToolbox
+from egpt.integrations.tools.mcp_toolbox import MCPToolbox
 
 # ---------------------------------------------------------------------------
 # Create Agent

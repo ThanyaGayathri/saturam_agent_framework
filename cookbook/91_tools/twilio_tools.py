@@ -6,8 +6,8 @@ Demonstrates twilio tools.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.twilio import TwilioTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.twilio import TwilioTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

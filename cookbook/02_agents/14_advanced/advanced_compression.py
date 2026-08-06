@@ -8,8 +8,8 @@ This example shows how to set a context token based limit for tool call compress
 from egpt.agent import Agent
 from egpt.compression.manager import CompressionManager
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.websearch import WebSearchTools
 
 compression_prompt = """
     You are a compression expert. Your goal is to compress web search results for a competitive intelligence analyst.

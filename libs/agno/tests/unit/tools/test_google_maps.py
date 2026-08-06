@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from egpt.tools.google.maps import GoogleMapTools
+from egpt.integrations.tools.google.maps import GoogleMapTools
 
 # Mock responses
 MOCK_PLACES_RESPONSE = {

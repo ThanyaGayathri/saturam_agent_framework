@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from egpt.context.provider import Status
 
 if TYPE_CHECKING:
-    from egpt.tools.google.auth import AuthConfig
+    from egpt.integrations.tools.google.auth import AuthConfig
 
 
 def validate_google_credentials(
@@ -71,7 +71,7 @@ def _check_db_token(
     required_scopes: list[str] | None = None,
 ) -> Status | None:
     """Check for valid token in DB. Returns Status if found, None to fall back to file."""
-    from egpt.tools.google.auth.tokens import load_token_from_db
+    from egpt.integrations.tools.google.auth.tokens import load_token_from_db
 
     row, creds = load_token_from_db(auth.db, auth.token_encryption_key)
     if not row or not creds:

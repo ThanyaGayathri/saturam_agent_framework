@@ -6,13 +6,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 from atlassian import Confluence
 
-from egpt.tools.confluence import ConfluenceTools
+from egpt.integrations.tools.confluence import ConfluenceTools
 
 
 @pytest.fixture
 def mock_confluence():
     """Create a mock Confluence client."""
-    with patch("egpt.tools.confluence.Confluence") as mock_confluence_class:
+    with patch("egpt.integrations.tools.confluence.confluence.Confluence") as mock_confluence_class:
         mock_client = MagicMock(spec=Confluence)
         mock_client.get_all_spaces.return_value = {"results": []}
         mock_confluence_class.return_value = mock_client
@@ -49,7 +49,7 @@ def test_init_with_environment_variables():
                 "CONFLUENCE_API_KEY": "test_api_key",
             },
         ),
-        patch("egpt.tools.confluence.Confluence") as mock_confluence_class,
+        patch("egpt.integrations.tools.confluence.confluence.Confluence") as mock_confluence_class,
     ):
         mock_client = MagicMock(spec=Confluence)
         mock_client.get_all_spaces.return_value = {"results": []}

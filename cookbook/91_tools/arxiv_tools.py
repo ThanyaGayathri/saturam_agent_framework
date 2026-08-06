@@ -9,7 +9,7 @@ Run: `uv pip install arxiv` to install the dependencies
 """
 
 from egpt.agent import Agent
-from egpt.tools.arxiv import ArxivTools
+from egpt.integrations.tools.arxiv import ArxivTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

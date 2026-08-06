@@ -6,7 +6,7 @@ Demonstrates searxng tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.searxng import SearxngTools
+from egpt.integrations.tools.searxng import SearxngTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

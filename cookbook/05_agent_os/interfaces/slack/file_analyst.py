@@ -17,10 +17,10 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history,
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.slack import SlackTools
 from egpt.models.anthropic import Claude
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
-from egpt.tools.slack import SlackTools
 
 # ---------------------------------------------------------------------------
 # Create Example

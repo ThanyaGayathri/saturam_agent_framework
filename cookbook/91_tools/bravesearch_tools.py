@@ -6,7 +6,7 @@ Demonstrates bravesearch tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.bravesearch import BraveSearchTools
+from egpt.integrations.tools.bravesearch import BraveSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

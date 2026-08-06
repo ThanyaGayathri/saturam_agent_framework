@@ -46,8 +46,8 @@ from egpt.context._utils import answer_from_run
 from egpt.context.google import validate_google_credentials
 from egpt.context.mode import ContextMode
 from egpt.context.provider import Answer, ContextProvider, Status
+from egpt.integrations.tools.google.drive import GoogleDriveTools
 from egpt.run import RunContext
-from egpt.tools.google.drive import GoogleDriveTools
 
 if TYPE_CHECKING:
     from egpt.models.base import Model

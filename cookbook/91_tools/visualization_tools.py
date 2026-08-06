@@ -8,8 +8,8 @@ Run: `uv pip install matplotlib` to install the dependencies
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.visualization import VisualizationTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.visualization import VisualizationTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

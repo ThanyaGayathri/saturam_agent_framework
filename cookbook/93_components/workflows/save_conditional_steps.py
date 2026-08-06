@@ -8,9 +8,9 @@ database, and loading it back with a Registry.
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.registry import Registry
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.condition import Condition
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput

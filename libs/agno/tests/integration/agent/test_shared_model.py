@@ -14,7 +14,7 @@ def shared_model():
 @pytest.fixture
 def web_agent(shared_model):
     """Create a web agent for testing."""
-    from egpt.tools.websearch import WebSearchTools
+    from egpt.integrations.tools.websearch import WebSearchTools
 
     return Agent(
         name="Web Agent",
@@ -27,7 +27,7 @@ def web_agent(shared_model):
 @pytest.fixture
 def finance_agent(shared_model):
     """Create a finance agent for testing."""
-    from egpt.tools.yfinance import YFinanceTools
+    from egpt.integrations.tools.yfinance import YFinanceTools
 
     return Agent(
         name="Finance Agent",

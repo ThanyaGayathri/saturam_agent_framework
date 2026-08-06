@@ -6,7 +6,7 @@ Demonstrates exa tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.exa import ExaTools
+from egpt.integrations.tools.exa import ExaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

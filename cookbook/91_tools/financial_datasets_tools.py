@@ -9,7 +9,7 @@ Prerequisites:
 """
 
 from egpt.agent import Agent
-from egpt.tools.financial_datasets import FinancialDatasetsTools
+from egpt.integrations.tools.financial_datasets import FinancialDatasetsTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -3,8 +3,8 @@
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.duckdb import DuckDbTools
 from egpt.models.langdb import LangDB
-from egpt.tools.duckdb import DuckDbTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

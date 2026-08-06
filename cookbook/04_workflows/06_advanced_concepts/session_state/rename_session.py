@@ -7,8 +7,8 @@ Demonstrates auto-generating a workflow session name after a run.
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.step import Step
 from egpt.workflow.steps import Steps
 from egpt.workflow.workflow import Workflow

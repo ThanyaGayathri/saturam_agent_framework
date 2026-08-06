@@ -7,6 +7,7 @@ Demonstrates workflow with steps.
 
 from egpt.agent.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai.chat import OpenAIChat
 
 # ---------------------------------------------------------------------------
@@ -14,7 +15,6 @@ from egpt.models.openai.chat import OpenAIChat
 # ---------------------------------------------------------------------------
 # Import the workflows
 from egpt.os import EgptOS
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.step import Step
 from egpt.workflow.steps import Steps
 from egpt.workflow.workflow import Workflow

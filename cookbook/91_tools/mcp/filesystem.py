@@ -20,8 +20,8 @@ from pathlib import Path
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

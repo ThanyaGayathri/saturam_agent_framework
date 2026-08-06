@@ -6,8 +6,8 @@ Demonstrates stopping the workflow from within a step running inside a `Parallel
 """
 
 from egpt.agent import Agent
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.workflow import Step, Workflow
 from egpt.workflow.parallel import Parallel
 from egpt.workflow.types import StepInput, StepOutput

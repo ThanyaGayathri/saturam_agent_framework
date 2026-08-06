@@ -21,8 +21,8 @@ Example prompt:
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.coding import CodingTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.coding import CodingTools
 
 # ---------------------------------------------------------------------------
 # Workspace

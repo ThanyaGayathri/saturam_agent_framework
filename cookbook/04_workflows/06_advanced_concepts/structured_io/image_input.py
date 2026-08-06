@@ -7,9 +7,9 @@ Demonstrates passing image media into workflow runs and chaining analysis with f
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import Image
 from egpt.models.openai import OpenAIChat
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
 

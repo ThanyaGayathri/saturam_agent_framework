@@ -190,8 +190,8 @@ def test_count_tokens():
 
 
 def test_count_tokens_with_tools():
+    from egpt.integrations.tools.calculator import CalculatorTools
     from egpt.models.message import Message
-    from egpt.tools.calculator import CalculatorTools
 
     model = LiteLLM(id="gpt-4o")
     messages = [

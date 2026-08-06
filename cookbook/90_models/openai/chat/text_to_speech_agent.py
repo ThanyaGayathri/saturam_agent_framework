@@ -9,8 +9,8 @@ import base64
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.openai import OpenAITools
 from egpt.models.google import Gemini
-from egpt.tools.openai import OpenAITools
 from egpt.utils.media import save_base64_data
 
 # ---------------------------------------------------------------------------

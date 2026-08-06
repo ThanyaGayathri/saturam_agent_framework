@@ -27,7 +27,7 @@ GitHub Authentication Setup Guide
 """
 
 from egpt.agent import Agent
-from egpt.tools.github import GithubTools
+from egpt.integrations.tools.github import GithubTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

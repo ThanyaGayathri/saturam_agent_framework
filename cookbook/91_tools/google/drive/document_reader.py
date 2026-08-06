@@ -18,8 +18,8 @@ Setup:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.google.drive import GoogleDriveTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.google.drive import GoogleDriveTools
 
 # 50 MB — allow reading larger non-Workspace files (default is 10 MB)
 MAX_READ_SIZE = 50 * 1024 * 1024

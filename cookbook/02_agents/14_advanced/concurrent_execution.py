@@ -8,8 +8,8 @@ Concurrent Agent Execution with asyncio.gather.
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.duckduckgo import DuckDuckGoTools
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

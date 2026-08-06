@@ -5,9 +5,9 @@ from uuid import UUID
 import pytest
 
 from egpt.agent import Agent
+from egpt.integrations.tools.models.nebius import NebiusTools
 from egpt.media import Image
 from egpt.tools.function import ToolResult
-from egpt.tools.models.nebius import NebiusTools
 
 
 # Fixture for mock agent
@@ -27,7 +27,7 @@ def mock_client():
 # Fixture for mock NebiusTools with mock client
 @pytest.fixture
 def mock_nebius_tools(mock_client):
-    with patch("egpt.tools.models.nebius.Nebius") as mock_nebius:
+    with patch("egpt.integrations.tools.models.nebius.Nebius") as mock_nebius:
         mock_nebius_instance = MagicMock()
         mock_nebius_instance.get_client.return_value = mock_client
         mock_nebius.return_value = mock_nebius_instance
@@ -60,7 +60,7 @@ def test_nebius_tools_init_with_api_key_arg():
     """Test initialization with API key provided as an argument."""
     api_key = "test_api_key_arg"
 
-    with patch("egpt.tools.models.nebius.Nebius") as mock_nebius_cls:
+    with patch("egpt.integrations.tools.models.nebius.Nebius") as mock_nebius_cls:
         mock_nebius_instance = MagicMock()
         mock_client_instance = MagicMock()
         mock_nebius_instance.get_client.return_value = mock_client_instance
@@ -81,8 +81,8 @@ def test_nebius_tools_init_with_env_var():
             return env_api_key
         return None
 
-    with patch("egpt.tools.models.nebius.getenv", side_effect=mock_getenv_side_effect) as mock_getenv:
-        with patch("egpt.tools.models.nebius.Nebius") as mock_nebius_cls:
+    with patch("egpt.integrations.tools.models.nebius.getenv", side_effect=mock_getenv_side_effect) as mock_getenv:
+        with patch("egpt.integrations.tools.models.nebius.Nebius") as mock_nebius_cls:
             mock_nebius_instance = MagicMock()
             mock_client_instance = MagicMock()
             mock_nebius_instance.get_client.return_value = mock_client_instance
@@ -101,7 +101,7 @@ def test_nebius_tools_init_no_api_key():
     def mock_getenv_side_effect(var_name):
         return None
 
-    with patch("egpt.tools.models.nebius.getenv", side_effect=mock_getenv_side_effect) as mock_getenv:
+    with patch("egpt.integrations.tools.models.nebius.getenv", side_effect=mock_getenv_side_effect) as mock_getenv:
         with pytest.raises(ValueError, match="NEBIUS_API_KEY not set"):
             NebiusTools()
 
@@ -111,7 +111,7 @@ def test_nebius_tools_init_no_api_key():
 # Test _get_client method
 def test_get_client_lazy_initialization():
     """Test that client is lazily initialized."""
-    with patch("egpt.tools.models.nebius.Nebius") as mock_nebius_cls:
+    with patch("egpt.integrations.tools.models.nebius.Nebius") as mock_nebius_cls:
         mock_nebius_instance = MagicMock()
         mock_client = MagicMock()
         mock_nebius_instance.get_client.return_value = mock_client
@@ -136,7 +136,9 @@ def test_generate_image_success(mock_nebius_tools, mock_agent, mock_successful_r
     mock_client = mock_nebius_tools._get_client()
     mock_client.images.generate.return_value = mock_successful_response
 
-    with patch("egpt.tools.models.nebius.uuid4", return_value=UUID("12345678-1234-5678-1234-567812345678")):
+    with patch(
+        "egpt.integrations.tools.models.nebius.uuid4", return_value=UUID("12345678-1234-5678-1234-567812345678")
+    ):
         prompt = "A picture of a cat"
 
         result = mock_nebius_tools.generate_image(mock_agent, prompt)
@@ -204,7 +206,7 @@ def test_generate_image_api_error(mock_nebius_tools, mock_agent):
 # Test with different image parameters
 def test_generate_image_with_custom_params():
     """Test image generation with custom parameters."""
-    with patch("egpt.tools.models.nebius.Nebius") as mock_nebius_cls:
+    with patch("egpt.integrations.tools.models.nebius.Nebius") as mock_nebius_cls:
         mock_nebius_instance = MagicMock()
         mock_client = MagicMock()
         mock_data = MagicMock()
@@ -233,7 +235,9 @@ def test_generate_image_with_custom_params():
         mock_agent = MagicMock(spec=Agent)
         prompt = "A picture of a dog"
 
-        with patch("egpt.tools.models.nebius.uuid4", return_value=UUID("12345678-1234-5678-1234-567812345678")):
+        with patch(
+            "egpt.integrations.tools.models.nebius.uuid4", return_value=UUID("12345678-1234-5678-1234-567812345678")
+        ):
             result = nebius_tools.generate_image(mock_agent, prompt)
 
             # Check that it returns a ToolResult

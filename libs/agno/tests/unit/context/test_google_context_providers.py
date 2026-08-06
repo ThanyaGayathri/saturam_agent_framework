@@ -7,7 +7,7 @@ import pytest
 from egpt.context.calendar import GoogleCalendarContextProvider
 from egpt.context.gmail import GmailContextProvider
 from egpt.context.mode import ContextMode
-from egpt.tools.google.auth import AuthConfig
+from egpt.integrations.tools.google.auth import AuthConfig
 
 DEFAULT_GOOGLE_API_TIMEOUT = 120.0
 

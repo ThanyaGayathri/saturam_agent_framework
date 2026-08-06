@@ -16,7 +16,7 @@ Usage:
 """
 
 from egpt.agent import Agent
-from egpt.tools.openweather import OpenWeatherTools
+from egpt.integrations.tools.openweather import OpenWeatherTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

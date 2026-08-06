@@ -8,9 +8,9 @@ Demonstrates sync and async streaming responses from a team.
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
-from egpt.tools.yfinance import YFinanceTools
 from egpt.utils.pprint import apprint_run_response
 
 # ---------------------------------------------------------------------------

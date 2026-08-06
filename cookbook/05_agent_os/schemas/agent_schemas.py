@@ -9,9 +9,9 @@ from typing import List
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.hackernews import HackerNewsTools
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
-from egpt.tools.hackernews import HackerNewsTools
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

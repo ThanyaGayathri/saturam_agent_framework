@@ -84,7 +84,7 @@ instructions = dedent(
         Example:
         ```python
         from egpt.agent import Agent
-        from egpt.tools.websearch import WebSearchTools
+        from egpt.integrations.tools.websearch import WebSearchTools
 
         agent = Agent(tools=[WebSearchTools()])
 

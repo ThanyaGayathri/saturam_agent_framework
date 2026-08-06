@@ -9,8 +9,8 @@ import asyncio
 from typing import List
 
 from egpt.agent import Agent, RunOutput  # noqa
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.mistral import MistralChat
-from egpt.tools.websearch import WebSearchTools
 from pydantic import BaseModel, Field
 from rich.pretty import pprint  # noqa
 

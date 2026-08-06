@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from egpt.tools.calculator import CalculatorTools
+from egpt.integrations.tools.calculator import CalculatorTools
 
 
 @pytest.fixture
@@ -239,7 +239,7 @@ def test_basic_calculator_has_only_basic_operations(basic_calculator_tools):
 
 def test_error_logging(calculator_tools):
     """Test that errors are properly logged."""
-    with patch("egpt.tools.calculator.log_error") as mock_log_error:
+    with patch("egpt.integrations.tools.calculator.calculator.log_error") as mock_log_error:
         calculator_tools.divide(5, 0)
         mock_log_error.assert_called_once_with("Attempt to divide by zero")
 

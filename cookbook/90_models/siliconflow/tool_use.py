@@ -1,8 +1,8 @@
 """Run `uv pip install duckduckgo-search` to install dependencies."""
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.siliconflow import Siliconflow
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

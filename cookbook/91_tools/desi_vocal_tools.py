@@ -3,8 +3,8 @@ uv pip install requests
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.desi_vocal import DesiVocalTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.desi_vocal import DesiVocalTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

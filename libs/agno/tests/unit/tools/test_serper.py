@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from egpt.tools.serper import SerperTools
+from egpt.integrations.tools.serper import SerperTools
 
 
 @pytest.fixture(autouse=True)

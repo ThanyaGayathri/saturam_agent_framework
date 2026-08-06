@@ -5,13 +5,13 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from egpt.tools.unsplash import UnsplashTools
+from egpt.integrations.tools.unsplash import UnsplashTools
 
 
 @pytest.fixture
 def mock_urlopen():
     """Create a mock urlopen."""
-    with patch("egpt.tools.unsplash.urlopen") as mock:
+    with patch("egpt.integrations.tools.unsplash.unsplash.urlopen") as mock:
         yield mock
 
 
@@ -99,7 +99,7 @@ class TestUnsplashToolsInit:
     def test_init_without_api_key_logs_warning(self):
         """Test initialization without API key logs a warning."""
         with patch.dict("os.environ", {}, clear=True):
-            with patch("egpt.tools.unsplash.logger") as mock_logger:
+            with patch("egpt.integrations.tools.unsplash.unsplash.logger") as mock_logger:
                 # Remove UNSPLASH_ACCESS_KEY if present
                 import os
 

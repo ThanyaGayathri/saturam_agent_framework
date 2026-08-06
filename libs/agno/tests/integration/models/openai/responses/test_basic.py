@@ -275,8 +275,8 @@ def test_count_tokens(openai_responses_model):
 
 
 def test_count_tokens_with_tools(openai_responses_model):
+    from egpt.integrations.tools.calculator import CalculatorTools
     from egpt.models.message import Message
-    from egpt.tools.calculator import CalculatorTools
 
     messages = [
         Message(role="user", content="What is 2 + 2?"),
@@ -311,8 +311,8 @@ async def test_acount_tokens(openai_responses_model):
 @pytest.mark.asyncio
 async def test_acount_tokens_with_tools(openai_responses_model):
     """Test async token counting with tools uses the async client."""
+    from egpt.integrations.tools.calculator import CalculatorTools
     from egpt.models.message import Message
-    from egpt.tools.calculator import CalculatorTools
 
     messages = [
         Message(role="user", content="What is 2 + 2?"),

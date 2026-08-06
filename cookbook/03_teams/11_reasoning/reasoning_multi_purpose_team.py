@@ -10,20 +10,20 @@ from pathlib import Path
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.calculator import CalculatorTools
+from egpt.integrations.tools.e2b import E2BTools
+from egpt.integrations.tools.file import FileTools
+from egpt.integrations.tools.github import GithubTools
+from egpt.integrations.tools.pubmed import PubmedTools
+from egpt.integrations.tools.python import PythonTools
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
-from egpt.tools.calculator import CalculatorTools
-from egpt.tools.e2b import E2BTools
-from egpt.tools.file import FileTools
-from egpt.tools.github import GithubTools
 from egpt.tools.knowledge import KnowledgeTools
-from egpt.tools.pubmed import PubmedTools
-from egpt.tools.python import PythonTools
 from egpt.tools.reasoning import ReasoningTools
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.yfinance import YFinanceTools
 from egpt.vectordb.lancedb.lance_db import LanceDb
 from egpt.vectordb.search import SearchType
 

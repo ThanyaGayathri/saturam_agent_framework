@@ -7,9 +7,9 @@ Demonstrates this reasoning cookbook example.
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
 from egpt.tools.memory import MemoryTools
-from egpt.tools.websearch import WebSearchTools
 
 
 # ---------------------------------------------------------------------------

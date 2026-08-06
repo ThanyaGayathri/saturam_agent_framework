@@ -23,8 +23,8 @@ Usage:
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.antigravity import AntigravityTools
 from egpt.models.google import Gemini
-from egpt.tools.antigravity import AntigravityTools
 
 AGENT_DIR = (
     Path(__file__).parent.parent.parent / "frameworks" / "antigravity" / "example_agent"

@@ -16,8 +16,8 @@ from egpt.agent import Agent
 from egpt.context._utils import answer_from_run
 from egpt.context.mode import ContextMode
 from egpt.context.provider import Answer, ContextProvider, Status
+from egpt.integrations.tools.file import FileTools
 from egpt.run import RunContext
-from egpt.tools.file import FileTools
 
 if TYPE_CHECKING:
     from egpt.models.base import Model

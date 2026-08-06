@@ -8,8 +8,8 @@ Cookbook example for `nebius/tool_use.py`.
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.nebius import Nebius
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

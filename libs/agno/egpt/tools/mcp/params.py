@@ -1,24 +1,19 @@
-from dataclasses import dataclass
-from datetime import timedelta
-from typing import Any, Dict, Optional
+"""Deprecated compatibility shim (EGPT-1.7).
 
+Import from ``egpt.integrations.tools.mcp.params`` instead; this module will be removed.
 
-@dataclass
-class SSEClientParams:
-    """Parameters for SSE client connection."""
+The star-import keeps ``from egpt.tools.mcp.params import *`` and plain attribute access working on the
+legacy dotted path. ``mock.patch`` against this module patches the shim's binding rather
+than the implementation -- patch the target path instead.
+"""
 
-    url: str
-    headers: Optional[Dict[str, Any]] = None
-    timeout: Optional[float] = 5
-    sse_read_timeout: Optional[float] = 60 * 5
+import warnings as _warnings
 
+from egpt.integrations.tools.mcp.params import *  # noqa: F401,F403
 
-@dataclass
-class StreamableHTTPClientParams:
-    """Parameters for Streamable HTTP client connection."""
-
-    url: str
-    headers: Optional[Dict[str, Any]] = None
-    timeout: Optional[timedelta] = timedelta(seconds=30)
-    sse_read_timeout: Optional[timedelta] = timedelta(seconds=60 * 5)
-    terminate_on_close: Optional[bool] = None
+_warnings.warn(
+    "egpt.tools.mcp.params is deprecated; import from egpt.integrations.tools.mcp.params instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

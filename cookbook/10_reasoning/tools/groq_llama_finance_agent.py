@@ -8,9 +8,9 @@ Demonstrates this reasoning cookbook example.
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.groq import Groq
 from egpt.tools.reasoning import ReasoningTools
-from egpt.tools.websearch import WebSearchTools
 
 
 # ---------------------------------------------------------------------------

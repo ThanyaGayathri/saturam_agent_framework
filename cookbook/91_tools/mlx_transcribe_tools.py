@@ -20,8 +20,8 @@ Example Usage:
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mlx_transcribe import MLXTranscribeTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.mlx_transcribe import MLXTranscribeTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -6,9 +6,9 @@ Demonstrates collaborative style planning and image transformation.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.fal import FalTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
-from egpt.tools.fal import FalTools
 
 # ---------------------------------------------------------------------------
 # Create Members

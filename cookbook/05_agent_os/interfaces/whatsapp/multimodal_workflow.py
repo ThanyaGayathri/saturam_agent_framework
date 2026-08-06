@@ -19,12 +19,12 @@ Requires:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.dalle import DalleTools
+from egpt.integrations.tools.file_generation import FileGenerationTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
-from egpt.tools.dalle import DalleTools
-from egpt.tools.file_generation import FileGenerationTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow import Parallel, Step, Workflow
 
 analyst = Agent(

@@ -41,7 +41,7 @@ def test_gemini_multi_turn_preserves_provider_data():
 
 def test_gemini_with_tools():
     """Test Gemini works correctly with tools enabled."""
-    from egpt.tools.duckduckgo import DuckDuckGoTools
+    from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 
     agent = Agent(
         model=OpenRouter(id="google/gemini-2.5-flash"),

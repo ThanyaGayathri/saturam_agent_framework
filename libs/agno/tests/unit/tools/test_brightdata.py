@@ -8,8 +8,8 @@ import pytest
 import requests
 
 from egpt.agent import Agent
+from egpt.integrations.tools.brightdata import BrightDataTools
 from egpt.media import Image
-from egpt.tools.brightdata import BrightDataTools
 from egpt.tools.function import ToolResult
 
 
@@ -23,7 +23,7 @@ def mock_agent():
 @pytest.fixture
 def mock_requests():
     """Mock requests module."""
-    with patch("egpt.tools.brightdata.requests") as mock_requests:
+    with patch("egpt.integrations.tools.brightdata.brightdata.requests") as mock_requests:
         yield mock_requests
 
 
@@ -174,7 +174,7 @@ def test_get_screenshot_success(brightdata_tools, mock_requests, mock_agent):
     mock_response.content = mock_image_bytes
     mock_requests.post.return_value = mock_response
 
-    with patch("egpt.tools.brightdata.uuid4") as mock_uuid:
+    with patch("egpt.integrations.tools.brightdata.brightdata.uuid4") as mock_uuid:
         mock_uuid.return_value = Mock()
         mock_uuid.return_value.__str__ = Mock(return_value="test-uuid-123")
 

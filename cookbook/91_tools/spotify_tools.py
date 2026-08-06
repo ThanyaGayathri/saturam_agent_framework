@@ -10,8 +10,8 @@ This example shows how to create an agent that can:
 from os import getenv
 
 from egpt.agent import Agent
+from egpt.integrations.tools.spotify import SpotifyTools
 from egpt.models.anthropic import Claude
-from egpt.tools.spotify import SpotifyTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

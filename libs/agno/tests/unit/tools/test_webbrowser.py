@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from egpt.tools.webbrowser import WebBrowserTools
+from egpt.integrations.tools.webbrowser import WebBrowserTools
 
 
 @pytest.fixture

@@ -4,7 +4,7 @@ This is useful to avoid name collisions with other tools, especially when using 
 import asyncio
 
 from egpt.agent.agent import Agent
-from egpt.tools.mcp import MCPTools
+from egpt.integrations.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

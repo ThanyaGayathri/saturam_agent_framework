@@ -2,7 +2,7 @@
 
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.models.langdb import LangDB
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

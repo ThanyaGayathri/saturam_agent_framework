@@ -127,12 +127,12 @@ Make sure all tests pass before submitting your pull request. If you add new fea
 ## Adding a new Tool.
 
 1. Setup your local environment by following the [Development setup](#development-setup).
-2. Create a new directory under `libs/agno/egpt/tools` for the new Tool.
-3. Create a Class for your Tool that inherits the `Toolkit` Class from `libs/agno/egpt/tools/toolkit/toolkit.py`.
-   - Your Class will be in `libs/agno/egpt/tools/<your_tool>.py`.
+2. Create a new package under `libs/agno/egpt/integrations/tools/<your_tool>/` for the new Tool. Concrete toolkits live in the integrations layer; `libs/agno/egpt/tools/` holds only the tool interface.
+3. Create a Class for your Tool that inherits the `Toolkit` Class from `libs/agno/egpt/tools/toolkit.py`.
+   - Your Class will be in `libs/agno/egpt/integrations/tools/<your_tool>/<your_tool>.py`, re-exported from that package's `__init__.py`.
    - Make sure to register all functions in your class via a flag.
-   - Checkout the [`egpt/tools/youtube.py`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/libs/agno/egpt/tools/youtube.py) file for an example.
-   - If your tool requires an API key, checkout the [`egpt/tools/serpapi_tools.py`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/libs/agno/egpt/tools/serpapi_tools.py) as well.
+   - Checkout the [`egpt/integrations/tools/youtube/`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/libs/agno/egpt/integrations/tools/youtube/youtube.py) package for an example.
+   - If your tool requires an API key, checkout [`egpt/integrations/tools/serpapi/`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/libs/agno/egpt/integrations/tools/serpapi/serpapi.py) as well.
 4. Add a recipe for using your Tool under `cookbook/tools/<your_tool>`.
    - Checkout [`cookbook/91_tools/youtube_tools`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/cookbook/91_tools/youtube_tools.py) for an example.
 5. Important: Format and validate your code by running `./scripts/format.sh` and `./scripts/validate.sh`.

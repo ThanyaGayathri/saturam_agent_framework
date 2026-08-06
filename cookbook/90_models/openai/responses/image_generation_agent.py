@@ -12,8 +12,8 @@ Run `uv pip install openai` to install the necessary dependencies.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.openai import OpenAITools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.openai import OpenAITools
 from egpt.utils.media import save_base64_data
 
 # ---------------------------------------------------------------------------

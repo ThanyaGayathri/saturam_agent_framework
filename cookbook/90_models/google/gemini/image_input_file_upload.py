@@ -8,9 +8,9 @@ Cookbook example for `google/gemini/image_input_file_upload.py`.
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import Image
 from egpt.models.google import Gemini
-from egpt.tools.websearch import WebSearchTools
 from google.generativeai import upload_file
 from google.generativeai.types import file_types
 

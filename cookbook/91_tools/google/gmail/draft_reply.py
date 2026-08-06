@@ -15,8 +15,8 @@ Setup:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.google.gmail import GmailTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.google.gmail import GmailTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

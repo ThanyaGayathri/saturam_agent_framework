@@ -27,10 +27,10 @@ from egpt.agent import Agent
 from egpt.exceptions import InputCheckError
 from egpt.guardrails import PIIDetectionGuardrail, PromptInjectionGuardrail
 from egpt.guardrails.base import BaseGuardrail
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.google import Gemini
 from egpt.run.agent import RunInput
 from egpt.run.team import TeamRunInput
-from egpt.tools.yfinance import YFinanceTools
 
 
 # ---------------------------------------------------------------------------

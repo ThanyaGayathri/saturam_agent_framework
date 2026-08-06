@@ -19,8 +19,8 @@ Usage:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.unsplash import UnsplashTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.unsplash import UnsplashTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

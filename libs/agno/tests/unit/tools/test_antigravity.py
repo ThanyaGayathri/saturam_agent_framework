@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from egpt.tools.antigravity import AntigravityTools
+from egpt.integrations.tools.antigravity import AntigravityTools
 
 
 def _interaction_response(env_id: str = "env-1", interaction_id: str = "int-1", text: str = "done"):

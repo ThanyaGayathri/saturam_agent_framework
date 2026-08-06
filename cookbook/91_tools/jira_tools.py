@@ -6,7 +6,7 @@ Demonstrates jira tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.jira import JiraTools
+from egpt.integrations.tools.jira import JiraTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

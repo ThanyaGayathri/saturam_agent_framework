@@ -16,10 +16,10 @@ Setup: Set TELEGRAM_TOKEN env var from @BotFather.
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 from egpt.models.openai import OpenAIChat
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.telegram import Telegram
-from egpt.tools.duckduckgo import DuckDuckGoTools
 from egpt.tools.reasoning import ReasoningTools
 
 # ---------------------------------------------------------------------------

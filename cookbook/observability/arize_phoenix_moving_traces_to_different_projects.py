@@ -10,9 +10,9 @@ import os
 
 from egpt.agent import Agent
 from egpt.integrations.db.in_memory import InMemoryDb
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.yfinance import YFinanceTools
 from openinference.instrumentation import dangerously_using_project
 from phoenix.otel import register
 from pydantic import BaseModel

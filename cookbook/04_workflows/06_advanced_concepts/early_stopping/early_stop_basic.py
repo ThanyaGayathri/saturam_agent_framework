@@ -6,8 +6,8 @@ Demonstrates early termination with `StepOutput(stop=True)` across direct steps,
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow import Step, Workflow
 from egpt.workflow.steps import Steps
 from egpt.workflow.types import StepInput, StepOutput

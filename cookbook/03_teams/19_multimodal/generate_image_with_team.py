@@ -8,9 +8,9 @@ Demonstrates collaborative prompt optimization and DALL-E image generation.
 from typing import Iterator
 
 from egpt.agent import Agent, RunOutputEvent
+from egpt.integrations.tools.dalle import DalleTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
-from egpt.tools.dalle import DalleTools
 from egpt.utils.common import dataclass_to_dict
 from rich.pretty import pprint
 

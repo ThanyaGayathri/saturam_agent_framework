@@ -6,8 +6,8 @@ Demonstrates wikipedia tools.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.wikipedia import WikipediaTools
 from egpt.knowledge.knowledge import Knowledge
-from egpt.tools.wikipedia import WikipediaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

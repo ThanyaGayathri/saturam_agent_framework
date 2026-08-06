@@ -6,9 +6,9 @@ Demonstrates webbrowser tools.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.webbrowser import WebBrowserTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.google import Gemini
-from egpt.tools.webbrowser import WebBrowserTools
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

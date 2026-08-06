@@ -14,11 +14,11 @@ from egpt.agent.agent import Agent
 # ---------------------------------------------------------------------------
 # Import the workflows
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai.chat import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
 from pydantic import BaseModel, Field

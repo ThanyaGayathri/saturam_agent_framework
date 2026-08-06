@@ -8,7 +8,7 @@ Demonstrates discord tools.
 import os
 
 from egpt.agent import Agent
-from egpt.tools.discord import DiscordTools
+from egpt.integrations.tools.discord import DiscordTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

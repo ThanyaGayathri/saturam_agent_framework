@@ -21,9 +21,9 @@ from typing import List, Literal, Optional
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.youtube import YouTubeTools
 from egpt.models.google import Gemini
 from egpt.os import EgptOS
-from egpt.tools.youtube import YouTubeTools
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

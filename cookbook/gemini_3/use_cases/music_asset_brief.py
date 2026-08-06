@@ -13,9 +13,9 @@ from typing import List
 
 import httpx
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import Audio, Image
 from egpt.models.google import Gemini
-from egpt.tools.websearch import WebSearchTools
 from pydantic import BaseModel, Field
 
 

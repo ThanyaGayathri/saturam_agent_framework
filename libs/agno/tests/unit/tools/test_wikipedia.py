@@ -7,7 +7,7 @@ wikipedia = pytest.importorskip("wikipedia")
 
 from wikipedia.exceptions import DisambiguationError, PageError  # noqa: E402
 
-from egpt.tools.wikipedia import WikipediaTools  # noqa: E402
+from egpt.integrations.tools.wikipedia import WikipediaTools  # noqa: E402
 
 
 def test_init_defaults():

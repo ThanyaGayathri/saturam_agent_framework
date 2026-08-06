@@ -17,8 +17,8 @@ Describe the table schemas in instructions and use thinking tools for better res
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.google.bigquery import GoogleBigQueryTools
 from egpt.models.google import Gemini
-from egpt.tools.google.bigquery import GoogleBigQueryTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

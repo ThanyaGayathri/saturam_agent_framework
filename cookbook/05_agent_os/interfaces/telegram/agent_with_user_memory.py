@@ -18,11 +18,11 @@ from textwrap import dedent
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.memory.manager import MemoryManager
 from egpt.models.google import Gemini
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.telegram import Telegram
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

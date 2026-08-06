@@ -6,7 +6,7 @@ import pytest
 
 praw = pytest.importorskip("praw")
 
-from egpt.tools.reddit import RedditTools  # noqa: E402
+from egpt.integrations.tools.reddit import RedditTools  # noqa: E402
 
 
 class FakeSubreddit:

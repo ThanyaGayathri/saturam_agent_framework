@@ -25,10 +25,10 @@ from os import getenv
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Agents

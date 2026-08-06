@@ -6,11 +6,11 @@ Demonstrates this reasoning cookbook example.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
 from egpt.team.team import Team
 from egpt.tools.knowledge import KnowledgeTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.vectordb.lancedb import LanceDb, SearchType
 
 

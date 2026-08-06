@@ -41,8 +41,8 @@ the Zoom API through natural language commands.
 import os
 
 from egpt.agent import Agent
+from egpt.integrations.tools.zoom import ZoomTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.zoom import ZoomTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

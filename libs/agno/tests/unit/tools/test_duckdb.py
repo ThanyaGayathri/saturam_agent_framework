@@ -2,13 +2,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from egpt.tools.duckdb import DuckDbTools
+from egpt.integrations.tools.duckdb import DuckDbTools
 
 
 @pytest.fixture
 def mock_duckdb_connection():
     """Mock DuckDB connection used by DuckDbTools."""
-    with patch("egpt.tools.duckdb.duckdb") as mock_duckdb:
+    with patch("egpt.integrations.tools.duckdb.duckdb") as mock_duckdb:
         mock_connection = MagicMock()
         mock_duckdb.connect.return_value = mock_connection
 
@@ -280,7 +280,7 @@ def test_integration_create_and_query_table(duckdb_tools_instance, mock_duckdb_c
 def test_run_query_duckdb_error(duckdb_tools_instance, mock_duckdb_connection):
     """Test run_query handles DuckDB errors gracefully."""
     # Create a proper DuckDB error by using the actual DuckDB module
-    with patch("egpt.tools.duckdb.duckdb") as mock_duckdb_module:
+    with patch("egpt.integrations.tools.duckdb.duckdb") as mock_duckdb_module:
         # Setup the error classes to be proper exception classes
         class MockDuckDBError(Exception):
             pass
@@ -302,7 +302,7 @@ def test_run_query_duckdb_error(duckdb_tools_instance, mock_duckdb_connection):
 def test_run_query_programming_error(duckdb_tools_instance, mock_duckdb_connection):
     """Test run_query handles programming errors gracefully."""
     # Create a proper DuckDB programming error
-    with patch("egpt.tools.duckdb.duckdb") as mock_duckdb_module:
+    with patch("egpt.integrations.tools.duckdb.duckdb") as mock_duckdb_module:
         # Setup the error classes to be proper exception classes
         class MockDuckDBError(Exception):
             pass

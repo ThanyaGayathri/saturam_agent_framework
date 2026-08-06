@@ -6,7 +6,7 @@ Demonstrates stopping an entire workflow from inside a `Condition` branch.
 """
 
 from egpt.agent import Agent
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.workflow import Step, Workflow
 from egpt.workflow.condition import Condition
 from egpt.workflow.types import StepInput, StepOutput

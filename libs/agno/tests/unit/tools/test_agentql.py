@@ -17,13 +17,13 @@ except (ImportError, ModuleNotFoundError):
 if not AGENTQL_AVAILABLE:
     pytest.skip("agentql not available or has broken dependencies", allow_module_level=True)
 
-from egpt.tools.agentql import AgentQLTools
+from egpt.integrations.tools.agentql import AgentQLTools
 
 
 @pytest.fixture
 def mock_playwright():
     """Create a mock Playwright instance."""
-    with patch("egpt.tools.agentql.sync_playwright") as mock_pw:
+    with patch("egpt.integrations.tools.agentql.agentql.sync_playwright") as mock_pw:
         mock_browser = Mock()
         mock_page = Mock()
         mock_browser.new_page.return_value = mock_page
@@ -34,7 +34,7 @@ def mock_playwright():
 @pytest.fixture
 def mock_agentql():
     """Create a mock AgentQL wrapper."""
-    with patch("egpt.tools.agentql.agentql") as mock_agentql:
+    with patch("egpt.integrations.tools.agentql.agentql") as mock_agentql:
         wrapped_page = Mock()
         mock_agentql.wrap.return_value = wrapped_page
         return mock_agentql, wrapped_page

@@ -4,12 +4,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from egpt.tools.salesforce import SalesforceTools
+from egpt.integrations.tools.salesforce import SalesforceTools
 
 
 @pytest.fixture
 def mock_sf_client():
-    with patch("egpt.tools.salesforce.Salesforce") as mock_cls:
+    with patch("egpt.integrations.tools.salesforce.salesforce.Salesforce") as mock_cls:
         instance = MagicMock()
         mock_cls.return_value = instance
         instance.base_url = "https://test.salesforce.com/services/data/v59.0/"
@@ -110,7 +110,7 @@ class TestSalesforceInit:
             session_id="session123",
         )
         assert tools.sf is not None
-        from egpt.tools.salesforce import Salesforce
+        from egpt.integrations.tools.salesforce import Salesforce
 
         Salesforce.assert_called_with(
             instance_url="https://my.salesforce.com",
@@ -492,7 +492,7 @@ class TestErrorHandling:
     def test_auth_failure(self, mock_sf_client):
         from simple_salesforce import SalesforceAuthenticationFailed
 
-        from egpt.tools.salesforce import Salesforce
+        from egpt.integrations.tools.salesforce import Salesforce
 
         Salesforce.side_effect = SalesforceAuthenticationFailed(401, "Bad credentials")
 

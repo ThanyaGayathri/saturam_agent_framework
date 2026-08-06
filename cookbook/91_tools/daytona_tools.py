@@ -12,7 +12,7 @@ This example shows how to use EGPT's Daytona integration to run Agent-generated 
 """
 
 from egpt.agent import Agent
-from egpt.tools.daytona import DaytonaTools
+from egpt.integrations.tools.daytona import DaytonaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

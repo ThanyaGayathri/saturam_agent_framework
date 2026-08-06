@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from egpt.tools.youcom import YouTools
+from egpt.integrations.tools.youcom import YouTools
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def _patch_client(payload):
     client.__enter__.return_value = client
     client.__exit__.return_value = False
     client.get.return_value = _mock_response(payload)
-    return patch("egpt.tools.youcom.httpx.Client", return_value=client), client
+    return patch("egpt.integrations.tools.youcom.youcom.httpx.Client", return_value=client), client
 
 
 def test_init_with_api_key():
@@ -160,6 +160,6 @@ def test_search_http_error_returns_message(youcom_tools):
     client.__enter__.return_value = client
     client.__exit__.return_value = False
     client.get.side_effect = httpx.ConnectError("boom")
-    with patch("egpt.tools.youcom.httpx.Client", return_value=client):
+    with patch("egpt.integrations.tools.youcom.youcom.httpx.Client", return_value=client):
         result = youcom_tools.you_search("query")
     assert result.startswith("Error:")

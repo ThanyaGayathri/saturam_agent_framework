@@ -4,8 +4,8 @@ import pytest
 
 from egpt.agent.agent import Agent
 from egpt.integrations.models.cohere.chat import Cohere
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import Image
-from egpt.tools.websearch import WebSearchTools
 
 
 def test_image_input():

@@ -9,8 +9,8 @@ from contextlib import asynccontextmanager
 
 from egpt.agent.agent import Agent
 from egpt.integrations.db.postgres.postgres import PostgresDb
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.os import EgptOS
-from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Example

@@ -7,9 +7,9 @@ Shows leader metrics, member metrics, and tool execution timing.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
-from egpt.tools.yfinance import YFinanceTools
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

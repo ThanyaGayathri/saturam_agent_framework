@@ -8,8 +8,8 @@ Demonstrates calcom tools.
 from datetime import datetime
 
 from egpt.agent import Agent
+from egpt.integrations.tools.calcom import CalComTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.calcom import CalComTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

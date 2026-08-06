@@ -34,12 +34,12 @@ from egpt.context._utils import answer_from_run
 from egpt.context.google import validate_google_credentials
 from egpt.context.mode import ContextMode
 from egpt.context.provider import Answer, ContextProvider, Status
+from egpt.integrations.tools.google.gmail import GmailTools
 from egpt.run import RunContext
-from egpt.tools.google.gmail import GmailTools
 
 if TYPE_CHECKING:
+    from egpt.integrations.tools.google.auth import AuthConfig
     from egpt.models.base import Model
-    from egpt.tools.google.auth import AuthConfig
 
 
 DEFAULT_READ_INSTRUCTIONS = """\

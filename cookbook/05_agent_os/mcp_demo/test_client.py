@@ -19,8 +19,8 @@ from uuid import uuid4
 
 from egpt.agent import Agent
 from egpt.integrations.db.in_memory import InMemoryDb
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Example

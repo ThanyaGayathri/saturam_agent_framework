@@ -10,8 +10,8 @@ from typing import Optional
 from egpt.agent import Agent
 from egpt.eval.accuracy import AccuracyEval, AccuracyResult
 from egpt.integrations.db.postgres.postgres import PostgresDb
+from egpt.integrations.tools.calculator import CalculatorTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.calculator import CalculatorTools
 
 # ---------------------------------------------------------------------------
 # Create Database

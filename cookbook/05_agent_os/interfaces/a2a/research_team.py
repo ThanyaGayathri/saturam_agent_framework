@@ -6,10 +6,10 @@ Demonstrates research team.
 """
 
 from egpt.agent.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
 from egpt.os.app import EgptOS
 from egpt.team.team import Team
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

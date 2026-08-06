@@ -1,61 +1,19 @@
-import json
-import os
-from typing import Any, Dict, List, Literal, Optional, Set
-from urllib.parse import urlencode
+"""Deprecated compatibility shim (EGPT-1.7).
 
-from egpt.tools import Toolkit
+Import from ``egpt.integrations.tools.google.auth.toolkit`` instead; this module will be removed.
 
+The star-import keeps ``from egpt.tools.google.auth.toolkit import *`` and plain attribute access working on the
+legacy dotted path. ``mock.patch`` against this module patches the shim's binding rather
+than the implementation -- patch the target path instead.
+"""
 
-class GoogleAuth(Toolkit):
-    """Toolkit that exposes authenticate_google tool for web/chat UI OAuth flows.
+import warnings as _warnings
 
-    Use this when run_local_server() won't work (e.g., chatbot interfaces).
-    The agent calls authenticate_google() to get an OAuth URL for the user.
-    """
+from egpt.integrations.tools.google.auth.toolkit import *  # noqa: F401,F403
 
-    def __init__(
-        self,
-        client_id: Optional[str] = None,
-        redirect_uri: Optional[str] = None,
-        **kwargs: Any,
-    ):
-        super().__init__(
-            name="google_auth",
-            instructions="When any Google tool (Gmail, Calendar, Drive, Sheets) returns an authentication error, immediately call authenticate_google to get the OAuth URL for the user.",
-            **kwargs,
-        )
-        self.client_id = client_id or os.getenv("GOOGLE_CLIENT_ID")
-        self.redirect_uri = redirect_uri or os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8080/")
-        self._services: Dict[str, List[str]] = {}
-        self.register(self.authenticate_google)
-
-    def register_service(self, service: str, scopes: List[str]) -> None:
-        """Register a Google service and its scopes for URL generation."""
-        self._services[service] = scopes
-
-    def authenticate_google(self, services: List[Literal["gmail", "calendar", "drive", "sheets", "slides"]]) -> str:
-        """Get the Google OAuth URL for the user to authenticate their Google account.
-
-        Args:
-            services: Google services to authenticate (gmail, calendar, drive, sheets, slides).
-
-        Returns:
-            JSON string containing the OAuth URL or error message.
-        """
-        scopes: Set[str] = set()
-        for service in services:
-            if service in self._services:
-                scopes.update(self._services[service])
-        if not scopes:
-            return json.dumps({"error": f"Unknown services. Available: {', '.join(self._services)}"})
-        params = {
-            "client_id": self.client_id,
-            "redirect_uri": self.redirect_uri,
-            "scope": " ".join(scopes),
-            "response_type": "code",
-            "access_type": "offline",
-            "prompt": "consent",
-            "include_granted_scopes": "true",
-        }
-        url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
-        return json.dumps({"message": f"Connect {', '.join(services)}", "url": url})
+_warnings.warn(
+    "egpt.tools.google.auth.toolkit is deprecated; import from egpt.integrations.tools.google.auth.toolkit instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

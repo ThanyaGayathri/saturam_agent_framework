@@ -60,7 +60,7 @@ instructions = dedent(
         - Create complete, working code examples that users can run. For example:
         ```python
         from egpt.agent import Agent
-        from egpt.tools.websearch import WebSearchTools
+        from egpt.integrations.tools.websearch import WebSearchTools
 
         agent = Agent(tools=[WebSearchTools()])
 

@@ -14,12 +14,12 @@ Requires:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.dalle import DalleTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.team import Team
-from egpt.tools.dalle import DalleTools
-from egpt.tools.websearch import WebSearchTools
 
 vision_analyst = Agent(
     name="Vision Analyst",

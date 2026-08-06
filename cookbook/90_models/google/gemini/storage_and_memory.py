@@ -2,10 +2,10 @@
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres.postgres import PostgresDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader.pdf_reader import PDFReader
 from egpt.models.google import Gemini
-from egpt.tools.websearch import WebSearchTools
 from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------

@@ -23,7 +23,7 @@ You can find it on https://developers.brandfetch.com/dashboard/brand-search-api 
 import asyncio
 
 from egpt.agent import Agent
-from egpt.tools.brandfetch import BrandfetchTools
+from egpt.integrations.tools.brandfetch import BrandfetchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -44,9 +44,9 @@ AWS SES (Simple Email Service) Setup Instructions:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.aws_ses import AWSSESTool
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.aws_ses import AWSSESTool
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

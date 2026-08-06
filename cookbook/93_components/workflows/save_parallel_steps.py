@@ -8,8 +8,8 @@ database, and loading it back.
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.workflow.parallel import Parallel
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow, get_workflow_by_id

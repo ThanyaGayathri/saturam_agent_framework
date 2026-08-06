@@ -10,7 +10,7 @@ Run: pip install openai slack-sdk
 """
 
 from egpt.agent import Agent
-from egpt.tools.slack import SlackTools
+from egpt.integrations.tools.slack import SlackTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

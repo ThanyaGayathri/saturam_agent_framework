@@ -14,8 +14,8 @@ import asyncio
 import os
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.mcp import MCPTools
 from egpt.utils.log import log_exception
 
 # ---------------------------------------------------------------------------

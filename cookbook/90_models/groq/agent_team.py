@@ -6,10 +6,10 @@ Cookbook example for `groq/agent_team.py`.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.groq import Groq
 from egpt.team import Team
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

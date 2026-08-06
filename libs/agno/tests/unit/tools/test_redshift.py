@@ -7,7 +7,7 @@ try:
 except ImportError:
     raise ImportError("`redshift_connector` not installed. Please install using `pip install redshift-connector`.")
 
-from egpt.tools.redshift import RedshiftTools
+from egpt.integrations.tools.redshift import RedshiftTools
 
 # --- Mock Data for Tests ---
 MOCK_TABLES_RESULT = [("employees",), ("departments",), ("projects",)]

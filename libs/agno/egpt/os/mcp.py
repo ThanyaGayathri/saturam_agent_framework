@@ -45,77 +45,17 @@ logger = logging.getLogger(__name__)
 # Built-in MCP tools are tagged by domain so they can be scoped as a group. The canonical
 # tag set lives in egpt/os/config.py next to the MCPServerConfig fields that consume it --
 # single source of truth so adding a new tag is a one-place change.
+# The FastMCP registration primitives live in the integrations layer (EGPT-1.7 / inventory
+# A12) so the fastmcp dependency does not originate here. This module stays the composition
+# root: it owns the built-in tool surface and supplies the tag set and the request-scoped
+# user-id injector the primitives need.
+from egpt.integrations.tools.mcp.server import (  # noqa: E402
+    builtin_tool_registrar as _builtin_tool_registrar,
+)
+from egpt.integrations.tools.mcp.server import (  # noqa: E402
+    register_custom_tools as _register_custom_tools,
+)
 from egpt.os.config import MCP_BUILTIN_TAGS as _BUILTIN_TOOL_TAGS  # noqa: E402
-
-
-def _enabled_builtin_tags(config: "Optional[MCPServerConfig]") -> set:
-    """Resolve which built-in tool tags should be registered, given the MCP config.
-
-    Returns the full set of built-in tags when no config is provided, preserving the
-    default behavior (all built-in tools registered).
-    """
-    if config is None:
-        return set(_BUILTIN_TOOL_TAGS)
-    if not config.enable_builtin_tools:
-        return set()
-    # An explicitly empty include_tags set means "no built-in tools", so test against
-    # None rather than truthiness.
-    enabled = set(config.include_tags) if config.include_tags is not None else set(_BUILTIN_TOOL_TAGS)
-    if config.exclude_tags:
-        enabled -= set(config.exclude_tags)
-    return enabled
-
-
-def _builtin_tool_registrar(mcp: FastMCP, config: "Optional[MCPServerConfig]"):
-    """Return a drop-in replacement for ``mcp.tool`` that scopes the built-in tools.
-
-    When a tool's tags are enabled by the config, the tool is registered as usual.
-    Otherwise the decorator is a no-op (the function is returned unregistered), so
-    scoping happens at registration time without depending on FastMCP tool-removal APIs.
-    """
-    enabled_tags = _enabled_builtin_tags(config)
-
-    def register(*args: Any, **kwargs: Any):
-        tags = kwargs.get("tags") or set()
-        if tags & enabled_tags:
-            return mcp.tool(*args, **kwargs)
-
-        def _skip(fn: Any) -> Any:
-            return fn
-
-        return _skip
-
-    return register
-
-
-def _register_custom_tools(mcp: FastMCP, config: "Optional[MCPServerConfig]") -> None:
-    """Register any user-provided custom tools on the MCP server."""
-    if config is None or not config.tools:
-        return
-    for tool in config.tools:
-        _register_custom_tool(mcp, tool)
-
-
-def _register_custom_tool(mcp: FastMCP, tool: Any) -> None:
-    """Register a single custom tool, supporting plain callables and EGPT tools/Functions."""
-    from fastmcp.tools import Tool
-
-    # EGPT tool / Function: a callable ``entrypoint`` plus name/description metadata.
-    entrypoint = getattr(tool, "entrypoint", None)
-    if callable(entrypoint):
-        name = getattr(tool, "name", None) or getattr(entrypoint, "__name__", None)
-        description = getattr(tool, "description", None)
-        mcp.add_tool(Tool.from_function(_inject_user_id(entrypoint), name=name, description=description))
-        return
-
-    # Plain callable: name/description inferred from ``__name__``/docstring.
-    if callable(tool):
-        mcp.add_tool(Tool.from_function(_inject_user_id(tool)))
-        return
-
-    raise TypeError(
-        f"Cannot register MCP tool of type {type(tool).__name__!r}; expected a callable or an EGPT tool/Function."
-    )
 
 
 def _inject_user_id(fn: Callable) -> Callable:
@@ -661,7 +601,7 @@ def build_mcp_server(
 
     # Decorator used to register the built-in tools. Honors ``mcp_config`` scoping;
     # behaves exactly like ``mcp.tool`` when no config (or default config) is provided.
-    register_builtin_tool = _builtin_tool_registrar(mcp, mcp_config)
+    register_builtin_tool = _builtin_tool_registrar(mcp, mcp_config, _BUILTIN_TOOL_TAGS)
 
     # How the run tools serialize their results ("trimmed" keeps the frontend model's
     # context clean; "full" is the escape hatch for programmatic clients).
@@ -1028,7 +968,7 @@ def build_mcp_server(
 
     # Register any user-provided custom tools. These share the same server, mount (/mcp),
     # lifespan, and JWT middleware as the built-in tools.
-    _register_custom_tools(mcp, mcp_config)
+    _register_custom_tools(mcp, mcp_config, wrap=_inject_user_id)
 
     return mcp
 

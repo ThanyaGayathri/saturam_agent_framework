@@ -7,6 +7,8 @@ pytest.importorskip("yfinance")
 
 from egpt.agent import Agent
 from egpt.integrations.models.openai import OpenAIChat
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.message import Message
 from egpt.models.metrics import RunMetrics
 from egpt.run import RunContext
@@ -14,8 +16,6 @@ from egpt.run.team import TeamRunOutput
 from egpt.session.team import TeamSession
 from egpt.team._run import _asetup_session
 from egpt.team.team import Team
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.yfinance import YFinanceTools
 from egpt.utils.string import is_valid_uuid
 
 

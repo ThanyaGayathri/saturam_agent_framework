@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 
-from egpt.tools.coding import CodingTools
+from egpt.integrations.tools.coding import CodingTools
 
 # --- read_file tests ---
 

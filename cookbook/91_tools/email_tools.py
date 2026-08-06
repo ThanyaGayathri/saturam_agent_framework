@@ -6,7 +6,7 @@ Demonstrates email tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.email import EmailTools
+from egpt.integrations.tools.email import EmailTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

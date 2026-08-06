@@ -6,9 +6,9 @@ Demonstrates a team using a custom FAQ tool plus web-search fallback.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.team import Team
 from egpt.tools import tool
-from egpt.tools.websearch import WebSearchTools
 
 
 @tool()

@@ -6,7 +6,7 @@ Demonstrates shell tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.shell import ShellTools
+from egpt.integrations.tools.shell import ShellTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

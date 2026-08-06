@@ -32,7 +32,8 @@ from egpt.context._utils import answer_from_run
 from egpt.context.mode import ContextMode
 from egpt.context.provider import Answer, ContextProvider, Status
 from egpt.run import RunContext
-from egpt.tools.slack import SlackTools
+from egpt.tools.toolkit import Toolkit
+from egpt.tools.utils import construct_toolkit
 
 if TYPE_CHECKING:
     from egpt.models.base import Model
@@ -82,9 +83,9 @@ class SlackContextProvider(ContextProvider):
             write_instructions if write_instructions is not None else DEFAULT_SLACK_WRITE_INSTRUCTIONS
         )
         self.enable_media_tools = enable_media_tools
-        self._bot_read_tools: SlackTools | None = None
-        self._assisted_read_tools: SlackTools | None = None
-        self._write_tools: SlackTools | None = None
+        self._bot_read_tools: Toolkit | None = None
+        self._assisted_read_tools: Toolkit | None = None
+        self._write_tools: Toolkit | None = None
         self._bot_read_agent: Agent | None = None
         self._assisted_read_agent: Agent | None = None
         self._write_agent: Agent | None = None
@@ -196,9 +197,10 @@ class SlackContextProvider(ContextProvider):
     # Lazy initialization (standard _ensure_* pattern)
     # ------------------------------------------------------------------
 
-    def _ensure_bot_read_tools(self) -> SlackTools:
+    def _ensure_bot_read_tools(self) -> Toolkit:
         if self._bot_read_tools is None:
-            self._bot_read_tools = SlackTools(
+            self._bot_read_tools = construct_toolkit(
+                "slack",
                 token=self.token,
                 user_token=self._user_token,
                 enable_send_message=False,
@@ -216,9 +218,10 @@ class SlackContextProvider(ContextProvider):
             )
         return self._bot_read_tools
 
-    def _ensure_assisted_read_tools(self) -> SlackTools:
+    def _ensure_assisted_read_tools(self) -> Toolkit:
         if self._assisted_read_tools is None:
-            self._assisted_read_tools = SlackTools(
+            self._assisted_read_tools = construct_toolkit(
+                "slack",
                 token=self.token,
                 user_token=self._user_token,
                 enable_send_message=False,
@@ -236,11 +239,12 @@ class SlackContextProvider(ContextProvider):
             )
         return self._assisted_read_tools
 
-    def _ensure_write_tools(self) -> SlackTools:
+    def _ensure_write_tools(self) -> Toolkit:
         # Writer gets posting + uploads + name resolution. No search / history /
         # threads / downloads — if the write needs context, compose query → update.
         if self._write_tools is None:
-            self._write_tools = SlackTools(
+            self._write_tools = construct_toolkit(
+                "slack",
                 token=self.token,
                 enable_send_message=True,
                 enable_send_message_thread=True,

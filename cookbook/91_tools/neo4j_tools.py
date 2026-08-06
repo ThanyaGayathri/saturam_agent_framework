@@ -74,8 +74,8 @@ import os
 
 from dotenv import load_dotenv
 from egpt.agent import Agent
+from egpt.integrations.tools.neo4j import Neo4jTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.neo4j import Neo4jTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

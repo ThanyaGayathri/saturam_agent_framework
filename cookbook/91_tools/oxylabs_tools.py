@@ -6,7 +6,7 @@ Demonstrates oxylabs tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.oxylabs import OxylabsTools
+from egpt.integrations.tools.oxylabs import OxylabsTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

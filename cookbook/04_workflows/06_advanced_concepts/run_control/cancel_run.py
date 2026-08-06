@@ -9,11 +9,11 @@ import threading
 import time
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
 from egpt.run.agent import RunEvent
 from egpt.run.base import RunStatus
 from egpt.run.workflow import WorkflowRunEvent
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
 

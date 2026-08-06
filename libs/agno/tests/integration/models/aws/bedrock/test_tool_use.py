@@ -4,9 +4,9 @@ import pytest
 
 from egpt.agent import Agent  # noqa
 from egpt.integrations.models.aws import AwsBedrock
-from egpt.tools.exa import ExaTools
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.exa import ExaTools
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.utils.log import log_info
 
 

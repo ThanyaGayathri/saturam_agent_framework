@@ -6,8 +6,8 @@ import base64
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.eleven_labs import ElevenLabsTools
 from egpt.models.google import Gemini
-from egpt.tools.eleven_labs import ElevenLabsTools
 from egpt.utils.media import save_base64_data
 
 # ---------------------------------------------------------------------------

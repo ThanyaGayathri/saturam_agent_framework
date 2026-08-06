@@ -6,7 +6,7 @@ Demonstrates sql tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.sql import SQLTools
+from egpt.integrations.tools.sql import SQLTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

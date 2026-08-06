@@ -8,8 +8,8 @@ Demonstrates stopping a looped workflow early using a safety-check step.
 from typing import List
 
 from egpt.agent import Agent
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.workflow import Loop, Step, Workflow
 from egpt.workflow.types import StepInput, StepOutput
 

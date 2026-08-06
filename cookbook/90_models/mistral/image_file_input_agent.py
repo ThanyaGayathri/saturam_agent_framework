@@ -8,9 +8,9 @@ Cookbook example for `mistral/image_file_input_agent.py`.
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import Image
 from egpt.models.mistral.mistral import MistralChat
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -29,7 +29,7 @@ agent = Agent(tools=[get_weather])
 Model Context Protocol allows connecting to external tool servers:
 
 ```python
-from egpt.tools.mcp import MCPTools
+from egpt.integrations.tools.mcp import MCPTools
 
 tools = MCPTools(servers=["npx", "-y", "@anthropic/mcp-server-filesystem"])
 agent = Agent(tools=[tools])

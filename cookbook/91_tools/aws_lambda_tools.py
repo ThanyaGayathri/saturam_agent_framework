@@ -12,7 +12,7 @@ Prerequisites:
 """
 
 from egpt.agent import Agent
-from egpt.tools.aws_lambda import AWSLambdaTools
+from egpt.integrations.tools.aws_lambda import AWSLambdaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

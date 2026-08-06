@@ -6,7 +6,7 @@ Example demonstrating how to set up retries with an Agent.
 """
 
 from egpt.agent import Agent
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

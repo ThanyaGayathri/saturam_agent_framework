@@ -6,8 +6,8 @@ Demonstrates website tools knowledge.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.website import WebsiteTools
 from egpt.knowledge.knowledge import Knowledge
-from egpt.tools.website import WebsiteTools
 from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------

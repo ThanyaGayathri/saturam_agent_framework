@@ -3,8 +3,8 @@
 from typing import Any, Callable, Dict
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.websearch import WebSearchTools
 from egpt.utils.log import logger
 
 # ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ if __name__ == "__main__":
     from typing import Any, Callable, Dict
 
     from egpt.agent import Agent
-    from egpt.tools.websearch import WebSearchTools
+    from egpt.integrations.tools.websearch import WebSearchTools
     from egpt.utils.log import logger
 
     async def logger_hook(

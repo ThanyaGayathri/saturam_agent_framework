@@ -9,7 +9,7 @@ Run: `uv pip install yfinance` to install the dependencies
 
 from curl_cffi.requests import Session
 from egpt.agent import Agent
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

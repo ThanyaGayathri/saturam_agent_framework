@@ -7,14 +7,14 @@ models, and vector database components.
 """
 
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.calculator import CalculatorTools
+from egpt.integrations.tools.parallel import ParallelTools
+from egpt.integrations.tools.youtube import YouTubeTools
 from egpt.models.anthropic import Claude
 from egpt.models.google.gemini import Gemini
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.registry import Registry
-from egpt.tools.calculator import CalculatorTools
-from egpt.tools.parallel import ParallelTools
-from egpt.tools.youtube import YouTubeTools
 from egpt.vectordb.pgvector import PgVector
 from pydantic import BaseModel
 

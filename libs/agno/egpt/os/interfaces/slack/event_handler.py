@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from slack_sdk.web.async_client import AsyncWebClient
 
 from egpt.agent import Agent, RemoteAgent
+from egpt.integrations.tools.slack import SlackTools
 from egpt.os.interfaces.slack.events import process_event
 from egpt.os.interfaces.slack.helpers import (
     BotNameResolver,
@@ -25,7 +26,6 @@ from egpt.os.interfaces.slack.pause import PAUSE_LABELS, finalize_pause, post_pa
 from egpt.os.interfaces.slack.state import StreamState, TaskStatus
 from egpt.os.interfaces.slack.types import tool_name
 from egpt.team import RemoteTeam, Team
-from egpt.tools.slack import SlackTools
 from egpt.utils.log import log_error
 from egpt.workflow import RemoteWorkflow, Workflow
 

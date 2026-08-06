@@ -5,7 +5,7 @@ Run `uv pip install cartesia` to install the dependencies.
 """
 
 from egpt.agent import Agent
-from egpt.tools.cartesia import CartesiaTools
+from egpt.integrations.tools.cartesia import CartesiaTools
 from egpt.utils.audio import write_audio_to_file
 
 # ---------------------------------------------------------------------------

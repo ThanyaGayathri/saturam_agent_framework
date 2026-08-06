@@ -17,7 +17,7 @@ We can start Redis locally using docker:
 from egpt.agent import Agent
 from egpt.db.base import SessionType
 from egpt.integrations.db.redis import RedisDb
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

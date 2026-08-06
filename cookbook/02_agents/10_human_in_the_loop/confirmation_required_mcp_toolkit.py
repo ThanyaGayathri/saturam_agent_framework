@@ -9,8 +9,8 @@ import asyncio
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.mcp import MCPTools
 from rich.console import Console
 from rich.prompt import Prompt
 

@@ -10,8 +10,8 @@ import asyncio
 import time
 
 from egpt.agent import Agent
+from egpt.integrations.tools.zep import ZepAsyncTools, ZepTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.zep import ZepAsyncTools, ZepTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

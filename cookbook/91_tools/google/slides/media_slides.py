@@ -20,8 +20,8 @@ Setup:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.google.slides import GoogleSlidesTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.google.slides import GoogleSlidesTools
 
 agent = Agent(
     name="Media Slides Agent",

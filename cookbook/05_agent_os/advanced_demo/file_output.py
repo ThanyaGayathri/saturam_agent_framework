@@ -7,9 +7,9 @@ Demonstrates file output.
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.file_generation import FileGenerationTools
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
-from egpt.tools.file_generation import FileGenerationTools
 
 # ---------------------------------------------------------------------------
 # Create Example

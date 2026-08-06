@@ -3,8 +3,8 @@ from pydantic import BaseModel
 
 from egpt.agent import Agent
 from egpt.integrations.models.openai import OpenAIChat
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.team.team import Team
-from egpt.tools.yfinance import YFinanceTools
 
 
 def test_output_schemas_on_members():

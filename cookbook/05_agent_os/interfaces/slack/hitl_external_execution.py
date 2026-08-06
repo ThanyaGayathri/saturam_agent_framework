@@ -19,11 +19,11 @@ from typing import Dict
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 from egpt.models.openai import OpenAIResponses
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.tools import tool
-from egpt.tools.duckduckgo import DuckDuckGoTools
 
 # Stand-in runbook store — replace with Confluence / Notion client
 

@@ -11,8 +11,8 @@ Prerequisites:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.trafilatura import TrafilaturaTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.trafilatura import TrafilaturaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

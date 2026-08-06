@@ -1,5 +1,5 @@
 from egpt.agent import Agent
-from egpt.tools.docling import DoclingTools
+from egpt.integrations.tools.docling import DoclingTools
 from paths import pdf_path
 
 

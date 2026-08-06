@@ -8,8 +8,8 @@ Cookbook example for `openai/responses/structured_output_with_tools.py`.
 from typing import List
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.websearch import WebSearchTools
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

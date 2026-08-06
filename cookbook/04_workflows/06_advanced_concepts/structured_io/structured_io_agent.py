@@ -8,9 +8,9 @@ Demonstrates structured output schemas at each agent step in a multi-step workfl
 from typing import List
 
 from egpt.agent import Agent
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
 from pydantic import BaseModel, Field

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from google.oauth2.credentials import Credentials
 
-from egpt.tools.google.calendar import GoogleCalendarTools
+from egpt.integrations.tools.google.calendar import GoogleCalendarTools
 
 
 @pytest.fixture
@@ -30,7 +30,7 @@ def mock_calendar_service():
 def calendar_tools(mock_credentials, mock_calendar_service):
     with (
         patch("googleapiclient.discovery.build") as mock_build,
-        patch("egpt.tools.google.calendar.authenticate", lambda func: func),
+        patch("egpt.integrations.tools.google.calendar.authenticate", lambda func: func),
     ):
         mock_build.return_value = mock_calendar_service
         tools = GoogleCalendarTools(creds=mock_credentials)
@@ -43,7 +43,7 @@ def calendar_tools_all(mock_credentials, mock_calendar_service):
     """Instance with ALL tools enabled including write tools."""
     with (
         patch("googleapiclient.discovery.build") as mock_build,
-        patch("egpt.tools.google.calendar.authenticate", lambda func: func),
+        patch("egpt.integrations.tools.google.calendar.authenticate", lambda func: func),
     ):
         mock_build.return_value = mock_calendar_service
         tools = GoogleCalendarTools(

@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.integrations.models.groq import Groq
-from egpt.tools.exa import ExaTools
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.exa import ExaTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 
 
 @pytest.mark.skip(reason="This test fails often on CI for Groq")

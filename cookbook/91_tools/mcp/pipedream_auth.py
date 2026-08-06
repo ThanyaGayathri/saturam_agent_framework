@@ -18,8 +18,8 @@ import asyncio
 from os import getenv
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools, StreamableHTTPClientParams
 from egpt.models.openai import OpenAIChat
-from egpt.tools.mcp import MCPTools, StreamableHTTPClientParams
 from egpt.utils.log import log_exception
 
 # ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ except ImportError as e:
         "(included in the `egpt[slack]` extra)."
     ) from e
 
+from egpt.integrations.tools.slack import SlackTools
 from egpt.os.interfaces.slack.ids import (
     ACTION_CHECK_STATUS,
     ACTION_ROW_APPROVE,
@@ -27,7 +28,6 @@ from egpt.os.interfaces.slack.ids import (
 )
 from egpt.os.interfaces.slack.security import verify_slack_signature
 from egpt.team import RemoteTeam, Team
-from egpt.tools.slack import SlackTools
 from egpt.workflow import RemoteWorkflow, Workflow
 
 # Slack sends lifecycle events for bots with these subtypes. Without this

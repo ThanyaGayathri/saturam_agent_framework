@@ -16,7 +16,7 @@ e.g for Localhost and port 8080: http://localhost:8080/flowName=GeneralOAuthFlow
 """
 
 from egpt.agent import Agent
-from egpt.tools.google.sheets import GoogleSheetsTools
+from egpt.integrations.tools.google.sheets import GoogleSheetsTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

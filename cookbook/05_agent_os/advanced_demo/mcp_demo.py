@@ -13,9 +13,9 @@ from textwrap import dedent
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
-from egpt.tools.mcp import MCPTools
 from fastapi import FastAPI
 from mcp import StdioServerParameters
 

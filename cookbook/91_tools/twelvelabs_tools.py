@@ -15,7 +15,7 @@ Install dependencies: `pip install twelvelabs`
 """
 
 from egpt.agent import Agent
-from egpt.tools.twelvelabs import TwelveLabsTools
+from egpt.integrations.tools.twelvelabs import TwelveLabsTools
 
 # Example 1: Enable all tools
 agent = Agent(

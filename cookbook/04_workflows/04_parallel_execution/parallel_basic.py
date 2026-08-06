@@ -8,8 +8,8 @@ Demonstrates running independent research steps in parallel before sequential wr
 import asyncio
 
 from egpt.agent import Agent
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.workflow import Step, Workflow
 from egpt.workflow.parallel import Parallel
 

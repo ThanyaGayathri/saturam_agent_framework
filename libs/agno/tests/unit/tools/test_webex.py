@@ -8,13 +8,13 @@ from requests import Response
 from webexpythonsdk import WebexAPI
 from webexpythonsdk.exceptions import RateLimitError
 
-from egpt.tools.webex import WebexTools
+from egpt.integrations.tools.webex import WebexTools
 
 
 @pytest.fixture
 def mock_webex_api():
     """Create a mock Webex API client."""
-    with patch("egpt.tools.webex.WebexAPI") as mock_api:
+    with patch("egpt.integrations.tools.webex.webex.WebexAPI") as mock_api:
         # Create mock for nested attributes
         mock_client = Mock(spec=WebexAPI)
         mock_messages = Mock()
@@ -39,14 +39,14 @@ def webex_tools(mock_webex_api):
 
 def test_init_with_api_token():
     """Test initialization with provided API token."""
-    with patch("egpt.tools.webex.WebexAPI") as mock_api:
+    with patch("egpt.integrations.tools.webex.webex.WebexAPI") as mock_api:
         WebexTools(access_token="test_token")
         mock_api.assert_called_once_with(access_token="test_token")
 
 
 def test_init_with_env_var():
     """Test initialization with environment variable."""
-    with patch("egpt.tools.webex.WebexAPI") as mock_api:
+    with patch("egpt.integrations.tools.webex.webex.WebexAPI") as mock_api:
         with patch.dict("os.environ", {"WEBEX_ACCESS_TOKEN": "env_token"}):
             WebexTools()
             mock_api.assert_called_once_with(access_token="env_token")

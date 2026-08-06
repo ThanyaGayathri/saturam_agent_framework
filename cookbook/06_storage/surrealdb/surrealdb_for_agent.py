@@ -20,8 +20,8 @@ uv run cookbook/db/surrealdb/surrealdb_for_agent.py
 
 from egpt.agent import Agent
 from egpt.integrations.db.surrealdb import SurrealDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.anthropic import Claude
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

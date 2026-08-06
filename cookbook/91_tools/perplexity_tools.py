@@ -6,8 +6,8 @@ Demonstrates Perplexity Search tools for web search.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.perplexity import PerplexitySearch
 from egpt.models.openai import OpenAIChat
-from egpt.tools.perplexity import PerplexitySearch
 
 # ---------------------------------------------------------------------------
 # Create Agent

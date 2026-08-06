@@ -6,20 +6,20 @@ import httpx
 import pytest
 from gitlab.exceptions import GitlabError
 
-from egpt.tools.gitlab import GitlabTools
+from egpt.integrations.tools.gitlab import GitlabTools
 
 
 class TestGitlabTools:
     @pytest.fixture
     def gitlab_tools(self):
-        with patch("egpt.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
+        with patch("egpt.integrations.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
             mock_client = MagicMock()
             mock_gitlab.return_value = mock_client
             tools = GitlabTools(access_token="test_token")
             yield tools, mock_client
 
     def test_init_with_explicit_token(self):
-        with patch("egpt.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
+        with patch("egpt.integrations.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
             GitlabTools(access_token="explicit_token", base_url="https://gitlab.example.com", timeout=60)
 
             mock_gitlab.assert_called_once_with(
@@ -28,7 +28,7 @@ class TestGitlabTools:
 
     def test_init_uses_environment_variables(self):
         with (
-            patch("egpt.tools.gitlab.gitlab.Gitlab") as mock_gitlab,
+            patch("egpt.integrations.tools.gitlab.gitlab.Gitlab") as mock_gitlab,
             patch.dict(
                 os.environ,
                 {
@@ -42,14 +42,14 @@ class TestGitlabTools:
 
     def test_init_without_token(self):
         with (
-            patch("egpt.tools.gitlab.gitlab.Gitlab") as mock_gitlab,
+            patch("egpt.integrations.tools.gitlab.gitlab.Gitlab") as mock_gitlab,
             patch.dict(os.environ, {}, clear=True),
         ):
             GitlabTools()
             mock_gitlab.assert_called_once_with(url="https://gitlab.com", timeout=30)
 
     def test_init_failure_raises_value_error(self):
-        with patch("egpt.tools.gitlab.gitlab.Gitlab", side_effect=Exception("bad config")):
+        with patch("egpt.integrations.tools.gitlab.gitlab.Gitlab", side_effect=Exception("bad config")):
             with pytest.raises(ValueError, match="Failed to initialize GitLab client"):
                 GitlabTools(access_token="token")
 
@@ -68,11 +68,13 @@ class TestGitlabTools:
         mock_async_client = MagicMock()
         mock_async_client.get = AsyncMock(side_effect=[response_one, response_two])
 
-        with patch("egpt.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
+        with patch("egpt.integrations.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
             mock_gitlab.return_value = MagicMock()
             tools = GitlabTools(access_token="token")
 
-        with patch("egpt.tools.gitlab.httpx.AsyncClient", return_value=mock_async_client) as mock_async_client_factory:
+        with patch(
+            "egpt.integrations.tools.gitlab.gitlab.httpx.AsyncClient", return_value=mock_async_client
+        ) as mock_async_client_factory:
             first_payload = await tools._aget("/projects", params={"page": 1})
             second_payload = await tools._aget("/projects", params={"page": 2})
 
@@ -87,7 +89,7 @@ class TestGitlabTools:
         assert second_payload == {"ok": "again"}
 
     def test_async_tools_registered_with_sync_names(self):
-        with patch("egpt.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
+        with patch("egpt.integrations.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
             mock_gitlab.return_value = MagicMock()
             tools = GitlabTools(access_token="token")
 
@@ -99,7 +101,7 @@ class TestGitlabTools:
         assert "alist_projects" not in tools.async_functions
 
     def test_enable_flags_register_selected_tools_only(self):
-        with patch("egpt.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
+        with patch("egpt.integrations.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
             mock_gitlab.return_value = MagicMock()
             tools = GitlabTools(
                 enable_list_projects=True,
@@ -288,7 +290,7 @@ class TestGitlabTools:
             }
         ]
 
-        with patch("egpt.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
+        with patch("egpt.integrations.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
             mock_gitlab.return_value = MagicMock()
             tools = GitlabTools(access_token="test_token")
 
@@ -320,7 +322,7 @@ class TestGitlabTools:
             "last_activity_at": "2026-02-24T00:00:00Z",
         }
 
-        with patch("egpt.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
+        with patch("egpt.integrations.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
             mock_gitlab.return_value = MagicMock()
             tools = GitlabTools()
 
@@ -352,7 +354,7 @@ class TestGitlabTools:
             }
         ]
 
-        with patch("egpt.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
+        with patch("egpt.integrations.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
             mock_gitlab.return_value = MagicMock()
             tools = GitlabTools()
 
@@ -401,7 +403,7 @@ class TestGitlabTools:
             }
         ]
 
-        with patch("egpt.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
+        with patch("egpt.integrations.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
             mock_gitlab.return_value = MagicMock()
             tools = GitlabTools()
 
@@ -434,7 +436,7 @@ class TestGitlabTools:
             json={"message": "404 Project Not Found"},
             request=httpx.Request("GET", "https://gitlab.com/api/v4/projects/missing%2Fproject"),
         )
-        with patch("egpt.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
+        with patch("egpt.integrations.tools.gitlab.gitlab.Gitlab") as mock_gitlab:
             mock_gitlab.return_value = MagicMock()
             tools = GitlabTools()
 

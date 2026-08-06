@@ -6,10 +6,10 @@ Demonstrates team-based video caption generation and embedding workflow.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.moviepy_video import MoviePyVideoTools
+from egpt.integrations.tools.openai import OpenAITools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
-from egpt.tools.moviepy_video import MoviePyVideoTools
-from egpt.tools.openai import OpenAITools
 
 # ---------------------------------------------------------------------------
 # Create Members

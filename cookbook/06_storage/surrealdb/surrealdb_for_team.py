@@ -21,10 +21,10 @@ from typing import List
 
 from egpt.agent import Agent
 from egpt.integrations.db.surrealdb import SurrealDb
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.anthropic import Claude
 from egpt.team import Team
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------

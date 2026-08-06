@@ -9,9 +9,9 @@ import asyncio
 from typing import List, Optional
 
 from egpt.agent import Agent
+from egpt.integrations.tools.models.gemini import GeminiTools
+from egpt.integrations.tools.openai import OpenAITools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.models.gemini import GeminiTools
-from egpt.tools.openai import OpenAITools
 from egpt.workflow.router import Router
 from egpt.workflow.step import Step
 from egpt.workflow.steps import Steps

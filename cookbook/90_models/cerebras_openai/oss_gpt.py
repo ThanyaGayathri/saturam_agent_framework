@@ -6,8 +6,8 @@ Cookbook example for `cerebras_openai/oss_gpt.py`.
 """
 
 from egpt.agent.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.cerebras.cerebras_openai import CerebrasOpenAI
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

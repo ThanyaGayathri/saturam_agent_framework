@@ -3,8 +3,8 @@ Gmail Agent that can read, draft and send emails using the Gmail.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.google.gmail import GmailTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.google.gmail import GmailTools
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

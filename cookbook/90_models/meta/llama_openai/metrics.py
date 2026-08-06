@@ -8,8 +8,8 @@ Cookbook example for `meta/llama_openai/metrics.py`.
 from typing import Iterator
 
 from egpt.agent import Agent, RunOutputEvent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.meta import LlamaOpenAI
-from egpt.tools.yfinance import YFinanceTools
 from egpt.utils.pprint import pprint_run_response
 from rich.pretty import pprint
 

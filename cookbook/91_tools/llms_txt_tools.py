@@ -12,8 +12,8 @@ to provide LLM-friendly documentation indexes.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.llms_txt import LLMsTxtTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.llms_txt import LLMsTxtTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

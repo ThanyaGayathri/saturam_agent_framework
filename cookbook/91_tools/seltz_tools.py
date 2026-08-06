@@ -5,8 +5,8 @@ Run `pip install seltz openai python-dotenv` to install dependencies.
 
 from dotenv import load_dotenv
 from egpt.agent import Agent
+from egpt.integrations.tools.seltz import SeltzTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.seltz import SeltzTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

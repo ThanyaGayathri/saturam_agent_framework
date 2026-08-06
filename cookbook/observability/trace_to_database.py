@@ -10,7 +10,7 @@ import time  # noqa
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
-from egpt.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.hackernews import HackerNewsTools
 from egpt.tracing import setup_tracing
 from egpt.utils.pprint import pprint_run_response
 

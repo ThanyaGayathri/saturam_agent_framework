@@ -21,6 +21,7 @@ See also: personal_assistant.py for a tools-free learning pattern.
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 from egpt.learn import (
     LearningMachine,
     LearningMode,
@@ -28,7 +29,6 @@ from egpt.learn import (
     UserProfileConfig,
 )
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.duckduckgo import DuckDuckGoTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

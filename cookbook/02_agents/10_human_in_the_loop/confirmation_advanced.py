@@ -10,9 +10,9 @@ import json
 import httpx
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.wikipedia import WikipediaTools
 from egpt.models.openai import OpenAIResponses
 from egpt.tools import tool
-from egpt.tools.wikipedia import WikipediaTools
 from egpt.utils import pprint
 from rich.console import Console
 from rich.prompt import Prompt

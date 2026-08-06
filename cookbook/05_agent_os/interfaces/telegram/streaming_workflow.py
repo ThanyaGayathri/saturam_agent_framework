@@ -22,10 +22,10 @@ Setup:
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 from egpt.models.openai import OpenAIChat
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.telegram import Telegram
-from egpt.tools.duckduckgo import DuckDuckGoTools
 from egpt.workflow.step import Step
 from egpt.workflow.steps import Steps
 from egpt.workflow.workflow import Workflow

@@ -5,8 +5,8 @@ Simple example showing Morph Fast Apply with file creation and editing.
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.models.morph import MorphTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.models.morph import MorphTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -22,8 +22,8 @@ Required scopes:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.shopify import ShopifyTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.shopify import ShopifyTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -4,10 +4,10 @@ import pytest
 from mcp import StdioServerParameters
 from mcp.types import CallToolResult, TextContent
 
+from egpt.integrations._utils.mcp import get_entrypoint_for_tool
+from egpt.integrations.tools.mcp import MCPTools, MultiMCPTools
+from egpt.integrations.tools.mcp.params import SSEClientParams, StreamableHTTPClientParams
 from egpt.tools.function import Function, FunctionCall, ToolResult
-from egpt.tools.mcp import MCPTools, MultiMCPTools
-from egpt.tools.mcp.params import SSEClientParams, StreamableHTTPClientParams
-from egpt.utils.mcp import get_entrypoint_for_tool
 
 
 class _AsyncContextManager:
@@ -272,10 +272,10 @@ async def test_connect_merges_init_headers_when_streamable_http_headers_default_
 
     with (
         patch(
-            "egpt.tools.mcp.mcp.streamablehttp_client",
+            "egpt.integrations.tools.mcp.mcp.streamablehttp_client",
             return_value=_AsyncContextManager(("read", "write")),
         ) as streamable_http_mock,
-        patch("egpt.tools.mcp.mcp.ClientSession", return_value=_AsyncContextManager(MagicMock())),
+        patch("egpt.integrations.tools.mcp.mcp.ClientSession", return_value=_AsyncContextManager(MagicMock())),
         patch.object(MCPTools, "initialize", new=AsyncMock()),
     ):
         await tools._connect()
@@ -292,8 +292,10 @@ async def test_connect_merges_init_headers_when_sse_headers_default_to_none():
     )
 
     with (
-        patch("egpt.tools.mcp.mcp.sse_client", return_value=_AsyncContextManager(("read", "write"))) as sse_client_mock,
-        patch("egpt.tools.mcp.mcp.ClientSession", return_value=_AsyncContextManager(MagicMock())),
+        patch(
+            "egpt.integrations.tools.mcp.mcp.sse_client", return_value=_AsyncContextManager(("read", "write"))
+        ) as sse_client_mock,
+        patch("egpt.integrations.tools.mcp.mcp.ClientSession", return_value=_AsyncContextManager(MagicMock())),
         patch.object(MCPTools, "initialize", new=AsyncMock()),
     ):
         await tools._connect()
@@ -311,10 +313,10 @@ async def test_multimcp_connect_merges_init_headers_when_streamable_http_headers
 
     with (
         patch(
-            "egpt.tools.mcp.multi_mcp.streamablehttp_client",
+            "egpt.integrations.tools.mcp.multi_mcp.streamablehttp_client",
             return_value=_AsyncContextManager(("read", "write")),
         ) as streamable_http_mock,
-        patch("egpt.tools.mcp.multi_mcp.ClientSession", return_value=_AsyncContextManager(MagicMock())),
+        patch("egpt.integrations.tools.mcp.multi_mcp.ClientSession", return_value=_AsyncContextManager(MagicMock())),
         patch.object(MultiMCPTools, "initialize", new=AsyncMock()),
         patch.object(MultiMCPTools, "build_tools", new=AsyncMock()),
     ):
@@ -333,9 +335,9 @@ async def test_multimcp_connect_merges_init_headers_when_sse_headers_default_to_
 
     with (
         patch(
-            "egpt.tools.mcp.multi_mcp.sse_client", return_value=_AsyncContextManager(("read", "write"))
+            "egpt.integrations.tools.mcp.multi_mcp.sse_client", return_value=_AsyncContextManager(("read", "write"))
         ) as sse_client_mock,
-        patch("egpt.tools.mcp.multi_mcp.ClientSession", return_value=_AsyncContextManager(MagicMock())),
+        patch("egpt.integrations.tools.mcp.multi_mcp.ClientSession", return_value=_AsyncContextManager(MagicMock())),
         patch.object(MultiMCPTools, "initialize", new=AsyncMock()),
         patch.object(MultiMCPTools, "build_tools", new=AsyncMock()),
     ):
@@ -358,8 +360,10 @@ async def test_get_session_for_run_merges_headers_when_sse_headers_default_to_no
     run_context.run_id = "run-sse-none-headers"
 
     with (
-        patch("egpt.tools.mcp.mcp.sse_client", return_value=_AsyncContextManager(("read", "write"))) as sse_mock,
-        patch("egpt.tools.mcp.mcp.ClientSession") as mock_session_cls,
+        patch(
+            "egpt.integrations.tools.mcp.mcp.sse_client", return_value=_AsyncContextManager(("read", "write"))
+        ) as sse_mock,
+        patch("egpt.integrations.tools.mcp.mcp.ClientSession") as mock_session_cls,
     ):
         mock_session = AsyncMock()
         mock_session.initialize = AsyncMock()
@@ -387,10 +391,10 @@ async def test_get_session_for_run_merges_headers_when_streamable_http_headers_d
 
     with (
         patch(
-            "egpt.tools.mcp.mcp.streamablehttp_client",
+            "egpt.integrations.tools.mcp.mcp.streamablehttp_client",
             return_value=_AsyncContextManager(("read", "write")),
         ) as streamable_mock,
-        patch("egpt.tools.mcp.mcp.ClientSession") as mock_session_cls,
+        patch("egpt.integrations.tools.mcp.mcp.ClientSession") as mock_session_cls,
     ):
         mock_session = AsyncMock()
         mock_session.initialize = AsyncMock()
@@ -537,12 +541,12 @@ async def test_stale_sessions_cleaned_up_on_new_run():
 
     # Now simulate a new run requesting a session - this should trigger cleanup
     # We need to mock the session creation since we don't have a real MCP server
-    with patch("egpt.tools.mcp.mcp.streamablehttp_client") as mock_client:
+    with patch("egpt.integrations.tools.mcp.mcp.streamablehttp_client") as mock_client:
         mock_context = AsyncMock()
         mock_context.__aenter__.return_value = (AsyncMock(), AsyncMock(), None)
         mock_client.return_value = mock_context
 
-        with patch("egpt.tools.mcp.mcp.ClientSession") as mock_session_cls:
+        with patch("egpt.integrations.tools.mcp.mcp.ClientSession") as mock_session_cls:
             mock_new_session = AsyncMock()
             mock_new_session.initialize = AsyncMock()
             mock_session_context = AsyncMock()
@@ -627,7 +631,7 @@ async def test_hitl_params_applied_to_functions():
     tools.session = mock_session
     tools._initialized = False
 
-    with patch("egpt.tools.mcp.mcp.get_entrypoint_for_tool", return_value=lambda: "result"):
+    with patch("egpt.integrations.tools.mcp.mcp.get_entrypoint_for_tool", return_value=lambda: "result"):
         await tools.build_tools()
 
     # Verify requires_confirmation is applied
@@ -676,7 +680,7 @@ async def test_hitl_params_with_tool_name_prefix():
     tools.session = mock_session
     tools._initialized = False
 
-    with patch("egpt.tools.mcp.mcp.get_entrypoint_for_tool", return_value=lambda: "result"):
+    with patch("egpt.integrations.tools.mcp.mcp.get_entrypoint_for_tool", return_value=lambda: "result"):
         await tools.build_tools()
 
     # Function should be registered with prefix
@@ -700,12 +704,12 @@ async def test_parallel_get_session_for_run_creates_single_session():
 
     tools = MCPTools(url="http://localhost:8080/mcp", header_provider=lambda: {"X-Token": "t"})
 
-    with patch("egpt.tools.mcp.mcp.streamablehttp_client") as mock_client:
+    with patch("egpt.integrations.tools.mcp.mcp.streamablehttp_client") as mock_client:
         mock_context = AsyncMock()
         mock_context.__aenter__.return_value = (AsyncMock(), AsyncMock(), None)
         mock_client.return_value = mock_context
 
-        with patch("egpt.tools.mcp.mcp.ClientSession") as mock_session_cls:
+        with patch("egpt.integrations.tools.mcp.mcp.ClientSession") as mock_session_cls:
             mock_session = AsyncMock()
             mock_session.initialize = AsyncMock()
             mock_session_context = AsyncMock()
@@ -746,7 +750,7 @@ async def test_parallel_get_session_different_run_ids():
 
     tools = MCPTools(url="http://localhost:8080/mcp", header_provider=lambda: {"X-Token": "t"})
 
-    with patch("egpt.tools.mcp.mcp.streamablehttp_client") as mock_client:
+    with patch("egpt.integrations.tools.mcp.mcp.streamablehttp_client") as mock_client:
 
         def make_mock_context():
             ctx = AsyncMock()
@@ -755,7 +759,7 @@ async def test_parallel_get_session_different_run_ids():
 
         mock_client.side_effect = lambda **kw: make_mock_context()
 
-        with patch("egpt.tools.mcp.mcp.ClientSession") as mock_session_cls:
+        with patch("egpt.integrations.tools.mcp.mcp.ClientSession") as mock_session_cls:
             call_count = {"n": 0}
 
             def make_mock_session_ctx(*args, **kwargs):
@@ -850,7 +854,7 @@ async def test_connect_failure_cleans_up_transport_context_streamable_http():
 
     failing_context = _FailingAenterContext(ConnectionRefusedError("server unreachable"))
 
-    with patch("egpt.tools.mcp.mcp.streamablehttp_client", return_value=failing_context):
+    with patch("egpt.integrations.tools.mcp.mcp.streamablehttp_client", return_value=failing_context):
         with pytest.raises(ConnectionRefusedError):
             await tools._connect()
 
@@ -868,7 +872,7 @@ async def test_connect_failure_cleans_up_transport_context_sse():
 
     failing_context = _FailingAenterContext(ConnectionRefusedError("server unreachable"))
 
-    with patch("egpt.tools.mcp.mcp.sse_client", return_value=failing_context):
+    with patch("egpt.integrations.tools.mcp.mcp.sse_client", return_value=failing_context):
         with pytest.raises(ConnectionRefusedError):
             await tools._connect()
 
@@ -889,8 +893,8 @@ async def test_connect_failure_cleans_up_both_contexts_when_session_aenter_fails
     failing_session_context = _FailingAenterContext(RuntimeError("session init failed"))
 
     with (
-        patch("egpt.tools.mcp.mcp.streamablehttp_client", return_value=transport_context),
-        patch("egpt.tools.mcp.mcp.ClientSession", return_value=failing_session_context),
+        patch("egpt.integrations.tools.mcp.mcp.streamablehttp_client", return_value=transport_context),
+        patch("egpt.integrations.tools.mcp.mcp.ClientSession", return_value=failing_session_context),
     ):
         with pytest.raises(RuntimeError, match="session init failed"):
             await tools._connect()
@@ -922,8 +926,10 @@ async def test_refresh_connection_tool_call_closes_dynamic_session_without_cachi
     run_context.token = "run-token"
 
     with (
-        patch("egpt.tools.mcp.mcp.streamablehttp_client", return_value=transport_context) as streamable_mock,
-        patch("egpt.tools.mcp.mcp.ClientSession", return_value=session_context),
+        patch(
+            "egpt.integrations.tools.mcp.mcp.streamablehttp_client", return_value=transport_context
+        ) as streamable_mock,
+        patch("egpt.integrations.tools.mcp.mcp.ClientSession", return_value=session_context),
     ):
         entrypoint = get_entrypoint_for_tool(tool, fallback_session, mcp_tools_instance=tools)
         result = await entrypoint(_agno_run_context=run_context, query="anyio")
@@ -949,7 +955,7 @@ async def test_connect_public_does_not_raise_when_mcp_server_unreachable():
 
     failing_context = _FailingAenterContext(ConnectionRefusedError("server unreachable"))
 
-    with patch("egpt.tools.mcp.mcp.streamablehttp_client", return_value=failing_context):
+    with patch("egpt.integrations.tools.mcp.mcp.streamablehttp_client", return_value=failing_context):
         # Must not raise — connect() catches and logs.
         await tools.connect()
 
@@ -979,7 +985,7 @@ async def test_agent_aget_tools_path_survives_dead_mcp_server():
     session_id = str(uuid4())
     run_id = str(uuid4())
 
-    with patch("egpt.tools.mcp.mcp.streamablehttp_client", return_value=failing_context):
+    with patch("egpt.integrations.tools.mcp.mcp.streamablehttp_client", return_value=failing_context):
         agent_tools = await agent.aget_tools(
             session=AgentSession(session_id=session_id, session_data={}),
             run_response=RunOutput(run_id=run_id, session_id=session_id),
@@ -1015,10 +1021,10 @@ async def test_multimcp_connect_failure_closes_partially_entered_stack():
 
     with (
         patch(
-            "egpt.tools.mcp.multi_mcp.streamablehttp_client",
+            "egpt.integrations.tools.mcp.multi_mcp.streamablehttp_client",
             side_effect=[first_transport_context, second_transport_context],
         ),
-        patch("egpt.tools.mcp.multi_mcp.ClientSession", return_value=first_session_context),
+        patch("egpt.integrations.tools.mcp.multi_mcp.ClientSession", return_value=first_session_context),
     ):
         await tools.connect()
 
@@ -1042,10 +1048,10 @@ async def test_multimcp_create_and_connect_failure_cleans_up_before_reraising():
 
     with (
         patch(
-            "egpt.tools.mcp.multi_mcp.streamablehttp_client",
+            "egpt.integrations.tools.mcp.multi_mcp.streamablehttp_client",
             side_effect=[first_transport_context, second_transport_context],
         ),
-        patch("egpt.tools.mcp.multi_mcp.ClientSession", return_value=first_session_context),
+        patch("egpt.integrations.tools.mcp.multi_mcp.ClientSession", return_value=first_session_context),
         pytest.raises(ValueError, match="MCP connection failed"),
     ):
         await MultiMCPTools.create_and_connect(
@@ -1068,12 +1074,12 @@ async def test_parallel_calls_no_deadlock_with_timeout():
 
     tools = MCPTools(url="http://localhost:8080/mcp", header_provider=lambda: {"X-Token": "t"})
 
-    with patch("egpt.tools.mcp.mcp.streamablehttp_client") as mock_client:
+    with patch("egpt.integrations.tools.mcp.mcp.streamablehttp_client") as mock_client:
         mock_context = AsyncMock()
         mock_context.__aenter__.return_value = (AsyncMock(), AsyncMock(), None)
         mock_client.return_value = mock_context
 
-        with patch("egpt.tools.mcp.mcp.ClientSession") as mock_session_cls:
+        with patch("egpt.integrations.tools.mcp.mcp.ClientSession") as mock_session_cls:
             mock_session = AsyncMock()
             mock_session.initialize = AsyncMock()
             mock_session_context = AsyncMock()

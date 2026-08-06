@@ -3,12 +3,12 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from egpt.tools.parallel import ParallelTools
+from egpt.integrations.tools.parallel import ParallelTools
 
 
 @pytest.fixture
 def mock_parallel_client():
-    with patch("egpt.tools.parallel.ParallelClient") as mock_client:
+    with patch("egpt.integrations.tools.parallel.parallel.ParallelClient") as mock_client:
         yield mock_client
 
 

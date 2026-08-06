@@ -8,8 +8,8 @@ Prerequisites:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.scrapegraph import ScrapeGraphTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.scrapegraph import ScrapeGraphTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

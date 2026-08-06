@@ -20,8 +20,8 @@ Example prompts to try:
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.google import Gemini
-from egpt.tools.yfinance import YFinanceTools
 from egpt.workflow import Step, Workflow
 
 # ---------------------------------------------------------------------------

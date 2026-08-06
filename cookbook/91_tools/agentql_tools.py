@@ -11,8 +11,8 @@ AgentQL will open up a browser instance (don't close it) and do scraping on the 
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.agentql import AgentQLTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.agentql import AgentQLTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

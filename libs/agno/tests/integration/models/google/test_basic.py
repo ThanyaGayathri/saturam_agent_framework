@@ -262,8 +262,8 @@ def test_count_tokens():
 
 
 def test_count_tokens_with_tools():
+    from egpt.integrations.tools.calculator import CalculatorTools
     from egpt.models.message import Message
-    from egpt.tools.calculator import CalculatorTools
 
     model = Gemini(id="gemini-flash-latest")
     messages = [
@@ -300,8 +300,8 @@ async def test_acount_tokens():
 @pytest.mark.asyncio
 async def test_acount_tokens_with_tools():
     """Test async token counting with tools."""
+    from egpt.integrations.tools.calculator import CalculatorTools
     from egpt.models.message import Message
-    from egpt.tools.calculator import CalculatorTools
 
     model = Gemini(id="gemini-flash-latest")
     messages = [

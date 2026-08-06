@@ -8,9 +8,9 @@ import pytest
 
 bs4 = pytest.importorskip("bs4")
 
+from egpt.integrations.tools.llms_txt import LLMsTxtTools  # noqa: E402
 from egpt.knowledge.reader.llms_txt_reader import LLMsTxtEntry, LLMsTxtReader  # noqa: E402
 from egpt.knowledge.reader.utils.url_validation import is_host_allowed  # noqa: E402
-from egpt.tools.llms_txt import LLMsTxtTools  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -476,7 +476,7 @@ async def test_aget_index_returns_json(tools):
     mock_client = AsyncMock()
     mock_client.get.return_value = mock_response
 
-    with patch("egpt.tools.llms_txt.httpx.AsyncClient") as mock_async_client:
+    with patch("egpt.integrations.tools.llms_txt.llms_txt.httpx.AsyncClient") as mock_async_client:
         mock_async_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
         mock_async_client.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -494,7 +494,7 @@ async def test_aread_url_returns_content(tools):
     mock_client = AsyncMock()
     mock_client.get.return_value = mock_response
 
-    with patch("egpt.tools.llms_txt.httpx.AsyncClient") as mock_async_client:
+    with patch("egpt.integrations.tools.llms_txt.llms_txt.httpx.AsyncClient") as mock_async_client:
         mock_async_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
         mock_async_client.return_value.__aexit__ = AsyncMock(return_value=False)
 

@@ -6,8 +6,8 @@ Cookbook example for `groq/reasoning/finance_agent.py`.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.groq import Groq
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

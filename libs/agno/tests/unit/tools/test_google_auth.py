@@ -5,9 +5,9 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from google.oauth2.credentials import Credentials
 
-from egpt.tools.google.auth import GoogleAuth
-from egpt.tools.google.calendar import GoogleCalendarTools
-from egpt.tools.google.gmail import GmailTools
+from egpt.integrations.tools.google.auth import GoogleAuth
+from egpt.integrations.tools.google.calendar import GoogleCalendarTools
+from egpt.integrations.tools.google.gmail import GmailTools
 
 
 @pytest.fixture

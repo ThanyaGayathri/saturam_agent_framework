@@ -2,8 +2,8 @@ import pytest
 
 from egpt.agent import Agent, RunOutput
 from egpt.integrations.models.litellm import LiteLLMOpenAI
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 
 
 def _assert_metrics(response: RunOutput):

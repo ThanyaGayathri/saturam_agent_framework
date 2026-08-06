@@ -21,8 +21,8 @@ from typing import List, Literal, Optional
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.google import Gemini
-from egpt.tools.yfinance import YFinanceTools
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------

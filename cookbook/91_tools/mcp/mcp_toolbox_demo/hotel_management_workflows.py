@@ -5,8 +5,8 @@ import asyncio
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.mcp_toolbox import MCPToolbox
 from egpt.models.openai import OpenAIChat
-from egpt.tools.mcp_toolbox import MCPToolbox
 from egpt.workflow.condition import Step
 from egpt.workflow.workflow import Workflow
 

@@ -2,7 +2,7 @@ import pytest
 
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.integrations.models.cerebras import Cerebras
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.websearch import WebSearchTools
 
 
 def test_tool_use():

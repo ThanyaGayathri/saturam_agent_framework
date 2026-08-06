@@ -182,11 +182,19 @@ def check_shim_parity(targets_root, shims_root, extra_exports=None, lazy_exports
     return checked, problems
 
 
-def check_submodule_shims(targets_root, shims_root, target_prefix, shim_prefix, skip_prefix="_"):
+def check_submodule_shims(
+    targets_root, shims_root, target_prefix, shim_prefix, skip_prefix="_", skip_modules=frozenset()
+):
     """Every non-``__init__`` module under a target package needs a shim that star-imports it.
 
     Package-level parity says nothing about the submodule shims, yet those are the paths
     cookbooks and benchmarks import by dotted name. Returns (checked, problems).
+
+    A package added after the extraction is skipped wholesale (it never had a deprecated
+    path). `skip_modules` is the per-module counterpart -- ``(package_name, filename)``
+    pairs for modules created inside an already-extracted package, which likewise have no
+    legacy path to shim. Each entry is a deliberate exception, so an unlisted missing shim
+    still fails.
     """
     checked = 0
     problems = []
@@ -199,6 +207,8 @@ def check_submodule_shims(targets_root, shims_root, target_prefix, shim_prefix, 
 
         for target_mod in sorted(target_dir.glob("*.py")):
             if target_mod.name == "__init__.py":
+                continue
+            if (target_dir.name, target_mod.name) in skip_modules:
                 continue
             shim_mod = shims_root / target_dir.name / target_mod.name
             if not shim_mod.exists():

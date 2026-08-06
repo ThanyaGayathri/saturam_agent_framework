@@ -1,7 +1,7 @@
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.file_generation import FileGenerationTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.file_generation import FileGenerationTools
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
 

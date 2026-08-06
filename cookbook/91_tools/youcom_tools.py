@@ -15,7 +15,7 @@ instead of YouTools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.youcom import YouTools
+from egpt.integrations.tools.youcom import YouTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -9,8 +9,8 @@ from typing import Optional
 
 from egpt.agent import Agent
 from egpt.eval.agent_as_judge import AgentAsJudgeEval, AgentAsJudgeResult
+from egpt.integrations.tools.calculator import CalculatorTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.calculator import CalculatorTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

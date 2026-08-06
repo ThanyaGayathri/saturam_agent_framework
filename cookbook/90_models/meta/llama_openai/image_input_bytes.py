@@ -8,9 +8,9 @@ Cookbook example for `meta/llama_openai/image_input_bytes.py`.
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import Image
 from egpt.models.meta import Llama
-from egpt.tools.websearch import WebSearchTools
 from egpt.utils.media import download_image
 
 # ---------------------------------------------------------------------------

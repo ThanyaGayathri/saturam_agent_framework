@@ -6,7 +6,7 @@ Demonstrates tavily tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.tavily import TavilyTools
+from egpt.integrations.tools.tavily import TavilyTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

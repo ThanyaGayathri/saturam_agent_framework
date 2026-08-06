@@ -18,10 +18,10 @@ Prerequisites:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.parallel import ParallelTools
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.parallel import ParallelTools
 from egpt.vectordb.chroma import ChromaDb
 from egpt.vectordb.search import SearchType
 

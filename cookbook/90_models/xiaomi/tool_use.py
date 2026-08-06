@@ -10,8 +10,8 @@ Run `uv pip install ddgs` to install dependencies.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.xiaomi import MiMo
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

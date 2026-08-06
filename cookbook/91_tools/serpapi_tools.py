@@ -6,7 +6,7 @@ Demonstrates serpapi tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.serpapi import SerpApiTools
+from egpt.integrations.tools.serpapi import SerpApiTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

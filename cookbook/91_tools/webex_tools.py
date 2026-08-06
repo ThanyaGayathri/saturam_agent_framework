@@ -16,7 +16,7 @@ Steps:
 """
 
 from egpt.agent import Agent
-from egpt.tools.webex import WebexTools
+from egpt.integrations.tools.webex import WebexTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

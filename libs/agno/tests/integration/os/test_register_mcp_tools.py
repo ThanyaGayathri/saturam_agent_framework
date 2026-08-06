@@ -1,7 +1,7 @@
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools, MultiMCPTools
 from egpt.os import EgptOS
 from egpt.team.team import Team
-from egpt.tools.mcp import MCPTools, MultiMCPTools
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
 

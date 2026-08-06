@@ -8,9 +8,9 @@ Demonstrates sharing session state and member interactions across team members.
 from egpt.agent import Agent
 from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team, TeamMode
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Members

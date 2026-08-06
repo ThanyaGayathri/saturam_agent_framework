@@ -20,9 +20,9 @@ from datetime import timedelta
 from os import getenv
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools
+from egpt.integrations.tools.mcp.params import StreamableHTTPClientParams
 from egpt.models.anthropic import Claude
-from egpt.tools.mcp import MCPTools
-from egpt.tools.mcp.params import StreamableHTTPClientParams
 
 # ---------------------------------------------------------------------------
 # Create Agent
