@@ -2,22 +2,31 @@
 
 Every check is AST-based and imports nothing under test, so it holds with no vector SDK
 installed at all -- which matters, because all 18 backends raise ImportError at import time
-when their optional dependency is missing.
+when their optional dependency is missing. The shared machinery lives in
+`tests/unit/_layer_guards.py`; EGPT-1.4 uses the same helpers for the model providers.
 
 Vector dbs have no VECTORDB_CLASSES table (the name -> class construction seam is EGPT-1.9),
 so there is no counterpart to EGPT-1.4's `test_every_model_subclass_is_registered`. Its real
 job -- proving the scan root is not stale -- is done here by explicit non-vacuity floors,
-without which the guards below would pass while checking nothing. That is not hypothetical:
+without which these guards would pass while checking nothing. That is not hypothetical:
 EGPT-1.4 moved the providers and its drift guard silently degraded to a no-op.
 """
 
-import ast
-from pathlib import Path
+from tests.unit._layer_guards import (
+    check_shim_parity,
+    check_submodule_shims,
+    discover_subclasses,
+    package_root,
+)
 
 # The 18 backends moved to the integrations layer by EGPT-1.5. A floor rather than an exact
 # count, so adding a 19th backend does not fail these guards -- landing it in the wrong tree
 # is what `test_deprecated_vectordb_tree_holds_only_shims` catches.
 _BACKEND_COUNT = 18
+
+# Every module reachable by dotted path before the move: the 18 implementation modules plus
+# the index/mixin helpers. Each needs a submodule shim.
+_SUBMODULE_SHIM_COUNT = 24
 
 # Core vectordb modules that stay behind by design (ADR 0001: the interface plus the shared
 # distance/score/search value types remain in core). Excluded from the "shims only" scan so
@@ -37,119 +46,28 @@ _CORE_VECTORDB_MODULES = {
 _SHIM_EXTRA_EXPORTS: dict = {}
 
 
-def _package_root():
-    """The directory `egpt` itself lives in, so dotted module names start with `egpt.`."""
-    root = Path(__file__).resolve().parents[3]
-    assert (root / "egpt").is_dir(), f"package root not found: {root}"
-    return root
-
-
 def _vectordb_root():
-    """Backend implementations live in the integrations layer as of EGPT-1.5.
-
-    Anchored on `_package_root()` rather than a `parents[N]` walk, for the reason EGPT-1.4
-    learned the hard way: deriving the dotted prefix from the scan root's own depth makes a
-    relocated tree yield an empty scan and a vacuously passing guard.
-    """
-    root = _package_root() / "egpt" / "integrations" / "vectordb"
+    """Backend implementations live in the integrations layer as of EGPT-1.5."""
+    root = package_root() / "egpt" / "integrations" / "vectordb"
     assert root.is_dir(), f"vectordb integrations root not found: {root}"
     return root
 
 
 def _deprecated_vectordb_root():
     """The pre-EGPT-1.5 `egpt/vectordb` tree, which now holds core modules and shims only."""
-    return _package_root() / "egpt" / "vectordb"
-
-
-def _module_name(path):
-    name = ".".join(path.relative_to(_package_root()).with_suffix("").parts)
-    return name[: -len(".__init__")] if name.endswith(".__init__") else name
-
-
-def _discover_vectordb_subclasses(root, skip_modules=frozenset()):
-    """Statically find every concrete VectorDb subclass under `root`, without importing.
-
-    Parses the source with ``ast`` so SDK-gated backends are still discovered. Returns a set
-    of (defining_module, class_name).
-    """
-    # (defining_module, class_name) -> [base names]
-    class_bases: dict = {}
-    for path in root.rglob("*.py"):
-        if path.name == "__init__.py":
-            continue  # __init__ only re-exports; concrete classes live in submodules
-        module = _module_name(path)
-        if module in skip_modules:
-            continue
-        for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):
-            if isinstance(node, ast.ClassDef):
-                bases = [
-                    b.id if isinstance(b, ast.Name) else b.attr
-                    for b in node.bases
-                    if isinstance(b, (ast.Name, ast.Attribute))
-                ]
-                class_bases[(module, node.name)] = bases
-
-    # Transitively mark every class whose base chain reaches VectorDb, matched by class name:
-    # bases are often imported under aliases and cannot be resolved without importing.
-    rooted = {"VectorDb"}
-    changed = True
-    while changed:
-        changed = False
-        for (_module, name), bases in class_bases.items():
-            if name not in rooted and any(b in rooted for b in bases):
-                rooted.add(name)
-                changed = True
-
-    return {(module, name) for (module, name), _bases in class_bases.items() if name != "VectorDb" and name in rooted}
-
-
-def _public_export_names(path):
-    """Statically compute the star-import name set of a package ``__init__.py``.
-
-    A module-level ``__all__`` is authoritative when present; otherwise every public name
-    bound at import time is collected.
-
-    Submodule names are intentionally not included. ``from .index import HNSW`` also binds
-    ``index`` on the package, but only as a side effect of that submodule importing
-    successfully, which makes the set depend on which optional SDKs happen to be installed.
-    Submodules stay reachable by their dotted path either way.
-    """
-    tree = ast.parse(path.read_text(), filename=str(path))
-
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "__all__":
-                    if isinstance(node.value, (ast.List, ast.Tuple)):
-                        return {
-                            elt.value
-                            for elt in node.value.elts
-                            if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
-                        }
-
-    names = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            if node.module == "typing":
-                continue  # TYPE_CHECKING and friends are not part of the export surface
-            names.update(alias.asname or alias.name for alias in node.names if alias.name != "*")
-        elif isinstance(node, ast.Import):
-            names.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
-        elif isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-            names.add(node.name)
-        elif isinstance(node, ast.Assign):
-            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
-    return {name for name in names if not name.startswith("_")}
+    root = package_root() / "egpt" / "vectordb"
+    assert root.is_dir(), f"deprecated vectordb root not found: {root}"
+    return root
 
 
 def test_all_vectordb_backends_live_in_integrations():
     """Every concrete backend must be discoverable under the integrations layer.
 
-    This is the non-vacuity anchor for the two guards below: if the scan root ever stops
-    matching where backends actually live, both would compare empty sets and report PASS.
+    This is the non-vacuity anchor for the guards below: if the scan root ever stops matching
+    where backends actually live, they would compare empty sets and report PASS.
     """
     root = _vectordb_root()
-    discovered = _discover_vectordb_subclasses(root)
+    discovered = discover_subclasses(root, "VectorDb")
 
     assert len(discovered) >= _BACKEND_COUNT, (
         f"Only {len(discovered)} VectorDb subclasses discovered under {root}; expected at "
@@ -164,13 +82,25 @@ def test_deprecated_vectordb_tree_holds_only_shims():
     That tree is core interface modules plus compatibility shims (EGPT-1.5). A VectorDb
     subclass defined there would be invisible to the relocated scan above and would put an
     external-system adapter back in core, which ADR 0001 forbids.
+
+    `__init__.py` files are scanned too. They normally only re-export, but nothing stops a
+    small adapter being defined directly in one, and skipping them would wave that through.
     """
-    stragglers = _discover_vectordb_subclasses(_deprecated_vectordb_root(), skip_modules=_CORE_VECTORDB_MODULES)
+    shims_root = _deprecated_vectordb_root()
+    stragglers = discover_subclasses(shims_root, "VectorDb", skip_modules=_CORE_VECTORDB_MODULES)
 
     assert not stragglers, (
         "VectorDb subclasses found under the deprecated egpt/vectordb tree: "
         + ", ".join(sorted(f"{name} ({module})" for (module, name) in stragglers))
         + ". Backend implementations belong under egpt/integrations/vectordb/."
+    )
+
+    # Without this the guard is vacuous if the tree is ever renamed or emptied: rglob would
+    # return nothing, stragglers would be empty, and the assertion above could never fire.
+    shim_packages = [p for p in shims_root.iterdir() if p.is_dir() and (p / "__init__.py").exists()]
+    assert len(shim_packages) >= _BACKEND_COUNT, (
+        f"Only {len(shim_packages)} shim packages found under {shims_root}; expected at least "
+        f"{_BACKEND_COUNT}. The deprecated tree is stale, which makes this guard vacuous."
     )
 
 
@@ -182,43 +112,66 @@ def test_deprecated_shims_reexport_everything_their_target_exports():
     code drifted apart and star-imports, `dir()` and static typing silently broke on a path
     advertised as a drop-in replacement.
 
+    The check is two-sided on purpose: a shim must declare what its target declares *and*
+    actually bind everything it declares. Comparing `__all__` to `__all__` alone would miss
+    the azure case entirely, since a stale `__all__` matches its target perfectly while the
+    module binds nothing.
+
     Two vectordb names make this more than a typo check: `mongodb.MongoVectorDb` and
     `redis.RedisVectorDb` are module-level aliases assigned in `__init__.py`, defined by no
-    submodule at all, so any rewrite that follows import statements alone drops them.
+    submodule, so any rewrite that follows import statements alone drops them.
     """
-    targets_root = _vectordb_root()
-    shims_root = _deprecated_vectordb_root()
-
-    checked = 0
-    problems = []
-    for target_dir in sorted(p for p in targets_root.iterdir() if p.is_dir()):
-        if target_dir.name.startswith("_"):
-            continue  # shared infra, never had a public egpt.vectordb path
-        target_init = target_dir / "__init__.py"
-        shim_init = shims_root / target_dir.name / "__init__.py"
-        if not target_init.exists() or not shim_init.exists():
-            continue  # backends added after EGPT-1.5 need no deprecated path
-
-        checked += 1
-        target_names = _public_export_names(target_init)
-        shim_names = _public_export_names(shim_init)
-        allowed_extra = _SHIM_EXTRA_EXPORTS.get(target_dir.name, set())
-
-        missing = sorted(target_names - shim_names)
-        extra = sorted(shim_names - target_names - allowed_extra)
-        if missing:
-            problems.append(
-                f"{target_dir.name}: shim does not re-export {missing}. Import them explicitly "
-                "and list them in __all__, as the other shims do."
-            )
-        if extra:
-            problems.append(
-                f"{target_dir.name}: shim exports {extra} which the target does not. Either "
-                "drop them or record the reason in _SHIM_EXTRA_EXPORTS."
-            )
+    checked, problems = check_shim_parity(
+        _vectordb_root(), _deprecated_vectordb_root(), extra_exports=_SHIM_EXTRA_EXPORTS
+    )
 
     assert checked >= _BACKEND_COUNT, (
         f"Only {checked} shim/target pairs compared; expected at least {_BACKEND_COUNT}. One "
         "of the two roots is probably stale, which makes this guard vacuous."
     )
     assert not problems, "Compatibility shims out of sync with their targets:\n" + "\n".join(problems)
+
+
+def test_backend_class_paths_are_pinned_to_the_integrations_layer():
+    """`vector_db_class` in the AgentOS /registry response is derived from `cls.__module__`.
+
+    `os/routers/registry/registry.py` reports `f"{cls.__module__}.{cls.__name__}"` as
+    `VectorDbMetadata.class_path` and `KnowledgeMetadata.vector_db_class`. EGPT-1.5 changed
+    those values from `egpt.vectordb.<backend>...` to `egpt.integrations.vectordb.<backend>...`,
+    which no import shim can mask because the shim re-exports the same class object.
+
+    Pinning the prefix here means the next tree move surfaces as a failing test naming an
+    API payload change, rather than as a silent break for consumers that match on the string.
+    """
+    discovered = discover_subclasses(_vectordb_root(), "VectorDb")
+    assert len(discovered) >= _BACKEND_COUNT, "scan root stale; see the anchor test above"
+
+    stray = sorted(module for (module, _name) in discovered if not module.startswith("egpt.integrations.vectordb."))
+    assert not stray, (
+        "These backends would serialize a class_path outside the integrations layer: "
+        + ", ".join(stray)
+        + ". The AgentOS /registry response embeds this string, so moving them is a "
+        "breaking API change that needs to be called out in the PR and release notes."
+    )
+
+
+def test_every_backend_submodule_has_a_shim():
+    """The 24 submodule shims need coverage too, not just the 18 package `__init__` files.
+
+    Dotted paths like `egpt.vectordb.pgvector.index` and `egpt.vectordb.weaviate.index` are
+    what benchmarks and cookbooks actually import; package-level parity says nothing about
+    them. A shim that loses its `from <target> import *` still resolves attribute access via
+    `__getattr__`, but a star import of it binds zero names.
+    """
+    checked, problems = check_submodule_shims(
+        _vectordb_root(),
+        _deprecated_vectordb_root(),
+        target_prefix="egpt.integrations.vectordb",
+        shim_prefix="egpt.vectordb",
+    )
+
+    assert checked >= _SUBMODULE_SHIM_COUNT, (
+        f"Only {checked} submodule shims compared; expected at least {_SUBMODULE_SHIM_COUNT}. "
+        "One of the two roots is probably stale, which makes this guard vacuous."
+    )
+    assert not problems, "Backend submodule shims out of sync with their targets:\n" + "\n".join(problems)
