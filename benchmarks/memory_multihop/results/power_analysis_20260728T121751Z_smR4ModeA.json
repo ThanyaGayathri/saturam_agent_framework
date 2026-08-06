@@ -1,0 +1,102 @@
+{
+  "source": "detail_20260728T112549Z_smR4ModeA_tuned.json",
+  "comparisons": [
+    {
+      "comparison": "hybrid vs dense - all-hops (the adopt metric)",
+      "n_observed": 30,
+      "observed_diff": 0.2333,
+      "mcnemar": {
+        "only_A_succeeds": 0.2333,
+        "only_B_succeeds": 0.0,
+        "discordant_rate": 0.2333,
+        "psi": 1.0,
+        "n_discordant_required": 4,
+        "n_required": 17
+      },
+      "empirical_power_curve": {
+        "30": 0.935,
+        "50": 1.0,
+        "75": 1.0,
+        "100": 1.0,
+        "150": 1.0,
+        "200": 1.0,
+        "300": 1.0,
+        "500": 1.0,
+        "800": 1.0
+      },
+      "n_for_80pct_power_empirical": 30
+    },
+    {
+      "comparison": "hybrid vs dense - all-hops, chaining-only",
+      "n_observed": 24,
+      "observed_diff": 0.2917,
+      "mcnemar": {
+        "only_A_succeeds": 0.2917,
+        "only_B_succeeds": 0.0,
+        "discordant_rate": 0.2917,
+        "psi": 1.0,
+        "n_discordant_required": 4,
+        "n_required": 14
+      },
+      "empirical_power_curve": {
+        "30": 0.993,
+        "50": 1.0,
+        "75": 1.0,
+        "100": 1.0,
+        "150": 1.0,
+        "200": 1.0,
+        "300": 1.0,
+        "500": 1.0,
+        "800": 1.0
+      },
+      "n_for_80pct_power_empirical": 30
+    },
+    {
+      "comparison": "hybrid vs dense - recall@5 (already separates)",
+      "n_observed": 30,
+      "observed_diff": 0.1417,
+      "mcnemar": {
+        "discordant_rate": 0.0,
+        "n_required": null,
+        "note": "no measurable discordance"
+      },
+      "empirical_power_curve": {
+        "30": 0.998,
+        "50": 1.0,
+        "75": 1.0,
+        "100": 1.0,
+        "150": 1.0,
+        "200": 1.0,
+        "300": 1.0,
+        "500": 1.0,
+        "800": 1.0
+      },
+      "n_for_80pct_power_empirical": 30
+    },
+    {
+      "comparison": "hybrid vs pure PPR - all-hops",
+      "n_observed": 30,
+      "observed_diff": 0.0667,
+      "mcnemar": {
+        "only_A_succeeds": 0.1667,
+        "only_B_succeeds": 0.1,
+        "discordant_rate": 0.2667,
+        "psi": 0.625,
+        "n_discordant_required": 124,
+        "n_required": 462
+      },
+      "empirical_power_curve": {
+        "30": 0.12,
+        "50": 0.135,
+        "75": 0.193,
+        "100": 0.225,
+        "150": 0.338,
+        "200": 0.407,
+        "300": 0.615,
+        "500": 0.812,
+        "800": 0.97
+      },
+      "n_for_80pct_power_empirical": 500
+    }
+  ]
+}

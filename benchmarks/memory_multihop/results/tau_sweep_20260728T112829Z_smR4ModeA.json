@@ -1,0 +1,190 @@
+{
+  "embedder": "local:BAAI/bge-base-en-v1.5@768",
+  "k": 5,
+  "entity_cosine_distribution": {
+    "n_entities": 3413,
+    "n_pairs": 5822578,
+    "p50": 0.4115,
+    "p90": 0.4944,
+    "p99": 0.5878,
+    "p99_9": 0.6984,
+    "max": 1.0
+  },
+  "synonym_tau_sweep": [
+    {
+      "synonym_tau": 0.7,
+      "link_threshold": 0.5,
+      "synonym_edges": 5516,
+      "recall@k": 0.65,
+      "all_hops_hit": 0.4667,
+      "chaining_recall@k": 0.6042,
+      "chaining_all_hops_hit": 0.4167
+    },
+    {
+      "synonym_tau": 0.75,
+      "link_threshold": 0.5,
+      "synonym_edges": 2423,
+      "recall@k": 0.65,
+      "all_hops_hit": 0.4667,
+      "chaining_recall@k": 0.6042,
+      "chaining_all_hops_hit": 0.4167
+    },
+    {
+      "synonym_tau": 0.8,
+      "link_threshold": 0.5,
+      "synonym_edges": 1083,
+      "recall@k": 0.6333,
+      "all_hops_hit": 0.4667,
+      "chaining_recall@k": 0.5833,
+      "chaining_all_hops_hit": 0.4167
+    },
+    {
+      "synonym_tau": 0.85,
+      "link_threshold": 0.5,
+      "synonym_edges": 422,
+      "recall@k": 0.6333,
+      "all_hops_hit": 0.4667,
+      "chaining_recall@k": 0.5833,
+      "chaining_all_hops_hit": 0.4167
+    },
+    {
+      "synonym_tau": 0.9,
+      "link_threshold": 0.5,
+      "synonym_edges": 140,
+      "recall@k": 0.6333,
+      "all_hops_hit": 0.4667,
+      "chaining_recall@k": 0.5833,
+      "chaining_all_hops_hit": 0.4167
+    },
+    {
+      "synonym_tau": 0.95,
+      "link_threshold": 0.5,
+      "synonym_edges": 26,
+      "recall@k": 0.6333,
+      "all_hops_hit": 0.4667,
+      "chaining_recall@k": 0.5833,
+      "chaining_all_hops_hit": 0.4167
+    }
+  ],
+  "link_threshold_sweep": [
+    {
+      "synonym_tau": 0.85,
+      "link_threshold": 0.3,
+      "recall@k": 0.6333,
+      "all_hops_hit": 0.4667,
+      "chaining_recall@k": 0.5833,
+      "chaining_all_hops_hit": 0.4167
+    },
+    {
+      "synonym_tau": 0.85,
+      "link_threshold": 0.4,
+      "recall@k": 0.6333,
+      "all_hops_hit": 0.4667,
+      "chaining_recall@k": 0.5833,
+      "chaining_all_hops_hit": 0.4167
+    },
+    {
+      "synonym_tau": 0.85,
+      "link_threshold": 0.5,
+      "recall@k": 0.6333,
+      "all_hops_hit": 0.4667,
+      "chaining_recall@k": 0.5833,
+      "chaining_all_hops_hit": 0.4167
+    },
+    {
+      "synonym_tau": 0.85,
+      "link_threshold": 0.6,
+      "recall@k": 0.7333,
+      "all_hops_hit": 0.5333,
+      "chaining_recall@k": 0.7083,
+      "chaining_all_hops_hit": 0.5
+    },
+    {
+      "synonym_tau": 0.85,
+      "link_threshold": 0.65,
+      "recall@k": 0.8167,
+      "all_hops_hit": 0.6333,
+      "chaining_recall@k": 0.8125,
+      "chaining_all_hops_hit": 0.625
+    },
+    {
+      "synonym_tau": 0.85,
+      "link_threshold": 0.7,
+      "recall@k": 0.8083,
+      "all_hops_hit": 0.6667,
+      "chaining_recall@k": 0.8021,
+      "chaining_all_hops_hit": 0.6667
+    },
+    {
+      "synonym_tau": 0.85,
+      "link_threshold": 0.75,
+      "recall@k": 0.7833,
+      "all_hops_hit": 0.6333,
+      "chaining_recall@k": 0.7708,
+      "chaining_all_hops_hit": 0.625
+    },
+    {
+      "synonym_tau": 0.85,
+      "link_threshold": 0.8,
+      "recall@k": 0.7917,
+      "all_hops_hit": 0.6333,
+      "chaining_recall@k": 0.7812,
+      "chaining_all_hops_hit": 0.625
+    },
+    {
+      "synonym_tau": 0.85,
+      "link_threshold": 0.85,
+      "recall@k": 0.8,
+      "all_hops_hit": 0.6667,
+      "chaining_recall@k": 0.7917,
+      "chaining_all_hops_hit": 0.6667
+    },
+    {
+      "synonym_tau": 0.85,
+      "link_threshold": 0.9,
+      "recall@k": 0.7833,
+      "all_hops_hit": 0.6667,
+      "chaining_recall@k": 0.7708,
+      "chaining_all_hops_hit": 0.6667
+    },
+    {
+      "synonym_tau": 0.85,
+      "link_threshold": 0.95,
+      "recall@k": 0.75,
+      "all_hops_hit": 0.6333,
+      "chaining_recall@k": 0.7292,
+      "chaining_all_hops_hit": 0.625
+    }
+  ],
+  "loocv_link_threshold": {
+    "recall@k": {
+      "loocv_mean": 0.75,
+      "in_sample_best": 0.8167,
+      "in_sample_best_threshold": 0.65,
+      "selected_thresholds": [
+        0.65,
+        0.7,
+        0.85
+      ]
+    },
+    "all_hops_hit": {
+      "loocv_mean": 0.5,
+      "in_sample_best": 0.6667,
+      "in_sample_best_threshold": 0.7,
+      "selected_thresholds": [
+        0.65,
+        0.7,
+        0.85,
+        0.9
+      ]
+    }
+  },
+  "llm_usage": {
+    "calls": 315,
+    "input_tokens": 53384,
+    "output_tokens": 56254,
+    "total_tokens": 109638,
+    "latency_s": 968.348,
+    "usd_cost": 0.6293
+  }
+}

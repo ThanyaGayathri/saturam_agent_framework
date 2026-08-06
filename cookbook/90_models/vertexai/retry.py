@@ -1,7 +1,7 @@
 """Example demonstrating how to set up retries with Vertex AI."""
 
 from egpt.agent import Agent
-from egpt.models.vertexai import Claude
+from egpt.models.vertexai.claude import Claude
 
 # ---------------------------------------------------------------------------
 # Create Agent

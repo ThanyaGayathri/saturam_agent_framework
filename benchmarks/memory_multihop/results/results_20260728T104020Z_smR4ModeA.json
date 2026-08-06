@@ -1,0 +1,121 @@
+{
+  "vector": {
+    "method": "vector",
+    "k": 5,
+    "n_items": 30,
+    "embedder": "local:BAAI/bge-base-en-v1.5@768",
+    "retrieval_only": true,
+    "index_stats": {
+      "n_passages": 285,
+      "n_entities": 0,
+      "n_edges": 0,
+      "llm": {
+        "calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "latency_s": 0.0,
+        "usd_cost": 0.0
+      },
+      "embed_calls": 2,
+      "index_seconds": 9.79
+    },
+    "openie_failures": 0,
+    "reader_usage": {
+      "calls": 0,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "total_tokens": 0,
+      "latency_s": 0.0,
+      "usd_cost": 0.0
+    },
+    "query_latency_s": {
+      "mean": 0.041,
+      "p95": 0.076
+    },
+    "overall": {
+      "recall@k": {
+        "mean": 0.7417,
+        "ci95": [
+          0.65,
+          0.8333
+        ],
+        "n": 30
+      },
+      "all_hops_hit": {
+        "mean": 0.4667,
+        "ci95": [
+          0.3,
+          0.6333
+        ],
+        "n": 30
+      },
+      "em": {
+        "mean": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ],
+        "n": 30
+      },
+      "f1": {
+        "mean": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ],
+        "n": 30
+      },
+      "cover": {
+        "mean": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ],
+        "n": 30
+      }
+    },
+    "chaining_only": {
+      "recall@k": {
+        "mean": 0.6771,
+        "ci95": [
+          0.5938,
+          0.7708
+        ],
+        "n": 24
+      },
+      "all_hops_hit": {
+        "mean": 0.3333,
+        "ci95": [
+          0.1667,
+          0.5417
+        ],
+        "n": 24
+      },
+      "em": {
+        "mean": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ],
+        "n": 24
+      },
+      "f1": {
+        "mean": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ],
+        "n": 24
+      },
+      "cover": {
+        "mean": 0.0,
+        "ci95": [
+          0.0,
+          0.0
+        ],
+        "n": 24
+      }
+    }
+  }
+}
