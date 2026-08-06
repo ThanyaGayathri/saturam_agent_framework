@@ -141,6 +141,14 @@ If a reviewer disagrees with any exclusion, the fix is a row in section 4, not a
 
 `VectorDb` in `vectordb/base.py`. Target `integrations/vectordb/*`, owner EGPT-1.5.
 
+**API note (EGPT-1.5):** the AgentOS `/registry` response embeds `cls.__module__` via
+`_class_path()` as `VectorDbMetadata.class_path` and `KnowledgeMetadata.vector_db_class`.
+Moving the backends changed those values from `egpt.vectordb.<backend>...` to
+`egpt.integrations.vectordb.<backend>...`. Deprecation shims cannot mask it, because they
+re-export the same class object. Consumers matching on the old string must be updated;
+`tests/unit/vectordb/test_backend_layout.py` pins the new prefix so a further move surfaces
+as a failing test rather than a silent payload change.
+
 | Module | Interface (core) | Target module | Ticket | Disposition | Note |
 |---|---|---|---|---|---|
 | `vectordb/cassandra/` | `VectorDb` (`vectordb/base.py`) | `integrations/vectordb/cassandra` | EGPT-1.5 | MOVE |  |
