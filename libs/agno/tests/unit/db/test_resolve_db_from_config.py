@@ -205,9 +205,10 @@ class TestCloneDbWithTableOverrides:
         src = SqliteDb(db_file=str(tmp_path / "src.db"))
         data = {"session_table": "new_s", "memory_table": "new_m"}
 
-        clone = _clone_db_with_table_overrides(src, data)
+        clone, raised = _clone_db_with_table_overrides(src, data)
 
         assert isinstance(clone, SqliteDb)
+        assert raised is False
         assert clone.session_table_name == "new_s"
         assert clone.memory_table_name == "new_m"
         assert clone.db_engine is src.db_engine
@@ -223,9 +224,10 @@ class TestCloneDbWithTableOverrides:
             "db_url": "postgresql://attacker/evil",  # not a table-name key
         }
 
-        clone = _clone_db_with_table_overrides(src, data)
+        clone, raised = _clone_db_with_table_overrides(src, data)
 
         assert clone is not None
+        assert raised is False
         assert clone.session_table_name == "new_s"
         # Connection metadata comes from src, not from db_data.
         assert clone.db_engine is src.db_engine
@@ -237,7 +239,66 @@ class TestCloneDbWithTableOverrides:
         # that contract explicit rather than relying on Mock's truthy default.
         fake = Mock(spec=BaseDb)
         fake.clone_with_table_overrides.return_value = None
-        assert _clone_db_with_table_overrides(fake, {"session_table": "x"}) is None
+        assert _clone_db_with_table_overrides(fake, {"session_table": "x"}) == (None, False)
+
+    def test_raising_clone_is_reported_separately_from_unsupported(self):
+        """A clone that raises must be distinguishable from a backend that can't clone.
+
+        Both yield ``clone is None`` and both degrade to the registry instance's own
+        tables, but only the second is a property of the backend. Collapsing them (the
+        old bare ``return None``) made resolve_db_from_config announce "cannot apply
+        table-name overrides to db of type X" for a backend that supports cloning
+        perfectly well and merely rejected these overrides.
+        """
+        fake = Mock(spec=BaseDb)
+        fake.clone_with_table_overrides.side_effect = ValueError("invalid table_prefix")
+
+        assert _clone_db_with_table_overrides(fake, {"session_table": "x"}) == (None, True)
+
+
+class TestCloneFailureLogging:
+    """The two clone-failure paths must not share a diagnostic."""
+
+    @staticmethod
+    def _resolve_with_failing_clone(monkeypatch, clone_result):
+        """Resolve a registered db whose clone fails, capturing the emitted logs."""
+        warnings, errors = [], []
+        monkeypatch.setattr("egpt.db.utils.log_warning", lambda msg, *a, **kw: warnings.append(msg))
+        monkeypatch.setattr("egpt.db.utils.log_error", lambda msg, *a, **kw: errors.append(msg))
+
+        fake = Mock(spec=BaseDb)
+        fake.id = "fake-db"
+        fake.to_dict.return_value = {"id": "fake-db", "type": "redis"}
+        if isinstance(clone_result, Exception):
+            fake.clone_with_table_overrides.side_effect = clone_result
+        else:
+            fake.clone_with_table_overrides.return_value = clone_result
+
+        resolved = resolve_db_from_config(
+            {"id": "fake-db", "type": "redis", "session_table": "overridden"},
+            registry=_FakeRegistry(fake),
+        )
+        return resolved, warnings, errors
+
+    def test_unsupported_backend_warns_about_the_type(self, monkeypatch):
+        resolved, warnings, errors = self._resolve_with_failing_clone(monkeypatch, None)
+
+        assert resolved is not None, "must fall back to the registered instance, not None"
+        assert any("Cannot apply table-name overrides" in w for w in warnings), (
+            "a backend that inherits BaseDb's None default is a genuine 'cannot apply' case"
+        )
+        assert not errors
+
+    def test_raising_clone_logs_the_exception_and_not_the_type_warning(self, monkeypatch):
+        resolved, warnings, errors = self._resolve_with_failing_clone(monkeypatch, ValueError("invalid table_prefix"))
+
+        assert resolved is not None, "must fall back to the registered instance, not None"
+        assert any("ValueError" in e and "invalid table_prefix" in e for e in errors), (
+            "the raising case must name the exception class and message"
+        )
+        assert not any("Cannot apply table-name overrides" in w for w in warnings), (
+            "this backend can clone; blaming its type misdirects the reader away from the rejected override"
+        )
 
 
 class TestDbTableNameKeys:

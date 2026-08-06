@@ -108,7 +108,10 @@ class AsyncSqliteDb(AsyncBaseDb):
             ValueError: If none of the tables are provided.
         """
         if id is None:
-            seed = db_url or db_file or str(db_engine.url) if db_engine else "sqlite+aiosqlite:///egpt.db"
+            # Parentheses are load-bearing: `a or b or c if cond else d` parses as
+            # `(a or b or c) if cond else d`, which discarded db_url/db_file entirely on the
+            # common engine-less path and collapsed every instance onto one id.
+            seed = db_url or db_file or (str(db_engine.url) if db_engine else "sqlite+aiosqlite:///egpt.db")
             id = generate_id(seed)
 
         super().__init__(

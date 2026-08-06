@@ -601,9 +601,9 @@ def test_async_clone_refuses_exactly_the_overrides_its_constructor_lacks(module_
     test referencing either copy. Both drift directions are live and neither is loud:
 
     * refusing too little -- a new TABLE_SUFFIXES entry landing ahead of the constructors
-      gets forwarded, and the resulting TypeError is swallowed by
-      _clone_db_with_table_overrides into a misleading "cannot apply overrides" log, so
-      the component silently keeps the registry instance's tables;
+      gets forwarded, and _clone_db_with_table_overrides turns the resulting TypeError into
+      a logged error and a silent fallback, so the component keeps the registry instance's
+      tables;
     * refusing too much -- once these classes gain the component-table parameters, a stale
       set keeps dropping overrides the constructor would now honour.
 
@@ -631,7 +631,8 @@ def test_async_clone_refuses_exactly_the_overrides_its_constructor_lacks(module_
         except Exception as e:  # noqa: BLE001 - a raising clone is itself the defect
             pytest.fail(
                 f"{class_name}.clone_with_table_overrides({param}=...) raised {e!r} instead of "
-                "cloning or returning None; the caller swallows that into a misleading log."
+                "cloning or returning None; the caller degrades that to the registry instance's "
+                "own table names."
             )
 
         if param in unsupported:
