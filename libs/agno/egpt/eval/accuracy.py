@@ -213,6 +213,11 @@ class AccuracyEval:
                 raise EvalError(
                     "EGPT uses `openai` as the default model provider. Please run `pip install openai` to use the default evaluator."
                 )
+            # get_model is typed Optional[Model]; it returns None only for a None argument, which
+            # cannot happen here. Guard anyway so a widened contract fails loudly rather than
+            # propagating None into the evaluator agent, matching culture/ and memory/.
+            if model is None:
+                raise EvalError("Could not resolve the default evaluator model.")
 
         additional_guidelines = ""
         if self.additional_guidelines is not None:
