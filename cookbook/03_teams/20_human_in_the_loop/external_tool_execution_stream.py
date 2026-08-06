@@ -12,7 +12,7 @@ import shlex
 import subprocess
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.run.team import RunPausedEvent as TeamRunPausedEvent
 from egpt.team.team import Team

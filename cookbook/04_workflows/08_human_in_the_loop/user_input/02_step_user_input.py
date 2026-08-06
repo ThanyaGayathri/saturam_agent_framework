@@ -13,7 +13,7 @@ Use case: Collecting user preferences before an agent generates content.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput, UserInputField

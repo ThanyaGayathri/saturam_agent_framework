@@ -6,7 +6,7 @@ Demonstrates retrieving chat history and limiting included history messages.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 

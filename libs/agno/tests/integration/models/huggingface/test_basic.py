@@ -2,8 +2,8 @@ import pytest
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
-from egpt.db.sqlite import SqliteDb
 from egpt.exceptions import ModelProviderError
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.integrations.models.huggingface import HuggingFace
 
 

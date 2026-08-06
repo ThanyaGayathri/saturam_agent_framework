@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from sqlalchemy import text
 
-from egpt.db.mysql import AsyncMySQLDb
+from egpt.integrations.db.mysql import AsyncMySQLDb
 
 
 @pytest.mark.asyncio

@@ -8,8 +8,8 @@ Demonstrates synchronous and asynchronous post-hook judging.
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.sqlite import AsyncSqliteDb, SqliteDb
 from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.integrations.db.sqlite import AsyncSqliteDb, SqliteDb
 from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------

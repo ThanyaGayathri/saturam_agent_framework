@@ -137,6 +137,26 @@ class BaseDb(ABC):
             id=data.get("id"),
         )
 
+    def clone_with_table_overrides(self, **overrides: Any) -> Optional["BaseDb"]:
+        """Return a copy of this db that shares its connection but renames tables.
+
+        Backends whose connection pool can be shared across instances override this (see
+        ``PostgresDb`` and ``SqliteDb``). Sharing the engine is the point: without it every
+        component load would open its own pool and blow past backend connection limits.
+
+        The default returns None, which tells ``egpt.db.utils.resolve_db_from_config`` that
+        table-name overrides cannot be applied to this backend, so the registered instance
+        is reused as-is rather than the config being silently dropped.
+
+        Args:
+            **overrides: Table-name overrides accepted by ``__init__`` -- ``table_prefix``
+                and the per-table keys in ``egpt.db.table_names.TABLE_SUFFIXES``.
+
+        Returns:
+            A new db sharing this one's connection, or None if this backend cannot clone.
+        """
+        return None
+
     @abstractmethod
     def table_exists(self, table_name: str) -> bool:
         raise NotImplementedError
@@ -1364,6 +1384,27 @@ class AsyncBaseDb(ABC):
         self.approvals_table_name = approvals_table or f"{self.table_prefix}approvals"
         self.auth_tokens_table_name = auth_tokens_table or f"{self.table_prefix}auth_tokens"
         self.service_accounts_table_name = service_accounts_table or f"{self.table_prefix}service_accounts"
+
+    def clone_with_table_overrides(self, **overrides: Any) -> Optional["AsyncBaseDb"]:
+        """Return a copy of this db that shares its connection but renames tables.
+
+        The async counterpart of ``BaseDb.clone_with_table_overrides``, kept in step so the
+        two ABCs stay parallel. Deliberately synchronous: it constructs an object and has
+        nothing to await.
+
+        Not reachable through ``resolve_db_from_config`` today -- ``Registry.add_db`` only
+        tracks ``BaseDb`` instances and no async backend defines ``from_dict`` -- but the
+        seam exists so the async path does not degrade silently once the registry grows
+        async support (EGPT-1.9).
+
+        Args:
+            **overrides: Table-name overrides accepted by ``__init__`` -- ``table_prefix``
+                and the per-table keys in ``egpt.db.table_names.TABLE_SUFFIXES``.
+
+        Returns:
+            A new db sharing this one's connection, or None if this backend cannot clone.
+        """
+        return None
 
     async def _create_all_tables(self) -> None:
         """Create all tables for this database. Override in subclasses."""

@@ -8,7 +8,7 @@ Demonstrates loading knowledge from GCS remote content using sync and async inse
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.remote_content.remote_content import GCSContent
 from egpt.vectordb.pgvector import PgVector

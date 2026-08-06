@@ -8,7 +8,7 @@ Demonstrates using AsyncPostgresDb as the session storage backend for a workflow
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres import AsyncPostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools

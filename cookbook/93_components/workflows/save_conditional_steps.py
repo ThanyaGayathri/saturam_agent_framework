@@ -7,7 +7,7 @@ database, and loading it back with a Registry.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.registry import Registry
 from egpt.tools.hackernews import HackerNewsTools
 from egpt.tools.websearch import WebSearchTools

@@ -30,7 +30,7 @@ from opentelemetry import trace as trace_api  # type: ignore
 from opentelemetry.sdk.trace import TracerProvider  # type: ignore
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor  # type: ignore
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.tracing.exporter import DatabaseSpanExporter
 
 TEAM_SESSION = "mobile_session_chris@example.com"

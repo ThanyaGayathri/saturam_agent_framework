@@ -6,7 +6,7 @@ Create cultural knowledge to use with your Agents.
 """
 
 from egpt.culture.manager import CultureManager
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from rich.pretty import pprint
 

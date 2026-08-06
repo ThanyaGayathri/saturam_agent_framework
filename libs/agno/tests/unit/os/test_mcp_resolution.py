@@ -17,7 +17,7 @@ from fastmcp import Client  # noqa: E402
 
 import egpt.os.mcp as mcp_mod  # noqa: E402
 from egpt.agent import Agent  # noqa: E402
-from egpt.db.sqlite import SqliteDb  # noqa: E402
+from egpt.integrations.db.sqlite import SqliteDb  # noqa: E402
 from egpt.os import EgptOS  # noqa: E402
 from egpt.os.mcp import build_mcp_server  # noqa: E402
 

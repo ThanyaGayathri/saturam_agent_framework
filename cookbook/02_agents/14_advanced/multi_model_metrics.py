@@ -9,7 +9,7 @@ This example shows the "model" vs "memory_model" breakdown.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.memory.manager import MemoryManager
 from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint

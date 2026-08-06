@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock, Mock, patch
 
-from egpt.db.mongo import MongoDb
+from egpt.integrations.db.mongo import MongoDb
 
 
 def _db():

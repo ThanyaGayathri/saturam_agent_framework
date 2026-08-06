@@ -8,7 +8,7 @@ Session State Advanced.
 from textwrap import dedent
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.run import RunContext
 

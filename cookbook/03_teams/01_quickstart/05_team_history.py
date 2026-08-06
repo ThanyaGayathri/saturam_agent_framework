@@ -8,7 +8,7 @@ Demonstrates sharing team history with member agents across a session.
 from uuid import uuid4
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 

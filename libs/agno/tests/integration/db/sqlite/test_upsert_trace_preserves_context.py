@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.tracing.schemas import Span, Trace, create_trace_from_spans
 
 

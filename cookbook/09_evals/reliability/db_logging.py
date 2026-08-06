@@ -8,8 +8,8 @@ Demonstrates storing reliability evaluation results in PostgreSQL.
 from typing import Optional
 
 from egpt.agent import Agent
-from egpt.db.postgres.postgres import PostgresDb
 from egpt.eval.reliability import ReliabilityEval, ReliabilityResult
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.run.agent import RunOutput
 from egpt.tools.calculator import CalculatorTools

@@ -1,7 +1,7 @@
 """Run `uv pip install ddgs sqlalchemy openai` to install dependencies."""
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.tools.websearch import WebSearchTools
 

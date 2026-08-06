@@ -12,7 +12,7 @@ uv pip install pymysql sqlalchemy
 
 ```python
 from egpt.agent import Agent
-from egpt.db.singlestore.singlestore import SingleStoreDb
+from egpt.integrations.db.singlestore.singlestore import SingleStoreDb
 
 # Using environment variables
 USERNAME = getenv("SINGLESTORE_USERNAME")

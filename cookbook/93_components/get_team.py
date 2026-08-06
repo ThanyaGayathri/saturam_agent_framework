@@ -5,7 +5,7 @@ Load Team from Database
 Demonstrates loading a team from the database by ID and running it.
 """
 
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.team.team import get_team_by_id, get_teams  # noqa: F401
 
 # ---------------------------------------------------------------------------

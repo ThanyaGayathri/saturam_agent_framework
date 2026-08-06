@@ -8,7 +8,7 @@ Demonstrates workflow-level `input_schema` validation with structured and invali
 from typing import List
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools

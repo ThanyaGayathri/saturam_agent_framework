@@ -2,7 +2,7 @@
 
 import pytest
 
-from egpt.db.in_memory.in_memory_db import InMemoryDb
+from egpt.integrations.db.in_memory.in_memory_db import InMemoryDb
 
 
 @pytest.fixture

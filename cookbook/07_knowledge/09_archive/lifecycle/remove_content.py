@@ -7,7 +7,7 @@ Demonstrates removing knowledge content by id and clearing all content, with syn
 
 import asyncio
 
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

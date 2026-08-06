@@ -8,7 +8,7 @@ This example demonstrates:
 - Filtered views (enabled only, disabled only)
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.scheduler import ScheduleManager
 from egpt.scheduler.cli import SchedulerConsole
 

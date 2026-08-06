@@ -4,7 +4,7 @@ import tempfile
 import pytest
 from google.oauth2.credentials import Credentials
 
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.tools.google.auth.tokens import (
     delete_token_from_db,
     load_token_from_db,

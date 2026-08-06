@@ -8,7 +8,7 @@ Demonstrates reading workflow history inside a custom function step for strategi
 import json
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput

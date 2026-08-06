@@ -1,7 +1,7 @@
 import asyncio
 
 from egpt.db.migrations.manager import MigrationManager
-from egpt.db.postgres import AsyncPostgresDb, PostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb, PostgresDb
 
 # Create your database connection here.
 # Pre-rename deployments store their data in agno_* tables. Setting

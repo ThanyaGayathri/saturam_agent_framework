@@ -6,7 +6,7 @@ Demonstrates EgptOS with PostgreSQL storage using both sync and async setups.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import AsyncPostgresDb, PostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb, PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team

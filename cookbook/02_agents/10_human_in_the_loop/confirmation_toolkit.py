@@ -6,7 +6,7 @@ Human-in-the-Loop: Adding User Confirmation to Tool Calls.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.tools.websearch import WebSearchTools
 from egpt.utils import pprint

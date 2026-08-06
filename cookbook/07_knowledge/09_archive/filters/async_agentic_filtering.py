@@ -2,7 +2,7 @@ import asyncio
 import os
 
 from egpt.agent import Agent
-from egpt.db.sqlite import AsyncSqliteDb
+from egpt.integrations.db.sqlite import AsyncSqliteDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
 from egpt.utils.media import (

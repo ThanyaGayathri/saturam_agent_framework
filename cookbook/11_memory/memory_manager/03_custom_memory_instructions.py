@@ -6,7 +6,7 @@ This example shows how to customize memory capture instructions and compare the
 results with a default memory manager.
 """
 
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.memory import MemoryManager
 from egpt.models.anthropic.claude import Claude
 from egpt.models.message import Message

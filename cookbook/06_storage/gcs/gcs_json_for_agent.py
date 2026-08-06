@@ -10,7 +10,7 @@ import uuid
 import google.auth
 from egpt.agent import Agent
 from egpt.db.base import SessionType
-from egpt.db.gcs_json import GcsJsonDb
+from egpt.integrations.db.gcs_json import GcsJsonDb
 from egpt.tools.websearch import WebSearchTools
 
 DEBUG_MODE = False

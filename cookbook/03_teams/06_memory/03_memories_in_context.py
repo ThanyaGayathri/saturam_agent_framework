@@ -8,7 +8,7 @@ Demonstrates `add_memories_to_context` with team memory capture.
 from pprint import pprint
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.memory import MemoryManager
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team

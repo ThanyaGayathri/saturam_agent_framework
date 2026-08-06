@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.integrations.models.openai import OpenAIChat
 from egpt.memory import MemoryManager, UserMemory
 from egpt.memory.strategies.types import MemoryOptimizationStrategyType

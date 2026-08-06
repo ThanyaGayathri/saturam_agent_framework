@@ -9,7 +9,7 @@ import os
 from random import randint
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.anthropic import Claude
 from egpt.models.aws import Claude as AWSClaude
 from egpt.models.google import Gemini

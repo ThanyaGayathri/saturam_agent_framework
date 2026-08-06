@@ -12,7 +12,7 @@ import sqlite3
 import pytest
 
 from egpt.db.base import ComponentType
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.workflow import Step, StepOutput
 from egpt.workflow.workflow import get_workflow_by_id
 

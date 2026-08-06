@@ -6,7 +6,7 @@ This example middleware can extract content from both streaming and non-streamin
 import json
 
 from egpt.agent import Agent
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.os import EgptOS
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware

@@ -1,8 +1,8 @@
 """Example showing how to use EgptOS with a SQLite database"""
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
 from egpt.eval.accuracy import AccuracyEval
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team

@@ -7,7 +7,7 @@ Demonstrates adding direct text content to knowledge using sync and async APIs.
 
 import asyncio
 
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

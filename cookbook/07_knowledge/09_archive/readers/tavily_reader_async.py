@@ -1,7 +1,7 @@
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader.tavily_reader import TavilyReader
 from egpt.models.openai import OpenAIChat

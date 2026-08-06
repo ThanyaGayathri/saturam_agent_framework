@@ -6,8 +6,8 @@ Demonstrates a post-hook judge running on team responses.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
 from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.team.team import Team
 

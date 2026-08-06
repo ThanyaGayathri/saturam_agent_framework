@@ -17,7 +17,7 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 from textwrap import dedent
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.memory.manager import MemoryManager
 from egpt.models.anthropic.claude import Claude
 from egpt.models.openai import OpenAIChat

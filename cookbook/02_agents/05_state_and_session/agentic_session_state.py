@@ -6,7 +6,7 @@ Agentic Session State.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 
 db = SqliteDb(db_file="tmp/agents.db")

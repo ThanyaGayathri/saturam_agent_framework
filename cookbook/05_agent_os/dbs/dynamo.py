@@ -11,8 +11,8 @@ Run `uv pip install boto3` to install dependencies.
 """
 
 from egpt.agent import Agent
-from egpt.db.dynamo import DynamoDb
 from egpt.eval.accuracy import AccuracyEval
+from egpt.integrations.db.dynamo import DynamoDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team

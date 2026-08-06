@@ -23,7 +23,7 @@ Key concept:
   - "step_d" -> executes just step_d
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.workflow.router import Router
 from egpt.workflow.step import Step
 from egpt.workflow.steps import Steps

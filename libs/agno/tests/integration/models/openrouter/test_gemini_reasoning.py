@@ -6,7 +6,7 @@ responses and preserved across multi-turn conversations.
 """
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.integrations.models.openrouter import OpenRouter
 
 

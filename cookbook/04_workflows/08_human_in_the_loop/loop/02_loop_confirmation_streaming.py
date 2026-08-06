@@ -18,7 +18,7 @@ Key difference from non-streaming:
 - Get WorkflowRunOutput from session after streaming completes
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.run.workflow import (
     StepCompletedEvent,
     StepPausedEvent,

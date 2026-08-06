@@ -1,7 +1,7 @@
 """Example demonstrating how to add a Workflow using a WorkflowAgent to your EgptOS"""
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.workflow import WorkflowAgent

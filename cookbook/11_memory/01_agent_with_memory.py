@@ -10,7 +10,7 @@ import asyncio
 from uuid import uuid4
 
 from egpt.agent.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 

@@ -6,7 +6,7 @@ Use a MemoryManager to give agents persistent memory across sessions.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.memory.manager import MemoryManager
 from egpt.models.openai import OpenAIResponses
 

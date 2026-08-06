@@ -239,7 +239,7 @@ class TestApprovalSchemaAlignment:
         reason="sqlalchemy not installed",
     )
     def test_postgres_schema_columns_match(self):
-        from egpt.db.postgres.schemas import APPROVAL_TABLE_SCHEMA
+        from egpt.integrations.db.postgres.schemas import APPROVAL_TABLE_SCHEMA
 
         schema_columns = set(APPROVAL_TABLE_SCHEMA.keys())
         # Remove internal schema keys that aren't columns
@@ -252,7 +252,7 @@ class TestApprovalSchemaAlignment:
         reason="sqlalchemy not installed",
     )
     def test_sqlite_schema_columns_match(self):
-        from egpt.db.sqlite.schemas import APPROVAL_TABLE_SCHEMA
+        from egpt.integrations.db.sqlite.schemas import APPROVAL_TABLE_SCHEMA
 
         schema_columns = set(APPROVAL_TABLE_SCHEMA.keys())
         schema_columns -= {"_unique_constraints", "_indexes"}
@@ -264,8 +264,8 @@ class TestApprovalSchemaAlignment:
         reason="sqlalchemy not installed",
     )
     def test_postgres_and_sqlite_schemas_have_same_columns(self):
-        from egpt.db.postgres.schemas import APPROVAL_TABLE_SCHEMA as PG_SCHEMA
-        from egpt.db.sqlite.schemas import APPROVAL_TABLE_SCHEMA as SQLITE_SCHEMA
+        from egpt.integrations.db.postgres.schemas import APPROVAL_TABLE_SCHEMA as PG_SCHEMA
+        from egpt.integrations.db.sqlite.schemas import APPROVAL_TABLE_SCHEMA as SQLITE_SCHEMA
 
         pg_cols = set(PG_SCHEMA.keys()) - {"_unique_constraints", "_indexes"}
         sqlite_cols = set(SQLITE_SCHEMA.keys()) - {"_unique_constraints", "_indexes"}

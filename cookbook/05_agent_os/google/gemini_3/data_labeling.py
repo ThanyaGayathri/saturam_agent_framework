@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import List, Literal, Optional
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.google import Gemini
 from egpt.os import EgptOS
 from egpt.tools.youtube import YouTubeTools

@@ -13,7 +13,7 @@ duration, and time-to-first-token.
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.run.base import RunStatus
 from egpt.tools.yfinance import YFinanceTools

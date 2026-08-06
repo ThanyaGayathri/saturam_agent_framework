@@ -5,7 +5,7 @@ Async example using Gemini with tool calls.
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.models.google import Gemini
 from egpt.tools.websearch import WebSearchTools
 

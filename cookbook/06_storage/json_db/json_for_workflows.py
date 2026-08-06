@@ -6,7 +6,7 @@ Run `pip install ddgs openai` to install dependencies.
 """
 
 from egpt.agent import Agent
-from egpt.db.json import JsonDb
+from egpt.integrations.db.json import JsonDb
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools

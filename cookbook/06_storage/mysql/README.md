@@ -22,7 +22,7 @@ uv pip install sqlalchemy asyncmy
 
 ```python
 from egpt.agent import Agent
-from egpt.db.mysql import MySQLDb
+from egpt.integrations.db.mysql import MySQLDb
 
 db = MySQLDb(db_url="mysql+pymysql://username:password@localhost:3306/database")
 
@@ -37,7 +37,7 @@ agent = Agent(
 ```python
 import asyncio
 from egpt.agent import Agent
-from egpt.db.mysql import AsyncMySQLDb
+from egpt.integrations.db.mysql import AsyncMySQLDb
 
 db = AsyncMySQLDb(db_url="mysql+asyncmy://username:password@localhost:3306/database")
 

@@ -24,7 +24,7 @@ a separate Meta app with its own phone number.
 from os import getenv
 
 from egpt.agent import Agent
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp

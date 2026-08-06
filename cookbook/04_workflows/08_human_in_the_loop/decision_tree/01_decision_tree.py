@@ -13,7 +13,7 @@ Each Condition uses:
 - on_reject=OnReject.else_branch to run the alternative branch on rejection
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.workflow import OnReject
 from egpt.workflow.condition import Condition
 from egpt.workflow.step import Step

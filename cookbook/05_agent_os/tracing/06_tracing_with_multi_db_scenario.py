@@ -5,7 +5,7 @@ Requirements:
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.tools.hackernews import HackerNewsTools

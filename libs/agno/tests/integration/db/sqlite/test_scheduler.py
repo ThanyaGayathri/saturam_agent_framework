@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 
 
 @pytest.fixture

@@ -14,7 +14,7 @@ Usage:
 
 import dspy
 from egpt.agents.dspy import DSPyAgent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 
 # ----- Configure DSPy -----
 lm = dspy.LM("openai/gpt-5.4")

@@ -19,7 +19,7 @@ Knowledge is used by:
   - EgptOS's /knowledge/* routes (reads)
 """
 
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.knowledge.embedder.google import GeminiEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector, SearchType

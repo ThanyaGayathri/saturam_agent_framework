@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from egpt.agent.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.integrations.models.openai import OpenAIChat
 from egpt.models.message import Message
 from egpt.os import EgptOS

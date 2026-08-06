@@ -8,7 +8,7 @@ Demonstrates workflow with nested steps.
 from typing import List
 
 from egpt.agent.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 
 # ---------------------------------------------------------------------------
 # Create Example

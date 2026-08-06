@@ -8,9 +8,9 @@ Demonstrates a workflow that blocks prompt-injection attempts before downstream 
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
 from egpt.exceptions import InputCheckError
 from egpt.guardrails import PromptInjectionGuardrail
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.step import Step

@@ -1,7 +1,7 @@
 """Example demonstrating how to manipulate the session_state in a tool."""
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.run import RunContext
 from egpt.tools import tool
 from egpt.tools.websearch import WebSearchTools

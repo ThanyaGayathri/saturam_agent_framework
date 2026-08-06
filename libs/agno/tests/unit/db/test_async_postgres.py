@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from egpt.db.postgres.async_postgres import AsyncPostgresDb
+from egpt.integrations.db.postgres.async_postgres import AsyncPostgresDb
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def async_postgres_db(mock_async_engine):
 
 
 @pytest.mark.asyncio
-@patch("egpt.db.postgres.async_postgres.ais_table_available", new_callable=AsyncMock)
+@patch("egpt.integrations.db.postgres.async_postgres.ais_table_available", new_callable=AsyncMock)
 async def test_get_or_create_table_returns_none_when_not_available(mock_is_available, async_postgres_db):
     """Test that _get_or_create_table returns None when table doesn't exist and create_table_if_not_found=False"""
     mock_is_available.return_value = False
@@ -44,7 +44,7 @@ async def test_get_or_create_table_returns_none_when_not_available(mock_is_avail
 
 
 @pytest.mark.asyncio
-@patch("egpt.db.postgres.async_postgres.ais_table_available", new_callable=AsyncMock)
+@patch("egpt.integrations.db.postgres.async_postgres.ais_table_available", new_callable=AsyncMock)
 async def test_get_or_create_table_creates_when_not_available_and_create_flag_set(mock_is_available, async_postgres_db):
     """Test that _get_or_create_table creates the table when not available and create_table_if_not_found=True"""
     mock_is_available.return_value = False

@@ -12,7 +12,7 @@ The agent decides when to save and apply learnings.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.knowledge import Knowledge
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.learn import LearnedKnowledgeConfig, LearningMachine, LearningMode

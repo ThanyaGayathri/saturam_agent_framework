@@ -15,7 +15,7 @@ docker run --name my-redis -p 6379:6379 -d redis
 
 ```python
 from egpt.agent import Agent
-from egpt.db.redis import RedisDb
+from egpt.integrations.db.redis import RedisDb
 
 db = RedisDb(db_url="redis://localhost:6379")
 

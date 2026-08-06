@@ -9,12 +9,12 @@ You should see the error in the EgptOS UI.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
 from egpt.guardrails import (
     OpenAIModerationGuardrail,
     PIIDetectionGuardrail,
     PromptInjectionGuardrail,
 )
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team import Team

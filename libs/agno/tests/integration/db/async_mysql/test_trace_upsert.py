@@ -15,7 +15,7 @@ import asyncio
 import uuid
 from datetime import datetime, timezone
 
-from egpt.db.mysql import AsyncMySQLDb
+from egpt.integrations.db.mysql import AsyncMySQLDb
 from egpt.tracing.schemas import Trace
 
 

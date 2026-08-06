@@ -10,8 +10,8 @@ import pytest_asyncio
 from sqlalchemy import Engine, create_engine, text
 
 from egpt.agent.agent import Agent
-from egpt.db.postgres import PostgresDb
-from egpt.db.sqlite import AsyncSqliteDb, SqliteDb
+from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.db.sqlite import AsyncSqliteDb, SqliteDb
 from egpt.models.message import Message
 from egpt.run.agent import RunOutput
 from egpt.run.base import RunStatus

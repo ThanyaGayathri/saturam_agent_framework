@@ -2,7 +2,7 @@
 SurrealDB Memory Search
 """
 
-from egpt.db.surrealdb import SurrealDb
+from egpt.integrations.db.surrealdb import SurrealDb
 from egpt.memory import MemoryManager, UserMemory
 from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint

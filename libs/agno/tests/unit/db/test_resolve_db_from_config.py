@@ -17,13 +17,14 @@ from unittest.mock import Mock
 
 from sqlalchemy import create_engine
 
-from egpt.db.postgres.postgres import PostgresDb
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.db.base import BaseDb
 from egpt.db.utils import (
     DB_TABLE_NAME_KEYS,
     _clone_db_with_table_overrides,
     resolve_db_from_config,
 )
+from egpt.integrations.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 
 
 class _FakeRegistry:
@@ -174,8 +175,11 @@ class TestResolveDbFromConfigNonSqlBackend:
         cloner doesn't know how to rebuild them, so we fall back to the
         registered instance (with a warning, not a silent drop).
         """
-        # Fake a non-SQL BaseDb subclass that the cloner doesn't handle.
-        fake_db = Mock()
+        # Fake a non-SQL BaseDb subclass that the cloner doesn't handle. The
+        # clone hook must return None explicitly: that is what BaseDb's default
+        # does, and a bare Mock would hand back a truthy Mock instead.
+        fake_db = Mock(spec=BaseDb)
+        fake_db.clone_with_table_overrides.return_value = None
         fake_db.id = "fake-nosql"
         fake_db.to_dict.return_value = {
             "id": "fake-nosql",
@@ -228,8 +232,11 @@ class TestCloneDbWithTableOverrides:
         assert clone.db_file == src.db_file
 
     def test_returns_none_for_unknown_type(self):
-        fake = Mock()
-        # Not a PostgresDb or SqliteDb — cloner should bail out.
+        # A backend that doesn't override the clone hook inherits BaseDb's default,
+        # which returns None; spec'ing the Mock and pinning the return value keeps
+        # that contract explicit rather than relying on Mock's truthy default.
+        fake = Mock(spec=BaseDb)
+        fake.clone_with_table_overrides.return_value = None
         assert _clone_db_with_table_overrides(fake, {"session_table": "x"}) is None
 
 

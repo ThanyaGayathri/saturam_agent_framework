@@ -7,7 +7,7 @@ to a local SQLite database.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.google import GeminiInteractions
 from egpt.os import EgptOS
 

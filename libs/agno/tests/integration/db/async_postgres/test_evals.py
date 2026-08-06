@@ -6,8 +6,8 @@ from typing import List
 import pytest
 import pytest_asyncio
 
-from egpt.db.postgres import AsyncPostgresDb
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
+from egpt.integrations.db.postgres import AsyncPostgresDb
 
 
 @pytest_asyncio.fixture(autouse=True)

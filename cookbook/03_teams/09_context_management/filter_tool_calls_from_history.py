@@ -8,7 +8,7 @@ Demonstrates limiting historical tool call results in team context.
 from textwrap import dedent
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 from egpt.tools.websearch import WebSearchTools

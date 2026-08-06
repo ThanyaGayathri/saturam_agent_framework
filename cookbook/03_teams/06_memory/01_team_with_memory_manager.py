@@ -8,7 +8,7 @@ Demonstrates persistent team memory updates through MemoryManager.
 from uuid import uuid4
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.memory import MemoryManager
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team

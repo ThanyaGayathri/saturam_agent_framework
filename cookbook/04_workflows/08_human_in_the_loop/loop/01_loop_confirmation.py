@@ -14,7 +14,7 @@ This is useful for:
 - Confirming expensive/time-consuming loops
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.workflow.loop import Loop
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput

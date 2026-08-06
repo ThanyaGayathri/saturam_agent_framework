@@ -5,7 +5,7 @@ import requests
 from PIL import Image as PILImage
 
 from egpt.agent.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.integrations.models.google import Gemini
 from egpt.media import Audio, File, Image, Video
 

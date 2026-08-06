@@ -8,7 +8,7 @@ Cookbook example for `openai/chat/audio_output_agent.py`.
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.models.openai import OpenAIChat
 from egpt.utils.audio import write_audio_to_file
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 
 # ---------------------------------------------------------------------------
 # Create Agent

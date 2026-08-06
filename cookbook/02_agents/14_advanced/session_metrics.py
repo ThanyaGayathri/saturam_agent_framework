@@ -3,7 +3,7 @@ Demonstrates session-level metrics that accumulate across multiple runs.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint
 

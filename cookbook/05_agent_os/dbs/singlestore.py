@@ -1,8 +1,8 @@
 """Example showing how to use EgptOS with SingleStore as our database provider"""
 
 from egpt.agent import Agent
-from egpt.db.singlestore import SingleStoreDb
 from egpt.eval.accuracy import AccuracyEval
+from egpt.integrations.db.singlestore import SingleStoreDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team

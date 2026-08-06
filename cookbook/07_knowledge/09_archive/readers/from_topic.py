@@ -8,7 +8,7 @@ Demonstrates loading topics from Wikipedia and Arxiv using sync and async operat
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader.arxiv_reader import ArxivReader
 from egpt.knowledge.reader.wikipedia_reader import WikipediaReader

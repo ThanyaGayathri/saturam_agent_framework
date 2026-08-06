@@ -7,7 +7,7 @@ database, and loading it back.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.tools.hackernews import HackerNewsTools
 from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.parallel import Parallel

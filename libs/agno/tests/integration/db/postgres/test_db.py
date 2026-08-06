@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from sqlalchemy import text
 
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 
 
 def test_init_with_db_url():

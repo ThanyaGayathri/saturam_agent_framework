@@ -577,7 +577,7 @@ class TestResolveDbInConfig:
     """Tests for the _resolve_db_in_config helper in the components router."""
 
     def _make_os_db(self, tmp_path):
-        from egpt.db.sqlite.sqlite import SqliteDb
+        from egpt.integrations.db.sqlite.sqlite import SqliteDb
 
         return SqliteDb(db_file=str(tmp_path / "os.db"))
 

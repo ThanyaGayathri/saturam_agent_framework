@@ -14,7 +14,7 @@ Key concepts:
 import asyncio
 
 from egpt.agent import Agent, RunEvent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 
 db = SqliteDb(db_file="tmp/agents.db")

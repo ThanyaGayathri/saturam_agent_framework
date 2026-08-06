@@ -13,7 +13,7 @@ Usage:
 """
 
 from egpt.agents.claude import ClaudeAgent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.os import EgptOS
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"

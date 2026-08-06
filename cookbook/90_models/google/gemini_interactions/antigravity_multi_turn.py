@@ -19,7 +19,7 @@ first turn to make the reuse intent unambiguous.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.google import GeminiInteractions
 
 agent = Agent(

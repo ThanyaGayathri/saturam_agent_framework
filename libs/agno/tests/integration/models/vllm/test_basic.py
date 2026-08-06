@@ -2,8 +2,8 @@ import pytest
 from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput
-from egpt.db.sqlite.sqlite import SqliteDb
 from egpt.exceptions import ModelProviderError
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 from egpt.integrations.models.vllm import VLLM
 
 # Use default model id or override via env var

@@ -19,7 +19,7 @@ For the dedicated plan/approve flow see deep_research_collaborative_planning.py.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.google import GeminiInteractions
 
 agent = Agent(

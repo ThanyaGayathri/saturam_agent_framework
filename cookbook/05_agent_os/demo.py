@@ -8,7 +8,7 @@ uv pip install -U fastapi uvicorn sqlalchemy pgvector psycopg openai ddgs yfinan
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS

@@ -14,7 +14,7 @@ Run:
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import DecisionLogConfig, LearningMachine, LearningMode
 from egpt.models.openai import OpenAIResponses
 from egpt.tools.duckduckgo import DuckDuckGoTools

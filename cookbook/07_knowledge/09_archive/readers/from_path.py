@@ -8,7 +8,7 @@ Demonstrates loading knowledge from a local file path using sync and async inser
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

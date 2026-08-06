@@ -11,7 +11,7 @@ In this example:
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput

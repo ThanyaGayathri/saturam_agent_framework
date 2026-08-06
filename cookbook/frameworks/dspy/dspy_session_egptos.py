@@ -30,7 +30,7 @@ Then call the API:
 import dspy
 from ddgs import DDGS
 from egpt.agents.dspy import DSPyAgent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.os import EgptOS
 
 

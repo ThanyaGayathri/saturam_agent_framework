@@ -9,7 +9,7 @@ before executing a step. The user can either:
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.workflow import OnReject
 from egpt.workflow.step import Step

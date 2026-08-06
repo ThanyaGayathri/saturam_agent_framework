@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import text
 
 from egpt.db.base import SessionType
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.run.agent import RunOutput
 from egpt.run.base import RunStatus
 from egpt.run.team import TeamRunOutput

@@ -14,7 +14,7 @@ See also: 01_basics/ for individual store examples.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import (
     EntityMemoryConfig,
     LearningMachine,

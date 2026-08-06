@@ -21,7 +21,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from egpt.db.clickhouse import ClickhouseDb
+from egpt.integrations.db.clickhouse import ClickhouseDb
 
 # --------------------------------------------------------------------------- #
 # Helpers
@@ -251,7 +251,7 @@ class TestFilterExprConverter:
         return TRACE_COLUMNS
 
     def test_eq_emits_parameterized_sql(self, cols):
-        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.integrations.db.clickhouse.utils import filter_expr_to_clickhouse
 
         params: dict = {}
         sql = filter_expr_to_clickhouse({"op": "EQ", "key": "trace_id", "value": "abc"}, params, cols)
@@ -261,7 +261,7 @@ class TestFilterExprConverter:
         assert "abc" in params.values()
 
     def test_and_or_not_compose(self, cols):
-        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.integrations.db.clickhouse.utils import filter_expr_to_clickhouse
 
         params: dict = {}
         sql = filter_expr_to_clickhouse(
@@ -288,7 +288,7 @@ class TestFilterExprConverter:
         assert len(params) == 3
 
     def test_in_uses_list_placeholder(self, cols):
-        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.integrations.db.clickhouse.utils import filter_expr_to_clickhouse
 
         params: dict = {}
         sql = filter_expr_to_clickhouse({"op": "IN", "key": "status", "values": ["OK", "ERROR"]}, params, cols)
@@ -296,20 +296,20 @@ class TestFilterExprConverter:
         assert ["OK", "ERROR"] in params.values()
 
     def test_unknown_column_raises(self, cols):
-        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.integrations.db.clickhouse.utils import filter_expr_to_clickhouse
 
         with pytest.raises(ValueError, match="Invalid filter field"):
             filter_expr_to_clickhouse({"op": "EQ", "key": "not_a_column", "value": "x"}, {}, cols)
 
     def test_column_alias_is_prefixed(self, cols):
-        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.integrations.db.clickhouse.utils import filter_expr_to_clickhouse
 
         params: dict = {}
         sql = filter_expr_to_clickhouse({"op": "EQ", "key": "agent_id", "value": "a1"}, params, cols, column_alias="t")
         assert sql.startswith("t.agent_id ")
 
     def test_max_depth_enforced(self, cols):
-        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.integrations.db.clickhouse.utils import filter_expr_to_clickhouse
 
         # Build a 12-deep AND chain (limit is 10).
         node = {"op": "EQ", "key": "trace_id", "value": "x"}
@@ -323,7 +323,7 @@ class TestFilterExprConverter:
         tz-aware datetimes so ClickHouse's DateTime64('UTC') accepts them."""
         from datetime import datetime, timezone
 
-        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.integrations.db.clickhouse.utils import filter_expr_to_clickhouse
 
         params: dict = {}
         filter_expr_to_clickhouse(
@@ -339,7 +339,7 @@ class TestFilterExprConverter:
     def test_in_filter_with_datetime_column_coerces_each_value(self, cols):
         from datetime import datetime
 
-        from egpt.db.clickhouse.utils import filter_expr_to_clickhouse
+        from egpt.integrations.db.clickhouse.utils import filter_expr_to_clickhouse
 
         params: dict = {}
         filter_expr_to_clickhouse(

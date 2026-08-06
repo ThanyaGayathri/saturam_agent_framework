@@ -10,7 +10,7 @@ from textwrap import dedent
 from typing import AsyncIterator
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.run.workflow import WorkflowRunEvent, WorkflowRunOutputEvent
 from egpt.team import Team

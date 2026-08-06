@@ -7,7 +7,7 @@ import uuid
 
 from egpt.agent import Agent
 from egpt.db.base import SessionType
-from egpt.db.mysql import AsyncMySQLDb
+from egpt.integrations.db.mysql import AsyncMySQLDb
 from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------

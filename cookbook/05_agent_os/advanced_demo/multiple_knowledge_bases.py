@@ -6,7 +6,7 @@ Demonstrates multiple knowledge bases.
 """
 
 from egpt.agent import Agent
-from egpt.db.json import JsonDb
+from egpt.integrations.db.json import JsonDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS

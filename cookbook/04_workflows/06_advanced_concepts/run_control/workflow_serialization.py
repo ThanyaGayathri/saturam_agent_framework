@@ -8,7 +8,7 @@ Demonstrates `to_dict()`, `save()`, and `load()` for workflow persistence.
 import json
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.workflow import Workflow
 from egpt.workflow.step import Step

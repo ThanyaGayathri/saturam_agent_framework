@@ -7,7 +7,7 @@ Verifies that state changes survive the pause/continue round-trip.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.run import RunContext, RunStatus
 from egpt.tools import tool

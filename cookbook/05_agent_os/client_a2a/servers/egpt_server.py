@@ -13,7 +13,7 @@ The server will start at http://localhost:7003
 """
 
 from egpt.agent.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 

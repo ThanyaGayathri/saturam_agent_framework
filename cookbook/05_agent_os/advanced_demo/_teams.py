@@ -6,7 +6,7 @@ Demonstrates  teams.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.anthropic import Claude
 from egpt.team.team import Team
 from egpt.tools.reasoning import ReasoningTools

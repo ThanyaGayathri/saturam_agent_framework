@@ -16,7 +16,7 @@ Compare with: 5a_entity_memory_always.py for automatic extraction.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import EntityMemoryConfig, LearningMachine, LearningMode
 from egpt.models.openai import OpenAIResponses
 

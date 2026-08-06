@@ -3,7 +3,7 @@
 Run `uv pip install openai` to install dependencies."""
 
 from egpt.agent import Agent
-from egpt.db.mysql import MySQLDb
+from egpt.integrations.db.mysql import MySQLDb
 
 # ---------------------------------------------------------------------------
 # Setup

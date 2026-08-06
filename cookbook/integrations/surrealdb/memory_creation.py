@@ -2,7 +2,7 @@
 SurrealDB Memory Creation
 """
 
-from egpt.db.surrealdb import SurrealDb
+from egpt.integrations.db.surrealdb import SurrealDb
 from egpt.memory import MemoryManager, UserMemory
 from egpt.models.message import Message
 from egpt.models.openai import OpenAIChat

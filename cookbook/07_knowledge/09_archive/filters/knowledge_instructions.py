@@ -6,7 +6,7 @@ Demonstrates disabling automatic search-knowledge instructions on an agent.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

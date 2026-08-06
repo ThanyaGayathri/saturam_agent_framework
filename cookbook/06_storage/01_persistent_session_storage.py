@@ -6,7 +6,7 @@ Demonstrates using PostgresDb for persistent session storage with a team.
 """
 
 from egpt.agent.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.team.team import Team
 

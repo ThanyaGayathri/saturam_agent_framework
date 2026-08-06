@@ -12,7 +12,7 @@ from httpx import ASGITransport
 from pydantic import BaseModel
 
 from egpt.db.base import ComponentType
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.workflow.factory import WorkflowFactory

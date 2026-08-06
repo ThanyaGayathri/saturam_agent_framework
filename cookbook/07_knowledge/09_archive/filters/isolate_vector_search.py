@@ -21,7 +21,7 @@ Run: `python cookbook/07_knowledge/basic_operations/async/05_isolate_vector_sear
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

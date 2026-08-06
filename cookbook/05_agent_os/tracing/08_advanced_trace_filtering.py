@@ -21,8 +21,8 @@ Requirements:
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
 from egpt.filters import AND, CONTAINS, EQ, GT, GTE, IN, LTE, NEQ, NOT, OR, STARTSWITH
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.tools.hackernews import HackerNewsTools
 from egpt.tools.yfinance import YFinanceTools

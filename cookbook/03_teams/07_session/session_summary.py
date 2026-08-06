@@ -8,7 +8,7 @@ Demonstrates session summary creation, context reuse, and async summary retrieva
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres import AsyncPostgresDb, PostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb, PostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 

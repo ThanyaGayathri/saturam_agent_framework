@@ -6,8 +6,8 @@ Demonstrates pass/fail response quality evaluation.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
 from egpt.eval.agent_as_judge import AgentAsJudgeEval
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 
 # ---------------------------------------------------------------------------

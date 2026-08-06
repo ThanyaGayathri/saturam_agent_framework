@@ -130,11 +130,13 @@ Format:
 | Teams | `libs/agno/egpt/team/` |
 | Workflows | `libs/agno/egpt/workflow/` |
 | Tools | `libs/agno/egpt/tools/` |
-| Models | `libs/agno/egpt/models/` |
+| Model interface | `libs/agno/egpt/models/` (`Model` base, message, metrics) |
+| Model providers | `libs/agno/egpt/integrations/models/` |
 | Knowledge/RAG | `libs/agno/egpt/knowledge/` |
 | Memory | `libs/agno/egpt/memory/` |
 | Learning | `libs/agno/egpt/learn/` |
-| Database adapters | `libs/agno/egpt/db/` |
+| DB interface | `libs/agno/egpt/db/` (`BaseDb`/`AsyncBaseDb`, schemas, migrations) |
+| DB backends | `libs/agno/egpt/integrations/db/` |
 | Vector DB interface | `libs/agno/egpt/vectordb/` (`VectorDb` + distance/score/search) |
 | Vector DB backends | `libs/agno/egpt/integrations/vectordb/` |
 | Tests | `libs/agno/tests/` |
@@ -149,7 +151,11 @@ See `.cursorrules` for detailed patterns. Key rules:
 - **Use output_schema** for structured responses
 - **PostgreSQL in production**, SQLite for dev only
 - **Start with single agent**, scale up only when needed
-- **Both sync and async** — all public methods need both variants
+- **Both sync and async** — all public methods need both variants. Exempt: pure-construction
+  methods that build and return an object with nothing to await (e.g.
+  `BaseDb.clone_with_table_overrides`). The rule targets I/O-bound API; an `async def` that
+  never awaits is dead weight. Define such a method on both the sync and async ABC so
+  neither path degrades silently.
 
 ---
 

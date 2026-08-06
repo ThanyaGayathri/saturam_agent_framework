@@ -19,7 +19,7 @@ Note: This is different from `requires_user_input=True` which lets the user
 choose which steps to execute. Here, the selector chooses, but user confirms.
 """
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.workflow.router import Router
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput

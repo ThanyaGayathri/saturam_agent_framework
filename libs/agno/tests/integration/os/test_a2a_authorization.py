@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.run.agent import RunOutput

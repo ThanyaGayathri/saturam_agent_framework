@@ -10,7 +10,7 @@ Requires: PostgreSQL running on localhost:5532 (see cookbook/scripts/run_pgvecto
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.run.team import RunCancelledEvent as TeamRunCancelledEvent
 from egpt.run.team import ToolCallStartedEvent

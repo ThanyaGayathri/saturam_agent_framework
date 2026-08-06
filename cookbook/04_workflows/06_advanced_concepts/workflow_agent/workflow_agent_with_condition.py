@@ -8,7 +8,7 @@ Demonstrates using `WorkflowAgent` together with a conditional step in the workf
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.workflow import WorkflowAgent
 from egpt.workflow.condition import Condition

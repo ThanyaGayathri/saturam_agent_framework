@@ -19,7 +19,7 @@ Example prompts to try:
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.google import Gemini
 from egpt.tools.yfinance import YFinanceTools
 from egpt.workflow import Step, Workflow

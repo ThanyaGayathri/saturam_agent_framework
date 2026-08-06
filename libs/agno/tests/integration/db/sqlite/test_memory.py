@@ -5,7 +5,7 @@ from typing import cast
 import pytest
 
 from egpt.db.schemas.memory import UserMemory
-from egpt.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 
 
 @pytest.fixture(autouse=True)

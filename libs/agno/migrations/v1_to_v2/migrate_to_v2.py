@@ -5,7 +5,7 @@
 """
 
 from egpt.db.migrations.v1_to_v2 import migrate
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.utils.log import log_info
 
 # --- Set these variables before running the script ---
@@ -53,7 +53,7 @@ db = PostgresDb(  # type: ignore
 
 # For MySQL:
 #
-# from egpt.db.mysql.mysql import MySQLDb
+# from egpt.integrations.db.mysql.mysql import MySQLDb
 # db = MySQLDb(
 #     db_url=db_url,
 #     session_table=v2_sessions_table_name,
@@ -63,7 +63,7 @@ db = PostgresDb(  # type: ignore
 
 # For SQLite:
 #
-# from egpt.db.sqlite.sqlite import SqliteDb
+# from egpt.integrations.db.sqlite.sqlite import SqliteDb
 # db = SqliteDb(
 #     db_file=sqlite_db_file,
 #     session_table=v2_sessions_table_name,
@@ -73,7 +73,7 @@ db = PostgresDb(  # type: ignore
 
 # For MongoDB:
 #
-# from egpt.db.mongo.mongo import MongoDb
+# from egpt.integrations.db.mongo.mongo import MongoDb
 # db = MongoDb(db_url=db_url)
 # or
 # db = MongoDb(

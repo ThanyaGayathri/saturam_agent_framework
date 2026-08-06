@@ -51,7 +51,7 @@ def setup_tracing(
 
     Example:
         ```python
-        from egpt.db.sqlite import SqliteDb
+        from egpt.integrations.db.sqlite import SqliteDb
         from egpt.tracing import setup_tracing
 
         db = SqliteDb(db_file="tmp/traces.db")

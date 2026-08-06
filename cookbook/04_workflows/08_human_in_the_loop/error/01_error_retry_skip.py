@@ -13,7 +13,7 @@ Use Case:
 
 import random
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.workflow import OnError
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput, StepOutput

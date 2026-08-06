@@ -8,7 +8,7 @@ Demonstrates router selectors that use and update workflow session state for ada
 from typing import List
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIChat
 from egpt.models.openai.chat import OpenAIChat as OpenAIChatLegacy
 from egpt.run import RunContext

@@ -1058,7 +1058,7 @@ class TestConditionOnRejectWorkflowIntegration:
 
     def test_condition_on_reject_else_executes_else_branch(self):
         """Test that rejecting a Condition with on_reject='else' executes else_steps."""
-        from egpt.db.sqlite import SqliteDb
+        from egpt.integrations.db.sqlite import SqliteDb
         from egpt.workflow.condition import Condition
         from egpt.workflow.types import OnReject
         from egpt.workflow.workflow import Workflow
@@ -1111,7 +1111,7 @@ class TestConditionOnRejectWorkflowIntegration:
 
     def test_condition_on_reject_skip_skips_entire_condition(self):
         """Test that rejecting a Condition with on_reject='skip' skips both branches."""
-        from egpt.db.sqlite import SqliteDb
+        from egpt.integrations.db.sqlite import SqliteDb
         from egpt.workflow.condition import Condition
         from egpt.workflow.types import OnReject
         from egpt.workflow.workflow import Workflow
@@ -1173,7 +1173,7 @@ class TestConditionOnRejectWorkflowIntegration:
 
     def test_condition_on_reject_cancel_cancels_workflow(self):
         """Test that rejecting a Condition with on_reject='cancel' cancels the workflow."""
-        from egpt.db.sqlite import SqliteDb
+        from egpt.integrations.db.sqlite import SqliteDb
         from egpt.workflow.condition import Condition
         from egpt.workflow.types import OnReject
         from egpt.workflow.workflow import Workflow
@@ -1213,7 +1213,7 @@ class TestConditionOnRejectWorkflowIntegration:
 
     def test_condition_confirm_executes_if_branch(self):
         """Test that confirming a Condition executes the if branch."""
-        from egpt.db.sqlite import SqliteDb
+        from egpt.integrations.db.sqlite import SqliteDb
         from egpt.workflow.condition import Condition
         from egpt.workflow.types import OnReject
         from egpt.workflow.workflow import Workflow
@@ -1258,7 +1258,7 @@ class TestConditionOnRejectWorkflowIntegration:
 
     def test_condition_on_reject_else_no_else_steps_skips(self):
         """Test on_reject='else' with no else_steps skips the condition."""
-        from egpt.db.sqlite import SqliteDb
+        from egpt.integrations.db.sqlite import SqliteDb
         from egpt.workflow.condition import Condition
         from egpt.workflow.types import OnReject
         from egpt.workflow.workflow import Workflow
@@ -1315,7 +1315,7 @@ class TestAsyncContinueCleanup:
 
     @staticmethod
     def _make_confirmation_workflow(session_id: str):
-        from egpt.db.sqlite import SqliteDb
+        from egpt.integrations.db.sqlite import SqliteDb
         from egpt.workflow.workflow import Workflow
 
         def confirm_step(step_input: StepInput) -> StepOutput:

@@ -16,7 +16,7 @@ import asyncio
 from typing import List
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.run.base import RunStatus
 from pydantic import BaseModel, Field

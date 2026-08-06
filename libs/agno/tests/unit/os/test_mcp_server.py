@@ -966,7 +966,7 @@ def test_manual_jwt_middleware_on_base_app_is_not_open():
 
 
 def _sqlite_db(tmp_path):
-    from egpt.db.sqlite import SqliteDb
+    from egpt.integrations.db.sqlite import SqliteDb
 
     return SqliteDb(db_file=str(tmp_path / "mcp_auth_test.db"))
 

@@ -21,7 +21,7 @@ Each example uses SQLite for session storage so you can run it with no infra set
 ```python
 from egpt.agent import Agent
 from egpt.agents.claude import ClaudeAgent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.os import EgptOS
 from egpt.tools.workspace import Workspace
 

@@ -11,7 +11,7 @@ from typing import Any, Dict
 import pytest
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.integrations.models.openai import OpenAIResponses
 from egpt.registry import Registry
 from egpt.tools.calculator import CalculatorTools

@@ -12,7 +12,7 @@ See also: 01_basics/3a_session_context_summary.py for the basics.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import LearningMachine, SessionContextConfig
 from egpt.models.openai import OpenAIResponses
 

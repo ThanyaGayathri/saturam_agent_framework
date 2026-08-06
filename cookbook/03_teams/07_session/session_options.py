@@ -6,8 +6,8 @@ Demonstrates session naming, in-memory DB usage, and session caching options.
 """
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.in_memory import InMemoryDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 from rich.pretty import pprint

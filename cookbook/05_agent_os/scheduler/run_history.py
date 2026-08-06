@@ -10,7 +10,7 @@ This example demonstrates:
 import time
 from uuid import uuid4
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.scheduler import ScheduleManager
 from egpt.scheduler.cli import SchedulerConsole
 

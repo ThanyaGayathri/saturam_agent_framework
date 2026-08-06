@@ -1,7 +1,7 @@
 """Run `uv pip install sqlalchemy` and ensure Postgres is running (`./cookbook/scripts/run_pgvector.sh`)."""
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.vllm import VLLM
 from egpt.tools.websearch import WebSearchTools
 

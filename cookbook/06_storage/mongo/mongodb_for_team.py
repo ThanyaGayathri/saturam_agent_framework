@@ -20,7 +20,7 @@ or use our script:
 from typing import List
 
 from egpt.agent import Agent
-from egpt.db.mongo import MongoDb
+from egpt.integrations.db.mongo import MongoDb
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools

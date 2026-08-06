@@ -20,7 +20,7 @@ Use Case:
 
 import random
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.run.workflow import (
     StepCompletedEvent,
     StepStartedEvent,

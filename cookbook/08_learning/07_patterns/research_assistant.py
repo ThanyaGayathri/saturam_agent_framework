@@ -20,7 +20,7 @@ See also: personal_assistant.py for a tools-free learning pattern.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import (
     LearningMachine,
     LearningMode,

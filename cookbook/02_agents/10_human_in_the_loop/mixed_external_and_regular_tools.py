@@ -15,7 +15,7 @@ import json
 from datetime import datetime
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 from egpt.tools import tool
 from egpt.utils import pprint

@@ -8,7 +8,7 @@ Demonstrates sharing one session across team and single-agent interactions.
 import uuid
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 

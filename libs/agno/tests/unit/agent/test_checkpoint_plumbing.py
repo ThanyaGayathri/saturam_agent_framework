@@ -9,7 +9,7 @@ Scope: additive plumbing only — no behavior change. Covers:
 import pytest
 
 from egpt.agent.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.os import EgptOS
 from egpt.run.agent import RunOutput
 

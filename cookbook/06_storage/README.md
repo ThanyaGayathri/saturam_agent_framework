@@ -22,7 +22,7 @@ Navigate to the specific integration directory for detailed documentation and ex
 
 ```python
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 
 db = PostgresDb(db_url="postgresql+psycopg://user:password@localhost:5432/dbname")
 

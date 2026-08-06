@@ -15,8 +15,8 @@ Test:
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
 from egpt.factory import RequestContext
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.os import EgptOS
 from egpt.workflow.factory import WorkflowFactory

@@ -9,7 +9,7 @@ affects model input history while full run history remains in storage.
 import random
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 
 

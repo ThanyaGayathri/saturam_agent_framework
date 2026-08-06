@@ -8,7 +8,7 @@ Demonstrates using `WorkflowAgent` to decide when to execute workflow steps vers
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIChat
 from egpt.workflow import WorkflowAgent
 from egpt.workflow.types import StepInput

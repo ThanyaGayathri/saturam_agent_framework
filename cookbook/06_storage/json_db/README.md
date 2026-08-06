@@ -5,7 +5,7 @@ Examples demonstrating JSON file-based storage integration with EGPT agents, tea
 ## Configuration
 
 ```python
-from egpt.db.json import JsonDb
+from egpt.integrations.db.json import JsonDb
 
 db = JsonDb(db_path="tmp/json_db")
 ```

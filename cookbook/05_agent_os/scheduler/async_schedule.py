@@ -9,7 +9,7 @@ This example demonstrates:
 
 import asyncio
 
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.scheduler import ScheduleManager
 from egpt.scheduler.cli import SchedulerConsole
 

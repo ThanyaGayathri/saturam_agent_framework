@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.os import EgptOS
 from egpt.run import RunContext
 from egpt.run.agent import CustomEvent

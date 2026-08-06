@@ -6,7 +6,7 @@ Learning Machine.
 """
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.learn import LearningMachine, LearningMode, UserProfileConfig
 from egpt.models.openai import OpenAIResponses
 

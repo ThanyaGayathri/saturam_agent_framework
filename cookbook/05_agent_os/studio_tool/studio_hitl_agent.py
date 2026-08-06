@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import List
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.anthropic import Claude
 from egpt.models.openai import OpenAIResponses
 from egpt.registry import Registry

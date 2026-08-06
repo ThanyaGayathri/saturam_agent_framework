@@ -19,7 +19,7 @@ LearningMachine is a unified learning system that enables agents to learn from e
 
 ```python
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
 
 # Setup
@@ -241,7 +241,7 @@ See also: **Memories Store** for unstructured observations that don't fit fields
 
 ```python
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import LearningMachine, UserProfileConfig
 
 agent = Agent(

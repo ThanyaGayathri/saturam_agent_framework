@@ -17,7 +17,7 @@ We can start Redis locally using docker:
 from typing import List
 
 from egpt.agent import Agent
-from egpt.db.redis import RedisDb
+from egpt.integrations.db.redis import RedisDb
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
 from egpt.tools.hackernews import HackerNewsTools

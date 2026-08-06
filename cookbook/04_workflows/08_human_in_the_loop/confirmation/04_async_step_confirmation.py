@@ -13,7 +13,7 @@ This example shows:
 import asyncio
 
 from egpt.agent import Agent
-from egpt.db.postgres import AsyncPostgresDb
+from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.workflow.decorators import pause
 from egpt.workflow.step import Step

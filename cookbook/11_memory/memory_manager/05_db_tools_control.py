@@ -7,7 +7,7 @@ available to the AI model using DB tool flags.
 """
 
 from egpt.agent.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.memory.manager import MemoryManager
 from egpt.models.openai import OpenAIChat
 from rich.pretty import pprint

@@ -25,8 +25,8 @@ from datetime import UTC, datetime, timedelta
 
 import jwt as pyjwt
 from egpt.agent import Agent, AgentFactory
-from egpt.db.postgres import PostgresDb
 from egpt.factory import RequestContext
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.openai import OpenAIResponses
 from egpt.os import EgptOS
 from egpt.os.middleware import JWTMiddleware

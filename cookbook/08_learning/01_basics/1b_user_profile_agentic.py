@@ -13,7 +13,7 @@ See also: 2b_user_memory_agentic.py for unstructured observations.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.learn import LearningMachine, LearningMode, UserProfileConfig
 from egpt.models.openai import OpenAIResponses
 

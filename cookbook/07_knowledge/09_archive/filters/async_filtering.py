@@ -2,9 +2,9 @@ import asyncio
 import os
 
 from egpt.agent import Agent
-from egpt.db.postgres import AsyncPostgresDb
-from egpt.db.sqlite import AsyncSqliteDb
 from egpt.filters import IN
+from egpt.integrations.db.postgres import AsyncPostgresDb
+from egpt.integrations.db.sqlite import AsyncSqliteDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.utils.media import (
     SampleDataFileExtension,

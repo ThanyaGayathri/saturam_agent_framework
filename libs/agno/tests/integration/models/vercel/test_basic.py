@@ -1,7 +1,7 @@
 import pytest
 
 from egpt.agent import Agent, RunOutput
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.integrations.models.vercel import V0
 
 

@@ -1,7 +1,7 @@
 """Run `pip install ddgs pgvector google.genai` to install dependencies."""
 
 from egpt.agent import Agent
-from egpt.db.postgres.postgres import PostgresDb
+from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader.pdf_reader import PDFReader
 from egpt.models.google import Gemini

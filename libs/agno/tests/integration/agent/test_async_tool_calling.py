@@ -4,7 +4,7 @@ from typing import AsyncIterator
 import pytest
 
 from egpt.agent import Agent
-from egpt.db.in_memory import InMemoryDb
+from egpt.integrations.db.in_memory import InMemoryDb
 from egpt.integrations.models.openai import OpenAIChat
 from egpt.run import RunContext
 from egpt.run.base import RunStatus

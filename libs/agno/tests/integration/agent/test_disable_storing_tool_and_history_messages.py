@@ -12,7 +12,7 @@ Tests cover:
 import pytest
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.integrations.models.openai import OpenAIChat
 from egpt.tools.shell import ShellTools
 

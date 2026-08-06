@@ -15,7 +15,7 @@ summary.
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.vllm import VLLM
 from rich.pretty import pprint
 

@@ -6,7 +6,7 @@ Demonstrates shared session state across team and agent steps for project-step l
 """
 
 from egpt.agent.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai.chat import OpenAIChat
 from egpt.run import RunContext
 from egpt.team.team import Team

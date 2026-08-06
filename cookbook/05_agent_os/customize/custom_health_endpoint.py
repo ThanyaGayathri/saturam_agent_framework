@@ -5,7 +5,7 @@ This example demonstrates how to add a custom health endpoint to your EgptOS app
 """
 
 from egpt.agent import Agent
-from egpt.db.postgres import PostgresDb
+from egpt.integrations.db.postgres import PostgresDb
 from egpt.models.anthropic import Claude
 from egpt.os import EgptOS
 from egpt.os.routers.health import get_health_router

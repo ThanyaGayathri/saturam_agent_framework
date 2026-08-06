@@ -32,7 +32,7 @@ import os
 import time
 
 from egpt.agent import Agent
-from egpt.db.sqlite import SqliteDb
+from egpt.integrations.db.sqlite import SqliteDb
 from egpt.models.openai import OpenAIResponses
 
 DB_FILE = f"tmp/tool_error_persist_{int(time.time())}.db"

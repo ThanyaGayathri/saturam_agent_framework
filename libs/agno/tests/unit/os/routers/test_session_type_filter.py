@@ -7,7 +7,7 @@ import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
-from egpt.db.in_memory.in_memory_db import InMemoryDb
+from egpt.integrations.db.in_memory.in_memory_db import InMemoryDb
 from egpt.run.agent import RunOutput
 from egpt.run.base import RunStatus
 from egpt.run.team import TeamRunOutput
