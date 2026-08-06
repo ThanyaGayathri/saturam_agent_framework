@@ -265,23 +265,57 @@ def test_nothing_in_the_package_imports_through_a_shim():
     assert not offenders, "Deprecated toolkit paths imported inside the package:\n" + "\n".join(offenders)
 
 
-def test_toolkit_table_rows_resolve_without_a_shim():
-    """Every row of the core construction seam reaches a real Toolkit, directly."""
-    from egpt.tools.toolkit import Toolkit
-    from egpt.tools.utils import TOOLKIT_CLASSES, get_toolkit_class
+def test_toolkit_table_rows_point_at_integrations():
+    """Core must not name a module outside the integrations layer.
+
+    Split from the resolution guard below because it needs no import: it therefore holds on
+    an environment with none of the optional SDKs, where the resolution half can only skip.
+    """
+    from egpt.tools.utils import TOOLKIT_CLASSES
 
     assert TOOLKIT_CLASSES, "TOOLKIT_CLASSES is empty; this guard would check nothing."
 
-    for name, (module, class_name) in TOOLKIT_CLASSES.items():
+    for name, (module, _class_name) in TOOLKIT_CLASSES.items():
         assert module.startswith("egpt.integrations."), (
             f"TOOLKIT_CLASSES['{name}'] points at {module}, which is not in the integrations "
             "layer. Core must not name a module outside it."
         )
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", DeprecationWarning)
-            resolved = get_toolkit_class(name)
+
+
+def test_toolkit_table_rows_resolve_without_a_shim():
+    """Every row of the core construction seam reaches a real Toolkit, directly.
+
+    Rows whose optional SDK is absent are skipped rather than failed, matching
+    `tests/unit/db/test_backend_resolution.py`. The caught type is ``ImportError``, not
+    ``ModuleNotFoundError``: a toolkit typically catches the SDK's ModuleNotFoundError and
+    re-raises a plain ImportError naming the package to install (see
+    `integrations/tools/slack/slack.py`), so the narrower type would let that through as an
+    error on any environment without the SDK.
+
+    If no row resolves, the test skips instead of passing: a guard that silently checks
+    nothing is worse than one that says so.
+    """
+    import pytest
+
+    from egpt.tools.toolkit import Toolkit
+    from egpt.tools.utils import TOOLKIT_CLASSES, get_toolkit_class
+
+    resolved_count = 0
+    for name, (_module, class_name) in TOOLKIT_CLASSES.items():
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", DeprecationWarning)
+                resolved = get_toolkit_class(name)
+        except ImportError as e:
+            continue_reason = f"optional SDK for toolkit '{name}' not installed: {e}"
+            print(continue_reason)
+            continue
+        resolved_count += 1
         assert resolved.__name__ == class_name
         assert issubclass(resolved, Toolkit), f"{class_name} is not a Toolkit."
+
+    if resolved_count == 0:
+        pytest.skip("no toolkit row could be resolved; every optional SDK is absent")
 
 
 def test_unknown_toolkit_name_is_rejected():
