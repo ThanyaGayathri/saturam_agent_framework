@@ -18,6 +18,9 @@ ruff check ${COOKBOOK_DIR}
 print_heading "Running: python3 ${CURR_DIR}/check_cookbook_pattern.py --base-dir ${COOKBOOK_DIR}/00_quickstart"
 python3 ${CURR_DIR}/check_cookbook_pattern.py --base-dir ${COOKBOOK_DIR}/00_quickstart
 
+print_heading "Running: python3 ${CURR_DIR}/check_cookbook_imports.py --base-dir ${COOKBOOK_DIR}"
+python3 ${CURR_DIR}/check_cookbook_imports.py --base-dir ${COOKBOOK_DIR} --lib-root ${AGNO_DIR}
+
 # Not validating cookbook for now
 # print_heading "Running: mypy ${COOKBOOK_DIR} --config-file ${AGNO_DIR}/pyproject.toml"
 # mypy ${COOKBOOK_DIR} --config-file ${AGNO_DIR}/pyproject.toml

@@ -11,8 +11,7 @@ In agentic mode:
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
-from egpt.learn.machine import LearningMachine
-from egpt.learn.mode import LearningMode
+from egpt.learn import LearningMachine, LearningMode
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 
