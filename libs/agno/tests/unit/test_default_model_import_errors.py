@@ -4,8 +4,11 @@ Provider modules raise a bare ``ImportError`` when their SDK is missing (minted 
 ``egpt/integrations/models/openai/chat.py``), not ``ModuleNotFoundError``. Since
 ``ModuleNotFoundError`` is a *subclass* of ``ImportError`` and not the reverse, the handlers that
 caught only ``ModuleNotFoundError`` never fired: users saw the raw SDK message instead of the
-guidance telling them they can pass a ``model`` instead of installing anything, and the
-``exit(1)`` branches were unreachable.
+guidance telling them they can pass a ``model`` instead of installing anything.
+
+Every handler raises a catchable ``ImportError`` (or ``EvalError`` on the eval paths). None of
+them terminate the process: a missing optional SDK must not take down a server worker or notebook
+kernel that embeds the framework.
 
 Each test here monkeypatches the ``get_model`` symbol in the module under test, so it exercises
 the handler without needing an environment that actually lacks the SDK.
@@ -15,12 +18,17 @@ import pytest
 
 from egpt.exceptions import EvalError
 
-# The exact exception provider modules raise when their SDK is absent.
-_SDK_MISSING = ImportError("`openai` not installed. Please install using `pip install openai`")
+# The exact message provider modules raise when their SDK is absent. Held as a string, not an
+# exception instance: re-raising one shared instance accumulates traceback frames across cases.
+_SDK_MISSING_MESSAGE = "`openai` not installed. Please install using `pip install openai`"
+
+# The guidance every handler must surface — the actionable half, since passing a `model` needs no
+# install at all.
+_GUIDANCE = "Please provide a `model` or install `openai`"
 
 
 def _raise_sdk_missing(*_args, **_kwargs):
-    raise _SDK_MISSING
+    raise ImportError(_SDK_MISSING_MESSAGE)
 
 
 def _raise_module_not_found(*_args, **_kwargs):
@@ -44,11 +52,11 @@ def test_agent_default_model_reports_actionable_guidance(monkeypatch, sdk_missin
     with pytest.raises(ImportError) as exc:
         agent_init.set_default_model(Agent())
 
-    assert "Please provide a `model` or install `openai`" in str(exc.value)
+    assert _GUIDANCE in str(exc.value)
 
 
-def test_team_default_model_exits_with_guidance(monkeypatch, sdk_missing):
-    """The team path logs guidance and exits; before the fix the exception escaped uncaught."""
+def test_team_default_model_reports_actionable_guidance(monkeypatch, sdk_missing):
+    """The team path must raise a catchable error, not exit the host process."""
     from egpt.team import _init as team_init
 
     monkeypatch.setattr(team_init, "get_model", sdk_missing)
@@ -56,11 +64,13 @@ def test_team_default_model_exits_with_guidance(monkeypatch, sdk_missing):
     class _Team:
         model = None
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ImportError) as exc:
         team_init._set_default_model(_Team())
 
+    assert _GUIDANCE in str(exc.value)
 
-def test_culture_manager_exits_with_guidance(monkeypatch, sdk_missing):
+
+def test_culture_manager_reports_actionable_guidance(monkeypatch, sdk_missing):
     from egpt.culture import manager as culture_manager
 
     # Constructed before patching: CultureManager.__init__ calls get_model itself, so patching
@@ -69,19 +79,23 @@ def test_culture_manager_exits_with_guidance(monkeypatch, sdk_missing):
     mgr.model = None
     monkeypatch.setattr(culture_manager, "get_model", sdk_missing)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ImportError) as exc:
         mgr.get_model()
 
+    assert _GUIDANCE in str(exc.value)
 
-def test_memory_manager_exits_with_guidance(monkeypatch, sdk_missing):
+
+def test_memory_manager_reports_actionable_guidance(monkeypatch, sdk_missing):
     from egpt.memory import manager as memory_manager
 
     mgr = memory_manager.MemoryManager()
     mgr.model = None
     monkeypatch.setattr(memory_manager, "get_model", sdk_missing)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ImportError) as exc:
         mgr.get_model()
+
+    assert _GUIDANCE in str(exc.value)
 
 
 def test_accuracy_eval_raises_eval_error(monkeypatch, sdk_missing):

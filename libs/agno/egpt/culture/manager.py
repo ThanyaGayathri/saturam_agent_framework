@@ -13,6 +13,7 @@ from egpt.utils.env import get_branded_env_bool
 from egpt.utils.log import (
     log_debug,
     log_error,
+    log_exception,
     log_warning,
     set_log_level_to_debug,
     set_log_level_to_info,
@@ -89,11 +90,13 @@ class CultureManager:
             # is missing. ModuleNotFoundError is a subclass of ImportError, so catching the
             # narrower type here never fired and this handler was unreachable.
             except ImportError as e:
-                log_error(e)
-                log_error(
+                log_exception(e)
+                # Raise rather than exit(1): a missing optional SDK is a dependency error the
+                # caller can handle, not grounds for terminating a server worker or notebook
+                # kernel.
+                raise ImportError(
                     "EGPT uses `openai` as the default model provider. Please provide a `model` or install `openai`."
-                )
-                exit(1)
+                ) from e
         if self.model is None:
             raise ValueError("Could not resolve the default model.")
         return self.model
