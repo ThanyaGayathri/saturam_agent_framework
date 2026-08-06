@@ -214,10 +214,18 @@ class Registry:
         self.dbs.append(db)
 
     def add_vector_db(self, vector_db: Any) -> None:
-        """Add a vector db unless one with the same id/name (or the same instance) is already present."""
+        """Add a vector db unless one with the same id/name (or the same instance) is already present.
+
+        Entries whose ids differ are all admitted even when they share a name: two instances of the
+        same backend are distinct live connections, and dropping one would make it unreachable by
+        its own explicit id. A shared name is not a usable lookup key though (see
+        ``get_vector_db``), so it is reported here, at registration, rather than at the failed
+        lookup much later.
+        """
         if not isinstance(vector_db, VectorDb):
             return
-        key = getattr(vector_db, "id", None) or getattr(vector_db, "name", None)
+        name = getattr(vector_db, "name", None)
+        key = getattr(vector_db, "id", None) or name
         if key is not None:
             for existing in self.vector_dbs:
                 if existing is vector_db:
@@ -230,6 +238,11 @@ class Registry:
                     return
         elif any(v is vector_db for v in self.vector_dbs):
             return
+        if name and any(getattr(v, "name", None) == name for v in self.vector_dbs):
+            log_warning(
+                f"Registry: multiple vector dbs share the name '{name}'; get_vector_db() cannot "
+                "resolve that name. Look them up by id, or give them distinct names."
+            )
         self.vector_dbs.append(vector_db)
 
     def get_schema(self, name: str) -> Optional[Type[BaseModel]]:
@@ -261,6 +274,12 @@ class Registry:
         tried first across all entries so an explicit id always wins over a coincidental
         name match.
 
+        A name matching more than one entry resolves to None rather than to an arbitrary pick.
+        Names are not unique -- ``VectorDb.__init__`` defaults ``name`` to the class name, so any
+        two instances of one backend share it unless named explicitly -- and returning the
+        first match would hand back a different live connection depending only on registration
+        order. Ids remain unambiguous, so each entry is still reachable by its own id.
+
         Returns the live, fully-configured instance. Vector dbs hold connection state (engines,
         clients, credentials) that no serialized form round-trips, so rebuilding one from config
         is not equivalent to retrieving it.
@@ -276,7 +295,14 @@ class Registry:
         by_id = next((v for v in self.vector_dbs if getattr(v, "id", None) == vector_db_id), None)
         if by_id is not None:
             return by_id
-        return next((v for v in self.vector_dbs if getattr(v, "name", None) == vector_db_id), None)
+        by_name = [v for v in self.vector_dbs if getattr(v, "name", None) == vector_db_id]
+        if len(by_name) > 1:
+            log_warning(
+                f"Registry: {len(by_name)} vector dbs share the name '{vector_db_id}'; refusing to "
+                "guess which was meant. Look them up by id, or give them distinct names."
+            )
+            return None
+        return by_name[0] if by_name else None
 
     def get_model(self, model_id: str, provider: Optional[str] = None, name: Optional[str] = None) -> Optional[Model]:
         """Get a registered model instance by id, disambiguating by provider/name when given.
