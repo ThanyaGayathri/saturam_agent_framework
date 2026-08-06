@@ -1,23 +1,29 @@
-from typing import Any, Dict, Optional
+"""Deprecated compatibility shim (EGPT-1.5).
 
-from pydantic import BaseModel
+Import from ``egpt.integrations.vectordb.pgvector.index`` instead; this module will be removed.
+
+Names are re-exported explicitly (not proxied through ``__getattr__`` alone) so that
+star-imports, ``dir()`` and static type checking keep working on this path.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.vectordb.pgvector.index as _target
+from egpt.integrations.vectordb.pgvector.index import *  # noqa: F401,F403
+
+_warnings.warn(
+    "egpt.vectordb.pgvector.index is deprecated; import from egpt.integrations.vectordb.pgvector.index instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-class Ivfflat(BaseModel):
-    name: Optional[str] = None
-    lists: int = 100
-    probes: int = 10
-    dynamic_lists: bool = True
-    configuration: Dict[str, Any] = {
-        "maintenance_work_mem": "2GB",
-    }
-
-
-class HNSW(BaseModel):
-    name: Optional[str] = None
-    m: int = 16
-    ef_search: int = 5
-    ef_construction: int = 200
-    configuration: Dict[str, Any] = {
-        "maintenance_work_mem": "2GB",
-    }
+def __getattr__(name: str):
+    # Fallback so a name added to the target later still resolves through this path.
+    # No vectordb target binds names lazily or behind an optional-dependency guard today,
+    # unlike the EGPT-1.4 provider shims this mirrors.
+    return getattr(_target, name)

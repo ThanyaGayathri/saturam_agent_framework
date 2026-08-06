@@ -4,8 +4,8 @@ import pytest
 
 from egpt.agent import Agent
 from egpt.integrations.db.json.json_db import JsonDb
+from egpt.integrations.vectordb.chroma import ChromaDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.vectordb.chroma import ChromaDb
 
 
 @pytest.fixture

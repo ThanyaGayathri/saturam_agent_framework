@@ -5,9 +5,9 @@ import pytest
 from sqlalchemy.engine import URL, Engine
 from sqlalchemy.orm import Session
 
+from egpt.integrations.vectordb.pgvector import PgVector
 from egpt.knowledge.document import Document
 from egpt.vectordb.distance import Distance
-from egpt.vectordb.pgvector import PgVector
 from egpt.vectordb.search import SearchType
 
 # Configuration for tests
@@ -68,14 +68,14 @@ def sample_documents():
 @pytest.fixture
 def mock_pgvector(mock_engine, mock_embedder):
     """Create a PgVector instance with mocked dependencies."""
-    with patch("egpt.vectordb.pgvector.pgvector.inspect") as mock_inspect:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.inspect") as mock_inspect:
         # Mock inspect to control table_exists method
         inspector = MagicMock()
         inspector.has_table.return_value = False
         mock_inspect.return_value = inspector
 
         # Mock the session factory and session
-        with patch("egpt.vectordb.pgvector.pgvector.scoped_session") as mock_scoped_session:
+        with patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session") as mock_scoped_session:
             mock_session_factory = MagicMock()
             mock_scoped_session.return_value = mock_session_factory
 
@@ -84,7 +84,7 @@ def mock_pgvector(mock_engine, mock_embedder):
             mock_session_factory.return_value.__enter__.return_value = mock_session_instance
 
             # Mock Vector class
-            with patch("egpt.vectordb.pgvector.pgvector.Vector"):
+            with patch("egpt.integrations.vectordb.pgvector.pgvector.Vector"):
                 # Create PgVector instance
                 db = PgVector(table_name=TEST_TABLE, schema=TEST_SCHEMA, db_engine=mock_engine, embedder=mock_embedder)
 
@@ -120,12 +120,12 @@ def test_initialization():
 
     # More complete patching to prevent SQLAlchemy from validating the mock objects
     with (
-        patch("egpt.vectordb.pgvector.pgvector.scoped_session"),
-        patch("egpt.vectordb.pgvector.pgvector.Vector"),
-        patch("egpt.vectordb.pgvector.pgvector.Table"),
-        patch("egpt.vectordb.pgvector.pgvector.Column"),
-        patch("egpt.vectordb.pgvector.pgvector.Index"),
-        patch("egpt.vectordb.pgvector.pgvector.MetaData"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.Vector"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.Table"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.Column"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.Index"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.MetaData"),
         patch.object(PgVector, "get_table"),
     ):
         # Skip the actual table creation by patching get_table to return a mock
@@ -139,17 +139,17 @@ def test_initialization():
 
 def test_initialization_failures(mock_embedder):
     """Test initialization with invalid parameters."""
-    with pytest.raises(ValueError), patch("egpt.vectordb.pgvector.pgvector.scoped_session"):
+    with pytest.raises(ValueError), patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"):
         PgVector(table_name="", schema=TEST_SCHEMA, db_engine=MagicMock())
 
-    with pytest.raises(ValueError), patch("egpt.vectordb.pgvector.pgvector.scoped_session"):
+    with pytest.raises(ValueError), patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"):
         PgVector(table_name=TEST_TABLE, schema=TEST_SCHEMA, db_engine=None, db_url=None)
 
 
 def test_table_exists(mock_pgvector):
     """Test table_exists method."""
     # We need to patch the inspect function that's imported in the module
-    with patch("egpt.vectordb.pgvector.pgvector.inspect") as mock_inspect:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.inspect") as mock_inspect:
         # Create inspector
         inspector = MagicMock()
         mock_inspect.return_value = inspector
@@ -226,7 +226,7 @@ def test_insert_builds_records_and_uses_expected_ids(mock_pgvector, mock_embedde
     mock_pgvector.Session.return_value = cm
 
     # Patch postgresql.insert so we don't touch real SQLAlchemy internals
-    with patch("egpt.vectordb.pgvector.pgvector.postgresql.insert") as mock_insert:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.postgresql.insert") as mock_insert:
         insert_stmt_sentinel = object()
         mock_insert.return_value = insert_stmt_sentinel
 
@@ -276,7 +276,7 @@ def test_upsert_builds_records_and_sets_conflict_on_id(mock_pgvector, mock_embed
     mock_pgvector.Session.return_value = cm
 
     # Build a chain of mocks: postgresql.insert(...).values(...).on_conflict_do_update(...)
-    with patch("egpt.vectordb.pgvector.pgvector.postgresql.insert") as mock_insert:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.postgresql.insert") as mock_insert:
         insert_stmt = MagicMock(name="insert_stmt")
         after_values = MagicMock(name="after_values")
         after_values.excluded = MagicMock(name="excluded")  # used in set_ mapping
@@ -418,7 +418,7 @@ async def test_async_insert(mock_pgvector):
     docs = create_test_documents()
 
     # Mock the postgresql.insert to avoid SQLAlchemy errors with MagicMock table
-    with patch("egpt.vectordb.pgvector.pgvector.postgresql.insert") as mock_insert:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.postgresql.insert") as mock_insert:
         mock_stmt = MagicMock()
         mock_insert.return_value = mock_stmt
 
@@ -439,7 +439,7 @@ async def test_async_upsert(mock_pgvector):
     docs = create_test_documents()
 
     # Mock the postgresql.insert to avoid SQLAlchemy errors with MagicMock table
-    with patch("egpt.vectordb.pgvector.pgvector.postgresql.insert") as mock_insert:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.postgresql.insert") as mock_insert:
         mock_stmt = MagicMock()
         mock_values_stmt = MagicMock()
         mock_stmt.values.return_value = mock_values_stmt
@@ -496,7 +496,7 @@ async def test_async_upsert_429_no_write(mock_pgvector, enable_batch):
     cm.__enter__.return_value = sess
     mock_pgvector.Session.return_value = cm
 
-    with patch("egpt.vectordb.pgvector.pgvector.postgresql.insert") as mock_insert:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.postgresql.insert") as mock_insert:
         if embedder_patcher is not None:
             with embedder_patcher:
                 with pytest.raises(Exception, match="429"):
@@ -839,7 +839,7 @@ def test_insert_merges_filters_into_metadata(mock_pgvector, mock_embedder):
 
     filters = {"knowledge_base_id": "kb-123", "source": "test"}
 
-    with patch("egpt.vectordb.pgvector.pgvector.postgresql.insert") as mock_insert:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.postgresql.insert") as mock_insert:
         insert_stmt_sentinel = object()
         mock_insert.return_value = insert_stmt_sentinel
 
@@ -857,13 +857,13 @@ def test_insert_merges_filters_into_metadata(mock_pgvector, mock_embedder):
 
 def test_similarity_threshold_valid_accepted(mock_engine, mock_embedder):
     """Valid threshold values (0.0-1.0) should be accepted."""
-    with patch("egpt.vectordb.pgvector.pgvector.inspect") as mock_inspect:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.inspect") as mock_inspect:
         inspector = MagicMock()
         inspector.has_table.return_value = False
         mock_inspect.return_value = inspector
 
-        with patch("egpt.vectordb.pgvector.pgvector.scoped_session"):
-            with patch("egpt.vectordb.pgvector.pgvector.Vector"):
+        with patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"):
+            with patch("egpt.integrations.vectordb.pgvector.pgvector.Vector"):
                 db = PgVector(
                     table_name="test_threshold",
                     db_engine=mock_engine,
@@ -875,13 +875,13 @@ def test_similarity_threshold_valid_accepted(mock_engine, mock_embedder):
 
 def test_similarity_threshold_zero_accepted(mock_engine, mock_embedder):
     """Threshold of 0.0 should be accepted."""
-    with patch("egpt.vectordb.pgvector.pgvector.inspect") as mock_inspect:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.inspect") as mock_inspect:
         inspector = MagicMock()
         inspector.has_table.return_value = False
         mock_inspect.return_value = inspector
 
-        with patch("egpt.vectordb.pgvector.pgvector.scoped_session"):
-            with patch("egpt.vectordb.pgvector.pgvector.Vector"):
+        with patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"):
+            with patch("egpt.integrations.vectordb.pgvector.pgvector.Vector"):
                 db = PgVector(
                     table_name="test_threshold",
                     db_engine=mock_engine,
@@ -893,13 +893,13 @@ def test_similarity_threshold_zero_accepted(mock_engine, mock_embedder):
 
 def test_similarity_threshold_one_accepted(mock_engine, mock_embedder):
     """Threshold of 1.0 should be accepted."""
-    with patch("egpt.vectordb.pgvector.pgvector.inspect") as mock_inspect:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.inspect") as mock_inspect:
         inspector = MagicMock()
         inspector.has_table.return_value = False
         mock_inspect.return_value = inspector
 
-        with patch("egpt.vectordb.pgvector.pgvector.scoped_session"):
-            with patch("egpt.vectordb.pgvector.pgvector.Vector"):
+        with patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"):
+            with patch("egpt.integrations.vectordb.pgvector.pgvector.Vector"):
                 db = PgVector(
                     table_name="test_threshold",
                     db_engine=mock_engine,
@@ -911,13 +911,13 @@ def test_similarity_threshold_one_accepted(mock_engine, mock_embedder):
 
 def test_similarity_threshold_none_accepted(mock_engine, mock_embedder):
     """None threshold (disabled) should be accepted."""
-    with patch("egpt.vectordb.pgvector.pgvector.inspect") as mock_inspect:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.inspect") as mock_inspect:
         inspector = MagicMock()
         inspector.has_table.return_value = False
         mock_inspect.return_value = inspector
 
-        with patch("egpt.vectordb.pgvector.pgvector.scoped_session"):
-            with patch("egpt.vectordb.pgvector.pgvector.Vector"):
+        with patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"):
+            with patch("egpt.integrations.vectordb.pgvector.pgvector.Vector"):
                 db = PgVector(
                     table_name="test_threshold",
                     db_engine=mock_engine,
@@ -929,13 +929,13 @@ def test_similarity_threshold_none_accepted(mock_engine, mock_embedder):
 
 def test_similarity_threshold_above_one_rejected(mock_engine, mock_embedder):
     """Threshold above 1.0 should raise ValueError."""
-    with patch("egpt.vectordb.pgvector.pgvector.inspect") as mock_inspect:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.inspect") as mock_inspect:
         inspector = MagicMock()
         inspector.has_table.return_value = False
         mock_inspect.return_value = inspector
 
-        with patch("egpt.vectordb.pgvector.pgvector.scoped_session"):
-            with patch("egpt.vectordb.pgvector.pgvector.Vector"):
+        with patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"):
+            with patch("egpt.integrations.vectordb.pgvector.pgvector.Vector"):
                 with pytest.raises(ValueError, match="similarity_threshold must be between 0.0 and 1.0"):
                     PgVector(
                         table_name="test_threshold",
@@ -947,13 +947,13 @@ def test_similarity_threshold_above_one_rejected(mock_engine, mock_embedder):
 
 def test_similarity_threshold_negative_rejected(mock_engine, mock_embedder):
     """Negative threshold should raise ValueError."""
-    with patch("egpt.vectordb.pgvector.pgvector.inspect") as mock_inspect:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.inspect") as mock_inspect:
         inspector = MagicMock()
         inspector.has_table.return_value = False
         mock_inspect.return_value = inspector
 
-        with patch("egpt.vectordb.pgvector.pgvector.scoped_session"):
-            with patch("egpt.vectordb.pgvector.pgvector.Vector"):
+        with patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"):
+            with patch("egpt.integrations.vectordb.pgvector.pgvector.Vector"):
                 with pytest.raises(ValueError, match="similarity_threshold must be between 0.0 and 1.0"):
                     PgVector(
                         table_name="test_threshold",
@@ -966,13 +966,13 @@ def test_similarity_threshold_negative_rejected(mock_engine, mock_embedder):
 @pytest.mark.parametrize("distance", [Distance.cosine, Distance.l2, Distance.max_inner_product])
 def test_similarity_threshold_with_distance_types(mock_engine, mock_embedder, distance):
     """Threshold should work with all distance types."""
-    with patch("egpt.vectordb.pgvector.pgvector.inspect") as mock_inspect:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.inspect") as mock_inspect:
         inspector = MagicMock()
         inspector.has_table.return_value = False
         mock_inspect.return_value = inspector
 
-        with patch("egpt.vectordb.pgvector.pgvector.scoped_session"):
-            with patch("egpt.vectordb.pgvector.pgvector.Vector"):
+        with patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"):
+            with patch("egpt.integrations.vectordb.pgvector.pgvector.Vector"):
                 db = PgVector(
                     table_name=f"test_{distance.value}",
                     db_engine=mock_engine,
@@ -987,13 +987,13 @@ def test_similarity_threshold_with_distance_types(mock_engine, mock_embedder, di
 @pytest.mark.parametrize("search_type", [SearchType.vector, SearchType.hybrid, SearchType.keyword])
 def test_similarity_threshold_with_search_types(mock_engine, mock_embedder, search_type):
     """Threshold should work with all search types."""
-    with patch("egpt.vectordb.pgvector.pgvector.inspect") as mock_inspect:
+    with patch("egpt.integrations.vectordb.pgvector.pgvector.inspect") as mock_inspect:
         inspector = MagicMock()
         inspector.has_table.return_value = False
         mock_inspect.return_value = inspector
 
-        with patch("egpt.vectordb.pgvector.pgvector.scoped_session"):
-            with patch("egpt.vectordb.pgvector.pgvector.Vector"):
+        with patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"):
+            with patch("egpt.integrations.vectordb.pgvector.pgvector.Vector"):
                 db = PgVector(
                     table_name=f"test_{search_type.value}",
                     db_engine=mock_engine,
@@ -1017,8 +1017,8 @@ def test_similarity_threshold_with_search_types(mock_engine, mock_embedder, sear
 
 def _make_db(mock_engine, mock_embedder, *, prefix_match: bool) -> PgVector:
     with (
-        patch("egpt.vectordb.pgvector.pgvector.scoped_session"),
-        patch("egpt.vectordb.pgvector.pgvector.Vector"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.Vector"),
         patch.object(PgVector, "get_table", return_value=MagicMock()),
     ):
         return PgVector(
@@ -1144,8 +1144,8 @@ def test_build_ts_query_prefix_mode_leading_trailing_whitespace(mock_engine, moc
 def test_prefix_match_default_is_false(mock_engine, mock_embedder):
     """Default behaviour is unchanged — prefix_match defaults to False."""
     with (
-        patch("egpt.vectordb.pgvector.pgvector.scoped_session"),
-        patch("egpt.vectordb.pgvector.pgvector.Vector"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.Vector"),
         patch.object(PgVector, "get_table", return_value=MagicMock()),
     ):
         db = PgVector(
@@ -1172,9 +1172,9 @@ def test_enable_prefix_matching_still_works(mock_engine, mock_embedder):
 def test_keyword_search_returns_empty_on_no_usable_tokens(mock_engine, mock_embedder):
     """keyword_search short-circuits to [] when prefix_match strips all tokens."""
     with (
-        patch("egpt.vectordb.pgvector.pgvector.inspect"),
-        patch("egpt.vectordb.pgvector.pgvector.scoped_session"),
-        patch("egpt.vectordb.pgvector.pgvector.Vector"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.inspect"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.Vector"),
         patch.object(PgVector, "get_table", return_value=MagicMock()),
     ):
         db = PgVector(
@@ -1220,8 +1220,8 @@ def test_hybrid_search_empty_token_fallback_uses_tsquery_literal(mock_engine):
     )
 
     with (
-        patch("egpt.vectordb.pgvector.pgvector.inspect"),
-        patch("egpt.vectordb.pgvector.pgvector.scoped_session"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.inspect"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"),
         patch.object(PgVector, "get_table", return_value=real_table),
     ):
         db = PgVector(
@@ -1285,8 +1285,8 @@ def test_hybrid_search_falls_back_to_vector_on_no_usable_tokens(mock_engine):
     )
 
     with (
-        patch("egpt.vectordb.pgvector.pgvector.inspect"),
-        patch("egpt.vectordb.pgvector.pgvector.scoped_session"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.inspect"),
+        patch("egpt.integrations.vectordb.pgvector.pgvector.scoped_session"),
         patch.object(PgVector, "get_table", return_value=real_table),
     ):
         db = PgVector(

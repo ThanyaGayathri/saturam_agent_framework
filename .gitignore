@@ -19,6 +19,12 @@
 
 # Ignore .env files
 .env
+azure_llm.env
+# Any *.env secret file (azure_key.env, azure_llm.env, ...). Listing them by name
+# missed azure_key.env, which left a live API key one `git add -A` from being
+# committed. No tracked file ends in `.env` — `.env.example` is unaffected.
+*.env
+azure_key.txt
 
 # Ignore .envrc files (used by direnv: https://direnv.net/)
 .envrc

@@ -1,7 +1,7 @@
-diff --git a/libs/agno/egpt/vectordb/milvus/milvus.py b/libs/agno/egpt/vectordb/milvus/milvus.py
+diff --git a/libs/agno/egpt/integrations/vectordb/milvus/milvus.py b/libs/agno/egpt/integrations/vectordb/milvus/milvus.py
 index 97abb12..c423ee0 100644
---- a/libs/agno/egpt/vectordb/milvus/milvus.py
-+++ b/libs/agno/egpt/vectordb/milvus/milvus.py
+--- a/libs/agno/egpt/integrations/vectordb/milvus/milvus.py
++++ b/libs/agno/egpt/integrations/vectordb/milvus/milvus.py
 @@ -176,7 +176,6 @@ class Milvus(VectorDb):
              ("content_id", DataType.VARCHAR, 1000, False),
              ("content_hash", DataType.VARCHAR, 1000, False),

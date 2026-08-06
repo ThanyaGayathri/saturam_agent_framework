@@ -75,12 +75,12 @@ Make sure all tests pass before submitting your pull request. If you add new fea
 ## Adding a new Vector Database
 
 1. Setup your local environment by following the [Development setup](#development-setup).
-2. Create a new directory under `libs/agno/egpt/vectordb` for the new vector database.
+2. Create a new directory under `libs/agno/egpt/integrations/vectordb` for the new vector database.
 3. Create a Class for your VectorDb that implements the `VectorDb` interface
-   - Your Class will be in the `libs/agno/egpt/vectordb/<your_db>/<your_db>.py` file.
-   - The `VectorDb` interface is defined in `libs/agno/egpt/vectordb/base.py`
-   - Import your `VectorDb` Class in `libs/agno/egpt/vectordb/<your_db>/__init__.py`.
-   - Checkout the [`libs/agno/egpt/vectordb/pgvector/pgvector`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/libs/agno/egpt/vectordb/pgvector/pgvector.py) file for an example.
+   - Your Class will be in the `libs/agno/egpt/integrations/vectordb/<your_db>/<your_db>.py` file.
+   - The `VectorDb` interface is defined in `libs/agno/egpt/vectordb/base.py`, which stays in core along with the shared `distance.py`, `score.py` and `search.py` value types.
+   - Import your `VectorDb` Class in `libs/agno/egpt/integrations/vectordb/<your_db>/__init__.py` and list it in `__all__`.
+   - Checkout the [`libs/agno/egpt/integrations/vectordb/pgvector/pgvector`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/libs/agno/egpt/integrations/vectordb/pgvector/pgvector.py) file for an example.
 4. Add a recipe for using your `VectorDb` under `cookbook/07_knowledge/vector_db/<your_db>`.
    - Checkout [`cookbook/07_knowledge/vector_db/pgvector/pgvector_db`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/cookbook/07_knowledge/vector_db/pgvector/pgvector_db.py) for an example.
 5. Important: Format and validate your code by running `./scripts/format.sh` and `./scripts/validate.sh`.

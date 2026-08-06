@@ -11,6 +11,7 @@ from egpt.agent import Agent, RemoteAgent
 from egpt.client.os import EgptOSClient
 from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.integrations.models.openai import OpenAIChat
+from egpt.integrations.vectordb.pgvector.pgvector import PgVector
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.os import EgptOS
@@ -21,7 +22,6 @@ from egpt.os.interfaces.slack import Slack
 from egpt.os.interfaces.telegram import Telegram
 from egpt.remote.base import RemoteDb, RemoteKnowledge
 from egpt.team import RemoteTeam, Team
-from egpt.vectordb.pgvector.pgvector import PgVector
 from egpt.workflow import RemoteWorkflow, Workflow
 from egpt.workflow.step import Step
 

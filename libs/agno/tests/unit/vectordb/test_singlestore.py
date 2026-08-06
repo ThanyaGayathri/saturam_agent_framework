@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from sqlalchemy.engine import Engine
 
+from egpt.integrations.vectordb.singlestore import SingleStore
 from egpt.knowledge.document import Document
 from egpt.vectordb.distance import Distance
-from egpt.vectordb.singlestore import SingleStore
 
 TEST_COLLECTION = "test_collection"
 TEST_SCHEMA = "test_schema"
@@ -40,7 +40,7 @@ def mock_session():
 @pytest.fixture
 def singlestore_db(mock_engine, mock_session, mock_embedder):
     """Fixture to create a SingleStore instance with mocked components"""
-    with patch("egpt.vectordb.singlestore.singlestore.sessionmaker") as mock_sessionmaker:
+    with patch("egpt.integrations.vectordb.singlestore.singlestore.sessionmaker") as mock_sessionmaker:
         # Set up sessionmaker to return the mock session directly
         mock_sessionmaker.return_value = mock_session
         db = SingleStore(
@@ -127,7 +127,7 @@ def test_delete_collection(singlestore_db, mock_session):
 
 def test_distance_metrics(mock_engine):
     """Test different distance metrics"""
-    with patch("egpt.vectordb.singlestore.singlestore.sessionmaker"):
+    with patch("egpt.integrations.vectordb.singlestore.singlestore.sessionmaker"):
         db_cosine = SingleStore(
             collection="test_cosine", schema=TEST_SCHEMA, db_engine=mock_engine, distance=Distance.cosine
         )
@@ -153,7 +153,7 @@ async def test_error_handling(singlestore_db, mock_session):
 
 def test_custom_embedder(mock_engine, mock_embedder):
     """Test using a custom embedder"""
-    with patch("egpt.vectordb.singlestore.singlestore.sessionmaker"):
+    with patch("egpt.integrations.vectordb.singlestore.singlestore.sessionmaker"):
         db = SingleStore(collection=TEST_COLLECTION, schema=TEST_SCHEMA, db_engine=mock_engine, embedder=mock_embedder)
         assert db.embedder == mock_embedder
 

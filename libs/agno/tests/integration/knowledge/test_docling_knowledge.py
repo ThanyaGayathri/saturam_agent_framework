@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 from egpt.agent import Agent
+from egpt.integrations.vectordb.chroma import ChromaDb
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader.docling_reader import DoclingReader
-from egpt.vectordb.chroma import ChromaDb
 
 # Audio/video tests require openai-whisper (pip install openai-whisper) and system ffmpeg
 try:

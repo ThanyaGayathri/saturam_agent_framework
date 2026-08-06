@@ -20,14 +20,14 @@ from couchbase.options import ClusterOptions
 from couchbase.result import GetResult, MultiMutationResult
 from couchbase.scope import Scope
 
+from egpt.integrations.vectordb.couchbase.couchbase import CouchbaseSearch
 from egpt.knowledge.document import Document
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
-from egpt.vectordb.couchbase.couchbase import CouchbaseSearch
 
 
 @pytest.fixture
 def mock_async_cluster():
-    with patch("egpt.vectordb.couchbase.couchbase.AsyncCluster") as MockAsyncClusterClass:
+    with patch("egpt.integrations.vectordb.couchbase.couchbase.AsyncCluster") as MockAsyncClusterClass:
         mock_cluster_instance = AsyncMock(spec=AsyncCluster)
         MockAsyncClusterClass.connect = AsyncMock(return_value=mock_cluster_instance)
         # wait_until_ready is called by _get_async_cluster, ensure it's a mock
@@ -38,7 +38,7 @@ def mock_async_cluster():
 
 @pytest.fixture
 def mock_cluster():
-    with patch("egpt.vectordb.couchbase.couchbase.Cluster") as mock_cluster:
+    with patch("egpt.integrations.vectordb.couchbase.couchbase.Cluster") as mock_cluster:
         cluster = Mock(spec=Cluster)
         cluster.wait_until_ready.return_value = None
         mock_cluster.return_value = cluster
@@ -324,7 +324,7 @@ def test_init_empty_bucket_name():
 
 
 def test_get_cluster_connection_error():
-    with patch("egpt.vectordb.couchbase.couchbase.Cluster") as mock_cluster:
+    with patch("egpt.integrations.vectordb.couchbase.couchbase.Cluster") as mock_cluster:
         mock_cluster.side_effect = Exception("Connection failed")
 
         with pytest.raises(ConnectionError, match="Failed to connect to Couchbase"):

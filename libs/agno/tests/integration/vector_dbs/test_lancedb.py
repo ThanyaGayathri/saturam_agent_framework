@@ -4,10 +4,10 @@ from typing import Dict, List, Optional, Tuple
 
 import pytest
 
+from egpt.integrations.vectordb.lancedb.lance_db import LanceDb
 from egpt.knowledge.document.base import Document
 from egpt.knowledge.embedder.base import Embedder
 from egpt.utils.log import logger
-from egpt.vectordb.lancedb.lance_db import LanceDb
 
 # Set logging level to DEBUG
 logger.setLevel(logging.DEBUG)

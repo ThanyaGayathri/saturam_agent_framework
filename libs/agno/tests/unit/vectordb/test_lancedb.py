@@ -4,8 +4,8 @@ from typing import List
 
 import pytest
 
+from egpt.integrations.vectordb.lancedb import LanceDb
 from egpt.knowledge.document import Document
-from egpt.vectordb.lancedb import LanceDb
 from egpt.vectordb.search import SearchType
 
 TEST_TABLE = "test_table"

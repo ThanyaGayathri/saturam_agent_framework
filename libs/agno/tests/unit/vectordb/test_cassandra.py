@@ -4,9 +4,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from cassandra.cluster import Session
 
+from egpt.integrations.vectordb.cassandra import Cassandra
+from egpt.integrations.vectordb.cassandra.index import AgnoMetadataVectorCassandraTable
 from egpt.knowledge.document import Document
-from egpt.vectordb.cassandra import Cassandra
-from egpt.vectordb.cassandra.index import AgnoMetadataVectorCassandraTable
 
 
 @pytest.fixture

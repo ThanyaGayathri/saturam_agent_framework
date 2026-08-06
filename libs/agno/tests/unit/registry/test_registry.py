@@ -749,6 +749,201 @@ class TestGetDb:
 
 
 # =============================================================================
+# get_vector_db() Tests
+# =============================================================================
+
+
+def _real_vector_db(name=None, id=None):
+    """A concrete VectorDb, not a MagicMock.
+
+    `VectorDb.__init__` derives an id from the name when none is given, so a mock with
+    ``id=None`` is a shape no real backend ever has. Testing the accessor against mocks is
+    what let an unreachable ``id or name`` lookup ship and pass: no real instance could
+    reach the name branch.
+    """
+    from egpt.vectordb.base import VectorDb
+
+    # Stubs are generated from __abstractmethods__ so this helper cannot drift out of sync
+    # when the ABC gains or loses a method.
+    body = {method: (lambda self, *a, **kw: None) for method in VectorDb.__abstractmethods__}
+    store_cls = type("_Store", (VectorDb,), body)
+    return store_cls(id=id, name=name)
+
+
+def _mock_vector_db(id=None, name=None):
+    from egpt.vectordb.base import VectorDb
+
+    vector_db = MagicMock(spec=VectorDb)
+    vector_db.id = id
+    vector_db.name = name
+    return vector_db
+
+
+class TestGetVectorDb:
+    """Tests for Registry.get_vector_db() method."""
+
+    def test_get_vector_db_found_by_id(self):
+        """Test getting a vector db that exists."""
+        vector_db = _mock_vector_db(id="vec-1", name="vectors")
+        reg = Registry(vector_dbs=[vector_db])
+
+        assert reg.get_vector_db("vec-1") is vector_db
+
+    def test_get_vector_db_found_by_name_when_id_is_none(self):
+        """A vector db with no id is reachable by name."""
+        vector_db = _mock_vector_db(name="vectors")
+        reg = Registry(vector_dbs=[vector_db])
+
+        assert reg.get_vector_db("vectors") is vector_db
+
+    def test_get_vector_db_real_instance_is_reachable_by_name(self):
+        """A concrete backend must be reachable by the name it was registered under.
+
+        Regression guard: `VectorDb.__init__` always populates `id` (deriving it from the
+        name when not supplied), so an ``id or name`` lookup key can never reach the name
+        branch for any real backend. Only a MagicMock with ``id=None`` could, which is why
+        the mock-based tests above passed while the accessor was broken in practice.
+        """
+        vector_db = _real_vector_db(name="my_vectors")
+        reg = Registry()
+        reg.add_vector_db(vector_db)
+
+        assert vector_db.id, "VectorDb always populates id; the premise of this test"
+        assert reg.get_vector_db("my_vectors") is vector_db
+        assert reg.get_vector_db(vector_db.id) is vector_db
+
+    def test_get_vector_db_matches_id_and_name(self):
+        """Both keys resolve; an explicit id wins over another entry's name."""
+        vector_db = _mock_vector_db(id="vec-1", name="vectors")
+        reg = Registry(vector_dbs=[vector_db])
+
+        assert reg.get_vector_db("vec-1") is vector_db
+        assert reg.get_vector_db("vectors") is vector_db
+
+    def test_get_vector_db_prefers_id_over_a_colliding_name(self):
+        """When one entry's name equals another's id, the id match wins."""
+        by_id = _mock_vector_db(id="shared", name="a")
+        by_name = _mock_vector_db(id="b", name="shared")
+        reg = Registry(vector_dbs=[by_name, by_id])
+
+        assert reg.get_vector_db("shared") is by_id
+
+    def test_get_vector_db_ambiguous_name_resolves_to_none(self, monkeypatch):
+        """A name matching two entries must not resolve to an arbitrary one.
+
+        `Registry(vector_dbs=[...])` is constructed directly all over the codebase, so
+        add_vector_db() is not a chokepoint the lookup can rely on: the ambiguity has to be
+        detected here. Both entries stay reachable by their own ids.
+        """
+        import egpt.registry.registry as registry_module
+
+        warnings = []
+        monkeypatch.setattr(registry_module, "log_warning", lambda msg, *a, **k: warnings.append(msg))
+
+        first = _real_vector_db(name="shared", id="id-a")
+        second = _real_vector_db(name="shared", id="id-b")
+        reg = Registry(vector_dbs=[first, second])
+
+        assert reg.get_vector_db("shared") is None
+        assert warnings and "shared" in warnings[0]
+        assert reg.get_vector_db("id-a") is first
+        assert reg.get_vector_db("id-b") is second
+
+    def test_add_vector_db_keeps_both_entries_that_share_a_name(self):
+        """Distinct ids means distinct connections: the fix is a failed lookup, not a dropped entry."""
+        first = _real_vector_db(name="shared", id="id-a")
+        second = _real_vector_db(name="shared", id="id-b")
+        reg = Registry()
+        reg.add_vector_db(first)
+        reg.add_vector_db(second)
+
+        assert len(reg.vector_dbs) == 2
+        assert reg.get_vector_db("id-a") is first
+        assert reg.get_vector_db("id-b") is second
+        assert reg.get_vector_db("shared") is None
+
+    def test_get_vector_db_ambiguous_default_class_name(self):
+        """The realistic shape: two instances of one backend, distinct ids, no explicit names.
+
+        `VectorDb.__init__` defaults `name` to the class name, so this collides without the user
+        naming anything -- e.g. two PgVector instances on different tables.
+        """
+        first = _real_vector_db(id="id-a")
+        second = _real_vector_db(id="id-b")
+        assert first.name == second.name, "the premise: both fall back to the class name"
+
+        reg = Registry()
+        reg.add_vector_db(first)
+        reg.add_vector_db(second)
+
+        assert len(reg.vector_dbs) == 2
+        assert reg.get_vector_db(first.name) is None
+        assert reg.get_vector_db("id-a") is first
+        assert reg.get_vector_db("id-b") is second
+
+    def test_get_vector_db_multiple(self):
+        """Test getting different vector dbs."""
+        v1 = _mock_vector_db(id="vec-1")
+        v2 = _mock_vector_db(id="vec-2")
+        v3 = _mock_vector_db(name="vec-3")
+
+        reg = Registry(vector_dbs=[v1, v2, v3])
+
+        assert reg.get_vector_db("vec-1") is v1
+        assert reg.get_vector_db("vec-2") is v2
+        assert reg.get_vector_db("vec-3") is v3
+
+    def test_get_vector_db_not_found(self):
+        """Test getting a vector db that doesn't exist."""
+        reg = Registry(vector_dbs=[_mock_vector_db(id="vec-1")])
+
+        assert reg.get_vector_db("nonexistent") is None
+
+    def test_get_vector_db_empty_registry(self, basic_registry):
+        """Test getting a vector db from an empty registry."""
+        assert basic_registry.get_vector_db("some-vec") is None
+
+    def test_get_vector_db_empty_id_returns_none(self):
+        """An empty lookup key must not match a vector db that has neither id nor name."""
+        reg = Registry(vector_dbs=[_mock_vector_db()])
+
+        assert reg.get_vector_db("") is None
+
+    def test_get_vector_db_case_sensitive(self):
+        """Test that vector db lookup is case sensitive."""
+        vector_db = _mock_vector_db(id="vec-1")
+        reg = Registry(vector_dbs=[vector_db])
+
+        assert reg.get_vector_db("vec-1") is vector_db
+        assert reg.get_vector_db("Vec-1") is None
+        assert reg.get_vector_db("VEC-1") is None
+
+    def test_get_vector_db_roundtrips_with_add_vector_db(self):
+        """Anything add_vector_db() accepts must be retrievable by get_vector_db().
+
+        Uses concrete backends rather than mocks so the round trip is exercised against the
+        identity real instances actually carry.
+        """
+        registered = [_real_vector_db(name="alpha"), _real_vector_db(name="beta"), _real_vector_db()]
+
+        reg = Registry()
+        for vector_db in registered:
+            reg.add_vector_db(vector_db)
+
+        for vector_db in registered:
+            assert reg.get_vector_db(vector_db.id) is vector_db
+            assert reg.get_vector_db(vector_db.name) is vector_db
+
+        with_id = _mock_vector_db(id="vec-1", name="ignored")
+        name_only = _mock_vector_db(name="vectors")
+        reg.add_vector_db(with_id)
+        reg.add_vector_db(name_only)
+
+        assert reg.get_vector_db("vec-1") is with_id
+        assert reg.get_vector_db("vectors") is name_only
+
+
+# =============================================================================
 # get_model() Tests
 # =============================================================================
 
@@ -1441,6 +1636,43 @@ class TestAddDbAndVectorDb:
         reg.add_vector_db(v2)
         assert len(reg.vector_dbs) == 1 and reg.vector_dbs[0] is v1
         assert warnings and "vec" in warnings[0]
+
+    def test_add_vector_db_warns_on_name_collision_with_distinct_ids(self, monkeypatch):
+        """Both are admitted, but the shared name is flagged at registration.
+
+        The name is unusable as a lookup key from this point on, and saying so here is far more
+        actionable than a get_vector_db() that returns None much later.
+        """
+        import egpt.registry.registry as registry_module
+
+        warnings = []
+        monkeypatch.setattr(registry_module, "log_warning", lambda msg, *a, **k: warnings.append(msg))
+
+        reg = Registry()
+        reg.add_vector_db(_real_vector_db(name="shared", id="id-a"))
+        assert warnings == []
+
+        reg.add_vector_db(_real_vector_db(name="shared", id="id-b"))
+
+        assert len(reg.vector_dbs) == 2
+        assert warnings and "shared" in warnings[0]
+
+    def test_add_vector_db_does_not_warn_when_names_are_unset(self, monkeypatch):
+        """A None name is not a collision, however many entries carry it."""
+        import egpt.registry.registry as registry_module
+        from egpt.vectordb.base import VectorDb
+
+        warnings = []
+        monkeypatch.setattr(registry_module, "log_warning", lambda msg, *a, **k: warnings.append(msg))
+
+        reg = Registry()
+        for vector_db_id in ("vec-1", "vec-2"):
+            vector_db = MagicMock(spec=VectorDb)
+            vector_db.id = vector_db_id
+            vector_db.name = None
+            reg.add_vector_db(vector_db)
+
+        assert len(reg.vector_dbs) == 2 and warnings == []
 
     def test_add_db_ignores_non_db(self):
         reg = Registry()

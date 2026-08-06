@@ -130,12 +130,15 @@ Format:
 | Teams | `libs/agno/egpt/team/` |
 | Workflows | `libs/agno/egpt/workflow/` |
 | Tools | `libs/agno/egpt/tools/` |
-| Model providers | `libs/agno/egpt/integrations/models/` (base classes: `libs/agno/egpt/models/`) |
+| Model interface | `libs/agno/egpt/models/` (`Model` base, message, metrics) |
+| Model providers | `libs/agno/egpt/integrations/models/` |
 | Knowledge/RAG | `libs/agno/egpt/knowledge/` |
 | Memory | `libs/agno/egpt/memory/` |
 | Learning | `libs/agno/egpt/learn/` |
-| Database adapters | `libs/agno/egpt/integrations/db/` (base classes: `libs/agno/egpt/db/`) |
-| Vector databases | `libs/agno/egpt/vectordb/` |
+| DB interface | `libs/agno/egpt/db/` (`BaseDb`/`AsyncBaseDb`, schemas, migrations) |
+| DB backends | `libs/agno/egpt/integrations/db/` |
+| Vector DB interface | `libs/agno/egpt/vectordb/` (`VectorDb` + distance/score/search) |
+| Vector DB backends | `libs/agno/egpt/integrations/vectordb/` |
 | Tests | `libs/agno/tests/` |
 
 ---

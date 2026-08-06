@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from egpt.integrations.vectordb.chroma import ChromaDb
+from egpt.integrations.vectordb.chroma.chromadb import reciprocal_rank_fusion
 from egpt.knowledge.document import Document
-from egpt.vectordb.chroma import ChromaDb
-from egpt.vectordb.chroma.chromadb import reciprocal_rank_fusion
 from egpt.vectordb.distance import Distance
 from egpt.vectordb.search import SearchType
 

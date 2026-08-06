@@ -1,0 +1,44 @@
+{
+  "beir/scifact": {
+    "ndcg": {
+      "2leg-rrf": 0.7216702635928084,
+      "2leg-weighted": 0.7445368854580307,
+      "3leg-rrf": 0.663496154578801,
+      "3leg-weighted": 0.7394474274622644,
+      "3leg-rrf-lex": 0.6444836828070547,
+      "3leg-weighted-lex": 0.7046765396972001
+    },
+    "significance": {
+      "3leg-weighted vs 3leg-rrf": {
+        "delta": 0.07595127288346341,
+        "lo": 0.055712821999214276,
+        "hi": 0.0964613064735344,
+        "p_value": 0.0001,
+        "n": 300.0,
+        "significant": 1.0
+      },
+      "2leg-weighted vs 2leg-rrf": {
+        "delta": 0.022866621865222113,
+        "lo": 0.007313221717795119,
+        "hi": 0.03858733197221593,
+        "p_value": 0.0026,
+        "n": 300.0,
+        "significant": 1.0
+      },
+      "3leg-weighted-lex vs 3leg-rrf-lex": {
+        "delta": 0.06019285689014531,
+        "lo": 0.0389662444519198,
+        "hi": 0.08109774263733198,
+        "p_value": 0.0001,
+        "n": 300.0,
+        "significant": 1.0
+      }
+    },
+    "top10_overlap": {
+      "dense_vs_graph": 0.6199999999999999,
+      "dense_vs_lex_graph": 0.29,
+      "bm25_vs_graph": 0.2783333333333333,
+      "bm25_vs_lex_graph": 0.5183333333333333
+    }
+  }
+}

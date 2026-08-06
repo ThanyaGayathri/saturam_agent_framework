@@ -1,0 +1,184 @@
+{
+  "k": 5,
+  "embedders": [
+    {
+      "label": "bge-base (SM-R4 Mode A)",
+      "spec": "local:BAAI/bge-base-en-v1.5@768",
+      "background": {
+        "p50": 0.4114,
+        "p90": 0.4934,
+        "p99": 0.5877,
+        "p99.5": 0.6187,
+        "p99.9": 0.6993
+      },
+      "absolute": {
+        "0.5": {
+          "recall@k": 0.6333,
+          "all_hops_hit": 0.4667,
+          "regret": 0.175
+        },
+        "0.65": {
+          "recall@k": 0.8167,
+          "all_hops_hit": 0.6333,
+          "regret": -0.0084
+        }
+      },
+      "percentile": {
+        "p99.0": {
+          "recall@k": 0.7167,
+          "all_hops_hit": 0.5,
+          "resolved_cutoff": 0.5877,
+          "regret": 0.0916
+        },
+        "p99.5": {
+          "recall@k": 0.7417,
+          "all_hops_hit": 0.5667,
+          "resolved_cutoff": 0.6187,
+          "regret": 0.0666
+        },
+        "p99.9": {
+          "recall@k": 0.8083,
+          "all_hops_hit": 0.6667,
+          "resolved_cutoff": 0.6993,
+          "regret": 0.0
+        }
+      },
+      "oracle_best_recall": 0.8083
+    },
+    {
+      "label": "3-large@1024 (SM-R4 Mode B)",
+      "spec": "azure:text-embedding-3-large@1024",
+      "background": {
+        "p50": 0.1541,
+        "p90": 0.2598,
+        "p99": 0.4158,
+        "p99.5": 0.4696,
+        "p99.9": 0.6034
+      },
+      "absolute": {
+        "0.5": {
+          "recall@k": 0.9083,
+          "all_hops_hit": 0.7667,
+          "regret": 0.0084
+        },
+        "0.65": {
+          "recall@k": 0.8833,
+          "all_hops_hit": 0.7667,
+          "regret": 0.0334
+        }
+      },
+      "percentile": {
+        "p99.0": {
+          "recall@k": 0.8583,
+          "all_hops_hit": 0.7,
+          "resolved_cutoff": 0.4158,
+          "regret": 0.0584
+        },
+        "p99.5": {
+          "recall@k": 0.8833,
+          "all_hops_hit": 0.7333,
+          "resolved_cutoff": 0.4696,
+          "regret": 0.0334
+        },
+        "p99.9": {
+          "recall@k": 0.9167,
+          "all_hops_hit": 0.8,
+          "resolved_cutoff": 0.6034,
+          "regret": 0.0
+        }
+      },
+      "oracle_best_recall": 0.9167
+    },
+    {
+      "label": "3-small@1536 (original placeholder)",
+      "spec": "azure:text-embedding-3-small@1536",
+      "background": {
+        "p50": 0.1464,
+        "p90": 0.2448,
+        "p99": 0.4012,
+        "p99.5": 0.4672,
+        "p99.9": 0.6224
+      },
+      "absolute": {
+        "0.5": {
+          "recall@k": 0.9333,
+          "all_hops_hit": 0.8333,
+          "regret": 0.0
+        },
+        "0.65": {
+          "recall@k": 0.9,
+          "all_hops_hit": 0.8,
+          "regret": 0.0333
+        }
+      },
+      "percentile": {
+        "p99.0": {
+          "recall@k": 0.8667,
+          "all_hops_hit": 0.7,
+          "resolved_cutoff": 0.4012,
+          "regret": 0.0666
+        },
+        "p99.5": {
+          "recall@k": 0.9083,
+          "all_hops_hit": 0.7667,
+          "resolved_cutoff": 0.4672,
+          "regret": 0.025
+        },
+        "p99.9": {
+          "recall@k": 0.9,
+          "all_hops_hit": 0.8,
+          "resolved_cutoff": 0.6224,
+          "regret": 0.0333
+        }
+      },
+      "oracle_best_recall": 0.9333
+    }
+  ],
+  "portability": {
+    "absolute_0.5": {
+      "regret": [
+        0.175,
+        0.0084,
+        0.0
+      ],
+      "worst": 0.175,
+      "mean": 0.0611
+    },
+    "absolute_0.65": {
+      "regret": [
+        -0.0084,
+        0.0334,
+        0.0333
+      ],
+      "worst": 0.0334,
+      "mean": 0.0194
+    },
+    "percentile_p99.0": {
+      "regret": [
+        0.0916,
+        0.0584,
+        0.0666
+      ],
+      "worst": 0.0916,
+      "mean": 0.0722
+    },
+    "percentile_p99.5": {
+      "regret": [
+        0.0666,
+        0.0334,
+        0.025
+      ],
+      "worst": 0.0666,
+      "mean": 0.0417
+    },
+    "percentile_p99.9": {
+      "regret": [
+        0.0,
+        0.0,
+        0.0333
+      ],
+      "worst": 0.0333,
+      "mean": 0.0111
+    }
+  }
+}

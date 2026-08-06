@@ -1,0 +1,48 @@
+{
+  "meta": {
+    "tag": "20260723T134111Z_rerankBge",
+    "seed": 7,
+    "embedding_model": "local:all-MiniLM-L6-v2",
+    "reranker": "st-bge-m3",
+    "retrieve_depth": 100,
+    "rerank_depth": 50,
+    "rrf_k": 60,
+    "vector_weight": 0.5,
+    "recency_weight": 0.5,
+    "max_tasks": 50,
+    "max_queries": 50,
+    "host": "macOS-15.7.3-x86_64-i386-64bit",
+    "machine": "x86_64",
+    "note": "latencies are Intel-Mac CPU, indicative; query-embed latency excluded (option-invariant)"
+  },
+  "results": {
+    "beir/scifact": {
+      "b-rrf": {
+        "summary": {
+          "ndcg@10": 0.8202886738783056,
+          "recall@10": 0.917,
+          "recall@50": 0.976,
+          "recall@100": 0.98,
+          "mrr": 0.8027717086834733,
+          "lat_p50_ms": 19.205181997676846,
+          "lat_p95_ms": 36.947744751523715,
+          "n": 50
+        },
+        "wall_s": 1.9
+      },
+      "c-weighted": {
+        "summary": {
+          "ndcg@10": 0.837650427704752,
+          "recall@10": 0.932,
+          "recall@50": 0.976,
+          "recall@100": 0.98,
+          "mrr": 0.8181515151515151,
+          "lat_p50_ms": 19.872686003509443,
+          "lat_p95_ms": 41.38090479900711,
+          "n": 50
+        },
+        "wall_s": 2.0
+      }
+    }
+  }
+}
