@@ -92,8 +92,13 @@ class SingleStoreDb(BaseDb):
             # `(a or b) if cond else c`, which discarded db_url entirely on the common
             # engine-less path and collapsed every instance onto one id.
             base_seed = db_url or (str(db_engine.url) if db_engine else "singlestore")
-            schema_suffix = db_schema if db_schema is not None else "ai"
-            seed = f"{base_seed}#{schema_suffix}"
+            # db_schema goes into the seed verbatim because that is how it is stored:
+            # self.db_schema keeps None as None and MetaData(schema=None) leaves tables
+            # unqualified in the connection's default database, which is a different target
+            # from schema "ai". Defaulting the suffix to "ai" aliased those two onto one id,
+            # so the registry kept whichever was constructed first and every component keyed
+            # on that id silently read and wrote the other one's tables.
+            seed = f"{base_seed}#{db_schema}"
             id = generate_id(seed)
 
         super().__init__(

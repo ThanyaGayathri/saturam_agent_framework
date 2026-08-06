@@ -52,6 +52,10 @@ try:
 except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
 
+# Where an AsyncSqliteDb built with no connection argument puts its database. Shared between
+# the id seed and the engine below so the two cannot describe different files.
+DEFAULT_DB_FILE = "./egpt.db"
+
 
 class AsyncSqliteDb(AsyncBaseDb):
     def __init__(
@@ -108,10 +112,24 @@ class AsyncSqliteDb(AsyncBaseDb):
             ValueError: If none of the tables are provided.
         """
         if id is None:
-            # Parentheses are load-bearing: `a or b or c if cond else d` parses as
-            # `(a or b or c) if cond else d`, which discarded db_url/db_file entirely on the
-            # common engine-less path and collapsed every instance onto one id.
-            seed = db_url or db_file or (str(db_engine.url) if db_engine else "sqlite+aiosqlite:///egpt.db")
+            # An explicit chain rather than `a or b or c if cond else d`, which Python parses
+            # as `(a or b or c) if cond else d` -- that discarded db_url/db_file entirely on
+            # the common engine-less path and collapsed every instance onto one id.
+            #
+            # db_file is resolved because the engine below opens the resolved path: seeding
+            # the raw argument gave "data/app.db", "./data/app.db" and "/srv/app/data/app.db"
+            # three ids for one file, and each would be admitted to the Registry as a
+            # separate database, pointing several connection pools at one sqlite file.
+            if db_url is not None:
+                seed = db_url
+            elif db_file is not None:
+                seed = str(Path(db_file).resolve())
+            elif db_engine is not None:
+                seed = str(db_engine.url)
+            else:
+                # No connection given: resolved here too, because the file this opens depends
+                # on the working directory while a literal default would not.
+                seed = str(Path(DEFAULT_DB_FILE).resolve())
             id = generate_id(seed)
 
         super().__init__(
@@ -145,7 +163,7 @@ class AsyncSqliteDb(AsyncBaseDb):
                 _engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
             else:
                 # If none of db_engine, db_url, or db_file are provided, create a db in the current directory
-                default_db_path = Path("./egpt.db").resolve()
+                default_db_path = Path(DEFAULT_DB_FILE).resolve()
                 _engine = create_async_engine(f"sqlite+aiosqlite:///{default_db_path}")
                 db_file = str(default_db_path)
                 log_debug(f"Created SQLite database: {default_db_path}")
