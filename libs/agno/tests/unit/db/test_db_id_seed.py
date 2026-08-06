@@ -27,13 +27,15 @@ Two narrower aliases of the same failure are guarded here too, both found by rev
   database) and an explicit ``"ai"`` collapsed onto one id. ``AsyncMySQLDb`` is the mirror
   image -- it *does* default the attribute, so there the two genuinely are one target.
 
-No server is touched: SQLAlchemy engine creation is lazy about connecting, and the
-SingleStore and async-MySQL engine constructors are patched out because their dialect
-packages are optional dependencies -- the seed is computed before the engine is built.
+No server is touched, and no optional driver is required. Every backend here resolves its
+dialect through a module-level engine factory that is stubbed out (see ``_stub_engine``),
+because aiosqlite, asyncmy and singlestoredb are all optional extras whose absence would
+otherwise fail these tests red rather than skip them. The seed is computed before the
+engine is built, so stubbing costs nothing under test.
 """
 
 import importlib
-from unittest.mock import MagicMock
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
@@ -47,19 +49,47 @@ from egpt.registry.registry import Registry
 # --------------------------------------------------------------------------- #
 
 
-def _async_mysql_cls(monkeypatch):
-    """AsyncMySQLDb with engine creation stubbed out.
+def _fake_engine(url, *_args, **_kwargs):
+    """Stand-in for create_engine / create_async_engine that skips dialect resolution.
 
-    The module imports only sqlalchemy, so it loads fine without the asyncmy driver -- the
-    driver is not needed until ``create_async_engine`` resolves the ``mysql+asyncmy``
-    dialect inside ``__init__``. Guarding the import therefore guards nothing, and the tests
-    would fail rather than skip wherever the extra is absent. Stubbing the engine call is
-    what actually removes the dependency, and the seed is computed before the engine is
-    built, so nothing under test is lost.
+    Faithful enough for these tests: the only engine attribute a seed ever reads is
+    ``.url``, and every backend here computes its seed before the engine exists.
     """
-    module = importlib.import_module("egpt.integrations.db.mysql.async_mysql")
-    monkeypatch.setattr(module, "create_async_engine", MagicMock())
-    return module.AsyncMySQLDb
+    return SimpleNamespace(url=url)
+
+
+def _stub_engine(monkeypatch, module_path, factory_name):
+    """Import ``module_path`` and replace its engine factory, returning the module.
+
+    Every backend under test builds its engine through a module-level factory that
+    resolves an *optional* dialect package -- aiosqlite, asyncmy, singlestoredb. None of
+    those modules import their driver at module level, so the driver is not needed until
+    the factory runs inside ``__init__``. Guarding the import therefore guards nothing:
+    without this stub the tests fail red rather than skip wherever the extra is absent,
+    which is the opposite of what an optional-dependency guard is for. Replacing the
+    factory removes the dependency outright, which is strictly better than skipping --
+    the assertions still run.
+    """
+    module = importlib.import_module(module_path)
+    monkeypatch.setattr(module, factory_name, _fake_engine)
+    return module
+
+
+@pytest.fixture(autouse=True)
+def _stub_async_sqlite_engine(monkeypatch):
+    """Autouse because ``AsyncSqliteDb`` is reached through parametrization, not a helper.
+
+    The sqlite classes below are parametrized over the sync and async backends, so there is
+    no single call site to guard the way ``_async_mysql_cls`` guards its own. Stubbing the
+    async-sqlite factory for the whole module is harmless to the sync cases -- they build
+    real engines through a different module, and stdlib sqlite3 is always present.
+    """
+    _stub_engine(monkeypatch, "egpt.integrations.db.sqlite.async_sqlite", "create_async_engine")
+
+
+def _async_mysql_cls(monkeypatch):
+    """AsyncMySQLDb, with the asyncmy dialect lookup stubbed out. See ``_stub_engine``."""
+    return _stub_engine(monkeypatch, "egpt.integrations.db.mysql.async_mysql", "create_async_engine").AsyncMySQLDb
 
 
 def _sqlite_url(cls, path):
@@ -69,15 +99,8 @@ def _sqlite_url(cls, path):
 
 
 def _singlestore_cls(monkeypatch):
-    """SingleStoreDb with engine creation stubbed out.
-
-    The singlestoredb dialect is an optional dependency, so a real ``create_engine`` call
-    would fail on dialect lookup before the id under test is ever observable. Only the seed
-    matters here, and it is computed before the engine is built.
-    """
-    module = importlib.import_module("egpt.integrations.db.singlestore.singlestore")
-    monkeypatch.setattr(module, "create_engine", MagicMock())
-    return module.SingleStoreDb
+    """SingleStoreDb, with the singlestoredb dialect lookup stubbed out. See ``_stub_engine``."""
+    return _stub_engine(monkeypatch, "egpt.integrations.db.singlestore.singlestore", "create_engine").SingleStoreDb
 
 
 # --------------------------------------------------------------------------- #
