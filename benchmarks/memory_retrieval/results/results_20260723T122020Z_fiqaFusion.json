@@ -1,0 +1,74 @@
+{
+  "meta": {
+    "tag": "20260723T122020Z_fiqaFusion",
+    "seed": 7,
+    "embedding_model": "local:all-MiniLM-L6-v2",
+    "reranker": "st-minilm",
+    "retrieve_depth": 100,
+    "rerank_depth": 50,
+    "rrf_k": 60,
+    "vector_weight": 0.5,
+    "recency_weight": 0.5,
+    "max_tasks": null,
+    "max_queries": null,
+    "host": "macOS-15.7.3-x86_64-i386-64bit",
+    "machine": "x86_64",
+    "note": "latencies are Intel-Mac CPU, indicative; query-embed latency excluded (option-invariant)"
+  },
+  "results": {
+    "beir/fiqa": {
+      "a-vector": {
+        "summary": {
+          "ndcg@10": 0.36867136984071575,
+          "recall@10": 0.44130556086574607,
+          "recall@50": 0.6306326689428541,
+          "recall@100": 0.7060569574458463,
+          "mrr": 0.4542790088583724,
+          "lat_p50_ms": 7.746498005872127,
+          "lat_p95_ms": 10.448767103662249,
+          "n": 648
+        },
+        "wall_s": 4094.5
+      },
+      "b-rrf": {
+        "summary": {
+          "ndcg@10": 0.33852373387617124,
+          "recall@10": 0.4171828257476406,
+          "recall@50": 0.6329884578727172,
+          "recall@100": 0.692084878427471,
+          "mrr": 0.4199442253698552,
+          "lat_p50_ms": 289.53464350342983,
+          "lat_p95_ms": 514.0959994991135,
+          "n": 648
+        },
+        "wall_s": 207.4
+      },
+      "c-weighted": {
+        "summary": {
+          "ndcg@10": 0.3657467892417922,
+          "recall@10": 0.44318049491660605,
+          "recall@50": 0.6303265150487373,
+          "recall@100": 0.6906041318078355,
+          "mrr": 0.45023511491537566,
+          "lat_p50_ms": 279.47175499866717,
+          "lat_p95_ms": 507.5543847422523,
+          "n": 648
+        },
+        "wall_s": 197.8
+      },
+      "e-composite": {
+        "summary": {
+          "ndcg@10": 0.33852373387617124,
+          "recall@10": 0.4171828257476406,
+          "recall@50": 0.6329884578727172,
+          "recall@100": 0.6329884578727172,
+          "mrr": 0.4194262957557913,
+          "lat_p50_ms": 269.1515824990347,
+          "lat_p95_ms": 492.2268918460758,
+          "n": 648
+        },
+        "wall_s": 191.0
+      }
+    }
+  }
+}

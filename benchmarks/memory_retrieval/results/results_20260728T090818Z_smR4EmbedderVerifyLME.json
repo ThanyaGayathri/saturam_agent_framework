@@ -1,0 +1,61 @@
+{
+  "meta": {
+    "tag": "20260728T090818Z_smR4EmbedderVerifyLME",
+    "seed": 7,
+    "embedding_model": "local:bge-base-en-v1.5",
+    "reranker": "st-minilm",
+    "retrieve_depth": 100,
+    "rerank_depth": 50,
+    "rrf_k": 60,
+    "vector_weight": 0.5,
+    "recency_weight": 0.5,
+    "max_tasks": null,
+    "max_queries": null,
+    "host": "macOS-26.5.2-arm64-arm-64bit",
+    "machine": "arm64",
+    "note": "latencies are Intel-Mac CPU, indicative; query-embed latency excluded (option-invariant)"
+  },
+  "results": {
+    "longmemeval/longmemeval_s": {
+      "a-vector": {
+        "summary": {
+          "ndcg@10": 0.8717318168844496,
+          "recall@10": 0.9547163120567376,
+          "recall@50": 1.0,
+          "recall@100": 1.0,
+          "mrr": 0.8682880023258622,
+          "lat_p50_ms": 0.040500000068277586,
+          "lat_p95_ms": 0.048046200004137056,
+          "n": 470
+        },
+        "wall_s": 1750.9
+      },
+      "b-rrf": {
+        "summary": {
+          "ndcg@10": 0.9104360812230606,
+          "recall@10": 0.9756737588652482,
+          "recall@50": 1.0,
+          "recall@100": 1.0,
+          "mrr": 0.9089086661959003,
+          "lat_p50_ms": 0.15258349992564035,
+          "lat_p95_ms": 0.2785917000323933,
+          "n": 470
+        },
+        "wall_s": 7.3
+      },
+      "c-weighted": {
+        "summary": {
+          "ndcg@10": 0.9297392078988539,
+          "recall@10": 0.9806028368794326,
+          "recall@50": 1.0,
+          "recall@100": 1.0,
+          "mrr": 0.9246229509261424,
+          "lat_p50_ms": 0.1601870000058625,
+          "lat_p95_ms": 0.2854999999726714,
+          "n": 470
+        },
+        "wall_s": 7.0
+      }
+    }
+  }
+}
