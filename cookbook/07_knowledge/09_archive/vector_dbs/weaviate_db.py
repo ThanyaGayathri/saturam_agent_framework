@@ -41,7 +41,7 @@ def create_sync_knowledge() -> tuple[Knowledge, Weaviate]:
 def create_async_knowledge(enable_batch: bool = False) -> Knowledge:
     if enable_batch:
         vector_db = Weaviate(
-            wcd_url=getenv("WEAVIATE_URL", "http://localhost:8081"),
+            wcd_url=getenv("WEAVIATE_URL", "http://localhost:8080"),
             wcd_api_key=getenv("WEAVIATE_API_KEY", ""),
             collection="documents",
             embedder=OpenAIEmbedder(enable_batch=True),
