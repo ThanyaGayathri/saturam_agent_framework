@@ -25,6 +25,7 @@ from egpt.db.utils import (
     deserialize_session_json_fields,
     deserialize_sessions,
     serialize_session_json_fields,
+    unsupported_table_overrides,
 )
 from egpt.integrations.db.sqlite.schemas import get_table_schema_definition
 from egpt.integrations.db.sqlite.utils import (
@@ -50,11 +51,6 @@ try:
     from sqlalchemy.schema import Index, UniqueConstraint
 except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
-
-
-# Table-name overrides this class cannot honor: unlike SqliteDb, __init__ does not take
-# the component table parameters, so a clone carrying them would raise TypeError.
-_UNSUPPORTED_TABLE_OVERRIDES = frozenset({"components_table", "component_configs_table", "component_links_table"})
 
 
 class AsyncSqliteDb(AsyncBaseDb):
@@ -162,12 +158,16 @@ class AsyncSqliteDb(AsyncBaseDb):
     def clone_with_table_overrides(self, **overrides: Any) -> Optional["AsyncSqliteDb"]:
         """Clone this db with table-name overrides, reusing the same engine.
 
-        Returns None when the config asks for a component table: unlike ``SqliteDb``, this
-        class does not accept those parameters, and returning None is the documented
-        "cannot apply overrides" signal, so the caller falls back to the registered
-        instance rather than hitting a TypeError.
+        Returns None when the config asks for a table this class cannot honor: unlike
+        ``SqliteDb``, __init__ does not accept the component table parameters, and
+        returning None is the documented "cannot apply overrides" signal, so the caller
+        falls back to the registered instance rather than hitting a TypeError.
+
+        The unsupported set is read off the constructor rather than hand-listed, so it
+        stays correct when either the constructor or TABLE_SUFFIXES changes. It is
+        computed against the class actually constructed below, not ``type(self)``.
         """
-        if _UNSUPPORTED_TABLE_OVERRIDES & overrides.keys():
+        if unsupported_table_overrides(AsyncSqliteDb) & overrides.keys():
             return None
         return AsyncSqliteDb(
             db_file=self.db_file,

@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 from egpt.db.base import BaseDb
-from egpt.db.table_names import TABLE_SUFFIXES
+from egpt.db.table_names import TABLE_SUFFIXES, table_name_attr
 from egpt.db.utils import (
     ASYNC_DB_BACKEND_CLASSES,
     DB_BACKEND_CLASSES,
@@ -353,6 +353,30 @@ def test_shim_names_are_really_bound_not_just_listed(package):
     )
 
 
+@pytest.mark.parametrize("package", sorted(_MOVED_PACKAGES))
+def test_shim_dir_lists_everything_it_exports(package):
+    """``dir()`` on a shim must cover ``__all__``, including the lazily-provided names.
+
+    The shim docstrings promise ``dir()`` keeps working, but a module's default ``dir()``
+    returns its globals and never consults ``__all__``. Names the target provides lazily
+    -- ``AsyncMongoDb`` is the live case -- are reachable via ``__getattr__`` and listed in
+    ``__all__`` yet absent from the module dict, so without a ``__dir__`` override the
+    promise was false exactly where a caller doing discovery would notice.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        try:
+            shim = importlib.import_module(f"egpt.db.{package}")
+        except ImportError as e:
+            pytest.skip(f"optional driver for '{package}' not installed: {e}")
+
+    missing = sorted(set(shim.__all__) - set(dir(shim)))
+    assert not missing, (
+        f"egpt.db.{package} exports {missing} but dir() omits them; add or fix the "
+        "__dir__ override so discovery matches __all__."
+    )
+
+
 @pytest.mark.parametrize("key", sorted(ASYNC_DB_BACKEND_CLASSES))
 def test_every_registered_async_backend_resolves(key):
     """The async half of the table needs the same resolution check as the sync half."""
@@ -521,10 +545,25 @@ def test_clone_preserves_every_non_table_constructor_setting():
     from egpt.integrations.db.sqlite import SqliteDb
 
     table_params = set(TABLE_SUFFIXES) | {"table_prefix"}
-    cases = [
-        PostgresDb(db_url="postgresql+psycopg://u:p@h/db", db_schema="custom", create_schema=False),
-        SqliteDb(db_file=":memory:"),
+
+    # Constructed lazily and driver-gated: SQLAlchemy resolves the dialect's DBAPI inside
+    # create_engine, so PostgresDb(db_url="postgresql+psycopg://...") raises
+    # ModuleNotFoundError on an environment without psycopg. That is an absent optional
+    # driver, not a failure of this guard -- every other test here skips on it, and this
+    # one used to error instead. sqlite3 is stdlib, so the SqliteDb case always runs.
+    factories = [
+        lambda: PostgresDb(db_url="postgresql+psycopg://u:p@h/db", db_schema="custom", create_schema=False),
+        lambda: SqliteDb(db_file=":memory:"),
     ]
+    cases = []
+    for factory in factories:
+        try:
+            cases.append(factory())
+        except ImportError as e:
+            warnings.warn(f"optional driver not installed, skipping one clone case: {e}", stacklevel=1)
+
+    # Non-vacuity floor: the loop below must actually assert on something.
+    assert cases, "no clone case could be constructed; this guard would pass vacuously"
 
     for source in cases:
         clone = source.clone_with_table_overrides(session_table="cloned_sessions")
@@ -542,6 +581,100 @@ def test_clone_preserves_every_non_table_constructor_setting():
             "must carry over every non-table constructor setting."
         )
         assert clone.db_engine is source.db_engine, "clone must share the engine, not open a new pool"
+
+
+@pytest.mark.parametrize(
+    "module_name,class_name,kwargs",
+    [
+        (
+            "egpt.integrations.db.postgres.async_postgres",
+            "AsyncPostgresDb",
+            {"db_url": "postgresql+psycopg://u:p@h/db"},
+        ),
+        ("egpt.integrations.db.sqlite.async_sqlite", "AsyncSqliteDb", {"db_file": ":memory:"}),
+    ],
+)
+def test_async_clone_refuses_exactly_the_overrides_its_constructor_lacks(module_name, class_name, kwargs):
+    """The async clones must refuse exactly the table kwargs their __init__ lacks -- no more, no less.
+
+    This was a hand-written frozenset of three component-table names in each file, with no
+    test referencing either copy. Both drift directions are live and neither is loud:
+
+    * refusing too little -- a new TABLE_SUFFIXES entry landing ahead of the constructors
+      gets forwarded, and the resulting TypeError is swallowed by
+      _clone_db_with_table_overrides into a misleading "cannot apply overrides" log, so
+      the component silently keeps the registry instance's tables;
+    * refusing too much -- once these classes gain the component-table parameters, a stale
+      set keeps dropping overrides the constructor would now honour.
+
+    Asserting both halves against the live signature is what makes the derived set
+    load-bearing rather than decorative: checking only the refused half would pass just as
+    happily against the old hardcoded frozenset.
+    """
+    try:
+        cls = getattr(importlib.import_module(module_name), class_name)
+        source = cls(**kwargs)
+    except ImportError as e:
+        pytest.skip(f"optional driver for '{class_name}' not installed: {e}")
+
+    accepted = set(inspect.signature(cls.__init__).parameters)
+    unsupported = set(TABLE_SUFFIXES) - accepted
+
+    assert unsupported, (
+        f"{class_name} now accepts every TABLE_SUFFIXES parameter; drop the refusal branch "
+        "in clone_with_table_overrides rather than leaving a check that can never fire."
+    )
+
+    for param in sorted(TABLE_SUFFIXES):
+        try:
+            clone = source.clone_with_table_overrides(**{param: "cloned_table"})
+        except Exception as e:  # noqa: BLE001 - a raising clone is itself the defect
+            pytest.fail(
+                f"{class_name}.clone_with_table_overrides({param}=...) raised {e!r} instead of "
+                "cloning or returning None; the caller swallows that into a misleading log."
+            )
+
+        if param in unsupported:
+            assert clone is None, (
+                f"{class_name}.__init__ does not accept {param!r}, so a clone carrying it must "
+                "return None rather than forward it into a TypeError."
+            )
+        else:
+            assert clone is not None, (
+                f"{class_name}.__init__ accepts {param!r}, so the clone must honour it rather "
+                "than refusing -- a stale hand-listed refusal set silently drops the override."
+            )
+            assert getattr(clone, table_name_attr(param)) == "cloned_table"
+
+
+def test_legacy_backend_attrs_all_resolve():
+    """Every `egpt.db` legacy re-export must have a row in the backend table.
+
+    `__getattr__` looks each name's key up in DB_BACKEND_CLASSES. If a key dropped out of
+    `_DB_BACKENDS` the lookup would raise, and a KeyError escaping a module `__getattr__`
+    breaks the module contract -- `hasattr(egpt.db, "MongoDb")` would blow up instead of
+    answering False. The implementation now degrades to AttributeError; this asserts the
+    degraded path is unreachable in the first place.
+    """
+    import egpt.db as db_pkg
+
+    missing = sorted(set(db_pkg._LEGACY_BACKEND_ATTRS.values()) - set(DB_BACKEND_CLASSES))
+    assert not missing, f"_LEGACY_BACKEND_ATTRS names backend keys absent from _DB_BACKENDS: {missing}"
+
+    resolved = 0
+    for name in db_pkg._LEGACY_BACKEND_ATTRS:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            try:
+                assert getattr(db_pkg, name).__name__ == name
+                resolved += 1
+            except ImportError:
+                pass  # optional driver absent; the table row is what this guard checks
+
+    assert resolved, "no legacy re-export resolved; this guard would pass vacuously"
+
+    # The contract this protects: an unknown name answers False rather than raising.
+    assert not hasattr(db_pkg, "NoSuchDb")
 
 
 def test_default_clone_with_table_overrides_returns_none():

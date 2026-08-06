@@ -1,6 +1,7 @@
 """Logic shared across different database implementations"""
 
 import importlib
+import inspect
 import json
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
@@ -23,6 +24,22 @@ DB_TABLE_NAME_KEYS: frozenset = frozenset(TABLE_SUFFIXES)
 
 # Serialized db keys that customize table naming (prefix and/or per-table overrides).
 DB_CONFIG_OVERRIDE_KEYS: frozenset = frozenset({"table_prefix"}) | DB_TABLE_NAME_KEYS
+
+
+def unsupported_table_overrides(cls: type) -> frozenset:
+    """Table-name parameters ``cls.__init__`` does not accept.
+
+    A backend whose clone_with_table_overrides forwards a table kwarg its own __init__
+    lacks raises TypeError, which _clone_db_with_table_overrides swallows into a
+    misleading "cannot apply overrides" log -- the component then silently keeps the
+    registry instance's tables. Enumerating the constructor rather than hand-listing the
+    gap is what keeps this correct in both drift directions: when the class gains the
+    missing parameters the set empties itself, and when a new table kwarg is added to
+    TABLE_SUFFIXES ahead of the constructor it is caught instead of forwarded.
+    """
+    # signature(cls) rather than signature(cls.__init__): it resolves the constructor
+    # without the self parameter, and avoids mypy's unsound-instance-__init__ complaint.
+    return frozenset(TABLE_SUFFIXES) - frozenset(inspect.signature(cls).parameters)
 
 
 # Single source of truth for every DB backend shipped in the integrations layer.

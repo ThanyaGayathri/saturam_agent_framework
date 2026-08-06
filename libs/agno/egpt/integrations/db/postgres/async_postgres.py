@@ -16,7 +16,12 @@ from egpt.db.schemas.service_accounts import (
     resolve_service_account_sort_column,
     validate_service_account_update,
 )
-from egpt.db.utils import deserialize_session, deserialize_sessions, json_serializer
+from egpt.db.utils import (
+    deserialize_session,
+    deserialize_sessions,
+    json_serializer,
+    unsupported_table_overrides,
+)
 from egpt.integrations.db.postgres.schemas import get_table_schema_definition
 from egpt.integrations.db.postgres.utils import (
     abulk_upsert_metrics,
@@ -45,11 +50,6 @@ try:
     from sqlalchemy.sql.expression import select, text
 except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
-
-
-# Table-name overrides this class cannot honor: unlike PostgresDb, __init__ does not take
-# the component table parameters, so a clone carrying them would raise TypeError.
-_UNSUPPORTED_TABLE_OVERRIDES = frozenset({"components_table", "component_configs_table", "component_links_table"})
 
 
 class AsyncPostgresDb(AsyncBaseDb):
@@ -164,12 +164,16 @@ class AsyncPostgresDb(AsyncBaseDb):
     def clone_with_table_overrides(self, **overrides: Any) -> Optional["AsyncPostgresDb"]:
         """Clone this db with table-name overrides, reusing the same engine.
 
-        Returns None when the config asks for a component table: unlike ``PostgresDb``,
-        this class does not accept those parameters, and returning None is the documented
-        "cannot apply overrides" signal, so the caller falls back to the registered
-        instance rather than hitting a TypeError.
+        Returns None when the config asks for a table this class cannot honor: unlike
+        ``PostgresDb``, __init__ does not accept the component table parameters, and
+        returning None is the documented "cannot apply overrides" signal, so the caller
+        falls back to the registered instance rather than hitting a TypeError.
+
+        The unsupported set is read off the constructor rather than hand-listed, so it
+        stays correct when either the constructor or TABLE_SUFFIXES changes. It is
+        computed against the class actually constructed below, not ``type(self)``.
         """
-        if _UNSUPPORTED_TABLE_OVERRIDES & overrides.keys():
+        if unsupported_table_overrides(AsyncPostgresDb) & overrides.keys():
             return None
         return AsyncPostgresDb(
             db_url=self.db_url,
