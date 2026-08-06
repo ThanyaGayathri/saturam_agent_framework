@@ -1,0 +1,15 @@
+# SM-R10 bi-temporal prototype -- dedicated Postgres (unique name/port to avoid collisions).
+# Start:  docker compose -p smr10 -f pg-compose.yml up -d
+# Stop:   docker compose -p smr10 -f pg-compose.yml down -v
+services:
+  smr10-bitemporal-pg:
+    image: postgres:16
+    container_name: smr10-bitemporal-pg
+    environment:
+      POSTGRES_DB: bitemporal
+      POSTGRES_USER: bt
+      POSTGRES_PASSWORD: bt
+    ports:
+      - "5533:5432"   # host 5533 (pgvector cookbook uses 5532)
+    tmpfs:
+      - /var/lib/postgresql/data   # ephemeral; prototype only
