@@ -89,6 +89,18 @@ class MySQLDb(BaseDb):
             ValueError: If neither db_url nor db_engine is provided.
             ValueError: If none of the tables are provided.
         """
+        # Engine resolution comes first so the documented ValueError below fires before the
+        # seed dereferences db_engine.url -- otherwise MySQLDb() with neither argument dies
+        # with AttributeError instead. Matches PostgresDb's ordering.
+        _engine: Optional[Engine] = db_engine
+        if _engine is None and db_url is not None:
+            _engine = create_engine(db_url, json_serializer=json_serializer)
+        if _engine is None:
+            raise ValueError("One of db_url or db_engine must be provided")
+
+        self.db_url: Optional[str] = db_url
+        self.db_engine: Engine = _engine
+
         if id is None:
             base_seed = db_url or str(db_engine.url)  # type: ignore
             schema_suffix = db_schema if db_schema is not None else "ai"
@@ -109,14 +121,6 @@ class MySQLDb(BaseDb):
             versions_table=versions_table,
         )
 
-        _engine: Optional[Engine] = db_engine
-        if _engine is None and db_url is not None:
-            _engine = create_engine(db_url, json_serializer=json_serializer)
-        if _engine is None:
-            raise ValueError("One of db_url or db_engine must be provided")
-
-        self.db_url: Optional[str] = db_url
-        self.db_engine: Engine = _engine
         self.db_schema: str = db_schema if db_schema is not None else "ai"
         self.metadata: MetaData = MetaData(schema=self.db_schema)
         self.create_schema: bool = create_schema
