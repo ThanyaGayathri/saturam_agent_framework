@@ -6,11 +6,11 @@ from typing import Any, Dict, List, Optional, Union
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Path, Query, Request, UploadFile
 
 from egpt.db.base import AsyncBaseDb
+from egpt.integrations.knowledge.remote_content.s3 import S3Config
 from egpt.knowledge.content import Content, FileData
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader import ReaderFactory
 from egpt.knowledge.reader.base import Reader
-from egpt.integrations.knowledge.remote_content.s3 import S3Config
 from egpt.knowledge.utils import get_all_chunkers_info, get_all_readers_info, get_content_types_to_readers_mapping
 from egpt.os.auth import get_auth_token_from_request, get_authentication_dependency
 from egpt.os.routers.knowledge.schemas import (
@@ -39,7 +39,7 @@ from egpt.os.schema import (
     UnauthenticatedResponse,
     ValidationErrorResponse,
 )
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.os.utils import get_knowledge_instance
 from egpt.remote.base import RemoteKnowledge
 from egpt.utils.log import log_debug, log_error, log_info
@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_knowledge_router(
-    knowledge_instances: List[Union[Knowledge, RemoteKnowledge]], settings: AgnoAPISettings = AgnoAPISettings()
+    knowledge_instances: List[Union[Knowledge, RemoteKnowledge]], settings: EgptServingSettings = EgptServingSettings()
 ) -> APIRouter:
     """Create knowledge router with comprehensive OpenAPI documentation for content management endpoints."""
     router = APIRouter(

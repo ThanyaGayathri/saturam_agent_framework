@@ -18,7 +18,7 @@ from egpt.os.schema import (
     UnauthenticatedResponse,
     ValidationErrorResponse,
 )
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.os.utils import (
     get_db,
 )
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 def get_database_router(
     os: "EgptOS",
-    settings: AgnoAPISettings = AgnoAPISettings(),
+    settings: EgptServingSettings = EgptServingSettings(),
 ) -> APIRouter:
     """Create the database router with comprehensive OpenAPI documentation."""
     router = APIRouter(

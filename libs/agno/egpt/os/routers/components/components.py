@@ -24,7 +24,7 @@ from egpt.os.schema import (
     UnauthenticatedResponse,
     ValidationErrorResponse,
 )
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.registry import Registry
 from egpt.utils.log import log_error, log_warning
 from egpt.utils.string import generate_id_from_name
@@ -101,7 +101,7 @@ def _resolve_db_in_config(
 
 def get_components_router(
     os_db: Union[BaseDb, AsyncBaseDb],
-    settings: AgnoAPISettings = AgnoAPISettings(),
+    settings: EgptServingSettings = EgptServingSettings(),
     registry: Optional[Registry] = None,
 ) -> APIRouter:
     """Create components router."""

@@ -372,7 +372,7 @@ def test_cors_origin_merging(test_agent: Agent):
     )
 
     # Mock EgptOS settings with different origins
-    with patch("egpt.os.app.AgnoAPISettings") as mock_settings_class:
+    with patch("egpt.os.app.EgptServingSettings") as mock_settings_class:
         mock_settings = Mock()
         mock_settings.docs_enabled = True
         mock_settings.cors_origin_list = ["https://agno.com", "http://localhost:3000"]

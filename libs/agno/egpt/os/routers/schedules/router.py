@@ -35,7 +35,7 @@ def get_schedule_router(os_db: Any, settings: Any) -> APIRouter:
 
     Args:
         os_db: The EgptOS-level DB adapter (must support scheduler methods).
-        settings: AgnoAPISettings instance.
+        settings: EgptServingSettings instance.
 
     Returns:
         An APIRouter with all schedule endpoints attached.

@@ -1,7 +1,7 @@
 """
 EgptOS Demo
 
-Set the OS_SECURITY_KEY environment variable to your OS security key to enable authentication.
+Set the EGPT_OS_SECURITY_KEY environment variable to your OS security key to enable authentication.
 """
 
 from _agents import egpt_assist, sage  # type: ignore[import-not-found]

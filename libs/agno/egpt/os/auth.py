@@ -1,7 +1,6 @@
 import asyncio
 import hmac
 from functools import lru_cache
-from os import getenv
 from typing import Any, Dict, List, Literal, Optional, Set
 
 from fastapi import Depends, HTTPException, Request
@@ -15,7 +14,8 @@ from egpt.os.scopes import (
 )
 from egpt.os.service_accounts import TOKEN_PREFIX as SERVICE_ACCOUNT_TOKEN_PREFIX
 from egpt.os.service_accounts import ServiceAccountVerification, authenticate_service_account_request
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
+from egpt.settings import jwt_is_configured
 
 # Create a global HTTPBearer instance
 security = HTTPBearer(auto_error=False)
@@ -125,7 +125,7 @@ def _is_jwt_configured() -> bool:
 
     This covers cases where JWT middleware is set up manually (not via authorization=True).
     """
-    return bool(getenv("JWT_VERIFICATION_KEY") or getenv("JWT_JWKS_FILE"))
+    return jwt_is_configured()
 
 
 def _has_jwt_middleware(app: Any) -> bool:
@@ -155,7 +155,7 @@ def _has_jwt_middleware(app: Any) -> bool:
 
 
 def get_effective_auth_mode(
-    settings: Optional[AgnoAPISettings],
+    settings: Optional[EgptServingSettings],
     authorization: bool = False,
     app: Any = None,
 ) -> Literal["none", "security_key", "jwt"]:
@@ -188,7 +188,7 @@ def get_effective_auth_mode(
     return "none"
 
 
-def get_authentication_dependency(settings: AgnoAPISettings):
+def get_authentication_dependency(settings: EgptServingSettings):
     """
     Create an authentication dependency function for FastAPI routes.
 
@@ -262,7 +262,7 @@ def get_authentication_dependency(settings: AgnoAPISettings):
     return auth_dependency
 
 
-def validate_websocket_token(token: str, settings: AgnoAPISettings) -> bool:
+def validate_websocket_token(token: str, settings: EgptServingSettings) -> bool:
     """
     Validate a bearer token for WebSocket authentication (legacy os_security_key method).
 

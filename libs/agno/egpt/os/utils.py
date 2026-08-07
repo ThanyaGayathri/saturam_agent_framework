@@ -1,6 +1,5 @@
 import json
 from datetime import datetime, timezone
-from os import getenv
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Type, Union
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
@@ -28,6 +27,7 @@ from egpt.remote.base import RemoteDb, RemoteKnowledge
 from egpt.run.agent import RunOutputEvent
 from egpt.run.team import TeamRunOutputEvent
 from egpt.run.workflow import WorkflowRunOutputEvent
+from egpt.settings import jwt_is_configured
 from egpt.team import RemoteTeam, Team, TeamFactory
 from egpt.tools import Function, Toolkit
 from egpt.utils.log import log_debug, log_warning, logger
@@ -1208,9 +1208,7 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
             # endpoint falls through to the PAT and security-key auth paths instead
             # of demanding JWTs nobody can mint. Env-configured keys still count --
             # JWTValidator reads JWT_VERIFICATION_KEY / JWT_JWKS_FILE itself.
-            if not jwt_kwargs_have_key_source(kwargs) and not (
-                getenv("JWT_VERIFICATION_KEY") or getenv("JWT_JWKS_FILE")
-            ):
+            if not jwt_kwargs_have_key_source(kwargs) and not jwt_is_configured():
                 continue
             # Mirror JWTMiddleware.__init__ deprecated secret_key handling:
             # append to verification_keys so manual setups using secret_key

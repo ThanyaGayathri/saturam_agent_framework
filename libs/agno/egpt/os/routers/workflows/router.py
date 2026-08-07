@@ -45,7 +45,7 @@ from egpt.os.schema import (
     ValidationErrorResponse,
     WorkflowSummaryResponse,
 )
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.os.utils import (
     find_factory_by_id,
     format_sse_event,
@@ -972,7 +972,7 @@ async def _resume_stream_generator(
 
 def get_workflow_router(
     os: "EgptOS",
-    settings: AgnoAPISettings = AgnoAPISettings(),
+    settings: EgptServingSettings = EgptServingSettings(),
 ) -> APIRouter:
     """Create the workflow router with comprehensive OpenAPI documentation."""
     router = APIRouter(
