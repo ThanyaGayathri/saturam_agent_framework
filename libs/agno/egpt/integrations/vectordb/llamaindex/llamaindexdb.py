@@ -1,4 +1,5 @@
 from typing import Any, Callable, Dict, List, Optional, Union
+from uuid import uuid4
 
 from egpt.filters import FilterExpr
 from egpt.knowledge.document import Document
@@ -24,11 +25,20 @@ class LlamaIndexVectorDb(VectorDb):
         loader: Optional[Callable] = None,
         name: Optional[str] = None,
         description: Optional[str] = None,
+        id: Optional[str] = None,
         **kwargs,
     ):
-        super().__init__(**kwargs)
-        # Initialize base class with name and description
-        super().__init__(name=name, description=description)
+        if id is None and name is None:
+            # A wrapper around an injected retriever has no connection target to seed
+            # from, and the base-class fallback -- generate_id of the class name -- made
+            # every instance share one id, so the registry kept only the first
+            # (aicoe-tracker#155). A fresh id keeps two wrappers distinct; pass name= or
+            # id= for an identity that is stable across constructions.
+            id = str(uuid4())
+
+        # One base-class call, not two: the previous second call silently reset anything
+        # the first had taken from **kwargs (e.g. similarity_threshold).
+        super().__init__(id=id, name=name, description=description, **kwargs)
 
         self.knowledge_retriever = knowledge_retriever
         self.loader = loader

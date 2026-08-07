@@ -71,7 +71,12 @@ class SalesforceTools(Toolkit):
         add_instructions: bool = True,
         **kwargs,
     ):
-        self.instructions = instructions or SALESFORCE_INSTRUCTIONS if add_instructions else None
+        # add_instructions gates only the built-in default; caller-supplied instructions
+        # always win. The unparenthesized form parsed as
+        # `(instructions or SALESFORCE_INSTRUCTIONS) if add_instructions else None`,
+        # which silently discarded an explicit instructions= when add_instructions=False
+        # (aicoe-tracker#156).
+        self.instructions = instructions or (SALESFORCE_INSTRUCTIONS if add_instructions else None)
         self.max_records = max_records
         self.max_fields = max_fields
 

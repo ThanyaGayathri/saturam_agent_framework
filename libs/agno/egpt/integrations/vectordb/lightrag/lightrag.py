@@ -6,6 +6,7 @@ import httpx
 from egpt.filters import FilterExpr
 from egpt.knowledge.document import Document
 from egpt.utils.log import log_debug, log_error, log_info, log_warning
+from egpt.utils.string import generate_id
 from egpt.vectordb.base import VectorDb
 
 DEFAULT_SERVER_URL = "http://localhost:9621"
@@ -24,11 +25,18 @@ class LightRag(VectorDb):
         auth_header_format: str = "{api_key}",
         name: Optional[str] = None,
         description: Optional[str] = None,
+        id: Optional[str] = None,
     ):
         self.server_url = server_url
         self.api_key = api_key
-        # Initialize base class with name and description
-        super().__init__(name=name, description=description)
+        if id is None:
+            # The api_key is a secret and stays out of the seed. Every instance
+            # previously shared generate_id("LightRag") regardless of server
+            # (aicoe-tracker#155).
+            id = generate_id(server_url)
+
+        # Initialize base class with name, description and generated ID
+        super().__init__(id=id, name=name, description=description)
 
         self.auth_header_name = auth_header_name
         self.auth_header_format = auth_header_format

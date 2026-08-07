@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Union
 
 try:
     from sqlalchemy.dialects import mysql
-    from sqlalchemy.engine import Engine, create_engine
+    from sqlalchemy.engine import Engine, create_engine, make_url
     from sqlalchemy.inspection import inspect
     from sqlalchemy.orm import Session, sessionmaker
     from sqlalchemy.schema import Column, MetaData, Table
@@ -19,6 +19,7 @@ from egpt.knowledge.document import Document
 from egpt.knowledge.embedder import Embedder
 from egpt.knowledge.reranker.base import Reranker
 from egpt.utils.log import log_debug, log_error, log_info, log_warning
+from egpt.utils.string import generate_id
 from egpt.vectordb.base import VectorDb
 from egpt.vectordb.distance import Distance
 
@@ -35,6 +36,7 @@ class SingleStore(VectorDb):
         reranker: Optional[Reranker] = None,
         name: Optional[str] = None,
         description: Optional[str] = None,
+        id: Optional[str] = None,
         # index: Optional[Union[Ivfflat, HNSW]] = HNSW(),
     ):
         _engine: Optional[Engine] = db_engine
@@ -47,8 +49,20 @@ class SingleStore(VectorDb):
         self.collection: str = collection
         self.schema: Optional[str] = schema
         self.db_url: Optional[str] = db_url
-        # Initialize base class with name and description
-        super().__init__(name=name, description=description)
+        if id is None:
+            # An explicit chain, not `a or b if cond else c` -- the precedence mis-parse
+            # that bug family is named after (#153). The schema suffix goes in verbatim,
+            # mirroring the SingleStoreDb DB backend: the instance stores it verbatim.
+            # Every instance previously shared generate_id("SingleStore") (aicoe-tracker#155).
+            #
+            # Both branches go through make_url so the password is masked either way:
+            # str(engine.url) masks it but a raw db_url string does not, which would have
+            # put the secret in the seed and changed the id on every password rotation.
+            base_seed = str(make_url(db_url)) if db_url is not None else str(_engine.url)
+            id = generate_id(f"{base_seed}#{schema}#{collection}")
+
+        # Initialize base class with name, description and generated ID
+        super().__init__(id=id, name=name, description=description)
 
         self.db_engine: Engine = _engine
         self.metadata: MetaData = MetaData(schema=self.schema)

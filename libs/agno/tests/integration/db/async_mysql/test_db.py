@@ -31,7 +31,7 @@ async def test_init_with_db_url():
 async def test_create_session_table_integration(async_mysql_db_real):
     """Test actual session table creation with MySQL"""
     # Create table
-    await async_mysql_db_real._create_table("test_async_mysql_sessions", "sessions", "test_schema")
+    await async_mysql_db_real._create_table("test_async_mysql_sessions", "sessions")
 
     # Verify table exists in database with correct schema
     async with async_mysql_db_real.async_session_factory() as sess:
@@ -39,7 +39,7 @@ async def test_create_session_table_integration(async_mysql_db_real):
             text(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = :schema AND table_name = :table"
             ),
-            {"schema": "test_schema", "table": "test_async_mysql_sessions"},
+            {"schema": "ai", "table": "test_async_mysql_sessions"},
         )
         assert result.fetchone() is not None
 
@@ -52,7 +52,7 @@ async def test_create_session_table_integration(async_mysql_db_real):
                 "WHERE table_schema = :schema AND table_name = :table "
                 "ORDER BY ordinal_position"
             ),
-            {"schema": "test_schema", "table": "test_async_mysql_sessions"},
+            {"schema": "ai", "table": "test_async_mysql_sessions"},
         )
         rows = result.fetchall()
         columns = {row[0]: {"type": row[1], "nullable": row[2]} for row in rows}
@@ -69,7 +69,7 @@ async def test_create_session_table_integration(async_mysql_db_real):
 @pytest.mark.asyncio
 async def test_create_metrics_table_with_constraints(async_mysql_db_real):
     """Test creating metrics table with unique constraints"""
-    await async_mysql_db_real._create_table("test_metrics", "metrics", "test_schema")
+    await async_mysql_db_real._create_table("test_metrics", "metrics")
 
     # Verify unique constraint exists
     async with async_mysql_db_real.async_session_factory() as sess:
@@ -79,7 +79,7 @@ async def test_create_metrics_table_with_constraints(async_mysql_db_real):
                 "WHERE table_schema = :schema AND table_name = :table "
                 "AND constraint_type = 'UNIQUE'"
             ),
-            {"schema": "test_schema", "table": "test_metrics"},
+            {"schema": "ai", "table": "test_metrics"},
         )
         rows = result.fetchall()
         constraints = [row[0] for row in rows]
@@ -89,7 +89,7 @@ async def test_create_metrics_table_with_constraints(async_mysql_db_real):
 @pytest.mark.asyncio
 async def test_create_table_with_indexes(async_mysql_db_real):
     """Test that indexes are created correctly"""
-    await async_mysql_db_real._create_table("test_memories", "memories", "test_schema")
+    await async_mysql_db_real._create_table("test_memories", "memories")
 
     # Verify indexes exist
     async with async_mysql_db_real.async_session_factory() as sess:
@@ -98,7 +98,7 @@ async def test_create_table_with_indexes(async_mysql_db_real):
                 "SELECT index_name FROM information_schema.statistics "
                 "WHERE table_schema = :schema AND table_name = :table"
             ),
-            {"schema": "test_schema", "table": "test_memories"},
+            {"schema": "ai", "table": "test_memories"},
         )
         rows = result.fetchall()
         indexes = [row[0] for row in rows]
@@ -112,7 +112,7 @@ async def test_create_table_with_indexes(async_mysql_db_real):
 async def test_get_or_create_existing_table(async_mysql_db_real):
     """Test getting an existing table"""
     # First create the table
-    await async_mysql_db_real._create_table("test_async_mysql_sessions", "sessions", "test_schema")
+    await async_mysql_db_real._create_table("test_async_mysql_sessions", "sessions")
 
     # Clear the cached table attribute
     if hasattr(async_mysql_db_real, "session_table"):
@@ -120,7 +120,9 @@ async def test_get_or_create_existing_table(async_mysql_db_real):
 
     # Now get it again - should not recreate
     with patch.object(async_mysql_db_real, "_create_table", new=AsyncMock()) as mock_create:
-        table = await async_mysql_db_real._get_or_create_table("test_async_mysql_sessions", "sessions", "test_schema")
+        table = await async_mysql_db_real._get_or_create_table(
+            "test_async_mysql_sessions", "sessions", create_table_if_not_found=True
+        )
 
         # Should not call create since table exists
         mock_create.assert_not_called()
@@ -132,8 +134,8 @@ async def test_get_or_create_existing_table(async_mysql_db_real):
 async def test_full_workflow(async_mysql_db_real):
     """Test a complete workflow of creating and using tables"""
     # Get tables (will create them)
-    session_table = await async_mysql_db_real._get_table("sessions")
-    await async_mysql_db_real._get_table("memories")
+    session_table = await async_mysql_db_real._get_table("sessions", create_table_if_not_found=True)
+    await async_mysql_db_real._get_table("memories", create_table_if_not_found=True)
 
     # Verify tables are cached
     assert hasattr(async_mysql_db_real, "session_table")

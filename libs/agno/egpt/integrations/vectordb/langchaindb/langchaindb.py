@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional, Union
+from uuid import uuid4
 
 from egpt.filters import FilterExpr
 from egpt.knowledge.document import Document
@@ -14,6 +15,7 @@ class LangChainVectorDb(VectorDb):
         knowledge_retriever: Optional[Any] = None,
         name: Optional[str] = None,
         description: Optional[str] = None,
+        id: Optional[str] = None,
     ):
         """
         Initialize LangChainVectorDb.
@@ -26,8 +28,17 @@ class LangChainVectorDb(VectorDb):
             knowledge_retriever: An optional LangChain retriever instance
         """
         self.vectorstore = vectorstore
-        # Initialize base class with name and description
-        super().__init__(name=name, description=description)
+
+        if id is None and name is None:
+            # A wrapper around an injected vectorstore has no connection target to seed
+            # from, and the base-class fallback -- generate_id of the class name -- made
+            # every instance share one id, so the registry kept only the first
+            # (aicoe-tracker#155). A fresh id keeps two wrappers distinct; pass name= or
+            # id= for an identity that is stable across constructions.
+            id = str(uuid4())
+
+        # Initialize base class with name, description and generated ID
+        super().__init__(id=id, name=name, description=description)
 
         self.search_kwargs = search_kwargs
         self.knowledge_retriever = knowledge_retriever

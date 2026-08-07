@@ -6,6 +6,7 @@ from egpt.integrations.vectordb.cassandra.index import AgnoMetadataVectorCassand
 from egpt.knowledge.document import Document
 from egpt.knowledge.embedder import Embedder
 from egpt.utils.log import log_debug, log_error, log_info, log_warning
+from egpt.utils.string import generate_id
 from egpt.vectordb.base import VectorDb
 
 
@@ -18,6 +19,7 @@ class Cassandra(VectorDb):
         session=None,
         name: Optional[str] = None,
         description: Optional[str] = None,
+        id: Optional[str] = None,
     ) -> None:
         if not table_name:
             raise ValueError("Table name must be provided.")
@@ -33,8 +35,19 @@ class Cassandra(VectorDb):
 
             embedder = OpenAIEmbedder()
             log_debug("Embedder not provided, using OpenAIEmbedder as default.")
-        # Initialize base class with name and description
-        super().__init__(name=name, description=description)
+        if id is None:
+            # Seed from the target this instance operates on. Falling through to the
+            # base class made every Cassandra instance share generate_id("Cassandra"),
+            # so the registry could only ever hold one (aicoe-tracker#155). The cluster's
+            # contact points join the seed when discoverable, so two clusters sharing a
+            # keyspace/table name do not collide; guarded, because test doubles and
+            # non-driver sessions do not carry them.
+            contact_points = getattr(getattr(session, "cluster", None), "contact_points", None)
+            cluster_part = ",".join(map(str, contact_points)) if isinstance(contact_points, (list, tuple)) else ""
+            id = generate_id(f"{cluster_part}#{keyspace}#{table_name}")
+
+        # Initialize base class with name, description and generated ID
+        super().__init__(id=id, name=name, description=description)
 
         self.table_name: str = table_name
         self.embedder: Embedder = embedder

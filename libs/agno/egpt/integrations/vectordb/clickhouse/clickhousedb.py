@@ -15,6 +15,7 @@ from egpt.filters import FilterExpr
 from egpt.knowledge.document import Document
 from egpt.knowledge.embedder import Embedder
 from egpt.utils.log import log_debug, log_error, log_info, log_warning, logger
+from egpt.utils.string import generate_id
 from egpt.vectordb.base import VectorDb
 from egpt.vectordb.distance import Distance
 from egpt.vectordb.search import SearchType
@@ -38,6 +39,7 @@ class Clickhouse(VectorDb):
         embedder: Optional[Embedder] = None,
         distance: Distance = Distance.cosine,
         index: Optional[HNSW] = HNSW(),
+        id: Optional[str] = None,
     ):
         # Store connection parameters as instance attributes
         self.host = host
@@ -45,8 +47,15 @@ class Clickhouse(VectorDb):
         self.password = password
         self.port = port
         self.dsn = dsn
-        # Initialize base class with name and description
-        super().__init__(name=name, description=description)
+        if id is None:
+            # dsn wins when given, matching the client construction below; the password
+            # stays out of the seed. Every instance previously shared
+            # generate_id("Clickhouse") regardless of server or table (aicoe-tracker#155).
+            connection = dsn or f"{host}:{port}"
+            id = generate_id(f"{username or ''}@{connection}/{database_name}#{table_name}")
+
+        # Initialize base class with name, description and generated ID
+        super().__init__(id=id, name=name, description=description)
 
         self.compress = compress
         self.database_name = database_name
