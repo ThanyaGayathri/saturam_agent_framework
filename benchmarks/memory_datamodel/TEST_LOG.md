@@ -38,10 +38,13 @@ accepted. "DDL APPLIED CLEANLY ON REAL pgvector".
 - All 6 persisted tiers round-trip **sync** and **async** through `PgMemoryStore` (embedding,
   bi-temporal, `TEXT[]`, `JSONB`, SM-R6 identity fields, SM-R7 `derived_by` all lossless;
   float4-exact fixtures). Sync pass on tenant `acme`, async on `beta` (write() is insert-only).
-- **Bi-temporal via `expire()`** (SM-R10): write an open fact, `expire()` it on the **persisted
-  row** (the real reuse-id UPDATE path), insert the new version; assert point-in-time "true at T"
-  at each instant, that `expire()` **preserved `t_valid`** (only moved `expired_at`/`t_invalid`/
-  `superseded_by`), that re-expire is a no-op, and that **both** rows survive.
+- **`is_current()` model probe**: True for a fresh row of every tier (incl. episodic whose
+  `superseded_by=[]`, the review's Major bug), False once expired or superseded.
+- **Point-in-time (SM-R10 full 5a, `expired_at IS NULL`)**: **R1** valid-time change (MySQL→pg,
+  two current beliefs) returns the right object at each instant; **R2** retract via `expire()`
+  (sets `expired_at`, leaves `t_invalid` NULL) — 5a **excludes** the retracted row while the naive
+  query (no `expired_at IS NULL`) **readmits** it (demonstrating SM-R10 §12.1(b)); `expire()`
+  **preserved `t_valid`**, re-expire is a no-op, and the retracted row survives (not deleted).
 - **SM-R6 episodic `expire()`** (array path): `expire()` on an `EpisodicRecord` writes a
   two-element `superseded_by` into the `TEXT[]` column via psycopg and reads back as a genuine
   Python list (`["seg_a","seg_b"]`), sync path; the async array path is covered separately. This is

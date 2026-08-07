@@ -147,19 +147,30 @@ retry contract** (a duplicate `(tenant_id, id)` is a unique-violation, not an up
 that on their own just-written id as success, and never retry with a fresh id — see the
 `MemoryStore` docstring). [`roundtrip_test.py`](roundtrip_test.py) runs `write -> read -> assert`
 for all 6 persisted tiers on **real embedded PostgreSQL+pgvector** (via `pgserver`; unique per-run
-instance — no Docker), plus: **bi-temporal** via `expire()` on a persisted row + point-in-time
-(asserts `t_valid` is preserved and re-expire is a no-op); **SM-R6 episodic `expire()`** writing the
-`TEXT[]` `superseded_by` identity graph and reading it back as a real multi-element list; the
-**insert-only guardrail** (duplicate id rejected, temporal fields intact); the **CHECK constraints**
-rejecting bad windows on **all four** bi-temporal tables (NULL windows intentionally pass — the
-`IS NULL` guards allow open-ended/current rows); cross-tenant isolation (0 leakage); and the seam
-swap. Verified on two independent runs — see [`TEST_LOG.md`](TEST_LOG.md).
+instance — no Docker), plus: a pure-model **`is_current()`** probe (True for a fresh row of every
+tier incl. episodic `superseded_by=[]`; False once expired/superseded); **point-in-time** using
+SM-R10's full **5a** query (`… AND expired_at IS NULL`) exercising **R1** (valid-time change) and
+**R2** (retract via `expire()` — asserts 5a excludes the retracted row while the naive query
+readmits it, and that `expire()` preserves `t_valid` and is a guarded no-op on re-expire); **SM-R6
+episodic `expire()`** writing the `TEXT[]` `superseded_by` identity graph and reading it back as a
+real multi-element list; the **insert-only guardrail** (duplicate id rejected, temporal fields
+intact); the **CHECK constraints** rejecting bad windows on **all four** bi-temporal tables (NULL
+windows intentionally pass — the `IS NULL` guards allow open-ended/current rows); cross-tenant
+isolation (0 leakage); and the seam swap. Verified on two independent runs — see
+[`TEST_LOG.md`](TEST_LOG.md).
 
 ## 9. Out of scope & boundaries
 - Decay **function**/parameters → SM-R5. Bi-temporal **query engine**/extraction → SM-R10.
   Segmentation **algorithm** (which rule cuts a boundary, the async re-segmenter) → SM-R6 (this
   spec only carries its identity/metadata fields). Provenance-merge **logic** → SM-R7/SM-L7. Store
   **engine choice**/partition mechanics → SM-R3. Embedder choice → SM-R4. Consolidation → SM-R7.
+- **Cross-tier referential integrity is not FK-enforced** (pg partitioning): `source_episode_ids`,
+  `entity_ids`, `link.from_id`/`to_id`, `superseded_by` are advisory and will dangle under churn.
+  **Owner = SM-C3 + the async consolidation loop; policy = resolve reads through the supersede
+  chain (SM-R10) + a periodic GC/reconciliation pass; readers tolerate a missing target.** (F15.)
+- **`embedding_dim` is a per-deployment constant** (Mode A 768 / Mode B 1024), not per-row —
+  validated at the model boundary against the vector length; SM-C3 validates it against the column
+  width on write. (F13.)
 - No production wiring; SM-C3 owns implementation + migrations.
 
 ## 10. Consistency with dependencies & siblings

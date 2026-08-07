@@ -39,7 +39,7 @@ import uuid
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 def _now_epoch_s() -> int:
@@ -162,8 +162,14 @@ class BiTemporal(BaseModel):
     superseded_by: Optional[str] = None  # id of the record that replaced this one
 
     def is_current(self) -> bool:
-        """Row is the live version (not yet superseded in the store)."""
-        return self.expired_at is None and self.superseded_by is None
+        """Row is the live version: not expired and not superseded.
+
+        Falsy-aware on ``superseded_by`` so it is correct for BOTH the single-id shape
+        (``Optional[str]``: ``None`` => not superseded) and the episodic ``uuid[]`` override
+        (SM-R6: empty ``[]`` => not superseded). A plain ``is None`` check would wrongly report
+        every fresh episode (``superseded_by == []``) as not-current.
+        """
+        return self.expired_at is None and not self.superseded_by
 
     def is_valid_at(self, t: int) -> bool:
         """World-validity test used by point-in-time queries (SM-R10 semantics)."""
@@ -178,14 +184,33 @@ class Embeddable(BaseModel):
     """Vector fields (SM-R4). Nullable: not every tier/row is embedded at write time.
 
     ``embedding_version`` is the SM-R4 tag ``model/dim/metric/rev`` (e.g.
-    ``bge-base-en-v1.5/d768/cos/v1``); ``embedding_dim`` (768 Mode A / 1024 Mode B) is the
-    coupling to the SM-R3 pgvector column width. Raw ``content`` is kept durable so vectors are
-    always rebuildable on a re-embed (SM-R4 D8).
+    ``bge-base-en-v1.5/d768/cos/v1``). ``embedding_dim`` is a **per-deployment constant**, not a
+    per-row degree of freedom: a deployment is Mode A (``vector(768)``) OR Mode B
+    (``vector(1024)``), and the physical column width is fixed to that dim (see
+    ``ddl/schema.sql``); a row whose dim disagrees with the column simply cannot be inserted. The
+    field is recorded per row so a store can detect a version/dim mismatch during a re-embed
+    (SM-R4 D8), and the validator below rejects an ``embedding`` whose length disagrees with
+    ``embedding_dim`` before it ever reaches the DB. Raw ``content`` stays durable so vectors are
+    rebuildable on a re-embed.
     """
 
     embedding: Optional[List[float]] = None
-    embedding_dim: Optional[int] = None  # 768 | 1024 -- must match the store column
+    embedding_dim: Optional[int] = None  # per-deployment: 768 (Mode A) | 1024 (Mode B)
     embedding_version: Optional[str] = None  # "bge-base-en-v1.5/d768/cos/v1"
+
+    @model_validator(mode="after")
+    def _embedding_dim_matches(self) -> "Embeddable":
+        """When both are set, the vector length must equal ``embedding_dim`` (which in turn must
+        equal the deployment's column width). Catches mixed-dim mistakes at the model boundary."""
+        if (
+            self.embedding is not None
+            and self.embedding_dim is not None
+            and len(self.embedding) != self.embedding_dim
+        ):
+            raise ValueError(
+                f"embedding length {len(self.embedding)} != embedding_dim {self.embedding_dim}"
+            )
+        return self
 
 
 class Decaying(BaseModel):
@@ -235,13 +260,12 @@ class EpisodicRecord(TenantScoped, BiTemporal, Embeddable, Decaying):
     from :class:`BiTemporal` (which stays single-id for fact/relation/link). ``boundary_*`` records
     which rule cut the boundary and how confident it was; ``segmenter_version`` pins reproducibility.
 
-    On the LSP tradeoff of widening ``superseded_by`` (``Optional[str]`` -> ``List[str]``): it is
-    bounded and safe here because records are consumed by their concrete tier type -- each store
-    adapter maps a known model to a known table -- never polymorphically through a bare
-    :class:`BiTemporal` handle that reads ``superseded_by`` as a string. The one generic consumer,
-    ``store.expire``, treats the value as opaque and hands it straight to the column (scalar
-    ``TEXT`` for the other tiers, ``TEXT[]`` here), so the widened type never reaches string-typed
-    code. SM-C3 should keep this invariant (don't read episodic ``superseded_by`` as a scalar).
+    On the LSP tradeoff of widening ``superseded_by`` (``Optional[str]`` -> ``List[str]``): the
+    two generic :class:`BiTemporal` consumers both handle the array shape correctly -- ``expire``
+    treats the value as opaque and hands it straight to the column (scalar ``TEXT`` for the other
+    tiers, ``TEXT[]`` here), and ``is_current`` is falsy-aware (empty ``[]`` and ``None`` both mean
+    'not superseded'). No consumer reads it as a string. SM-C3 should keep this invariant (don't
+    read episodic ``superseded_by`` as a scalar).
     """
 
     tier: MemoryTier = MemoryTier.EPISODIC

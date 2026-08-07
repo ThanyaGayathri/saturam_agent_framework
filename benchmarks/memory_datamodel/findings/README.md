@@ -93,3 +93,43 @@ the insert-only rejection, and the constraints firing).
 fact) alongside `source_episode_ids`, matching SM-R7 RESEARCH §7's provisional provenance schema.
 SM-R7 flags this as provisional/SM-L7-owned, so the *population* logic stays with SM-L7; the
 column is reserved here so SM-C3 doesn't need a follow-up migration.
+
+## F12 - `is_current()` correctness fix (review Major) — falsy-aware on the widened field
+
+`BiTemporal.is_current()` was `expired_at is None and superseded_by is None`. Because
+`EpisodicRecord` widens `superseded_by` to `List[str]` (default `[]`), `[] is None` is False, so
+**every fresh episode reported `is_current() == False`** — the opposite of SPEC §4.3. The earlier
+LSP-safety note named only `store.expire` as a generic consumer of the widened field and missed
+`is_current` (a second one). **Fixed:** base predicate is now falsy-aware
+(`expired_at is None and not self.superseded_by`), correct for `None`/`""`/`[]` and non-empty
+str/list alike; docstring corrected; a pure-model probe (`_check_is_current`) now guards fresh/
+superseded/expired across tiers. Latent (the store uses SQL `expired_at IS NULL`, not this helper)
+but wrong in the contract SM-C3 promotes.
+
+## F13 - `embedding_dim` is a per-deployment constant + a length validator (review Minor)
+
+The DDL column is fixed `vector(768)` (Mode A) / `vector(1024)` (Mode B) per deployment; a row's
+`embedding_dim` cannot vary within a deployment (a `1024`-d row can't enter a `vector(768)`
+column). Clarified in the `Embeddable` docstring + `ddl/schema.sql` that dim is a **deployment
+constant** (the per-row field exists for re-embed/version-mismatch detection, SM-R4 D8), and added
+a model validator that rejects an `embedding` whose length != `embedding_dim` before write. **Action
+for SM-C3:** validate `embedding_dim` == the deployment column width on write; don't build mixed-dim
+expectations.
+
+## F14 - Point-in-time test now uses SM-R10's full 5a (review Minor)
+
+The round-trip's PIT query omitted `expired_at IS NULL`, so it was not SM-R10's ratified 5a
+(current belief) and only exercised R1-supersede (disjoint validity windows). **Fixed:** the check
+now uses the full 5a (with `expired_at IS NULL`) and adds an **R2-retract** probe — `expire()` a
+row (sets `expired_at`, leaves `t_invalid` NULL), then assert 5a **excludes** it while the naive
+query (no `expired_at IS NULL`) **readmits** it, demonstrating exactly the bug SM-R10 §12.1(b)
+warns about. Query semantics remain SM-R10-owned; this closes the test-fidelity gap.
+
+## F15 - Cross-tier referential integrity: owner + policy named (review Minor)
+
+Cross-tier refs (`source_episode_ids`, `entity_ids`, `link.from_id`/`to_id`, `superseded_by`) are
+FK-less by design (pg partitioning) and WILL dangle under churn (re-cut, supersede, invalidate,
+decay archival, right-to-erasure). Named the **owner = SM-C3 + the async consolidation loop** and
+the **policy = advisory/best-effort refs, resolve reads through the supersede chain (like SM-R10),
+and a periodic GC/reconciliation pass**; readers must tolerate a missing target. Documented in
+`ddl/schema.sql` header and SPEC §9. Same derived-state drift SM-R10 §9.1 flagged.

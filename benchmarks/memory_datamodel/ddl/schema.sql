@@ -11,8 +11,14 @@
 --     Storage pressure (>10M): swap vector -> halfvec to halve footprint (SM-R4 section 4).
 --   * Bi-temporal = SM-R10 (#85) four-timestamp: created_at (tx-in), expired_at (tx-out),
 --     t_valid / t_invalid (world validity). Invalidate-not-delete.
---   * Cross-table references (source_episode_ids, entity ids, links) are LOGICAL (no FK):
---     pg cannot cheaply FK across partitioned tables, and tenancy isolation is the boundary.
+--   * Cross-table references (source_episode_ids, entity_ids, link.from_id/to_id, superseded_by)
+--     are LOGICAL (no FK): pg cannot cheaply FK across partitioned tables, and tenancy isolation
+--     is the boundary. These refs are therefore ADVISORY/best-effort and WILL accumulate dangling
+--     entries under churn (episodes re-cut, facts superseded, edges invalidated, decay archival,
+--     right-to-erasure). Reconciliation OWNER = SM-C3 + the async consolidation loop; POLICY =
+--     resolve reads through the supersede chain (like SM-R10) and run a periodic GC/reconciliation
+--     pass that prunes/repoints dead refs. Readers must tolerate a missing target, not assume FK
+--     integrity. (This is the same derived-state drift SM-R10 sec 9.1 flagged for graph<->vector.)
 -- =============================================================================
 
 CREATE EXTENSION IF NOT EXISTS vector;

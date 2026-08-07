@@ -194,22 +194,67 @@ async def _roundtrip_async(store: MemoryStore, label: str, tenant: str = "beta")
     return n
 
 
+def _check_is_current() -> None:
+    """SM-R12 model invariant (this was the review's Major bug): is_current() must be True for a
+    FRESH row of every tier -- including episodic, whose superseded_by is `[]` (not None) -- and
+    False once expired or superseded. Pure-model, no DB needed."""
+    assert EpisodicRecord(tenant_id="t", content="x").is_current() is True, (
+        "fresh episode must be current (superseded_by=[])"
+    )
+    assert SemanticFact(tenant_id="t", content="y").is_current() is True, (
+        "fresh fact must be current"
+    )
+    assert (
+        EpisodicRecord(
+            tenant_id="t", content="x", superseded_by=["a", "b"]
+        ).is_current()
+        is False
+    )
+    assert (
+        SemanticFact(tenant_id="t", content="y", superseded_by="z").is_current()
+        is False
+    )
+    assert (
+        SemanticFact(tenant_id="t", content="y", expired_at=100).is_current() is False
+    )
+    print("  [model] is_current() correct for fresh/superseded/expired across tiers OK")
+
+
+def _pit(srv: Any, subject: str, t: int, *, guard: bool) -> str:
+    """Point-in-time query. `guard=True` is SM-R10's full 5a (current belief: adds
+    `expired_at IS NULL`); `guard=False` is the naive form 5a explicitly forbids."""
+    g = "AND expired_at IS NULL " if guard else ""
+    return srv.psql(
+        f"SELECT object FROM memory_semantic_fact WHERE tenant_id='acme' AND subject='{subject}' "
+        f"AND (t_valid IS NULL OR t_valid <= {t}) AND (t_invalid IS NULL OR t_invalid > {t}) "
+        f"{g}ORDER BY object"
+    )
+
+
 def _check_bitemporal(srv: Any, store: PgMemoryStore) -> None:
-    """SM-R10 SCD-2 via expire() on a PERSISTED row -- the real reuse-id UPDATE path -- then a
-    fresh insert. Proves invalidate-not-delete + point-in-time AND that expire() never mutates
-    t_valid/created_at (the failure the old blanket UPSERT allowed). Globex changes MySQL->pg."""
-    t0, t1 = 1_700_000_000, 1_700_000_500
-    old = SemanticFact(
+    """SM-R10 point-in-time using the FULL 5a current-belief query (incl. `expired_at IS NULL`),
+    exercising BOTH R1 (valid-time change) and R2 (transaction-time retract via expire()).
+
+    R1 -- valid-time change: both rows are current beliefs (neither expired). Globex used MySQL
+    t0..t1, then PostgreSQL t1.. ; 5a returns MySQL at t0+1 and PostgreSQL at t1+1.
+    R2 -- retract via expire() (sets expired_at, leaves t_invalid NULL): the retracted row must
+    DROP OUT of 5a; the naive query that omits `expired_at IS NULL` wrongly readmits it (SM-R10
+    sec 12.1(b) calls that a bug). Also proves expire() preserves t_valid, is a guarded no-op on
+    re-expire, and destroys nothing."""
+    t0, t1, t2 = 1_700_000_000, 1_700_000_500, 1_700_000_900
+
+    # --- R1: valid-time change, two current (un-expired) beliefs ---
+    a = SemanticFact(
         tenant_id="acme",
         content="Globex uses MySQL.",
         subject="Globex",
         predicate="uses",
         object="MySQL",
-        t_valid=t0,  # open-ended / current when written
-        created_at=t0,  # tx-time in; keeps expired_at >= created_at (CHECK) consistent
+        t_valid=t0,
+        t_invalid=t1,
+        created_at=t0,
     )
-    store.write(old)
-    new = SemanticFact(
+    b = SemanticFact(
         tenant_id="acme",
         content="Globex uses PostgreSQL.",
         subject="Globex",
@@ -218,47 +263,52 @@ def _check_bitemporal(srv: Any, store: PgMemoryStore) -> None:
         t_valid=t1,
         created_at=t1,
     )
-    # Close the old row in place (the ONLY legitimate mutation) then insert the new version.
-    closed = store.expire(
-        SemanticFact, "acme", old.id, expired_at=t1, t_invalid=t1, superseded_by=new.id
+    store.write(a)
+    store.write(b)
+    at_t0, at_t1 = (
+        _pit(srv, "Globex", t0 + 1, guard=True),
+        _pit(srv, "Globex", t1 + 1, guard=True),
     )
-    assert closed == 1, f"expire() should close exactly one row, got {closed}"
-    store.write(new)
-    # Re-expiring is a guarded no-op (expired_at IS NULL guard).
-    assert store.expire(SemanticFact, "acme", old.id, expired_at=t1) == 0, (
+    assert "MySQL" in at_t0 and "PostgreSQL" not in at_t0, f"R1 PIT@t0 wrong: {at_t0}"
+    assert "PostgreSQL" in at_t1 and "MySQL" not in at_t1, f"R1 PIT@t1 wrong: {at_t1}"
+
+    # --- R2: retract via expire() -- expired_at set, t_invalid stays NULL ---
+    c = SemanticFact(
+        tenant_id="acme",
+        content="Globex HQ Berlin.",
+        subject="GlobexHQ",
+        predicate="hq",
+        object="Berlin",
+        t_valid=t0,
+        created_at=t0,
+    )
+    store.write(c)
+    assert store.expire(SemanticFact, "acme", c.id, expired_at=t2) == 1, (
+        "expire should close 1 row"
+    )
+    assert store.expire(SemanticFact, "acme", c.id, expired_at=t2) == 0, (
         "re-expire must be a no-op"
     )
-    # expire() moved only expired_at/t_invalid/superseded_by -- t_valid is untouched.
-    reread = store.read(SemanticFact, "acme", old.id)
+    rc = store.read(SemanticFact, "acme", c.id)
     assert (
-        reread is not None
-        and reread.t_valid == t0
-        and reread.t_invalid == t1
-        and reread.expired_at == t1
-        and reread.superseded_by == new.id
-    ), f"expire touched the wrong fields: {reread!r}"
-    # point-in-time "true at T": exactly one active fact valid at each instant
-    q = (
-        "SELECT object FROM memory_semantic_fact "
-        "WHERE tenant_id='acme' AND subject='Globex' AND predicate='uses' "
-        "AND (t_valid IS NULL OR t_valid <= %s) AND (t_invalid IS NULL OR t_invalid > %s) "
-        "ORDER BY object"
+        rc is not None
+        and rc.t_valid == t0
+        and rc.t_invalid is None
+        and rc.expired_at == t2
+    ), f"expire touched the wrong fields: {rc!r}"
+    full = _pit(srv, "GlobexHQ", t0 + 1, guard=True)  # 5a: retracted row excluded
+    naive = _pit(srv, "GlobexHQ", t0 + 1, guard=False)  # buggy form: readmits it
+    assert "Berlin" not in full, f"5a wrongly kept a retracted row: {full}"
+    assert "Berlin" in naive, (
+        f"naive query should readmit the retracted row (shows why 5a needs the guard): {naive}"
     )
-    at_t0 = srv.psql(q.replace("%s", str(t0 + 1)))
-    at_t2 = srv.psql(q.replace("%s", str(t1 + 1)))
-    assert "MySQL" in at_t0 and "PostgreSQL" not in at_t0, (
-        f"point-in-time@t0 wrong: {at_t0}"
-    )
-    assert "PostgreSQL" in at_t2 and "MySQL" not in at_t2, (
-        f"point-in-time@t1 wrong: {at_t2}"
-    )
-    # nothing destroyed: both rows still present
+    # invalidate-not-delete: the retracted row is still physically present
     cnt = srv.psql(
-        "SELECT count(*) FROM memory_semantic_fact WHERE tenant_id='acme' AND subject='Globex';"
+        "SELECT count(*) FROM memory_semantic_fact WHERE tenant_id='acme' AND subject='GlobexHQ';"
     )
-    assert "2" in cnt, f"invalidate-not-delete broken: {cnt}"
+    assert "1" in cnt, f"retracted row was deleted: {cnt}"
     print(
-        "  [pg] bi-temporal expire()+point-in-time OK (t_valid preserved; re-expire no-op)"
+        "  [pg] SM-R10 5a point-in-time OK (R1 valid-time + R2 retract; expired_at IS NULL required)"
     )
 
 
@@ -395,6 +445,7 @@ def main() -> None:
         print("Backend: PostgreSQL + pgvector ->", " ".join(ver.split()))
         pg = PgMemoryStore(srv.get_uri())
         print("Real PostgreSQL + pgvector round-trip:")
+        _check_is_current()
         _roundtrip_sync(pg, "pg")
         asyncio.run(_roundtrip_async(pg, "pg"))
         _check_bitemporal(srv, pg)
