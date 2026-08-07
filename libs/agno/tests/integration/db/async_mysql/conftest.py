@@ -29,6 +29,22 @@ def async_mysql_db(mock_async_engine) -> AsyncMySQLDb:
     )
 
 
+# In MySQL, db_schema IS a database (CREATE DATABASE IF NOT EXISTS `{db_schema}` in
+# mysql/utils.py), unlike Postgres where a schema lives inside a database. The stock
+# mysql:8 entrypoint grants the `ai` user rights on the `ai` database only, so a
+# `test_schema` schema copied from the async_postgres conftest could never be created
+# (Access denied, swallowed into a log_warning) and its teardown DROP DATABASE errored
+# once per test. Operate inside `ai` and drop tables, not the database.
+_TEST_TABLES = (
+    "test_sessions",
+    "test_memories",
+    "test_metrics",
+    "test_evals",
+    "test_knowledge",
+    "schema_versions",
+)
+
+
 @pytest_asyncio.fixture
 async def async_mysql_engine():
     """Create an async MySQL engine for testing using the actual database setup"""
@@ -42,9 +58,10 @@ async def async_mysql_engine():
 
     yield engine
 
-    # Cleanup: Drop schema after tests
+    # Cleanup: drop the test tables inside the granted database
     async with engine.begin() as conn:
-        await conn.execute(text("DROP DATABASE IF EXISTS test_schema"))
+        for table in _TEST_TABLES:
+            await conn.execute(text(f"DROP TABLE IF EXISTS `ai`.`{table}`"))
 
     await engine.dispose()
 
@@ -54,7 +71,7 @@ async def async_mysql_db_real(async_mysql_engine) -> AsyncMySQLDb:
     """Create AsyncMySQLDb with real async MySQL engine"""
     return AsyncMySQLDb(
         db_engine=async_mysql_engine,
-        db_schema="test_schema",
+        db_schema="ai",
         session_table="test_sessions",
         memory_table="test_memories",
         metrics_table="test_metrics",
