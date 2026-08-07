@@ -6,11 +6,19 @@ Each extraction leaves deprecation shims behind and needs the same two checks --
 implementation left in the deprecated tree" and "every shim re-exports what its target
 exports" -- so the machinery lives here once instead of being copy-pasted per layer.
 
+EGPT-1.8 folded the last private copy (db's) back in, which is why several helpers here
+carry options only one caller uses today: `discover_subclasses` takes multiple base classes
+and a `packages` filter, and `registered_defining_classes` chases re-export chains to a
+fixpoint. Those were the real divergences in the copy, not incidental ones -- absorbing them
+is what let the copy go, and the db guard gained the `unbound` half of `check_shim_parity`
+it had been missing in the process.
+
 Everything is AST-based and imports nothing under test, which matters because most of these
 modules raise ImportError at import time when their optional SDK is absent.
 """
 
 import ast
+import re
 from pathlib import Path
 
 
@@ -33,19 +41,30 @@ def _parse(path):
     return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
 
-def discover_subclasses(root, base_class, skip_modules=frozenset(), include_init=True):
+def discover_subclasses(root, base_class, skip_modules=frozenset(), include_init=True, packages=None):
     """Statically find every concrete subclass of `base_class` under `root`.
 
     Returns a set of (defining_module, class_name). Bases are matched by name, since they
     are often imported under aliases that cannot be resolved without importing.
 
+    `base_class` is one class name or an iterable of them -- db roots its scan at both
+    ``BaseDb`` and ``AsyncBaseDb``, which are siblings rather than one deriving from the
+    other, so a single root would miss half the backends.
+
     `include_init` covers `__init__.py` too: a package `__init__` normally only re-exports,
     but nothing stops someone defining a small adapter there, and a scan that skips them
     would wave it through.
+
+    `packages` restricts the scan to those top-level directory names under `root`, for
+    callers that need to ask about one slice of a tree rather than all of it.
     """
+    base_classes = {base_class} if isinstance(base_class, str) else set(base_class)
+
     class_bases: dict = {}
     for path in root.rglob("*.py"):
         if not include_init and path.name == "__init__.py":
+            continue
+        if packages is not None and path.relative_to(root).parts[0] not in packages:
             continue
         module = module_name(path)
         if module in skip_modules:
@@ -59,7 +78,7 @@ def discover_subclasses(root, base_class, skip_modules=frozenset(), include_init
                 ]
                 class_bases[(module, node.name)] = bases
 
-    rooted = {base_class}
+    rooted = set(base_classes)
     changed = True
     while changed:
         changed = False
@@ -68,7 +87,9 @@ def discover_subclasses(root, base_class, skip_modules=frozenset(), include_init
                 rooted.add(name)
                 changed = True
 
-    return {(module, name) for (module, name), _bases in class_bases.items() if name != base_class and name in rooted}
+    return {
+        (module, name) for (module, name), _bases in class_bases.items() if name not in base_classes and name in rooted
+    }
 
 
 def declared_exports(path):
@@ -124,6 +145,90 @@ def star_import_targets(path):
         for node in ast.walk(_parse(path))
         if isinstance(node, ast.ImportFrom) and node.module and any(a.name == "*" for a in node.names)
     }
+
+
+def import_sites(path):
+    """Every dotted module `path` imports, as (lineno, module) pairs.
+
+    Walks the whole AST rather than the import block: the coupling these extractions removed
+    was routinely function-local -- ``db_from_dict`` imported ``PostgresDb`` inside an
+    if/elif -- and a guard that only reads the header waves the next one through.
+
+    Relative imports are skipped. ``from . import x`` names no absolute module, and a guard
+    asking "does this reach into another layer" can only answer that about absolute paths.
+    """
+    sites = []
+    for node in ast.walk(_parse(path)):
+        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            sites.append((node.lineno, node.module))
+        elif isinstance(node, ast.Import):
+            sites.extend((node.lineno, alias.name) for alias in node.names)
+    return sites
+
+
+def imported_modules(path):
+    """The set of dotted modules `path` imports, without line numbers."""
+    return {module for _lineno, module in import_sites(path)}
+
+
+def registered_defining_classes(root, entries):
+    """Resolve registry rows to the (defining_module, class_name) each one points at.
+
+    A registry table names the re-exporting package (``egpt.integrations.db.postgres``,
+    ``PostgresDb``) while the class is defined in a submodule
+    (``egpt.integrations.db.postgres.postgres``). Parsing each package ``__init__`` for
+    ``from <mod> import <name>`` re-exports maps the former back to the latter, so a table
+    row and an on-disk scan can be compared as the same kind of thing.
+
+    Chains are followed to a fixpoint rather than one hop: ``async_postgres`` re-exports
+    through the ``postgres`` package, so a single hop lands on another re-export and the row
+    would not match the definition. `entries` is an iterable of (module, class_name) pairs.
+    """
+    reexports: dict = {}
+    for path in root.rglob("__init__.py"):
+        package = module_name(path)
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                for alias in node.names:
+                    reexports[(package, alias.asname or alias.name)] = (node.module, alias.name)
+
+    resolved = set()
+    for entry in entries:
+        entry = tuple(entry)
+        # A mutual re-export between two packages would otherwise spin here forever, turning
+        # a layout mistake into a hung test run rather than a failure anyone can read.
+        seen = {entry}
+        while entry in reexports and reexports[entry] != entry:
+            entry = reexports[entry]
+            if entry in seen:
+                break
+            seen.add(entry)
+        resolved.add(entry)
+    return resolved
+
+
+def find_shim_path_strings(tests_root, prefix, names, exclude=frozenset()):
+    """Test lines that name a ``<prefix>.<name>`` module path inside a string literal.
+
+    Aimed at ``mock.patch`` targets. A submodule shim is ``from <target> import *``, so
+    patching a name on the shim rebinds the shim's own copy while the implementation keeps
+    reading its module globals: the patch silently no-ops, and a patched network client lets
+    the test make a real call instead of failing loudly about a bad target. The shim
+    docstrings record this, but prose does not stop anyone re-introducing it.
+
+    Returns a sorted list of ``relative/path.py:lineno`` strings. `exclude` holds resolved
+    paths to skip -- a guard file naming these paths on purpose is not an offender.
+    """
+    pattern = re.compile(r"""["']%s\.(?:%s)\b""" % (re.escape(prefix), "|".join(sorted(re.escape(n) for n in names))))
+
+    offenders = []
+    for path in sorted(tests_root.rglob("test_*.py")):
+        if path.resolve() in exclude:
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if pattern.search(line):
+                offenders.append(f"{path.relative_to(tests_root)}:{lineno}")
+    return offenders
 
 
 def check_shim_parity(targets_root, shims_root, extra_exports=None, lazy_exports=None, skip_prefix="_"):
