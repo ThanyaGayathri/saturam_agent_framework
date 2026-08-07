@@ -54,9 +54,9 @@ class TestCalendarDelegatedUserDecision:
     @pytest.fixture
     def cls(self):
         pytest.importorskip("googleapiclient", reason="the calendar provider imports Google SDKs at module level")
-        from egpt.context.calendar.provider import CalendarContextProvider
+        from egpt.context.calendar.provider import GoogleCalendarContextProvider
 
-        return CalendarContextProvider
+        return GoogleCalendarContextProvider
 
     def test_explicit_delegated_user_survives_without_sa_path(self, cls, monkeypatch):
         monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_FILE", raising=False)

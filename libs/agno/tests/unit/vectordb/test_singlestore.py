@@ -17,6 +17,9 @@ TEST_SCHEMA = "test_schema"
 def mock_engine():
     """Fixture to create a mocked database engine"""
     mock_engine = MagicMock(spec=Engine)
+    # spec=Engine exposes only class attributes, and Engine.url is set per-instance --
+    # without this, the id seed's str(_engine.url) raises AttributeError.
+    mock_engine.url = "mysql+pymysql://user:pass@localhost:3306/test"
     mock_engine.connect.return_value.__enter__.return_value = MagicMock()
     return mock_engine
 
