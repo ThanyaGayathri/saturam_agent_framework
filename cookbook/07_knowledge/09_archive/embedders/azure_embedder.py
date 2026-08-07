@@ -7,7 +7,7 @@ Demonstrates Azure OpenAI embeddings and knowledge insertion, including a batchi
 
 import asyncio
 
-from egpt.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

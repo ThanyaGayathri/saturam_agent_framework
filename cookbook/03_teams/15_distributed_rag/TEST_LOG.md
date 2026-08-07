@@ -24,7 +24,7 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/15_distributed_rag/03_distributed_rag_with_reranking.py", line 13, in <module>
-    from egpt.knowledge.reranker.cohere import CohereReranker
+    from egpt.integrations.knowledge.reranker.cohere import CohereReranker
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/knowledge/reranker/cohere.py", line 10, in <module>
     raise ImportError("cohere not installed, please run pip install cohere")
 ImportError: cohere not installed, please run pip install cohere

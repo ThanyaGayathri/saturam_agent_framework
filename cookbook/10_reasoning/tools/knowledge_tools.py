@@ -6,7 +6,7 @@ Demonstrates this reasoning cookbook example.
 """
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
 from egpt.tools.knowledge import KnowledgeTools

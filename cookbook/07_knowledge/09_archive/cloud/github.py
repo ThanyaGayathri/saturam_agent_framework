@@ -22,7 +22,7 @@ from os import getenv
 
 from egpt.agent import Agent
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.remote_content import GitHubConfig
+from egpt.integrations.knowledge.remote_content import GitHubConfig
 from egpt.models.openai import OpenAIChat
 from egpt.vectordb.pgvector import PgVector
 

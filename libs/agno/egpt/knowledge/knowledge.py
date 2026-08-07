@@ -18,11 +18,20 @@ from egpt.filters import EQ, FilterExpr
 from egpt.knowledge.content import Content, ContentAuth, ContentStatus, FileData
 from egpt.knowledge.document import Document
 from egpt.knowledge.reader import Reader, ReaderFactory
-from egpt.knowledge.remote_content.base import BaseStorageConfig
-from egpt.knowledge.remote_content.remote_content import (
+
+# ACCEPTED DEBT (docs/adr/0001-layered-architecture.md, extraction prerequisite #1). This
+# pipeline is core, and core must not import the integrations layer -- but it names the
+# remote-content types and RemoteKnowledge statically, so EGPT-1.8 could not move them out
+# without either leaving this edge or inverting the dependency across a 3500-line module.
+# The ADR carves knowledge.py out of the enforceable core set until it accepts remote ports
+# by protocol or constructor; the layout guard allowlists this module by name so the
+# exception stays visible instead of becoming the rule. Readers, by contrast, are already
+# resolved through ReaderFactory above and need no such carve-out.
+from egpt.integrations.knowledge.remote_content.base import BaseStorageConfig
+from egpt.integrations.knowledge.remote_content.remote_content import (
     RemoteContent,
 )
-from egpt.knowledge.remote_knowledge import RemoteKnowledge
+from egpt.integrations.knowledge.remote_knowledge import RemoteKnowledge
 from egpt.knowledge.types import ContentType
 from egpt.knowledge.utils import merge_user_metadata, set_agno_metadata, strip_agno_metadata
 from egpt.utils.http import async_fetch_with_retry
@@ -2164,7 +2173,7 @@ class Knowledge(RemoteKnowledge):
         if remote_content is None:
             return None
 
-        from egpt.knowledge.remote_content.remote_content import (
+        from egpt.integrations.knowledge.remote_content.remote_content import (
             AzureBlobContent,
             GCSContent,
             GitHubContent,

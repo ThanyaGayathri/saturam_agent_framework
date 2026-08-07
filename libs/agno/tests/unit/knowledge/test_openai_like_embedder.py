@@ -5,7 +5,7 @@ import pytest
 
 def test_openai_like_embedder_default_values():
     """Test that OpenAILikeEmbedder has sensible defaults for custom providers."""
-    from egpt.knowledge.embedder.openai_like import OpenAILikeEmbedder
+    from egpt.integrations.knowledge.embedder.openai_like import OpenAILikeEmbedder
 
     embedder = OpenAILikeEmbedder()
     assert embedder.id == "not-provided"
@@ -16,7 +16,7 @@ def test_openai_like_embedder_default_values():
 
 def test_openai_like_embedder_custom_params():
     """Test that OpenAILikeEmbedder accepts custom configuration."""
-    from egpt.knowledge.embedder.openai_like import OpenAILikeEmbedder
+    from egpt.integrations.knowledge.embedder.openai_like import OpenAILikeEmbedder
 
     embedder = OpenAILikeEmbedder(
         id="my-custom-model",
@@ -32,7 +32,7 @@ def test_openai_like_embedder_custom_params():
 
 def test_openai_like_embedder_does_not_override_dimensions():
     """Test that __post_init__ does not auto-set dimensions based on model id."""
-    from egpt.knowledge.embedder.openai_like import OpenAILikeEmbedder
+    from egpt.integrations.knowledge.embedder.openai_like import OpenAILikeEmbedder
 
     # Even with a model id that matches OpenAI patterns, dimensions should stay as user set
     embedder = OpenAILikeEmbedder(id="text-embedding-3-large", dimensions=512)
@@ -41,7 +41,7 @@ def test_openai_like_embedder_does_not_override_dimensions():
 
 def test_openai_like_embedder_creates_client_with_custom_base_url():
     """Test that the client is created with the custom base_url."""
-    from egpt.knowledge.embedder.openai_like import OpenAILikeEmbedder
+    from egpt.integrations.knowledge.embedder.openai_like import OpenAILikeEmbedder
 
     embedder = OpenAILikeEmbedder(
         id="my-model",
@@ -54,7 +54,7 @@ def test_openai_like_embedder_creates_client_with_custom_base_url():
 
 def test_openai_like_embedder_creates_async_client_with_custom_base_url():
     """Test that the async client is created with the custom base_url."""
-    from egpt.knowledge.embedder.openai_like import OpenAILikeEmbedder
+    from egpt.integrations.knowledge.embedder.openai_like import OpenAILikeEmbedder
 
     embedder = OpenAILikeEmbedder(
         id="my-model",
@@ -67,7 +67,7 @@ def test_openai_like_embedder_creates_async_client_with_custom_base_url():
 
 def test_openai_like_embedder_get_embedding():
     """Test that get_embedding calls the OpenAI client correctly."""
-    from egpt.knowledge.embedder.openai_like import OpenAILikeEmbedder
+    from egpt.integrations.knowledge.embedder.openai_like import OpenAILikeEmbedder
 
     mock_response = MagicMock()
     mock_response.data = [MagicMock(embedding=[0.1, 0.2, 0.3])]
@@ -92,7 +92,7 @@ def test_openai_like_embedder_get_embedding():
 
 def test_openai_like_embedder_get_embedding_and_usage():
     """Test that get_embedding_and_usage returns both embedding and usage."""
-    from egpt.knowledge.embedder.openai_like import OpenAILikeEmbedder
+    from egpt.integrations.knowledge.embedder.openai_like import OpenAILikeEmbedder
 
     mock_usage = MagicMock()
     mock_usage.model_dump.return_value = {"prompt_tokens": 5, "total_tokens": 5}
@@ -120,7 +120,7 @@ def test_openai_like_embedder_get_embedding_and_usage():
 @pytest.mark.asyncio
 async def test_openai_like_embedder_async_get_embedding():
     """Test that async_get_embedding calls the async OpenAI client correctly."""
-    from egpt.knowledge.embedder.openai_like import OpenAILikeEmbedder
+    from egpt.integrations.knowledge.embedder.openai_like import OpenAILikeEmbedder
 
     mock_response = MagicMock()
     mock_response.data = [MagicMock(embedding=[0.4, 0.5, 0.6])]
@@ -148,7 +148,7 @@ async def test_openai_like_embedder_async_get_embedding():
 @pytest.mark.asyncio
 async def test_openai_like_embedder_async_get_embedding_and_usage():
     """Test that async_get_embedding_and_usage returns both embedding and usage."""
-    from egpt.knowledge.embedder.openai_like import OpenAILikeEmbedder
+    from egpt.integrations.knowledge.embedder.openai_like import OpenAILikeEmbedder
 
     mock_usage = MagicMock()
     mock_usage.model_dump.return_value = {"prompt_tokens": 5, "total_tokens": 5}
@@ -179,8 +179,8 @@ async def test_openai_like_embedder_async_get_embedding_and_usage():
 
 def test_openai_like_embedder_is_subclass_of_openai_embedder():
     """Test that OpenAILikeEmbedder properly inherits from OpenAIEmbedder."""
-    from egpt.knowledge.embedder.openai import OpenAIEmbedder
-    from egpt.knowledge.embedder.openai_like import OpenAILikeEmbedder
+    from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
+    from egpt.integrations.knowledge.embedder.openai_like import OpenAILikeEmbedder
 
     assert issubclass(OpenAILikeEmbedder, OpenAIEmbedder)
 

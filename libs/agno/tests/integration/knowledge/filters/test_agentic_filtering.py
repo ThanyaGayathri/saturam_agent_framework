@@ -11,7 +11,7 @@ from egpt.integrations.models.google.gemini import Gemini
 from egpt.integrations.models.openai.chat import OpenAIChat
 from egpt.integrations.vectordb.lancedb import LanceDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.csv_reader import CSVReader
+from egpt.integrations.knowledge.reader.csv_reader import CSVReader
 
 # Sample CSV data to use in tests
 EMPLOYEE_CSV_DATA = """id,name,department,salary,years_experience

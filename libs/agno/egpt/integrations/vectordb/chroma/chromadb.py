@@ -18,7 +18,7 @@ except ImportError:
 from egpt.filters import FilterExpr
 from egpt.knowledge.document import Document
 from egpt.knowledge.embedder import Embedder
-from egpt.knowledge.reranker.base import Reranker
+from egpt.integrations.knowledge.reranker.base import Reranker
 from egpt.utils.log import log_debug, log_error, log_info, log_warning, logger
 from egpt.vectordb.base import VectorDb
 from egpt.vectordb.distance import Distance
@@ -117,7 +117,7 @@ class ChromaDb(VectorDb):
         self.collection_name: str = collection
         # Embedder for embedding the document contents
         if embedder is None:
-            from egpt.knowledge.embedder.openai import OpenAIEmbedder
+            from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 
             embedder = OpenAIEmbedder()
             log_debug("Embedder not provided, using OpenAIEmbedder as default.")

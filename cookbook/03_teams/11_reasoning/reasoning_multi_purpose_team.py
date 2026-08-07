@@ -18,7 +18,7 @@ from egpt.integrations.tools.pubmed import PubmedTools
 from egpt.integrations.tools.python import PythonTools
 from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.integrations.tools.yfinance import YFinanceTools
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team

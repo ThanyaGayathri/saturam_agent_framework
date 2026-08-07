@@ -17,7 +17,7 @@ from typing import List
 
 from egpt.agent import Agent
 from egpt.knowledge.document import Document
-from egpt.knowledge.embedder.google import GeminiEmbedder
+from egpt.integrations.knowledge.embedder.google import GeminiEmbedder
 from egpt.media import Image
 from egpt.vectordb.lancedb import LanceDb, SearchType
 from pydantic import BaseModel, Field

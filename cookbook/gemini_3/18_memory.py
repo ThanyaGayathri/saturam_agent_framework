@@ -20,7 +20,7 @@ from pathlib import Path
 from db import gemini_agents_db
 from egpt.agent import Agent
 from egpt.knowledge import Knowledge
-from egpt.knowledge.embedder.google import GeminiEmbedder
+from egpt.integrations.knowledge.embedder.google import GeminiEmbedder
 from egpt.learn import LearnedKnowledgeConfig, LearningMachine, LearningMode
 from egpt.models.google import Gemini
 from egpt.tools.reasoning import ReasoningTools

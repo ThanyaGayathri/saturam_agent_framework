@@ -1,59 +1,23 @@
-from typing import Any, Dict, List, Optional
+"""Deprecated compatibility shim (EGPT-1.8).
 
-from egpt.knowledge.document import Document
-from egpt.knowledge.reranker.base import Reranker
-from egpt.utils.log import logger
+Import from
+``egpt.integrations.knowledge.reranker.sentence_transformer``
+instead; this module will be removed.
 
-try:
-    from sentence_transformers import CrossEncoder
-except ImportError:
-    raise ImportError("`sentence-transformers` not installed, please run `pip install sentence-transformers`")
+The star-import keeps star-imports and plain attribute access working on the legacy dotted
+path, and deliberately declares no ``__all__`` of its own so that surface stays exactly what
+it was before the move -- an ``__all__`` here would narrow it. ``mock.patch`` against this
+module patches the shim's binding rather than the implementation; patch the target instead.
+"""
 
+import warnings as _warnings
 
-class SentenceTransformerReranker(Reranker):
-    model: str = "BAAI/bge-reranker-v2-m3"
-    model_kwargs: Optional[Dict[str, Any]] = None
-    top_n: Optional[int] = None
-    cross_encoder: Optional[CrossEncoder] = None
+from egpt.integrations.knowledge.reranker.sentence_transformer import *  # noqa: F401,F403
 
-    @property
-    def client(self) -> CrossEncoder:
-        if self.cross_encoder is None:
-            self.cross_encoder = CrossEncoder(model_name_or_path=self.model, model_kwargs=self.model_kwargs)
-        return self.cross_encoder
-
-    def _rerank(self, query: str, documents: List[Document]) -> List[Document]:
-        if not documents:
-            return []
-
-        top_n = self.top_n
-        if top_n and not (0 < top_n):
-            logger.warning(f"top_n should be a positive integer, got {self.top_n}, setting top_n to None")
-            top_n = None
-
-        compressed_docs: list[Document] = []
-
-        sentence_pairs = [[query, doc.content] for doc in documents]
-
-        scores = self.client.predict(sentence_pairs).tolist()
-        for index, score in enumerate(scores):
-            doc = documents[index]
-            doc.reranking_score = score
-            compressed_docs.append(doc)
-
-        compressed_docs.sort(
-            key=lambda x: x.reranking_score if x.reranking_score is not None else float("-inf"),
-            reverse=True,
-        )
-
-        if top_n:
-            compressed_docs = compressed_docs[:top_n]
-
-        return compressed_docs
-
-    def rerank(self, query: str, documents: List[Document]) -> List[Document]:
-        try:
-            return self._rerank(query=query, documents=documents)
-        except Exception:
-            logger.exception("Error reranking documents. Returning original documents")
-            return documents
+_warnings.warn(
+    "egpt.knowledge.reranker.sentence_transformer is deprecated; import from "
+    "egpt.integrations.knowledge.reranker.sentence_transformer instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

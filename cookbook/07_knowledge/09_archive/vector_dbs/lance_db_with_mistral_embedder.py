@@ -7,9 +7,9 @@ Demonstrates LanceDB hybrid search with the Mistral embedder.
 
 import asyncio
 
-from egpt.knowledge.embedder.mistral import MistralEmbedder
+from egpt.integrations.knowledge.embedder.mistral import MistralEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.pdf_reader import PDFReader
+from egpt.integrations.knowledge.reader.pdf_reader import PDFReader
 from egpt.vectordb.lancedb import LanceDb, SearchType
 
 # ---------------------------------------------------------------------------

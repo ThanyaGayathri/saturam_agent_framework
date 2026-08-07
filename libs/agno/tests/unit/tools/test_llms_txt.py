@@ -9,8 +9,8 @@ import pytest
 bs4 = pytest.importorskip("bs4")
 
 from egpt.integrations.tools.llms_txt import LLMsTxtTools  # noqa: E402
-from egpt.knowledge.reader.llms_txt_reader import LLMsTxtEntry, LLMsTxtReader  # noqa: E402
-from egpt.knowledge.reader.utils.url_validation import is_host_allowed  # noqa: E402
+from egpt.integrations.knowledge.reader.llms_txt_reader import LLMsTxtEntry, LLMsTxtReader  # noqa: E402
+from egpt.integrations.knowledge.reader.utils.url_validation import is_host_allowed  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -578,7 +578,7 @@ def test_reader_allowed_hosts_blocks_localhost_and_metadata():
 def test_reader_fetch_url_blocks_disallowed():
     reader = LLMsTxtReader(allowed_hosts=["docs.agno.com"])
 
-    with patch("egpt.knowledge.reader.llms_txt_reader.fetch_with_retry") as mock_fetch:
+    with patch("egpt.integrations.knowledge.reader.llms_txt_reader.fetch_with_retry") as mock_fetch:
         result = reader.fetch_url("http://127.0.0.1:8000/admin")
 
     assert result is None
@@ -596,8 +596,10 @@ def test_reader_fetch_url_uses_event_hook_when_allowlisted():
     mock_client.get.return_value = response
 
     with (
-        patch("egpt.knowledge.reader.llms_txt_reader.fetch_with_retry") as mock_fetch,
-        patch("egpt.knowledge.reader.llms_txt_reader.httpx.Client", return_value=mock_client) as mock_client_ctor,
+        patch("egpt.integrations.knowledge.reader.llms_txt_reader.fetch_with_retry") as mock_fetch,
+        patch(
+            "egpt.integrations.knowledge.reader.llms_txt_reader.httpx.Client", return_value=mock_client
+        ) as mock_client_ctor,
     ):
         result = reader.fetch_url("https://docs.agno.com/page")
 
@@ -616,7 +618,9 @@ def test_reader_fetch_url_uses_fetch_with_retry_when_no_allowlist():
     reader = LLMsTxtReader()
     response = _mock_httpx_response("Doc content", "text/plain")
 
-    with patch("egpt.knowledge.reader.llms_txt_reader.fetch_with_retry", return_value=response) as mock_fetch:
+    with patch(
+        "egpt.integrations.knowledge.reader.llms_txt_reader.fetch_with_retry", return_value=response
+    ) as mock_fetch:
         reader.fetch_url("https://example.com/page")
 
     mock_fetch.assert_called_once()
@@ -633,7 +637,7 @@ def test_reader_fetch_url_returns_none_when_redirect_target_disallowed():
     # request to the disallowed redirect target.
     mock_client.get.side_effect = httpx.RequestError("Host not in allowed_hosts: 127.0.0.1", request=MagicMock())
 
-    with patch("egpt.knowledge.reader.llms_txt_reader.httpx.Client", return_value=mock_client):
+    with patch("egpt.integrations.knowledge.reader.llms_txt_reader.httpx.Client", return_value=mock_client):
         result = reader.fetch_url("https://docs.agno.com/old")
 
     assert result is None
@@ -644,7 +648,7 @@ async def test_reader_async_fetch_url_blocks_disallowed():
     reader = LLMsTxtReader(allowed_hosts=["docs.agno.com"])
     client = AsyncMock()
 
-    with patch("egpt.knowledge.reader.llms_txt_reader.async_fetch_with_retry") as mock_fetch:
+    with patch("egpt.integrations.knowledge.reader.llms_txt_reader.async_fetch_with_retry") as mock_fetch:
         result = await reader.async_fetch_url(client, "http://localhost:8000/admin")
 
     assert result is None
@@ -664,8 +668,10 @@ async def test_reader_async_fetch_url_uses_local_client_when_allowlisted():
     local_client.get = AsyncMock(return_value=response)
 
     with (
-        patch("egpt.knowledge.reader.llms_txt_reader.async_fetch_with_retry") as mock_fetch,
-        patch("egpt.knowledge.reader.llms_txt_reader.httpx.AsyncClient", return_value=local_client) as mock_ctor,
+        patch("egpt.integrations.knowledge.reader.llms_txt_reader.async_fetch_with_retry") as mock_fetch,
+        patch(
+            "egpt.integrations.knowledge.reader.llms_txt_reader.httpx.AsyncClient", return_value=local_client
+        ) as mock_ctor,
     ):
         result = await reader.async_fetch_url(caller_client, "https://docs.agno.com/page")
 
@@ -691,7 +697,7 @@ def test_tools_allowed_hosts_propagates_to_reader():
 def test_tools_get_index_rejects_disallowed_host():
     t = LLMsTxtTools(allowed_hosts=["docs.agno.com"])
 
-    with patch("egpt.knowledge.reader.llms_txt_reader.fetch_with_retry") as mock_fetch:
+    with patch("egpt.integrations.knowledge.reader.llms_txt_reader.fetch_with_retry") as mock_fetch:
         result = t.get_llms_txt_index("http://127.0.0.1:8000/llms.txt")
 
     assert "not in allowed_hosts" in result
@@ -701,7 +707,7 @@ def test_tools_get_index_rejects_disallowed_host():
 def test_tools_read_url_rejects_disallowed_host():
     t = LLMsTxtTools(allowed_hosts=["docs.agno.com"])
 
-    with patch("egpt.knowledge.reader.llms_txt_reader.fetch_with_retry") as mock_fetch:
+    with patch("egpt.integrations.knowledge.reader.llms_txt_reader.fetch_with_retry") as mock_fetch:
         result = t.read_llms_txt_url("http://169.254.169.254/latest/meta-data")
 
     assert "not in allowed_hosts" in result
@@ -712,7 +718,7 @@ def test_tools_read_url_rejects_disallowed_host():
 async def test_tools_aread_url_rejects_disallowed_host():
     t = LLMsTxtTools(allowed_hosts=["docs.agno.com"])
 
-    with patch("egpt.knowledge.reader.llms_txt_reader.async_fetch_with_retry") as mock_fetch:
+    with patch("egpt.integrations.knowledge.reader.llms_txt_reader.async_fetch_with_retry") as mock_fetch:
         result = await t.aread_llms_txt_url("http://localhost:8000/admin")
 
     assert "not in allowed_hosts" in result

@@ -2,8 +2,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from egpt.knowledge.reader.web_search_reader import WebSearchReader
-from egpt.knowledge.reader.website_reader import WebsiteReader
+from egpt.integrations.knowledge.reader.web_search_reader import WebSearchReader
+from egpt.integrations.knowledge.reader.website_reader import WebsiteReader
 
 # --- FastEmbedEmbedder caching tests ---
 
@@ -17,8 +17,8 @@ def test_fastembed_embedder_caches_client():
     mock_text_embedding_class.return_value = mock_client_instance
 
     with patch.dict("sys.modules", {"fastembed": MagicMock(TextEmbedding=mock_text_embedding_class)}):
-        with patch("egpt.knowledge.embedder.fastembed.TextEmbedding", mock_text_embedding_class):
-            from egpt.knowledge.embedder.fastembed import FastEmbedEmbedder
+        with patch("egpt.integrations.knowledge.embedder.fastembed.TextEmbedding", mock_text_embedding_class):
+            from egpt.integrations.knowledge.embedder.fastembed import FastEmbedEmbedder
 
             embedder = FastEmbedEmbedder()
 
@@ -40,8 +40,8 @@ def test_fastembed_embedder_accepts_injected_client():
     mock_text_embedding_class = MagicMock()
 
     with patch.dict("sys.modules", {"fastembed": MagicMock(TextEmbedding=mock_text_embedding_class)}):
-        with patch("egpt.knowledge.embedder.fastembed.TextEmbedding", mock_text_embedding_class):
-            from egpt.knowledge.embedder.fastembed import FastEmbedEmbedder
+        with patch("egpt.integrations.knowledge.embedder.fastembed.TextEmbedding", mock_text_embedding_class):
+            from egpt.integrations.knowledge.embedder.fastembed import FastEmbedEmbedder
 
             embedder = FastEmbedEmbedder(fastembed_client=mock_client)
 

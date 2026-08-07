@@ -25,9 +25,9 @@ from egpt.knowledge.chunking.fixed import FixedSizeChunking
 from egpt.knowledge.chunking.markdown import MarkdownChunking
 from egpt.knowledge.chunking.recursive import RecursiveChunking
 from egpt.knowledge.chunking.semantic import SemanticChunking
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.pdf_reader import PDFReader
+from egpt.integrations.knowledge.reader.pdf_reader import PDFReader
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.qdrant import Qdrant
 from egpt.vectordb.search import SearchType

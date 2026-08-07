@@ -21,11 +21,11 @@ Sync equivalents (insert, insert_many) are also available.
 import asyncio
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.wikipedia_reader import WikipediaReader
+from egpt.integrations.knowledge.reader.wikipedia_reader import WikipediaReader
 
-# Also available: from egpt.knowledge.reader.arxiv_reader import ArxivReader
+# Also available: from egpt.integrations.knowledge.reader.arxiv_reader import ArxivReader
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.qdrant import Qdrant
 from egpt.vectordb.search import SearchType

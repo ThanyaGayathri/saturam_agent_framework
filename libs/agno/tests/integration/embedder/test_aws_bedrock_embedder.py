@@ -16,7 +16,7 @@ import os
 
 import pytest
 
-from egpt.knowledge.embedder.aws_bedrock import AwsBedrockEmbedder
+from egpt.integrations.knowledge.embedder.aws_bedrock import AwsBedrockEmbedder
 
 
 def _has_aws_credentials() -> bool:

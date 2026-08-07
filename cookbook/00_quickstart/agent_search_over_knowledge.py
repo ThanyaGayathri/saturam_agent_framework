@@ -16,7 +16,7 @@ Example prompts to try:
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
-from egpt.knowledge.embedder.google import GeminiEmbedder
+from egpt.integrations.knowledge.embedder.google import GeminiEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.google import Gemini
 from egpt.vectordb.chroma import ChromaDb

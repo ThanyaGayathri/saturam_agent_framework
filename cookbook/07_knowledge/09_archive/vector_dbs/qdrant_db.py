@@ -9,7 +9,7 @@ import asyncio
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres.postgres import PostgresDb
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
 from egpt.vectordb.qdrant import Qdrant

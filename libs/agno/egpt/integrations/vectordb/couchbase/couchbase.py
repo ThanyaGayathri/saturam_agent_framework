@@ -97,7 +97,7 @@ class CouchbaseSearch(VectorDb):
         self.connection_string = couchbase_connection_string
         self.cluster_options = cluster_options
         if embedder is None:
-            from egpt.knowledge.embedder.openai import OpenAIEmbedder
+            from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 
             embedder = OpenAIEmbedder()
             log_debug("Embedder not provided, using OpenAIEmbedder as default.")

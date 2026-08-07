@@ -18,7 +18,7 @@ Run `uv pip install docling openai-whisper` to install dependencies.
 
 import asyncio
 
-from egpt.knowledge.reader.docling_reader import DoclingReader
+from egpt.integrations.knowledge.reader.docling_reader import DoclingReader
 from utils import get_agent, get_knowledge
 
 # ---------------------------------------------------------------------------

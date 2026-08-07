@@ -5,7 +5,9 @@ Weaviate Upsert
 Demonstrates repeated inserts with `skip_if_exists` in Weaviate.
 """
 
-from egpt.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
+from egpt.integrations.knowledge.embedder.sentence_transformer import (
+    SentenceTransformerEmbedder,
+)
 from egpt.knowledge.knowledge import Knowledge
 from egpt.utils.log import set_log_level_to_debug
 from egpt.vectordb.search import SearchType

@@ -2,7 +2,7 @@ import pytest
 
 pytest.importorskip("wikipedia")
 
-from egpt.knowledge.reader.wikipedia_reader import WikipediaReader
+from egpt.integrations.knowledge.reader.wikipedia_reader import WikipediaReader
 
 
 def test_wikipedia_reader_chunk_size_propagation():

@@ -1,68 +1,23 @@
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+"""Deprecated compatibility shim (EGPT-1.8).
 
-from egpt.knowledge.embedder.base import Embedder
-from egpt.utils.log import log_warning
+Import from
+``egpt.integrations.knowledge.embedder.fastembed``
+instead; this module will be removed.
 
-try:
-    import numpy as np
+The star-import keeps star-imports and plain attribute access working on the legacy dotted
+path, and deliberately declares no ``__all__`` of its own so that surface stays exactly what
+it was before the move -- an ``__all__`` here would narrow it. ``mock.patch`` against this
+module patches the shim's binding rather than the implementation; patch the target instead.
+"""
 
-except ImportError:
-    raise ImportError("numpy not installed, use `pip install numpy`")
+import warnings as _warnings
 
+from egpt.integrations.knowledge.embedder.fastembed import *  # noqa: F401,F403
 
-try:
-    from fastembed import TextEmbedding  # type: ignore
-
-except ImportError:
-    raise ImportError("fastembed not installed, use pip install fastembed")
-
-
-@dataclass
-class FastEmbedEmbedder(Embedder):
-    """Using BAAI/bge-small-en-v1.5 model, more models available: https://qdrant.github.io/fastembed/examples/Supported_Models/"""
-
-    id: str = "BAAI/bge-small-en-v1.5"
-    dimensions: Optional[int] = 384
-    fastembed_client: Optional[TextEmbedding] = None
-
-    @property
-    def client(self) -> TextEmbedding:
-        if self.fastembed_client is None:
-            self.fastembed_client = TextEmbedding(model_name=self.id)
-        return self.fastembed_client
-
-    def get_embedding(self, text: str) -> List[float]:
-        embeddings = self.client.embed(text)
-        embedding_list = list(embeddings)[0]
-        if isinstance(embedding_list, np.ndarray):
-            return embedding_list.tolist()
-
-        try:
-            return list(embedding_list)
-        except Exception as e:
-            log_warning(f"Failed to convert embedding list: {str(e)}")
-            return []
-
-    def get_embedding_and_usage(self, text: str) -> Tuple[List[float], Optional[Dict]]:
-        embedding = self.get_embedding(text=text)
-        # Currently, FastEmbed does not provide usage information
-        usage = None
-
-        return embedding, usage
-
-    async def async_get_embedding(self, text: str) -> List[float]:
-        """Async version using thread executor for CPU-bound operations."""
-        import asyncio
-
-        loop = asyncio.get_running_loop()
-        # Run the CPU-bound operation in a thread executor
-        return await loop.run_in_executor(None, self.get_embedding, text)
-
-    async def async_get_embedding_and_usage(self, text: str) -> Tuple[List[float], Optional[Dict]]:
-        """Async version using thread executor for CPU-bound operations."""
-        import asyncio
-
-        loop = asyncio.get_running_loop()
-        # Run the CPU-bound operation in a thread executor
-        return await loop.run_in_executor(None, self.get_embedding_and_usage, text)
+_warnings.warn(
+    "egpt.knowledge.embedder.fastembed is deprecated; import from "
+    "egpt.integrations.knowledge.embedder.fastembed instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

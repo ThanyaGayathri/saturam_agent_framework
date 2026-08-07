@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from egpt.knowledge.reader.json_reader import JSONReader
+from egpt.integrations.knowledge.reader.json_reader import JSONReader
 
 reader = JSONReader()
 

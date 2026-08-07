@@ -1,103 +1,23 @@
-import asyncio
-from pathlib import Path
-from typing import IO, Any, List, Optional, Union
-from uuid import uuid4
+"""Deprecated compatibility shim (EGPT-1.8).
 
-from egpt.knowledge.chunking.document import DocumentChunking
-from egpt.knowledge.chunking.strategy import ChunkingStrategy, ChunkingStrategyType
-from egpt.knowledge.document.base import Document
-from egpt.knowledge.reader.base import Reader
-from egpt.knowledge.types import ContentType
-from egpt.utils.log import log_debug, log_error
+Import from
+``egpt.integrations.knowledge.reader.pptx_reader``
+instead; this module will be removed.
 
-try:
-    from pptx import Presentation  # type: ignore
-except ImportError:
-    raise ImportError("The `python-pptx` package is not installed. Please install it via `pip install python-pptx`.")
+The star-import keeps star-imports and plain attribute access working on the legacy dotted
+path, and deliberately declares no ``__all__`` of its own so that surface stays exactly what
+it was before the move -- an ``__all__`` here would narrow it. ``mock.patch`` against this
+module patches the shim's binding rather than the implementation; patch the target instead.
+"""
 
+import warnings as _warnings
 
-class PPTXReader(Reader):
-    """Reader for PPTX files"""
+from egpt.integrations.knowledge.reader.pptx_reader import *  # noqa: F401,F403
 
-    def __init__(self, chunking_strategy: Optional[ChunkingStrategy] = None, **kwargs):
-        if chunking_strategy is None:
-            chunk_size = kwargs.get("chunk_size", 5000)
-            chunking_strategy = DocumentChunking(chunk_size=chunk_size)
-        super().__init__(chunking_strategy=chunking_strategy, **kwargs)
-
-    @classmethod
-    def get_supported_chunking_strategies(cls) -> List[ChunkingStrategyType]:
-        """Get the list of supported chunking strategies for PPTX readers."""
-        return [
-            ChunkingStrategyType.DOCUMENT_CHUNKER,
-            ChunkingStrategyType.CODE_CHUNKER,
-            ChunkingStrategyType.FIXED_SIZE_CHUNKER,
-            ChunkingStrategyType.SEMANTIC_CHUNKER,
-            ChunkingStrategyType.AGENTIC_CHUNKER,
-            ChunkingStrategyType.RECURSIVE_CHUNKER,
-        ]
-
-    @classmethod
-    def get_supported_content_types(cls) -> List[ContentType]:
-        return [ContentType.PPTX]
-
-    def read(self, file: Union[Path, IO[Any]], name: Optional[str] = None) -> List[Document]:
-        """Read a pptx file and return a list of documents"""
-        try:
-            if isinstance(file, Path):
-                if not file.exists():
-                    raise FileNotFoundError(f"Could not find file: {file}")
-                log_debug(f"Reading: {file}")
-                presentation = Presentation(str(file))
-                doc_name = name or file.stem
-            else:
-                log_debug(f"Reading uploaded file: {getattr(file, 'name', 'BytesIO')}")
-                presentation = Presentation(file)
-                doc_name = name or getattr(file, "name", "pptx_file").split(".")[0]
-
-            # Extract text from all slides
-            slide_texts = []
-            for slide_number, slide in enumerate(presentation.slides, 1):
-                slide_text = f"Slide {slide_number}:\n"
-
-                # Extract text from shapes that contain text
-                text_content = []
-                for shape in slide.shapes:
-                    if hasattr(shape, "text") and shape.text.strip():
-                        text_content.append(shape.text.strip())
-
-                if text_content:
-                    slide_text += "\n".join(text_content)
-                else:
-                    slide_text += "(No text content)"
-
-                slide_texts.append(slide_text)
-
-            doc_content = "\n\n".join(slide_texts)
-
-            documents = [
-                Document(
-                    name=doc_name,
-                    id=str(uuid4()),
-                    content=doc_content,
-                )
-            ]
-
-            if self.chunk:
-                chunked_documents = []
-                for document in documents:
-                    chunked_documents.extend(self.chunk_document(document))
-                return chunked_documents
-            return documents
-
-        except Exception as e:
-            log_error(f"Error reading file: {str(e)}")
-            return []
-
-    async def async_read(self, file: Union[Path, IO[Any]], name: Optional[str] = None) -> List[Document]:
-        """Asynchronously read a pptx file and return a list of documents"""
-        try:
-            return await asyncio.to_thread(self.read, file, name)
-        except Exception as e:
-            log_error(f"Error reading file asynchronously: {str(e)}")
-            return []
+_warnings.warn(
+    "egpt.knowledge.reader.pptx_reader is deprecated; import from "
+    "egpt.integrations.knowledge.reader.pptx_reader instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

@@ -8,7 +8,7 @@ Demonstrates local vLLM embeddings and knowledge insertion with standard and bat
 import asyncio
 
 from egpt.integrations.db.json import JsonDb
-from egpt.knowledge.embedder.vllm import VLLMEmbedder
+from egpt.integrations.knowledge.embedder.vllm import VLLMEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

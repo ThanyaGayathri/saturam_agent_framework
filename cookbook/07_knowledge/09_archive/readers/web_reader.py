@@ -1,4 +1,4 @@
-from egpt.knowledge.reader.website_reader import WebsiteReader
+from egpt.integrations.knowledge.reader.website_reader import WebsiteReader
 
 reader = WebsiteReader(max_depth=3, max_links=10)
 

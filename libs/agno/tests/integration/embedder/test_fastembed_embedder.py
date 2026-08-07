@@ -2,7 +2,7 @@ import pytest
 
 pytest.importorskip("fastembed")
 
-from egpt.knowledge.embedder.fastembed import FastEmbedEmbedder
+from egpt.integrations.knowledge.embedder.fastembed import FastEmbedEmbedder
 
 
 @pytest.fixture

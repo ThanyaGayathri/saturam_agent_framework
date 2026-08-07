@@ -7,7 +7,7 @@ Demonstrates Cohere embeddings and knowledge insertion, including a batching var
 
 import asyncio
 
-from egpt.knowledge.embedder.cohere import CohereEmbedder
+from egpt.integrations.knowledge.embedder.cohere import CohereEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

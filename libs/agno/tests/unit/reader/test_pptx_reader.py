@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from egpt.knowledge.document.base import Document
-from egpt.knowledge.reader.pptx_reader import PPTXReader
+from egpt.integrations.knowledge.reader.pptx_reader import PPTXReader
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def test_pptx_reader_read_file(mock_pptx):
     """Test reading a PPTX file"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.pptx_reader.Presentation", return_value=mock_pptx),
+        patch("egpt.integrations.knowledge.reader.pptx_reader.Presentation", return_value=mock_pptx),
     ):
         reader = PPTXReader()
         documents = reader.read(Path("test.pptx"))
@@ -52,7 +52,7 @@ async def test_pptx_reader_async_read_file(mock_pptx):
     """Test reading a PPTX file asynchronously"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.pptx_reader.Presentation", return_value=mock_pptx),
+        patch("egpt.integrations.knowledge.reader.pptx_reader.Presentation", return_value=mock_pptx),
     ):
         reader = PPTXReader()
         documents = await reader.async_read(Path("test.pptx"))
@@ -80,7 +80,7 @@ def test_pptx_reader_with_chunking():
 
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.pptx_reader.Presentation", return_value=mock_presentation),
+        patch("egpt.integrations.knowledge.reader.pptx_reader.Presentation", return_value=mock_presentation),
     ):
         reader = PPTXReader()
         reader.chunk = True
@@ -99,7 +99,7 @@ def test_pptx_reader_bytesio(mock_pptx):
     file_obj = BytesIO(b"dummy content")
     file_obj.name = "test.pptx"
 
-    with patch("egpt.knowledge.reader.pptx_reader.Presentation", return_value=mock_pptx):
+    with patch("egpt.integrations.knowledge.reader.pptx_reader.Presentation", return_value=mock_pptx):
         reader = PPTXReader()
         documents = reader.read(file_obj)
 
@@ -121,7 +121,7 @@ def test_pptx_reader_file_error():
     """Test handling of file reading errors"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.pptx_reader.Presentation", side_effect=Exception("File error")),
+        patch("egpt.integrations.knowledge.reader.pptx_reader.Presentation", side_effect=Exception("File error")),
     ):
         reader = PPTXReader()
         documents = reader.read(Path("test.pptx"))
@@ -133,7 +133,7 @@ async def test_async_pptx_processing(mock_pptx):
     """Test concurrent async processing"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.pptx_reader.Presentation", return_value=mock_pptx),
+        patch("egpt.integrations.knowledge.reader.pptx_reader.Presentation", return_value=mock_pptx),
     ):
         reader = PPTXReader()
         tasks = [reader.async_read(Path("test.pptx")) for _ in range(3)]
@@ -165,7 +165,7 @@ async def test_pptx_reader_async_with_chunking():
 
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.pptx_reader.Presentation", return_value=mock_presentation),
+        patch("egpt.integrations.knowledge.reader.pptx_reader.Presentation", return_value=mock_presentation),
     ):
         reader = PPTXReader()
         reader.chunk = True
@@ -184,7 +184,7 @@ def test_pptx_reader_metadata(mock_pptx):
     """Test document metadata"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.pptx_reader.Presentation", return_value=mock_pptx),
+        patch("egpt.integrations.knowledge.reader.pptx_reader.Presentation", return_value=mock_pptx),
     ):
         reader = PPTXReader()
         documents = reader.read(Path("test_doc.pptx"))
@@ -215,7 +215,7 @@ def test_pptx_reader_empty_slides():
 
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.pptx_reader.Presentation", return_value=mock_presentation),
+        patch("egpt.integrations.knowledge.reader.pptx_reader.Presentation", return_value=mock_presentation),
     ):
         reader = PPTXReader()
         documents = reader.read(Path("empty.pptx"))
@@ -243,7 +243,7 @@ def test_pptx_reader_shapes_without_text():
 
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.pptx_reader.Presentation", return_value=mock_presentation),
+        patch("egpt.integrations.knowledge.reader.pptx_reader.Presentation", return_value=mock_presentation),
     ):
         reader = PPTXReader()
         documents = reader.read(Path("mixed.pptx"))

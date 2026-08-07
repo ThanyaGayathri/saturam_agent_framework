@@ -1,63 +1,23 @@
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Union
+"""Deprecated compatibility shim (EGPT-1.8).
 
-from egpt.knowledge.embedder.base import Embedder
-from egpt.utils.log import log_warning
+Import from
+``egpt.integrations.knowledge.embedder.sentence_transformer``
+instead; this module will be removed.
 
-try:
-    from sentence_transformers import SentenceTransformer
+The star-import keeps star-imports and plain attribute access working on the legacy dotted
+path, and deliberately declares no ``__all__`` of its own so that surface stays exactly what
+it was before the move -- an ``__all__`` here would narrow it. ``mock.patch`` against this
+module patches the shim's binding rather than the implementation; patch the target instead.
+"""
 
-except ImportError:
-    raise ImportError("`sentence-transformers` not installed, please run `pip install sentence-transformers`")
+import warnings as _warnings
 
-try:
-    import numpy as np
+from egpt.integrations.knowledge.embedder.sentence_transformer import *  # noqa: F401,F403
 
-except ImportError:
-    raise ImportError("numpy not installed, use `pip install numpy`")
-
-
-@dataclass
-class SentenceTransformerEmbedder(Embedder):
-    id: str = "sentence-transformers/all-MiniLM-L6-v2"
-    dimensions: int = 384
-    sentence_transformer_client: Optional[SentenceTransformer] = None
-    prompt: Optional[str] = None
-    normalize_embeddings: bool = False
-
-    def __post_init__(self):
-        # Initialize the SentenceTransformer model eagerly to avoid race conditions in async contexts
-        if self.sentence_transformer_client is None:
-            self.sentence_transformer_client = SentenceTransformer(model_name_or_path=self.id)
-
-    def get_embedding(self, text: Union[str, List[str]]) -> List[float]:
-        if self.sentence_transformer_client is None:
-            raise RuntimeError("SentenceTransformer model not initialized")
-        model = self.sentence_transformer_client
-        embedding = model.encode(text, prompt=self.prompt, normalize_embeddings=self.normalize_embeddings)
-        try:
-            if isinstance(embedding, np.ndarray):
-                return embedding.tolist()
-
-            return embedding  # type: ignore
-        except Exception as e:
-            log_warning(f"Failed to get embedding: {str(e)}")
-            return []
-
-    def get_embedding_and_usage(self, text: str) -> Tuple[List[float], Optional[Dict]]:
-        return self.get_embedding(text=text), None
-
-    async def async_get_embedding(self, text: Union[str, List[str]]) -> List[float]:
-        """Async version using thread executor for CPU-bound operations."""
-        import asyncio
-
-        loop = asyncio.get_running_loop()
-        # Run the CPU-bound operation in a thread executor
-        return await loop.run_in_executor(None, self.get_embedding, text)
-
-    async def async_get_embedding_and_usage(self, text: str) -> Tuple[List[float], Optional[Dict]]:
-        """Async version using thread executor for CPU-bound operations."""
-        import asyncio
-
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self.get_embedding_and_usage, text)
+_warnings.warn(
+    "egpt.knowledge.embedder.sentence_transformer is deprecated; import from "
+    "egpt.integrations.knowledge.embedder.sentence_transformer instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

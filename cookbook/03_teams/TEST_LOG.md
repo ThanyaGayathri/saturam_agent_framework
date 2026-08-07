@@ -1078,7 +1078,7 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/16_search_coordination/03_distributed_infinity_search.py", line 11, in <module>
-    from egpt.knowledge.reranker.infinity import InfinityReranker
+    from egpt.integrations.knowledge.reranker.infinity import InfinityReranker
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/knowledge/reranker/infinity.py", line 13, in <module>
     raise ImportError("infinity_client not installed, please run `pip install infinity_client`")
 ImportError: infinity_client not installed, please run `pip install infinity_client`

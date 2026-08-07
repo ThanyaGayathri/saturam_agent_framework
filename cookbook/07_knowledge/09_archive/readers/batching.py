@@ -8,7 +8,7 @@ Demonstrates knowledge insertion with batch embeddings using sync and async APIs
 import asyncio
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.lancedb import LanceDb
 

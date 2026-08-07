@@ -21,7 +21,7 @@ import asyncio
 from os import getenv
 
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.remote_content import GcsConfig
+from egpt.integrations.knowledge.remote_content import GcsConfig
 from egpt.vectordb.qdrant import Qdrant
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ See also: 01_qdrant.py for recommended default, 04_pgvector.py for PostgreSQL.
 from os import getenv
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
 

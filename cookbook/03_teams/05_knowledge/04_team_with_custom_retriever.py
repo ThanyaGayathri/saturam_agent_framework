@@ -8,7 +8,7 @@ Demonstrates a custom team knowledge retriever that uses runtime dependencies.
 from typing import Optional
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
 from egpt.run import RunContext

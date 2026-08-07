@@ -9,9 +9,9 @@ import asyncio
 import importlib
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.cohere import CohereEmbedder
+from egpt.integrations.knowledge.embedder.cohere import CohereEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reranker.infinity import InfinityReranker
+from egpt.integrations.knowledge.reranker.infinity import InfinityReranker
 from egpt.models.anthropic import Claude
 from egpt.vectordb.lancedb import LanceDb, SearchType
 

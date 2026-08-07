@@ -132,7 +132,7 @@ class SurrealDb(VectorDb):
 
         # Embedder for embedding the document contents
         if embedder is None:
-            from egpt.knowledge.embedder.openai import OpenAIEmbedder
+            from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 
             embedder = OpenAIEmbedder()
             log_debug("Embedder not provided, using OpenAIEmbedder as default.")

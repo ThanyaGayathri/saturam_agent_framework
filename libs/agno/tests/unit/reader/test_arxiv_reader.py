@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 import arxiv
 import pytest
 
-from egpt.knowledge.reader.arxiv_reader import ArxivReader
+from egpt.integrations.knowledge.reader.arxiv_reader import ArxivReader
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 """Run `uv pip install ddgs sqlalchemy pgvector pypdf openai google.genai` to install dependencies."""
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.google import GeminiEmbedder
+from egpt.integrations.knowledge.embedder.google import GeminiEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.google import Gemini
 from egpt.vectordb.pgvector import PgVector

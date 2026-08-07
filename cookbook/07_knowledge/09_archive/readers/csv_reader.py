@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from egpt.knowledge.reader.csv_reader import CSVReader
+from egpt.integrations.knowledge.reader.csv_reader import CSVReader
 
 reader = CSVReader()
 

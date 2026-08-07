@@ -1,9 +1,14 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from egpt.knowledge.reader import Reader
-from egpt.knowledge.remote_content.remote_content import RemoteContent
+
+if TYPE_CHECKING:
+    # Annotation only. The remote-content types moved to the integrations layer in EGPT-1.8
+    # and this module is core domain, so the name is quoted below rather than imported at
+    # runtime (docs/adr/0001-layered-architecture.md, rule 2).
+    from egpt.integrations.knowledge.remote_content.remote_content import RemoteContent
 
 
 class ContentStatus(str, Enum):
@@ -38,7 +43,7 @@ class Content:
     file_data: Optional[FileData] = None
     metadata: Optional[Dict[str, Any]] = None
     topics: Optional[List[str]] = None
-    remote_content: Optional[RemoteContent] = None
+    remote_content: Optional["RemoteContent"] = None
     reader: Optional[Reader] = None
     size: Optional[int] = None
     file_type: Optional[str] = None

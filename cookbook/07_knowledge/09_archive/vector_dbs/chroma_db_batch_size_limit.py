@@ -11,7 +11,7 @@ SQLite's max variable number limit set to 32766 divided by 6 variables per recor
 
 from egpt.knowledge.chunking.fixed import FixedSizeChunking
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.text_reader import TextReader
+from egpt.integrations.knowledge.reader.text_reader import TextReader
 from egpt.vectordb.chroma import ChromaDb
 
 # ---------------------------------------------------------------------------

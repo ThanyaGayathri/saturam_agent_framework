@@ -6,9 +6,9 @@ Demonstrates distributed reasoning roles for coordinated RAG responses.
 """
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.cohere import CohereEmbedder
+from egpt.integrations.knowledge.embedder.cohere import CohereEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reranker.cohere import CohereReranker
+from egpt.integrations.knowledge.reranker.cohere import CohereReranker
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 from egpt.tools.reasoning import ReasoningTools

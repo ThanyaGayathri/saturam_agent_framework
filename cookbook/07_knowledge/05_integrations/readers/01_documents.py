@@ -16,14 +16,14 @@ See also: 02_data.py for CSV/JSON, 03_web.py for web sources.
 import asyncio
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.excel_reader import ExcelReader
+from egpt.integrations.knowledge.reader.excel_reader import ExcelReader
 
 # Other available readers (used via auto-detection or explicit import):
-# from egpt.knowledge.reader.docx_reader import DocxReader
-# from egpt.knowledge.reader.pdf_reader import PDFReader
-# from egpt.knowledge.reader.pptx_reader import PPTXReader
+# from egpt.integrations.knowledge.reader.docx_reader import DocxReader
+# from egpt.integrations.knowledge.reader.pdf_reader import PDFReader
+# from egpt.integrations.knowledge.reader.pptx_reader import PPTXReader
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.qdrant import Qdrant
 from egpt.vectordb.search import SearchType

@@ -7,7 +7,7 @@ Demonstrates Mistral embeddings and knowledge insertion, including a batching va
 
 import asyncio
 
-from egpt.knowledge.embedder.mistral import MistralEmbedder
+from egpt.integrations.knowledge.embedder.mistral import MistralEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

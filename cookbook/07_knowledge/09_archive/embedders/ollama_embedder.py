@@ -7,7 +7,7 @@ Demonstrates Ollama embeddings and knowledge insertion.
 
 import asyncio
 
-from egpt.knowledge.embedder.ollama import OllamaEmbedder
+from egpt.integrations.knowledge.embedder.ollama import OllamaEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

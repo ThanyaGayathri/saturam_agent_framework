@@ -22,7 +22,7 @@ from couchbase.scope import Scope
 
 from egpt.integrations.vectordb.couchbase.couchbase import CouchbaseSearch
 from egpt.knowledge.document import Document
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 
 
 @pytest.fixture
@@ -87,7 +87,7 @@ def mock_collection(mock_scope):
 
 @pytest.fixture
 def mock_embedder():
-    with patch("egpt.knowledge.embedder.openai.OpenAIEmbedder") as mock_embedder:
+    with patch("egpt.integrations.knowledge.embedder.openai.OpenAIEmbedder") as mock_embedder:
         openai_embedder = Mock(spec=OpenAIEmbedder)
         openai_embedder.get_embedding_and_usage.return_value = ([0.1, 0.2, 0.3], None)
         openai_embedder.get_embedding.return_value = [0.1, 0.2, 0.3]

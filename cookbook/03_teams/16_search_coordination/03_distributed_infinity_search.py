@@ -6,9 +6,9 @@ Demonstrates distributed search coordination with Infinity reranking.
 """
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.cohere import CohereEmbedder
+from egpt.integrations.knowledge.embedder.cohere import CohereEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reranker.infinity import InfinityReranker
+from egpt.integrations.knowledge.reranker.infinity import InfinityReranker
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 from egpt.vectordb.lancedb import LanceDb, SearchType

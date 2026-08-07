@@ -6,7 +6,7 @@ Demonstrates distributed team-based RAG using PostgreSQL + pgvector.
 """
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team

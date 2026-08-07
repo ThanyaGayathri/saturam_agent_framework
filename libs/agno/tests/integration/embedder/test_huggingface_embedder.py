@@ -1,6 +1,6 @@
 import pytest
 
-from egpt.knowledge.embedder.huggingface import HuggingfaceCustomEmbedder
+from egpt.integrations.knowledge.embedder.huggingface import HuggingfaceCustomEmbedder
 
 
 @pytest.fixture

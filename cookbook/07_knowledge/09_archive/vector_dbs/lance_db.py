@@ -8,7 +8,7 @@ Demonstrates LanceDB-backed knowledge with sync and async-batching flows.
 import asyncio
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
 from egpt.vectordb.lancedb import LanceDb

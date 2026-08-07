@@ -9,7 +9,7 @@ import asyncio
 import json
 
 from egpt.integrations.db.sqlite import SqliteDb
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.milvus import Milvus
 from egpt.vectordb.search import SearchType

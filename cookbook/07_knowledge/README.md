@@ -18,7 +18,7 @@ Knowledge is EGPT's RAG framework. It handles the full pipeline: reading documen
 
 ```python
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.qdrant import Qdrant, SearchType

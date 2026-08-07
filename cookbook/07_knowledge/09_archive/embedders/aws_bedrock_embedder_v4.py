@@ -10,7 +10,7 @@ Requirements:
 - boto3 installed: pip install boto3
 """
 
-from egpt.knowledge.embedder.aws_bedrock import AwsBedrockEmbedder
+from egpt.integrations.knowledge.embedder.aws_bedrock import AwsBedrockEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

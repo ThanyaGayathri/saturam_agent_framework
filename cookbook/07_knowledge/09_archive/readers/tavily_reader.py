@@ -1,6 +1,6 @@
 import os
 
-from egpt.knowledge.reader.tavily_reader import TavilyReader
+from egpt.integrations.knowledge.reader.tavily_reader import TavilyReader
 
 api_key = os.getenv("TAVILY_API_KEY")
 

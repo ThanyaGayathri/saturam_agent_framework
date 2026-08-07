@@ -907,7 +907,10 @@ class LearnedKnowledgeStore(LearningStore):
             return False
 
         try:
-            from egpt.knowledge.reader.text_reader import TextReader
+            # Through the factory, not a direct import: concrete readers live in the
+            # integrations layer as of EGPT-1.8 and services may only reach them via a
+            # core seam.
+            from egpt.knowledge.reader import ReaderFactory
 
             learning_data = {
                 "title": title.strip(),
@@ -941,7 +944,7 @@ class LearnedKnowledgeStore(LearningStore):
             self.knowledge.insert(
                 name=learning_data["title"],
                 text_content=text_content,
-                reader=TextReader(),
+                reader=ReaderFactory.get_reader_class("text")(),
                 skip_if_exists=True,
                 metadata=filter_metadata,  # Pass metadata for filtering
             )
@@ -977,7 +980,10 @@ class LearnedKnowledgeStore(LearningStore):
             return False
 
         try:
-            from egpt.knowledge.reader.text_reader import TextReader
+            # Through the factory, not a direct import: concrete readers live in the
+            # integrations layer as of EGPT-1.8 and services may only reach them via a
+            # core seam.
+            from egpt.knowledge.reader import ReaderFactory
 
             learning_data = {
                 "title": title.strip(),
@@ -1012,7 +1018,7 @@ class LearnedKnowledgeStore(LearningStore):
                 await self.knowledge.ainsert(
                     name=learning_data["title"],
                     text_content=text_content,
-                    reader=TextReader(),
+                    reader=ReaderFactory.get_reader_class("text")(),
                     skip_if_exists=True,
                     metadata=filter_metadata,  # Pass metadata for filtering
                 )
@@ -1020,7 +1026,7 @@ class LearnedKnowledgeStore(LearningStore):
                 self.knowledge.insert(
                     name=learning_data["title"],
                     text_content=text_content,
-                    reader=TextReader(),
+                    reader=ReaderFactory.get_reader_class("text")(),
                     skip_if_exists=True,
                     metadata=filter_metadata,  # Pass metadata for filtering
                 )

@@ -112,7 +112,7 @@ class MongoDb(VectorDb):
         self.hybrid_rank_constant = hybrid_rank_constant
 
         if embedder is None:
-            from egpt.knowledge.embedder.openai import OpenAIEmbedder
+            from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 
             embedder = OpenAIEmbedder()
             log_debug("Embedder not provided, using OpenAIEmbedder as default.")

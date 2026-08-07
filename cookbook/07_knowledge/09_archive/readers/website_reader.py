@@ -1,7 +1,7 @@
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.website_reader import WebsiteReader
+from egpt.integrations.knowledge.reader.website_reader import WebsiteReader
 from egpt.models.openai import OpenAIChat
 from egpt.vectordb.pgvector import PgVector
 

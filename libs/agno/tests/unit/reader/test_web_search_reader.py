@@ -1,7 +1,7 @@
 import pytest
 
-from egpt.knowledge.reader.utils.url_validation import is_host_allowed
-from egpt.knowledge.reader.web_search_reader import WebSearchReader
+from egpt.integrations.knowledge.reader.utils.url_validation import is_host_allowed
+from egpt.integrations.knowledge.reader.web_search_reader import WebSearchReader
 
 
 def test_web_search_reader_chunk_size_propagation():

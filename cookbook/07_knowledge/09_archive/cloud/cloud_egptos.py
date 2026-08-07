@@ -23,7 +23,7 @@ from os import getenv
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.remote_content import (
+from egpt.integrations.knowledge.remote_content import (
     AzureBlobConfig,
     GitHubConfig,
     S3Config,

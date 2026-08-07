@@ -7,7 +7,7 @@ Demonstrates LangDB embeddings and knowledge insertion.
 
 import asyncio
 
-from egpt.knowledge.embedder.langdb import LangDBEmbedder
+from egpt.integrations.knowledge.embedder.langdb import LangDBEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

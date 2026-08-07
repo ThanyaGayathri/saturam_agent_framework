@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from egpt.knowledge.content import Content
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.remote_content import (
+from egpt.integrations.knowledge.remote_content import (
     AzureBlobConfig,
     GcsConfig,
     GitHubConfig,
@@ -489,7 +489,7 @@ def test_config_returns_remote_sources(test_app, mock_knowledge_with_remote_conf
 @pytest.mark.asyncio
 async def test_process_content_with_remote_s3(mock_knowledge_with_remote_configs):
     """Test processing content from S3."""
-    from egpt.knowledge.remote_content.remote_content import S3Content
+    from egpt.integrations.knowledge.remote_content.remote_content import S3Content
     from egpt.os.routers.knowledge.knowledge import process_content
 
     # Create content with S3 remote source
@@ -505,7 +505,7 @@ async def test_process_content_with_remote_s3(mock_knowledge_with_remote_configs
 @pytest.mark.asyncio
 async def test_process_content_with_remote_github(mock_knowledge_with_remote_configs):
     """Test processing content from GitHub."""
-    from egpt.knowledge.remote_content.remote_content import GitHubContent
+    from egpt.integrations.knowledge.remote_content.remote_content import GitHubContent
     from egpt.os.routers.knowledge.knowledge import process_content
 
     # Create content with GitHub remote source
@@ -521,7 +521,7 @@ async def test_process_content_with_remote_github(mock_knowledge_with_remote_con
 @pytest.mark.asyncio
 async def test_process_content_with_remote_azure_blob(mock_knowledge_with_remote_configs):
     """Test processing content from Azure Blob Storage."""
-    from egpt.knowledge.remote_content.remote_content import AzureBlobContent
+    from egpt.integrations.knowledge.remote_content.remote_content import AzureBlobContent
     from egpt.os.routers.knowledge.knowledge import process_content
 
     # Create content with Azure Blob remote source

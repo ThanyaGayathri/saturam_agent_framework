@@ -18,9 +18,9 @@ See also: 01_qdrant.py for recommended default, 02_local.py for local dev.
 """
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reranker.cohere import CohereReranker
+from egpt.integrations.knowledge.reranker.cohere import CohereReranker
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.pgvector import PgVector
 from egpt.vectordb.search import SearchType

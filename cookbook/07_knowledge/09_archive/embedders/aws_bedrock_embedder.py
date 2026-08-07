@@ -11,9 +11,9 @@ Requirements:
 """
 
 from egpt.knowledge.chunking.fixed import FixedSizeChunking
-from egpt.knowledge.embedder.aws_bedrock import AwsBedrockEmbedder
+from egpt.integrations.knowledge.embedder.aws_bedrock import AwsBedrockEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.pdf_reader import PDFReader
+from egpt.integrations.knowledge.reader.pdf_reader import PDFReader
 from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------

@@ -89,128 +89,106 @@ class ReaderFactory:
     @classmethod
     def _get_pdf_reader(cls, **kwargs) -> Reader:
         """Get PDF reader instance."""
-        from egpt.knowledge.reader.pdf_reader import PDFReader
-
         config: Dict[str, Any] = {
             "name": "PDF Reader",
             "description": "Processes PDF documents with OCR support for images and text extraction",
         }
         config.update(kwargs)
-        return PDFReader(**config)
+        return cls.get_reader_class("pdf")(**config)
 
     @classmethod
     def _get_csv_reader(cls, **kwargs) -> Reader:
         """Get CSV reader instance."""
-        from egpt.knowledge.reader.csv_reader import CSVReader
-
         config: Dict[str, Any] = {
             "name": "CSV Reader",
             "description": "Parses CSV files with custom delimiter support",
         }
         config.update(kwargs)
-        return CSVReader(**config)
+        return cls.get_reader_class("csv")(**config)
 
     @classmethod
     def _get_excel_reader(cls, **kwargs) -> Reader:
         """Get Excel reader instance."""
-        from egpt.knowledge.reader.excel_reader import ExcelReader
-
         config: Dict[str, Any] = {
             "name": "Excel Reader",
             "description": "Processes Excel workbooks (.xlsx and .xls) with sheet filtering and row-based chunking",
         }
         config.update(kwargs)
-        return ExcelReader(**config)
+        return cls.get_reader_class("excel")(**config)
 
     @classmethod
     def _get_field_labeled_csv_reader(cls, **kwargs) -> Reader:
         """Get Field Labeled CSV reader instance."""
-        from egpt.knowledge.reader.field_labeled_csv_reader import FieldLabeledCSVReader
-
         config: Dict[str, Any] = {
             "name": "Field Labeled CSV Reader",
             "description": "Converts CSV rows to field-labeled text format for enhanced readability and context",
         }
         config.update(kwargs)
-        return FieldLabeledCSVReader(**config)
+        return cls.get_reader_class("field_labeled_csv")(**config)
 
     @classmethod
     def _get_docx_reader(cls, **kwargs) -> Reader:
         """Get Docx reader instance."""
-        from egpt.knowledge.reader.docx_reader import DocxReader
-
         config: Dict[str, Any] = {
             "name": "Docx Reader",
             "description": "Extracts text content from Microsoft Word documents (.docx and .doc formats)",
         }
         config.update(kwargs)
-        return DocxReader(**config)
+        return cls.get_reader_class("docx")(**config)
 
     @classmethod
     def _get_pptx_reader(cls, **kwargs) -> Reader:
         """Get PPTX reader instance."""
-        from egpt.knowledge.reader.pptx_reader import PPTXReader
-
         config: Dict[str, Any] = {
             "name": "PPTX Reader",
             "description": "Extracts text content from Microsoft PowerPoint presentations (.pptx format)",
         }
         config.update(kwargs)
-        return PPTXReader(**config)
+        return cls.get_reader_class("pptx")(**config)
 
     @classmethod
     def _get_json_reader(cls, **kwargs) -> Reader:
         """Get JSON reader instance."""
-        from egpt.knowledge.reader.json_reader import JSONReader
-
         config: Dict[str, Any] = {
             "name": "JSON Reader",
             "description": "Processes JSON data structures and API responses with nested object handling",
         }
         config.update(kwargs)
-        return JSONReader(**config)
+        return cls.get_reader_class("json")(**config)
 
     @classmethod
     def _get_markdown_reader(cls, **kwargs) -> Reader:
         """Get Markdown reader instance."""
-        from egpt.knowledge.reader.markdown_reader import MarkdownReader
-
         config: Dict[str, Any] = {
             "name": "Markdown Reader",
             "description": "Processes Markdown documentation with header-aware chunking and formatting preservation",
         }
         config.update(kwargs)
-        return MarkdownReader(**config)
+        return cls.get_reader_class("markdown")(**config)
 
     @classmethod
     def _get_text_reader(cls, **kwargs) -> Reader:
         """Get Text reader instance."""
-        from egpt.knowledge.reader.text_reader import TextReader
-
         config: Dict[str, Any] = {
             "name": "Text Reader",
             "description": "Handles plain text files with customizable chunking strategies and encoding detection",
         }
         config.update(kwargs)
-        return TextReader(**config)
+        return cls.get_reader_class("text")(**config)
 
     @classmethod
     def _get_website_reader(cls, **kwargs) -> Reader:
         """Get Website reader instance."""
-        from egpt.knowledge.reader.website_reader import WebsiteReader
-
         config: Dict[str, Any] = {
             "name": "Website Reader",
             "description": "Scrapes and extracts content from web pages with HTML parsing and text cleaning",
         }
         config.update(kwargs)
-        return WebsiteReader(**config)
+        return cls.get_reader_class("website")(**config)
 
     @classmethod
     def _get_firecrawl_reader(cls, **kwargs) -> Reader:
         """Get Firecrawl reader instance."""
-        from egpt.knowledge.reader.firecrawl_reader import FirecrawlReader
-
         config: Dict[str, Any] = {
             "api_key": kwargs.get("api_key") or os.getenv("FIRECRAWL_API_KEY"),
             "mode": "crawl",
@@ -218,13 +196,11 @@ class ReaderFactory:
             "description": "Advanced web scraping and crawling with JavaScript rendering and structured data extraction",
         }
         config.update(kwargs)
-        return FirecrawlReader(**config)
+        return cls.get_reader_class("firecrawl")(**config)
 
     @classmethod
     def _get_tavily_reader(cls, **kwargs) -> Reader:
         """Get Tavily reader instance."""
-        from egpt.knowledge.reader.tavily_reader import TavilyReader
-
         config: Dict[str, Any] = {
             "api_key": kwargs.get("api_key") or os.getenv("TAVILY_API_KEY"),
             "extract_format": "markdown",
@@ -233,79 +209,67 @@ class ReaderFactory:
             "description": "Extracts content from URLs using Tavily's Extract API with markdown or text output",
         }
         config.update(kwargs)
-        return TavilyReader(**config)
+        return cls.get_reader_class("tavily")(**config)
 
     @classmethod
     def _get_youtube_reader(cls, **kwargs) -> Reader:
         """Get YouTube reader instance."""
-        from egpt.knowledge.reader.youtube_reader import YouTubeReader
-
         config: Dict[str, Any] = {
             "name": "YouTube Reader",
             "description": "Extracts transcripts and metadata from YouTube videos and playlists",
         }
         config.update(kwargs)
-        return YouTubeReader(**config)
+        return cls.get_reader_class("youtube")(**config)
 
     @classmethod
     def _get_arxiv_reader(cls, **kwargs) -> Reader:
         """Get Arxiv reader instance."""
-        from egpt.knowledge.reader.arxiv_reader import ArxivReader
-
         config: Dict[str, Any] = {
             "name": "Arxiv Reader",
             "description": "Downloads and processes academic papers from ArXiv with PDF parsing and metadata extraction",
         }
         config.update(kwargs)
-        return ArxivReader(**config)
+        return cls.get_reader_class("arxiv")(**config)
 
     @classmethod
     def _get_wikipedia_reader(cls, **kwargs) -> Reader:
         """Get Wikipedia reader instance."""
-        from egpt.knowledge.reader.wikipedia_reader import WikipediaReader
-
         config: Dict[str, Any] = {
             "name": "Wikipedia Reader",
             "description": "Fetches and processes Wikipedia articles with section-aware chunking and link resolution",
         }
         config.update(kwargs)
-        return WikipediaReader(**config)
+        return cls.get_reader_class("wikipedia")(**config)
 
     @classmethod
     def _get_web_search_reader(cls, **kwargs) -> Reader:
         """Get Web Search reader instance."""
-        from egpt.knowledge.reader.web_search_reader import WebSearchReader
-
         config: Dict[str, Any] = {
             "name": "Web Search Reader",
             "description": "Executes web searches and processes results with relevance ranking and content extraction",
         }
         config.update(kwargs)
-        return WebSearchReader(**config)
+        return cls.get_reader_class("web_search")(**config)
 
     @classmethod
     def _get_llms_txt_reader(cls, **kwargs) -> Reader:
         """Get LLMs Text reader instance."""
-        from egpt.knowledge.reader.llms_txt_reader import LLMsTxtReader
-
         config: Dict[str, Any] = {
             "name": "LLMs Text Reader",
             "description": "Reads llms.txt files, discovers linked documentation URLs, and fetches their content",
         }
         config.update(kwargs)
-        return LLMsTxtReader(**config)
+        return cls.get_reader_class("llms_txt")(**config)
 
     @classmethod
     def _get_docling_reader(cls, **kwargs) -> Reader:
         """Get Docling reader instance."""
-        from egpt.knowledge.reader.docling_reader import DoclingReader
-
         config: Dict[str, Any] = {
             "name": "Docling Reader",
             "description": "Converts multiple document formats like PDF, DOCX, PPTX, images, HTML, etc. using IBM's Docling library",
         }
         config.update(kwargs)
-        return DoclingReader(**config)
+        return cls.get_reader_class("docling")(**config)
 
     @classmethod
     def _get_reader_method(cls, reader_key: str) -> Callable[[], Reader]:
@@ -332,26 +296,34 @@ class ReaderFactory:
             ValueError: If the reader key is unknown
             ImportError: If the reader's dependencies are not installed
         """
-        # Map reader keys to their import paths
+        # Map reader keys to their import paths. This table is the single place core names
+        # a concrete reader module: EGPT-1.8 moved the readers into the integrations layer,
+        # and the `_get_*_reader` builders above resolve through here rather than importing
+        # them, so core keeps no static dependency on that layer. Resolving by string fails
+        # only when a reader is actually requested, so every row is pinned by
+        # tests/unit/knowledge/test_knowledge_layout.py.
         reader_class_map: Dict[str, tuple] = {
-            "pdf": ("egpt.knowledge.reader.pdf_reader", "PDFReader"),
-            "csv": ("egpt.knowledge.reader.csv_reader", "CSVReader"),
-            "excel": ("egpt.knowledge.reader.excel_reader", "ExcelReader"),
-            "field_labeled_csv": ("egpt.knowledge.reader.field_labeled_csv_reader", "FieldLabeledCSVReader"),
-            "docx": ("egpt.knowledge.reader.docx_reader", "DocxReader"),
-            "pptx": ("egpt.knowledge.reader.pptx_reader", "PPTXReader"),
-            "json": ("egpt.knowledge.reader.json_reader", "JSONReader"),
-            "markdown": ("egpt.knowledge.reader.markdown_reader", "MarkdownReader"),
-            "text": ("egpt.knowledge.reader.text_reader", "TextReader"),
-            "website": ("egpt.knowledge.reader.website_reader", "WebsiteReader"),
-            "firecrawl": ("egpt.knowledge.reader.firecrawl_reader", "FirecrawlReader"),
-            "tavily": ("egpt.knowledge.reader.tavily_reader", "TavilyReader"),
-            "youtube": ("egpt.knowledge.reader.youtube_reader", "YouTubeReader"),
-            "arxiv": ("egpt.knowledge.reader.arxiv_reader", "ArxivReader"),
-            "wikipedia": ("egpt.knowledge.reader.wikipedia_reader", "WikipediaReader"),
-            "web_search": ("egpt.knowledge.reader.web_search_reader", "WebSearchReader"),
-            "llms_txt": ("egpt.knowledge.reader.llms_txt_reader", "LLMsTxtReader"),
-            "docling": ("egpt.knowledge.reader.docling_reader", "DoclingReader"),
+            "pdf": ("egpt.integrations.knowledge.reader.pdf_reader", "PDFReader"),
+            "csv": ("egpt.integrations.knowledge.reader.csv_reader", "CSVReader"),
+            "excel": ("egpt.integrations.knowledge.reader.excel_reader", "ExcelReader"),
+            "field_labeled_csv": (
+                "egpt.integrations.knowledge.reader.field_labeled_csv_reader",
+                "FieldLabeledCSVReader",
+            ),
+            "docx": ("egpt.integrations.knowledge.reader.docx_reader", "DocxReader"),
+            "pptx": ("egpt.integrations.knowledge.reader.pptx_reader", "PPTXReader"),
+            "json": ("egpt.integrations.knowledge.reader.json_reader", "JSONReader"),
+            "markdown": ("egpt.integrations.knowledge.reader.markdown_reader", "MarkdownReader"),
+            "text": ("egpt.integrations.knowledge.reader.text_reader", "TextReader"),
+            "website": ("egpt.integrations.knowledge.reader.website_reader", "WebsiteReader"),
+            "firecrawl": ("egpt.integrations.knowledge.reader.firecrawl_reader", "FirecrawlReader"),
+            "tavily": ("egpt.integrations.knowledge.reader.tavily_reader", "TavilyReader"),
+            "youtube": ("egpt.integrations.knowledge.reader.youtube_reader", "YouTubeReader"),
+            "arxiv": ("egpt.integrations.knowledge.reader.arxiv_reader", "ArxivReader"),
+            "wikipedia": ("egpt.integrations.knowledge.reader.wikipedia_reader", "WikipediaReader"),
+            "web_search": ("egpt.integrations.knowledge.reader.web_search_reader", "WebSearchReader"),
+            "llms_txt": ("egpt.integrations.knowledge.reader.llms_txt_reader", "LLMsTxtReader"),
+            "docling": ("egpt.integrations.knowledge.reader.docling_reader", "DoclingReader"),
         }
 
         if reader_key not in reader_class_map:

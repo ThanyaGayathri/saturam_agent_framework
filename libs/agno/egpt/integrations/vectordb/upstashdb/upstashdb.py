@@ -12,7 +12,7 @@ except ImportError:
 from egpt.filters import FilterExpr
 from egpt.knowledge.document import Document
 from egpt.knowledge.embedder import Embedder
-from egpt.knowledge.reranker.base import Reranker
+from egpt.integrations.knowledge.reranker.base import Reranker
 from egpt.utils.log import log_error, log_info, log_warning, logger
 from egpt.vectordb.base import VectorDb
 
