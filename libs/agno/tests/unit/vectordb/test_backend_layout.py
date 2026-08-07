@@ -5,19 +5,27 @@ installed at all -- which matters, because all 18 backends raise ImportError at 
 when their optional dependency is missing. The shared machinery lives in
 `tests/unit/_layer_guards.py`; EGPT-1.4 uses the same helpers for the model providers.
 
-Vector dbs have no VECTORDB_CLASSES table (the name -> class construction seam is EGPT-1.9),
-so there is no counterpart to EGPT-1.4's `test_every_model_subclass_is_registered`. Its real
-job -- proving the scan root is not stale -- is done here by explicit non-vacuity floors,
-without which these guards would pass while checking nothing. That is not hypothetical:
-EGPT-1.4 moved the providers and its drift guard silently degraded to a no-op.
+EGPT-1.9 gave vector dbs the name -> class construction seam they had been missing, so
+`test_every_vectordb_subclass_is_registered` below is now the direct counterpart to
+EGPT-1.4's model guard. The explicit non-vacuity floors stay: they are what proves the scan
+root is not stale, without which these guards would pass while checking nothing. That is
+not hypothetical -- EGPT-1.4 moved the providers and its drift guard silently degraded to a
+no-op.
 """
 
+from egpt.registry.discovery import declarations
 from tests.unit._layer_guards import (
     check_shim_parity,
     check_submodule_shims,
     discover_subclasses,
     package_root,
+    registered_defining_classes,
 )
+
+# `declarations`, not `entries`: a third-party backend registered through an
+# `egpt.vectordbs` entry point lives outside this repository, so it must not be measured
+# against the integrations tree on disk.
+VECTORDB_DECLARATIONS = declarations("vectordb")
 
 # The 18 backends moved to the integrations layer by EGPT-1.5. A floor rather than an exact
 # count, so adding a 19th backend does not fail these guards -- landing it in the wrong tree
@@ -74,6 +82,50 @@ def test_all_vectordb_backends_live_in_integrations():
         f"least {_BACKEND_COUNT}. The scan root is probably stale, which makes the "
         "companion guards vacuous."
     )
+
+
+def test_every_vectordb_subclass_is_registered():
+    """Every concrete backend on disk must have a declaration row.
+
+    The guard this file's docstring said was missing until EGPT-1.9 gave vector dbs a
+    construction seam. Without it, a backend added to the integrations tree is resolvable
+    only by the user importing its class directly -- so DB-defined-agent hydration, which
+    can only name a backend by string, silently cannot reach it.
+
+    `__init__.py` is excluded from the scan: a package re-export is not a second definition,
+    and counting it as one would demand a row per import path.
+    """
+    root = _vectordb_root()
+    discovered = discover_subclasses(root, "VectorDb", include_init=False)
+    covered = registered_defining_classes(root, ((reg.module, reg.attr) for reg in VECTORDB_DECLARATIONS.values()))
+
+    assert len(discovered) >= _BACKEND_COUNT, (
+        f"Only {len(discovered)} VectorDb subclasses discovered under {root}; expected at "
+        f"least {_BACKEND_COUNT}. The scan root is probably stale, which makes this guard vacuous."
+    )
+
+    missing = sorted(f"{name} ({module})" for (module, name) in discovered - covered)
+    assert not missing, (
+        "VectorDb subclasses with no declaration row: "
+        + ", ".join(missing)
+        + ". Add each to egpt/registry/_declarations/vectordbs.py."
+    )
+
+
+def test_vectordb_declaration_rows_point_at_integrations():
+    """Core must not name a module outside the integrations layer.
+
+    Separate from the drift guard above, which compares sets and so cannot notice a row
+    pointing somewhere wrong -- an extra or misdirected row only grows the `covered` side.
+    Matches the equivalent guards for tools and embedders.
+    """
+    assert VECTORDB_DECLARATIONS, "the vectordb declarations are empty; this guard would check nothing."
+
+    for name, registration in VECTORDB_DECLARATIONS.items():
+        assert registration.module.startswith("egpt.integrations.vectordb."), (
+            f"vectordb declaration '{name}' points at {registration.module}, which is not in the "
+            "integrations layer. Core must not name a module outside it."
+        )
 
 
 def test_deprecated_vectordb_tree_holds_only_shims():
