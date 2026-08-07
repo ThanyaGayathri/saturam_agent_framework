@@ -12,7 +12,7 @@ With prefix_match=True: Partial words match, enabling typeahead search.
 """
 
 from egpt.knowledge.document import Document
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.vectordb.pgvector import PgVector
 from egpt.vectordb.search import SearchType
 

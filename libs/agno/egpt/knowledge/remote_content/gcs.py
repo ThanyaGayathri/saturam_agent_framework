@@ -1,51 +1,23 @@
-from __future__ import annotations
+"""Deprecated compatibility shim (EGPT-1.8).
 
-from typing import TYPE_CHECKING, Optional
+Import from
+``egpt.integrations.knowledge.remote_content.gcs``
+instead; this module will be removed.
 
-from egpt.knowledge.remote_content.base import BaseStorageConfig
+The star-import keeps star-imports and plain attribute access working on the legacy dotted
+path, and deliberately declares no ``__all__`` of its own so that surface stays exactly what
+it was before the move -- an ``__all__`` here would narrow it. ``mock.patch`` against this
+module patches the shim's binding rather than the implementation; patch the target instead.
+"""
 
-if TYPE_CHECKING:
-    from egpt.knowledge.remote_content.remote_content import GCSContent
+import warnings as _warnings
 
+from egpt.integrations.knowledge.remote_content.gcs import *  # noqa: F401,F403
 
-class GcsConfig(BaseStorageConfig):
-    """Configuration for Google Cloud Storage content source."""
-
-    bucket_name: str
-    project: Optional[str] = None
-    credentials_path: Optional[str] = None
-    prefix: Optional[str] = None
-
-    def file(self, blob_name: str) -> "GCSContent":
-        """Create a content reference for a specific file.
-
-        Args:
-            blob_name: The GCS blob name (path to file).
-
-        Returns:
-            GCSContent configured with this source's credentials.
-        """
-        from egpt.knowledge.remote_content.remote_content import GCSContent
-
-        return GCSContent(
-            bucket_name=self.bucket_name,
-            blob_name=blob_name,
-            config_id=self.id,
-        )
-
-    def folder(self, prefix: str) -> "GCSContent":
-        """Create a content reference for a folder (prefix).
-
-        Args:
-            prefix: The GCS prefix (folder path).
-
-        Returns:
-            GCSContent configured with this source's credentials.
-        """
-        from egpt.knowledge.remote_content.remote_content import GCSContent
-
-        return GCSContent(
-            bucket_name=self.bucket_name,
-            prefix=prefix,
-            config_id=self.id,
-        )
+_warnings.warn(
+    "egpt.knowledge.remote_content.gcs is deprecated; import from "
+    "egpt.integrations.knowledge.remote_content.gcs instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

@@ -1,6 +1,6 @@
 from egpt.agent import Agent
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.excel_reader import ExcelReader
+from egpt.integrations.knowledge.reader.excel_reader import ExcelReader
 from egpt.models.openai import OpenAIChat
 from egpt.vectordb.pgvector import PgVector
 

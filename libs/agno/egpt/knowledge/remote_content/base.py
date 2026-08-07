@@ -1,28 +1,23 @@
-from __future__ import annotations
+"""Deprecated compatibility shim (EGPT-1.8).
 
-from dataclasses import dataclass, field
-from typing import List, Optional
+Import from
+``egpt.integrations.knowledge.remote_content.base``
+instead; this module will be removed.
 
-from pydantic import BaseModel, ConfigDict
+The star-import keeps star-imports and plain attribute access working on the legacy dotted
+path, and deliberately declares no ``__all__`` of its own so that surface stays exactly what
+it was before the move -- an ``__all__`` here would narrow it. ``mock.patch`` against this
+module patches the shim's binding rather than the implementation; patch the target instead.
+"""
 
+import warnings as _warnings
 
-@dataclass
-class ListFilesResult:
-    """Result of listing files from a remote source."""
+from egpt.integrations.knowledge.remote_content.base import *  # noqa: F401,F403
 
-    files: List[dict] = field(default_factory=list)
-    folders: List[dict] = field(default_factory=list)
-    page: int = 1
-    limit: int = 100
-    total_count: int = 0
-    total_pages: int = 0
-
-
-class BaseStorageConfig(BaseModel):
-    """Base configuration for remote content sources."""
-
-    id: str
-    name: str
-    metadata: Optional[dict] = None
-
-    model_config = ConfigDict(extra="allow")
+_warnings.warn(
+    "egpt.knowledge.remote_content.base is deprecated; import from "
+    "egpt.integrations.knowledge.remote_content.base instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

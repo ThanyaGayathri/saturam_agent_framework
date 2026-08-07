@@ -2,7 +2,7 @@ import os
 
 import pytest
 
-from egpt.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
 
 
 @pytest.fixture

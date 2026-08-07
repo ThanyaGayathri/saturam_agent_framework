@@ -14,7 +14,7 @@ See also: 03_reranking.py for improving search results with reranking.
 import asyncio
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.qdrant import Qdrant

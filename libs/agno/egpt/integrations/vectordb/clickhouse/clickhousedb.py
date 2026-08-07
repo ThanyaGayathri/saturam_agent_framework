@@ -78,7 +78,7 @@ class Clickhouse(VectorDb):
         # Embedder for embedding the document contents
         _embedder = embedder
         if _embedder is None:
-            from egpt.knowledge.embedder.openai import OpenAIEmbedder
+            from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 
             _embedder = OpenAIEmbedder()
             log_debug("Embedder not provided, using OpenAIEmbedder as default.")

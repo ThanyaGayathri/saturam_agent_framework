@@ -19,9 +19,9 @@ See also: 02_hybrid_search.py for search type options.
 import asyncio
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reranker.cohere import CohereReranker
+from egpt.integrations.knowledge.reranker.cohere import CohereReranker
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.qdrant import Qdrant
 from egpt.vectordb.search import SearchType

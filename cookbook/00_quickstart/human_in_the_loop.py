@@ -30,9 +30,9 @@ from datetime import datetime, timezone
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
 from egpt.integrations.tools.yfinance import YFinanceTools
-from egpt.knowledge.embedder.google import GeminiEmbedder
+from egpt.integrations.knowledge.embedder.google import GeminiEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.text_reader import TextReader
+from egpt.integrations.knowledge.reader.text_reader import TextReader
 from egpt.models.google import Gemini
 from egpt.tools import tool
 from egpt.utils import pprint

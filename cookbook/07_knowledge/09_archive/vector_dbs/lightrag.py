@@ -11,7 +11,7 @@ from os import getenv
 
 from egpt.agent import Agent
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.wikipedia_reader import WikipediaReader
+from egpt.integrations.knowledge.reader.wikipedia_reader import WikipediaReader
 from egpt.vectordb.lightrag import LightRag
 
 # ---------------------------------------------------------------------------

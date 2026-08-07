@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from egpt.knowledge.loaders.github import GitHubLoader
-from egpt.knowledge.remote_content.github import GitHubConfig
+from egpt.integrations.knowledge.loaders.github import GitHubLoader
+from egpt.integrations.knowledge.remote_content.github import GitHubConfig
 
 
 @pytest.fixture
@@ -77,7 +77,7 @@ class TestBuildGitHubHeaders:
 
 
 class TestGetGitHubAppToken:
-    @patch("egpt.knowledge.loaders.github.httpx.Client")
+    @patch("egpt.integrations.knowledge.loaders.github.httpx.Client")
     @patch("jwt.encode", return_value="fake_jwt_token")
     def test_generates_token(self, mock_jwt_encode, mock_client_cls, loader, app_config):
         """Test JWT generation and token exchange."""
@@ -102,7 +102,7 @@ class TestGetGitHubAppToken:
         assert call_args[0][0]["iss"] == "12345"
         assert call_args[1]["algorithm"] == "RS256"
 
-    @patch("egpt.knowledge.loaders.github.httpx.Client")
+    @patch("egpt.integrations.knowledge.loaders.github.httpx.Client")
     @patch("jwt.encode", return_value="fake_jwt")
     def test_caches_token(self, mock_jwt_encode, mock_client_cls, loader, app_config):
         """Test that the token is cached and reused."""
@@ -128,7 +128,7 @@ class TestGetGitHubAppToken:
         # JWT should only be generated once
         assert mock_jwt_encode.call_count == 1
 
-    @patch("egpt.knowledge.loaders.github.httpx.Client")
+    @patch("egpt.integrations.knowledge.loaders.github.httpx.Client")
     @patch("jwt.encode", return_value="fake_jwt")
     def test_refreshes_expired_token(self, mock_jwt_encode, mock_client_cls, loader, app_config):
         """Test that an expired cached token is refreshed."""
@@ -202,7 +202,7 @@ class TestAsyncGetGitHubAppToken:
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
 
-        with patch("egpt.knowledge.loaders.github.AsyncClient") as mock_cls:
+        with patch("egpt.integrations.knowledge.loaders.github.AsyncClient") as mock_cls:
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -228,7 +228,7 @@ class TestAsyncGetGitHubAppToken:
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
 
-        with patch("egpt.knowledge.loaders.github.AsyncClient") as mock_cls:
+        with patch("egpt.integrations.knowledge.loaders.github.AsyncClient") as mock_cls:
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -255,7 +255,7 @@ class TestAsyncGetGitHubAppToken:
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_response
 
-        with patch("egpt.knowledge.loaders.github.AsyncClient") as mock_cls:
+        with patch("egpt.integrations.knowledge.loaders.github.AsyncClient") as mock_cls:
             mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=False)
 
@@ -281,7 +281,7 @@ class TestLoadFromGithubMissingRepo:
     @pytest.fixture
     def content_without_repo(self):
         from egpt.knowledge.content import Content
-        from egpt.knowledge.remote_content.remote_content import GitHubContent
+        from egpt.integrations.knowledge.remote_content.remote_content import GitHubContent
 
         return Content(
             name="README.md",

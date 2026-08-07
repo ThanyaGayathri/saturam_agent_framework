@@ -6,7 +6,7 @@ import pytest
 from egpt.agent import Agent
 from egpt.integrations.vectordb.lancedb import LanceDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.markdown_reader import MarkdownReader
+from egpt.integrations.knowledge.reader.markdown_reader import MarkdownReader
 
 
 @pytest.fixture

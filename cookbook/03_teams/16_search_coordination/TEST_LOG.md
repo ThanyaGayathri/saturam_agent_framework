@@ -24,7 +24,7 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/16_search_coordination/03_distributed_infinity_search.py", line 9, in <module>
-    from egpt.knowledge.embedder.cohere import CohereEmbedder
+    from egpt.integrations.knowledge.embedder.cohere import CohereEmbedder
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/knowledge/embedder/cohere.py", line 13, in <module>
     raise ImportError("`cohere` not installed. Please install using `pip install cohere`.")
 ImportError: `cohere` not installed. Please install using `pip install cohere`.
@@ -46,7 +46,7 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/16_search_coordination/02_coordinated_reasoning_rag.py", line 9, in <module>
-    from egpt.knowledge.embedder.cohere import CohereEmbedder
+    from egpt.integrations.knowledge.embedder.cohere import CohereEmbedder
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/knowledge/embedder/cohere.py", line 13, in <module>
     raise ImportError("`cohere` not installed. Please install using `pip install cohere`.")
 ImportError: `cohere` not installed. Please install using `pip install cohere`.
@@ -68,7 +68,7 @@ During handling of the above exception, another exception occurred:
 
 Traceback (most recent call last):
   File "/Users/ab/conductor/workspaces/agno/tallinn/cookbook/03_teams/16_search_coordination/01_coordinated_agentic_rag.py", line 9, in <module>
-    from egpt.knowledge.embedder.cohere import CohereEmbedder
+    from egpt.integrations.knowledge.embedder.cohere import CohereEmbedder
   File "/Users/ab/conductor/workspaces/agno/tallinn/libs/agno/agno/knowledge/embedder/cohere.py", line 13, in <module>
     raise ImportError("`cohere` not installed. Please install using `pip install cohere`.")
 ImportError: `cohere` not installed. Please install using `pip install cohere`.

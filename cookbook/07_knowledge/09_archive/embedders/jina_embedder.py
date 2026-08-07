@@ -7,7 +7,7 @@ Demonstrates Jina embeddings, usage metadata retrieval, and a batching variant.
 
 import asyncio
 
-from egpt.knowledge.embedder.jina import JinaEmbedder
+from egpt.integrations.knowledge.embedder.jina import JinaEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

@@ -1451,9 +1451,11 @@ def add_to_knowledge(team: "Team", query: str, result: str) -> str:
     document_name = query.replace(" ", "_").replace("?", "").replace("!", "").replace(".", "")
     document_content = json.dumps({"query": query, "result": result}, ensure_ascii=False)
     log_info(f"Adding document to Knowledge: {document_name}: {document_content}")
-    from egpt.knowledge.reader.text_reader import TextReader
+    # Through the factory, not a direct import: concrete readers live in the integrations
+    # layer as of EGPT-1.8 and orchestration may only reach them via a core seam.
+    from egpt.knowledge.reader import ReaderFactory
 
-    insert_method(name=document_name, text_content=document_content, reader=TextReader())
+    insert_method(name=document_name, text_content=document_content, reader=ReaderFactory.get_reader_class("text")())
     return "Successfully added to knowledge base"
 
 

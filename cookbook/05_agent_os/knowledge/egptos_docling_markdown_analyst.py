@@ -10,7 +10,7 @@ from pathlib import Path
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.docling_reader import DoclingReader
+from egpt.integrations.knowledge.reader.docling_reader import DoclingReader
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.vectordb.pgvector import PgVector

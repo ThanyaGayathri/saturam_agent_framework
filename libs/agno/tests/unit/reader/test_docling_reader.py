@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from egpt.knowledge.document.base import Document
-from egpt.knowledge.reader.docling_reader import DoclingReader
+from egpt.integrations.knowledge.reader.docling_reader import DoclingReader
 
 
 @pytest.fixture
@@ -37,7 +37,7 @@ def test_read_file(mock_converter):
     """Test reading a file with DoclingReader"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader()
         documents = reader.read(Path("test.pdf"))
@@ -52,7 +52,7 @@ def test_markdown_output(mock_converter):
     """Test markdown output format"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader(output_format="markdown")
         documents = reader.read(Path("test.pdf"))
@@ -65,7 +65,7 @@ def test_text_output(mock_converter, mock_docling_result):
     """Test text output format"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader(output_format="text")
         documents = reader.read(Path("test.pdf"))
@@ -78,7 +78,7 @@ def test_json_output(mock_converter, mock_docling_result):
     """Test JSON output format"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader(output_format="json")
         documents = reader.read(Path("test.pdf"))
@@ -92,7 +92,7 @@ def test_vtt_output(mock_converter, mock_docling_result):
     """Test VTT output format"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader(output_format="vtt")
         documents = reader.read(Path("test.pdf"))
@@ -105,7 +105,7 @@ def test_html_output(mock_converter, mock_docling_result):
     """Test HTML output format"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader(output_format="html")
         documents = reader.read(Path("test.pdf"))
@@ -119,7 +119,7 @@ def test_doctags_output(mock_converter, mock_docling_result):
     """Test Doctags output format"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader(output_format="doctags")
         documents = reader.read(Path("test.pdf"))
@@ -134,7 +134,7 @@ async def test_async_read(mock_converter):
     """Test async reading with DoclingReader"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader()
         documents = await reader.async_read(Path("test.pdf"))
@@ -153,7 +153,7 @@ def test_reader_with_chunking(mock_converter):
 
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader()
         reader.chunk = True
@@ -172,7 +172,7 @@ def test_reading_from_bytesio(mock_converter):
     file_obj = BytesIO(b"test content@123")
     file_obj.name = "test.pdf"
 
-    with patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
+    with patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
         reader = DoclingReader()
         documents = reader.read(file_obj)
 
@@ -195,7 +195,7 @@ def test_conversion_error(mock_converter):
 
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader()
         documents = reader.read(Path("test.pdf"))
@@ -207,7 +207,7 @@ async def test_async_reader_processing(mock_converter):
     """Test concurrent async processing"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader()
         tasks = [reader.async_read(Path("test.pdf")) for _ in range(3)]
@@ -228,7 +228,7 @@ async def test_async_with_chunking(mock_converter):
 
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader()
         reader.chunk = True
@@ -246,7 +246,7 @@ def test_custom_name(mock_converter):
     """Test providing a custom document name"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader()
         documents = reader.read(Path("test.pdf"), name="custom_name")
@@ -257,7 +257,7 @@ def test_custom_name(mock_converter):
 
 def test_input_url_http(mock_converter):
     """Test reading from HTTP URL"""
-    with patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
+    with patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
         reader = DoclingReader()
         documents = reader.read("http://example.com/document.pdf")
 
@@ -267,7 +267,7 @@ def test_input_url_http(mock_converter):
 
 def test_input_url_https(mock_converter):
     """Test reading from HTTPS URL"""
-    with patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
+    with patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
         reader = DoclingReader()
         documents = reader.read("https://example.com/research/paper.pdf")
 
@@ -277,7 +277,7 @@ def test_input_url_https(mock_converter):
 
 def test_input_url_with_query_params(mock_converter):
     """Test reading from URL with query parameters"""
-    with patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
+    with patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
         reader = DoclingReader()
         documents = reader.read("https://example.com/doc.pdf?token=abc123&version=2")
 
@@ -287,7 +287,7 @@ def test_input_url_with_query_params(mock_converter):
 
 def test_url_custom_name(mock_converter):
     """Test reading from URL with custom name"""
-    with patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
+    with patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
         reader = DoclingReader()
         documents = reader.read("https://example.com/document.pdf", name="custom_name")
 
@@ -297,7 +297,7 @@ def test_url_custom_name(mock_converter):
 
 def test_url_without_extension(mock_converter):
     """Test reading from URL without file extension"""
-    with patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
+    with patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
         reader = DoclingReader()
         documents = reader.read("https://arxiv.org/pdf/2408.09869")
 
@@ -308,7 +308,7 @@ def test_url_without_extension(mock_converter):
 @pytest.mark.asyncio
 async def test_async_url(mock_converter):
     """Test async reading from URL"""
-    with patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
+    with patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter):
         reader = DoclingReader()
         documents = await reader.async_read("https://example.com/document.pdf")
 
@@ -320,7 +320,7 @@ def test_default_output_format(mock_converter):
     """Test that default output format is markdown"""
     with (
         patch("pathlib.Path.exists", return_value=True),
-        patch("egpt.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
+        patch("egpt.integrations.knowledge.reader.docling_reader.DocumentConverter", return_value=mock_converter),
     ):
         reader = DoclingReader()
         documents = reader.read(Path("test.pdf"))

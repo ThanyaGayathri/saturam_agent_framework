@@ -16,7 +16,7 @@ The agent decides when to save and apply learnings.
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
 from egpt.knowledge import Knowledge
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.learn import LearnedKnowledgeConfig, LearningMachine, LearningMode
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.pgvector import PgVector, SearchType

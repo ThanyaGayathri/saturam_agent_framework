@@ -15,10 +15,10 @@ See also: 01_documents.py for PDF/DOCX, 03_web.py for web sources.
 import asyncio
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.csv_reader import CSVReader
-from egpt.knowledge.reader.json_reader import JSONReader
+from egpt.integrations.knowledge.reader.csv_reader import CSVReader
+from egpt.integrations.knowledge.reader.json_reader import JSONReader
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.qdrant import Qdrant
 from egpt.vectordb.search import SearchType

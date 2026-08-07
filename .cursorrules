@@ -13,7 +13,7 @@ Documentation:
 Basic Agent (start here):
 ```python
 from egpt.agent import Agent
-from egpt.models.openai import OpenAIResponses
+from egpt.integrations.models.openai import OpenAIResponses
 
 agent = Agent(
     model=OpenAIResponses(id="gpt-5.5"),
@@ -25,7 +25,7 @@ agent.print_response("Your query", stream=True)
 
 Agent with Tools:
 ```python
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.websearch import WebSearchTools
 
 agent = Agent(
     model=OpenAIResponses(id="gpt-5.5"),
@@ -112,8 +112,8 @@ workflow = Workflow(
 Knowledge/RAG:
 ```python
 from egpt.knowledge.knowledge import Knowledge
-from egpt.vectordb.lancedb import LanceDb, SearchType
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.vectordb.lancedb import LanceDb, SearchType
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 
 knowledge = Knowledge(
     vector_db=LanceDb(

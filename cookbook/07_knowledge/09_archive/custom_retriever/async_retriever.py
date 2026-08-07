@@ -2,7 +2,7 @@ import asyncio
 from typing import Optional
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.qdrant import Qdrant
 from qdrant_client import AsyncQdrantClient

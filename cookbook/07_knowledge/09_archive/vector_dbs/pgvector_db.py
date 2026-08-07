@@ -8,7 +8,7 @@ Demonstrates PgVector-backed knowledge with sync, async, and async-batching flow
 import asyncio
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

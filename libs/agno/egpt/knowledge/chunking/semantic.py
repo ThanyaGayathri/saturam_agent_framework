@@ -84,10 +84,12 @@ class SemanticChunking(ChunkingStrategy):
         chunker_params: Optional[Dict[str, Any]] = None,
     ):
         if embedder is None:
-            from egpt.knowledge.embedder.openai import OpenAIEmbedder
+            # Resolved through the core seam rather than imported: the concrete embedders
+            # live in the integrations layer as of EGPT-1.8, and chunking stays in core.
+            from egpt.knowledge.utils import get_default_embedder
 
-            embedder = OpenAIEmbedder()  # type: ignore
-            log_debug("Embedder not provided, using OpenAIEmbedder as default.")
+            embedder = get_default_embedder()
+            log_debug(f"Embedder not provided, using {type(embedder).__name__} as default.")
         self.embedder = embedder
         self.chunk_size = chunk_size
         self.similarity_threshold = similarity_threshold

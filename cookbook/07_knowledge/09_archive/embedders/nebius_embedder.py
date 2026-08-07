@@ -7,7 +7,7 @@ Demonstrates Nebius embeddings and knowledge insertion.
 
 import asyncio
 
-from egpt.knowledge.embedder.nebius import NebiusEmbedder
+from egpt.integrations.knowledge.embedder.nebius import NebiusEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

@@ -2,7 +2,7 @@ import asyncio
 
 from egpt.agent import Agent
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.pptx_reader import PPTXReader
+from egpt.integrations.knowledge.reader.pptx_reader import PPTXReader
 from egpt.models.openai import OpenAIChat
 from egpt.vectordb.pgvector import PgVector
 

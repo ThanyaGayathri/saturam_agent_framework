@@ -30,7 +30,7 @@ class TestAzureOpenAIEmbedderInputFormat:
     def test_response_wraps_input_as_list(self, _mock_openai):
         mock_client, _ = _mock_openai
 
-        from egpt.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+        from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
 
         embedder = AzureOpenAIEmbedder(
             id="text-embedding-3-small",
@@ -48,7 +48,7 @@ class TestAzureOpenAIEmbedderInputFormat:
     def test_response_wraps_input_for_non_default_model(self, _mock_openai):
         mock_client, _ = _mock_openai
 
-        from egpt.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+        from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
 
         embedder = AzureOpenAIEmbedder(
             id="Cohere-embed-v3-multilingual",
@@ -69,7 +69,7 @@ class TestAzureOpenAIEmbedderInputFormat:
         """When azure_deployment is set, dimensions should be forwarded."""
         mock_client, _ = _mock_openai
 
-        from egpt.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+        from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
 
         embedder = AzureOpenAIEmbedder(
             id="Cohere-embed-v3-multilingual",
@@ -89,7 +89,7 @@ class TestAzureOpenAIEmbedderInputFormat:
         """When using a custom model without setting dimensions, dimensions should NOT be in the request."""
         mock_client, _ = _mock_openai
 
-        from egpt.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+        from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
 
         embedder = AzureOpenAIEmbedder(
             id="Cohere-embed-v3-multilingual",
@@ -108,7 +108,7 @@ class TestAzureOpenAIEmbedderInputFormat:
     async def test_aresponse_wraps_input_as_list(self, _mock_openai):
         _, mock_response = _mock_openai
 
-        from egpt.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+        from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
 
         async_mock = MagicMock()
         async_mock.embeddings.create = AsyncMock(return_value=mock_response)

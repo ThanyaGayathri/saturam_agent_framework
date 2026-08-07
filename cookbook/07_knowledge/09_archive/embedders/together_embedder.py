@@ -7,7 +7,7 @@ Demonstrates Together embeddings and knowledge insertion.
 
 import asyncio
 
-from egpt.knowledge.embedder.together import TogetherEmbedder
+from egpt.integrations.knowledge.embedder.together import TogetherEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

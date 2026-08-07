@@ -1,7 +1,7 @@
 """Run `uv pip install ddgs sqlalchemy pgvector pypdf anthropic openai` to install dependencies."""
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.vertexai.claude import Claude
 from egpt.vectordb.pgvector import PgVector

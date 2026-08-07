@@ -7,7 +7,7 @@ Demonstrates FastEmbed embeddings and knowledge insertion.
 
 import asyncio
 
-from egpt.knowledge.embedder.fastembed import FastEmbedEmbedder
+from egpt.integrations.knowledge.embedder.fastembed import FastEmbedEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

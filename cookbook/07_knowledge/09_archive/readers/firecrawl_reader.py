@@ -1,6 +1,6 @@
 import os
 
-from egpt.knowledge.reader.firecrawl_reader import FirecrawlReader
+from egpt.integrations.knowledge.reader.firecrawl_reader import FirecrawlReader
 
 api_key = os.getenv("FIRECRAWL_API_KEY")
 

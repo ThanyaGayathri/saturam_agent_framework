@@ -1,7 +1,7 @@
 """Run `uv pip install ddgs sqlalchemy pgvector pypdf openai` to install dependencies."""
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.azure import AzureAIFoundry
 from egpt.vectordb.pgvector import PgVector

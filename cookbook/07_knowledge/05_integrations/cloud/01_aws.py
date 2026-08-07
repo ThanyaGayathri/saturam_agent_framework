@@ -23,7 +23,7 @@ import asyncio
 from os import getenv
 
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.remote_content import S3Config
+from egpt.integrations.knowledge.remote_content import S3Config
 from egpt.vectordb.qdrant import Qdrant
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from egpt.knowledge.reader.field_labeled_csv_reader import FieldLabeledCSVReader
+from egpt.integrations.knowledge.reader.field_labeled_csv_reader import FieldLabeledCSVReader
 
 # Sample CSV data
 SAMPLE_CSV = """name,age,city

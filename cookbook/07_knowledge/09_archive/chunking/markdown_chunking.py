@@ -10,7 +10,7 @@ import asyncio
 from egpt.agent import Agent
 from egpt.knowledge.chunking.markdown import MarkdownChunking
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.markdown_reader import MarkdownReader
+from egpt.integrations.knowledge.reader.markdown_reader import MarkdownReader
 from egpt.vectordb.pgvector import PgVector
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"

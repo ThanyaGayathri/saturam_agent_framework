@@ -13,7 +13,7 @@ from egpt.integrations.models.openai import OpenAIChat
 from egpt.integrations.tools.calculator import CalculatorTools
 from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.integrations.vectordb.pgvector import PgVector
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.os import EgptOS
 from egpt.team.team import Team

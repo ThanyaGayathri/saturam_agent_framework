@@ -1,14 +1,23 @@
-from typing import List
+"""Deprecated compatibility shim (EGPT-1.8).
 
-from pydantic import BaseModel, ConfigDict
+Import from
+``egpt.integrations.knowledge.reranker.base``
+instead; this module will be removed.
 
-from egpt.knowledge.document import Document
+The star-import keeps star-imports and plain attribute access working on the legacy dotted
+path, and deliberately declares no ``__all__`` of its own so that surface stays exactly what
+it was before the move -- an ``__all__`` here would narrow it. ``mock.patch`` against this
+module patches the shim's binding rather than the implementation; patch the target instead.
+"""
 
+import warnings as _warnings
 
-class Reranker(BaseModel):
-    """Base class for rerankers"""
+from egpt.integrations.knowledge.reranker.base import *  # noqa: F401,F403
 
-    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
-
-    def rerank(self, query: str, documents: List[Document]) -> List[Document]:
-        raise NotImplementedError
+_warnings.warn(
+    "egpt.knowledge.reranker.base is deprecated; import from "
+    "egpt.integrations.knowledge.reranker.base instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

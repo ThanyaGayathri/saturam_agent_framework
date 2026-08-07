@@ -20,7 +20,7 @@ Knowledge is used by:
 """
 
 from egpt.integrations.db.postgres import PostgresDb
-from egpt.knowledge.embedder.google import GeminiEmbedder
+from egpt.integrations.knowledge.embedder.google import GeminiEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector, SearchType
 from settings import (

@@ -26,7 +26,7 @@ import asyncio
 from os import getenv
 
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.remote_content import GitHubConfig
+from egpt.integrations.knowledge.remote_content import GitHubConfig
 from egpt.vectordb.pgvector import PgVector
 
 github_config = GitHubConfig(

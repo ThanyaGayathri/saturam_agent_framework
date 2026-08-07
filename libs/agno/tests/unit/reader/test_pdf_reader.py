@@ -5,7 +5,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from egpt.knowledge.reader.pdf_reader import (
+from egpt.integrations.knowledge.reader.pdf_reader import (
     PDFImageReader,
     PDFReader,
     _clean_page_numbers,

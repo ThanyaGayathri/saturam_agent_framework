@@ -27,7 +27,7 @@ from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
 from egpt.integrations.tools.coding import CodingTools
 from egpt.knowledge import Knowledge
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.learn import LearnedKnowledgeConfig, LearningMachine, LearningMode
 from egpt.models.openai import OpenAIResponses
 from egpt.tools.reasoning import ReasoningTools

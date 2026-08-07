@@ -10,7 +10,7 @@ from egpt.knowledge.content import Content, FileData
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader import ReaderFactory
 from egpt.knowledge.reader.base import Reader
-from egpt.knowledge.remote_content.s3 import S3Config
+from egpt.integrations.knowledge.remote_content.s3 import S3Config
 from egpt.knowledge.utils import get_all_chunkers_info, get_all_readers_info, get_content_types_to_readers_mapping
 from egpt.os.auth import get_auth_token_from_request, get_authentication_dependency
 from egpt.os.routers.knowledge.schemas import (
@@ -291,7 +291,7 @@ def attach_routes(router: APIRouter, knowledge_instances: List[Union[Knowledge, 
 
         # Parse and validate source_params. Keys are allowlisted per provider
         # so we never spread raw user input into a config's factory method.
-        from egpt.knowledge.remote_content.github import GitHubConfig
+        from egpt.integrations.knowledge.remote_content.github import GitHubConfig
 
         allowed_source_params: Dict[type, set] = {
             GitHubConfig: {"repo"},

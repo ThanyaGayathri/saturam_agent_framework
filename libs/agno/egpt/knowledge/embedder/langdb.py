@@ -1,22 +1,23 @@
-from dataclasses import dataclass
-from os import getenv
-from typing import Optional
+"""Deprecated compatibility shim (EGPT-1.8).
 
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+Import from
+``egpt.integrations.knowledge.embedder.langdb``
+instead; this module will be removed.
 
+The star-import keeps star-imports and plain attribute access working on the legacy dotted
+path, and deliberately declares no ``__all__`` of its own so that surface stays exactly what
+it was before the move -- an ``__all__`` here would narrow it. ``mock.patch`` against this
+module patches the shim's binding rather than the implementation; patch the target instead.
+"""
 
-@dataclass
-class LangDBEmbedder(OpenAIEmbedder):
-    id: str = "text-embedding-ada-002"
-    dimensions: int = 1536
-    api_key: Optional[str] = getenv("LANGDB_API_KEY")
-    project_id: Optional[str] = getenv("LANGDB_PROJECT_ID")
-    base_url: Optional[str] = None
+import warnings as _warnings
 
-    def __post_init__(self):
-        """Set the base_url based on project_id if not provided."""
-        if not self.project_id:
-            raise ValueError("LANGDB_PROJECT_ID not set in the environment")
+from egpt.integrations.knowledge.embedder.langdb import *  # noqa: F401,F403
 
-        if not self.base_url:
-            self.base_url = f"https://api.us-east-1.langdb.ai/{self.project_id}/v1"
+_warnings.warn(
+    "egpt.knowledge.embedder.langdb is deprecated; import from "
+    "egpt.integrations.knowledge.embedder.langdb instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

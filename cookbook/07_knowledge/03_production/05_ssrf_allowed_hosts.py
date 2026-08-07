@@ -18,9 +18,9 @@ This matters in production for two reasons:
 import asyncio
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.website_reader import WebsiteReader
+from egpt.integrations.knowledge.reader.website_reader import WebsiteReader
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.lancedb import LanceDb, SearchType
 
@@ -105,16 +105,16 @@ if __name__ == "__main__":
         # 4. Same knob exists on the other URL-fetching readers
         # -------------------------------------------------------------------
 
-        #   from egpt.knowledge.reader.firecrawl_reader import FirecrawlReader
+        #   from egpt.integrations.knowledge.reader.firecrawl_reader import FirecrawlReader
         #   FirecrawlReader(api_key=..., allowed_hosts=["modelcontextprotocol.io"])
         #
-        #   from egpt.knowledge.reader.docling_reader import DoclingReader
+        #   from egpt.integrations.knowledge.reader.docling_reader import DoclingReader
         #   DoclingReader(allowed_hosts=["modelcontextprotocol.io"])
         #
-        #   from egpt.knowledge.reader.llms_txt_reader import LLMsTxtReader
+        #   from egpt.integrations.knowledge.reader.llms_txt_reader import LLMsTxtReader
         #   LLMsTxtReader(allowed_hosts=["modelcontextprotocol.io"])
         #
-        #   from egpt.knowledge.reader.web_search_reader import WebSearchReader
+        #   from egpt.integrations.knowledge.reader.web_search_reader import WebSearchReader
         #   WebSearchReader(allowed_hosts=["modelcontextprotocol.io", "github.com"])
 
     asyncio.run(main())

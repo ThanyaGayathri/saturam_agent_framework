@@ -12,7 +12,7 @@ from egpt.client.os import EgptOSClient
 from egpt.integrations.db.postgres import AsyncPostgresDb
 from egpt.integrations.models.openai import OpenAIChat
 from egpt.integrations.vectordb.pgvector.pgvector import PgVector
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig

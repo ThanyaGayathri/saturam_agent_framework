@@ -329,7 +329,7 @@ Captures reusable insights, patterns, and rules that apply across users and sess
 
 ```python
 from egpt.knowledge import Knowledge
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.learn import LearningMachine, LearnedKnowledgeConfig, LearningMode
 from egpt.vectordb.pgvector import PgVector, SearchType
 

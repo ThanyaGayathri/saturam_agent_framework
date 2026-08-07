@@ -45,7 +45,7 @@ class WebsiteTools(Toolkit):
         :param url: The url of the website to read.
         :return: Relevant documents from the website.
         """
-        from egpt.knowledge.reader.website_reader import WebsiteReader
+        from egpt.integrations.knowledge.reader.website_reader import WebsiteReader
 
         website = WebsiteReader()
 

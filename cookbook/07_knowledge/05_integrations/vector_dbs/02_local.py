@@ -18,7 +18,7 @@ See also: 01_qdrant.py for production, 03_managed.py for Pinecone, 04_pgvector.p
 """
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
 

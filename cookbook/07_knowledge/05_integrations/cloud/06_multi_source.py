@@ -39,7 +39,7 @@ import asyncio
 from os import getenv
 
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.remote_content import (
+from egpt.integrations.knowledge.remote_content import (
     AzureBlobConfig,
     GcsConfig,
     GitHubConfig,

@@ -15,7 +15,7 @@ For a full comparison of all 17+ supported providers, see:
 import asyncio
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.qdrant import Qdrant
@@ -65,7 +65,7 @@ if __name__ == "__main__":
         print("=" * 60 + "\n")
 
         try:
-            from egpt.knowledge.embedder.ollama import OllamaEmbedder
+            from egpt.integrations.knowledge.embedder.ollama import OllamaEmbedder
 
             knowledge_ollama = Knowledge(
                 vector_db=Qdrant(

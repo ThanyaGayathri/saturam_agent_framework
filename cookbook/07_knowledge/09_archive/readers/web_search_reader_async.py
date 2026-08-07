@@ -3,7 +3,7 @@ import asyncio
 from egpt.agent import Agent
 from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.web_search_reader import WebSearchReader
+from egpt.integrations.knowledge.reader.web_search_reader import WebSearchReader
 from egpt.vectordb.pgvector import PgVector
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"

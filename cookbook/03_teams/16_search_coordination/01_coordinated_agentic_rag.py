@@ -6,9 +6,9 @@ Demonstrates coordinated team search, analysis, and synthesis over shared knowle
 """
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.cohere import CohereEmbedder
+from egpt.integrations.knowledge.embedder.cohere import CohereEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reranker.cohere import CohereReranker
+from egpt.integrations.knowledge.reranker.cohere import CohereReranker
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
 from egpt.vectordb.lancedb import LanceDb, SearchType

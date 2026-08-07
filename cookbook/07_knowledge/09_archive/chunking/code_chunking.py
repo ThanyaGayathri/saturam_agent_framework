@@ -1,7 +1,7 @@
 from egpt.agent import Agent
 from egpt.knowledge.chunking.code import CodeChunking
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.text_reader import TextReader
+from egpt.integrations.knowledge.reader.text_reader import TextReader
 from egpt.vectordb.pgvector import PgVector
 
 db_url = "postgresql+psycopg://ai:ai@localhost:5532/ai"

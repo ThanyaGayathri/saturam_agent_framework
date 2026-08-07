@@ -20,7 +20,7 @@ See also: 03_multi_tenant.py for tenant isolation patterns.
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
 from egpt.os import EgptOS

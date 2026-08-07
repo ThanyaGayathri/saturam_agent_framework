@@ -1,13 +1,23 @@
-from dataclasses import dataclass
-from os import getenv
-from typing import Optional
+"""Deprecated compatibility shim (EGPT-1.8).
 
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+Import from
+``egpt.integrations.knowledge.embedder.nebius``
+instead; this module will be removed.
 
+The star-import keeps star-imports and plain attribute access working on the legacy dotted
+path, and deliberately declares no ``__all__`` of its own so that surface stays exactly what
+it was before the move -- an ``__all__`` here would narrow it. ``mock.patch`` against this
+module patches the shim's binding rather than the implementation; patch the target instead.
+"""
 
-@dataclass
-class NebiusEmbedder(OpenAIEmbedder):
-    id: str = "BAAI/bge-en-icl"
-    dimensions: int = 1024
-    api_key: Optional[str] = getenv("NEBIUS_API_KEY")
-    base_url: str = "https://api.tokenfactory.nebius.com/v1/"
+import warnings as _warnings
+
+from egpt.integrations.knowledge.embedder.nebius import *  # noqa: F401,F403
+
+_warnings.warn(
+    "egpt.knowledge.embedder.nebius is deprecated; import from "
+    "egpt.integrations.knowledge.embedder.nebius instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

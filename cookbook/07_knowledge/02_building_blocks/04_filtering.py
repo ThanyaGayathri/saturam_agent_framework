@@ -19,7 +19,7 @@ import asyncio
 
 from egpt.agent import Agent
 from egpt.filters import AND, EQ, GT, IN, NOT, OR
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.qdrant import Qdrant

@@ -10,8 +10,8 @@ import asyncio
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.arxiv_reader import ArxivReader
-from egpt.knowledge.reader.wikipedia_reader import WikipediaReader
+from egpt.integrations.knowledge.reader.arxiv_reader import ArxivReader
+from egpt.integrations.knowledge.reader.wikipedia_reader import WikipediaReader
 from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------

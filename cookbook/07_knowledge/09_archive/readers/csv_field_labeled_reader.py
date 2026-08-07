@@ -7,7 +7,9 @@ Demonstrates field-labeled CSV ingestion for movie metadata.
 
 from egpt.agent import Agent
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.field_labeled_csv_reader import FieldLabeledCSVReader
+from egpt.integrations.knowledge.reader.field_labeled_csv_reader import (
+    FieldLabeledCSVReader,
+)
 from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------

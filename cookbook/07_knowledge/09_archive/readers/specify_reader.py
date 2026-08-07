@@ -9,7 +9,7 @@ import asyncio
 
 from egpt.agent import Agent
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.pdf_reader import PDFReader
+from egpt.integrations.knowledge.reader.pdf_reader import PDFReader
 from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------

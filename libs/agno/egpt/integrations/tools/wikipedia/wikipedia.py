@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from egpt.knowledge.document import Document
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.wikipedia_reader import WikipediaReader
+from egpt.integrations.knowledge.reader.wikipedia_reader import WikipediaReader
 from egpt.tools import Toolkit
 from egpt.utils.log import log_debug, log_error, log_info
 

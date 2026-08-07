@@ -1,29 +1,23 @@
-from dataclasses import dataclass
-from typing import Optional
+"""Deprecated compatibility shim (EGPT-1.8).
 
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+Import from
+``egpt.integrations.knowledge.embedder.openai_like``
+instead; this module will be removed.
 
+The star-import keeps star-imports and plain attribute access working on the legacy dotted
+path, and deliberately declares no ``__all__`` of its own so that surface stays exactly what
+it was before the move -- an ``__all__`` here would narrow it. ``mock.patch`` against this
+module patches the shim's binding rather than the implementation; patch the target instead.
+"""
 
-@dataclass
-class OpenAILikeEmbedder(OpenAIEmbedder):
-    """
-    A class for interacting with any provider using the OpenAI-compatible embedding API.
+import warnings as _warnings
 
-    Use this for LiteLLM proxy, Ollama (OpenAI-compatible mode), vLLM, and other
-    providers that expose an OpenAI-compatible /v1/embeddings endpoint.
+from egpt.integrations.knowledge.embedder.openai_like import *  # noqa: F401,F403
 
-    Args:
-        id (str): The model id to use. Defaults to "not-provided".
-        api_key (Optional[str]): The API key to use. Defaults to "not-provided".
-        base_url (Optional[str]): The base URL for the API endpoint.
-        dimensions (Optional[int]): The dimensions of the embeddings. Defaults to 1536.
-    """
-
-    id: str = "not-provided"
-    dimensions: Optional[int] = 1536
-    api_key: Optional[str] = "not-provided"
-
-    def __post_init__(self):
-        # Skip the OpenAIEmbedder __post_init__ which sets dimensions based on known OpenAI model IDs.
-        # For custom providers, the user should set dimensions explicitly.
-        pass
+_warnings.warn(
+    "egpt.knowledge.embedder.openai_like is deprecated; import from "
+    "egpt.integrations.knowledge.embedder.openai_like instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

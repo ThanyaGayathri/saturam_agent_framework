@@ -8,7 +8,7 @@ or metadata criteria, enabling personalized and contextual responses.
 from egpt.agent import Agent
 from egpt.filters import AND, IN, NOT
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.pdf_reader import PDFReader
+from egpt.integrations.knowledge.reader.pdf_reader import PDFReader
 from egpt.models.openai import OpenAIChat
 from egpt.team.team import Team
 from egpt.utils.media import (

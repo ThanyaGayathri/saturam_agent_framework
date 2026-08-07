@@ -6,7 +6,7 @@ Examples of using Docling to process PDF files with different output formats.
 
 import asyncio
 
-from egpt.knowledge.reader.docling_reader import DoclingReader
+from egpt.integrations.knowledge.reader.docling_reader import DoclingReader
 from utils import get_agent, get_knowledge
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,9 @@ Demonstrates sentence-transformer embeddings and knowledge insertion.
 
 import asyncio
 
-from egpt.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
+from egpt.integrations.knowledge.embedder.sentence_transformer import (
+    SentenceTransformerEmbedder,
+)
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.pgvector import PgVector
 

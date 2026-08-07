@@ -10,7 +10,7 @@ Agentic filters let the agent dynamically choose filter values at runtime.
 
 from egpt.agent import Agent
 from egpt.filters import EQ
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.pgvector import PgVector, SearchType

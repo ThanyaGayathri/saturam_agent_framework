@@ -6,9 +6,9 @@ Demonstrates Redis vector retrieval with Cohere reranking.
 """
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reranker.cohere import CohereReranker
+from egpt.integrations.knowledge.reranker.cohere import CohereReranker
 from egpt.models.openai import OpenAIChat
 from egpt.vectordb.redis import RedisDB
 

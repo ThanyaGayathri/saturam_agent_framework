@@ -39,7 +39,7 @@ Run this cookbook:
 from os import getenv
 
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.remote_content import SharePointConfig
+from egpt.integrations.knowledge.remote_content import SharePointConfig
 from egpt.vectordb.pgvector import PgVector
 
 # Configure SharePoint content source

@@ -19,9 +19,9 @@ import asyncio
 from egpt.agent import Agent
 from egpt.knowledge.chunking.strategy import ChunkingStrategy
 from egpt.knowledge.document import Document
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reader.pdf_reader import PDFReader
+from egpt.integrations.knowledge.reader.pdf_reader import PDFReader
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.qdrant import Qdrant
 from egpt.vectordb.search import SearchType

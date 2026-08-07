@@ -11,8 +11,8 @@ Requirement:
 import asyncio
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.mistral import MistralEmbedder
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.mistral import MistralEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.mistral import MistralChat
 from egpt.vectordb.cassandra import Cassandra

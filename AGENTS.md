@@ -133,7 +133,8 @@ Format:
 | Toolkits + MCP | `libs/agno/egpt/integrations/tools/` |
 | Model interface | `libs/agno/egpt/models/` (`Model` base, message, metrics) |
 | Model providers | `libs/agno/egpt/integrations/models/` |
-| Knowledge/RAG | `libs/agno/egpt/knowledge/` |
+| Knowledge/RAG | `libs/agno/egpt/knowledge/` (pipeline, `Reader`/`Embedder` interfaces, `ReaderFactory`, chunkers) |
+| Knowledge integrations | `libs/agno/egpt/integrations/knowledge/` (readers, embedders, rerankers, loaders, remote content) |
 | Memory | `libs/agno/egpt/memory/` |
 | Learning | `libs/agno/egpt/learn/` |
 | DB interface | `libs/agno/egpt/db/` (`BaseDb`/`AsyncBaseDb`, schemas, migrations) |

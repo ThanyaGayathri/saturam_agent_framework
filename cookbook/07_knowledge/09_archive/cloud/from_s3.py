@@ -10,7 +10,7 @@ import asyncio
 from egpt.agent import Agent
 from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.remote_content.remote_content import S3Content
+from egpt.integrations.knowledge.remote_content.remote_content import S3Content
 from egpt.vectordb.pgvector import PgVector
 
 # ---------------------------------------------------------------------------

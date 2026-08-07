@@ -4,7 +4,7 @@ import pytest
 
 from egpt.knowledge.chunking.fixed import FixedSizeChunking
 from egpt.knowledge.document.base import Document
-from egpt.knowledge.reader.firecrawl_reader import FirecrawlReader
+from egpt.integrations.knowledge.reader.firecrawl_reader import FirecrawlReader
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ def mock_crawl_response():
 
 def test_scrape_basic(mock_scrape_response):
     """Test basic scraping functionality"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
         # Set up mock
         mock_app = MockFirecrawlApp.return_value
         mock_app.scrape_url.return_value = mock_scrape_response
@@ -63,7 +63,7 @@ def test_scrape_basic(mock_scrape_response):
 
 def test_scrape_with_api_key_and_params():
     """Test scraping with API key and custom parameters"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
         # Set up mock
         mock_app = MockFirecrawlApp.return_value
         mock_app.scrape_url.return_value = {"markdown": "Test content"}
@@ -82,7 +82,7 @@ def test_scrape_with_api_key_and_params():
 
 def test_scrape_with_api_key_and_formats_params():
     """Test scraping with API key and formats parameter"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
         # Set up mock
         mock_app = MockFirecrawlApp.return_value
         mock_app.scrape_url.return_value = {"markdown": "Test content"}
@@ -104,7 +104,7 @@ def test_scrape_with_api_key_and_formats_params():
 
 def test_scrape_empty_response():
     """Test handling of empty response from scrape_url"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
         # Set up mock for empty response
         mock_app = MockFirecrawlApp.return_value
         mock_app.scrape_url.return_value = {}
@@ -120,7 +120,7 @@ def test_scrape_empty_response():
 
 def test_scrape_none_content():
     """Test handling of None content from scrape_url"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
         # Set up mock for None content
         mock_app = MockFirecrawlApp.return_value
         mock_app.scrape_url.return_value = {"markdown": None}
@@ -136,7 +136,7 @@ def test_scrape_none_content():
 
 def test_scrape_with_chunking(mock_scrape_response):
     """Test scraping with chunking enabled"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
         # Set up mock
         mock_app = MockFirecrawlApp.return_value
         mock_app.scrape_url.return_value = mock_scrape_response
@@ -172,7 +172,7 @@ def test_scrape_with_chunking(mock_scrape_response):
 
 def test_crawl_basic(mock_crawl_response):
     """Test basic crawling functionality"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
         # Set up mock
         mock_app = MockFirecrawlApp.return_value
         mock_app.crawl_url.return_value = mock_crawl_response
@@ -197,7 +197,7 @@ def test_crawl_basic(mock_crawl_response):
 
 def test_crawl_empty_response():
     """Test handling of empty response from crawl_url"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
         # Set up mock for empty response
         mock_app = MockFirecrawlApp.return_value
         mock_app.crawl_url.return_value = {}
@@ -212,7 +212,7 @@ def test_crawl_empty_response():
 
 def test_crawl_empty_data():
     """Test handling of empty data array from crawl_url"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
         # Set up mock for empty data array
         mock_app = MockFirecrawlApp.return_value
         mock_app.crawl_url.return_value = {"data": []}
@@ -227,7 +227,7 @@ def test_crawl_empty_data():
 
 def test_crawl_with_chunking(mock_crawl_response):
     """Test crawling with chunking enabled"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
         # Set up mock
         mock_app = MockFirecrawlApp.return_value
         mock_app.crawl_url.return_value = mock_crawl_response
@@ -251,7 +251,7 @@ def test_crawl_with_chunking(mock_crawl_response):
 
 def test_read_scrape_mode(mock_scrape_response):
     """Test read method in scrape mode"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
         # Set up mock
         mock_app = MockFirecrawlApp.return_value
         mock_app.scrape_url.return_value = mock_scrape_response
@@ -270,7 +270,7 @@ def test_read_scrape_mode(mock_scrape_response):
 
 def test_read_crawl_mode(mock_crawl_response):
     """Test read method in crawl mode"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as MockFirecrawlApp:
         # Set up mock
         mock_app = MockFirecrawlApp.return_value
         mock_app.crawl_url.return_value = mock_crawl_response
@@ -360,7 +360,7 @@ async def test_async_crawl_basic(mock_crawl_response):
 @pytest.mark.asyncio
 async def test_async_read_scrape_mode(mock_scrape_response):
     """Test async_read method in scrape mode"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlReader.async_scrape") as mock_async_scrape:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlReader.async_scrape") as mock_async_scrape:
         # Create a document to return
         document = Document(
             name="https://example.com",
@@ -382,7 +382,7 @@ async def test_async_read_scrape_mode(mock_scrape_response):
 @pytest.mark.asyncio
 async def test_async_read_crawl_mode(mock_crawl_response):
     """Test async_read method in crawl mode"""
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlReader.async_crawl") as mock_async_crawl:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlReader.async_crawl") as mock_async_crawl:
         # Create documents to return
         documents = [
             Document(
@@ -455,7 +455,7 @@ def test_allowed_hosts_lowercases_input():
 def test_scrape_refuses_disallowed_host():
     """scrape() must short-circuit before invoking FirecrawlApp when host is not allowed."""
     reader = FirecrawlReader(api_key="test", allowed_hosts=["docs.agno.com"])
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as mock_app:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as mock_app:
         docs = reader.scrape("http://127.0.0.1:9999/admin")
         assert docs == []
         mock_app.assert_not_called()
@@ -464,7 +464,7 @@ def test_scrape_refuses_disallowed_host():
 def test_crawl_refuses_disallowed_host():
     """crawl() must short-circuit before invoking FirecrawlApp when host is not allowed."""
     reader = FirecrawlReader(api_key="test", allowed_hosts=["docs.agno.com"])
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as mock_app:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as mock_app:
         docs = reader.crawl("http://169.254.169.254/latest/meta-data")
         assert docs == []
         mock_app.assert_not_called()
@@ -473,7 +473,7 @@ def test_crawl_refuses_disallowed_host():
 def test_scrape_allows_listed_host():
     """scrape() must proceed when host matches the allowlist."""
     reader = FirecrawlReader(api_key="test", allowed_hosts=["docs.agno.com"])
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as mock_app:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as mock_app:
         mock_app.return_value.scrape_url.return_value = {"markdown": "ok"}
         docs = reader.scrape("https://docs.agno.com/page")
         assert len(docs) >= 1
@@ -484,7 +484,7 @@ def test_scrape_allows_listed_host():
 async def test_async_scrape_inherits_host_check():
     """async_scrape delegates to scrape via asyncio.to_thread, so the gate covers it."""
     reader = FirecrawlReader(api_key="test", allowed_hosts=["docs.agno.com"])
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as mock_app:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as mock_app:
         docs = await reader.async_scrape("http://127.0.0.1/admin")
         assert docs == []
         mock_app.assert_not_called()
@@ -494,7 +494,7 @@ async def test_async_scrape_inherits_host_check():
 async def test_async_crawl_inherits_host_check():
     """async_crawl delegates to crawl via asyncio.to_thread, so the gate covers it."""
     reader = FirecrawlReader(api_key="test", allowed_hosts=["docs.agno.com"])
-    with patch("egpt.knowledge.reader.firecrawl_reader.FirecrawlApp") as mock_app:
+    with patch("egpt.integrations.knowledge.reader.firecrawl_reader.FirecrawlApp") as mock_app:
         docs = await reader.async_crawl("http://10.0.0.5/admin")
         assert docs == []
         mock_app.assert_not_called()

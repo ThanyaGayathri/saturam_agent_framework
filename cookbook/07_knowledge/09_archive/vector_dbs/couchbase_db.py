@@ -49,7 +49,7 @@ from couchbase.auth import PasswordAuthenticator
 from couchbase.management.search import SearchIndex
 from couchbase.options import ClusterOptions, KnownConfigProfiles
 from egpt.agent import Agent
-from egpt.knowledge.embedder.openai import OpenAIEmbedder
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.vectordb.couchbase import CouchbaseSearch
 

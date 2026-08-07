@@ -14,7 +14,9 @@ import os
 import shutil
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
+from egpt.integrations.knowledge.embedder.sentence_transformer import (
+    SentenceTransformerEmbedder,
+)
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.ollama import Ollama
 from egpt.vectordb.qdrant import Qdrant

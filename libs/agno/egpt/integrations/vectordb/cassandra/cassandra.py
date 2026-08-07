@@ -31,7 +31,7 @@ class Cassandra(VectorDb):
             raise ValueError("Keyspace must be provided")
 
         if embedder is None:
-            from egpt.knowledge.embedder.openai import OpenAIEmbedder
+            from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 
             embedder = OpenAIEmbedder()
             log_debug("Embedder not provided, using OpenAIEmbedder as default.")

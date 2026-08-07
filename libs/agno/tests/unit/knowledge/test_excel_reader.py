@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from egpt.knowledge.reader.excel_reader import ExcelReader
+from egpt.integrations.knowledge.reader.excel_reader import ExcelReader
 from egpt.knowledge.reader.reader_factory import ReaderFactory
 
 

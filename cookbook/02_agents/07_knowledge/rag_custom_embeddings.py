@@ -6,9 +6,13 @@ This cookbook is an implementation of Agentic RAG using Sentence Transformer Rer
 """
 
 from egpt.agent import Agent
-from egpt.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
+from egpt.integrations.knowledge.embedder.sentence_transformer import (
+    SentenceTransformerEmbedder,
+)
 from egpt.knowledge.knowledge import Knowledge
-from egpt.knowledge.reranker.sentence_transformer import SentenceTransformerReranker
+from egpt.integrations.knowledge.reranker.sentence_transformer import (
+    SentenceTransformerReranker,
+)
 from egpt.models.openai import OpenAIResponses
 from egpt.vectordb.pgvector import PgVector
 

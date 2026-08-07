@@ -116,6 +116,26 @@ def _import_class(module_name: str, class_name: str):
     return getattr(module, class_name)
 
 
+# The default embedder is a concrete integration (EGPT-1.8 moved it out of core), so core
+# names it by module path and resolves it here rather than importing it -- the same
+# construction seam ReaderFactory and _get_chunker_class already use. A static import would
+# make core depend on the integrations layer, which the layered architecture forbids
+# (docs/adr/0001-layered-architecture.md, rule 2). The row is pinned by
+# tests/unit/knowledge/test_knowledge_layout.py so it cannot rot silently: resolving by
+# string fails only when the embedder is actually asked for, not at import time.
+DEFAULT_EMBEDDER = ("egpt.integrations.knowledge.embedder.openai", "OpenAIEmbedder")
+
+
+def get_default_embedder():
+    """Construct the framework's default embedder.
+
+    Callers in core that need an embedder but were not given one go through this rather than
+    importing a vendor client directly.
+    """
+    module_name, class_name = DEFAULT_EMBEDDER
+    return _import_class(module_name, class_name)()
+
+
 def get_reader_info(reader_key: str) -> Dict:
     """Get information about a reader without instantiating it.
 
