@@ -1,124 +1,76 @@
-import importlib
 from collections import Counter
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, NamedTuple, Optional, Tuple, Union
 
 from egpt.models.base import Model
+from egpt.registry import discovery
 
 if TYPE_CHECKING:
     from egpt.registry.registry import Registry
 
-# Single source of truth for every supported model provider. One row per stable provider key:
-#   key -> (module, class_name, default_name, default_provider_display)
-# `default_name` and `default_provider_display` are the class's default `name` and (lowercased)
-# `provider` attributes. The construction registry and the (provider, name) resolution indices
-# below are all derived from this table, so adding a provider means adding exactly one row here.
-_PROVIDERS: Dict[str, Tuple[str, str, str, str]] = {
-    "aimlapi": ("egpt.integrations.models.aimlapi", "AIMLAPI", "AIMLAPI", "aimlapi"),
-    "anthropic": ("egpt.integrations.models.anthropic", "Claude", "Claude", "anthropic"),
-    "aws-bedrock": ("egpt.integrations.models.aws", "AwsBedrock", "AwsBedrock", "awsbedrock"),
-    "aws-claude": ("egpt.integrations.models.aws", "Claude", "AwsBedrockAnthropicClaude", "awsbedrock"),
-    "azure-ai-foundry": ("egpt.integrations.models.azure", "AzureAIFoundry", "AzureAIFoundry", "azure"),
-    "azure-foundry-claude": (
-        "egpt.integrations.models.azure",
-        "AzureFoundryClaude",
-        "AzureFoundryClaude",
-        "azurefoundry",
-    ),
-    "azure-openai": ("egpt.integrations.models.azure", "AzureOpenAI", "AzureOpenAI", "azure"),
-    "cerebras": ("egpt.integrations.models.cerebras", "Cerebras", "Cerebras", "cerebras"),
-    "cerebras-openai": ("egpt.integrations.models.cerebras", "CerebrasOpenAI", "CerebrasOpenAI", "cerebrasopenai"),
-    "cohere": ("egpt.integrations.models.cohere", "Cohere", "cohere", "cohere"),
-    "cometapi": ("egpt.integrations.models.cometapi", "CometAPI", "CometAPI", "openai"),
-    "cloudflare": ("egpt.integrations.models.cloudflare", "Cloudflare", "Cloudflare", "cloudflare"),
-    "dashscope": ("egpt.integrations.models.dashscope", "DashScope", "Qwen", "dashscope"),
-    "deepinfra": ("egpt.integrations.models.deepinfra", "DeepInfra", "DeepInfra", "deepinfra"),
-    "deepseek": ("egpt.integrations.models.deepseek", "DeepSeek", "DeepSeek", "deepseek"),
-    "fireworks": ("egpt.integrations.models.fireworks", "Fireworks", "Fireworks", "fireworks"),
-    "google": ("egpt.integrations.models.google", "Gemini", "Gemini", "google"),
-    "google-interactions": ("egpt.integrations.models.google", "GeminiInteractions", "GeminiInteractions", "google"),
-    "groq": ("egpt.integrations.models.groq", "Groq", "Groq", "groq"),
-    "huggingface": ("egpt.integrations.models.huggingface", "HuggingFace", "HuggingFace", "huggingface"),
-    "ibm": ("egpt.integrations.models.ibm", "WatsonX", "WatsonX", "ibm"),
-    "inception": ("egpt.integrations.models.inception", "Inception", "Inception", "inceptionlabs"),
-    "internlm": ("egpt.integrations.models.internlm", "InternLM", "InternLM", "internlm"),
-    "langdb": ("egpt.integrations.models.langdb", "LangDB", "LangDB", "langdb"),
-    "litellm": ("egpt.integrations.models.litellm", "LiteLLM", "LiteLLM", "litellm"),
-    "litellm-openai": ("egpt.integrations.models.litellm", "LiteLLMOpenAI", "LiteLLMOpenAI", "litellm"),
-    "llama-cpp": ("egpt.integrations.models.llama_cpp", "LlamaCpp", "LlamaCpp", "llamacpp"),
-    "llama-openai": ("egpt.integrations.models.meta", "LlamaOpenAI", "LlamaOpenAI", "llamaopenai"),
-    "lmstudio": ("egpt.integrations.models.lmstudio", "LMStudio", "LMStudio", "lmstudio"),
-    "meta": ("egpt.integrations.models.meta", "Llama", "Llama", "llama"),
-    "minimax": ("egpt.integrations.models.minimax", "MiniMax", "MiniMax", "minimax"),
-    "mistral": ("egpt.integrations.models.mistral", "MistralChat", "MistralChat", "mistral"),
-    "moonshot": ("egpt.integrations.models.moonshot", "MoonShot", "Moonshot", "moonshot"),
-    "n1n": ("egpt.integrations.models.n1n", "N1N", "N1N", "n1n"),
-    "nebius": ("egpt.integrations.models.nebius", "Nebius", "Nebius", "nebius"),
-    "neosantara": ("egpt.integrations.models.neosantara", "Neosantara", "Neosantara", "neosantara"),
-    "nexus": ("egpt.integrations.models.nexus", "Nexus", "Nexus", "nexus"),
-    "nvidia": ("egpt.integrations.models.nvidia", "Nvidia", "Nvidia", "nvidia"),
-    "ollama": ("egpt.integrations.models.ollama", "Ollama", "Ollama", "ollama"),
-    "ollama-responses": ("egpt.integrations.models.ollama", "OllamaResponses", "OllamaResponses", "ollama"),
-    "openai": ("egpt.integrations.models.openai", "OpenAIResponses", "OpenAIResponses", "openai"),
-    "openai-chat": ("egpt.integrations.models.openai", "OpenAIChat", "OpenAIChat", "openai"),
-    "openai-responses": ("egpt.integrations.models.openai", "OpenAIResponses", "OpenAIResponses", "openai"),
-    "open-responses": ("egpt.integrations.models.openai", "OpenResponses", "OpenResponses", "openresponses"),
-    "openrouter": ("egpt.integrations.models.openrouter", "OpenRouter", "OpenRouter", "openrouter"),
-    "openrouter-responses": (
-        "egpt.integrations.models.openrouter",
-        "OpenRouterResponses",
-        "OpenRouterResponses",
-        "openrouter",
-    ),
-    "perplexity": ("egpt.integrations.models.perplexity", "Perplexity", "Perplexity", "perplexity"),
-    "portkey": ("egpt.integrations.models.portkey", "Portkey", "Portkey", "portkey"),
-    "requesty": ("egpt.integrations.models.requesty", "Requesty", "Requesty", "requesty"),
-    "sambanova": ("egpt.integrations.models.sambanova", "Sambanova", "Sambanova", "sambanova"),
-    "siliconflow": ("egpt.integrations.models.siliconflow", "Siliconflow", "Siliconflow", "siliconflow"),
-    "together": ("egpt.integrations.models.together", "Together", "Together", "together"),
-    "tuning-engines": ("egpt.integrations.models.tuning_engines", "TuningEngines", "Tuning Engines", "tuning engines"),
-    "vercel": ("egpt.integrations.models.vercel", "V0", "v0", "vercel"),
-    "vertexai-claude": ("egpt.integrations.models.vertexai.claude", "Claude", "Claude", "vertexai"),
-    "vllm": ("egpt.integrations.models.vllm", "VLLM", "VLLM", "vllm"),
-    "xai": ("egpt.integrations.models.xai", "xAI", "xAI", "xai"),
-    "xiaomi": ("egpt.integrations.models.xiaomi", "MiMo", "MiMo", "xiaomi mimo"),
-}
 
-# key -> (module, class_name): the construction registry consumed by `_get_model_class`, the
-# CONTRIBUTING guide, and the registry-drift test.
-MODEL_PROVIDER_CLASSES: Dict[str, Tuple[str, str]] = {key: (mod, cls) for key, (mod, cls, _n, _p) in _PROVIDERS.items()}
+class _ProviderIndices(NamedTuple):
+    """The three lookups `_resolve_provider_key` needs, derived from the registry."""
 
-# key -> lowercased display `provider` string the class reports.
-_KEY_TO_PROVIDER: Dict[str, str] = {key: prov for key, (_m, _c, _n, prov) in _PROVIDERS.items()}
-
-# Serialized `name` -> key, but only for names that identify exactly one provider. Names shared
-# across classes (e.g. "Claude") are ambiguous and omitted, so those fall back to the provider.
-_name_counts = Counter(name for (_m, _c, name, _p) in _PROVIDERS.values())
-_NAME_TO_PROVIDER_KEY: Dict[str, str] = {
-    name: key for key, (_m, _c, name, _p) in _PROVIDERS.items() if _name_counts[name] == 1
-}
-
-# Default key for a display `provider` string that is not itself a key. Where several classes
-# share such a string (e.g. "azure" -> AzureOpenAI/AzureAIFoundry), the default is the variant
-# used when `name` does not disambiguate.
-_AMBIGUOUS_PROVIDER_DEFAULTS: Dict[str, str] = {"azure": "azure-openai", "awsbedrock": "aws-bedrock"}
+    # key -> lowercased display `provider` string the class reports.
+    key_to_provider: Dict[str, str]
+    # Serialized `name` -> key, but only for names that identify exactly one provider.
+    # Names shared across classes (e.g. "Claude") are ambiguous and omitted, so those fall
+    # back to the provider.
+    name_to_key: Dict[str, str]
+    # Display `provider` string -> key, used as a fallback when `name` is missing or shared.
+    provider_to_key: Dict[str, str]
 
 
-def _build_provider_to_key() -> Dict[str, str]:
-    mapping: Dict[str, str] = {}
-    for key, (_m, _c, _n, prov) in _PROVIDERS.items():
-        if prov not in MODEL_PROVIDER_CLASSES:  # display strings that already equal a key resolve directly
-            mapping.setdefault(prov, key)
-    mapping.update(_AMBIGUOUS_PROVIDER_DEFAULTS)
-    return mapping
+# (registry version, indices). Rebuilt whenever the model table changes rather than
+# computed once at import: an out-of-tree provider registered through an entry point must
+# be reachable by its serialized (provider, name) pair, not merely by its key. Caching
+# these as module constants -- as this file did before EGPT-1.9 -- would make
+# get_model_from_dict blind to exactly the providers discovery just made resolvable.
+_INDEX_CACHE: Tuple[int, Optional[_ProviderIndices]] = (-1, None)
 
 
-# Display `provider` string -> key, used as a fallback when `name` is missing or shared.
-_PROVIDER_TO_KEY: Dict[str, str] = _build_provider_to_key()
+def _build_indices() -> _ProviderIndices:
+    registrations = discovery.entries("model")
+
+    key_to_provider: Dict[str, str] = {}
+    key_to_name: Dict[str, str] = {}
+    provider_defaults: Dict[str, str] = {}
+    for key, registration in registrations.items():
+        provider = str(registration.metadata.get("provider_display", key))
+        key_to_provider[key] = provider
+        key_to_name[key] = str(registration.metadata.get("default_name", key))
+        if registration.metadata.get("provider_default"):
+            provider_defaults[provider] = key
+
+    name_counts = Counter(key_to_name.values())
+    name_to_key = {name: key for key, name in key_to_name.items() if name_counts[name] == 1}
+
+    provider_to_key: Dict[str, str] = {}
+    for key, provider in key_to_provider.items():
+        if provider not in registrations:  # display strings that already equal a key resolve directly
+            provider_to_key.setdefault(provider, key)
+    # Where several classes share a display string (e.g. "azure" -> AzureOpenAI /
+    # AzureAIFoundry), the row that declared itself the default wins.
+    provider_to_key.update(provider_defaults)
+
+    return _ProviderIndices(key_to_provider, name_to_key, provider_to_key)
+
+
+def _indices() -> _ProviderIndices:
+    global _INDEX_CACHE
+    cached_version, cached = _INDEX_CACHE
+    if cached is not None and cached_version == discovery.version("model"):
+        return cached
+    built = _build_indices()
+    # Read the version *after* building: the first call bootstraps the registry, which
+    # bumps it, and caching the pre-bootstrap number would rebuild on every call.
+    _INDEX_CACHE = (discovery.version("model"), built)
+    return built
 
 
 def _canonical_provider_display(key: str) -> str:
     """The lowercased display `provider` string a given provider key's class reports."""
-    return _KEY_TO_PROVIDER.get(key, key)
+    return _indices().key_to_provider.get(key, key)
 
 
 def _resolve_provider_key(model_provider: Optional[str], model_name: Optional[str] = None) -> str:
@@ -130,9 +82,10 @@ def _resolve_provider_key(model_provider: Optional[str], model_name: Optional[st
     as a user-supplied label and ignored, so e.g. OpenAIChat(name="Gemini") still resolves to
     OpenAI rather than Google.
     """
+    indices = _indices()
     provider = (model_provider or "").strip().lower()
-    provider_key = provider if provider in MODEL_PROVIDER_CLASSES else _PROVIDER_TO_KEY.get(provider)
-    name_key = _NAME_TO_PROVIDER_KEY.get(model_name) if model_name else None
+    provider_key = provider if provider in indices.key_to_provider else indices.provider_to_key.get(provider)
+    name_key = indices.name_to_key.get(model_name) if model_name else None
 
     if provider_key is None:
         # An empty provider string (older data, or a model whose provider was never set) leaves the
@@ -148,18 +101,17 @@ def _resolve_provider_key(model_provider: Optional[str], model_name: Optional[st
 
 
 def _get_model_class(model_id: str, model_provider: str) -> Model:
-    entry = MODEL_PROVIDER_CLASSES.get(model_provider)
-    if entry is None:
+    # `get` rather than `resolve`: a missing registration and a missing SDK are different
+    # failures, and only the first one should fall through to the alias retry. `load`
+    # lets the provider's own ImportError -- which names the package to install -- through.
+    registration = discovery.get("model", model_provider)
+    if registration is None:
         # Allow alias forms (e.g. "azure", "inceptionlabs") to resolve too.
-        resolved = _resolve_provider_key(model_provider)
-        entry = MODEL_PROVIDER_CLASSES.get(resolved)
-    if entry is None:
+        registration = discovery.get("model", _resolve_provider_key(model_provider))
+    if registration is None:
         raise ValueError(f"Model provider '{model_provider}' is not supported.")
 
-    module_path, class_name = entry
-    module = importlib.import_module(module_path)
-    model_class = getattr(module, class_name)
-    return model_class(id=model_id)
+    return registration.load()(id=model_id)
 
 
 def _parse_model_string(model_string: str) -> Model:
