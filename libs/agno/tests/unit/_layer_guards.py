@@ -41,6 +41,33 @@ def _parse(path):
     return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
 
+def classes_defining(root, method):
+    """Statically find every class under `root` whose body defines `method`.
+
+    Returns a set of (defining_module, class_name), comparable with what
+    `discover_subclasses` and `registered_defining_classes` return.
+
+    Static rather than `getattr(cls, method)` because the question "does this backend
+    override from_dict" has to be answerable on a base install with no optional drivers
+    installed -- importing the class to ask would make the guard skip exactly the backends
+    whose SDK is missing, which is most of them on any given machine.
+
+    Inheritance is deliberately not followed: the caller asks about an override, and a
+    subclass that only inherits the method does not define it.
+    """
+    found = set()
+    for path in root.rglob("*.py"):
+        module = module_name(path)
+        for node in ast.walk(_parse(path)):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for item in node.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)) and item.name == method:
+                    found.add((module, node.name))
+                    break
+    return found
+
+
 def discover_subclasses(root, base_class, skip_modules=frozenset(), include_init=True, packages=None):
     """Statically find every concrete subclass of `base_class` under `root`.
 

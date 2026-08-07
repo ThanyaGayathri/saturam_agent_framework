@@ -1,6 +1,5 @@
 """Logic shared across different database implementations"""
 
-import importlib
 import inspect
 import json
 from datetime import date, datetime
@@ -10,6 +9,7 @@ from uuid import UUID
 from egpt.db.table_names import LEGACY_TABLE_PREFIX, TABLE_SUFFIXES
 from egpt.metrics import ModelMetrics, RunMetrics, SessionMetrics
 from egpt.models.message import Message
+from egpt.registry import discovery
 from egpt.utils.log import log_error, log_warning
 
 if TYPE_CHECKING:
@@ -42,65 +42,9 @@ def unsupported_table_overrides(cls: type) -> frozenset:
     return frozenset(TABLE_SUFFIXES) - frozenset(inspect.signature(cls).parameters)
 
 
-# Single source of truth for every DB backend shipped in the integrations layer.
-# One row per backend package:
-#     key -> (module, sync_class_name, async_class_name or None, reconstructable)
-#
-# `key` is the string a backend serializes as to_dict()["type"], so db_from_dict can
-# resolve a stored config without an if/elif chain and without core naming any backend
-# module. `async_postgres` has no row of its own -- it is an alias package re-exporting
-# the AsyncPostgresDb this table already reaches through the postgres row.
-#
-# `reconstructable` says whether db_from_dict may build this backend from a stored config.
-# It is NOT the same question as "is this class importable". A backend that does not
-# override BaseDb.from_dict inherits an implementation that forwards all 18 TABLE_SUFFIXES
-# keyword arguments, which its __init__ does not accept -- so dispatching to it turns an
-# accurate "Unknown database type" warning into an obscure TypeError about a table-name
-# kwarg, and the caller still ends up with no db. Keeping the flag false preserves the
-# pre-EGPT-1.6 behaviour exactly. `in_memory` is false for a different reason: its
-# from_dict does succeed, but rebuilding an ephemeral store from a persisted config hands
-# the caller a live empty db instead of the None that makes the caller fall back to the
-# AgentOS-level db -- silent data loss in place of a visible warning.
-#
-# Adding serialization to a backend is a two-part change: give it a from_dict that accepts
-# its own constructor's arguments, then flip this flag.
-_DB_BACKENDS: Dict[str, Tuple[str, str, Optional[str], bool]] = {
-    "clickhouse": ("egpt.integrations.db.clickhouse", "ClickhouseDb", None, True),
-    "dynamo": ("egpt.integrations.db.dynamo", "DynamoDb", None, False),
-    "firestore": ("egpt.integrations.db.firestore", "FirestoreDb", None, False),
-    "gcs_json": ("egpt.integrations.db.gcs_json", "GcsJsonDb", None, False),
-    "in_memory": ("egpt.integrations.db.in_memory", "InMemoryDb", None, False),
-    "json": ("egpt.integrations.db.json", "JsonDb", None, True),
-    "mongo": ("egpt.integrations.db.mongo", "MongoDb", "AsyncMongoDb", False),
-    "mysql": ("egpt.integrations.db.mysql", "MySQLDb", "AsyncMySQLDb", False),
-    "postgres": ("egpt.integrations.db.postgres", "PostgresDb", "AsyncPostgresDb", True),
-    "redis": ("egpt.integrations.db.redis", "RedisDb", None, False),
-    "singlestore": ("egpt.integrations.db.singlestore", "SingleStoreDb", None, False),
-    "sqlite": ("egpt.integrations.db.sqlite", "SqliteDb", "AsyncSqliteDb", True),
-    "surrealdb": ("egpt.integrations.db.surrealdb", "SurrealDb", None, False),
-}
-
-# key -> (module, class_name) for every synchronous BaseDb implementation. This is the
-# class-lookup table (used by egpt.db's legacy re-exports and by the drift guard); it is
-# NOT what db_from_dict dispatches through -- see RECONSTRUCTABLE_DB_CLASSES.
-DB_BACKEND_CLASSES: Dict[str, Tuple[str, str]] = {
-    key: (module, sync_cls) for key, (module, sync_cls, _async_cls, _rebuild) in _DB_BACKENDS.items()
-}
-
-# The subset db_from_dict will actually construct: backends whose from_dict accepts a
-# serialized config. Matches the four types the pre-EGPT-1.6 if/elif chain handled.
-RECONSTRUCTABLE_DB_CLASSES: Dict[str, Tuple[str, str]] = {
-    key: (module, sync_cls) for key, (module, sync_cls, _async_cls, rebuild) in _DB_BACKENDS.items() if rebuild
-}
-
-# key -> (module, class_name) for the AsyncBaseDb implementations, where one exists.
-# Not reachable from db_from_dict (no async backend defines from_dict, and Registry.add_db
-# only tracks BaseDb instances); present so the drift guard covers them too.
-ASYNC_DB_BACKEND_CLASSES: Dict[str, Tuple[str, str]] = {
-    key: (module, async_cls)
-    for key, (module, _sync_cls, async_cls, _rebuild) in _DB_BACKENDS.items()
-    if async_cls is not None
-}
+# Every DB backend shipped in the integrations layer is declared in
+# egpt/registry/_declarations/dbs.py and resolved through the discovery seam, so core names
+# no backend module. The `reconstructable` / `async_attr` semantics live with those rows.
 
 
 def _is_legacy_default_table_name(key: str, value: Any) -> bool:
@@ -397,9 +341,9 @@ def db_from_dict(db_data: Dict[str, Any]) -> Optional["BaseDb"]:
     """
     Create a database instance from a dictionary.
 
-    The backend class is resolved through ``RECONSTRUCTABLE_DB_CLASSES`` and imported
-    lazily, so core carries no import of any concrete backend and no optional driver is
-    pulled in for a backend that is not being reconstructed.
+    The backend class is resolved through the discovery seam and imported lazily, so core
+    carries no import of any concrete backend and no optional driver is pulled in for a
+    backend that is not being reconstructed.
 
     A backend that ships but cannot be rebuilt from a config is refused here rather than
     dispatched to, and says so in its own words. Dispatching would raise a TypeError about
@@ -414,9 +358,9 @@ def db_from_dict(db_data: Dict[str, Any]) -> Optional["BaseDb"]:
         Database instance or None if creation fails
     """
     db_type = db_data.get("type")
-    entry = RECONSTRUCTABLE_DB_CLASSES.get(db_type) if isinstance(db_type, str) else None
-    if entry is None:
-        if isinstance(db_type, str) and db_type in DB_BACKEND_CLASSES:
+    registration = discovery.get("db", db_type) if isinstance(db_type, str) else None
+    if registration is None or not registration.metadata.get("reconstructable"):
+        if registration is not None:
             log_warning(
                 f"Database type '{db_type}' cannot be rebuilt from a stored config; "
                 "pass the instance through the registry instead."
@@ -425,10 +369,9 @@ def db_from_dict(db_data: Dict[str, Any]) -> Optional["BaseDb"]:
             log_warning(f"Unknown database type: {db_type}")
         return None
 
-    module_name, class_name = entry
+    class_name = registration.attr
     try:
-        db_class = getattr(importlib.import_module(module_name), class_name)
-        return db_class.from_dict(db_data)
+        return registration.load().from_dict(db_data)
     except Exception as e:
         log_error(f"Error reconstructing {class_name} from dictionary: {str(e)}")
         return None

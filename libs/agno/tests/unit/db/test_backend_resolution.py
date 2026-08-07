@@ -25,15 +25,11 @@ import pytest
 
 from egpt.db.base import BaseDb
 from egpt.db.table_names import TABLE_SUFFIXES, table_name_attr
-from egpt.db.utils import (
-    ASYNC_DB_BACKEND_CLASSES,
-    DB_BACKEND_CLASSES,
-    RECONSTRUCTABLE_DB_CLASSES,
-    db_from_dict,
-)
-
+from egpt.db.utils import db_from_dict
+from egpt.registry.discovery import declarations
 from tests.unit._layer_guards import (
     check_shim_parity,
+    classes_defining,
     discover_subclasses,
     find_shim_path_strings,
     import_sites,
@@ -41,8 +37,26 @@ from tests.unit._layer_guards import (
     registered_defining_classes,
 )
 
+# `declarations`, not `entries`: these guards describe what this repository ships, so a
+# third-party backend registered through an `egpt.dbs` entry point must not be pulled into
+# assertions about the integrations tree on disk.
+DB_DECLARATIONS = declarations("db")
+
+# The three views the pre-EGPT-1.9 `db/utils.py` exported, derived from the declaration
+# rows instead. Kept as local names so each guard below still reads as a statement about
+# the table it guards.
+DB_BACKEND_CLASSES = {key: (reg.module, reg.attr) for key, reg in DB_DECLARATIONS.items()}
+ASYNC_DB_BACKEND_CLASSES = {
+    key: (reg.module, reg.metadata["async_attr"])
+    for key, reg in DB_DECLARATIONS.items()
+    if reg.metadata.get("async_attr")
+}
+RECONSTRUCTABLE_DB_CLASSES = {
+    key: (reg.module, reg.attr) for key, reg in DB_DECLARATIONS.items() if reg.metadata.get("reconstructable")
+}
+
 # Backend packages that moved in EGPT-1.6. `async_postgres` is an alias package with no
-# `_DB_BACKENDS` row of its own; it still needs a shim, so it is listed here.
+# declaration row of its own; it still needs a shim, so it is listed here.
 _MOVED_PACKAGES = frozenset(DB_BACKEND_CLASSES) | {"async_postgres"}
 
 # Every .py file that had a public `egpt.db.<backend>` import path before EGPT-1.6, taken
@@ -162,7 +176,7 @@ def test_every_db_subclass_is_registered():
     assert not missing, (
         "Backend classes missing from _DB_BACKENDS: "
         + ", ".join(missing)
-        + ". Add each to the table in egpt/db/utils.py."
+        + ". Add each to egpt/registry/_declarations/dbs.py."
     )
 
 
@@ -398,6 +412,51 @@ def test_db_from_dict_rejects_backends_that_cannot_be_rebuilt(key, caplog):
     )
     assert not any("Unknown database type" in r.message for r in caplog.records), (
         f"'{key}' is a supported backend, so reporting it as an unknown type misdirects the operator"
+    )
+
+
+def test_reconstructable_flag_is_symmetric_with_from_dict():
+    """The reconstructable flag and reality must disagree only where a reason says so.
+
+    ``test_reconstructable_backends_really_define_from_dict`` covers one direction, but it
+    imports each class and so skips every backend whose optional driver is missing -- which
+    on a base install is nine of thirteen. This is the AST counterpart: it needs no driver,
+    so it never skips, and it closes the other direction too. A backend that gains a
+    ``from_dict`` without anyone flipping its flag stays silently unreconstructable
+    otherwise, which is the failure mode that motivated the flag in the first place.
+
+    The asymmetry is allowed, but only as a decision: a row that defines ``from_dict`` and
+    is still flagged False must carry ``reconstruct_exempt_reason``.
+    """
+    root = _backends_root()
+    defines_from_dict = classes_defining(root, "from_dict")
+
+    # Non-vacuity: without this a stale scan root compares two empty sets and reports PASS.
+    assert len(defines_from_dict) >= 4, (
+        f"Only {len(defines_from_dict)} classes defining from_dict found under {root}; the scan "
+        "root is probably stale, which makes this guard vacuous."
+    )
+
+    flagged, unflagged = {}, {}
+    for key, reg in DB_DECLARATIONS.items():
+        target = next(iter(registered_defining_classes(root, [(reg.module, reg.attr)])))
+        (flagged if reg.metadata.get("reconstructable") else unflagged)[key] = target
+
+    lying = sorted(key for key, target in flagged.items() if target not in defines_from_dict)
+    assert not lying, (
+        f"Backends flagged reconstructable that never define from_dict: {lying}. They would "
+        "inherit BaseDb.from_dict and fail on a forwarded table-name kwarg."
+    )
+
+    undeclared = sorted(
+        key
+        for key, target in unflagged.items()
+        if target in defines_from_dict and not DB_DECLARATIONS[key].metadata.get("reconstruct_exempt_reason")
+    )
+    assert not undeclared, (
+        f"Backends that define from_dict but are not flagged reconstructable: {undeclared}. "
+        "Either flip the flag in egpt/registry/_declarations/dbs.py, or record why not in "
+        "_RECONSTRUCT_EXEMPT_REASONS."
     )
 
 

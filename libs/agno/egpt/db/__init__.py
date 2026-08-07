@@ -7,8 +7,8 @@ __all__ = [
 
 
 # Concrete backends moved to egpt.integrations.db.<backend> in EGPT-1.6. These four names
-# were historically re-exported here, so they keep resolving -- now through the
-# DB_BACKEND_CLASSES table, which means this module names no backend module of its own.
+# were historically re-exported here, so they keep resolving -- now through the discovery
+# seam, which means this module names no backend module of its own.
 # Deliberately not widened to the other backends: this is a surface to retire, not grow.
 _LEGACY_BACKEND_ATTRS = {
     "ClickhouseDb": "clickhouse",
@@ -24,26 +24,22 @@ def __getattr__(name: str):
     if key is None:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
-    import importlib
     import warnings
 
-    # Imported inside the function on purpose: at module level this would add an
-    # egpt.db -> egpt.db.utils -> egpt.metrics/egpt.models.message edge at package-init.
-    from egpt.db.utils import DB_BACKEND_CLASSES
+    from egpt.registry import discovery
 
-    entry = DB_BACKEND_CLASSES.get(key)
-    if entry is None:
-        # A key dropped out of _DB_BACKENDS without this map being updated. Raising
-        # AttributeError rather than letting KeyError escape keeps the module contract
-        # intact, so hasattr() on the deprecated path still answers False instead of
-        # blowing up. The guard test asserts this state is unreachable.
+    registration = discovery.get("db", key)
+    if registration is None:
+        # A key dropped out of the db declarations without this map being updated. Raising
+        # AttributeError rather than letting the seam's ValueError escape keeps the module
+        # contract intact, so hasattr() on the deprecated path still answers False instead
+        # of blowing up. The guard test asserts this state is unreachable.
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
-    module_name, class_name = entry
     warnings.warn(
-        f"egpt.db.{name} is deprecated; import it from {module_name} instead. "
+        f"egpt.db.{name} is deprecated; import it from {registration.module} instead. "
         "This re-export will be removed in a future release.",
         DeprecationWarning,
         stacklevel=2,
     )
-    return getattr(importlib.import_module(module_name), class_name)
+    return registration.load()
