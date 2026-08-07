@@ -50,7 +50,7 @@ def test_deny_catches_known_regressions(path, text, expected):
 def test_deny_outranks_keep_rules():
     """`keep-internal-identifier` matches `agno-sofya`; the deny layer must still win."""
     line = '            "User-Agent": "agno-sofya",'
-    path = "libs/agno/egpt/tools/sofya.py"
+    path = "libs/agno/egpt/integrations/tools/sofya/sofya.py"
 
     assert brand_audit.deny_reason(path, line) == "outbound-identity"
     assert brand_audit.classify(brand_audit.Hit(path, 83, line)) is None
@@ -107,6 +107,49 @@ def test_exempt_paths_still_exist():
     for name, _, exempt in brand_audit.DENY_RULES:
         for path in exempt:
             assert (ROOT / path).exists(), f"{name} exempts a path that no longer exists: {path}"
+
+
+def test_self_test_case_paths_are_current():
+    """Every exemplar must name the file the code it quotes actually lives in.
+
+    Each entry is the real pre-rebrand text from the file named, and that path is what
+    `self_test_failures` feeds to `deny_reason` as the value matched against a rule's
+    exempt paths. An exemplar left pointing at a moved module would exercise a future
+    path-scoped exemption against a location the code no longer occupies.
+
+    Three extractions in a row shipped one -- EGPT-1.6 (805f3d22), 1.7 (dacda79d) and 1.8 --
+    each caught in review rather than by a check, so it gets a check.
+
+    Existence alone is too weak to catch the shape 1.8 produced. 1.6 and 1.7 deleted the old
+    path outright, but 1.8 left a deprecation shim behind, so the file is still there while
+    the code that justified the entry is not. The shim docstring marker is the discriminator;
+    every shim from 1.4 onward carries it.
+    """
+    entries = [
+        *((path, "SELF_TEST_CASES") for path, _text, _rule in brand_audit.SELF_TEST_CASES),
+        *((path, "SELF_TEST_CASES_DOCS") for path, _text, _rule in brand_audit.SELF_TEST_CASES_DOCS),
+        *((path, "SELF_TEST_ALLOWED_DOCS") for path, _text in brand_audit.SELF_TEST_ALLOWED_DOCS),
+    ]
+    assert len(entries) >= 30, (
+        f"only {len(entries)} exemplars collected; the lists moved or were renamed, which makes this guard vacuous"
+    )
+
+    # Every offender is reported at once: a single extraction typically strands several, and
+    # failing on the first would hide the rest until the next run.
+    stale = []
+    for path, origin in entries:
+        target = ROOT / path
+        if not target.is_file():
+            stale.append(f"{origin}: {path} -- no such file")
+        elif "Deprecated compatibility shim" in target.read_text(encoding="utf-8"):
+            stale.append(f"{origin}: {path} -- deprecation shim; name the target module instead")
+
+    assert not stale, (
+        "Brand-audit exemplars name files the code no longer occupies:\n  "
+        + "\n  ".join(stale)
+        + "\nRetarget each to where the quoted line lives now. The text stays verbatim "
+        "pre-rebrand; only the path moves."
+    )
 
 
 def test_shipped_paths_cover_every_lib_pyproject():
