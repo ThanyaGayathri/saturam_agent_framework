@@ -119,8 +119,8 @@ def _import_class(module_name: str, class_name: str):
 # The default embedder is a concrete integration (EGPT-1.8 moved it out of core), so core
 # names it by registered key and resolves it through the discovery seam rather than
 # importing it. A static import would make core depend on the integrations layer, which the
-# layered architecture forbids (docs/adr/0001-layered-architecture.md, rule 2). The row
-# lives in egpt/registry/_declarations/embedders.py and is pinned by
+# layered architecture forbids (docs/adr/0001-layered-architecture.md, rule 2). Its row --
+# one of the eighteen -- lives in egpt/registry/_declarations/embedders.py and is pinned by
 # tests/unit/knowledge/test_knowledge_layout.py so it cannot rot silently: resolving by
 # name fails only when the embedder is actually asked for, not at import time.
 DEFAULT_EMBEDDER_NAME = "openai"

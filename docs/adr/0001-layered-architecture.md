@@ -85,7 +85,7 @@ The property that actually matters is enforced instead: **declarations must not 
 
 Still open after EGPT-1.9, recorded so it is not mistaken for done:
 
-- **Embedders are registered but not complete.** Only the framework default has a row; prerequisite 6 (every embedder reachable by name, so memory Mode A↔B stays a config swap for SM-R3/SM-R4) needs the other 17. The kind and the seam exist; each remaining row is one line.
+- **Prerequisite 6 is half discharged.** All 18 embedders now have declaration rows, so every embedder *is* reachable by name (`test_every_embedder_subclass_is_registered` keeps the table complete, and keys are the module basename, following the db and vectordb kinds rather than the hyphenated model slugs users type). What remains is the consumer: memory still imports its embedder rather than resolving one by string, so Mode A↔B is not yet a config swap. That is memory-side work under SM-R3/SM-R4, not registry work — the seam it needs exists.
 - **Readers were left out of scope.** `knowledge/reader/reader_factory.py` keeps its own method-local `reader_class_map`, so after EGPT-1.9 core still names integration modules in two directories rather than one. EGPT-1.11's import-linter contracts must account for both.
 
 ### Design decisions

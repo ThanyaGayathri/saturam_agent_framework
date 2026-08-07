@@ -15,7 +15,7 @@ def test_builtin_rows_are_present_for_every_kind():
     assert counts["db"] >= 13, counts
     assert counts["vectordb"] >= 18, counts
     assert counts["tool"] >= 1, counts
-    assert counts["embedder"] >= 1, counts
+    assert counts["embedder"] >= 18, counts
 
 
 def test_bootstrap_repopulates_after_the_table_is_cleared():
