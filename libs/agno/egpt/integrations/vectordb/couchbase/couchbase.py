@@ -7,6 +7,7 @@ from egpt.filters import FilterExpr
 from egpt.knowledge.document import Document
 from egpt.knowledge.embedder import Embedder
 from egpt.utils.log import log_debug, log_error, log_info, log_warning, logger
+from egpt.utils.string import generate_id
 from egpt.vectordb.base import VectorDb
 
 try:
@@ -68,6 +69,7 @@ class CouchbaseSearch(VectorDb):
         batch_limit: int = 500,
         name: Optional[str] = None,
         description: Optional[str] = None,
+        id: Optional[str] = None,
         **kwargs,
     ):
         """
@@ -105,8 +107,14 @@ class CouchbaseSearch(VectorDb):
         self.overwrite = overwrite
         self.is_global_level_index = is_global_level_index
         self.wait_until_index_ready = wait_until_index_ready
-        # Initialize base class with name and description
-        super().__init__(name=name, description=description)
+        if id is None:
+            # Credentials live in cluster_options and stay out of the seed. Every
+            # instance previously shared generate_id("CouchbaseSearch") regardless of
+            # cluster, bucket, scope or collection (aicoe-tracker#155).
+            id = generate_id(f"{couchbase_connection_string}/{bucket_name}/{scope_name}#{collection_name}")
+
+        # Initialize base class with name, description and generated ID
+        super().__init__(id=id, name=name, description=description)
 
         self.kwargs = kwargs
         self.batch_limit = batch_limit

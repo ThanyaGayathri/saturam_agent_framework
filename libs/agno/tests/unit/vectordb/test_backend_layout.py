@@ -175,3 +175,64 @@ def test_every_backend_submodule_has_a_shim():
         "One of the two roots is probably stale, which makes this guard vacuous."
     )
     assert not problems, "Backend submodule shims out of sync with their targets:\n" + "\n".join(problems)
+
+
+def test_every_backend_seeds_its_own_id():
+    """Every concrete VectorDb subclass must pass ``id=`` to ``super().__init__``.
+
+    Seven backends omitted it and fell through to the base-class fallback --
+    ``generate_id(<class name>)`` -- so every instance of each backend shared one
+    deterministic id and the registry, which de-dupes by id and keeps the first
+    registration, silently shadowed all but one (aicoe-tracker#155). The bug was reached
+    by omission, so the guard is structural: a newly added backend that forgets the seed
+    fails here, without any SDK installed.
+
+    AST-based like everything above; matched on the keyword being *passed*, not on how
+    the seed is computed -- connection-target seeds and the wrapper backends' fresh-id
+    policy both satisfy it, and an explicit ``id=`` argument always must.
+    """
+    import ast
+
+    root = _vectordb_root()
+    offenders = []
+    checked = 0
+
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            base_names = {b.id for b in node.bases if isinstance(b, ast.Name)} | {
+                b.attr for b in node.bases if isinstance(b, ast.Attribute)
+            }
+            if "VectorDb" not in base_names:
+                continue
+            init = next(
+                (m for m in node.body if isinstance(m, ast.FunctionDef) and m.name == "__init__"),
+                None,
+            )
+            if init is None:
+                offenders.append(f"{path.name}:{node.name} (no __init__ at all)")
+                continue
+            checked += 1
+            passes_id = any(
+                isinstance(c, ast.Call)
+                and isinstance(c.func, ast.Attribute)
+                and c.func.attr == "__init__"
+                and isinstance(c.func.value, ast.Call)
+                and isinstance(c.func.value.func, ast.Name)
+                and c.func.value.func.id == "super"
+                and any(kw.arg == "id" for kw in c.keywords)
+                for c in ast.walk(init)
+            )
+            if not passes_id:
+                offenders.append(f"{path.name}:{node.name}")
+
+    assert checked >= _BACKEND_COUNT, (
+        f"Only {checked} VectorDb __init__ bodies checked; expected at least {_BACKEND_COUNT}. "
+        "The scan root is probably stale, which would make this guard vacuous."
+    )
+    assert not offenders, (
+        "VectorDb subclasses that never pass id= to super().__init__, so all their "
+        f"instances share generate_id(<class name>): {sorted(offenders)}"
+    )
