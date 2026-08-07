@@ -35,14 +35,6 @@ def async_mysql_db(mock_async_engine) -> AsyncMySQLDb:
 # `test_schema` schema copied from the async_postgres conftest could never be created
 # (Access denied, swallowed into a log_warning) and its teardown DROP DATABASE errored
 # once per test. Operate inside `ai` and drop tables, not the database.
-_TEST_TABLES = (
-    "test_sessions",
-    "test_memories",
-    "test_metrics",
-    "test_evals",
-    "test_knowledge",
-    "schema_versions",
-)
 
 
 @pytest_asyncio.fixture
@@ -58,18 +50,13 @@ async def async_mysql_engine():
 
     yield engine
 
-    # Cleanup: drop the test tables inside the granted database
-    async with engine.begin() as conn:
-        for table in _TEST_TABLES:
-            await conn.execute(text(f"DROP TABLE IF EXISTS `ai`.`{table}`"))
-
     await engine.dispose()
 
 
 @pytest_asyncio.fixture
 async def async_mysql_db_real(async_mysql_engine) -> AsyncMySQLDb:
-    """Create AsyncMySQLDb with real async MySQL engine"""
-    return AsyncMySQLDb(
+    """Create AsyncMySQLDb with real async MySQL engine, dropping what it creates."""
+    db = AsyncMySQLDb(
         db_engine=async_mysql_engine,
         db_schema="ai",
         session_table="test_sessions",
@@ -78,3 +65,18 @@ async def async_mysql_db_real(async_mysql_engine) -> AsyncMySQLDb:
         eval_table="test_evals",
         knowledge_table="test_knowledge",
     )
+
+    yield db
+
+    # The drop list is derived from the instance rather than hardcoded, so it cannot
+    # drift from the defaults again -- a hand-written list missed the culture, traces and
+    # spans tables and named the versions table `schema_versions` when the actual default
+    # is `egpt_schema_versions` (prefixed in db/base.py), leaking both across local runs.
+    # `test_async_mysql_sessions` is created directly by test_db.py outside this fixture.
+    table_names = sorted(
+        {getattr(db, attr) for attr in dir(db) if attr.endswith("_table_name") and getattr(db, attr)}
+        | {"test_async_mysql_sessions"}
+    )
+    async with async_mysql_engine.begin() as conn:
+        for table in table_names:
+            await conn.execute(text(f"DROP TABLE IF EXISTS `ai`.`{table}`"))

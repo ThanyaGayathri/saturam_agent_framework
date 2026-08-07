@@ -38,8 +38,13 @@ class Cassandra(VectorDb):
         if id is None:
             # Seed from the target this instance operates on. Falling through to the
             # base class made every Cassandra instance share generate_id("Cassandra"),
-            # so the registry could only ever hold one (aicoe-tracker#155).
-            id = generate_id(f"{keyspace}#{table_name}")
+            # so the registry could only ever hold one (aicoe-tracker#155). The cluster's
+            # contact points join the seed when discoverable, so two clusters sharing a
+            # keyspace/table name do not collide; guarded, because test doubles and
+            # non-driver sessions do not carry them.
+            contact_points = getattr(getattr(session, "cluster", None), "contact_points", None)
+            cluster_part = ",".join(map(str, contact_points)) if isinstance(contact_points, (list, tuple)) else ""
+            id = generate_id(f"{cluster_part}#{keyspace}#{table_name}")
 
         # Initialize base class with name, description and generated ID
         super().__init__(id=id, name=name, description=description)

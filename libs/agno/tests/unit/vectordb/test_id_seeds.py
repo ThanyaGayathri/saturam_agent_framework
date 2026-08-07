@@ -77,6 +77,26 @@ class TestSingleStoreVectorIdSeed:
         )
         assert a.id != b.id
 
+    def test_password_stays_out_of_the_seed(self, monkeypatch):
+        """str(engine.url) masks the password but a raw db_url does not -- both branches
+        now normalize through make_url, so rotating the DB password cannot orphan the
+        registry entry, and url- vs engine-construction agree on one id. The engine here
+        is real (pymysql resolves lazily), exercising the masking that actually ships."""
+        pytest.importorskip("pymysql", reason="real dialect resolution for the engine branch")
+        from sqlalchemy import create_engine
+
+        SingleStore = self._cls()
+        import egpt.integrations.vectordb.singlestore.singlestore as mod
+
+        monkeypatch.setattr(mod, "create_engine", lambda url, *a, **k: SimpleNamespace(url=url, connect=MagicMock()))
+        via_url_pw1 = SingleStore(embedder=MagicMock(), collection="docs", db_url="mysql+pymysql://u:pw1@host-a/db")
+        via_url_pw2 = SingleStore(embedder=MagicMock(), collection="docs", db_url="mysql+pymysql://u:pw2@host-a/db")
+        assert via_url_pw1.id == via_url_pw2.id, "a password rotation must not change the id"
+
+        real_engine = create_engine("mysql+pymysql://u:pw3@host-a/db")
+        via_engine = SingleStore(embedder=MagicMock(), collection="docs", db_engine=real_engine)
+        assert via_engine.id == via_url_pw1.id, "the same target named both ways must agree on an id"
+
 
 # --------------------------------------------------------------------------- #
 # LightRag -- importable without extras
@@ -161,6 +181,15 @@ class TestCassandraIdSeed:
         assert len({a.id, b.id, c.id}) == 3
         assert a.id == cls(table_name="docs", keyspace="ks_a", session=session).id
         assert cls(table_name="docs", keyspace="ks_a", session=session, id="pinned").id == "pinned"
+
+    def test_different_clusters_discriminate_when_contact_points_are_known(self, cls, monkeypatch):
+        monkeypatch.setattr(cls, "initialize_table", lambda self: None)
+        cluster_a, cluster_b = MagicMock(), MagicMock()
+        cluster_a.cluster.contact_points = ["host-a"]
+        cluster_b.cluster.contact_points = ["host-b"]
+        a = cls(table_name="docs", keyspace="ks", session=cluster_a)
+        b = cls(table_name="docs", keyspace="ks", session=cluster_b)
+        assert a.id != b.id, "two clusters sharing a keyspace/table must not share an id"
 
 
 class TestClickhouseIdSeed:

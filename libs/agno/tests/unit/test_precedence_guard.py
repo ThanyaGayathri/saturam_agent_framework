@@ -12,6 +12,7 @@ are recorded.
 
 import ast
 import pathlib
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -24,18 +25,20 @@ class TestSalesforceInstructionsDecision:
     """Decision: ``add_instructions`` gates only the built-in default."""
 
     @pytest.fixture
-    def cls(self):
+    def cls(self, monkeypatch):
         pytest.importorskip("simple_salesforce", reason="SalesforceTools imports its SDK at module level")
-        from egpt.integrations.tools.salesforce.salesforce import SalesforceTools
+        import egpt.integrations.tools.salesforce.salesforce as mod
 
-        return SalesforceTools
+        # Stub the SDK client: SalesforceTools.__init__ performs a real SOAP login at
+        # construction, so without this the test issued an outbound request to
+        # login.salesforce.com on every CI run and then silently skipped -- the
+        # assertions below had never executed anywhere. self.instructions is assigned
+        # before any client construction, so the stub changes nothing under test.
+        monkeypatch.setattr(mod, "Salesforce", lambda *a, **k: MagicMock())
+        return mod.SalesforceTools
 
     def _make(self, cls, **kw):
-        # No auth is exercised: instructions are assigned before any connection.
-        try:
-            return cls(username="u", password="p", security_token="t", **kw)
-        except Exception as exc:  # pragma: no cover - construction may validate creds
-            pytest.skip(f"SalesforceTools could not construct without live creds: {exc}")
+        return cls(username="u", password="p", security_token="t", **kw)
 
     def test_caller_instructions_survive_add_instructions_false(self, cls):
         tools = self._make(cls, instructions="custom", add_instructions=False)
@@ -96,6 +99,13 @@ def test_no_unparenthesized_boolop_inside_a_conditional():
     offenders = []
     checked_files = 0
 
+    def _line_offsets(src):
+        offsets, total = [0], 0
+        for line in src.splitlines(keepends=True):
+            total += len(line)
+            offsets.append(total)
+        return offsets
+
     for path in sorted(_egpt_root().rglob("*.py")):
         src = path.read_text()
         try:
@@ -103,14 +113,19 @@ def test_no_unparenthesized_boolop_inside_a_conditional():
         except SyntaxError:  # pragma: no cover
             continue
         checked_files += 1
-        lines = src.splitlines()
+        offsets = _line_offsets(src)
         for node in ast.walk(tree):
             if not (isinstance(node, ast.IfExp) and isinstance(node.body, ast.BoolOp)):
                 continue
             body = node.body
-            line = lines[body.lineno - 1]
-            before = line[: body.col_offset].rstrip()
-            if not before.endswith("("):
+            start = offsets[body.lineno - 1] + body.col_offset
+            end = offsets[body.end_lineno - 1] + body.end_col_offset
+            # Both delimiters are required: checking only the character before the BoolOp
+            # let a *call* parenthesis satisfy the guard -- `foo(a or b if c else d)` is
+            # unparenthesized grouping-wise but starts right after a `(`. Slicing the whole
+            # source (not the line) makes rstrip/lstrip skip newlines too, so multi-line
+            # grouped forms stay clean.
+            if not (src[:start].rstrip().endswith("(") and src[end:].lstrip().startswith(")")):
                 offenders.append(f"{path.relative_to(_egpt_root().parent)}:{body.lineno}")
 
     assert checked_files > 500, f"only {checked_files} files scanned; the root is probably stale and this guard vacuous"

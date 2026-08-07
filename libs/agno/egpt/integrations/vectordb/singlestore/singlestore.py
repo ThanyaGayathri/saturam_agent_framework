@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Union
 
 try:
     from sqlalchemy.dialects import mysql
-    from sqlalchemy.engine import Engine, create_engine
+    from sqlalchemy.engine import Engine, create_engine, make_url
     from sqlalchemy.inspection import inspect
     from sqlalchemy.orm import Session, sessionmaker
     from sqlalchemy.schema import Column, MetaData, Table
@@ -54,7 +54,11 @@ class SingleStore(VectorDb):
             # that bug family is named after (#153). The schema suffix goes in verbatim,
             # mirroring the SingleStoreDb DB backend: the instance stores it verbatim.
             # Every instance previously shared generate_id("SingleStore") (aicoe-tracker#155).
-            base_seed = db_url if db_url is not None else str(_engine.url)
+            #
+            # Both branches go through make_url so the password is masked either way:
+            # str(engine.url) masks it but a raw db_url string does not, which would have
+            # put the secret in the seed and changed the id on every password rotation.
+            base_seed = str(make_url(db_url)) if db_url is not None else str(_engine.url)
             id = generate_id(f"{base_seed}#{schema}#{collection}")
 
         # Initialize base class with name, description and generated ID
