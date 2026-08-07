@@ -14,9 +14,9 @@ Fund with USDC on Base to start using paid APIs.
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.anthropic import Claude
 from egpt.team import Team
-from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

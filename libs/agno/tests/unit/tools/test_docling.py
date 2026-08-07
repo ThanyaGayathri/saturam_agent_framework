@@ -7,12 +7,12 @@ pytest.importorskip("docling")
 
 from docling.datamodel.base_models import InputFormat
 
-from egpt.tools.docling import DoclingTools, PdfFormatOption, PdfPipelineOptions
+from egpt.integrations.tools.docling import DoclingTools, PdfFormatOption, PdfPipelineOptions
 
 
 @pytest.fixture
 def mock_converter():
-    with patch("egpt.tools.docling.DocumentConverter") as mock_converter_cls:
+    with patch("egpt.integrations.tools.docling.docling.DocumentConverter") as mock_converter_cls:
         converter_instance = Mock()
         mock_converter_cls.return_value = converter_instance
         yield converter_instance
@@ -248,7 +248,7 @@ class TestDoclingToolsConversion:
 
 class TestDoclingToolsPdfPipeline:
     def test_pdf_pipeline_options_are_applied(self):
-        with patch("egpt.tools.docling.DocumentConverter") as mock_converter_cls:
+        with patch("egpt.integrations.tools.docling.docling.DocumentConverter") as mock_converter_cls:
             mock_converter_cls.return_value = Mock()
 
             DoclingTools(
@@ -269,7 +269,7 @@ class TestDoclingToolsPdfPipeline:
             assert pdf_format_option.pipeline_options.ocr_options is not None
 
     def test_allowed_input_parsers_are_applied(self):
-        with patch("egpt.tools.docling.DocumentConverter") as mock_converter_cls:
+        with patch("egpt.integrations.tools.docling.docling.DocumentConverter") as mock_converter_cls:
             mock_converter_cls.return_value = Mock()
 
             DoclingTools(allowed_input_formats=["pdf", "docx", "markdown"])
@@ -293,7 +293,7 @@ class TestDoclingToolsPdfPipeline:
         assert "xml_" in error_message
 
     def test_explicit_xml_allowed_input_parser_is_applied(self):
-        with patch("egpt.tools.docling.DocumentConverter") as mock_converter_cls:
+        with patch("egpt.integrations.tools.docling.docling.DocumentConverter") as mock_converter_cls:
             mock_converter_cls.return_value = Mock()
 
             DoclingTools(allowed_input_formats=["xml_uspto"])

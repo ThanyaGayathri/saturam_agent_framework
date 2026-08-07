@@ -13,7 +13,7 @@ Prerequisites:
 """
 
 from egpt.agent import Agent
-from egpt.tools.telegram import TelegramTools
+from egpt.integrations.tools.telegram import TelegramTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

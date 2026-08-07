@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from egpt.tools.pandas import PandasTools
+from egpt.integrations.tools.pandas import PandasTools
 
 
 @pytest.fixture

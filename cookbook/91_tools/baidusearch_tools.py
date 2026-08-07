@@ -6,7 +6,7 @@ Demonstrates baidusearch tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.baidusearch import BaiduSearchTools
+from egpt.integrations.tools.baidusearch import BaiduSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

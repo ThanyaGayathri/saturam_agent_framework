@@ -4,13 +4,13 @@ EgptOS Server for Cookbook Client Examples
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.calculator import CalculatorTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team
-from egpt.tools.calculator import CalculatorTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.vectordb.chroma import ChromaDb
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow

@@ -4,9 +4,9 @@ import asyncio
 from typing import TYPE_CHECKING, Optional
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.openai import OpenAIChat
 from egpt.run import RunContext
-from egpt.tools.mcp import MCPTools
 
 if TYPE_CHECKING:
     from egpt.agent import Agent

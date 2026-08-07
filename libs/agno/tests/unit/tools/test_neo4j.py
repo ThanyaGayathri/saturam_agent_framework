@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from egpt.tools.neo4j import Neo4jTools
+from egpt.integrations.tools.neo4j import Neo4jTools
 
 
 def test_list_labels():

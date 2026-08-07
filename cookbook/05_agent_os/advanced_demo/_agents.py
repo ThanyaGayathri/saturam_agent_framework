@@ -11,12 +11,12 @@ from textwrap import dedent
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.exa import ExaTools
+from egpt.integrations.tools.file import FileTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.anthropic.claude import Claude
-from egpt.tools.exa import ExaTools
-from egpt.tools.file import FileTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.vectordb.pgvector.pgvector import PgVector
 
 # ---------------------------------------------------------------------------

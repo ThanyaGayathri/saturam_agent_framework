@@ -6,7 +6,7 @@ Demonstrates browserbase tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.browserbase import BrowserbaseTools
+from egpt.integrations.tools.browserbase import BrowserbaseTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

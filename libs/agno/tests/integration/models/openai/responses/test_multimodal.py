@@ -1,7 +1,7 @@
 from egpt.agent.agent import Agent
 from egpt.integrations.models.openai.responses import OpenAIResponses
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import File, Image
-from egpt.tools.websearch import WebSearchTools
 
 
 def test_image_input(image_path):

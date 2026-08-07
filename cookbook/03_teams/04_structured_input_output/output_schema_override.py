@@ -8,9 +8,9 @@ Demonstrates per-run output_schema overrides across sync/async and streaming mod
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
-from egpt.tools.websearch import WebSearchTools
 from pydantic import BaseModel
 from rich.pretty import pprint
 

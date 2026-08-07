@@ -240,7 +240,7 @@ Some components cannot be serialized to JSON (tools, custom functions, Pydantic 
 
 ```python
 from egpt.registry import Registry
-from egpt.tools.duckduckgo import DuckDuckGoTools
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 from egpt.models.openai import OpenAIChat
 from pydantic import BaseModel
 

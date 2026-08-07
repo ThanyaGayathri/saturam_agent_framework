@@ -9,10 +9,10 @@ import asyncio
 from uuid import uuid4
 
 from egpt.agent import Agent, RunEvent
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team, TeamRunEvent
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Members

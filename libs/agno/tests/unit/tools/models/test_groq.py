@@ -6,9 +6,9 @@ from unittest.mock import MagicMock, mock_open, patch
 import pytest
 
 from egpt.agent import Agent
+from egpt.integrations.tools.models.groq import GroqTools
 from egpt.media import Audio
 from egpt.tools.function import ToolResult
-from egpt.tools.models.groq import GroqTools
 
 MOCK_API_KEY = "test-groq-api-key"
 
@@ -22,7 +22,7 @@ def mock_groq_env_key(monkeypatch):
 @pytest.fixture
 def mock_groq_client():
     """Fixture to mock the GroqClient."""
-    with patch("egpt.tools.models.groq.GroqClient") as mock_client_constructor:
+    with patch("egpt.integrations.tools.models.groq.GroqClient") as mock_client_constructor:
         mock_client_instance = MagicMock()
         mock_client_constructor.return_value = mock_client_instance
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from egpt.tools.google.drive import GoogleDriveTools, WorkspaceType, _is_binary_mime
+from egpt.integrations.tools.google.drive import GoogleDriveTools, WorkspaceType, _is_binary_mime
 
 
 class TestGoogleWorkspaceExportable:

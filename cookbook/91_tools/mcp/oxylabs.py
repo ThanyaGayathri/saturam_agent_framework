@@ -9,8 +9,8 @@ import asyncio
 import os
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.google import Gemini
-from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

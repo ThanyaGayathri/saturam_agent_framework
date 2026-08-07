@@ -4,9 +4,9 @@ import pytest
 
 from egpt.agent import Agent
 from egpt.integrations.models.vllm import VLLM
-from egpt.tools.exa import ExaTools
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.exa import ExaTools
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 
 VLLM_MODEL_ID = "Qwen/Qwen2.5-7B-Instruct"
 

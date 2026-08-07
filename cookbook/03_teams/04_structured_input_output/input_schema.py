@@ -8,10 +8,10 @@ Demonstrates team-level automatic input validation using input_schema.
 from typing import List
 
 from egpt.agent import Agent
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team, TeamMode
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
 from pydantic import BaseModel, Field
 
 

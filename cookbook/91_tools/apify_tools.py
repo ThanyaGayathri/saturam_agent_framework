@@ -6,7 +6,7 @@ Demonstrates apify tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.apify import ApifyTools
+from egpt.integrations.tools.apify import ApifyTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.integrations.models.openai import OpenAIResponses
-from egpt.tools.exa import ExaTools
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.exa import ExaTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 
 
 def test_tool_use():

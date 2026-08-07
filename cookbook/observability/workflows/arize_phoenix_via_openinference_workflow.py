@@ -8,7 +8,7 @@ Demonstrates tracing a multi-step EGPT workflow in Arize Phoenix.
 import os
 
 from egpt.agent.agent import Agent
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.workflow.condition import Condition
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepInput

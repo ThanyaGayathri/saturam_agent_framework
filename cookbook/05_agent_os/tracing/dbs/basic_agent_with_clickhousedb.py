@@ -22,9 +22,9 @@ Bring up local services with:
 from egpt.agent import Agent
 from egpt.integrations.db.clickhouse import ClickhouseDb
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.hackernews import HackerNewsTools
 from egpt.models.openai import OpenAIResponses
 from egpt.os import EgptOS
-from egpt.tools.hackernews import HackerNewsTools
 from egpt.tracing.setup import setup_tracing
 
 # ---------------------------------------------------------------------------

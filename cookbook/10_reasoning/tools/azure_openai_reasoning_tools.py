@@ -6,9 +6,9 @@ Demonstrates this reasoning cookbook example.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.azure.openai_chat import AzureOpenAI
 from egpt.tools.reasoning import ReasoningTools
-from egpt.tools.websearch import WebSearchTools
 
 
 # ---------------------------------------------------------------------------

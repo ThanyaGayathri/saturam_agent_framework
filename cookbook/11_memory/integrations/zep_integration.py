@@ -8,8 +8,8 @@ Demonstrates Zep-powered memory retrieval for an EGPT agent.
 import time
 
 from egpt.agent import Agent
+from egpt.integrations.tools.zep import ZepTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.zep import ZepTools
 
 # ---------------------------------------------------------------------------
 # Setup

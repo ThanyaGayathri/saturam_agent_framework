@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from egpt.agent import Agent
-from egpt.tools.dalle import DalleTools
+from egpt.integrations.tools.dalle import DalleTools
 from egpt.utils.media import download_image
 
 # ---------------------------------------------------------------------------

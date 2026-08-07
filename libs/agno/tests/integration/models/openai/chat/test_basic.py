@@ -280,8 +280,8 @@ def test_count_tokens(openai_model):
 
 
 def test_count_tokens_with_tools(openai_model):
+    from egpt.integrations.tools.calculator import CalculatorTools
     from egpt.models.message import Message
-    from egpt.tools.calculator import CalculatorTools
 
     messages = [
         Message(role="user", content="What is 2 + 2?"),

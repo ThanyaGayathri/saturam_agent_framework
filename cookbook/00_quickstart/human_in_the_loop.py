@@ -29,12 +29,12 @@ from datetime import datetime, timezone
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.knowledge.embedder.google import GeminiEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader.text_reader import TextReader
 from egpt.models.google import Gemini
 from egpt.tools import tool
-from egpt.tools.yfinance import YFinanceTools
 from egpt.utils import pprint
 from egpt.vectordb.chroma import ChromaDb
 from egpt.vectordb.search import SearchType

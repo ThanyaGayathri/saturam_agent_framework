@@ -14,16 +14,16 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.tools.arxiv import ArxivTools
+from egpt.integrations.tools.calculator import CalculatorTools
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.newspaper4k import Newspaper4kTools
+from egpt.integrations.tools.wikipedia import WikipediaTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIChat
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
-from egpt.tools.arxiv import ArxivTools
-from egpt.tools.calculator import CalculatorTools
-from egpt.tools.duckduckgo import DuckDuckGoTools
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.newspaper4k import Newspaper4kTools
-from egpt.tools.wikipedia import WikipediaTools
-from egpt.tools.yfinance import YFinanceTools
 
 agent_db = SqliteDb(
     session_table="deep_research_sessions", db_file="tmp/deep_research.db"

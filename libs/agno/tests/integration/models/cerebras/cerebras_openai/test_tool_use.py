@@ -2,8 +2,8 @@ import pytest
 
 from egpt.agent import Agent
 from egpt.integrations.models.cerebras import CerebrasOpenAI
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 
 
 def test_tool_use():

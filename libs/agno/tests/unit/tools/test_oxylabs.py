@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from egpt.agent import Agent
-from egpt.tools.oxylabs import OxylabsTools
+from egpt.integrations.tools.oxylabs import OxylabsTools
 
 
 @pytest.fixture
@@ -18,7 +18,7 @@ def mock_agent():
 @pytest.fixture
 def mock_oxylabs_client():
     """Create a mocked Oxylabs RealtimeClient with all resource methods stubbed."""
-    with patch("egpt.tools.oxylabs.RealtimeClient") as mock_realtime_client:
+    with patch("egpt.integrations.tools.oxylabs.oxylabs.RealtimeClient") as mock_realtime_client:
         # Primary client mock returned by the SDK constructor
         mock_client = Mock()
 

@@ -6,9 +6,9 @@ Demonstrates reasoning agent.
 """
 
 from egpt.agent.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

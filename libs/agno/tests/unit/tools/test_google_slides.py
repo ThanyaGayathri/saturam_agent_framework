@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from google.oauth2.credentials import Credentials
 
-from egpt.tools.google.slides import GoogleSlidesTools
+from egpt.integrations.tools.google.slides import GoogleSlidesTools
 
 
 @pytest.fixture
@@ -112,7 +112,7 @@ def mock_credentials():
 def tools(mock_credentials, mock_slides_service, mock_drive_service):
     with (
         patch("googleapiclient.discovery.build"),
-        patch("egpt.tools.google.slides.authenticate", lambda func: func),
+        patch("egpt.integrations.tools.google.slides.authenticate", lambda func: func),
     ):
         toolkit = GoogleSlidesTools(creds=mock_credentials)
         toolkit.slides_service = mock_slides_service
@@ -137,14 +137,14 @@ def err(response: str) -> str:
 
 class TestInitialization:
     def test_default_scopes(self):
-        with patch("egpt.tools.google.slides.authenticate", lambda func: func):
+        with patch("egpt.integrations.tools.google.slides.authenticate", lambda func: func):
             toolkit = GoogleSlidesTools()
             assert "https://www.googleapis.com/auth/drive.file" in toolkit.scopes
             assert "https://www.googleapis.com/auth/presentations" in toolkit.scopes
             assert "https://www.googleapis.com/auth/drive" not in toolkit.scopes
 
     def test_to_emu_helper(self):
-        with patch("egpt.tools.google.slides.authenticate", lambda func: func):
+        with patch("egpt.integrations.tools.google.slides.authenticate", lambda func: func):
             toolkit = GoogleSlidesTools()
             assert toolkit._to_emu(1, "inch") == 914400
             assert toolkit._to_emu(72, "point") == 914400
@@ -152,7 +152,7 @@ class TestInitialization:
 
     def test_to_emu_zero(self):
         """_to_emu(0, ...) must always return 0 regardless of unit."""
-        with patch("egpt.tools.google.slides.authenticate", lambda func: func):
+        with patch("egpt.integrations.tools.google.slides.authenticate", lambda func: func):
             toolkit = GoogleSlidesTools()
             assert toolkit._to_emu(0, "inch") == 0
             assert toolkit._to_emu(0, "point") == 0
@@ -846,7 +846,7 @@ class TestIdUniqueness:
 
 class TestToolFiltering:
     def test_include_tools(self):
-        with patch("egpt.tools.google.slides.authenticate", lambda func: func):
+        with patch("egpt.integrations.tools.google.slides.authenticate", lambda func: func):
             toolkit = GoogleSlidesTools(include_tools=["create_presentation", "get_presentation"])
         assert len(toolkit.functions) == 2
         assert "create_presentation" in toolkit.functions
@@ -854,14 +854,14 @@ class TestToolFiltering:
         assert "delete_presentation" not in toolkit.functions
 
     def test_exclude_tools(self):
-        with patch("egpt.tools.google.slides.authenticate", lambda func: func):
+        with patch("egpt.integrations.tools.google.slides.authenticate", lambda func: func):
             toolkit = GoogleSlidesTools(delete_presentation=True, exclude_tools=["delete_presentation", "add_slide"])
         assert "delete_presentation" not in toolkit.functions
         assert "add_slide" not in toolkit.functions
         assert "create_presentation" in toolkit.functions
 
     def test_all_tools_registered_by_default(self):
-        with patch("egpt.tools.google.slides.authenticate", lambda func: func):
+        with patch("egpt.integrations.tools.google.slides.authenticate", lambda func: func):
             toolkit = GoogleSlidesTools()
         expected = {
             "create_presentation",
@@ -891,7 +891,7 @@ class TestToolFiltering:
           2. exclude_tools then strips from that narrowed set (skip if in exclude list).
         So include=[A,B,C] + exclude=[C]  →  {A, B} are registered.
         This is verified directly against Agno's Toolkit source code."""
-        with patch("egpt.tools.google.slides.authenticate", lambda func: func):
+        with patch("egpt.integrations.tools.google.slides.authenticate", lambda func: func):
             toolkit = GoogleSlidesTools(
                 delete_presentation=True,
                 include_tools=["create_presentation", "get_presentation", "delete_presentation"],

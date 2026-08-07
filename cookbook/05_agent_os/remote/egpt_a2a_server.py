@@ -9,12 +9,12 @@ Start this server before running 04_remote_agno_a2a_agent.py
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.calculator import CalculatorTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
-from egpt.tools.calculator import CalculatorTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.vectordb.chroma import ChromaDb
 
 # ---------------------------------------------------------------------------

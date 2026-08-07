@@ -7,13 +7,13 @@ Demonstrates configuring EgptOS with a Registry and serving the app.
 
 from egpt.agent.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.calculator import CalculatorTools
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 from egpt.models.anthropic import Claude
 from egpt.models.azure import AzureOpenAI
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.registry import Registry
-from egpt.tools.calculator import CalculatorTools
-from egpt.tools.duckduckgo import DuckDuckGoTools
 
 # ---------------------------------------------------------------------------
 # Setup

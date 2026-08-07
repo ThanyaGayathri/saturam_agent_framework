@@ -8,8 +8,8 @@ Cookbook example for `litellm/tool_use.py`.
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.litellm import LiteLLM
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

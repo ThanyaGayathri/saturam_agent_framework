@@ -18,13 +18,13 @@ except (ImportError, ModuleNotFoundError):
 if not TODOIST_AVAILABLE:
     pytest.skip("todoist-api-python not available or has broken dependencies", allow_module_level=True)
 
-from egpt.tools.todoist import TodoistTools
+from egpt.integrations.tools.todoist import TodoistTools
 
 
 @pytest.fixture
 def mock_todoist_api():
     """Create a mock Todoist API client."""
-    with patch("egpt.tools.todoist.TodoistAPI") as mock_api:
+    with patch("egpt.integrations.tools.todoist.todoist.TodoistAPI") as mock_api:
         mock_client = Mock()
         mock_api.return_value = mock_client
         yield mock_client
@@ -42,7 +42,7 @@ def todoist_tools(mock_todoist_api):
 @pytest.mark.skip(reason="Needs TODOIST_API_TOKEN to run")
 def test_init_with_api_token():
     """Test initialization with provided API token."""
-    with patch("egpt.tools.todoist.TodoistAPI") as mock_api:
+    with patch("egpt.integrations.tools.todoist.todoist.TodoistAPI") as mock_api:
         with patch("os.getenv") as mock_getenv:
             mock_getenv.return_value = "test_token"
             TodoistTools()
@@ -52,7 +52,7 @@ def test_init_with_api_token():
 @pytest.mark.skip(reason="Needs TODOIST_API_TOKEN to run")
 def test_init_with_env_var():
     """Test initialization with environment variable."""
-    with patch("egpt.tools.todoist.TodoistAPI") as mock_api:
+    with patch("egpt.integrations.tools.todoist.todoist.TodoistAPI") as mock_api:
         with patch("os.getenv") as mock_getenv:
             mock_getenv.return_value = "env_token"
             TodoistTools()

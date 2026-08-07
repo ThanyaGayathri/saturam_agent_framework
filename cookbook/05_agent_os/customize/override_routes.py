@@ -16,9 +16,9 @@ When `on_route_conflict="preserve_agentos"` (default):
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.anthropic import Claude
 from egpt.os import EgptOS
-from egpt.tools.websearch import WebSearchTools
 from fastapi import FastAPI
 
 # ---------------------------------------------------------------------------

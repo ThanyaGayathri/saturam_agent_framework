@@ -6,7 +6,7 @@ import asyncio
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import AsyncSqliteDb
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

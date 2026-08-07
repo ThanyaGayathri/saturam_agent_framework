@@ -8,9 +8,9 @@ Cookbook example for `litellm/image_agent_bytes.py`.
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import Image
 from egpt.models.litellm import LiteLLM
-from egpt.tools.websearch import WebSearchTools
 from egpt.utils.media import download_image
 
 # ---------------------------------------------------------------------------

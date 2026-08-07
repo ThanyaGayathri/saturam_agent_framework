@@ -7,8 +7,8 @@ Metrics.
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.yfinance import YFinanceTools
 from rich.pretty import pprint
 
 # ---------------------------------------------------------------------------

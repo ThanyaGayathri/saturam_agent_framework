@@ -9,7 +9,7 @@ from typing import Iterator  # noqa
 from rich.pretty import pprint
 from egpt.agent import Agent, RunOutput
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

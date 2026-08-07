@@ -455,7 +455,7 @@ class TestPopulateRegistryComponentsToolDedup:
         # the same function names but different config. Rehydration is keyed by
         # function name globally, so only one instance can win; we make that the
         # first one walked (deterministic), and the later clash is ignored.
-        from egpt.tools.duckduckgo import DuckDuckGoTools
+        from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 
         first = DuckDuckGoTools(fixed_max_results=3)
         second = DuckDuckGoTools(fixed_max_results=99)

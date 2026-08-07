@@ -12,8 +12,8 @@ You can read more in Anthropic docs: https://docs.claude.com/en/docs/build-with-
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.anthropic import Claude
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -12,11 +12,11 @@ from pathlib import Path
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.calculator import CalculatorTools
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 from egpt.models.anthropic import Claude
 from egpt.models.openai import OpenAIResponses
 from egpt.registry import Registry
-from egpt.tools.calculator import CalculatorTools
-from egpt.tools.duckduckgo import DuckDuckGoTools
 from egpt.tools.studio import StudioTools
 
 DB_DIR = Path(__file__).parent / "tmp"

@@ -39,8 +39,8 @@ from egpt.agent import Agent
 from egpt.context._utils import answer_from_run
 from egpt.context.mode import ContextMode
 from egpt.context.provider import Answer, ContextProvider, Status, _sanitize_id
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.run import RunContext
-from egpt.tools.mcp import MCPTools
 from egpt.utils.log import log_warning
 
 if TYPE_CHECKING:
@@ -227,7 +227,7 @@ class MCPContextProvider(ContextProvider):
             if self.headers:
                 # MCPTools doesn't accept `headers` as a direct kwarg;
                 # pass via server_params for http/sse transports.
-                from egpt.tools.mcp.params import (
+                from egpt.integrations.tools.mcp.params import (
                     SSEClientParams,
                     StreamableHTTPClientParams,
                 )
@@ -237,7 +237,7 @@ class MCPContextProvider(ContextProvider):
                 else:
                     kwargs["server_params"] = StreamableHTTPClientParams(url=self.url or "", headers=self.headers)
 
-        # Escape hatch: anything accepted by ``egpt.tools.mcp.MCPTools``.
+        # Escape hatch: anything accepted by ``egpt.integrations.tools.mcp.MCPTools``.
         # User-provided keys override anything the provider set.
         kwargs.update(self.mcp_kwargs)
 

@@ -5,8 +5,8 @@ from pathlib import Path
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.exa import ExaTools
 from egpt.models.groq import Groq
-from egpt.tools.exa import ExaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

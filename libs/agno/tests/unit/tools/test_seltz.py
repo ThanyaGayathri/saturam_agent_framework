@@ -15,7 +15,7 @@ try:
         SeltzTimeoutError,
     )
 
-    from egpt.tools.seltz import SeltzTools
+    from egpt.integrations.tools.seltz import SeltzTools
 except (ImportError, Exception):
     pytest.skip("seltz not installed or incompatible version", allow_module_level=True)
 
@@ -23,7 +23,7 @@ except (ImportError, Exception):
 @pytest.fixture
 def mock_seltz_client():
     """Create a mock Seltz API client."""
-    with patch("egpt.tools.seltz.Seltz") as mock_seltz:
+    with patch("egpt.integrations.tools.seltz.seltz.Seltz") as mock_seltz:
         mock_client = Mock()
         mock_seltz.return_value = mock_client
         return mock_client
@@ -48,7 +48,7 @@ def create_mock_document(url: str, content: str | None = None):
 
 def test_init_with_api_key():
     """Test initialization with provided API key."""
-    with patch("egpt.tools.seltz.Seltz") as mock_seltz:
+    with patch("egpt.integrations.tools.seltz.seltz.Seltz") as mock_seltz:
         with patch.dict("os.environ", {"SELTZ_API_KEY": "test_key"}):
             SeltzTools()
             mock_seltz.assert_called_once_with(api_key="test_key")
@@ -63,7 +63,7 @@ def test_init_with_search_disabled():
 
 def test_init_with_custom_endpoint():
     """Test initialization with custom endpoint and insecure flag."""
-    with patch("egpt.tools.seltz.Seltz") as mock_seltz:
+    with patch("egpt.integrations.tools.seltz.seltz.Seltz") as mock_seltz:
         with patch.dict("os.environ", {"SELTZ_API_KEY": "test_key"}):
             SeltzTools(endpoint="custom.endpoint.ai", insecure=True)
             mock_seltz.assert_called_once_with(api_key="test_key", endpoint="custom.endpoint.ai", insecure=True)
@@ -147,7 +147,7 @@ def test_search_empty_query(seltz_tools):
 
 def test_search_without_api_key():
     """Test search without API key returns error."""
-    with patch("egpt.tools.seltz.Seltz"):
+    with patch("egpt.integrations.tools.seltz.seltz.Seltz"):
         with patch.dict("os.environ", {"SELTZ_API_KEY": ""}, clear=False):
             with patch.object(SeltzTools, "__init__", lambda self, **kwargs: None):
                 tools = SeltzTools()
@@ -203,7 +203,7 @@ def test_parse_documents_skips_empty(seltz_tools):
 
 def test_init_with_all_flag():
     """Test initialization with all=True enables all tools."""
-    with patch("egpt.tools.seltz.Seltz"):
+    with patch("egpt.integrations.tools.seltz.seltz.Seltz"):
         with patch.dict("os.environ", {"SELTZ_API_KEY": "test_key"}):
             tools = SeltzTools(all=True, enable_search=False)
             assert "search_seltz" in [func.name for func in tools.functions.values()]
@@ -276,7 +276,7 @@ def test_search_with_legacy_sdk_uses_includes_and_context(seltz_tools):
     seltz_tools.context = "default context"
     seltz_tools.profile = "test_profile"
 
-    with patch("egpt.tools.seltz.Includes") as mock_includes:
+    with patch("egpt.integrations.tools.seltz.seltz.Includes") as mock_includes:
         mock_includes_instance = Mock()
         mock_includes.return_value = mock_includes_instance
 
@@ -294,7 +294,7 @@ def test_search_with_legacy_sdk_uses_includes_and_context(seltz_tools):
 
 def test_init_with_context_and_profile():
     """Test initialization with context and profile parameters."""
-    with patch("egpt.tools.seltz.Seltz"):
+    with patch("egpt.integrations.tools.seltz.seltz.Seltz"):
         with patch.dict("os.environ", {"SELTZ_API_KEY": "test_key"}):
             tools = SeltzTools(context="default context", profile="test_profile")
             assert tools.context == "default context"

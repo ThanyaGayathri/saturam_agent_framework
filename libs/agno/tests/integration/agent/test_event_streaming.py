@@ -7,10 +7,10 @@ from pydantic import BaseModel
 from egpt.agent.agent import Agent
 from egpt.db.base import SessionType
 from egpt.integrations.models.openai.chat import OpenAIChat
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.run.agent import CustomEvent, RunEvent, RunInput, RunOutput
 from egpt.tools.decorator import tool
 from egpt.tools.reasoning import ReasoningTools
-from egpt.tools.yfinance import YFinanceTools
 
 
 def test_basic_events():

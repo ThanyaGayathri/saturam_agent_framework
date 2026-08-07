@@ -17,8 +17,8 @@ calls can build on prior files and state.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.antigravity import AntigravityTools
 from egpt.models.google import Gemini
-from egpt.tools.antigravity import AntigravityTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -6,9 +6,9 @@ Cookbook example for `google/gemini/image_input.py`.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import Image
 from egpt.models.google import Gemini
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

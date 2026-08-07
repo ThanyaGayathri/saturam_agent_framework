@@ -5,9 +5,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from egpt.agent import Agent
+from egpt.integrations.tools.models.azure_openai import AzureOpenAITools
 from egpt.media import Image
 from egpt.tools.function import ToolResult
-from egpt.tools.models.azure_openai import AzureOpenAITools
 
 
 @pytest.fixture
@@ -83,7 +83,7 @@ def test_tools_registration(azure_openai_tools):
     assert "generate_image" in function_names
 
 
-@patch("egpt.tools.models.azure_openai.post")
+@patch("egpt.integrations.tools.models.azure_openai.post")
 def test_generate_image_success(mock_post, azure_openai_tools, mock_agent):
     """Test successful image generation."""
     # Configure the mock response
@@ -124,7 +124,7 @@ def test_generate_image_success(mock_post, azure_openai_tools, mock_agent):
     assert result.images[0].revised_prompt == "A revised prompt for the image"
 
 
-@patch("egpt.tools.models.azure_openai.post")
+@patch("egpt.integrations.tools.models.azure_openai.post")
 def test_generate_image_with_custom_parameters(mock_post, azure_openai_tools, mock_agent):
     """Test image generation with custom parameters."""
     # Configure the mock response
@@ -162,7 +162,7 @@ def test_generate_image_with_custom_parameters(mock_post, azure_openai_tools, mo
     assert len(result.images) == 1
 
 
-@patch("egpt.tools.models.azure_openai.post")
+@patch("egpt.integrations.tools.models.azure_openai.post")
 def test_generate_image_failure(mock_post, azure_openai_tools, mock_agent):
     """Test image generation failure handling."""
     # Configure the mock response for a failed API call
@@ -185,7 +185,7 @@ def test_generate_image_failure(mock_post, azure_openai_tools, mock_agent):
 def test_invalid_parameters(azure_openai_tools, mock_agent):
     """Test automatic correction of invalid parameters."""
     # Setup mock response for successful API call
-    with patch("egpt.tools.models.azure_openai.post") as mock_post:
+    with patch("egpt.integrations.tools.models.azure_openai.post") as mock_post:
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {

@@ -6,8 +6,8 @@ import asyncio
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp_toolbox import MCPToolbox
 from egpt.models.openai import OpenAIChat
-from egpt.tools.mcp_toolbox import MCPToolbox
 
 # ---------------------------------------------------------------------------
 # Create Agent

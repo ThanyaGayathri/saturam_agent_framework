@@ -18,9 +18,9 @@ and saved to tmp/file_gen_out/.
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.file_generation import FileGenerationTools
 from egpt.models.openai import OpenAIResponses
 from egpt.os.app import EgptOS
-from egpt.tools.file_generation import FileGenerationTools
 
 agent_db = SqliteDb(db_file="tmp/file_gen_os.db")
 

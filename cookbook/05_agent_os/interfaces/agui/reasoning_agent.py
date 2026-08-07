@@ -6,10 +6,10 @@ Demonstrates reasoning agent.
 """
 
 from egpt.agent.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIResponses
 from egpt.os import EgptOS
 from egpt.os.interfaces.agui import AGUI
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

@@ -9,8 +9,8 @@ import base64
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.models.groq import GroqTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.models.groq import GroqTools
 from egpt.utils.media import save_base64_data
 
 # ---------------------------------------------------------------------------

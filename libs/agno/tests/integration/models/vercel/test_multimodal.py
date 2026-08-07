@@ -1,7 +1,7 @@
 from egpt.agent import Agent
 from egpt.integrations.models.vercel import V0
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import Image
-from egpt.tools.websearch import WebSearchTools
 
 
 def test_image_input():

@@ -6,9 +6,9 @@ Cookbook example for `xai/image_agent.py`.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import Image
 from egpt.models.xai import xAI
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

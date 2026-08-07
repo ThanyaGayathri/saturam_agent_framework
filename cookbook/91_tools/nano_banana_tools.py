@@ -9,7 +9,7 @@ Usage:
 from pathlib import Path
 
 from egpt.agent import Agent
-from egpt.tools.nano_banana import NanoBananaTools
+from egpt.integrations.tools.nano_banana import NanoBananaTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

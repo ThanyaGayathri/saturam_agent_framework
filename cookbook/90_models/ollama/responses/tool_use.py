@@ -8,8 +8,8 @@ Requirements:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 from egpt.models.ollama import OllamaResponses
-from egpt.tools.duckduckgo import DuckDuckGoTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

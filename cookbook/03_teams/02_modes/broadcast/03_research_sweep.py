@@ -8,11 +8,11 @@ merges findings into a comprehensive report.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
+from egpt.integrations.tools.hackernews import HackerNewsTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team.mode import TeamMode
 from egpt.team.team import Team
-from egpt.tools.duckduckgo import DuckDuckGoTools
-from egpt.tools.hackernews import HackerNewsTools
 
 # ---------------------------------------------------------------------------
 # Create Members

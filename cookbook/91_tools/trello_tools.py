@@ -19,7 +19,7 @@ Step 3: Generate a Token
 """
 
 from egpt.agent import Agent
-from egpt.tools.trello import TrelloTools
+from egpt.integrations.tools.trello import TrelloTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

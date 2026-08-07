@@ -6,8 +6,8 @@ Demonstrates lumalabs tools.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.lumalab import LumaLabTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.lumalab import LumaLabTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -8,6 +8,7 @@ uv pip install -U fastapi uvicorn sqlalchemy pgvector psycopg openai ddgs
 from egpt import __version__ as egpt_version
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
@@ -18,7 +19,6 @@ from egpt.os.interfaces.telegram import Telegram
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.registry import Registry
 from egpt.team import Team
-from egpt.tools.mcp import MCPTools
 from egpt.vectordb.pgvector import PgVector
 from egpt.workflow import Workflow
 from egpt.workflow.step import Step

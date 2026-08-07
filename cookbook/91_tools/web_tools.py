@@ -6,7 +6,7 @@ Demonstrates web tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.webtools import WebTools
+from egpt.integrations.tools.webtools import WebTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

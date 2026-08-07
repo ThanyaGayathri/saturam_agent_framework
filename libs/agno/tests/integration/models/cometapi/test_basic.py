@@ -130,7 +130,7 @@ def test_with_memory():
 
 def test_tool_usage():
     """Test agent with Calculator tools."""
-    from egpt.tools.calculator import CalculatorTools
+    from egpt.integrations.tools.calculator import CalculatorTools
 
     agent = Agent(
         model=CometAPI(id="gpt-5-mini"),
@@ -180,7 +180,7 @@ def test_custom_base_url():
 
 def test_tool_usage_stream():
     """Test agent with Calculator tools in streaming mode."""
-    from egpt.tools.calculator import CalculatorTools
+    from egpt.integrations.tools.calculator import CalculatorTools
 
     agent = Agent(
         model=CometAPI(id="gpt-5-mini"),
@@ -202,7 +202,7 @@ def test_tool_usage_stream():
 @pytest.mark.asyncio
 async def test_async_tool_usage():
     """Test CometAPI with async tool usage."""
-    from egpt.tools.calculator import CalculatorTools
+    from egpt.integrations.tools.calculator import CalculatorTools
 
     agent = Agent(
         model=CometAPI(id="gpt-5-mini"),
@@ -225,7 +225,7 @@ async def test_async_tool_usage():
 @pytest.mark.asyncio
 async def test_async_tool_usage_stream():
     """Test CometAPI with async tool usage and streaming."""
-    from egpt.tools.calculator import CalculatorTools
+    from egpt.integrations.tools.calculator import CalculatorTools
 
     agent = Agent(
         model=CometAPI(id="gpt-5-mini"),

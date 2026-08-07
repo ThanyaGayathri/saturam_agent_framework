@@ -18,8 +18,8 @@ Run: `uv pip install openai yfinance` to install the dependencies
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.xai import xAI
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

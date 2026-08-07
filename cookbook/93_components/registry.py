@@ -8,9 +8,9 @@ components from the database.
 
 from egpt.agent.agent import Agent, get_agent_by_id  # noqa: F401
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 from egpt.models.openai import OpenAIChat
 from egpt.registry import Registry
-from egpt.tools.duckduckgo import DuckDuckGoTools
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------

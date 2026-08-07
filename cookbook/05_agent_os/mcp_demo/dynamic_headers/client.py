@@ -17,11 +17,11 @@ from typing import TYPE_CHECKING, Optional
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.run import RunContext
 from egpt.team.team import Team
-from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Example

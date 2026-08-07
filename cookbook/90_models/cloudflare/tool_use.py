@@ -21,8 +21,8 @@ Install:
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.cloudflare import Cloudflare
-from egpt.tools.websearch import WebSearchTools
 
 agent = Agent(
     model=Cloudflare(id="@cf/zai-org/glm-4.7-flash"),

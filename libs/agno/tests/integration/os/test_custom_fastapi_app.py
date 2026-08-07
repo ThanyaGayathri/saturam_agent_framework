@@ -10,9 +10,9 @@ from starlette.middleware.cors import CORSMiddleware
 
 from egpt.agent.agent import Agent
 from egpt.integrations.db.in_memory import InMemoryDb
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.os import EgptOS
 from egpt.team.team import Team
-from egpt.tools.mcp import MCPTools
 from egpt.workflow.workflow import Workflow
 
 

@@ -8,8 +8,8 @@ Demonstrates instrumenting an EGPT agent with OpenInference and sending traces t
 import os
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.websearch import WebSearchTools
 from openinference.instrumentation.agno import AgnoInstrumentor
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.trace import TracerProvider

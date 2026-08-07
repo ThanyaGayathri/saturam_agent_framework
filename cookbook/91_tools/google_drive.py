@@ -3,8 +3,8 @@ Google Drive Agent that can search, list, read, upload, and download files using
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.google.drive import GoogleDriveTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.google.drive import GoogleDriveTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

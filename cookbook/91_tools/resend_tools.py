@@ -6,7 +6,7 @@ Demonstrates resend tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.resend import ResendTools
+from egpt.integrations.tools.resend import ResendTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

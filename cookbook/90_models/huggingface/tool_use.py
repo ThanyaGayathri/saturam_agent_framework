@@ -6,8 +6,8 @@ Cookbook example for `huggingface/tool_use.py`.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.huggingface import HuggingFace
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

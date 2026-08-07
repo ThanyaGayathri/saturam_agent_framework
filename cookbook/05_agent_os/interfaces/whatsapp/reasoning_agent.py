@@ -7,11 +7,11 @@ Demonstrates reasoning agent.
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.anthropic.claude import Claude
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.tools.reasoning import ReasoningTools
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Example

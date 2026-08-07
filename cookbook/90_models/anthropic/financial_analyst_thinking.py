@@ -6,9 +6,9 @@ Cookbook example for `anthropic/financial_analyst_thinking.py`.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.calculator import CalculatorTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.anthropic import Claude
-from egpt.tools.calculator import CalculatorTools
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

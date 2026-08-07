@@ -129,7 +129,8 @@ Format:
 | Core agent code | `libs/agno/egpt/agent/` |
 | Teams | `libs/agno/egpt/team/` |
 | Workflows | `libs/agno/egpt/workflow/` |
-| Tools | `libs/agno/egpt/tools/` |
+| Tool interface | `libs/agno/egpt/tools/` (`Function`, `Toolkit`, `@tool`, registry) |
+| Toolkits + MCP | `libs/agno/egpt/integrations/tools/` |
 | Model interface | `libs/agno/egpt/models/` (`Model` base, message, metrics) |
 | Model providers | `libs/agno/egpt/integrations/models/` |
 | Knowledge/RAG | `libs/agno/egpt/knowledge/` |

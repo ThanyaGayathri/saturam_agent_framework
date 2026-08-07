@@ -6,8 +6,8 @@ Cookbook example for `moonshot/tool_use.py`.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.moonshot import MoonShot
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

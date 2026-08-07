@@ -8,9 +8,9 @@ Demonstrates weather agent.
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.openweather import OpenWeatherTools
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
-from egpt.tools.openweather import OpenWeatherTools
 
 # ---------------------------------------------------------------------------
 # Create Example

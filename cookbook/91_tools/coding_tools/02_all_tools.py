@@ -6,8 +6,8 @@ by setting all=True or enabling them individually.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.coding import CodingTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.coding import CodingTools
 
 # ---------------------------------------------------------------------------
 # Create Agent with all CodingTools

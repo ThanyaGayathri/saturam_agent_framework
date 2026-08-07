@@ -6,9 +6,9 @@ Cookbook example for `aws/claude/image_agent.py`.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import Image
 from egpt.models.aws import Claude
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

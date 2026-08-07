@@ -2,8 +2,8 @@
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.litellm import LiteLLM
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

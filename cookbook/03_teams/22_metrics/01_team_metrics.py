@@ -7,9 +7,9 @@ Demonstrates retrieving team, session, and member-level execution metrics.
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
-from egpt.tools.yfinance import YFinanceTools
 from egpt.utils.pprint import pprint_run_response
 from rich.pretty import pprint
 

@@ -8,8 +8,8 @@ Run `uv pip install google-genai` to install the required packages.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.models.gemini import GeminiTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.models.gemini import GeminiTools
 from egpt.utils.media import save_base64_data
 
 # ---------------------------------------------------------------------------

@@ -3,19 +3,19 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from egpt.tools.trafilatura import TrafilaturaTools
+from egpt.integrations.tools.trafilatura import TrafilaturaTools
 
 
 @pytest.fixture
 def mock_trafilatura_modules():
     """Mock all trafilatura module imports."""
     with (
-        patch("egpt.tools.trafilatura.extract") as mock_extract,
-        patch("egpt.tools.trafilatura.extract_metadata") as mock_extract_metadata,
-        patch("egpt.tools.trafilatura.fetch_url") as mock_fetch_url,
-        patch("egpt.tools.trafilatura.html2txt") as mock_html2txt,
-        patch("egpt.tools.trafilatura.reset_caches") as mock_reset_caches,
-        patch("egpt.tools.trafilatura.focused_crawler", create=True) as mock_crawler,
+        patch("egpt.integrations.tools.trafilatura.trafilatura.extract") as mock_extract,
+        patch("egpt.integrations.tools.trafilatura.trafilatura.extract_metadata") as mock_extract_metadata,
+        patch("egpt.integrations.tools.trafilatura.trafilatura.fetch_url") as mock_fetch_url,
+        patch("egpt.integrations.tools.trafilatura.trafilatura.html2txt") as mock_html2txt,
+        patch("egpt.integrations.tools.trafilatura.trafilatura.reset_caches") as mock_reset_caches,
+        patch("egpt.integrations.tools.trafilatura.trafilatura.focused_crawler", create=True) as mock_crawler,
     ):
         yield {
             "extract": mock_extract,
@@ -139,7 +139,7 @@ class TestTrafilaturaToolsInitialization:
         assert "crawl_website" not in function_names
         assert "html_to_text" not in function_names
 
-    @patch("egpt.tools.trafilatura.SPIDER_AVAILABLE", False)
+    @patch("egpt.integrations.tools.trafilatura.trafilatura.SPIDER_AVAILABLE", False)
     def test_initialization_without_spider(self, mock_trafilatura_modules):
         """Test initialization when spider module is not available."""
         tools = TrafilaturaTools()
@@ -267,7 +267,7 @@ class TestExtractMetadataOnlyMethod:
 class TestCrawlWebsiteMethod:
     """Test class for crawl_website method."""
 
-    @patch("egpt.tools.trafilatura.SPIDER_AVAILABLE", True)
+    @patch("egpt.integrations.tools.trafilatura.trafilatura.SPIDER_AVAILABLE", True)
     def test_crawl_website_success(self, trafilatura_tools, mock_trafilatura_modules):
         """Test successful website crawling."""
         # Setup mocks
@@ -287,7 +287,7 @@ class TestCrawlWebsiteMethod:
         assert result_data["stats"]["known_links_count"] == 3
         mock_trafilatura_modules["reset_caches"].assert_called_once()
 
-    @patch("egpt.tools.trafilatura.SPIDER_AVAILABLE", False)
+    @patch("egpt.integrations.tools.trafilatura.trafilatura.SPIDER_AVAILABLE", False)
     def test_crawl_website_spider_unavailable(self, trafilatura_tools, mock_trafilatura_modules):
         """Test crawl_website when spider is not available."""
         # Execute
@@ -296,7 +296,7 @@ class TestCrawlWebsiteMethod:
         # Assert
         assert "Error: Web crawling functionality not available" in result
 
-    @patch("egpt.tools.trafilatura.SPIDER_AVAILABLE", True)
+    @patch("egpt.integrations.tools.trafilatura.trafilatura.SPIDER_AVAILABLE", True)
     def test_crawl_website_with_content_extraction(self, trafilatura_tools, mock_trafilatura_modules):
         """Test crawl_website with content extraction enabled."""
         # Setup mocks

@@ -8,9 +8,9 @@ Demonstrates passing validated Pydantic models as team inputs.
 from typing import List
 
 from egpt.agent import Agent
+from egpt.integrations.tools.hackernews import HackerNewsTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
-from egpt.tools.hackernews import HackerNewsTools
 from pydantic import BaseModel, Field
 
 

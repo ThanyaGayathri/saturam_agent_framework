@@ -9,8 +9,8 @@ import asyncio
 from os import getenv
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.google import Gemini
-from egpt.tools.mcp import MCPTools
 from egpt.utils.pprint import apprint_run_response
 
 # ---------------------------------------------------------------------------

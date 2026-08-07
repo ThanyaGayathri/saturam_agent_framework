@@ -9,7 +9,7 @@ Setup:
 """
 
 from egpt.agent import Agent
-from egpt.tools.gitlab import GitlabTools
+from egpt.integrations.tools.gitlab import GitlabTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -31,10 +31,10 @@ from typing import List, Literal, Optional
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.google.auth import AuthConfig
+from egpt.integrations.tools.google.calendar import GoogleCalendarTools
+from egpt.integrations.tools.google.gmail import GmailTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.google.auth import AuthConfig
-from egpt.tools.google.calendar import GoogleCalendarTools
-from egpt.tools.google.gmail import GmailTools
 from egpt.utils.encryption import generate_encryption_key  # noqa: F401
 from pydantic import BaseModel, Field
 

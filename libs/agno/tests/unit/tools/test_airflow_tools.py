@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 
-from egpt.tools.airflow import AirflowTools
+from egpt.integrations.tools.airflow import AirflowTools
 
 
 def test_save_and_read_dag_file_basic():

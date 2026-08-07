@@ -8,7 +8,7 @@ Prerequisites:
 """
 
 from egpt.agent import Agent
-from egpt.tools.firecrawl import FirecrawlTools
+from egpt.integrations.tools.firecrawl import FirecrawlTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

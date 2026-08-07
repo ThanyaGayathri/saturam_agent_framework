@@ -8,11 +8,11 @@ Demonstrates a team that combines knowledge-base retrieval with web search suppo
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.knowledge.knowledge import Knowledge
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
-from egpt.tools.websearch import WebSearchTools
 from egpt.vectordb.lancedb import LanceDb, SearchType
 
 # ---------------------------------------------------------------------------

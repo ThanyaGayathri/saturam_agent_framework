@@ -31,8 +31,8 @@ For more complex use cases, check out the WhatsApp Cloud API documentation:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.whatsapp import WhatsAppTools
 from egpt.models.google import Gemini
-from egpt.tools.whatsapp import WhatsAppTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

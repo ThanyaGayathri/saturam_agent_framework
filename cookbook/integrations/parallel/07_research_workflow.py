@@ -15,8 +15,8 @@ Prerequisites:
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.parallel import ParallelTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.parallel import ParallelTools
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
 

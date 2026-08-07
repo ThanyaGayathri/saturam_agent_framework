@@ -9,8 +9,8 @@ import base64
 import os
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

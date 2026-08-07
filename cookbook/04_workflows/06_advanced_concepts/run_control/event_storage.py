@@ -7,6 +7,7 @@ Demonstrates storing workflow events while skipping selected high-volume events.
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.hackernews import HackerNewsTools
 from egpt.models.openai import OpenAIChat
 from egpt.run.agent import (
     RunContentEvent,
@@ -15,7 +16,6 @@ from egpt.run.agent import (
     ToolCallStartedEvent,
 )
 from egpt.run.workflow import WorkflowRunEvent, WorkflowRunOutput
-from egpt.tools.hackernews import HackerNewsTools
 from egpt.workflow.parallel import Parallel
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow

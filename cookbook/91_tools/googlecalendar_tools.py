@@ -41,7 +41,7 @@ Steps to get the Google OAuth Credentials (Reference : https://developers.google
 """
 
 from egpt.agent import Agent
-from egpt.tools.google.calendar import GoogleCalendarTools
+from egpt.integrations.tools.google.calendar import GoogleCalendarTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

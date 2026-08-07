@@ -22,7 +22,7 @@ sys.modules["daytona"] = mock_daytona_module
 sys.modules["daytona_api_client"] = mock_daytona_api_client_module
 
 # Import after mocking to avoid import errors
-from egpt.tools.daytona import DaytonaTools  # noqa: E402
+from egpt.integrations.tools.daytona import DaytonaTools  # noqa: E402
 
 
 @pytest.fixture
@@ -36,7 +36,7 @@ def mock_agent():
 @pytest.fixture
 def mock_daytona():
     """Create mock Daytona objects."""
-    with patch("egpt.tools.daytona.Daytona") as mock_daytona_class:
+    with patch("egpt.integrations.tools.daytona.daytona.Daytona") as mock_daytona_class:
         mock_client = mock_daytona_class.return_value
         mock_sandbox = MagicMock()
         mock_sandbox.id = "test-sandbox-123"

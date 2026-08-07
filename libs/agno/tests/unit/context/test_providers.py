@@ -298,7 +298,7 @@ def test_web_provider_accepts_parallel_mcp_backend(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_parallel_mcp_backend_asetup_swallows_errors_and_retries(monkeypatch):
-    from egpt.tools.mcp import MCPTools
+    from egpt.integrations.tools.mcp import MCPTools
 
     b = ParallelMCPBackend(api_key="test-key", timeout_seconds=1)
 
@@ -326,7 +326,7 @@ async def test_parallel_mcp_backend_aclose_noop_when_never_connected():
 
 @pytest.mark.asyncio
 async def test_parallel_mcp_backend_aclose_swallows_close_errors(monkeypatch):
-    from egpt.tools.mcp import MCPTools
+    from egpt.integrations.tools.mcp import MCPTools
 
     b = ParallelMCPBackend(api_key="test-key")
     b._mcp_tools = b._build_tools()

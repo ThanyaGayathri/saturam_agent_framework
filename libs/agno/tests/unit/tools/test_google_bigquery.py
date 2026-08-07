@@ -5,13 +5,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from egpt.tools.google.bigquery import GoogleBigQueryTools, _clean_sql
+from egpt.integrations.tools.google.bigquery import GoogleBigQueryTools, _clean_sql
 
 
 @pytest.fixture
 def mock_bq_client():
     """Mock BigQuery Client used by BQTools."""
-    with patch("egpt.tools.google.bigquery.bigquery.Client", autospec=True) as MockClientConstructor:
+    with patch("egpt.integrations.tools.google.bigquery.bigquery.Client", autospec=True) as MockClientConstructor:
         yield MockClientConstructor.return_value
 
 

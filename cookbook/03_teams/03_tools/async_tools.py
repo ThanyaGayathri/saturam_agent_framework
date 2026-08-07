@@ -9,11 +9,11 @@ import asyncio
 from uuid import uuid4
 
 from egpt.agent import Agent
+from egpt.integrations.tools.agentql import AgentQLTools
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.wikipedia import WikipediaTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
-from egpt.tools.agentql import AgentQLTools
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.wikipedia import WikipediaTools
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -11,7 +11,7 @@ Setup:
 """
 
 from egpt.agent import Agent
-from egpt.tools.scavio import ScavioTools
+from egpt.integrations.tools.scavio import ScavioTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

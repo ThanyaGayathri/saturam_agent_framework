@@ -6,9 +6,9 @@ Demonstrates this reasoning cookbook example.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.google import Gemini
 from egpt.tools.reasoning import ReasoningTools
-from egpt.tools.yfinance import YFinanceTools
 
 
 # ---------------------------------------------------------------------------

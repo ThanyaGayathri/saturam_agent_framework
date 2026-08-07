@@ -8,9 +8,9 @@ Cookbook example for `xai/image_agent_bytes.py`.
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import Image
 from egpt.models.xai import xAI
-from egpt.tools.websearch import WebSearchTools
 from egpt.utils.media import download_image
 
 # ---------------------------------------------------------------------------

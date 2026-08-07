@@ -6,7 +6,7 @@ from os import getenv
 
 from egpt.agent import Agent
 from egpt.integrations.db.singlestore.singlestore import SingleStoreDb
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

@@ -9,10 +9,10 @@ Run: .venvs/demo/bin/python cookbook/03_teams/02_modes/tasks/06_task_mode_with_t
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team.mode import TeamMode
 from egpt.team.team import Team
-from egpt.tools.duckduckgo import DuckDuckGoTools
 
 # ---------------------------------------------------------------------------
 # Create Members

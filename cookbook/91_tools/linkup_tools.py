@@ -6,7 +6,7 @@ Demonstrates linkup tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.linkup import LinkupTools
+from egpt.integrations.tools.linkup import LinkupTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

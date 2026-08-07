@@ -14,10 +14,10 @@ Requires:
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.fal import FalTools
 from egpt.models.openai import OpenAIChat
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
-from egpt.tools.fal import FalTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

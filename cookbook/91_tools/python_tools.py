@@ -8,7 +8,7 @@ Demonstrates python tools.
 from pathlib import Path
 
 from egpt.agent import Agent
-from egpt.tools.python import PythonTools
+from egpt.integrations.tools.python import PythonTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

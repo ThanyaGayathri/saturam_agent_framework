@@ -6,7 +6,7 @@ Demonstrates spider tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.spider import SpiderTools
+from egpt.integrations.tools.spider import SpiderTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

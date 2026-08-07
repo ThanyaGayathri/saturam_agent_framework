@@ -6,8 +6,8 @@ Demonstrates brightdata tools.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.brightdata import BrightDataTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.brightdata import BrightDataTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

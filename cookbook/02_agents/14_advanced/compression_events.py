@@ -8,9 +8,9 @@ Test script to verify compression events are working correctly.
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 from egpt.models.openai import OpenAIResponses
 from egpt.run.agent import RunEvent
-from egpt.tools.duckduckgo import DuckDuckGoTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

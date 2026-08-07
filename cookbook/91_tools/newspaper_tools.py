@@ -6,7 +6,7 @@ Demonstrates newspaper tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.newspaper import NewspaperTools
+from egpt.integrations.tools.newspaper import NewspaperTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

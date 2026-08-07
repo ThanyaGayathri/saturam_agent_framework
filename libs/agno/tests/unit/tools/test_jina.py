@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from egpt.tools.jina import JinaReaderTools, JinaReaderToolsConfig
+from egpt.integrations.tools.jina import JinaReaderTools, JinaReaderToolsConfig
 
 
 @pytest.fixture()
@@ -143,7 +143,7 @@ def test_init_tools_selection_none():
     assert len(tools.tools) == 0
 
 
-@patch("egpt.tools.jina.httpx.get")
+@patch("egpt.integrations.tools.jina.jina.httpx.get")
 def test_read_url_successful(mock_httpx_get, sample_read_url_response):
     """Test successful URL reading"""
     # Setup mock response
@@ -163,8 +163,8 @@ def test_read_url_successful(mock_httpx_get, sample_read_url_response):
     assert str(sample_read_url_response) in result
 
 
-@patch("egpt.tools.jina.httpx.get")
-@patch("egpt.tools.jina.log_error")
+@patch("egpt.integrations.tools.jina.jina.httpx.get")
+@patch("egpt.integrations.tools.jina.jina.log_error")
 def test_read_url_http_error(mock_log_error, mock_httpx_get):
     """Test read_url with HTTP error"""
     mock_httpx_get.side_effect = httpx.HTTPStatusError("HTTP Error", request=MagicMock(), response=MagicMock())
@@ -177,8 +177,8 @@ def test_read_url_http_error(mock_log_error, mock_httpx_get):
     mock_log_error.assert_called_once()
 
 
-@patch("egpt.tools.jina.httpx.get")
-@patch("egpt.tools.jina.log_error")
+@patch("egpt.integrations.tools.jina.jina.httpx.get")
+@patch("egpt.integrations.tools.jina.jina.log_error")
 def test_read_url_connection_error(mock_log_error, mock_httpx_get):
     """Test read_url with connection error"""
     mock_httpx_get.side_effect = httpx.ConnectError("Connection failed")
@@ -191,7 +191,7 @@ def test_read_url_connection_error(mock_log_error, mock_httpx_get):
     mock_log_error.assert_called_once()
 
 
-@patch("egpt.tools.jina.httpx.get")
+@patch("egpt.integrations.tools.jina.jina.httpx.get")
 def test_read_url_with_truncation(mock_httpx_get):
     """Test read_url with content truncation"""
     # Create a large response that should be truncated
@@ -208,7 +208,7 @@ def test_read_url_with_truncation(mock_httpx_get):
     assert "... (content truncated)" in result
 
 
-@patch("egpt.tools.jina.httpx.post")
+@patch("egpt.integrations.tools.jina.jina.httpx.post")
 def test_search_query_successful(mock_httpx_post, sample_search_query_response):
     """Test successful search query"""
     # Setup mock response
@@ -232,8 +232,8 @@ def test_search_query_successful(mock_httpx_post, sample_search_query_response):
     assert str(sample_search_query_response) in result
 
 
-@patch("egpt.tools.jina.httpx.post")
-@patch("egpt.tools.jina.log_error")
+@patch("egpt.integrations.tools.jina.jina.httpx.post")
+@patch("egpt.integrations.tools.jina.jina.log_error")
 def test_search_query_http_error(mock_log_error, mock_httpx_post):
     """Test search_query with HTTP error"""
     mock_httpx_post.side_effect = httpx.HTTPStatusError("HTTP Error", request=MagicMock(), response=MagicMock())
@@ -246,7 +246,7 @@ def test_search_query_http_error(mock_log_error, mock_httpx_post):
     mock_log_error.assert_called_once()
 
 
-@patch("egpt.tools.jina.httpx.post")
+@patch("egpt.integrations.tools.jina.jina.httpx.post")
 def test_search_query_with_truncation(mock_httpx_post):
     """Test search_query with content truncation"""
     # Create a large response that should be truncated

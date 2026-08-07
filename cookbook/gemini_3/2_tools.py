@@ -17,8 +17,8 @@ Example prompts to try:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.google import Gemini
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Agent Instructions
@@ -68,15 +68,15 @@ if __name__ == "__main__":
 Tools are Python classes that inherit from Toolkit. EGPT includes many built-in:
 
 1. Web search (no API key needed)
-   from egpt.tools.websearch import WebSearchTools
+   from egpt.integrations.tools.websearch import WebSearchTools
    tools=[WebSearchTools()]
 
 2. Yahoo Finance (real market data)
-   from egpt.tools.yfinance import YFinanceTools
+   from egpt.integrations.tools.yfinance import YFinanceTools
    tools=[YFinanceTools(all=True)]
 
 3. Exa search (semantic search, needs EXA_API_KEY)
-   from egpt.tools.exa import ExaTools
+   from egpt.integrations.tools.exa import ExaTools
    tools=[ExaTools()]
 
 4. Custom tools

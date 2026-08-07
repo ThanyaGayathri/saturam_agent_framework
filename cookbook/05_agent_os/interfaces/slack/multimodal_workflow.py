@@ -22,11 +22,11 @@ Slack scopes: app_mentions:read, assistant:write, chat:write, im:history,
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.dalle import DalleTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
-from egpt.tools.dalle import DalleTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow import Parallel, Step, Workflow
 
 # ---------------------------------------------------------------------------

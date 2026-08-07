@@ -6,7 +6,7 @@ Demonstrates duckdb tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.duckdb import DuckDbTools
+from egpt.integrations.tools.duckdb import DuckDbTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

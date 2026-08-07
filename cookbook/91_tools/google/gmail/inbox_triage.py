@@ -25,9 +25,9 @@ Setup:
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.google.gmail import GmailTools
 from egpt.learn import LearningMachine, LearningMode, UserMemoryConfig
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.google.gmail import GmailTools
 
 db = PostgresDb(db_url="postgresql+psycopg://ai:ai@localhost:5532/ai")
 

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from egpt.tools.api import CustomApiTools
+from egpt.integrations.tools.api import CustomApiTools
 
 
 def _skip_if_upstream_down(data: dict) -> None:

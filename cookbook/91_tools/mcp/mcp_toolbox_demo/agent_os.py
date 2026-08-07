@@ -8,8 +8,8 @@ Demonstrates agent os.
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp_toolbox import MCPToolbox
 from egpt.os import EgptOS
-from egpt.tools.mcp_toolbox import MCPToolbox
 
 # ---------------------------------------------------------------------------
 # Create Agent

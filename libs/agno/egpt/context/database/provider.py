@@ -24,8 +24,8 @@ from egpt.agent import Agent
 from egpt.context._utils import answer_from_run
 from egpt.context.mode import ContextMode
 from egpt.context.provider import Answer, ContextProvider, Status
+from egpt.integrations.tools.sql import SQLTools
 from egpt.run import RunContext
-from egpt.tools.sql import SQLTools
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine

@@ -15,9 +15,9 @@ import sys
 
 from egpt.agent import Agent
 from egpt.eval import Case, JudgeMode, cli
+from egpt.integrations.tools.calculator import CalculatorTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team.team import Team
-from egpt.tools.calculator import CalculatorTools
 
 # ---------------------------------------------------------------------------
 # Create the Team and its members

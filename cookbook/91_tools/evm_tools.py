@@ -14,7 +14,7 @@ on any EVM-compatible blockchain.
 """
 
 from egpt.agent import Agent
-from egpt.tools.evm import EvmTools
+from egpt.integrations.tools.evm import EvmTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

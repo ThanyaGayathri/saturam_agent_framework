@@ -6,9 +6,9 @@ Please install dependencies using:.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.moviepy_video import MoviePyVideoTools
+from egpt.integrations.tools.openai import OpenAITools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.moviepy_video import MoviePyVideoTools
-from egpt.tools.openai import OpenAITools
 
 video_tools = MoviePyVideoTools(
     enable_process_video=True, enable_generate_captions=True, enable_embed_captions=True

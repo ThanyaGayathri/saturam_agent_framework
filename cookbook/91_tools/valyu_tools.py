@@ -8,7 +8,7 @@ Prerequisites:
 """
 
 from egpt.agent import Agent
-from egpt.tools.valyu import ValyuTools
+from egpt.integrations.tools.valyu import ValyuTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

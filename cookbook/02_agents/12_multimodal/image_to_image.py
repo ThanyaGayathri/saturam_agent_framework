@@ -6,8 +6,8 @@ Image To Image.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.fal import FalTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.fal import FalTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

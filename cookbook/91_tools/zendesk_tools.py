@@ -6,7 +6,7 @@ Demonstrates zendesk tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.zendesk import ZendeskTools
+from egpt.integrations.tools.zendesk import ZendeskTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

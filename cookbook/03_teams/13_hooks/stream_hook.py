@@ -7,11 +7,11 @@ Demonstrates post-hook notifications after team response generation.
 
 import asyncio
 
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIResponses
 from egpt.run import RunContext
 from egpt.run.team import TeamRunOutput
 from egpt.team import Team
-from egpt.tools.yfinance import YFinanceTools
 
 
 # ---------------------------------------------------------------------------

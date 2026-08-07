@@ -7,8 +7,8 @@ Check the README.md file for instructions on how to run these examples.
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools, MultiMCPTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.mcp import MCPTools, MultiMCPTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

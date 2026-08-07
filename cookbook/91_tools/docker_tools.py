@@ -19,7 +19,7 @@ from egpt.agent import Agent
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
     try:
-        from egpt.tools.docker import DockerTools
+        from egpt.integrations.tools.docker import DockerTools
 
         # Example 1: Include specific Docker functions for container management
         container_tools = DockerTools(

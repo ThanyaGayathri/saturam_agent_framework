@@ -163,11 +163,11 @@ DOCS_DENY_RULES: List[tuple] = DENY_RULES + [
 # pre-rebrand text from the file named, so a rule that stops catching one of these is
 # a rule that has been widened past its purpose. See EGPT-0.12.
 SELF_TEST_CASES = [
-    ("libs/agno/egpt/tools/sofya.py", '"User-Agent": "agno-sofya",', "outbound-identity"),
+    ("libs/agno/egpt/integrations/tools/sofya/sofya.py", '"User-Agent": "agno-sofya",', "outbound-identity"),
     ("libs/agno/egpt/knowledge/loaders/github.py", '"User-Agent": "Agno-Knowledge",', "outbound-identity"),
-    ("libs/agno/egpt/tools/perplexity.py", '"X-Source": "agno",', "outbound-identity"),
+    ("libs/agno/egpt/integrations/tools/perplexity/perplexity.py", '"X-Source": "agno",', "outbound-identity"),
     ("libs/agno/egpt/integrations/db/mongo/mongo.py", 'DriverInfo(name="Agno", version=v)', "outbound-identity"),
-    ("libs/agno/egpt/tools/apify.py", 'headers["user-agent"] += "; Origin/agno"', "outbound-identity"),
+    ("libs/agno/egpt/integrations/tools/apify/apify.py", 'headers["user-agent"] += "; Origin/agno"', "outbound-identity"),
     ("libs/agno/egpt/integrations/models/google/utils.py",'"User-Agent": "Mozilla/5.0 (compatible; agno/1.0)"', "outbound-identity"),
     ("libs/agno/egpt/scheduler/cron.py", 'raise ImportError("pip install agno[scheduler]")', "install-hint"),
     # The escape hatch for migration prose must not launder an install hint.
@@ -176,8 +176,8 @@ SELF_TEST_CASES = [
     ("libs/agno/pyproject.toml", 'Homepage = "https://agno.com"', "brand-url"),
     # Evasions of an earlier, narrower draft of these rules. Each one shipped past the
     # first version of DENY, so each stays pinned here.
-    ("libs/agno/egpt/tools/sofya.py", 'USER_AGENT = "agno-sofya"', "outbound-identity"),
-    ("libs/agno/egpt/tools/apify.py", 'user_agent = "Origin/agno"', "outbound-identity"),
+    ("libs/agno/egpt/integrations/tools/sofya/sofya.py", 'USER_AGENT = "agno-sofya"', "outbound-identity"),
+    ("libs/agno/egpt/integrations/tools/apify/apify.py", 'user_agent = "Origin/agno"', "outbound-identity"),
     ("libs/agno/egpt/integrations/models/google/utils.py",'"User-Agent": "Mozilla/5.0 (Macintosh; X 10_15_7) agno/1.0"', "outbound-identity"),
     ("libs/agno/egpt/integrations/db/clickhouse/README.md","pip install -U agno", "install-hint"),
     ("libs/agno/egpt/integrations/db/clickhouse/README.md","uv pip install 'agno[clickhouse]'", "install-hint"),

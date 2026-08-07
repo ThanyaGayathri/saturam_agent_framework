@@ -18,7 +18,7 @@ import os
 from textwrap import dedent
 
 from egpt.agent import Agent
-from egpt.tools.mcp import MCPTools
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.utils.log import log_error, log_exception, log_info
 
 # ---------------------------------------------------------------------------

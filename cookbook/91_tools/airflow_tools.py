@@ -9,7 +9,7 @@ Run: `uv pip install apache-airflow` to install the dependencies
 """
 
 from egpt.agent import Agent
-from egpt.tools.airflow import AirflowTools
+from egpt.integrations.tools.airflow import AirflowTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

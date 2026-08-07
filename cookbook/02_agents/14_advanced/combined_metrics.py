@@ -23,10 +23,10 @@ from egpt.compression.manager import CompressionManager
 from egpt.culture.manager import CultureManager
 from egpt.eval.agent_as_judge import AgentAsJudgeEval
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.memory.manager import MemoryManager
 from egpt.models.openai import OpenAIChat
 from egpt.session.summary import SessionSummaryManager
-from egpt.tools.yfinance import YFinanceTools
 from pydantic import BaseModel, Field
 from rich.pretty import pprint
 

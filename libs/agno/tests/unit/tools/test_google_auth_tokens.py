@@ -21,7 +21,7 @@ def mock_creds():
 
 
 def test_load_token_returns_none_when_db_not_implemented():
-    from egpt.tools.google.auth.tokens import load_token_from_db
+    from egpt.integrations.tools.google.auth.tokens import load_token_from_db
 
     mock_db = Mock()
     mock_db.get_auth_token.side_effect = NotImplementedError
@@ -33,7 +33,7 @@ def test_load_token_returns_none_when_db_not_implemented():
 
 
 def test_load_token_returns_none_when_not_found():
-    from egpt.tools.google.auth.tokens import load_token_from_db
+    from egpt.integrations.tools.google.auth.tokens import load_token_from_db
 
     mock_db = Mock()
     mock_db.get_auth_token.return_value = None
@@ -45,7 +45,7 @@ def test_load_token_returns_none_when_not_found():
 
 
 def test_load_token_returns_none_when_token_data_empty():
-    from egpt.tools.google.auth.tokens import load_token_from_db
+    from egpt.integrations.tools.google.auth.tokens import load_token_from_db
 
     mock_db = Mock()
     mock_db.get_auth_token.return_value = {"token_data": None}
@@ -57,7 +57,7 @@ def test_load_token_returns_none_when_token_data_empty():
 
 
 def test_load_token_unencrypted():
-    from egpt.tools.google.auth.tokens import load_token_from_db
+    from egpt.integrations.tools.google.auth.tokens import load_token_from_db
 
     mock_db = Mock()
     mock_db.get_auth_token.return_value = {
@@ -86,7 +86,7 @@ def test_load_token_unencrypted():
 
 
 def test_load_token_decrypts_encrypted():
-    from egpt.tools.google.auth.tokens import load_token_from_db
+    from egpt.integrations.tools.google.auth.tokens import load_token_from_db
 
     mock_db = Mock()
     mock_db.get_auth_token.return_value = {
@@ -116,7 +116,7 @@ def test_load_token_decrypts_encrypted():
 
 
 def test_load_token_warns_on_unencrypted_with_key():
-    from egpt.tools.google.auth.tokens import load_token_from_db
+    from egpt.integrations.tools.google.auth.tokens import load_token_from_db
 
     mock_db = Mock()
     mock_db.get_auth_token.return_value = {
@@ -135,7 +135,7 @@ def test_load_token_warns_on_unencrypted_with_key():
 
     with (
         patch("egpt.utils.encryption.is_encrypted", return_value=False),
-        patch("egpt.tools.google.auth.tokens.log_warning") as mock_warn,
+        patch("egpt.integrations.tools.google.auth.tokens.log_warning") as mock_warn,
         patch("google.oauth2.credentials.Credentials.from_authorized_user_info", return_value=mock_creds),
     ):
         row, creds = load_token_from_db(mock_db, "encryption_key")
@@ -150,11 +150,11 @@ def test_load_token_warns_on_unencrypted_with_key():
 
 
 def test_save_token_encrypt_true_requires_key(mock_creds):
-    from egpt.tools.google.auth.tokens import save_token_to_db
+    from egpt.integrations.tools.google.auth.tokens import save_token_to_db
 
     mock_db = Mock()
 
-    with patch("egpt.tools.google.auth.tokens.log_warning") as mock_warn:
+    with patch("egpt.integrations.tools.google.auth.tokens.log_warning") as mock_warn:
         result = save_token_to_db(
             mock_db,
             mock_creds,
@@ -170,7 +170,7 @@ def test_save_token_encrypt_true_requires_key(mock_creds):
 
 
 def test_save_token_encrypt_true_with_key(mock_creds):
-    from egpt.tools.google.auth.tokens import save_token_to_db
+    from egpt.integrations.tools.google.auth.tokens import save_token_to_db
 
     mock_db = Mock()
     mock_db.upsert_auth_token.return_value = True
@@ -191,12 +191,12 @@ def test_save_token_encrypt_true_with_key(mock_creds):
 
 
 def test_save_token_encrypt_false_plaintext(mock_creds):
-    from egpt.tools.google.auth.tokens import save_token_to_db
+    from egpt.integrations.tools.google.auth.tokens import save_token_to_db
 
     mock_db = Mock()
     mock_db.upsert_auth_token.return_value = True
 
-    with patch("egpt.tools.google.auth.tokens.log_warning") as mock_warn:
+    with patch("egpt.integrations.tools.google.auth.tokens.log_warning") as mock_warn:
         result = save_token_to_db(
             mock_db,
             mock_creds,
@@ -215,12 +215,12 @@ def test_save_token_encrypt_false_plaintext(mock_creds):
 
 
 def test_save_token_encrypt_false_ignores_key(mock_creds):
-    from egpt.tools.google.auth.tokens import save_token_to_db
+    from egpt.integrations.tools.google.auth.tokens import save_token_to_db
 
     mock_db = Mock()
     mock_db.upsert_auth_token.return_value = True
 
-    with patch("egpt.tools.google.auth.tokens.log_warning"):
+    with patch("egpt.integrations.tools.google.auth.tokens.log_warning"):
         result = save_token_to_db(
             mock_db,
             mock_creds,
@@ -236,12 +236,12 @@ def test_save_token_encrypt_false_ignores_key(mock_creds):
 
 
 def test_save_token_correct_provider_and_service(mock_creds):
-    from egpt.tools.google.auth.tokens import save_token_to_db
+    from egpt.integrations.tools.google.auth.tokens import save_token_to_db
 
     mock_db = Mock()
     mock_db.upsert_auth_token.return_value = True
 
-    with patch("egpt.tools.google.auth.tokens.log_warning"):
+    with patch("egpt.integrations.tools.google.auth.tokens.log_warning"):
         save_token_to_db(
             mock_db,
             mock_creds,
@@ -263,7 +263,7 @@ def test_save_token_correct_provider_and_service(mock_creds):
 
 
 def test_delete_token_calls_db_method():
-    from egpt.tools.google.auth.tokens import delete_token_from_db
+    from egpt.integrations.tools.google.auth.tokens import delete_token_from_db
 
     mock_db = Mock()
     mock_db.delete_auth_token.return_value = True
@@ -275,12 +275,12 @@ def test_delete_token_calls_db_method():
 
 
 def test_delete_token_returns_false_on_not_implemented():
-    from egpt.tools.google.auth.tokens import delete_token_from_db
+    from egpt.integrations.tools.google.auth.tokens import delete_token_from_db
 
     mock_db = Mock()
     mock_db.delete_auth_token.side_effect = NotImplementedError
 
-    with patch("egpt.tools.google.auth.tokens.log_warning") as mock_warn:
+    with patch("egpt.integrations.tools.google.auth.tokens.log_warning") as mock_warn:
         result = delete_token_from_db(mock_db)
 
     assert result is False
@@ -288,7 +288,7 @@ def test_delete_token_returns_false_on_not_implemented():
 
 
 def test_delete_token_returns_false_on_exception():
-    from egpt.tools.google.auth.tokens import delete_token_from_db
+    from egpt.integrations.tools.google.auth.tokens import delete_token_from_db
 
     mock_db = Mock()
     mock_db.delete_auth_token.side_effect = Exception("DB error")

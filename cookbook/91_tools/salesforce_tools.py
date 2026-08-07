@@ -28,8 +28,8 @@ Prerequisites:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.salesforce import SalesforceTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.salesforce import SalesforceTools
 
 # Read-only agent (default — query, search, and metadata only)
 read_only_agent = Agent(

@@ -21,8 +21,8 @@ variables instead of calling the Python APIs:
 
 import mlflow
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Setup — must be called BEFORE mlflow.egpt.autolog()

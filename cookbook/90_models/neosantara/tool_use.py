@@ -8,8 +8,8 @@ Cookbook example for `neosantara/tool_use.py`.
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.neosantara import Neosantara
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

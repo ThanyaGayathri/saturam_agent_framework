@@ -6,9 +6,9 @@ Demonstrates duckduckgo tools.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.duckduckgo import DuckDuckGoTools
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

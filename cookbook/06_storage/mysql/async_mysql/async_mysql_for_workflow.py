@@ -9,7 +9,7 @@ from typing import List
 from egpt.agent import Agent
 from egpt.db.base import SessionType
 from egpt.integrations.db.mysql import AsyncMySQLDb
-from egpt.tools.websearch import WebSearchTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.workflow.types import WorkflowExecutionInput
 from egpt.workflow.workflow import Workflow
 from pydantic import BaseModel

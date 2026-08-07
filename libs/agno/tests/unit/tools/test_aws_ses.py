@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pytest
 from botocore.exceptions import ClientError
 
-from egpt.tools.aws_ses import AWSSESTool
+from egpt.integrations.tools.aws_ses import AWSSESTool
 
 
 class TestAWSSESTool:
@@ -208,7 +208,7 @@ class TestAWSSESTool:
         """Test that import error is handled properly"""
         # This test verifies that the module imports correctly
         # The actual ImportError is raised at module level if boto3 is missing
-        from egpt.tools.aws_ses import AWSSESTool
+        from egpt.integrations.tools.aws_ses import AWSSESTool
 
         assert AWSSESTool is not None
 
@@ -225,7 +225,7 @@ class TestAWSSESTool:
         tool = AWSSESTool(sender_email="sender@example.com", sender_name="Test Sender")
 
         # Act
-        with patch("egpt.tools.aws_ses.log_debug") as mock_log:
+        with patch("egpt.integrations.tools.aws_ses.aws_ses.log_debug") as mock_log:
             result = tool.send_email(subject="Test", body="Test", receiver_email="test@example.com")
 
             # Assert

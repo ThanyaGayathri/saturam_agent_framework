@@ -8,8 +8,8 @@ Cookbook example for `dashscope/tool_use.py`.
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.dashscope import DashScope
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

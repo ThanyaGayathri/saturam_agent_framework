@@ -8,8 +8,8 @@ Input Schema.
 from typing import List
 
 from egpt.agent import Agent
+from egpt.integrations.tools.hackernews import HackerNewsTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.hackernews import HackerNewsTools
 from pydantic import BaseModel, Field
 
 

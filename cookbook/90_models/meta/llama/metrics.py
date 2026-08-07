@@ -6,8 +6,8 @@ Cookbook example for `meta/llama/metrics.py`.
 """
 
 from egpt.agent import Agent, RunOutput
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.meta import Llama
-from egpt.tools.yfinance import YFinanceTools
 from egpt.utils.pprint import pprint_run_response
 from rich.pretty import pprint
 

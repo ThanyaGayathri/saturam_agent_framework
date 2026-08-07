@@ -7,8 +7,8 @@ Demonstrates instrumenting an EGPT agent with Langtrace.
 
 # Must precede other imports
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.yfinance import YFinanceTools
 from langtrace_python_sdk import langtrace  # type: ignore
 
 # ---------------------------------------------------------------------------

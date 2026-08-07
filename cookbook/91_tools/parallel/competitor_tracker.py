@@ -28,8 +28,8 @@ Prerequisites:
 import sys
 
 from egpt.agent import Agent
+from egpt.integrations.tools.parallel import ParallelTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.parallel import ParallelTools
 
 # =============================================================================
 # COMPETITOR TRACKING CONFIGURATION

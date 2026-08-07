@@ -8,8 +8,8 @@ Demonstrates condition branches that execute a list of multiple steps, including
 import asyncio
 
 from egpt.agent.agent import Agent
-from egpt.tools.exa import ExaTools
-from egpt.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.exa import ExaTools
+from egpt.integrations.tools.hackernews import HackerNewsTools
 from egpt.workflow.condition import Condition
 from egpt.workflow.parallel import Parallel
 from egpt.workflow.step import Step

@@ -13,12 +13,12 @@ from uuid import uuid4
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite.sqlite import SqliteDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIResponses
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
 from egpt.tools import tool
 from egpt.tools.user_feedback import UserFeedbackTools
-from egpt.tools.websearch import WebSearchTools
 
 _SERVICES = {
     "api-gateway": {"region": "eu-west", "replicas": 12, "runbook": "rb/api-gateway"},

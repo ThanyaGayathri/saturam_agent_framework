@@ -9,7 +9,7 @@ Run: `uv pip install pandas` to install the dependencies
 """
 
 from egpt.agent import Agent
-from egpt.tools.pandas import PandasTools
+from egpt.integrations.tools.pandas import PandasTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

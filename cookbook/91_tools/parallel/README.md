@@ -33,7 +33,7 @@ export PARALLEL_API_KEY=<your-api-key>
 ```python
 from egpt.agent import Agent
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.parallel import ParallelTools
+from egpt.integrations.tools.parallel import ParallelTools
 
 # Search API (default)
 agent = Agent(

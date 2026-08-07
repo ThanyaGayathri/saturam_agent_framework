@@ -22,11 +22,11 @@ Environment variables:
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.slack import SlackTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.slack import Slack
-from egpt.tools.slack import SlackTools
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

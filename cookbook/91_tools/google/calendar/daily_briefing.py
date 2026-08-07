@@ -21,8 +21,8 @@ Setup:
 from typing import List, Literal, Optional
 
 from egpt.agent import Agent
+from egpt.integrations.tools.google.calendar import GoogleCalendarTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.google.calendar import GoogleCalendarTools
 from pydantic import BaseModel, Field
 
 

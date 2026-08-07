@@ -218,8 +218,8 @@ def test_count_tokens(claude_model):
 
 
 def test_count_tokens_with_tools(claude_model):
+    from egpt.integrations.tools.calculator import CalculatorTools
     from egpt.models.message import Message
-    from egpt.tools.calculator import CalculatorTools
 
     messages = [
         Message(role="user", content="What is 2 + 2?"),
@@ -252,8 +252,8 @@ async def test_acount_tokens(claude_model):
 
 @pytest.mark.asyncio
 async def test_acount_tokens_with_tools(claude_model):
+    from egpt.integrations.tools.calculator import CalculatorTools
     from egpt.models.message import Message
-    from egpt.tools.calculator import CalculatorTools
 
     messages = [
         Message(role="user", content="What is 2 + 2?"),

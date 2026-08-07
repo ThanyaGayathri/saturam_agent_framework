@@ -6,9 +6,9 @@ EgptOS handles the lifespan of the MCPTools internally.
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.anthropic import Claude
 from egpt.os import EgptOS
-from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Example

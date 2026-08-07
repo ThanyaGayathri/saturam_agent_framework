@@ -25,7 +25,7 @@ Steps to get Reddit credentials:
 """
 
 from egpt.agent import Agent
-from egpt.tools.reddit import RedditTools
+from egpt.integrations.tools.reddit import RedditTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -27,12 +27,12 @@ Run:
 from os import getenv
 
 from egpt.agent import Agent
+from egpt.integrations.tools.google.auth import AuthConfig
+from egpt.integrations.tools.google.calendar import GoogleCalendarTools
+from egpt.integrations.tools.google.drive import GoogleDriveTools
+from egpt.integrations.tools.google.gmail import GmailTools
+from egpt.integrations.tools.google.sheets import GoogleSheetsTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.google.auth import AuthConfig
-from egpt.tools.google.calendar import GoogleCalendarTools
-from egpt.tools.google.drive import GoogleDriveTools
-from egpt.tools.google.gmail import GmailTools
-from egpt.tools.google.sheets import GoogleSheetsTools
 
 # ---------------------------------------------------------------------------
 # Service Account Auth Config

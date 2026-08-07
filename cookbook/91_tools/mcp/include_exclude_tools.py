@@ -14,7 +14,7 @@ Prerequisites:
 import asyncio
 
 from egpt.agent import Agent
-from egpt.tools.mcp import MultiMCPTools
+from egpt.integrations.tools.mcp import MultiMCPTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

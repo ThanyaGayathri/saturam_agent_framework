@@ -6,7 +6,7 @@ Demonstrates linear tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.linear import LinearTools
+from egpt.integrations.tools.linear import LinearTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

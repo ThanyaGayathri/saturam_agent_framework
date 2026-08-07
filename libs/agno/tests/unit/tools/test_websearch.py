@@ -5,13 +5,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from egpt.tools.websearch import VALID_TIMELIMITS, WebSearchTools
+from egpt.integrations.tools.websearch import VALID_TIMELIMITS, WebSearchTools
 
 
 @pytest.fixture
 def mock_ddgs():
     """Create a mock DDGS instance."""
-    with patch("egpt.tools.websearch.DDGS") as mock_ddgs_cls:
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS") as mock_ddgs_cls:
         mock_instance = MagicMock()
         mock_ddgs_cls.return_value.__enter__ = MagicMock(return_value=mock_instance)
         mock_ddgs_cls.return_value.__exit__ = MagicMock(return_value=False)
@@ -25,7 +25,7 @@ def mock_ddgs():
 
 def test_init_defaults():
     """Test initialization with default parameters."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools()
         assert tools.backend == "auto"
         assert tools.proxy is None
@@ -39,28 +39,28 @@ def test_init_defaults():
 
 def test_init_with_timelimit():
     """Test initialization with timelimit parameter."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(timelimit="d")
         assert tools.timelimit == "d"
 
 
 def test_init_with_region():
     """Test initialization with region parameter."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(region="us-en")
         assert tools.region == "us-en"
 
 
 def test_init_with_backend():
     """Test initialization with custom backend parameter."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(backend="google")
         assert tools.backend == "google"
 
 
 def test_init_with_all_params():
     """Test initialization with all parameters."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(
             enable_search=True,
             enable_news=True,
@@ -90,42 +90,42 @@ def test_init_with_all_params():
 
 def test_valid_timelimit_day():
     """Test that 'd' is a valid timelimit."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(timelimit="d")
         assert tools.timelimit == "d"
 
 
 def test_valid_timelimit_week():
     """Test that 'w' is a valid timelimit."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(timelimit="w")
         assert tools.timelimit == "w"
 
 
 def test_valid_timelimit_month():
     """Test that 'm' is a valid timelimit."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(timelimit="m")
         assert tools.timelimit == "m"
 
 
 def test_valid_timelimit_year():
     """Test that 'y' is a valid timelimit."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(timelimit="y")
         assert tools.timelimit == "y"
 
 
 def test_valid_timelimit_none():
     """Test that None is a valid timelimit."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(timelimit=None)
         assert tools.timelimit is None
 
 
 def test_invalid_timelimit_raises_error():
     """Test that invalid timelimit raises ValueError."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         with pytest.raises(ValueError) as exc_info:
             WebSearchTools(timelimit="invalid")
         assert "Invalid timelimit 'invalid'" in str(exc_info.value)
@@ -137,7 +137,7 @@ def test_invalid_timelimit_raises_error():
 
 def test_invalid_timelimit_empty_string():
     """Test that empty string timelimit raises ValueError."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         with pytest.raises(ValueError) as exc_info:
             WebSearchTools(timelimit="")
         assert "Invalid timelimit ''" in str(exc_info.value)
@@ -145,7 +145,7 @@ def test_invalid_timelimit_empty_string():
 
 def test_invalid_timelimit_uppercase():
     """Test that uppercase timelimit raises ValueError (case-sensitive)."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         with pytest.raises(ValueError) as exc_info:
             WebSearchTools(timelimit="D")
         assert "Invalid timelimit 'D'" in str(exc_info.value)
@@ -153,7 +153,7 @@ def test_invalid_timelimit_uppercase():
 
 def test_invalid_timelimit_full_word():
     """Test that full word timelimit raises ValueError."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         with pytest.raises(ValueError) as exc_info:
             WebSearchTools(timelimit="day")
         assert "Invalid timelimit 'day'" in str(exc_info.value)
@@ -171,7 +171,7 @@ def test_valid_timelimits_constant():
 
 def test_enable_search_only():
     """Test enabling only search function."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(enable_search=True, enable_news=False)
         tool_names = [t.__name__ for t in tools.tools]
         assert "web_search" in tool_names
@@ -180,7 +180,7 @@ def test_enable_search_only():
 
 def test_enable_news_only():
     """Test enabling only news function."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(enable_search=False, enable_news=True)
         tool_names = [t.__name__ for t in tools.tools]
         assert "web_search" not in tool_names
@@ -189,7 +189,7 @@ def test_enable_news_only():
 
 def test_enable_both():
     """Test enabling both search and news functions."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(enable_search=True, enable_news=True)
         tool_names = [t.__name__ for t in tools.tools]
         assert "web_search" in tool_names
@@ -198,7 +198,7 @@ def test_enable_both():
 
 def test_disable_both():
     """Test disabling both functions."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(enable_search=False, enable_news=False)
         assert len(tools.tools) == 0
 
@@ -494,28 +494,28 @@ def test_backend_yahoo(mock_ddgs):
 
 def test_ddgs_client_with_proxy(mock_ddgs):
     """Test that proxy is stored correctly."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(proxy="socks5://localhost:9050")
         assert tools.proxy == "socks5://localhost:9050"
 
 
 def test_ddgs_client_with_timeout(mock_ddgs):
     """Test that timeout is stored correctly."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(timeout=30)
         assert tools.timeout == 30
 
 
 def test_ddgs_client_with_verify_ssl_false(mock_ddgs):
     """Test that verify_ssl=False is stored correctly."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(verify_ssl=False)
         assert tools.verify_ssl is False
 
 
 def test_ddgs_client_with_all_config(mock_ddgs):
     """Test DDGS client with all configuration options."""
-    with patch("egpt.tools.websearch.DDGS"):
+    with patch("egpt.integrations.tools.websearch.websearch.DDGS"):
         tools = WebSearchTools(
             proxy="http://proxy:8080",
             timeout=60,

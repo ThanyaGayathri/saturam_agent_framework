@@ -4,7 +4,7 @@ import pytest
 
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.integrations.models.deepinfra import DeepInfra
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 
 
 def test_tool_use():

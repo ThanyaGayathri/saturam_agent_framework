@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 from egpt.agent import Agent
-from egpt.tools.csv_toolkit import CsvTools
+from egpt.integrations.tools.csv_toolkit import CsvTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

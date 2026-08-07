@@ -6,7 +6,7 @@ Demonstrates sleep tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.sleep import SleepTools
+from egpt.integrations.tools.sleep import SleepTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

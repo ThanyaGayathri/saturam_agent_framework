@@ -6,9 +6,9 @@ Demonstrates built-in and DeepSeek-backed reasoning for financial reporting.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.deepseek import DeepSeek
 from egpt.models.openai import OpenAIChat
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agents

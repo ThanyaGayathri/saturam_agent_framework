@@ -6,7 +6,7 @@ Demonstrates pubmed tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.pubmed import PubmedTools
+from egpt.integrations.tools.pubmed import PubmedTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

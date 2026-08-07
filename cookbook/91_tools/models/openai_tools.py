@@ -6,8 +6,8 @@ import base64
 from pathlib import Path
 
 from egpt.agent import Agent
+from egpt.integrations.tools.openai import OpenAITools
 from egpt.run.agent import RunOutput
-from egpt.tools.openai import OpenAITools
 from egpt.utils.media import download_file, save_base64_data
 
 # ---------------------------------------------------------------------------

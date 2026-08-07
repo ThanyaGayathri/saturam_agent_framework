@@ -6,8 +6,8 @@ Demonstrates replicate tools.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.replicate import ReplicateTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.replicate import ReplicateTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

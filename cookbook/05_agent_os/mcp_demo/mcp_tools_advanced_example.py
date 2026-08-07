@@ -8,9 +8,9 @@ from os import getenv
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.mcp import MCPTools  # noqa: F401
 from egpt.models.anthropic import Claude
 from egpt.os import EgptOS
-from egpt.tools.mcp import MCPTools  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Create Example
@@ -34,7 +34,7 @@ brave_mcp_tools = MCPTools(
 
 # You can also use MultiMCPTools to connect to multiple MCP servers at once:
 #
-# from egpt.tools.mcp import MultiMCPTools
+# from egpt.integrations.tools.mcp import MultiMCPTools
 # mcp_tools = MultiMCPTools(
 #     commands=["npx -y @modelcontextprotocol/server-brave-search"],
 #     urls=["https://modelcontextprotocol.io/mcp"],

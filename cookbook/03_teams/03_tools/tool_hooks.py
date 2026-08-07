@@ -10,9 +10,9 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
-from egpt.tools.websearch import WebSearchTools
 from egpt.utils.log import logger
 
 

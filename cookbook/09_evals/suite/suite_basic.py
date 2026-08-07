@@ -14,8 +14,8 @@ import sys
 
 from egpt.agent import Agent
 from egpt.eval import Case, cli
+from egpt.integrations.tools.calculator import CalculatorTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.calculator import CalculatorTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

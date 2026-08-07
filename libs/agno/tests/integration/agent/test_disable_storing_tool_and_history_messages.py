@@ -14,7 +14,7 @@ import pytest
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
 from egpt.integrations.models.openai import OpenAIChat
-from egpt.tools.shell import ShellTools
+from egpt.integrations.tools.shell import ShellTools
 
 
 @pytest.fixture

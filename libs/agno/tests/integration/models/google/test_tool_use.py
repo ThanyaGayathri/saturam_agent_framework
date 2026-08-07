@@ -5,8 +5,8 @@ from pydantic import BaseModel, Field
 
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.integrations.models.google import Gemini
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 
 
 def test_tool_use():

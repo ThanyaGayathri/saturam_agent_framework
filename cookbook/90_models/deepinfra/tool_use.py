@@ -2,7 +2,7 @@
 
 from egpt.agent import Agent  # noqa
 from egpt.models.deepinfra import DeepInfra  # noqa
-from egpt.tools.websearch import WebSearchTools  # noqa
+from egpt.integrations.tools.websearch import WebSearchTools  # noqa
 import asyncio
 
 # ---------------------------------------------------------------------------

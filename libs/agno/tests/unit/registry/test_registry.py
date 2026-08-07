@@ -1496,7 +1496,7 @@ class TestAddTool:
         # they are only distinguishable by name. The derived default name keeps
         # them from collapsing into one entry.
         pytest.importorskip("mcp")
-        from egpt.tools.mcp import MCPTools
+        from egpt.integrations.tools.mcp import MCPTools
 
         reg = Registry()
         docs = MCPTools(url="https://docs.example.com/mcp")
@@ -1508,7 +1508,7 @@ class TestAddTool:
     def test_dedupes_mcp_toolkits_for_same_server(self):
         # Same server re-instantiated in two places is still a duplicate.
         pytest.importorskip("mcp")
-        from egpt.tools.mcp import MCPTools
+        from egpt.integrations.tools.mcp import MCPTools
 
         reg = Registry()
         first = MCPTools(url="https://docs.example.com/mcp")

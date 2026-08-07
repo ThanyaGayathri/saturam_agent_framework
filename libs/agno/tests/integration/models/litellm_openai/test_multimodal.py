@@ -4,8 +4,8 @@ import requests
 
 from egpt.agent.agent import Agent
 from egpt.integrations.models.litellm import LiteLLMOpenAI
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.media import Audio, Image
-from egpt.tools.websearch import WebSearchTools
 
 
 def _get_audio_input() -> Union[bytes, Any]:

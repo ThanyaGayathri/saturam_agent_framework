@@ -6,7 +6,7 @@ Demonstrates openbb tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.openbb import OpenBBTools
+from egpt.integrations.tools.openbb import OpenBBTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

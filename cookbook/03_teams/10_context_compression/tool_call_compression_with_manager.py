@@ -10,9 +10,9 @@ from textwrap import dedent
 from egpt.agent import Agent
 from egpt.compression.manager import CompressionManager
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Setup

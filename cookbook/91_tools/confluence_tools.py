@@ -6,7 +6,7 @@ Demonstrates confluence tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.confluence import ConfluenceTools
+from egpt.integrations.tools.confluence import ConfluenceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

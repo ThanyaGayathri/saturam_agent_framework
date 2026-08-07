@@ -8,8 +8,8 @@ Demonstrates connecting an agent to the Model Context Protocol docs MCP server.
 import asyncio
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.anthropic import Claude
-from egpt.tools.mcp import MCPTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

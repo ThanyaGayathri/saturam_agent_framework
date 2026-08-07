@@ -10,7 +10,7 @@ export REDSHIFT_DATABASE="dev"
 """
 
 from egpt.agent import Agent
-from egpt.tools.redshift import RedshiftTools
+from egpt.integrations.tools.redshift import RedshiftTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

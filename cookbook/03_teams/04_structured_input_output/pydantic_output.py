@@ -6,9 +6,9 @@ Demonstrates team-level typed output using Pydantic schemas.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team, TeamMode
-from egpt.tools.websearch import WebSearchTools
 from egpt.utils.pprint import pprint_run_response
 from pydantic import BaseModel
 

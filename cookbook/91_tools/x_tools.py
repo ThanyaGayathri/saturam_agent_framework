@@ -6,7 +6,7 @@ Demonstrates x tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.x import XTools
+from egpt.integrations.tools.x import XTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

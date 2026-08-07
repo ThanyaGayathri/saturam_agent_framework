@@ -8,9 +8,9 @@ from egpt.db.base import SessionType
 from egpt.eval.accuracy import AccuracyEval
 from egpt.eval.agent_as_judge import AgentAsJudgeEval
 from egpt.integrations.models.openai import OpenAIChat
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.memory.manager import MemoryManager
 from egpt.metrics import ModelMetrics, RunMetrics, SessionMetrics, ToolCallMetrics
-from egpt.tools.websearch import WebSearchTools
 
 
 def add(a: int, b: int) -> str:

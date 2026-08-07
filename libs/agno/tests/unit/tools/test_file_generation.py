@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from egpt.tools.file_generation import DOCX_AVAILABLE, PDF_AVAILABLE, FileGenerationTools
+from egpt.integrations.tools.file_generation import DOCX_AVAILABLE, PDF_AVAILABLE, FileGenerationTools
 
 
 def _get_single_file(result):

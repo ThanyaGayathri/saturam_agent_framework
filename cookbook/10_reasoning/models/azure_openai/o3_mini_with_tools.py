@@ -6,8 +6,8 @@ Demonstrates this reasoning cookbook example.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.azure.openai_chat import AzureOpenAI
-from egpt.tools.yfinance import YFinanceTools
 
 
 # ---------------------------------------------------------------------------

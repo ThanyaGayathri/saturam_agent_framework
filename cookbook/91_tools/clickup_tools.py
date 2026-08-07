@@ -16,8 +16,8 @@ clickup space url structure: https://app.clickup.com/{MASTER_SPACE_ID}/v/o/s/{SP
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.clickup import ClickUpTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.clickup import ClickUpTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

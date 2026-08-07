@@ -21,8 +21,8 @@ import os
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.mcp import MCPTools
 from mcp import StdioServerParameters
 
 # ---------------------------------------------------------------------------

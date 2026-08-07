@@ -6,8 +6,8 @@ Demonstrates instrumenting EGPT with OpenTelemetry and exporting traces to Opik.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.yfinance import YFinanceTools
 from openinference.instrumentation.agno import AgnoInstrumentor
 from opentelemetry import trace as trace_api
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter

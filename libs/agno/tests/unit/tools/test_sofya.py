@@ -4,7 +4,7 @@ from unittest.mock import Mock, patch
 import pytest
 import requests
 
-from egpt.tools.sofya import SofyaTools
+from egpt.integrations.tools.sofya import SofyaTools
 
 
 @pytest.fixture(autouse=True)
@@ -93,7 +93,7 @@ def test_search_success_json(api_tools):
         ],
         "credits_used": 3,
     }
-    with patch("egpt.tools.sofya.requests.post", return_value=_mock_response(payload)) as mock_post:
+    with patch("egpt.integrations.tools.sofya.sofya.requests.post", return_value=_mock_response(payload)) as mock_post:
         result = json.loads(api_tools.search_web("mcp"))
     mock_post.assert_called_once()
     assert result["answer"] == "Model Context Protocol."
@@ -110,7 +110,7 @@ def test_search_markdown_format():
         "answer": "A protocol.",
         "results": [{"title": "MCP", "url": "https://e.com", "content": "x"}],
     }
-    with patch("egpt.tools.sofya.requests.post", return_value=_mock_response(payload)):
+    with patch("egpt.integrations.tools.sofya.sofya.requests.post", return_value=_mock_response(payload)):
         result = tools.search_web("mcp")
     assert "# mcp" in result
     assert "### Summary" in result
@@ -119,7 +119,7 @@ def test_search_markdown_format():
 
 def test_search_request_error(api_tools):
     """Network errors are caught and returned as an error message."""
-    with patch("egpt.tools.sofya.requests.post", side_effect=requests.ConnectionError("boom")):
+    with patch("egpt.integrations.tools.sofya.sofya.requests.post", side_effect=requests.ConnectionError("boom")):
         result = json.loads(api_tools.search_web("mcp"))
     assert "error" in result
     assert "boom" in result["error"]
@@ -135,7 +135,7 @@ def test_extract_no_urls(api_tools):
 def test_extract_success(api_tools):
     """Extract returns markdown sections per URL."""
     payload = {"results": [{"url": "https://example.com", "content": "# Hello", "success": True}]}
-    with patch("egpt.tools.sofya.requests.post", return_value=_mock_response(payload)):
+    with patch("egpt.integrations.tools.sofya.sofya.requests.post", return_value=_mock_response(payload)):
         result = api_tools.extract_url_content("https://example.com")
     assert "## https://example.com" in result
     assert "# Hello" in result
@@ -144,7 +144,7 @@ def test_extract_success(api_tools):
 def test_extract_failed_result(api_tools):
     """A failed fetch result is reported clearly."""
     payload = {"results": [{"url": "https://bad.com", "success": False, "error": "timeout"}]}
-    with patch("egpt.tools.sofya.requests.post", return_value=_mock_response(payload)):
+    with patch("egpt.integrations.tools.sofya.sofya.requests.post", return_value=_mock_response(payload)):
         result = api_tools.extract_url_content("https://bad.com")
     assert "Extraction failed" in result
     assert "timeout" in result
@@ -166,7 +166,7 @@ def test_research_success_markdown():
         "report": "MCP is a protocol.",
         "sources": [{"title": "Spec", "url": "https://spec.example"}],
     }
-    with patch("egpt.tools.sofya.requests.post", return_value=_mock_response(payload)):
+    with patch("egpt.integrations.tools.sofya.sofya.requests.post", return_value=_mock_response(payload)):
         result = tools.research("what is mcp")
     assert "MCP is a protocol." in result
     assert "## Sources" in result
@@ -184,7 +184,7 @@ def test_search_markdown_handles_missing_title_and_content():
             {"title": None, "url": "https://f.com", "content": None},
         ],
     }
-    with patch("egpt.tools.sofya.requests.post", return_value=_mock_response(payload)):
+    with patch("egpt.integrations.tools.sofya.sofya.requests.post", return_value=_mock_response(payload)):
         result = tools.search_web("q")
     assert "None" not in result
     # Falls back to the URL as the link text when title is missing.
@@ -196,7 +196,7 @@ def test_extract_url_content_caps_at_ten_urls(api_tools):
     """Sofya's fetch endpoint caps at 10 URLs — the tool must trim client-side."""
     urls = ",".join(f"https://e{i}.com" for i in range(15))
     with patch(
-        "egpt.tools.sofya.requests.post",
+        "egpt.integrations.tools.sofya.sofya.requests.post",
         return_value=_mock_response({"results": []}),
     ) as mock_post:
         api_tools.extract_url_content(urls)
@@ -214,7 +214,7 @@ def test_post_surfaces_http_error_body(api_tools):
         "402 Client Error: Payment Required for url: https://sofya.co/v1/search",
         response=mock_resp,
     )
-    with patch("egpt.tools.sofya.requests.post", return_value=mock_resp):
+    with patch("egpt.integrations.tools.sofya.sofya.requests.post", return_value=mock_resp):
         result = json.loads(api_tools.search_web("q"))
     assert "error" in result
     assert "insufficient credits" in result["error"]

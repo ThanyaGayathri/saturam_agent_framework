@@ -1,8 +1,8 @@
 """Run `uv pip install requests` to install dependencies."""
 
 from egpt.agent import Agent
+from egpt.integrations.tools.models_labs import ModelsLabTools
 from egpt.models.response import FileType
-from egpt.tools.models_labs import ModelsLabTools
 from egpt.utils.media import download_audio
 from egpt.utils.pprint import pprint_run_response
 

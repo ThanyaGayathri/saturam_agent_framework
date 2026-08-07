@@ -10,7 +10,7 @@ Get your key at https://www.searchapi.io/
 """
 
 from egpt.agent import Agent
-from egpt.tools.searchapi import SearchApiTools
+from egpt.integrations.tools.searchapi import SearchApiTools
 
 # ---------------------------------------------------------------------------
 # Create Agents

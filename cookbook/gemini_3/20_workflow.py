@@ -20,8 +20,8 @@ Example prompts to try:
 
 from db import gemini_agents_db
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.google import Gemini
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow import (
     Condition,
     Parallel,

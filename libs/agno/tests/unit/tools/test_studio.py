@@ -13,9 +13,9 @@ import pytest
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
 from egpt.integrations.models.openai import OpenAIResponses
+from egpt.integrations.tools.calculator import CalculatorTools
+from egpt.integrations.tools.duckduckgo import DuckDuckGoTools
 from egpt.registry import Registry
-from egpt.tools.calculator import CalculatorTools
-from egpt.tools.duckduckgo import DuckDuckGoTools
 from egpt.tools.function import Function
 from egpt.tools.studio import StudioTool, StudioTools
 from egpt.tools.toolkit import Toolkit
@@ -332,7 +332,7 @@ class TestToolNameResolution:
     @pytest.fixture
     def mcp_registry(self, db):
         pytest.importorskip("mcp")
-        from egpt.tools.mcp import MCPTools
+        from egpt.integrations.tools.mcp import MCPTools
 
         docs = MCPTools(url="https://docs.example.com/mcp")
         search = MCPTools(url="https://search.example.com/mcp")

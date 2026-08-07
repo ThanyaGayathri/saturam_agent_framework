@@ -6,8 +6,8 @@ Cookbook example for `openai/chat/reasoning_o3_mini.py`.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -7,12 +7,12 @@ Demonstrates workflow with custom function updating session state.
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.run import RunContext
 from egpt.team import Team
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.step import Step, StepInput, StepOutput
 from egpt.workflow.workflow import Workflow
 

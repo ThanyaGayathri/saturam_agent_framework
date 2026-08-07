@@ -7,11 +7,11 @@ Demonstrates teams.
 
 from db import db
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIChat
 from egpt.team.team import Team
 from egpt.tools.reasoning import ReasoningTools
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Example

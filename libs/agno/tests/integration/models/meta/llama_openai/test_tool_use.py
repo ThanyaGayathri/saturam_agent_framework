@@ -4,8 +4,8 @@ import pytest
 
 from egpt.agent import Agent, RunOutput  # noqa
 from egpt.integrations.models.meta import LlamaOpenAI
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 
 
 def test_tool_use():

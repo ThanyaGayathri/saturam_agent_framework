@@ -17,8 +17,8 @@ import os
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.mcp import MCPTools
 from egpt.tools.reasoning import ReasoningTools
 from egpt.utils.log import log_error, log_exception, log_info
 

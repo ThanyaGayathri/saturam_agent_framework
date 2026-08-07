@@ -3,10 +3,10 @@
 from egpt.agent import Agent
 from egpt.eval.accuracy import AccuracyEval
 from egpt.integrations.db.postgres.postgres import PostgresDb
+from egpt.integrations.tools.calculator import CalculatorTools
 from egpt.models.openai import OpenAIChat
 from egpt.os import EgptOS
 from egpt.team.team import Team
-from egpt.tools.calculator import CalculatorTools
 
 # ---------------------------------------------------------------------------
 # Create Example

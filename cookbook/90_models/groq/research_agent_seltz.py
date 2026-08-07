@@ -4,8 +4,8 @@ from pathlib import Path
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.seltz import SeltzTools
 from egpt.models.groq import Groq
-from egpt.tools.seltz import SeltzTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

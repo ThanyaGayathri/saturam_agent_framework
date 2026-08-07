@@ -14,9 +14,9 @@ Prerequisites:
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.parallel import ParallelTools
 from egpt.models.openai import OpenAIResponses
 from egpt.team import Team
-from egpt.tools.parallel import ParallelTools
 
 # ---------------------------------------------------------------------------
 # Create Members

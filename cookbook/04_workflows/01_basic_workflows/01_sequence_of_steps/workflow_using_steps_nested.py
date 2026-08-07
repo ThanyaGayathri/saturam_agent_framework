@@ -6,10 +6,10 @@ Demonstrates nested workflow composition using `Steps`, `Condition`, and `Parall
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.exa import ExaTools
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.exa import ExaTools
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.condition import Condition
 from egpt.workflow.parallel import Parallel
 from egpt.workflow.step import Step

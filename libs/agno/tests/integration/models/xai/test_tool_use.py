@@ -4,12 +4,12 @@ import pytest
 
 from egpt.agent import Agent
 from egpt.integrations.models.xai import xAI
-from egpt.tools.websearch import WebSearchTools
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.websearch import WebSearchTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 
 # Check if exa_py is available for tests that need ExaTools
 try:
-    from egpt.tools.exa import ExaTools
+    from egpt.integrations.tools.exa import ExaTools
 
     EXA_AVAILABLE = True
 except ImportError:

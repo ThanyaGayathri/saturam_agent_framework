@@ -4,8 +4,8 @@ from egpt.agent.agent import Agent
 from egpt.db.base import SessionType
 from egpt.integrations.db.in_memory.in_memory_db import InMemoryDb
 from egpt.integrations.models.openai.chat import OpenAIChat
+from egpt.integrations.tools.dalle import DalleTools
 from egpt.media import Audio, Image
-from egpt.tools.dalle import DalleTools
 
 # Provider-availability failures (model brownouts/retirement windows, billing,
 # quota, auth) say nothing about our code and must not red the build. Contract

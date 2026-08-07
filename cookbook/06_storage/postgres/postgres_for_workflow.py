@@ -7,10 +7,10 @@ Demonstrates using PostgresDb as the session storage backend for a workflow.
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIChat
 from egpt.team import Team
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
 

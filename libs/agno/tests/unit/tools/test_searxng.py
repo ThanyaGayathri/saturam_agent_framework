@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from egpt.tools.searxng import Searxng
+from egpt.integrations.tools.searxng import Searxng
 
 
 @pytest.fixture

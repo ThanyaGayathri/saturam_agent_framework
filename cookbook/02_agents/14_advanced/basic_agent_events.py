@@ -9,8 +9,8 @@ import asyncio
 
 from egpt.agent import RunEvent
 from egpt.agent.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIResponses
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

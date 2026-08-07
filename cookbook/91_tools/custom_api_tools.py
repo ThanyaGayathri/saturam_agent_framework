@@ -6,7 +6,7 @@ Demonstrates custom api tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.api import CustomApiTools
+from egpt.integrations.tools.api import CustomApiTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

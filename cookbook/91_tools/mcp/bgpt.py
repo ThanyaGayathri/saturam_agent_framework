@@ -27,9 +27,9 @@ from os import getenv
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.mcp import MCPTools
+from egpt.integrations.tools.mcp.params import StreamableHTTPClientParams
 from egpt.models.anthropic import Claude
-from egpt.tools.mcp import MCPTools
-from egpt.tools.mcp.params import StreamableHTTPClientParams
 
 BGPT_MCP_URL = "https://bgpt.pro/mcp/stream"
 

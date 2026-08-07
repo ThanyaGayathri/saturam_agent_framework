@@ -5,10 +5,10 @@ import pytest
 from egpt.agent import Agent
 from egpt.eval.agent_as_judge import AgentAsJudgeEval
 from egpt.integrations.models.openai import OpenAIChat
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.metrics import ModelMetrics, RunMetrics, SessionMetrics, ToolCallMetrics
 from egpt.run.team import TeamRunOutput
 from egpt.team.team import Team
-from egpt.tools.yfinance import YFinanceTools
 
 
 def add(a: int, b: int) -> str:

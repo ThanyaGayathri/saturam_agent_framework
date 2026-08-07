@@ -6,8 +6,8 @@ Cookbook example for `openai/chat/metrics.py`.
 """
 
 from egpt.agent import Agent, RunOutput
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.yfinance import YFinanceTools
 from egpt.utils.pprint import pprint_run_response
 from rich.pretty import pprint
 

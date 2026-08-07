@@ -18,10 +18,15 @@ def moviepy_video_module(monkeypatch):
     fake_moviepy.VideoFileClip = FakeClip
 
     monkeypatch.setitem(sys.modules, "moviepy", fake_moviepy)
-    sys.modules.pop("egpt.tools.moviepy_video", None)
-    module = importlib.import_module("egpt.tools.moviepy_video")
+    # The implementation module, not the package: the tests below monkeypatch module
+    # globals (VideoFileClip, CompositeVideoClip, os), and patching the package would
+    # rebind a re-export the implementation never reads.
+    for name in ("egpt.integrations.tools.moviepy_video", "egpt.integrations.tools.moviepy_video.moviepy_video"):
+        sys.modules.pop(name, None)
+    module = importlib.import_module("egpt.integrations.tools.moviepy_video.moviepy_video")
     yield module
-    sys.modules.pop("egpt.tools.moviepy_video", None)
+    for name in ("egpt.integrations.tools.moviepy_video", "egpt.integrations.tools.moviepy_video.moviepy_video"):
+        sys.modules.pop(name, None)
 
 
 def test_create_srt_cleans_temp_file_when_replace_fails(moviepy_video_module, monkeypatch, tmp_path):

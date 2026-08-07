@@ -6,7 +6,7 @@ Demonstrates postgres tools.
 """
 
 from egpt.agent import Agent
-from egpt.tools.postgres import PostgresTools
+from egpt.integrations.tools.postgres import PostgresTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

@@ -10,9 +10,9 @@ from typing import List
 
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.hackernews import HackerNewsTools
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.registry import Registry
-from egpt.tools.hackernews import HackerNewsTools
-from egpt.tools.websearch import WebSearchTools
 from egpt.workflow.loop import Loop
 from egpt.workflow.step import Step
 from egpt.workflow.types import StepOutput

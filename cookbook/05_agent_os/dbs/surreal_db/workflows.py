@@ -9,10 +9,10 @@ from typing import List
 
 from db import db
 from egpt.agent.agent import Agent
+from egpt.integrations.tools.firecrawl import FirecrawlTools
+from egpt.integrations.tools.wikipedia import WikipediaTools
 from egpt.models.anthropic import Claude
 from egpt.team.team import Team
-from egpt.tools.firecrawl import FirecrawlTools
-from egpt.tools.wikipedia import WikipediaTools
 from egpt.workflow.step import Step
 from egpt.workflow.workflow import Workflow
 from pydantic import BaseModel, Field

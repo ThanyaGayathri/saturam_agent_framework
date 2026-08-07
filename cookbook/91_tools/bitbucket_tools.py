@@ -10,7 +10,7 @@ Setup:
 """
 
 from egpt.agent import Agent
-from egpt.tools.bitbucket import BitbucketTools
+from egpt.integrations.tools.bitbucket import BitbucketTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

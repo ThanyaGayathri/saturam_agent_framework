@@ -17,7 +17,7 @@ with patch.dict("sys.modules", {"e2b_code_interpreter": Mock()}):
     sys.modules["e2b_code_interpreter"].Sandbox = mock_sandbox_class
 
     # Now import the E2BTools class
-    from egpt.tools.e2b import E2BTools
+    from egpt.integrations.tools.e2b import E2BTools
 
 TEST_API_KEY = os.environ.get("E2B_API_KEY", "test_api_key")
 
@@ -33,7 +33,7 @@ def mock_agent():
 def mock_e2b_tools():
     """Create a mocked E2BTools instance with patched methods."""
     # Patch the Sandbox import at the module level
-    with patch("egpt.tools.e2b.Sandbox") as mock_sandbox_class:
+    with patch("egpt.integrations.tools.e2b.e2b.Sandbox") as mock_sandbox_class:
         # Set up our mock sandbox instance
         mock_sandbox = Mock()
         mock_sandbox_class.return_value = mock_sandbox
@@ -94,14 +94,14 @@ def mock_e2b_tools():
 
 def test_init_with_api_key():
     """Test initialization with provided API key."""
-    with patch("egpt.tools.e2b.Sandbox"):
+    with patch("egpt.integrations.tools.e2b.e2b.Sandbox"):
         tools = E2BTools(api_key=TEST_API_KEY)
         assert tools.api_key == TEST_API_KEY
 
 
 def test_init_with_env_var():
     """Test initialization with environment variable."""
-    with patch("egpt.tools.e2b.Sandbox"):
+    with patch("egpt.integrations.tools.e2b.e2b.Sandbox"):
         with patch.dict("os.environ", {"E2B_API_KEY": TEST_API_KEY}):
             tools = E2BTools()
             assert tools.api_key == TEST_API_KEY
@@ -116,7 +116,7 @@ def test_init_without_api_key():
 
 def test_init_with_selective_tools():
     """Test initialization with only selected tools enabled."""
-    with patch("egpt.tools.e2b.Sandbox"):
+    with patch("egpt.integrations.tools.e2b.e2b.Sandbox"):
         with patch.dict("os.environ", {"E2B_API_KEY": TEST_API_KEY}):
             tools = E2BTools(
                 include_tools=["run_python_code", "list_files", "run_command"],

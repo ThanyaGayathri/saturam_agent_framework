@@ -1,8 +1,8 @@
 """Run `uv pip install yfinance` to install dependencies."""
 
 from egpt.agent import Agent
+from egpt.integrations.tools.yfinance import YFinanceTools
 from egpt.models.langdb import LangDB
-from egpt.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

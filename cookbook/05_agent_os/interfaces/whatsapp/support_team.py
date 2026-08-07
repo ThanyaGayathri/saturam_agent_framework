@@ -12,11 +12,11 @@ Requires:
 
 from egpt.agent import Agent
 from egpt.integrations.db.sqlite import SqliteDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.anthropic import Claude
 from egpt.os.app import EgptOS
 from egpt.os.interfaces.whatsapp import Whatsapp
 from egpt.team import Team
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Agents

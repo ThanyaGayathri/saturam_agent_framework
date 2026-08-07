@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from egpt.tools.twelvelabs import TwelveLabsTools
+from egpt.integrations.tools.twelvelabs import TwelveLabsTools
 
 
 @pytest.fixture

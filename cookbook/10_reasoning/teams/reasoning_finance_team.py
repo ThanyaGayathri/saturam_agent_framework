@@ -8,11 +8,11 @@ Demonstrates this reasoning cookbook example.
 from textwrap import dedent
 
 from egpt.agent import Agent
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.anthropic import Claude
 from egpt.models.openai import OpenAIChat
 from egpt.team.team import Team
 from egpt.tools.reasoning import ReasoningTools
-from egpt.tools.websearch import WebSearchTools
 
 
 # ---------------------------------------------------------------------------

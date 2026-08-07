@@ -2,10 +2,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from egpt.tools.google.auth import AuthConfig
-from egpt.tools.google.calendar import GoogleCalendarTools
-from egpt.tools.google.drive import GoogleDriveTools
-from egpt.tools.google.gmail import GmailTools
+from egpt.integrations.tools.google.auth import AuthConfig
+from egpt.integrations.tools.google.calendar import GoogleCalendarTools
+from egpt.integrations.tools.google.drive import GoogleDriveTools
+from egpt.integrations.tools.google.gmail import GmailTools
 
 
 @pytest.fixture

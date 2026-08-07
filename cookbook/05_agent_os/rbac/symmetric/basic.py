@@ -15,10 +15,10 @@ from datetime import UTC, datetime, timedelta
 import jwt
 from egpt.agent import Agent
 from egpt.integrations.db.postgres import PostgresDb
+from egpt.integrations.tools.websearch import WebSearchTools
 from egpt.models.openai import OpenAIResponses
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
-from egpt.tools.websearch import WebSearchTools
 
 # ---------------------------------------------------------------------------
 # Create Example

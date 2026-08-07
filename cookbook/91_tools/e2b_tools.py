@@ -33,8 +33,8 @@ with the E2B sandbox through natural language commands.
 """
 
 from egpt.agent import Agent
+from egpt.integrations.tools.e2b import E2BTools
 from egpt.models.openai import OpenAIChat
-from egpt.tools.e2b import E2BTools
 
 # ---------------------------------------------------------------------------
 # Create Agent

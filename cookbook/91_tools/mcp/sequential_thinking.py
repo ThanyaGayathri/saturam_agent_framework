@@ -15,8 +15,8 @@ import asyncio
 from textwrap import dedent
 
 from egpt.agent import Agent
-from egpt.tools.mcp import MCPTools
-from egpt.tools.yfinance import YFinanceTools
+from egpt.integrations.tools.mcp import MCPTools
+from egpt.integrations.tools.yfinance import YFinanceTools
 
 # ---------------------------------------------------------------------------
 # Create Agent
