@@ -584,8 +584,18 @@ def test_no_test_patches_a_deprecated_shim_path():
     patch silently no-ops -- a patched `create_engine` would let the test open a real
     connection instead of failing loudly about a bad target. The shim docstrings record
     this, but prose does not stop anyone re-introducing it, so it gets a check.
+
+    Scans the whole test tree, not just `tests/unit`. A shim patched from an integration or
+    performance test no-ops exactly the same way, and scoping the scan to this guard's own
+    neighbourhood would wave those through.
     """
-    tests_root = Path(__file__).resolve().parents[1]
+    tests_root = package_root() / "tests"
+    assert tests_root.is_dir(), f"test root not found: {tests_root}"
+    # Non-vacuity floor. A scan root that stops resolving yields no offenders and reports
+    # PASS, which is how a guard of this shape silently stops guarding anything.
+    scanned = len(list(tests_root.rglob("test_*.py")))
+    assert scanned >= 100, f"only {scanned} test files found under {tests_root}; the scan root is stale"
+
     offenders = find_shim_path_strings(
         tests_root,
         "egpt.db",
