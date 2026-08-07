@@ -30,9 +30,9 @@ def unsupported_table_overrides(cls: type) -> frozenset:
     """Table-name parameters ``cls.__init__`` does not accept.
 
     A backend whose clone_with_table_overrides forwards a table kwarg its own __init__
-    lacks raises TypeError, which _clone_db_with_table_overrides swallows into a
-    misleading "cannot apply overrides" log -- the component then silently keeps the
-    registry instance's tables. Enumerating the constructor rather than hand-listing the
+    lacks raises TypeError, which _clone_db_with_table_overrides turns into a logged error
+    and a silent fallback -- the component then keeps the registry instance's tables.
+    Enumerating the constructor rather than hand-listing the
     gap is what keeps this correct in both drift directions: when the class gains the
     missing parameters the set empties itself, and when a new table kwarg is added to
     TABLE_SUFFIXES ahead of the constructor it is caught instead of forwarded.
@@ -437,7 +437,7 @@ def db_from_dict(db_data: Dict[str, Any]) -> Optional["BaseDb"]:
 def _clone_db_with_table_overrides(
     source_db: "BaseDb",
     db_data: Dict[str, Any],
-) -> Optional["BaseDb"]:
+) -> Tuple[Optional["BaseDb"], bool]:
     """Create a new ``BaseDb`` that shares ``source_db``'s engine but
     applies the table-name overrides from ``db_data``.
 
@@ -451,8 +451,13 @@ def _clone_db_with_table_overrides(
     round-trips to a usable config if it is re-saved and later loaded
     without a registry.
 
-    Returns ``None`` if the backend cannot apply the overrides, so the
-    caller can decide how to fall back.
+    Returns ``(clone, raised)``. ``clone`` is ``None`` when the overrides
+    could not be applied, so the caller can decide how to fall back;
+    ``raised`` distinguishes the two ways that happens -- a backend that
+    does not support cloning at all (``False``, ``BaseDb``'s default
+    returns ``None``) from one that supports it but rejected these
+    overrides (``True``). They warrant different diagnostics: only the
+    former is a property of the backend.
     """
     overrides: Dict[str, Any] = {
         key: db_data[key]
@@ -469,10 +474,14 @@ def _clone_db_with_table_overrides(
     # concrete backend. Backends that cannot share a connection inherit BaseDb's default,
     # which returns None.
     try:
-        return source_db.clone_with_table_overrides(**overrides)
+        return source_db.clone_with_table_overrides(**overrides), False
     except Exception as e:
-        log_error(f"Error cloning {type(source_db).__name__} with table overrides: {str(e)}")
-        return None
+        log_error(
+            f"Error cloning {type(source_db).__name__} with table overrides "
+            f"({type(e).__name__}: {e}); reusing the registered instance with its "
+            "configured table names."
+        )
+        return None, True
 
 
 def resolve_db_from_config(
@@ -522,20 +531,23 @@ def resolve_db_from_config(
                 return registry_db
             # Stored config customizes table names. Clone the registered
             # db so we reuse its engine/pool and only swap table names.
-            clone = _clone_db_with_table_overrides(registry_db, db_data)
+            clone, clone_raised = _clone_db_with_table_overrides(registry_db, db_data)
             if clone is not None:
                 return clone
-            # The registered backend doesn't implement clone_with_table_overrides
-            # (e.g. JsonDb, RedisDb, FirestoreDb, DynamoDb, ...), so it inherits
-            # BaseDb's default and returns None. Fall back to the registered
-            # instance rather than building a fresh one via db_from_dict, which
-            # would drop the shared engine. This means table overrides are
-            # silently ignored for those backends, but the component still gets
-            # a working db — same as the pre-override behavior.
-            log_warning(
-                f"Cannot apply table-name overrides to db of type {type(registry_db).__name__}; "
-                "reusing the registered instance with its configured table names."
-            )
+            # Either the registered backend doesn't implement clone_with_table_overrides
+            # (e.g. JsonDb, RedisDb, FirestoreDb, DynamoDb, ...), so it inherits BaseDb's
+            # default and returns None, or its clone raised. Both fall back to the
+            # registered instance rather than building a fresh one via db_from_dict, which
+            # would drop the shared engine. This means table overrides are silently ignored
+            # here, but the component still gets a working db — same as the pre-override
+            # behavior. Only the first case is a property of the backend, so only it gets
+            # the "cannot apply" warning; the raising case already logged the exception
+            # class and the same fallback in the helper.
+            if not clone_raised:
+                log_warning(
+                    f"Cannot apply table-name overrides to db of type {type(registry_db).__name__}; "
+                    "reusing the registered instance with its configured table names."
+                )
             return registry_db
 
     return db_from_dict(db_data)

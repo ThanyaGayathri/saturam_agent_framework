@@ -223,9 +223,10 @@ class TestResolveDbFromConfigWithPrefix:
     def test_clone_applies_table_prefix_override(self, tmp_path):
         src = SqliteDb(db_file=str(tmp_path / "src.db"))
 
-        clone = _clone_db_with_table_overrides(src, {"table_prefix": "acme_"})
+        clone, raised = _clone_db_with_table_overrides(src, {"table_prefix": "acme_"})
 
         assert clone is not None
+        assert raised is False
         assert clone.table_prefix == "acme_"
         assert clone.session_table_name == "acme_sessions"
         # Engine is shared, not rebuilt.
