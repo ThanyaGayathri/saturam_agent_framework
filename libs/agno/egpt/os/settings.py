@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from typing import List, Optional
 
 from pydantic import Field, field_validator
@@ -68,7 +69,22 @@ class EgptServingSettings(BrandedSettings):
         return valid_cors
 
 
-# Deprecated alias, kept for import compatibility. `EgptServingSettings` is the
-# correct name going forward -- this was never "API settings" (see egpt.api.settings
-# for the actual API/telemetry settings class); it configures EgptOS serving/auth.
-AgnoAPISettings = EgptServingSettings
+_warned_agno_api_settings = False
+
+
+def __getattr__(name: str):
+    global _warned_agno_api_settings
+    if name == "AgnoAPISettings":
+        if not _warned_agno_api_settings:
+            _warned_agno_api_settings = True
+            warnings.warn(
+                "AgnoAPISettings is deprecated; use EgptServingSettings instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+        return EgptServingSettings
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(list(globals().keys()) + ["AgnoAPISettings"])
