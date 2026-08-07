@@ -16,7 +16,18 @@ shadows the other and a component reads the wrong collection.
 Construction opens no connection: the client is created lazily.
 """
 
-from egpt.integrations.vectordb.weaviate.weaviate import Weaviate
+from unittest.mock import MagicMock
+
+import pytest
+
+pytest.importorskip("weaviate", reason="the Weaviate module imports the SDK at module level")
+
+from egpt.integrations.vectordb.weaviate.weaviate import Weaviate  # noqa: E402
+
+# Passed explicitly so construction never falls back to the default OpenAIEmbedder,
+# whose module raises ImportError without the openai SDK -- the seed under test
+# never touches the embedder.
+_EMBEDDER = MagicMock()
 
 CLUSTER_A = "https://cluster-a.weaviate.cloud"
 CLUSTER_B = "https://cluster-b.weaviate.cloud"
@@ -25,8 +36,8 @@ CLUSTER_B = "https://cluster-b.weaviate.cloud"
 class TestWeaviateIdSeed:
     def test_different_cloud_clusters_get_different_ids(self):
         """The regression -- this is the default path, and it collided."""
-        a = Weaviate(wcd_url=CLUSTER_A, collection="docs")
-        b = Weaviate(wcd_url=CLUSTER_B, collection="docs")
+        a = Weaviate(embedder=_EMBEDDER, wcd_url=CLUSTER_A, collection="docs")
+        b = Weaviate(embedder=_EMBEDDER, wcd_url=CLUSTER_B, collection="docs")
 
         assert a.id != b.id, (
             "two Weaviate Cloud clusters sharing a collection name must not share an id; "
@@ -34,11 +45,14 @@ class TestWeaviateIdSeed:
         )
 
     def test_cloud_url_is_stable_across_constructions(self):
-        assert Weaviate(wcd_url=CLUSTER_A, collection="docs").id == Weaviate(wcd_url=CLUSTER_A, collection="docs").id
+        assert (
+            Weaviate(embedder=_EMBEDDER, wcd_url=CLUSTER_A, collection="docs").id
+            == Weaviate(embedder=_EMBEDDER, wcd_url=CLUSTER_A, collection="docs").id
+        )
 
     def test_collection_still_contributes_to_the_seed(self):
-        a = Weaviate(wcd_url=CLUSTER_A, collection="docs")
-        b = Weaviate(wcd_url=CLUSTER_A, collection="other")
+        a = Weaviate(embedder=_EMBEDDER, wcd_url=CLUSTER_A, collection="docs")
+        b = Weaviate(embedder=_EMBEDDER, wcd_url=CLUSTER_A, collection="other")
 
         assert a.id != b.id
 
@@ -49,23 +63,23 @@ class TestWeaviateIdSeed:
         the explicit-argument path had.
         """
         monkeypatch.setenv("WCD_URL", CLUSTER_A)
-        from_env = Weaviate(collection="docs")
+        from_env = Weaviate(embedder=_EMBEDDER, collection="docs")
         monkeypatch.setenv("WCD_URL", CLUSTER_B)
-        from_other_env = Weaviate(collection="docs")
+        from_other_env = Weaviate(embedder=_EMBEDDER, collection="docs")
 
         assert from_env.id != from_other_env.id
-        assert from_env.id == Weaviate(wcd_url=CLUSTER_A, collection="docs").id, (
+        assert from_env.id == Weaviate(embedder=_EMBEDDER, wcd_url=CLUSTER_A, collection="docs").id, (
             "an env-configured client and an argument-configured one naming the same "
             "cluster are the same target and must agree on an id"
         )
 
     def test_local_path_is_stable_and_distinct_from_cloud(self, monkeypatch):
         monkeypatch.delenv("WCD_URL", raising=False)
-        local_a = Weaviate(local=True, collection="docs")
-        local_b = Weaviate(local=True, collection="docs")
+        local_a = Weaviate(embedder=_EMBEDDER, local=True, collection="docs")
+        local_b = Weaviate(embedder=_EMBEDDER, local=True, collection="docs")
 
         assert local_a.id == local_b.id
-        assert local_a.id != Weaviate(wcd_url=CLUSTER_A, collection="docs").id
+        assert local_a.id != Weaviate(embedder=_EMBEDDER, wcd_url=CLUSTER_A, collection="docs").id
 
     def test_explicit_id_wins(self):
-        assert Weaviate(wcd_url=CLUSTER_A, collection="docs", id="pinned").id == "pinned"
+        assert Weaviate(embedder=_EMBEDDER, wcd_url=CLUSTER_A, collection="docs", id="pinned").id == "pinned"
