@@ -144,8 +144,10 @@ class TeamResponse(BaseModel):
             except Exception:
                 pass
 
-        model_name = team.model.name or team.model.__class__.__name__ if team.model else None
-        model_provider = team.model.provider or team.model.__class__.__name__ if team.model else ""
+        # The grouping is deliberate: `if team.model` must guard the whole dereference,
+        # or team.model=None crashes with AttributeError before the conditional applies.
+        model_name = (team.model.name or team.model.__class__.__name__) if team.model else None
+        model_provider = (team.model.provider or team.model.__class__.__name__) if team.model else ""
         model_id = team.model.id if team.model else None
 
         if model_provider and model_id:

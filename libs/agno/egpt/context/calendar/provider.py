@@ -102,7 +102,11 @@ class GoogleCalendarContextProvider(ContextProvider):
         self._token_path = token_path or "calendar_token.json"
         self._calendar_id = calendar_id
         # Calendar does NOT require delegated_user — SA can use its own calendar
-        self._delegated_user = delegated_user or getenv("GOOGLE_DELEGATED_USER") if self._sa_path else None
+        # Only the env fallback is gated on a service-account path; an explicitly passed
+        # delegated_user= is always honoured, matching the gmail sibling. The
+        # unparenthesized form discarded the explicit argument whenever no SA path was
+        # configured (aicoe-tracker#156).
+        self._delegated_user = delegated_user or (getenv("GOOGLE_DELEGATED_USER") if self._sa_path else None)
 
         self._read_instructions = read_instructions if read_instructions is not None else DEFAULT_READ_INSTRUCTIONS
         self._write_instructions = write_instructions if write_instructions is not None else DEFAULT_WRITE_INSTRUCTIONS
