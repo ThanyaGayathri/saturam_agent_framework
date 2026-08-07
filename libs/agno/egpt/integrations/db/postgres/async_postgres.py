@@ -38,7 +38,7 @@ from egpt.integrations.db.postgres.utils import (
 from egpt.run.base import RunStatus
 from egpt.session import AgentSession, Session, TeamSession, WorkflowSession
 from egpt.utils.log import log_debug, log_error, log_info, log_warning
-from egpt.utils.string import sanitize_postgres_string, sanitize_postgres_strings
+from egpt.utils.string import generate_id, sanitize_postgres_string, sanitize_postgres_strings
 
 try:
     from sqlalchemy import ForeignKey, Index, String, Table, UniqueConstraint, and_, case, func, or_, update
@@ -118,6 +118,31 @@ class AsyncPostgresDb(AsyncBaseDb):
             ValueError: If neither db_url nor db_engine is provided.
             ValueError: If none of the tables are provided.
         """
+        _engine: Optional[AsyncEngine] = db_engine
+        if _engine is None and db_url is not None:
+            _engine = create_async_engine(
+                db_url,
+                pool_pre_ping=True,
+                pool_recycle=3600,
+                json_serializer=json_serializer,
+            )
+        if _engine is None:
+            raise ValueError("One of db_url or db_engine must be provided")
+
+        self.db_url: Optional[str] = db_url
+        self.db_engine: AsyncEngine = _engine
+
+        # Without this the id fell through to AsyncBaseDb's `id or str(uuid4())`, so every
+        # construction got a fresh random id and resolve_db_from_config -- which looks
+        # components up by id -- could never match a stored config across a restart.
+        # Seeded identically to PostgresDb: the two are interchangeable connection targets,
+        # and only sync BaseDb instances are tracked by the Registry, so they cannot collide.
+        if id is None:
+            base_seed = db_url or str(db_engine.url)  # type: ignore
+            schema_suffix = db_schema if db_schema is not None else "ai"
+            seed = f"{base_seed}#{schema_suffix}"
+            id = generate_id(seed)
+
         super().__init__(
             id=id,
             table_prefix=table_prefix,
@@ -138,19 +163,6 @@ class AsyncPostgresDb(AsyncBaseDb):
             service_accounts_table=service_accounts_table,
         )
 
-        _engine: Optional[AsyncEngine] = db_engine
-        if _engine is None and db_url is not None:
-            _engine = create_async_engine(
-                db_url,
-                pool_pre_ping=True,
-                pool_recycle=3600,
-                json_serializer=json_serializer,
-            )
-        if _engine is None:
-            raise ValueError("One of db_url or db_engine must be provided")
-
-        self.db_url: Optional[str] = db_url
-        self.db_engine: AsyncEngine = _engine
         self.db_schema: str = db_schema if db_schema is not None else "ai"
         self.metadata: MetaData = MetaData(schema=self.db_schema)
         self.create_schema: bool = create_schema

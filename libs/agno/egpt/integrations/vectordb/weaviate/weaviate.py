@@ -57,7 +57,12 @@ class Weaviate(VectorDb):
         if id is None:
             from egpt.utils.string import generate_id
 
-            connection_identifier = wcd_url or "local" if local else "default"
+            # Parentheses are load-bearing: `a or b if cond else c` parses as
+            # `(a or b) if cond else c`, which discarded wcd_url on the ordinary cloud
+            # path (local defaults to False) and collapsed every cluster onto one id.
+            # The env fallback mirrors self.wcd_url below, so an env-configured client
+            # seeds from the cluster it actually connects to rather than a constant.
+            connection_identifier = wcd_url or getenv("WCD_URL") or ("local" if local else "default")
             seed = f"{connection_identifier}#{collection}"
             id = generate_id(seed)
 

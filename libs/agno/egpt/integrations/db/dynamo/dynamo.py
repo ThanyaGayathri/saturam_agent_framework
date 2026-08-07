@@ -85,9 +85,25 @@ class DynamoDb(BaseDb):
             traces_table: The name of the traces table.
             spans_table: The name of the spans table.
             id: ID of the database.
+
+        Raises:
+            ValueError: If no db_client is given and AWS_REGION is set neither as an
+                argument nor in the environment.
+            ValueError: If no db_client is given and AWS_ACCESS_KEY_ID is set neither as
+                an argument nor in the environment.
+            ValueError: If no db_client is given and AWS_SECRET_ACCESS_KEY is set neither
+                as an argument nor in the environment.
         """
+        # Resolved once and reused for the client below: seeding from the raw arguments
+        # ignored the env fallbacks the client is actually built from, so DynamoDb() under
+        # env credentials seeded the constant "None_None" -- every env-configured instance
+        # colliding on one id -- and got a different id from an argument-configured
+        # instance naming the same target. The secret key stays out of the seed.
+        resolved_region = region_name or getenv("AWS_REGION")
+        resolved_access_key = aws_access_key_id or getenv("AWS_ACCESS_KEY_ID")
+
         if id is None:
-            seed = str(db_client) if db_client else f"{region_name}_{aws_access_key_id}"
+            seed = str(db_client) if db_client else f"{resolved_region}_{resolved_access_key}"
             id = generate_id(seed)
 
         super().__init__(
@@ -106,19 +122,20 @@ class DynamoDb(BaseDb):
         if db_client is not None:
             self.client = db_client
         else:
-            if not region_name and not getenv("AWS_REGION"):
+            resolved_secret_key = aws_secret_access_key or getenv("AWS_SECRET_ACCESS_KEY")
+            if not resolved_region:
                 raise ValueError("AWS_REGION is not set. Please set the AWS_REGION environment variable.")
-            if not aws_access_key_id and not getenv("AWS_ACCESS_KEY_ID"):
+            if not resolved_access_key:
                 raise ValueError("AWS_ACCESS_KEY_ID is not set. Please set the AWS_ACCESS_KEY_ID environment variable.")
-            if not aws_secret_access_key and not getenv("AWS_SECRET_ACCESS_KEY"):
+            if not resolved_secret_key:
                 raise ValueError(
                     "AWS_SECRET_ACCESS_KEY is not set. Please set the AWS_SECRET_ACCESS_KEY environment variable."
                 )
 
             session_kwargs = {}
-            session_kwargs["region_name"] = region_name or getenv("AWS_REGION")
-            session_kwargs["aws_access_key_id"] = aws_access_key_id or getenv("AWS_ACCESS_KEY_ID")
-            session_kwargs["aws_secret_access_key"] = aws_secret_access_key or getenv("AWS_SECRET_ACCESS_KEY")
+            session_kwargs["region_name"] = resolved_region
+            session_kwargs["aws_access_key_id"] = resolved_access_key
+            session_kwargs["aws_secret_access_key"] = resolved_secret_key
 
             session = boto3.Session(**session_kwargs)
             self.client = session.client("dynamodb")
