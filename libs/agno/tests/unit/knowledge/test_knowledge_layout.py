@@ -356,20 +356,33 @@ def test_reader_factory_rows_point_at_integrations():
     )
 
 
-def test_default_embedder_row_points_at_integrations():
-    """The core default-embedder seam is addressed by string for the same reason, so pin it."""
-    from egpt.knowledge.utils import DEFAULT_EMBEDDER
+def test_embedder_declarations_point_at_integrations():
+    """The core default-embedder seam is addressed by name for the same reason, so pin it.
 
-    module_path, class_name = DEFAULT_EMBEDDER
-    assert module_path.startswith(f"{_INTEGRATIONS_PREFIX}.embedder."), (
-        f"DEFAULT_EMBEDDER points at {module_path}, outside the integrations layer."
+    `declarations`, not `entries`: an out-of-tree embedder registered through an
+    `egpt.embedders` entry point is in someone else's package and need not live here.
+    """
+    from egpt.knowledge.utils import DEFAULT_EMBEDDER_NAME
+    from egpt.registry.discovery import declarations
+
+    rows = declarations("embedder")
+    assert rows, "the embedder declarations are empty; this guard would check nothing."
+    assert DEFAULT_EMBEDDER_NAME in rows, (
+        f"get_default_embedder() asks for '{DEFAULT_EMBEDDER_NAME}', which has no declaration row, "
+        "so every core caller that was not handed an embedder would fail at construction."
     )
 
+    for name, registration in rows.items():
+        assert registration.module.startswith(f"{_INTEGRATIONS_PREFIX}.embedder."), (
+            f"embedder declaration '{name}' points at {registration.module}, outside the integrations layer."
+        )
+
+    default = rows[DEFAULT_EMBEDDER_NAME]
     try:
-        module = importlib.import_module(module_path)
+        module = importlib.import_module(default.module)
     except ImportError as e:
         pytest.skip(f"optional dependency for the default embedder not installed: {e}")
-    assert getattr(module, class_name, None) is not None, f"{module_path} does not export {class_name}"
+    assert getattr(module, default.attr, None) is not None, f"{default.module} does not export {default.attr}"
 
 
 @pytest.mark.parametrize("reader_key", sorted(ReaderFactory.READER_METADATA))

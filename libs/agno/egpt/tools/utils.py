@@ -3,49 +3,42 @@
 ADR 0001 forbids core, services and orchestration from importing a concrete adapter, but
 some of them still have to *build* one -- the Slack context provider constructs
 ``SlackTools`` with a per-agent capability set that no composition root can pre-instantiate.
-This module is the tools counterpart of ``_DB_BACKENDS`` in ``egpt/db/utils.py`` and
-``_PROVIDERS`` in ``egpt/models/utils.py``: one row per stable toolkit name, resolved
-through ``importlib``, so the import edge is data rather than a static dependency.
 
-The table is deliberately *not* a mirror of the ~130 toolkits in the integrations layer. A
-row exists only for a toolkit an inward layer must construct by name; everything else is
-imported directly by the caller that wants it (cookbooks, the control plane, user code) and
-needs no seam. EGPT-1.9 folds these rows into ``Registry`` as ``construct_tool``, at which
-point this module becomes a thin forwarder.
+EGPT-1.9 folded the toolkit rows into the shared discovery seam
+(``egpt.registry.discovery``), alongside models, dbs, vector dbs and embedders, so this
+module is now a thin forwarder that keeps the two names its callers already import. The
+rows themselves live in ``egpt/registry/_declarations/tools.py``, which also carries the
+reasoning for why that table stays deliberately sparse.
 
 Construction is sync-only by design: ``construct_toolkit`` builds an object and has nothing
 to await, so an async variant would be dead weight (same rationale as
 ``BaseDb.clone_with_table_overrides``).
 """
 
-import importlib
-from typing import TYPE_CHECKING, Any, Dict, Tuple
+from typing import TYPE_CHECKING, Any
+
+from egpt.registry import discovery
 
 if TYPE_CHECKING:
     from egpt.tools.toolkit import Toolkit
-
-# Stable toolkit name -> (module, class_name) in the integrations layer.
-TOOLKIT_CLASSES: Dict[str, Tuple[str, str]] = {
-    "slack": ("egpt.integrations.tools.slack", "SlackTools"),
-}
 
 
 def get_toolkit_class(name: str) -> type:
     """Import and return the toolkit class registered under ``name``.
 
     Raises:
-        ValueError: ``name`` has no row in ``TOOLKIT_CLASSES``.
+        ValueError: ``name`` has no registration. The message says "toolkit", not the seam's
+            generic "tool": these are ``Toolkit`` subclasses, and this codebase also calls a
+            bare ``Function`` a tool, so the generic word would name the wrong thing.
         ImportError: the toolkit's optional dependency is not installed. The message is the
             toolkit's own, which names the package to install -- wrapping it here would
             replace actionable advice with a generic failure.
     """
-    entry = TOOLKIT_CLASSES.get(name)
-    if entry is None:
-        known = ", ".join(sorted(TOOLKIT_CLASSES)) or "<none>"
+    registration = discovery.get("tool", name)
+    if registration is None:
+        known = ", ".join(discovery.names("tool")) or "<none>"
         raise ValueError(f"Unknown toolkit '{name}'. Registered toolkits: {known}.")
-
-    module_name, class_name = entry
-    return getattr(importlib.import_module(module_name), class_name)
+    return registration.load()
 
 
 def construct_toolkit(name: str, **kwargs: Any) -> "Toolkit":

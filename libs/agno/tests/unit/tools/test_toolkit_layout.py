@@ -271,14 +271,19 @@ def test_toolkit_table_rows_point_at_integrations():
     Split from the resolution guard below because it needs no import: it therefore holds on
     an environment with none of the optional SDKs, where the resolution half can only skip.
     """
-    from egpt.tools.utils import TOOLKIT_CLASSES
+    from egpt.registry.discovery import declarations
 
-    assert TOOLKIT_CLASSES, "TOOLKIT_CLASSES is empty; this guard would check nothing."
+    # `declarations`, not `entries`: an out-of-tree toolkit registered through an
+    # `egpt.tools` entry point lives in someone else's package and is under no obligation
+    # to sit in this repository's integrations layer. Reading `entries` here would fail this
+    # guard on any machine with a third-party plugin installed.
+    rows = declarations("tool")
+    assert rows, "the tool declarations are empty; this guard would check nothing."
 
-    for name, (module, _class_name) in TOOLKIT_CLASSES.items():
-        assert module.startswith("egpt.integrations."), (
-            f"TOOLKIT_CLASSES['{name}'] points at {module}, which is not in the integrations "
-            "layer. Core must not name a module outside it."
+    for name, registration in rows.items():
+        assert registration.module.startswith("egpt.integrations."), (
+            f"tool declaration '{name}' points at {registration.module}, which is not in the "
+            "integrations layer. Core must not name a module outside it."
         )
 
 
@@ -297,11 +302,12 @@ def test_toolkit_table_rows_resolve_without_a_shim():
     """
     import pytest
 
+    from egpt.registry.discovery import declarations
     from egpt.tools.toolkit import Toolkit
-    from egpt.tools.utils import TOOLKIT_CLASSES, get_toolkit_class
+    from egpt.tools.utils import get_toolkit_class
 
     resolved_count = 0
-    for name, (_module, class_name) in TOOLKIT_CLASSES.items():
+    for name, class_name in ((key, reg.attr) for key, reg in declarations("tool").items()):
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("error", DeprecationWarning)
