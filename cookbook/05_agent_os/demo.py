@@ -1,7 +1,7 @@
 """
 EgptOS Demo
 
-Set the OS_SECURITY_KEY environment variable to your OS security key to enable authentication.
+Set the EGPT_OS_SECURITY_KEY environment variable to your OS security key to enable authentication.
 
 Prerequisites:
 uv pip install -U fastapi uvicorn sqlalchemy pgvector psycopg openai ddgs yfinance

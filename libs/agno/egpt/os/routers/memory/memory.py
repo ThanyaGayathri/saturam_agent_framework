@@ -29,14 +29,16 @@ from egpt.os.schema import (
     UnauthenticatedResponse,
     ValidationErrorResponse,
 )
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.remote.base import RemoteDb
 
 logger = logging.getLogger(__name__)
 
 
 def get_memory_router(
-    dbs: dict[str, list[Union[BaseDb, AsyncBaseDb, RemoteDb]]], settings: AgnoAPISettings = AgnoAPISettings(), **kwargs
+    dbs: dict[str, list[Union[BaseDb, AsyncBaseDb, RemoteDb]]],
+    settings: EgptServingSettings = EgptServingSettings(),
+    **kwargs,
 ) -> APIRouter:
     """Create memory router with comprehensive OpenAPI documentation for user memory management endpoints."""
     router = APIRouter(

@@ -31,7 +31,7 @@ from egpt.os.schema import (
     UnauthenticatedResponse,
     ValidationErrorResponse,
 )
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.os.utils import get_agent_by_id, get_db, get_team_by_id
 from egpt.remote.base import RemoteDb
 from egpt.team import RemoteTeam, Team
@@ -44,7 +44,7 @@ def get_eval_router(
     dbs: dict[str, list[Union[BaseDb, AsyncBaseDb, RemoteDb]]],
     agents: Optional[List[Union[Agent, RemoteAgent]]] = None,
     teams: Optional[List[Union[Team, RemoteTeam]]] = None,
-    settings: AgnoAPISettings = AgnoAPISettings(),
+    settings: EgptServingSettings = EgptServingSettings(),
 ) -> APIRouter:
     """Create eval router with comprehensive OpenAPI documentation for agent/team evaluation endpoints."""
     router = APIRouter(

@@ -6,6 +6,7 @@ from typing import Any, List, Optional, Tuple, Union
 
 import httpx
 
+from egpt.settings import resolve
 from egpt.utils.audio import pcm_to_wav_bytes
 from egpt.utils.log import log_error, log_info, log_warning
 from egpt.utils.media import get_image_type
@@ -33,7 +34,7 @@ class WhatsAppConfig:
     ) -> "WhatsAppConfig":
         token = access_token or os.getenv("WHATSAPP_ACCESS_TOKEN")
         phone_id = phone_number_id or os.getenv("WHATSAPP_PHONE_NUMBER_ID")
-        v_token = verify_token or os.getenv("WHATSAPP_VERIFY_TOKEN")
+        v_token = verify_token or resolve("whatsapp_verify_token")
         if not token:
             raise ValueError("WHATSAPP_ACCESS_TOKEN is not set. Set the environment variable or pass access_token.")
         if not phone_id:

@@ -44,7 +44,7 @@ from egpt.os.schema import (
     UnauthenticatedResponse,
     ValidationErrorResponse,
 )
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.os.utils import (
     classify_upload_file,
     find_factory_by_id,
@@ -509,7 +509,7 @@ async def team_resumable_continue_response_streamer(
 
 def get_team_router(
     os: "EgptOS",
-    settings: AgnoAPISettings = AgnoAPISettings(),
+    settings: EgptServingSettings = EgptServingSettings(),
     registry: Optional[Registry] = None,
 ) -> APIRouter:
     """Create the team router with comprehensive OpenAPI documentation."""

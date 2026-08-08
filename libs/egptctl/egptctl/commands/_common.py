@@ -77,13 +77,14 @@ def require_secure_url(url: str, *, allow_http: bool, what: str = "a credential"
 def resolve_admin_token(auth_mode: str, json_mode: bool) -> Optional[str]:
     """Resolve the admin credential used to call the service-accounts API.
 
-    Order: EGPT_ADMIN_TOKEN env, legacy AGNO_ADMIN_TOKEN env, OS_SECURITY_KEY env,
-    interactive prompt. Prompting is disabled in --json mode and when stdin is not a TTY,
-    so agent-driven runs fail with a clear instruction instead of hanging.
+    Order: EGPT_ADMIN_TOKEN env, legacy AGNO_ADMIN_TOKEN env, EGPT_OS_SECURITY_KEY env,
+    legacy AGNO_OS_SECURITY_KEY env, bare OS_SECURITY_KEY env, interactive prompt.
+    Prompting is disabled in --json mode and when stdin is not a TTY, so agent-driven
+    runs fail with a clear instruction instead of hanging.
     """
     if auth_mode == "none":
         return None
-    token = get_branded_env("ADMIN_TOKEN") or os.environ.get(SECURITY_KEY_ENV)
+    token = get_branded_env("ADMIN_TOKEN") or get_branded_env("OS_SECURITY_KEY") or os.environ.get(SECURITY_KEY_ENV)
     if token:
         return token
     if json_mode or not sys.stdin.isatty():

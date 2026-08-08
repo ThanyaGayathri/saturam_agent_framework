@@ -5,7 +5,6 @@ import hmac
 import json
 import re
 from enum import Enum
-from os import getenv
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Union
 
 from fastapi import Request, Response
@@ -22,6 +21,7 @@ from egpt.os.scopes import (
 )
 from egpt.os.service_accounts import SERVICE_ACCOUNT_PRINCIPAL_PREFIX, authenticate_service_account_request
 from egpt.os.service_accounts import TOKEN_PREFIX as SERVICE_ACCOUNT_TOKEN_PREFIX
+from egpt.settings import jwt_is_configured, resolve
 from egpt.utils.log import log_debug, log_warning
 
 if TYPE_CHECKING:
@@ -134,7 +134,7 @@ class JWTValidator:
             self.verification_keys.extend(verification_keys)
 
         # Add key from environment variable if not already provided
-        env_key = getenv("JWT_VERIFICATION_KEY", "")
+        env_key = resolve("jwt_verification_key")
         if env_key and env_key not in self.verification_keys:
             self.verification_keys.append(env_key)
 
@@ -146,7 +146,7 @@ class JWTValidator:
             self._load_jwks_file(jwks_file)
         else:
             # Try JWT_JWKS_FILE env var (path to file)
-            jwks_file_env = getenv("JWT_JWKS_FILE", "")
+            jwks_file_env = resolve("jwt_jwks_file")
             if jwks_file_env:
                 self._load_jwks_file(jwks_file_env)
 
@@ -600,13 +600,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # in every authenticated mode, so security-key / service-account-only
         # deployments construct it with no JWT source at all. The validator is only
         # built (and only required) when a JWT source is configured.
-        self._jwt_configured = bool(
-            all_verification_keys
-            or jwks_file
-            or not validate
-            or getenv("JWT_VERIFICATION_KEY")
-            or getenv("JWT_JWKS_FILE")
-        )
+        self._jwt_configured = bool(all_verification_keys or jwks_file or not validate or jwt_is_configured())
         self.validator: Optional[JWTValidator] = (
             JWTValidator(
                 verification_keys=all_verification_keys if all_verification_keys else None,

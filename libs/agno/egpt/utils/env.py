@@ -9,6 +9,7 @@ from typing import Optional, Set
 from egpt.brand import ENV_PREFIX, LEGACY_ENV_PREFIX
 
 _warned_legacy_env_vars: Set[str] = set()
+_warned_bare_env_vars: Set[str] = set()
 
 
 def branded_env_key(name: str) -> str:
@@ -71,6 +72,50 @@ def get_branded_env_bool(name: str, default: bool = False, *, strict: bool = Tru
     if strict:
         return lowered == "true"
     return lowered in ("true", "1", "yes")
+
+
+def _warn_bare_env_var(bare: str, name: str, *, stacklevel: int = 3) -> None:
+    if bare in _warned_bare_env_vars:
+        return
+    _warned_bare_env_vars.add(bare)
+    warnings.warn(
+        f"{bare} is deprecated; use {branded_env_key(name)} instead.",
+        FutureWarning,
+        stacklevel=stacklevel,
+    )
+
+
+def get_branded_env_with_bare_fallback(
+    name: str, bare: Optional[str] = None, default: Optional[str] = None
+) -> Optional[str]:
+    """Read ``EGPT_<name>``, then ``AGNO_<name>``, then an opt-in unprefixed ``bare`` name.
+
+    Empty-but-set values fall through at every level, matching
+    :func:`get_branded_env`: a docker-compose passthrough of an unset host
+    var must not silently disable a setting. ``bare`` and the legacy
+    ``AGNO_*`` form warn independently -- they are different deprecated
+    spellings and share no dedupe key.
+    """
+    value = get_branded_env(name)
+    if value:
+        return value
+
+    if bare:
+        bare_value = getenv(bare)
+        if bare_value:
+            _warn_bare_env_var(bare, name)
+            return bare_value
+        if value is None and bare_value is not None:
+            _warn_bare_env_var(bare, name)
+            return bare_value
+
+    return value if value is not None else default
+
+
+def _reset_warning_state() -> None:
+    """Test hook: clear every once-per-name dedupe set in this module at once."""
+    _warned_legacy_env_vars.clear()
+    _warned_bare_env_vars.clear()
 
 
 def get_from_env(key: str, default: Optional[str] = None, required: bool = False) -> Optional[str]:

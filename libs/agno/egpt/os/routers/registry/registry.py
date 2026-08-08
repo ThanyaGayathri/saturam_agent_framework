@@ -28,14 +28,14 @@ from egpt.os.schema import (
     ValidationErrorResponse,
     VectorDbMetadata,
 )
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.registry import Registry
 from egpt.tools.function import Function
 from egpt.tools.toolkit import Toolkit
 from egpt.utils.log import log_error
 
 
-def get_registry_router(registry: Registry, settings: AgnoAPISettings = AgnoAPISettings()) -> APIRouter:
+def get_registry_router(registry: Registry, settings: EgptServingSettings = EgptServingSettings()) -> APIRouter:
     router = APIRouter(
         dependencies=[Depends(get_authentication_dependency(settings))],
         tags=["Registry"],

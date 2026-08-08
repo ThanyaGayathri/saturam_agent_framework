@@ -1,39 +1,51 @@
 from __future__ import annotations
 
+import warnings
 from typing import List, Optional
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings
+
+from egpt.settings.sources import BrandedSettings, bare_env
 
 
-class AgnoAPISettings(BaseSettings):
-    """App settings for API-based apps that can be set using environment variables.
+class EgptServingSettings(BrandedSettings):
+    """Serving/auth settings for the EgptOS app, settable via environment variables.
 
     Reference: https://pydantic-docs.helpmanual.io/usage/settings/
     """
 
-    env: str = "dev"
+    env: str = Field(default="dev", json_schema_extra=bare_env("ENV"))
 
     # Set to False to disable docs server at /docs and /redoc
-    docs_enabled: bool = True
+    docs_enabled: bool = Field(default=True, json_schema_extra=bare_env("DOCS_ENABLED"))
 
     # Authentication settings
-    os_security_key: Optional[str] = Field(default=None, description="Bearer token for API authentication")
+    os_security_key: Optional[str] = Field(
+        default=None, description="Bearer token for API authentication", json_schema_extra=bare_env("OS_SECURITY_KEY")
+    )
 
     # Authorization flag - when True, JWT middleware handles auth and security key validation is skipped
-    authorization_enabled: bool = Field(default=False, description="Whether JWT authorization is enabled")
+    authorization_enabled: bool = Field(
+        default=False,
+        description="Whether JWT authorization is enabled",
+        json_schema_extra=bare_env("AUTHORIZATION_ENABLED"),
+    )
 
     # Seconds to cache a successful service-account token verification in-process, to
     # avoid a database lookup on every request. Revocation takes effect within this
     # window across worker processes (immediately on the worker that processes the
     # revoke). Set to 0 for strict instant revocation (verify against the DB every time).
     service_account_cache_ttl_seconds: int = Field(
-        default=30, description="TTL (seconds) for the in-process service-account verification cache; 0 disables it"
+        default=30,
+        description="TTL (seconds) for the in-process service-account verification cache; 0 disables it",
+        json_schema_extra=bare_env("SERVICE_ACCOUNT_CACHE_TTL_SECONDS"),
     )
 
     # Cors origin list to allow requests from.
     # This list is set using the set_cors_origin_list validator
-    cors_origin_list: Optional[List[str]] = Field(default=None, validate_default=True)
+    cors_origin_list: Optional[List[str]] = Field(
+        default=None, validate_default=True, json_schema_extra=bare_env("CORS_ORIGIN_LIST")
+    )
 
     @field_validator("cors_origin_list", mode="before")
     def set_cors_origin_list(cls, cors_origin_list):
@@ -55,3 +67,24 @@ class AgnoAPISettings(BaseSettings):
         )
 
         return valid_cors
+
+
+_warned_agno_api_settings = False
+
+
+def __getattr__(name: str):
+    global _warned_agno_api_settings
+    if name == "AgnoAPISettings":
+        if not _warned_agno_api_settings:
+            _warned_agno_api_settings = True
+            warnings.warn(
+                "AgnoAPISettings is deprecated; use EgptServingSettings instead.",
+                FutureWarning,
+                stacklevel=2,
+            )
+        return EgptServingSettings
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__():
+    return sorted(list(globals().keys()) + ["AgnoAPISettings"])

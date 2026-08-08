@@ -26,7 +26,7 @@ from egpt.os.schema import (
     UnauthenticatedResponse,
     ValidationErrorResponse,
 )
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.os.utils import timestamp_to_datetime
 from egpt.remote.base import RemoteDb
 from egpt.utils.log import log_error
@@ -70,7 +70,9 @@ def _require_trace_owner(trace: Any, effective_user_id: Optional[str]) -> None:
 
 
 def get_traces_router(
-    dbs: dict[str, list[Union[BaseDb, AsyncBaseDb, RemoteDb]]], settings: AgnoAPISettings = AgnoAPISettings(), **kwargs
+    dbs: dict[str, list[Union[BaseDb, AsyncBaseDb, RemoteDb]]],
+    settings: EgptServingSettings = EgptServingSettings(),
+    **kwargs,
 ) -> APIRouter:
     """Create traces router with comprehensive OpenAPI documentation for trace endpoints."""
     router = APIRouter(

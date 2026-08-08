@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from importlib import metadata
-from typing import Any, Dict, Tuple, Type
+from typing import Any
 from urllib.parse import urlparse
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from egpt.brand import PRODUCT_NAME
+from egpt.settings.sources import BrandedSettings
 from egpt.utils.env import get_branded_env
 from egpt.utils.log import log_error
 
@@ -61,24 +61,7 @@ def resolve_telemetry_api_url() -> str:
     return ""
 
 
-class _BrandedEnvSettingsSource(PydanticBaseSettingsSource):
-    """Read EGPT_* then AGNO_* via get_branded_env (emits deprecation warnings)."""
-
-    def get_field_value(self, field: Any, field_name: str) -> Tuple[Any, str, bool]:
-        env_name = field_name.upper()
-        value = get_branded_env(env_name)
-        return value, field_name, value is not None
-
-    def __call__(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {}
-        for field_name in self.settings_cls.model_fields:
-            value, _key, is_set = self.get_field_value(None, field_name)
-            if is_set and value is not None:
-                data[field_name] = value
-        return data
-
-
-class AgnoAPISettings(BaseSettings):
+class AgnoAPISettings(BrandedSettings):
     app_name: str = "egpt"
     app_version: str = metadata.version("egpt")
 
@@ -90,29 +73,6 @@ class AgnoAPISettings(BaseSettings):
 
     # Empty by default — no upstream phone-home. Set EGPT_API_URL to opt in.
     api_url: str = ""
-
-    # Belt-and-suspenders: if the default env source is ever re-added, unprefixed
-    # API_URL / APP_NAME cannot bind. Branded dual-read still uses get_branded_env.
-    model_config = SettingsConfigDict(env_prefix="EGPT_")
-
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: Type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> Tuple[PydanticBaseSettingsSource, ...]:
-        # Prefer branded dual-read source over the default env source so AGNO_*
-        # fallbacks emit FutureWarning. Live EGPT_API_URL is also re-read via
-        # resolve_telemetry_api_url() at gate/client time.
-        return (
-            init_settings,
-            _BrandedEnvSettingsSource(settings_cls),
-            dotenv_settings,
-            file_secret_settings,
-        )
 
     @field_validator("api_runtime", mode="before")
     def validate_runtime_env(cls, v):

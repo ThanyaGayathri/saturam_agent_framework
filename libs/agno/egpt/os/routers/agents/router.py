@@ -48,7 +48,7 @@ from egpt.os.schema import (
     UnauthenticatedResponse,
     ValidationErrorResponse,
 )
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.os.utils import (
     classify_upload_file,
     find_factory_by_id,
@@ -531,7 +531,7 @@ async def _resume_stream_generator(
 
 def get_agent_router(
     os: "EgptOS",
-    settings: AgnoAPISettings = AgnoAPISettings(),
+    settings: EgptServingSettings = EgptServingSettings(),
     registry: Optional[Registry] = None,
 ) -> APIRouter:
     """

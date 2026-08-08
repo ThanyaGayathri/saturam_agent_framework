@@ -34,7 +34,7 @@ from egpt.os.schema import (
 )
 from egpt.os.services.sessions import SessionNotFoundError, get_sessions_page
 from egpt.os.services.sessions import get_session_runs as get_session_runs_from_service
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.remote.base import RemoteDb
 from egpt.session import AgentSession, Session, TeamSession, WorkflowSession
 
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 def get_session_router(
-    dbs: dict[str, list[Union[BaseDb, AsyncBaseDb, RemoteDb]]], settings: AgnoAPISettings = AgnoAPISettings()
+    dbs: dict[str, list[Union[BaseDb, AsyncBaseDb, RemoteDb]]], settings: EgptServingSettings = EgptServingSettings()
 ) -> APIRouter:
     """Create session router with comprehensive OpenAPI documentation for session management endpoints."""
     session_router = APIRouter(

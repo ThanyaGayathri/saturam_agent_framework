@@ -54,7 +54,7 @@ from egpt.os.scopes import (
 )
 from egpt.os.service_accounts import TOKEN_PREFIX as SERVICE_ACCOUNT_TOKEN_PREFIX
 from egpt.os.service_accounts import VerificationStatus
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.os.utils import resolve_ws_jwt_config
 from egpt.team.factory import TeamFactory
 from egpt.utils.log import logger
@@ -65,7 +65,7 @@ if TYPE_CHECKING:
 
 def get_base_router(
     os: "EgptOS",
-    settings: AgnoAPISettings = AgnoAPISettings(),
+    settings: EgptServingSettings = EgptServingSettings(),
 ) -> APIRouter:
     """
     Create the base FastAPI router with comprehensive OpenAPI documentation.
@@ -294,7 +294,7 @@ def get_info_router(os: "EgptOS") -> APIRouter:
 
 def get_websocket_router(
     os: "EgptOS",
-    settings: AgnoAPISettings = AgnoAPISettings(),
+    settings: EgptServingSettings = EgptServingSettings(),
 ) -> APIRouter:
     """
     Create WebSocket router without HTTP authentication dependencies.

@@ -1,7 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
 from functools import partial
-from os import getenv
 from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import uuid4
 
@@ -70,7 +69,7 @@ from egpt.os.routers.session import get_session_router
 from egpt.os.routers.teams import get_team_router
 from egpt.os.routers.traces import get_traces_router
 from egpt.os.routers.workflows import get_workflow_router
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.os.utils import (
     _generate_knowledge_id,
     collect_components_from_os,
@@ -86,6 +85,7 @@ from egpt.os.utils import (
 )
 from egpt.registry import Registry
 from egpt.remote.base import RemoteDb, RemoteKnowledge
+from egpt.settings import jwt_is_configured, resolve
 from egpt.team import RemoteTeam, Team, TeamFactory
 from egpt.utils.env import get_branded_env, get_branded_env_bool
 from egpt.utils.log import log_debug, log_error, log_info, log_warning
@@ -238,7 +238,7 @@ class EgptOS:
         authorization_config: Optional[AuthorizationConfig] = None,
         cors_allowed_origins: Optional[List[str]] = None,
         config: Optional[Union[str, EgptOSConfig]] = None,
-        settings: Optional[AgnoAPISettings] = None,
+        settings: Optional[EgptServingSettings] = None,
         lifespan: Optional[Any] = None,
         enable_mcp_server: bool = False,
         mcp_config: Optional[MCPServerConfig] = None,
@@ -311,7 +311,7 @@ class EgptOS:
         self.workflows: Optional[List[Union[Workflow, RemoteWorkflow, WorkflowFactory]]] = workflows
         self.a2a_interface = a2a_interface
         self.knowledge = knowledge
-        self.settings: AgnoAPISettings = settings or AgnoAPISettings()
+        self.settings: EgptServingSettings = settings or EgptServingSettings()
         self.auto_provision_dbs = auto_provision_dbs
         self._app_set = False
 
@@ -1144,7 +1144,7 @@ class EgptOS:
         # covers the REST routes and the mounted /mcp app together (one middleware on
         # the parent app), so the mounted sub-app carries no auth code of its own.
         security_key = self.settings.os_security_key if self.settings else None
-        jwt_env_configured = bool(getenv("JWT_VERIFICATION_KEY") or getenv("JWT_JWKS_FILE"))
+        jwt_env_configured = jwt_is_configured()
         if self.authorization:
             # Set authorization_enabled flag on settings so security key validation is skipped
             self.settings.authorization_enabled = True
@@ -1227,9 +1227,7 @@ class EgptOS:
         admin_scope: Optional[str] = middleware_kwargs.get("admin_scope")
         user_isolation = middleware_kwargs.get("user_isolation", False)
 
-        jwt_configured = bool(
-            verification_keys or jwks_file or getenv("JWT_VERIFICATION_KEY") or getenv("JWT_JWKS_FILE")
-        )
+        jwt_configured = bool(verification_keys or jwks_file or jwt_is_configured())
         # Fail fast at app construction (not on the first request) if RBAC was asked for
         # with no way to verify a JWT: otherwise every JWT and anonymous request would fall
         # through unauthenticated, silently serving an OPEN instance. AuthMiddleware enforces
@@ -1854,8 +1852,8 @@ class EgptOS:
     ):
         import uvicorn
 
-        host = getenv("AGENT_OS_HOST", host)
-        env_port = getenv("AGENT_OS_PORT")
+        host = resolve("agent_os_host") or host
+        env_port = resolve("agent_os_port")
         if env_port is not None:
             port = int(env_port)
 

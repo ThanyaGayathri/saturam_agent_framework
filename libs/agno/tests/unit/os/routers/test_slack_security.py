@@ -5,7 +5,6 @@ import time
 import pytest
 from fastapi import HTTPException
 
-from egpt.os.interfaces.slack import security as sec_mod
 from egpt.os.interfaces.slack.security import verify_slack_signature
 
 
@@ -22,41 +21,33 @@ class TestVerifySlackSignature:
         sig = _sign(body, ts, secret)
         assert verify_slack_signature(body, ts, sig, signing_secret=secret) is True
 
-    def test_env_fallback(self):
+    def test_env_fallback(self, monkeypatch: pytest.MonkeyPatch):
         body = b'{"test": true}'
         ts = str(int(time.time()))
         env_secret = "env-secret-value"
         sig = _sign(body, ts, env_secret)
-        original = sec_mod.SLACK_SIGNING_SECRET
-        try:
-            sec_mod.SLACK_SIGNING_SECRET = env_secret
-            assert verify_slack_signature(body, ts, sig) is True
-        finally:
-            sec_mod.SLACK_SIGNING_SECRET = original
+        # The signing secret is read live (not frozen at import), so setting it here
+        # after the module has already been imported must still take effect.
+        monkeypatch.setenv("EGPT_SLACK_SIGNING_SECRET", env_secret)
+        assert verify_slack_signature(body, ts, sig) is True
 
-    def test_empty_string_not_fallback(self):
+    def test_empty_string_not_fallback(self, monkeypatch: pytest.MonkeyPatch):
         body = b'{"test": true}'
         ts = str(int(time.time()))
-        original = sec_mod.SLACK_SIGNING_SECRET
-        try:
-            sec_mod.SLACK_SIGNING_SECRET = "env-secret"
-            with pytest.raises(HTTPException) as exc_info:
-                verify_slack_signature(body, ts, "v0=fake", signing_secret="")
-            assert exc_info.value.status_code == 500
-        finally:
-            sec_mod.SLACK_SIGNING_SECRET = original
+        monkeypatch.setenv("EGPT_SLACK_SIGNING_SECRET", "env-secret")
+        with pytest.raises(HTTPException) as exc_info:
+            verify_slack_signature(body, ts, "v0=fake", signing_secret="")
+        assert exc_info.value.status_code == 500
 
-    def test_missing_secret_raises_500(self):
+    def test_missing_secret_raises_500(self, monkeypatch: pytest.MonkeyPatch):
         body = b'{"test": true}'
         ts = str(int(time.time()))
-        original = sec_mod.SLACK_SIGNING_SECRET
-        try:
-            sec_mod.SLACK_SIGNING_SECRET = None
-            with pytest.raises(HTTPException) as exc_info:
-                verify_slack_signature(body, ts, "v0=fake")
-            assert exc_info.value.status_code == 500
-        finally:
-            sec_mod.SLACK_SIGNING_SECRET = original
+        monkeypatch.delenv("EGPT_SLACK_SIGNING_SECRET", raising=False)
+        monkeypatch.delenv("AGNO_SLACK_SIGNING_SECRET", raising=False)
+        monkeypatch.delenv("SLACK_SIGNING_SECRET", raising=False)
+        with pytest.raises(HTTPException) as exc_info:
+            verify_slack_signature(body, ts, "v0=fake")
+        assert exc_info.value.status_code == 500
 
     def test_stale_timestamp_rejected(self):
         body = b'{"test": true}'

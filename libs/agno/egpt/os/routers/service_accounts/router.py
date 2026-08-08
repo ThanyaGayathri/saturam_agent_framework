@@ -68,7 +68,7 @@ def get_service_accounts_router(os_db: Any, settings: Any) -> APIRouter:
 
     Args:
         os_db: The EgptOS-level DB adapter (must support service account methods).
-        settings: AgnoAPISettings instance.
+        settings: EgptServingSettings instance.
 
     Returns:
         An APIRouter with all service account endpoints attached.

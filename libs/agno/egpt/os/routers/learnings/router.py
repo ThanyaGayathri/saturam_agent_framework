@@ -22,7 +22,7 @@ from egpt.os.schema import (
     UnauthenticatedResponse,
     ValidationErrorResponse,
 )
-from egpt.os.settings import AgnoAPISettings
+from egpt.os.settings import EgptServingSettings
 from egpt.os.utils import get_db
 from egpt.remote.base import RemoteDb
 
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 def get_learnings_router(
     dbs: dict[str, list[Union[BaseDb, AsyncBaseDb, RemoteDb]]],
-    settings: AgnoAPISettings = AgnoAPISettings(),
+    settings: EgptServingSettings = EgptServingSettings(),
     **kwargs,
 ) -> APIRouter:
     """Factory that creates and returns the learnings router."""
