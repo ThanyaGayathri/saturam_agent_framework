@@ -420,3 +420,56 @@ def test_migration_ignores_non_component_table_types(sqlite_db):
 
     assert v2_6_0.up(sqlite_db, "sessions", "egpt_sessions") is False
     assert v2_6_0.down(sqlite_db, "sessions", "egpt_sessions") is False
+
+
+# ============================================================================
+# MIGRATION MANAGER BLAST RADIUS
+# ============================================================================
+#
+# Registering the component table types widened what up()/down() iterate for EVERY
+# backend. AsyncBaseDb models no component tables at all -- it has no components_table
+# constructor param and no components_table_name attribute -- so a naive getattr would
+# raise AttributeError and take the whole migration run down with it.
+
+
+def test_table_type_map_matches_basedb_attributes(sqlite_db):
+    """Every mapped attribute must actually exist on a sync db."""
+    for table_type, attr in MigrationManager._TABLE_TYPE_TO_ATTR.items():
+        assert hasattr(sqlite_db, attr), f"{table_type} -> {attr} missing on SqliteDb"
+
+
+@pytest.mark.asyncio
+async def test_migration_manager_survives_db_without_component_tables(tmp_path):
+    """up()/down() must not raise on an async db that models no component tables."""
+    from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb
+
+    db = AsyncSqliteDb(db_file=str(tmp_path / "async.db"))
+    assert not hasattr(db, "components_table_name"), "fixture assumption changed"
+
+    await MigrationManager(db).up()
+    await MigrationManager(AsyncSqliteDb(db_file=str(tmp_path / "async.db"))).down(target_version="2.5.6")
+
+
+@pytest.mark.asyncio
+async def test_migration_manager_reports_unmigratable_table_type(tmp_path):
+    """Naming a table type the db cannot migrate warns and returns, rather than raising."""
+    from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb
+
+    db = AsyncSqliteDb(db_file=str(tmp_path / "async.db"))
+
+    await MigrationManager(db).up(table_type="components")
+    assert MigrationManager(db)._resolve_tables("components") is None
+
+
+def test_resolve_tables_skips_only_the_missing_types(sqlite_db):
+    """A sync db resolves all ten; a db missing component attrs resolves the other seven."""
+    resolved = MigrationManager(sqlite_db)._resolve_tables(None)
+    assert len(resolved) == len(MigrationManager._TABLE_TYPE_TO_ATTR)
+
+    class PartialDb:
+        session_table_name = "s"
+        memory_table_name = "m"
+
+    partial = MigrationManager.__new__(MigrationManager)
+    partial.db = PartialDb()
+    assert {tt for tt, _ in partial._resolve_tables(None)} == {"sessions", "memories"}

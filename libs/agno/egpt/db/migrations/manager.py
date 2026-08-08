@@ -5,7 +5,7 @@ from packaging import version as packaging_version
 from packaging.version import Version
 
 from egpt.db.base import AsyncBaseDb, BaseDb
-from egpt.utils.log import log_error, log_info, log_warning
+from egpt.utils.log import log_debug, log_error, log_info, log_warning
 
 
 class MigrationManager:
@@ -41,6 +41,37 @@ class MigrationManager:
     def latest_schema_version(self) -> Version:
         return self.available_versions[-1][1]
 
+    def _resolve_tables(self, table_type: Optional[str]) -> Optional[list[tuple[str, str]]]:
+        """Resolve the (table_type, table_name) pairs to migrate.
+
+        Not every db models every table type: ``AsyncBaseDb`` has no component tables at all,
+        so the attributes behind ``components`` / ``component_configs`` / ``component_links``
+        are absent there. Such table types are skipped rather than raising ``AttributeError``,
+        which would take the whole migration run down with them.
+
+        Returns None when the caller named a table type this db cannot migrate.
+        """
+        if table_type:
+            if table_type not in self._TABLE_TYPE_TO_ATTR:
+                log_warning(
+                    f"Invalid table type: {table_type}. Use one of: {', '.join(self._TABLE_TYPE_TO_ATTR.keys())}"
+                )
+                return None
+            table_name = getattr(self.db, self._TABLE_TYPE_TO_ATTR[table_type], None)
+            if table_name is None:
+                log_warning(f"{type(self.db).__name__} has no {table_type} table; nothing to migrate.")
+                return None
+            return [(table_type, table_name)]
+
+        tables = []
+        for tt, attr in self._TABLE_TYPE_TO_ATTR.items():
+            table_name = getattr(self.db, attr, None)
+            if table_name is None:
+                log_debug(f"Skipping {tt}: {type(self.db).__name__} does not define {attr}.")
+                continue
+            tables.append((tt, table_name))
+        return tables
+
     async def up(self, target_version: Optional[str] = None, table_type: Optional[str] = None, force: bool = False):
         """Handle executing an up migration.
 
@@ -58,16 +89,9 @@ class MigrationManager:
         else:
             _target_version = packaging_version.parse(target_version)
 
-        _table_type_to_attr = self._TABLE_TYPE_TO_ATTR
-
-        # Select tables to migrate
-        if table_type:
-            if table_type not in _table_type_to_attr:
-                log_warning(f"Invalid table type: {table_type}. Use one of: {', '.join(_table_type_to_attr.keys())}")
-                return
-            tables = [(table_type, getattr(self.db, _table_type_to_attr[table_type]))]
-        else:
-            tables = [(tt, getattr(self.db, attr)) for tt, attr in _table_type_to_attr.items()]
+        tables = self._resolve_tables(table_type)
+        if tables is None:
+            return
 
         # Handle migrations for each table separately (extend in future if needed):
         for table_type, table_name in tables:
@@ -142,16 +166,9 @@ class MigrationManager:
         """
         _target_version = packaging_version.parse(target_version)
 
-        _table_type_to_attr = self._TABLE_TYPE_TO_ATTR
-
-        # Select tables to migrate
-        if table_type:
-            if table_type not in _table_type_to_attr:
-                log_warning(f"Invalid table type: {table_type}. Use one of: {', '.join(_table_type_to_attr.keys())}")
-                return
-            tables = [(table_type, getattr(self.db, _table_type_to_attr[table_type]))]
-        else:
-            tables = [(tt, getattr(self.db, attr)) for tt, attr in _table_type_to_attr.items()]
+        tables = self._resolve_tables(table_type)
+        if tables is None:
+            return
 
         for table_type, table_name in tables:
             if isinstance(self.db, AsyncBaseDb):
