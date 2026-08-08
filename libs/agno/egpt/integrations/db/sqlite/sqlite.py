@@ -3297,12 +3297,14 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         component_type: Optional[ComponentType] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Get a component by ID.
 
         Args:
             component_id: The component ID.
             component_type: Optional type filter (agent|team|workflow).
+            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
 
         Returns:
             Component dictionary or None if not found.
@@ -3319,6 +3321,8 @@ class SqliteDb(BaseDb):
                 )
                 if component_type is not None:
                     stmt = stmt.where(table.c.component_type == component_type.value)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
 
                 result = sess.execute(stmt).fetchone()
                 return dict(result._mapping) if result else None
@@ -3335,6 +3339,7 @@ class SqliteDb(BaseDb):
         description: Optional[str] = None,
         current_version: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create or update a component.
 
@@ -3345,6 +3350,8 @@ class SqliteDb(BaseDb):
             description: Optional description.
             current_version: Optional current version.
             metadata: Optional metadata dict.
+            tenant_id: Optional tenant. Stored on create and on reactivation; scopes the
+                lookup and the update on an existing component. None means no tenant filter.
 
         Returns:
             Created/updated component dictionary.
@@ -3358,7 +3365,10 @@ class SqliteDb(BaseDb):
                 raise ValueError("Components table not found")
 
             with self.Session() as sess, sess.begin():
-                existing = sess.execute(select(table).where(table.c.component_id == component_id)).fetchone()
+                existing_stmt = select(table).where(table.c.component_id == component_id)
+                if tenant_id is not None:
+                    existing_stmt = existing_stmt.where(table.c.tenant_id == tenant_id)
+                existing = sess.execute(existing_stmt).fetchone()
 
                 if existing is None:
                     # Create new component
@@ -3368,6 +3378,7 @@ class SqliteDb(BaseDb):
                     sess.execute(
                         table.insert().values(
                             component_id=component_id,
+                            tenant_id=tenant_id,
                             component_type=component_type.value if hasattr(component_type, "value") else component_type,
                             name=name or component_id,
                             description=description,
@@ -3383,10 +3394,11 @@ class SqliteDb(BaseDb):
                     if component_type is None:
                         raise ValueError("component_type is required when reactivating a deleted component")
 
+                    reactivate_stmt = table.update().where(table.c.component_id == component_id)
+                    if tenant_id is not None:
+                        reactivate_stmt = reactivate_stmt.where(table.c.tenant_id == tenant_id)
                     sess.execute(
-                        table.update()
-                        .where(table.c.component_id == component_id)
-                        .values(
+                        reactivate_stmt.values(
                             component_type=component_type.value if hasattr(component_type, "value") else component_type,
                             name=name or component_id,
                             description=description,
@@ -3399,7 +3411,8 @@ class SqliteDb(BaseDb):
                     log_debug(f"Reactivated component {component_id}")
 
                 else:
-                    # Update existing
+                    # Update existing. tenant_id is deliberately not updatable: a component
+                    # does not move between tenants via an upsert.
                     updates: Dict[str, Any] = {"updated_at": int(time.time())}
                     if component_type is not None:
                         updates["component_type"] = (
@@ -3414,10 +3427,13 @@ class SqliteDb(BaseDb):
                     if metadata is not None:
                         updates["metadata"] = metadata
 
-                    sess.execute(table.update().where(table.c.component_id == component_id).values(**updates))
+                    update_stmt = table.update().where(table.c.component_id == component_id)
+                    if tenant_id is not None:
+                        update_stmt = update_stmt.where(table.c.tenant_id == tenant_id)
+                    sess.execute(update_stmt.values(**updates))
                     log_debug(f"Updated component {component_id}")
 
-            result = self.get_component(component_id)
+            result = self.get_component(component_id, tenant_id=tenant_id)
             if result is None:
                 raise ValueError(f"Failed to get component {component_id} after upsert")
             return result
@@ -3430,12 +3446,14 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         hard_delete: bool = False,
+        tenant_id: Optional[str] = None,
     ) -> bool:
         """Delete a component and all its configs/links.
 
         Args:
             component_id: The component ID.
             hard_delete: If True, permanently delete. Otherwise soft-delete.
+            tenant_id: Optional tenant to scope the delete to. None means no tenant filter.
 
         Returns:
             True if deleted, False if not found.
@@ -3452,23 +3470,29 @@ class SqliteDb(BaseDb):
                 if hard_delete:
                     # Delete links where this component is parent or child
                     if links_table is not None:
-                        sess.execute(links_table.delete().where(links_table.c.parent_component_id == component_id))
-                        sess.execute(links_table.delete().where(links_table.c.child_component_id == component_id))
+                        for link_column in (links_table.c.parent_component_id, links_table.c.child_component_id):
+                            link_stmt = links_table.delete().where(link_column == component_id)
+                            if tenant_id is not None:
+                                link_stmt = link_stmt.where(links_table.c.tenant_id == tenant_id)
+                            sess.execute(link_stmt)
                     # Delete configs
                     if configs_table is not None:
-                        sess.execute(configs_table.delete().where(configs_table.c.component_id == component_id))
+                        configs_stmt = configs_table.delete().where(configs_table.c.component_id == component_id)
+                        if tenant_id is not None:
+                            configs_stmt = configs_stmt.where(configs_table.c.tenant_id == tenant_id)
+                        sess.execute(configs_stmt)
                     # Delete component
-                    result = sess.execute(
-                        components_table.delete().where(components_table.c.component_id == component_id)
-                    )
+                    delete_stmt = components_table.delete().where(components_table.c.component_id == component_id)
+                    if tenant_id is not None:
+                        delete_stmt = delete_stmt.where(components_table.c.tenant_id == tenant_id)
+                    result = sess.execute(delete_stmt)
                 else:
                     # Soft delete
                     now = int(time.time())
-                    result = sess.execute(
-                        components_table.update()
-                        .where(components_table.c.component_id == component_id)
-                        .values(deleted_at=now)
-                    )
+                    soft_delete_stmt = components_table.update().where(components_table.c.component_id == component_id)
+                    if tenant_id is not None:
+                        soft_delete_stmt = soft_delete_stmt.where(components_table.c.tenant_id == tenant_id)
+                    result = sess.execute(soft_delete_stmt.values(deleted_at=now))
 
             return result.rowcount > 0
 
@@ -3483,6 +3507,7 @@ class SqliteDb(BaseDb):
         limit: int = 20,
         offset: int = 0,
         exclude_component_ids: Optional[Set[str]] = None,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """List components with pagination.
 
@@ -3492,6 +3517,7 @@ class SqliteDb(BaseDb):
             limit: Maximum number of items to return.
             offset: Number of items to skip.
             exclude_component_ids: Component IDs to exclude from results.
+            tenant_id: Optional tenant to scope the listing to. None means no tenant filter.
 
         Returns:
             Tuple of (list of component dicts, total count).
@@ -3502,7 +3528,8 @@ class SqliteDb(BaseDb):
                 return [], 0
 
             with self.Session() as sess:
-                # Build base where clause
+                # Build base where clause. It is shared by the count and page queries, so the
+                # tenant predicate cannot drift between the two.
                 where_clauses = []
                 if component_type is not None:
                     where_clauses.append(table.c.component_type == component_type.value)
@@ -3510,6 +3537,8 @@ class SqliteDb(BaseDb):
                     where_clauses.append(table.c.deleted_at.is_(None))
                 if exclude_component_ids:
                     where_clauses.append(table.c.component_id.notin_(exclude_component_ids))
+                if tenant_id is not None:
+                    where_clauses.append(table.c.tenant_id == tenant_id)
 
                 # Get total count
                 count_stmt = select(func.count()).select_from(table)
@@ -3545,6 +3574,7 @@ class SqliteDb(BaseDb):
         stage: str = "draft",
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Create a component with its initial config atomically.
 
@@ -3559,6 +3589,7 @@ class SqliteDb(BaseDb):
             stage: "draft" or "published".
             notes: Optional notes.
             links: Optional list of links. Each must have child_version set.
+            tenant_id: Optional tenant. Stored on the component, config and link rows.
 
         Returns:
             Tuple of (component dict, config dict).
@@ -3586,7 +3617,9 @@ class SqliteDb(BaseDb):
                 raise ValueError("Component configs table not found")
 
             with self.Session() as sess, sess.begin():
-                # Check if component already exists
+                # Check if component already exists. Deliberately NOT tenant-scoped:
+                # component_id is the primary key and therefore globally unique, so a
+                # tenant-scoped check would pass here and then fail on a raw PK violation.
                 existing = sess.execute(
                     select(components_table.c.component_id).where(components_table.c.component_id == component_id)
                 ).scalar_one_or_none()
@@ -3594,7 +3627,7 @@ class SqliteDb(BaseDb):
                 if existing is not None:
                     raise ValueError(f"Component {component_id} already exists")
 
-                # Check label uniqueness
+                # Check label uniqueness (scoped to the component, which is already unique)
                 if label is not None:
                     existing_label = sess.execute(
                         select(configs_table.c.version).where(
@@ -3612,6 +3645,7 @@ class SqliteDb(BaseDb):
                 sess.execute(
                     components_table.insert().values(
                         component_id=component_id,
+                        tenant_id=tenant_id,
                         component_type=component_type.value,
                         name=name,
                         description=description,
@@ -3626,6 +3660,7 @@ class SqliteDb(BaseDb):
                     configs_table.insert().values(
                         component_id=component_id,
                         version=version,
+                        tenant_id=tenant_id,
                         label=label,
                         stage=stage,
                         config=config,
@@ -3641,6 +3676,7 @@ class SqliteDb(BaseDb):
                             links_table.insert().values(
                                 parent_component_id=component_id,
                                 parent_version=version,
+                                tenant_id=tenant_id,
                                 link_kind=link["link_kind"],
                                 link_key=link["link_key"],
                                 child_component_id=link["child_component_id"],
@@ -3652,8 +3688,8 @@ class SqliteDb(BaseDb):
                         )
 
             # Fetch and return both
-            component = self.get_component(component_id)
-            config_result = self.get_config(component_id, version=version)
+            component = self.get_component(component_id, tenant_id=tenant_id)
+            config_result = self.get_config(component_id, version=version, tenant_id=tenant_id)
 
             if component is None:
                 raise ValueError(f"Failed to get component {component_id} after creation")
@@ -3672,6 +3708,7 @@ class SqliteDb(BaseDb):
         component_id: str,
         version: Optional[int] = None,
         label: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Get a config by component ID and version or label.
 
@@ -3679,6 +3716,7 @@ class SqliteDb(BaseDb):
             component_id: The component ID.
             version: Specific version number. If None, uses current or latest draft.
             label: Config label to lookup. Ignored if version is provided.
+            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
 
         Returns:
             Config dictionary or None if not found.
@@ -3692,16 +3730,14 @@ class SqliteDb(BaseDb):
 
             with self.Session() as sess:
                 # Always verify component exists and is not deleted
-                component_row = (
-                    sess.execute(
-                        select(components_table.c.current_version, components_table.c.component_id).where(
-                            components_table.c.component_id == component_id,
-                            components_table.c.deleted_at.is_(None),
-                        )
-                    )
-                    .mappings()
-                    .one_or_none()
+                component_stmt = select(components_table.c.current_version, components_table.c.component_id).where(
+                    components_table.c.component_id == component_id,
+                    components_table.c.deleted_at.is_(None),
                 )
+                if tenant_id is not None:
+                    component_stmt = component_stmt.where(components_table.c.tenant_id == tenant_id)
+
+                component_row = sess.execute(component_stmt).mappings().one_or_none()
 
                 if component_row is None:
                     return None
@@ -3733,6 +3769,9 @@ class SqliteDb(BaseDb):
                         .limit(1)
                     )
 
+                if tenant_id is not None:
+                    stmt = stmt.where(configs_table.c.tenant_id == tenant_id)
+
                 result = sess.execute(stmt).fetchone()
                 return dict(result._mapping) if result else None
 
@@ -3749,6 +3788,7 @@ class SqliteDb(BaseDb):
         stage: Optional[str] = None,
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create or update a config version for a component.
 
@@ -3765,6 +3805,7 @@ class SqliteDb(BaseDb):
             stage: "draft" or "published". Defaults to "draft" for new configs.
             notes: Optional notes.
             links: Optional list of links. Each link must have child_version set.
+            tenant_id: Optional tenant. Stored on new config and link rows; scopes every lookup.
 
         Returns:
             Created/updated config dictionary.
@@ -3788,12 +3829,14 @@ class SqliteDb(BaseDb):
 
             with self.Session() as sess, sess.begin():
                 # Verify component exists and is not deleted
-                component = sess.execute(
-                    select(components_table.c.component_id).where(
-                        components_table.c.component_id == component_id,
-                        components_table.c.deleted_at.is_(None),
-                    )
-                ).fetchone()
+                component_stmt = select(components_table.c.component_id).where(
+                    components_table.c.component_id == component_id,
+                    components_table.c.deleted_at.is_(None),
+                )
+                if tenant_id is not None:
+                    component_stmt = component_stmt.where(components_table.c.tenant_id == tenant_id)
+
+                component = sess.execute(component_stmt).fetchone()
 
                 if component is None:
                     raise ValueError(f"Component {component_id} not found")
@@ -3824,6 +3867,8 @@ class SqliteDb(BaseDb):
                     if stage is None:
                         stage = "draft"
 
+                    # Not tenant-scoped: version numbers must be unique per component_id,
+                    # which is the primary key alongside version.
                     max_version = sess.execute(
                         select(configs_table.c.version)
                         .where(configs_table.c.component_id == component_id)
@@ -3837,6 +3882,7 @@ class SqliteDb(BaseDb):
                         configs_table.insert().values(
                             component_id=component_id,
                             version=final_version,
+                            tenant_id=tenant_id,
                             label=label,
                             stage=stage,
                             config=config,
@@ -3845,12 +3891,14 @@ class SqliteDb(BaseDb):
                         )
                     )
                 else:
-                    existing = sess.execute(
-                        select(configs_table.c.version, configs_table.c.stage).where(
-                            configs_table.c.component_id == component_id,
-                            configs_table.c.version == version,
-                        )
-                    ).fetchone()
+                    existing_stmt = select(configs_table.c.version, configs_table.c.stage).where(
+                        configs_table.c.component_id == component_id,
+                        configs_table.c.version == version,
+                    )
+                    if tenant_id is not None:
+                        existing_stmt = existing_stmt.where(configs_table.c.tenant_id == tenant_id)
+
+                    existing = sess.execute(existing_stmt).fetchone()
 
                     if existing is None:
                         raise ValueError(f"Config {component_id} v{version} not found")
@@ -3859,7 +3907,8 @@ class SqliteDb(BaseDb):
                     if existing.stage == "published":
                         raise ValueError(f"Cannot update published config {component_id} v{version}")
 
-                    # Build update dict with only provided fields
+                    # Build update dict with only provided fields. tenant_id is deliberately
+                    # not updatable: a config does not move between tenants via an upsert.
                     updates: Dict[str, Any] = {"updated_at": int(time.time())}
                     if label is not None:
                         updates["label"] = label
@@ -3870,28 +3919,29 @@ class SqliteDb(BaseDb):
                     if notes is not None:
                         updates["notes"] = notes
 
-                    sess.execute(
-                        configs_table.update()
-                        .where(
-                            configs_table.c.component_id == component_id,
-                            configs_table.c.version == version,
-                        )
-                        .values(**updates)
+                    config_update_stmt = configs_table.update().where(
+                        configs_table.c.component_id == component_id,
+                        configs_table.c.version == version,
                     )
+                    if tenant_id is not None:
+                        config_update_stmt = config_update_stmt.where(configs_table.c.tenant_id == tenant_id)
+                    sess.execute(config_update_stmt.values(**updates))
                     final_version = version
 
                 if links is not None and links_table is not None:
-                    sess.execute(
-                        links_table.delete().where(
-                            links_table.c.parent_component_id == component_id,
-                            links_table.c.parent_version == final_version,
-                        )
+                    links_delete_stmt = links_table.delete().where(
+                        links_table.c.parent_component_id == component_id,
+                        links_table.c.parent_version == final_version,
                     )
+                    if tenant_id is not None:
+                        links_delete_stmt = links_delete_stmt.where(links_table.c.tenant_id == tenant_id)
+                    sess.execute(links_delete_stmt)
                     for link in links:
                         sess.execute(
                             links_table.insert().values(
                                 parent_component_id=component_id,
                                 parent_version=final_version,
+                                tenant_id=tenant_id,
                                 link_kind=link["link_kind"],
                                 link_key=link["link_key"],
                                 child_component_id=link["child_component_id"],
@@ -3906,13 +3956,12 @@ class SqliteDb(BaseDb):
                 final_stage = stage if stage is not None else (existing.stage if version is not None else "draft")
 
                 if final_stage == "published":
-                    sess.execute(
-                        components_table.update()
-                        .where(components_table.c.component_id == component_id)
-                        .values(current_version=final_version, updated_at=int(time.time()))
-                    )
+                    publish_stmt = components_table.update().where(components_table.c.component_id == component_id)
+                    if tenant_id is not None:
+                        publish_stmt = publish_stmt.where(components_table.c.tenant_id == tenant_id)
+                    sess.execute(publish_stmt.values(current_version=final_version, updated_at=int(time.time())))
 
-            result = self.get_config(component_id, version=final_version)
+            result = self.get_config(component_id, version=final_version, tenant_id=tenant_id)
             if result is None:
                 raise ValueError(f"Failed to get config {component_id} v{final_version} after upsert")
             return result
@@ -3925,6 +3974,7 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         version: int,
+        tenant_id: Optional[str] = None,
     ) -> bool:
         """Delete a specific config version.
 
@@ -3934,6 +3984,7 @@ class SqliteDb(BaseDb):
         Args:
             component_id: The component ID.
             version: The version to delete.
+            tenant_id: Optional tenant to scope the delete to. None means no tenant filter.
 
         Returns:
             True if deleted, False if not found.
@@ -3951,40 +4002,48 @@ class SqliteDb(BaseDb):
 
             with self.Session() as sess, sess.begin():
                 # Get config stage and check if it's current
-                config_row = sess.execute(
-                    select(configs_table.c.stage).where(
-                        configs_table.c.component_id == component_id,
-                        configs_table.c.version == version,
-                    )
-                ).fetchone()
+                config_stmt = select(configs_table.c.stage).where(
+                    configs_table.c.component_id == component_id,
+                    configs_table.c.version == version,
+                )
+                if tenant_id is not None:
+                    config_stmt = config_stmt.where(configs_table.c.tenant_id == tenant_id)
+
+                config_row = sess.execute(config_stmt).fetchone()
 
                 if config_row is None:
                     return False
 
                 # Check if it's current version
-                current = sess.execute(
-                    select(components_table.c.current_version).where(components_table.c.component_id == component_id)
-                ).fetchone()
+                current_stmt = select(components_table.c.current_version).where(
+                    components_table.c.component_id == component_id
+                )
+                if tenant_id is not None:
+                    current_stmt = current_stmt.where(components_table.c.tenant_id == tenant_id)
+
+                current = sess.execute(current_stmt).fetchone()
 
                 if current and current.current_version == version:
                     raise ValueError(f"Cannot delete current config {component_id} v{version}")
 
                 # Delete associated links
                 if links_table is not None:
-                    sess.execute(
-                        links_table.delete().where(
-                            links_table.c.parent_component_id == component_id,
-                            links_table.c.parent_version == version,
-                        )
+                    links_delete_stmt = links_table.delete().where(
+                        links_table.c.parent_component_id == component_id,
+                        links_table.c.parent_version == version,
                     )
+                    if tenant_id is not None:
+                        links_delete_stmt = links_delete_stmt.where(links_table.c.tenant_id == tenant_id)
+                    sess.execute(links_delete_stmt)
 
                 # Delete the config
-                sess.execute(
-                    configs_table.delete().where(
-                        configs_table.c.component_id == component_id,
-                        configs_table.c.version == version,
-                    )
+                config_delete_stmt = configs_table.delete().where(
+                    configs_table.c.component_id == component_id,
+                    configs_table.c.version == version,
                 )
+                if tenant_id is not None:
+                    config_delete_stmt = config_delete_stmt.where(configs_table.c.tenant_id == tenant_id)
+                sess.execute(config_delete_stmt)
 
             return True
 
@@ -3996,12 +4055,14 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         include_config: bool = False,
+        tenant_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """List all config versions for a component.
 
         Args:
             component_id: The component ID.
             include_config: If True, include full config blob. Otherwise just metadata.
+            tenant_id: Optional tenant to scope the listing to. None means no tenant filter.
 
         Returns:
             List of config dictionaries, newest first.
@@ -4016,12 +4077,14 @@ class SqliteDb(BaseDb):
 
             with self.Session() as sess:
                 # Verify component exists and is not deleted
-                exists = sess.execute(
-                    select(components_table.c.component_id).where(
-                        components_table.c.component_id == component_id,
-                        components_table.c.deleted_at.is_(None),
-                    )
-                ).fetchone()
+                exists_stmt = select(components_table.c.component_id).where(
+                    components_table.c.component_id == component_id,
+                    components_table.c.deleted_at.is_(None),
+                )
+                if tenant_id is not None:
+                    exists_stmt = exists_stmt.where(components_table.c.tenant_id == tenant_id)
+
+                exists = sess.execute(exists_stmt).fetchone()
 
                 if exists is None:
                     return []
@@ -4041,6 +4104,8 @@ class SqliteDb(BaseDb):
                     )
 
                 stmt = stmt.where(configs_table.c.component_id == component_id).order_by(configs_table.c.version.desc())
+                if tenant_id is not None:
+                    stmt = stmt.where(configs_table.c.tenant_id == tenant_id)
 
                 results = sess.execute(stmt).fetchall()
                 return [dict(row._mapping) for row in results]
@@ -4053,6 +4118,7 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         version: int,
+        tenant_id: Optional[str] = None,
     ) -> bool:
         """Set a specific published version as current.
 
@@ -4063,6 +4129,7 @@ class SqliteDb(BaseDb):
         Args:
             component_id: The component ID.
             version: The version to set as current (must be published).
+            tenant_id: Optional tenant to scope the update to. None means no tenant filter.
 
         Returns:
             True if successful, False if component or version not found.
@@ -4079,23 +4146,27 @@ class SqliteDb(BaseDb):
 
             with self.Session() as sess, sess.begin():
                 # Verify component exists and is not deleted
-                component_exists = sess.execute(
-                    select(components_table.c.component_id).where(
-                        components_table.c.component_id == component_id,
-                        components_table.c.deleted_at.is_(None),
-                    )
-                ).fetchone()
+                component_stmt = select(components_table.c.component_id).where(
+                    components_table.c.component_id == component_id,
+                    components_table.c.deleted_at.is_(None),
+                )
+                if tenant_id is not None:
+                    component_stmt = component_stmt.where(components_table.c.tenant_id == tenant_id)
+
+                component_exists = sess.execute(component_stmt).fetchone()
 
                 if component_exists is None:
                     return False
 
                 # Verify version exists and get stage
-                stage = sess.execute(
-                    select(configs_table.c.stage).where(
-                        configs_table.c.component_id == component_id,
-                        configs_table.c.version == version,
-                    )
-                ).fetchone()
+                stage_stmt = select(configs_table.c.stage).where(
+                    configs_table.c.component_id == component_id,
+                    configs_table.c.version == version,
+                )
+                if tenant_id is not None:
+                    stage_stmt = stage_stmt.where(configs_table.c.tenant_id == tenant_id)
+
+                stage = sess.execute(stage_stmt).fetchone()
 
                 if stage is None:
                     return False
@@ -4108,11 +4179,10 @@ class SqliteDb(BaseDb):
                     )
 
                 # Update pointer
-                sess.execute(
-                    components_table.update()
-                    .where(components_table.c.component_id == component_id)
-                    .values(current_version=version, updated_at=int(time.time()))
-                )
+                update_stmt = components_table.update().where(components_table.c.component_id == component_id)
+                if tenant_id is not None:
+                    update_stmt = update_stmt.where(components_table.c.tenant_id == tenant_id)
+                sess.execute(update_stmt.values(current_version=version, updated_at=int(time.time())))
 
             log_debug(f"Set {component_id} current version to {version}")
             return True
@@ -4127,6 +4197,7 @@ class SqliteDb(BaseDb):
         component_id: str,
         version: int,
         link_kind: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Get links for a config version.
 
@@ -4134,6 +4205,7 @@ class SqliteDb(BaseDb):
             component_id: The component ID.
             version: The config version.
             link_kind: Optional filter by link kind (member|step).
+            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
 
         Returns:
             List of link dictionaries, ordered by position.
@@ -4154,6 +4226,8 @@ class SqliteDb(BaseDb):
                 )
                 if link_kind is not None:
                     stmt = stmt.where(table.c.link_kind == link_kind)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
 
                 results = sess.execute(stmt).fetchall()
                 return [dict(row._mapping) for row in results]
@@ -4166,12 +4240,14 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         version: Optional[int] = None,
+        tenant_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Find all components that reference this component.
 
         Args:
             component_id: The component ID to find dependents of.
             version: Optional specific version. If None, finds links to any version.
+            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
 
         Returns:
             List of link dictionaries showing what depends on this component.
@@ -4185,6 +4261,8 @@ class SqliteDb(BaseDb):
                 stmt = select(table).where(table.c.child_component_id == component_id)
                 if version is not None:
                     stmt = stmt.where(table.c.child_version == version)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
 
                 results = sess.execute(stmt).fetchall()
                 return [dict(row._mapping) for row in results]
@@ -4197,12 +4275,14 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         version: Optional[int],
+        tenant_id: Optional[str] = None,
     ) -> Optional[int]:
         """Resolve a version number, handling NULL (current) case.
 
         Args:
             component_id: The component ID.
             version: Version number or None for current.
+            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
 
         Returns:
             Resolved version number or None if component not found.
@@ -4216,9 +4296,10 @@ class SqliteDb(BaseDb):
                 return None
 
             with self.Session() as sess:
-                result = sess.execute(
-                    select(components_table.c.current_version).where(components_table.c.component_id == component_id)
-                ).scalar()
+                stmt = select(components_table.c.current_version).where(components_table.c.component_id == component_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(components_table.c.tenant_id == tenant_id)
+                result = sess.execute(stmt).scalar()
                 return result
 
         except Exception as e:
@@ -4229,34 +4310,37 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         version: Optional[int] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Load a component with its full resolved graph.
 
         Args:
             component_id: The component ID.
             version: Specific version or None for current.
+            tenant_id: Optional tenant. Applied to the root component and every child
+                resolved through the graph. None means no tenant filter.
 
         Returns:
             Dictionary with component, config, links, and resolved children.
         """
         try:
             # Get component
-            component = self.get_component(component_id)
+            component = self.get_component(component_id, tenant_id=tenant_id)
             if component is None:
                 return None
 
             # Resolve version
-            resolved_version = self.resolve_version(component_id, version)
+            resolved_version = self.resolve_version(component_id, version, tenant_id=tenant_id)
             if resolved_version is None:
                 return None
 
             # Get config
-            config = self.get_config(component_id, version=resolved_version)
+            config = self.get_config(component_id, version=resolved_version, tenant_id=tenant_id)
             if config is None:
                 return None
 
             # Get links
-            links = self.get_links(component_id, resolved_version)
+            links = self.get_links(component_id, resolved_version, tenant_id=tenant_id)
 
             # Resolve children recursively
             children = []
@@ -4266,12 +4350,14 @@ class SqliteDb(BaseDb):
                 child_version = self.resolve_version(
                     link["child_component_id"],
                     link["child_version"],
+                    tenant_id=tenant_id,
                 )
                 resolved_versions[link["child_component_id"]] = child_version
 
                 child_graph = self.load_component_graph(
                     link["child_component_id"],
                     version=child_version,
+                    tenant_id=tenant_id,
                 )
 
                 if child_graph:

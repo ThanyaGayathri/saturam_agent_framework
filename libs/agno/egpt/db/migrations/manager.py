@@ -16,7 +16,23 @@ class MigrationManager:
         ("v2_3_0", packaging_version.parse("2.3.0")),
         ("v2_5_0", packaging_version.parse("2.5.0")),
         ("v2_5_6", packaging_version.parse("2.5.6")),
+        ("v2_6_0", packaging_version.parse("2.6.0")),
     ]
+
+    # Mapping from table_type to the BaseDb attribute holding that table's resolved name.
+    # Shared by up() and down() so the two can never drift.
+    _TABLE_TYPE_TO_ATTR = {
+        "memories": "memory_table_name",
+        "sessions": "session_table_name",
+        "metrics": "metrics_table_name",
+        "evals": "eval_table_name",
+        "knowledge": "knowledge_table_name",
+        "culture": "culture_table_name",
+        "approvals": "approvals_table_name",
+        "components": "components_table_name",
+        "component_configs": "component_configs_table_name",
+        "component_links": "component_links_table_name",
+    }
 
     def __init__(self, db: Union[AsyncBaseDb, BaseDb]):
         self.db = db
@@ -42,16 +58,7 @@ class MigrationManager:
         else:
             _target_version = packaging_version.parse(target_version)
 
-        # Mapping from table_type to db attribute name
-        _table_type_to_attr = {
-            "memories": "memory_table_name",
-            "sessions": "session_table_name",
-            "metrics": "metrics_table_name",
-            "evals": "eval_table_name",
-            "knowledge": "knowledge_table_name",
-            "culture": "culture_table_name",
-            "approvals": "approvals_table_name",
-        }
+        _table_type_to_attr = self._TABLE_TYPE_TO_ATTR
 
         # Select tables to migrate
         if table_type:
@@ -135,16 +142,7 @@ class MigrationManager:
         """
         _target_version = packaging_version.parse(target_version)
 
-        # Mapping from table_type to db attribute name
-        _table_type_to_attr = {
-            "memories": "memory_table_name",
-            "sessions": "session_table_name",
-            "metrics": "metrics_table_name",
-            "evals": "eval_table_name",
-            "knowledge": "knowledge_table_name",
-            "culture": "culture_table_name",
-            "approvals": "approvals_table_name",
-        }
+        _table_type_to_attr = self._TABLE_TYPE_TO_ATTR
 
         # Select tables to migrate
         if table_type:
