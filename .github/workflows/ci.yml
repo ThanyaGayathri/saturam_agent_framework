@@ -130,6 +130,11 @@ jobs:
           uv pip install -e .[tests]
           uv pip install brave-search --no-deps
           uv pip install build pytest-cov
+          # A fake third-party integration package, installed so the EGPT-1.9 entry-point
+          # tests exercise the real .dist-info path. It also proves the layer guards read
+          # `declarations` and not `entries`: it registers a provider under four kinds, and
+          # a guard measuring third-party rows against this repo's integrations tree fails.
+          uv pip install -e tests/fixtures/egpt_dummy_provider
 
       - name: Install egptctl dependencies
         if: matrix.package == 'egptctl'
@@ -154,6 +159,10 @@ jobs:
         working-directory: .
         env:
           EGPT_TELEMETRY: false
+          # Turns on the env-gated out-of-tree discovery tests (EGPT-1.9 AC4). They skip
+          # without this so a local `pytest` stays green with no fixture installed; the gate
+          # is what stops that convenience from disabling the criterion in CI.
+          EGPT_TEST_ENTRY_POINTS: "1"
         run: |
           set -e
           source .venv/bin/activate

@@ -1,0 +1,37 @@
+# A minimal out-of-tree integration package, used to prove EGPT-1.9's acceptance criterion
+# that a third party can add a provider with NO change to this repository.
+#
+# Not shipped, not on PyPI. Installed only by the entry-point job in CI (and by anyone
+# running the env-gated test locally), which is why it lives under tests/ where
+# `[tool.setuptools.packages.find] include = ["egpt*"]` in libs/agno/pyproject.toml cannot
+# pick it up.
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "egpt-dummy-provider"
+version = "0.1.0"
+description = "Out-of-tree provider fixture for the EGPT-1.9 entry-point discovery test"
+requires-python = ">=3.9"
+
+# The whole point of the fixture: these declarations are all it takes.
+#
+# One entry per kind that has a "every row points into egpt.integrations." guard, so that
+# installing this package actually exercises the declarations/entries distinction those
+# guards depend on. A guard reading `entries` would see `dummy` -- which lives in this
+# package, not in the framework's integrations layer -- and fail.
+[project.entry-points."egpt.models"]
+dummy = "egpt_dummy_provider:DummyModel"
+
+[project.entry-points."egpt.vectordbs"]
+dummy = "egpt_dummy_provider:DummyVectorDb"
+
+[project.entry-points."egpt.tools"]
+dummy = "egpt_dummy_provider:DummyToolkit"
+
+[project.entry-points."egpt.embedders"]
+dummy = "egpt_dummy_provider:DummyEmbedder"
+
+[tool.setuptools]
+py-modules = ["egpt_dummy_provider"]

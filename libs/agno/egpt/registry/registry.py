@@ -2,21 +2,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Type
+from typing import Any, Callable, Dict, List, Optional, Set, Type
 from uuid import uuid4
 
 from pydantic import BaseModel
 
 from egpt.db.base import BaseDb
 from egpt.models.base import Model
+from egpt.registry.protocols import AgentLike, TeamLike
 from egpt.tools.function import Function
 from egpt.tools.toolkit import Toolkit
 from egpt.utils.log import log_warning
 from egpt.vectordb.base import VectorDb
-
-if TYPE_CHECKING:
-    from egpt.agent import Agent
-    from egpt.team import Team
 
 
 def _model_identity(model: Model) -> tuple:
@@ -49,9 +46,14 @@ class Registry:
     knowledge: List[Any] = field(default_factory=list)
     memory_managers: List[Any] = field(default_factory=list)
     session_summary_managers: List[Any] = field(default_factory=list)
-    # Code-defined agents and teams (for workflow rehydration)
-    agents: List[Agent] = field(default_factory=list)
-    teams: List[Team] = field(default_factory=list)
+    # Code-defined agents and teams (for workflow rehydration). Typed `List[Any]` to match
+    # the four catalogs above rather than `List[AgentLike]`: `List` is invariant, so the
+    # narrower annotation would reject `Registry(agents=[my_agent])` at every construction
+    # site, and `Sequence` -- which would be covariant and safe to read -- forbids the
+    # `registry.agents.append(...)` that egpt/os/app.py does. The accessors below return the
+    # protocol, which is where a caller actually needs the contract.
+    agents: List[Any] = field(default_factory=list)
+    teams: List[Any] = field(default_factory=list)
 
     @cached_property
     def _entrypoint_lookup(self) -> Dict[str, Any]:
@@ -338,13 +340,13 @@ class Registry:
             return next((k for k in self.knowledge if getattr(k, "name", None) == name), None)
         return None
 
-    def get_agent(self, agent_id: str) -> Optional[Agent]:
+    def get_agent(self, agent_id: str) -> Optional[AgentLike]:
         """Get an agent by id from the registry."""
         if self.agents:
             return next((a for a in self.agents if getattr(a, "id", None) == agent_id), None)
         return None
 
-    def get_team(self, team_id: str) -> Optional[Team]:
+    def get_team(self, team_id: str) -> Optional[TeamLike]:
         """Get a team by id from the registry."""
         if self.teams:
             return next((t for t in self.teams if getattr(t, "id", None) == team_id), None)

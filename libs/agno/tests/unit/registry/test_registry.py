@@ -1757,3 +1757,44 @@ class TestEntrypointLookupCollisionWarning:
         _ = reg._entrypoint_lookup
 
         assert warnings == []
+
+
+class TestRegistryStaysSeparateFromTheConstructionSeam:
+    """EGPT-1.9 DD3/AC5: the instance catalog and the construction registry are distinct.
+
+    They answer different questions -- ``Registry`` holds objects an application already
+    built and wired, ``discovery`` knows how to build one from a name -- and they have
+    different lifetimes. Registration is process-global; a ``Registry`` is a per-application
+    object. Folding the constructors onto the dataclass would mean either instances lying
+    about each other's contents or a provider registered before the app's ``Registry`` was
+    constructed being invisible to it.
+
+    Asserted mechanically rather than left as prose, because "keep them separate" is the
+    kind of decision that erodes one convenience method at a time.
+    """
+
+    def test_registry_exposes_no_construction_api(self):
+        seam_only = ["resolve", "register", "construct", "entries", "declarations", "unregister"]
+        leaked = [name for name in seam_only if hasattr(Registry, name)]
+        assert leaked == [], (
+            f"Registry gained construction-seam methods: {leaked}. Those belong on egpt.registry.discovery -- see DD3."
+        )
+
+        constructors = [name for name in dir(Registry) if name.startswith("construct_")]
+        assert constructors == [], f"Registry gained constructors: {constructors}."
+
+    def test_registry_module_does_not_import_the_seam(self):
+        """The catalog must not start depending on discovery, which would recouple them."""
+        import egpt.registry.registry as registry_module
+
+        assert not hasattr(registry_module, "discovery")
+
+    def test_get_registry_still_lists_wired_instances(self):
+        """AC5: the runtime catalog behaves exactly as before EGPT-1.9."""
+        from egpt.integrations.db.in_memory import InMemoryDb
+
+        db = InMemoryDb(id="db-1")
+        reg = Registry(name="r", dbs=[db])
+
+        assert reg.get_db("db-1") is db
+        assert reg.dbs == [db]

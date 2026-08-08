@@ -89,32 +89,38 @@ Make sure all tests pass before submitting your pull request. If you add new fea
 ## Adding a new Model Provider
 
 1. Setup your local environment by following the [Development setup](#development-setup).
-2. Create a new directory under `libs/agno/egpt/models` for the new Model provider.
+2. Create a new directory under `libs/agno/egpt/integrations/models` for the new Model provider.
+   (Provider implementations moved out of `egpt/models/` in EGPT-1.4; that tree now holds the
+   `Model` interface plus deprecation shims.)
 3. If the Model provider supports the OpenAI API spec:
-   - Create a Class for your LLM provider that inherits the `OpenAILike` Class from `libs/agno/egpt/models/openai/like.py`.
-   - Your Class will be in the `libs/agno/egpt/models/<your_model>/<your_model>.py` file.
-   - Import your Class in the `libs/agno/egpt/models/<your_model>/__init__.py` file.
-   - Checkout the [`egpt/models/together/together.py`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/libs/agno/egpt/models/together/together.py) file for an example.
+   - Create a Class for your LLM provider that inherits the `OpenAILike` Class from `libs/agno/egpt/integrations/models/openai_like/like.py`.
+   - Your Class will be in the `libs/agno/egpt/integrations/models/<your_model>/<your_model>.py` file.
+   - Import your Class in the `libs/agno/egpt/integrations/models/<your_model>/__init__.py` file.
+   - Checkout the [`egpt/integrations/models/together/together.py`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/libs/agno/egpt/integrations/models/together/together.py) file for an example.
 4. If the Model provider does not support the OpenAI API spec:
    - Reach out to us on [Discord](https://discord.gg/4MtYHHrgA8) or open an issue to discuss the best way to integrate your LLM provider.
-   - Checkout [`egpt/models/anthropic/claude.py`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/libs/agno/egpt/models/anthropic/claude.py) or [`egpt/models/cohere/chat.py`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/libs/agno/egpt/models/cohere/chat.py) for inspiration.
-5. Register your model provider in `libs/agno/egpt/models/utils.py`:
-   - Add exactly one row to the `_PROVIDERS` table, keyed by a stable provider key, with the value
+   - Checkout [`egpt/integrations/models/anthropic/claude.py`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/libs/agno/egpt/integrations/models/anthropic/claude.py) or [`egpt/integrations/models/cohere/chat.py`](https://github.com/Saturam-Inc/saturam-agent-framework/blob/main/libs/agno/egpt/integrations/models/cohere/chat.py) for inspiration.
+5. Declare your model provider in `libs/agno/egpt/registry/_declarations/models.py`:
+   - Add exactly one row to the `_ROWS` table, keyed by a stable provider key, with the value
      `(module, class_name, default_name, default_provider)`. `default_name` and `default_provider`
      are your class's default `name` and (lowercased) `provider` attributes. This single table is
-     the source of truth: the construction registry (`MODEL_PROVIDER_CLASSES`) and the
-     `(provider, name)` resolution indices are all derived from it, so you do not edit any other
-     map. Use a lowercase, hyphenated key, typically matching your module directory (e.g. `"meta"`
-     for `models/meta/`, `"openai-chat"` for the chat variant).
+     the source of truth: the construction registry and the `(provider, name)` resolution indices
+     are all derived from it, so you do not edit any other map. Use a lowercase, hyphenated key,
+     typically matching your module directory (e.g. `"meta"` for `integrations/models/meta/`,
+     `"openai-chat"` for the chat variant).
      ```python
-     "yourprovider": ("egpt.models.yourprovider", "YourModel", "YourModel", "yourprovider"),
+     "yourprovider": ("egpt.integrations.models.yourprovider", "YourModel", "YourModel", "yourprovider"),
      ```
+   - The row is data, not an import: the module is resolved lazily when someone actually asks for
+     your provider. Do not import your class in that file — a base install ships no provider SDKs,
+     and one import there would make listing the providers require every one of them.
    - This covers both the string format (`model="yourprovider:model-name"`) and rebuilding a model
      saved to the database. If your class shares a display `provider` string with another class
      (e.g. an OpenAI-compatible provider reporting `"openai"`), the serialized `name` you list is
      what tells them apart; if its display string differs from the key (e.g. `"inceptionlabs"` vs
-     key `"inception"`), the alias is derived automatically. Only the default key for an ambiguous
-     display string (e.g. `"azure"` -> AzureOpenAI) lives in `_AMBIGUOUS_PROVIDER_DEFAULTS`.
+     key `"inception"`), the alias is derived automatically. If several classes share a display
+     string, mark the one that should win as the default by adding its key to `_PROVIDER_DEFAULTS`
+     (e.g. `"azure"` -> `azure-openai`).
    - CI enforces registration: `test_every_model_subclass_is_registered` statically discovers every
      concrete `Model` subclass and fails if one is missing. If your class is an abstract base rather
      than a user-selectable provider, add it to that test's allowlist instead.
@@ -123,6 +129,64 @@ Make sure all tests pass before submitting your pull request. If you add new fea
    - Show both the model class and string syntax in your examples
 7. Important: Format and validate your code by running `./scripts/format.sh` and `./scripts/validate.sh`.
 8. Submit a pull request.
+
+## Adding an integration from outside this repository
+
+You do not have to fork EGPT to add an integration. Declare a Python entry point in your own
+package and it becomes resolvable by name, with no change to this repository:
+
+```toml
+# your-package/pyproject.toml
+[project.entry-points."egpt.models"]
+acme = "acme_egpt.model:AcmeModel"
+```
+
+```python
+from egpt.registry.discovery import construct_model
+
+model = construct_model("acme", id="acme-1")   # resolves through your entry point
+```
+
+One group per integration kind:
+
+| Kind | Entry-point group | Base class to implement |
+|---|---|---|
+| Model provider | `egpt.models` | `egpt.models.base.Model` |
+| DB backend | `egpt.dbs` | `egpt.db.base.BaseDb` |
+| Vector DB backend | `egpt.vectordbs` | `egpt.vectordb.base.VectorDb` |
+| Toolkit | `egpt.tools` | `egpt.tools.toolkit.Toolkit` |
+| Embedder | `egpt.embedders` | `egpt.knowledge.embedder.base.Embedder` |
+
+Entry points are resolved lazily — your module is imported only when someone asks for your
+integration by name, so declaring one costs nothing at import time.
+
+Two rules worth knowing before you pick a name:
+
+- **Built-in names win.** If you register `openai`, the framework's own provider still wins and
+  yours is refused with a warning naming your distribution. This is deliberate: installing a
+  package should never be able to silently change what an existing name means, or take an
+  application down when it collides.
+- **Ties between plugins are broken deterministically**, by distribution name, not by install
+  order. If two packages claim one name, the same one wins on every machine — and both are named
+  in the warning.
+
+For code that registers at runtime rather than at install time (tests, notebooks, an application
+wiring up its own classes), use the decorator or the direct call:
+
+```python
+from egpt.registry.discovery import register
+
+@register("model", "acme")
+class AcmeModel(Model):
+    ...
+
+register("vectordb", "acme", module="acme_egpt.store", attr="AcmeStore")
+```
+
+Registering a name twice this way raises `ValueError` unless you pass `override=True` — this is
+your own code, so failing loudly is more useful than a warning. Note the framework itself never
+uses the decorator in-tree: decorating a class means importing it, and the built-in declarations
+exist precisely so that listing 58 providers does not import 58 SDKs.
 
 ## Adding a new Tool.
 

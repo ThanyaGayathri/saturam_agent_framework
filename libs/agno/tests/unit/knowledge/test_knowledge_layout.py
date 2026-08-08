@@ -16,7 +16,7 @@ providers and its drift guard silently degraded to a no-op.
 """
 
 import ast
-import importlib
+import importlib.util  # `.util` is not bound by a bare `import importlib`; a guard below needs find_spec
 import warnings
 from pathlib import Path
 
@@ -25,6 +25,12 @@ import pytest
 # Safe to import at module scope: the reader package binds only the interface and the
 # factory, both of which are dependency-free. Nothing else here imports a scanned module.
 from egpt.knowledge.reader import ReaderFactory
+
+# Same rationale for the discovery seam: it imports only stdlib and the logger, and the
+# declaration modules it loads are pure data -- `(module, attr)` strings that import nothing.
+# Module scope rather than function scope because the embedder keys parametrize a test below,
+# so they have to exist at collection time. Mirrors tests/unit/vectordb/test_backend_layout.py.
+from egpt.registry.discovery import declarations
 from tests.unit._layer_guards import (
     check_shim_parity,
     check_submodule_shims,
@@ -71,6 +77,11 @@ _INTEGRATION_IMPORT_ALLOWLIST = {
 }
 
 _INTEGRATIONS_PREFIX = "egpt.integrations.knowledge"
+
+# `declarations`, not `entries`: an out-of-tree embedder registered through an
+# `egpt.embedders` entry point lives in someone else's package, so it must not be measured
+# against the integrations tree on disk.
+EMBEDDER_DECLARATIONS = declarations("embedder")
 
 
 def _integrations_knowledge_root():
@@ -356,20 +367,123 @@ def test_reader_factory_rows_point_at_integrations():
     )
 
 
-def test_default_embedder_row_points_at_integrations():
-    """The core default-embedder seam is addressed by string for the same reason, so pin it."""
-    from egpt.knowledge.utils import DEFAULT_EMBEDDER
+def test_embedder_declarations_point_at_integrations():
+    """The core embedder seam is addressed by name for the same reason, so pin it."""
+    from egpt.knowledge.utils import DEFAULT_EMBEDDER_NAME
 
-    module_path, class_name = DEFAULT_EMBEDDER
-    assert module_path.startswith(f"{_INTEGRATIONS_PREFIX}.embedder."), (
-        f"DEFAULT_EMBEDDER points at {module_path}, outside the integrations layer."
+    rows = EMBEDDER_DECLARATIONS
+    # A floor, not merely `assert rows`. This guard shipped against a one-row table and so
+    # said nothing about the other 17 embedders -- it passed while the kind was 1/18. The
+    # floor is what makes "every embedder is declared" a claim the suite actually checks.
+    assert len(rows) >= _EMBEDDER_COUNT, (
+        f"Only {len(rows)} embedder declaration rows; expected at least {_EMBEDDER_COUNT}, "
+        "one per Embedder subclass in the integrations tree."
+    )
+    assert DEFAULT_EMBEDDER_NAME in rows, (
+        f"get_default_embedder() asks for '{DEFAULT_EMBEDDER_NAME}', which has no declaration row, "
+        "so every core caller that was not handed an embedder would fail at construction."
+    )
+
+    for name, registration in rows.items():
+        assert registration.module.startswith(f"{_INTEGRATIONS_PREFIX}.embedder."), (
+            f"embedder declaration '{name}' points at {registration.module}, outside the integrations layer."
+        )
+
+    default = rows[DEFAULT_EMBEDDER_NAME]
+    try:
+        module = importlib.import_module(default.module)
+    except ImportError as e:
+        pytest.skip(f"optional dependency for the default embedder not installed: {e}")
+    assert getattr(module, default.attr, None) is not None, f"{default.module} does not export {default.attr}"
+
+
+def test_every_embedder_subclass_is_registered():
+    """Every concrete embedder on disk must have a declaration row.
+
+    The counterpart of the model and vector db drift guards. Embedders had no such guard
+    because a table holding only the framework default could not support one; ADR 0001's
+    extraction prerequisite 6 wants every embedder reachable by name, so the table is now
+    complete and this is what keeps it complete.
+
+    `__init__.py` is excluded from the scan: the target package is deliberately bare, and a
+    re-export would not be a second definition anyway.
+    """
+    root = _integrations_knowledge_root() / "embedder"
+    assert root.is_dir(), f"embedder integrations root not found: {root}"
+
+    discovered = discover_subclasses(root, "Embedder", include_init=False)
+    assert len(discovered) >= _EMBEDDER_COUNT, (
+        f"Only {len(discovered)} Embedder subclasses discovered under {root}; expected at "
+        f"least {_EMBEDDER_COUNT}. The scan root is probably stale, which makes this guard vacuous."
+    )
+
+    # Rows name the implementation module directly, so no re-export chasing is needed here.
+    covered = {(reg.module, reg.attr) for reg in EMBEDDER_DECLARATIONS.values()}
+    missing = sorted(f"{name} ({module})" for (module, name) in discovered - covered)
+    assert not missing, (
+        "Embedder subclasses with no declaration row: "
+        + ", ".join(missing)
+        + ". Add each to egpt/registry/_declarations/embedders.py."
+    )
+
+
+def test_embedder_keys_match_their_module():
+    """The key of an embedder row is its module's basename, verbatim.
+
+    The naming rule the table is built on -- `sentence_transformer`, not
+    `sentence-transformer`, following the db and vectordb kinds rather than the hyphenated
+    slugs users type in `get_model("provider:id")`. Pinned mechanically so renaming a module
+    cannot silently strand the key that names it, which is the failure a convention held only
+    in a docstring would not catch.
+    """
+    assert len(EMBEDDER_DECLARATIONS) >= _EMBEDDER_COUNT, "table is short; this guard would check little."
+
+    mismatched = sorted(
+        f"{key} -> {registration.module}"
+        for key, registration in EMBEDDER_DECLARATIONS.items()
+        if registration.module.rsplit(".", 1)[-1] != key
+    )
+    assert not mismatched, (
+        "Embedder rows whose key is not their module basename: "
+        + ", ".join(mismatched)
+        + ". Keys follow the module name; see egpt/registry/_declarations/embedders.py."
+    )
+
+
+@pytest.mark.parametrize("embedder_key", sorted(EMBEDDER_DECLARATIONS))
+def test_every_embedder_key_resolves(embedder_key):
+    """Each declared embedder key resolves to a class in the integrations layer.
+
+    Resolution imports the target, so a stale row fails only when that embedder is actually
+    asked for -- nothing else in the suite would notice. Skip-gated per key on the missing
+    SDK, the same shape as the reader guard above.
+
+    The `find_spec` check is not redundant with the skip. `ModuleNotFoundError` subclasses
+    `ImportError`, so a row pointing at a module that does not exist would otherwise be
+    swallowed as "optional vendor package absent" -- the guard would skip on precisely the
+    defect it exists to catch. `find_spec` locates the module without executing it, so it
+    answers "is this row stale?" separately from "is the SDK installed?".
+    """
+    from egpt.registry.discovery import resolve
+
+    registration = EMBEDDER_DECLARATIONS[embedder_key]
+    try:
+        spec = importlib.util.find_spec(registration.module)
+    except ModuleNotFoundError:
+        spec = None
+    assert spec is not None, (
+        f"embedder '{embedder_key}' declares module {registration.module}, which does not exist. "
+        "Rows resolve through importlib, so this fails only when the embedder is requested."
     )
 
     try:
-        module = importlib.import_module(module_path)
+        embedder_class = resolve("embedder", embedder_key)
     except ImportError as e:
-        pytest.skip(f"optional dependency for the default embedder not installed: {e}")
-    assert getattr(module, class_name, None) is not None, f"{module_path} does not export {class_name}"
+        pytest.skip(f"optional dependency for embedder '{embedder_key}' not installed: {e}")
+
+    assert embedder_class.__module__.startswith(f"{_INTEGRATIONS_PREFIX}.embedder."), (
+        f"embedder '{embedder_key}' resolved to {embedder_class.__module__}, outside the integrations layer."
+    )
 
 
 @pytest.mark.parametrize("reader_key", sorted(ReaderFactory.READER_METADATA))

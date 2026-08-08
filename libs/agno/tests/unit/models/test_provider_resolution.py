@@ -13,21 +13,26 @@ os.environ.setdefault("OPENAI_API_KEY", "test-key-for-testing")
 
 from egpt.models.base import Model
 from egpt.models.utils import (
-    MODEL_PROVIDER_CLASSES,
     _canonical_provider_display,
     _get_model_class,
     _resolve_provider_key,
     get_model_from_dict,
     resolve_model,
 )
+from egpt.registry.discovery import declarations
 from tests.unit._layer_guards import (
     check_shim_parity,
     discover_subclasses,
-    module_name,
     package_root,
+    registered_defining_classes,
 )
 
-ALL_PROVIDER_KEYS = sorted(MODEL_PROVIDER_CLASSES)
+# `declarations`, not `entries`: this file guards what *this repository* ships. Reading
+# `entries` would fold in any third-party provider registered through an egpt.models entry
+# point, so installing an unrelated plugin -- including this suite's own AC4 fixture --
+# would fail the layout guards below.
+MODEL_DECLARATIONS = declarations("model")
+ALL_PROVIDER_KEYS = sorted(MODEL_DECLARATIONS)
 
 
 def _construct_or_skip(key):
@@ -240,7 +245,7 @@ def test_resolve_model_passes_through_unhandled_values():
 
 
 # Abstract/intermediate Model subclasses that are not concrete providers and so must not appear
-# in MODEL_PROVIDER_CLASSES. Add a class here only after a deliberate decision that it is not a
+# in the model declarations. Add a class here only after a deliberate decision that it is not a
 # user-selectable provider. Keyed by (defining_module, class_name).
 _NON_PROVIDER_MODEL_CLASSES = {("egpt.integrations.models.openai_like.like", "OpenAILike")}
 
@@ -285,40 +290,24 @@ def _deprecated_models_root():
     return root
 
 
-def _registered_defining_classes(root):
-    """Resolve every MODEL_PROVIDER_CLASSES entry to the (defining_module, class) it points at.
+def _declared_defining_classes(root):
+    """Resolve every declared model row to the (defining_module, class) it points at.
 
-    The registry references the re-exporting package and that package's exported name (e.g.
-    ``("egpt.integrations.models.azure", "AzureFoundryClaude")``), while the class is defined in a
-    submodule under its own name (``egpt.integrations.models.azure.claude.Claude``). Parse each
-    package __init__ to follow ``from <mod> import <name> as <alias>`` re-exports back to the
-    definition.
+    Uses the shared helper rather than a local copy: it follows re-export chains to a
+    fixpoint, which a single hop does not (see ``_layer_guards.registered_defining_classes``).
     """
-    import ast
-
-    reexports: dict = {}
-    for path in root.rglob("__init__.py"):
-        package = module_name(path)
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
-            if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-                for alias in node.names:
-                    reexports[(package, alias.asname or alias.name)] = (node.module, alias.name)
-
-    resolved = set()
-    for reg_module, reg_class in MODEL_PROVIDER_CLASSES.values():
-        resolved.add(reexports.get((reg_module, reg_class), (reg_module, reg_class)))
-    return resolved
+    return registered_defining_classes(root, ((reg.module, reg.attr) for reg in MODEL_DECLARATIONS.values()))
 
 
 def test_every_model_subclass_is_registered():
-    """Guard against drift: every concrete provider on disk must be in MODEL_PROVIDER_CLASSES.
+    """Guard against drift: every concrete provider on disk must have a declaration row.
 
-    CI fails on the same PR that adds a new Model subclass without a registry entry, so the
-    registry stays the single source of truth without per-provider runtime wiring.
+    CI fails on the same PR that adds a new Model subclass without a row, so the declarations
+    stay the single source of truth without per-provider runtime wiring.
     """
     root = _models_root()
     discovered = discover_subclasses(root, "Model", include_init=False)
-    covered = _registered_defining_classes(root) | _NON_PROVIDER_MODEL_CLASSES
+    covered = _declared_defining_classes(root) | _NON_PROVIDER_MODEL_CLASSES
 
     # Without this the guard degrades silently: if the scan root ever stops matching where
     # providers actually live, `discovered` is empty, the assertion below can never fire, and the
@@ -331,9 +320,9 @@ def test_every_model_subclass_is_registered():
 
     missing = sorted(f"{name} ({module})" for (module, name) in discovered - covered)
     assert not missing, (
-        "Model subclasses missing from MODEL_PROVIDER_CLASSES: "
+        "Model subclasses missing from the model declarations: "
         + ", ".join(missing)
-        + ". Add each to the registry in egpt/models/utils.py (or to the test allowlist if it is "
+        + ". Add each to egpt/registry/_declarations/models.py (or to the test allowlist if it is "
         "not a user-selectable provider)."
     )
 
