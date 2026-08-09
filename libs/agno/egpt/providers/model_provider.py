@@ -35,6 +35,7 @@ from typing import Any, Mapping, Optional, Protocol, Tuple, runtime_checkable
 from egpt.models.base import Model
 
 __all__ = [
+    "AsyncModelProvider",
     "BaseModelProvider",
     "DetailedModelProvider",
     "ModelCapabilities",
@@ -43,6 +44,8 @@ __all__ = [
     "ModelResolveRequest",
     "ModelResolveResult",
     "ProviderMode",
+    "aresolve_via",
+    "supports_detailed_resolve",
 ]
 
 
@@ -134,6 +137,29 @@ class ModelResolveRequest:
         if self.max_escalations < 0:
             raise ValueError("max_escalations must be >= 0")
 
+    # ``frozen=True`` with the default ``eq=True`` generates a real ``__hash__``, so the type
+    # *presents* as hashable -- but ``metadata`` is a mappingproxy and ``requested`` holds a
+    # ``Model`` (an eq=True dataclass, so ``__hash__ = None``), and hashing either raises. A
+    # provider memoizing resolution (an ``lru_cache`` over a policy lookup is the obvious
+    # implementation for EGPT-3.2) would hit that at agent-construction time. Hash the fields
+    # that actually identify a resolution instead; ``metadata`` is deliberately excluded, being
+    # an escape hatch whose contents are arbitrary and possibly unhashable.
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.tenant_id,
+                self.user_id,
+                self.session_id,
+                self.agent_id,
+                id(self.requested) if self.requested is not None else None,
+                self.role,
+                self.mode,
+                self.adapter,
+                self.escalation_level,
+                self.max_escalations,
+            )
+        )
+
     def escalated(self, *, reason: str) -> "ModelResolveRequest":
         """A copy one escalation level higher. The only mutation Epic 3 needs."""
         return replace(
@@ -191,6 +217,27 @@ class ModelCapabilities:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "notes", MappingProxyType(dict(self.notes)))
+
+    # See ModelResolveRequest.__hash__: frozen=True advertises hashability that the mappingproxy
+    # in ``notes`` would break. Hash the capability flags, which are what a caller comparing or
+    # caching capabilities actually cares about.
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self.modes,
+                self.provider_keys,
+                self.model_ids,
+                self.supports_adapters,
+                self.supports_escalation,
+                self.supports_tools,
+                self.supports_structured_output,
+                self.supports_vision,
+                self.supports_streaming,
+                self.gateway,
+                self.egress_free,
+                self.context_window,
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -261,9 +308,65 @@ class ModelProvider(Protocol):
 
 @runtime_checkable
 class DetailedModelProvider(ModelProvider, Protocol):
-    """A provider that can also explain its choice. Optional."""
+    """A provider that can also explain its choice. Optional.
+
+    ``isinstance`` against a runtime_checkable Protocol is a structural ``hasattr`` check, so
+    it cannot tell a real implementation from an inherited stub -- and ``BaseModelProvider``
+    defines ``resolve_detailed`` unconditionally (it raises). Every subclass would therefore
+    report as detail-capable, and a caller gating on this Protocol would take the detailed
+    branch and die with ``NotImplementedError``.
+
+    Use :func:`supports_detailed_resolve` rather than ``isinstance`` for that decision.
+    """
 
     def resolve_detailed(self, request: ModelResolveRequest) -> ModelResolveResult: ...
+
+
+@runtime_checkable
+class AsyncModelProvider(ModelProvider, Protocol):
+    """A provider with a native async path. Optional.
+
+    CLAUDE.md requires both sync and async variants for public methods, and ``resolve`` is not
+    the exempt pure-construction case: it may raise ``ImportError`` from SDK loading, EGPT-3.2
+    reads a per-tenant policy and EGPT-3.4 may probe a gateway. Under ``await agent.arun(...)``
+    a synchronous fetch inside ``resolve`` blocks the event loop, stalling every other in-flight
+    request in that worker behind one model resolution.
+
+    Deliberately a *separate* Protocol rather than a second method on ``ModelProvider``: adding
+    a required member would mean every out-of-tree provider implementing only ``resolve`` stops
+    satisfying the contract -- a silent break for exactly the third-party integrations the
+    structural Protocol exists to support. Callers use :func:`aresolve_via`, which uses a native
+    async path when there is one and otherwise falls back to the sync call.
+    """
+
+    async def aresolve(self, request: ModelResolveRequest) -> Model: ...
+
+
+async def aresolve_via(provider: Any, request: ModelResolveRequest) -> Model:
+    """Resolve through ``provider``, preferring its native async path.
+
+    The one call every async caller should use. A provider that does real I/O implements
+    ``aresolve`` and gets it awaited; one that only reads local config -- every in-tree provider
+    today -- is called synchronously, which costs nothing and blocks nothing.
+    """
+    if isinstance(provider, AsyncModelProvider):
+        return await provider.aresolve(request)
+    return provider.resolve(request)  # type: ignore[no-any-return]
+
+
+def supports_detailed_resolve(provider: Any) -> bool:
+    """Whether ``provider`` really implements ``resolve_detailed``, stub excluded.
+
+    The check ``isinstance(provider, DetailedModelProvider)`` cannot answer this: it is
+    structural, and ``BaseModelProvider``'s stub satisfies it. Comparing the bound function
+    against the base's own implementation distinguishes an override from the inherited raiser,
+    which is what a caller deciding between ``resolve_detailed`` and plain ``resolve`` needs --
+    EGPT-3.5's escalation logging being the motivating case.
+    """
+    impl = getattr(type(provider), "resolve_detailed", None)
+    if impl is None:
+        return False
+    return impl is not BaseModelProvider.resolve_detailed
 
 
 class BaseModelProvider:
@@ -280,8 +383,20 @@ class BaseModelProvider:
     def resolve(self, request: ModelResolveRequest) -> Model:
         return self.resolve_detailed(request).model
 
+    async def aresolve(self, request: ModelResolveRequest) -> Model:
+        """Delegates to the sync path, which is correct for a provider that only reads local
+        config -- every in-tree provider today. One that does real I/O (a per-tenant policy row,
+        a gateway probe) overrides this; leaving the default in place would block the event
+        loop, which is the whole reason the async variant exists.
+        """
+        return self.resolve(request)
+
     def resolve_detailed(self, request: ModelResolveRequest) -> ModelResolveResult:
         raise NotImplementedError(f"{type(self).__name__} must implement resolve_detailed() (or override resolve()).")
+
+    async def aresolve_detailed(self, request: ModelResolveRequest) -> ModelResolveResult:
+        """Async counterpart of ``resolve_detailed``. Same delegation rationale as ``aresolve``."""
+        return self.resolve_detailed(request)
 
     def capabilities(self) -> ModelCapabilities:
         return ModelCapabilities()

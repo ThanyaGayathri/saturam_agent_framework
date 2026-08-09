@@ -495,6 +495,16 @@ def _initialize_member(team: "Team", member: Union["Team", Agent], debug_mode: O
         member._team = team
         member.set_id()
 
+        # Resolve through the seam before inheriting (EGPT-3.1). Inheritance assigns a
+        # non-None model, which makes the member's own `set_default_model` short-circuit at its
+        # `if agent.model is None` guard -- so a member whose provider would route it elsewhere
+        # (its own adapter, its own tenant endpoint) silently ran on the team's model instead.
+        # Resolving first keeps inheritance as the fallback it was meant to be.
+        if member.model is None:
+            from egpt.agent._init import _resolve_via_provider
+
+            member.model = _resolve_via_provider(member)
+
         # Inherit team primary model if agent has no explicit model
         if member.model is None and team.model is not None:
             member.model = team.model
@@ -542,6 +552,17 @@ def propagate_run_hooks_in_background(team: "Team", run_in_background: bool = Tr
 def _set_default_model(team: "Team") -> None:
     # Set the default model
     if team.model is None:
+        # The provider seam (EGPT-3.1). A Team is not a lesser case of this: its prompts carry
+        # user input and member output, so a Team that resolved its own default would be the
+        # one path in a Mode A deployment still reaching the frontier. With no provider
+        # configured this returns None immediately and the original path below runs unchanged.
+        from egpt.agent._init import _resolve_via_provider
+
+        resolved = _resolve_via_provider(team)
+        if resolved is not None:
+            team.model = resolved
+            return
+
         try:
             model = get_model("openai-responses:gpt-5.4")
         # Provider modules raise a bare ImportError, not ModuleNotFoundError, when their SDK is
@@ -742,13 +763,15 @@ def initialize_team(team: "Team", debug_mode: Optional[bool] = None) -> None:
 
     set_checkpoint(team)
 
+    # set_id before _set_default_model (EGPT-3.1): the seam passes the id to the provider as
+    # its per-component routing signal, and Team.id defaults to None, so resolving first made
+    # that signal always None for any team declared without an explicit id.
+    team.set_id()
+
     _set_default_model(team)
 
     # Set debug mode
     _set_debug(team, debug_mode=debug_mode)
-
-    # Set the team ID if not set
-    team.set_id()
 
     # Set the memory manager and session summary manager
     if team.update_memory_on_run or team.enable_agentic_memory or team.memory_manager is not None:

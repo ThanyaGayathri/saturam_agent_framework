@@ -263,3 +263,120 @@ def test_the_seam_names_no_integration_anywhere():
         f"The frozen contract imports integrations: {offenders}. Build models with "
         "discovery.construct(kind, provider_key, ...) instead."
     )
+
+
+# ---------------------------------------------------------------------------
+# Review findings (EGPT-3.1). Each of these was a defect a provider would hit.
+# ---------------------------------------------------------------------------
+
+
+def test_request_is_hashable():
+    """``frozen=True`` generates a real ``__hash__``, so the type advertises hashability.
+
+    Before the explicit ``__hash__``, hashing the all-defaults instance raised on the
+    mappingproxy in ``metadata`` -- and a provider memoizing resolution (an lru_cache over a
+    per-tenant policy lookup is the obvious EGPT-3.2 implementation) would hit that at agent
+    construction time, not in a test.
+    """
+    assert hash(ModelResolveRequest()) is not None
+    assert {ModelResolveRequest(): "cached"}[ModelResolveRequest()] == "cached"
+
+
+def test_capabilities_are_hashable():
+    """Same defect via ``notes``."""
+    assert hash(ModelCapabilities()) is not None
+    assert len({ModelCapabilities(), ModelCapabilities()}) == 1
+
+
+def test_hash_distinguishes_requests_that_resolve_differently():
+    """Non-vacuity: a hash that collapsed every request would make memoization actively wrong."""
+    assert hash(ModelResolveRequest(tenant_id="a")) != hash(ModelResolveRequest(tenant_id="b"))
+    assert hash(ModelResolveRequest(adapter="finance")) != hash(ModelResolveRequest(adapter="legal"))
+
+
+def test_supports_detailed_resolve_rejects_the_inherited_stub():
+    """``isinstance`` against the runtime_checkable Protocol cannot answer this.
+
+    It is a structural hasattr check, and ``BaseModelProvider`` defines ``resolve_detailed``
+    unconditionally, so every subclass passes -- and a caller gating on it takes the detailed
+    branch and dies with NotImplementedError.
+    """
+    from egpt.providers.model_provider import DetailedModelProvider, supports_detailed_resolve
+
+    class OnlyResolve(BaseModelProvider):
+        name = "only-resolve"
+
+        def resolve(self, request):
+            return _StubModel(id="m", provider="stub")
+
+    provider = OnlyResolve()
+    assert isinstance(provider, DetailedModelProvider), "the structural check still passes"
+    assert not supports_detailed_resolve(provider), "but the helper must see through the stub"
+
+
+def test_supports_detailed_resolve_accepts_a_real_override():
+    from egpt.providers.model_provider import supports_detailed_resolve
+
+    class Detailed(BaseModelProvider):
+        name = "detailed"
+
+        def resolve_detailed(self, request):
+            return ModelResolveResult(
+                model=_StubModel(id="m", provider="stub"), mode=ProviderMode.LOCAL, provider_key="k"
+            )
+
+    assert supports_detailed_resolve(Detailed())
+
+
+def test_a_sync_only_provider_still_satisfies_the_protocol():
+    """``aresolve`` lives on a *separate* Protocol on purpose.
+
+    Adding it as a required member of ``ModelProvider`` would silently un-satisfy every
+    out-of-tree provider that implements only ``resolve`` -- exactly the third-party case the
+    structural Protocol exists to support. Verified by construction: this stub has no async
+    method and must still be a ModelProvider.
+    """
+    from egpt.providers.model_provider import AsyncModelProvider
+
+    stub = _StubProvider(_model())
+    assert isinstance(stub, ModelProvider)
+    assert not isinstance(stub, AsyncModelProvider)
+
+
+def test_aresolve_via_falls_back_to_the_sync_path():
+    """A provider that only reads local config needs no async path; calling it costs nothing."""
+    import asyncio
+
+    from egpt.providers.model_provider import aresolve_via
+
+    stub = _StubProvider(_model())
+    resolved = asyncio.run(aresolve_via(stub, ModelResolveRequest()))
+    assert resolved is stub._model
+
+
+def test_aresolve_via_prefers_a_native_async_path():
+    """One that does real I/O implements aresolve and gets awaited, rather than blocking the
+    event loop -- which is the whole reason CLAUDE.md requires the async variant here."""
+    import asyncio
+
+    from egpt.providers.model_provider import AsyncModelProvider, aresolve_via
+
+    model = _model()
+
+    class AsyncProvider(BaseModelProvider):
+        name = "async"
+
+        def __init__(self):
+            self.async_calls = 0
+
+        def resolve(self, request):
+            raise AssertionError("the sync path must not be used when aresolve exists")
+
+        async def aresolve(self, request):
+            self.async_calls += 1
+            return model
+
+    provider = AsyncProvider()
+    assert isinstance(provider, AsyncModelProvider)
+    assert asyncio.run(aresolve_via(provider, ModelResolveRequest())) is model
+    assert provider.async_calls == 1

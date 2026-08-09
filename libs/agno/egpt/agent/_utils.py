@@ -148,6 +148,18 @@ def deep_copy(agent: Agent, *, update: Optional[Dict[str, Any]] = None) -> Agent
     # Create a new Agent
     try:
         new_agent = agent.__class__(**fields_for_new_agent)
+        # `model_provider` (EGPT-3.1) is set as a plain attribute, not a dataclass field, so the
+        # `fields(agent)` loop above cannot see it. Carried explicitly because dropping it is
+        # silent and lands on the hottest paths -- os/utils.py deep-copies an agent per request
+        # and team/_utils.py copies every member -- where the effect is that the narrower,
+        # more deliberate configuration is the one discarded. Shared by reference, matching how
+        # the process-wide provider is shared: a provider is a resolution policy, not per-agent
+        # state. EGPT-3.4 declares the real field, after which this becomes redundant.
+        provider = getattr(agent, "model_provider", None)
+        if provider is not None:
+            # setattr, not attribute assignment: the name is not declared on Agent until
+            # EGPT-3.4, so mypy rightly rejects the direct form.
+            setattr(new_agent, "model_provider", provider)  # noqa: B010
         log_debug(f"Created new {agent.__class__.__name__}")
         return new_agent
     except Exception as e:

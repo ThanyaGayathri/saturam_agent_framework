@@ -89,41 +89,70 @@ def set_checkpoint(agent: Agent) -> None:
         )
 
 
-def _model_provider_for(agent: Agent) -> Optional[ModelProvider]:
-    """The provider that decides this agent's model, or None when none is configured.
+def _model_provider_for(component: Any) -> Optional[ModelProvider]:
+    """The provider that decides this component's model, or None when none is configured.
+
+    Takes an ``Agent`` or a ``Team``: both carry an optional ``model_provider`` and both must
+    reach the seam, because a Team that resolved its own default would send its prompts --
+    which carry member output and user input -- to whatever the fallback provider is. Typed as
+    ``Any`` rather than importing ``Team``: ``egpt.team`` imports ``egpt.agent``, so naming it
+    here would close a cycle.
 
     None is the overwhelmingly common case, and it must stay cheap: ``egpt.providers`` is
     imported inside this function rather than at module scope so ``egpt.agent`` never grows an
     import-time edge to the provider seam, and the package ``__init__`` re-exports lazily, so
     the miss costs one module import and two attribute reads -- no provider class, no SDK.
 
-    A per-agent ``model_provider`` wins over the process-wide default: the narrower
-    configuration is the more deliberate one. It is read with ``getattr`` because ``Agent``
-    does not declare the field yet -- EGPT-3.4 adds it, and reading defensively here lets that
-    land without touching this function.
+    A per-component ``model_provider`` wins over the process-wide default: the narrower
+    configuration is the more deliberate one. The test is ``is not None``, not truthiness: a
+    provider whose class defines ``__len__`` (an empty rule table, say) is still a provider,
+    and once EGPT-3.4 declares the field, assigning None must mean "opt out", not "fall back
+    to the process-wide default".
     """
     from egpt.providers import get_default_model_provider
 
-    return getattr(agent, "model_provider", None) or get_default_model_provider()
+    own = getattr(component, "model_provider", None)
+    if own is not None:
+        return own  # type: ignore[no-any-return]
+    return get_default_model_provider()
 
 
-def _resolve_via_provider(agent: Agent) -> Optional[Model]:
-    """Ask the configured provider which model serves this agent (EGPT-3.1).
+def _resolve_via_provider(component: Any, *, role: str = "model") -> Optional[Model]:
+    """Ask the configured provider which model serves this component (EGPT-3.1).
 
-    Returns None when no provider is configured, leaving ``set_default_model`` on the
-    pre-EGPT-3.1 default path, byte for byte.
+    Returns None when no provider is configured, leaving the caller on the pre-EGPT-3.1
+    default path, byte for byte.
+
+    A configured provider that returns None is a different outcome and is *not* silently
+    treated as "no provider": the seam's whole purpose is that a Mode A deployment never
+    reaches the frontier default, so a decline that fell through to
+    ``get_model("openai-responses:gpt-5.4")`` would ship tenant prompts to api.openai.com with
+    nothing in the log to say why. Raise instead, matching the ValueError the pre-existing
+    path already used for an unresolvable model.
     """
-    provider = _model_provider_for(agent)
+    provider = _model_provider_for(component)
     if provider is None:
+        # Record the miss so installing a provider later can warn that this component already
+        # resolved and will not be revisited.
+        from egpt.providers import note_resolved_without_provider
+
+        note_resolved_without_provider(getattr(component, "id", None))
         return None
 
     from egpt.providers.model_provider import ModelResolveRequest
 
-    # agent.model is None here (the caller's guard), so `requested` stays None: there is no
-    # user intent for the provider to honor. Everything else is defaulted -- per-run signals
-    # (token estimates, tool counts, escalation state) belong to resolve_run_model below,
-    # which EGPT-3.5 wires from the run path.
-    return provider.resolve(ModelResolveRequest(agent_id=agent.id, role="model"))
+    # `requested` stays None: the caller's guard means no model was pinned, so there is no
+    # user intent for the provider to honor. Per-run signals (token estimates, tool counts,
+    # escalation state) belong to resolve_run_model below, which EGPT-3.5 wires from the run
+    # path.
+    resolved = provider.resolve(ModelResolveRequest(agent_id=component.id, role=role))
+    if resolved is None:
+        raise ValueError(
+            f"Model provider {getattr(provider, 'name', type(provider).__name__)!r} returned no model. "
+            "A provider must return a Model or raise; returning None would fall through to the "
+            "default frontier model, which defeats the point of configuring a provider."
+        )
+    return resolved
 
 
 def resolve_run_model(agent: Agent, request: ModelResolveRequest) -> Optional[Model]:
@@ -340,9 +369,13 @@ def get_models(agent: Agent) -> None:
 
 
 def initialize_agent(agent: Agent, debug_mode: Optional[bool] = None) -> None:
+    # set_id before set_default_model (EGPT-3.1): the seam passes agent.id to the provider as
+    # its per-agent routing signal, and Agent.id defaults to None, so resolving first made that
+    # signal always None for any agent declared without an explicit id -- the common case.
+    # set_id only fills a missing id from the name, so hoisting it changes nothing else.
+    set_id(agent)
     set_default_model(agent)
     set_debug(agent, debug_mode=debug_mode)
-    set_id(agent)
     set_telemetry(agent)
     set_checkpoint(agent)
     if agent.update_memory_on_run or agent.enable_agentic_memory or agent.memory_manager is not None:
