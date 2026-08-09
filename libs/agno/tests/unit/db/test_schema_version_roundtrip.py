@@ -8,7 +8,14 @@ unwritten table reports the "2.0.0" floor rather than None.
 The "2.0.0" floor matters more than it looks. `MigrationManager` feeds this straight into
 `packaging.version.parse`, so None raises; and a backend that forgets what it stored would
 silently re-run every migration on every startup.
+
+Redis can forget on a delay rather than outright, so it gets its own section at the bottom:
+a version record written under the instance's configured `expire` reads back as the floor
+once the TTL lapses, which is the same silent re-run arriving hours later. Those tests drive
+a mock client, so they need no container either.
 """
+
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -134,3 +141,54 @@ def test_sqlite_versions_survive_a_new_instance(tmp_path):
     SqliteDb(db_file=db_file).upsert_schema_version(TABLE_A, "2.5.6")
 
     assert SqliteDb(db_file=db_file).get_latest_schema_version(TABLE_A) == "2.5.6"
+
+
+# -- Redis: the version record must outlive the data it describes --
+
+TTL_SECONDS = 60
+
+
+@pytest.fixture
+def redis_db_with_ttl():
+    """A RedisDb with `expire` configured, driven by a mock client -- no container needed."""
+    pytest.importorskip("redis", reason="RedisDb imports the redis SDK at module level")
+    from egpt.integrations.db.redis.redis import RedisDb
+
+    client = MagicMock()
+    client.get.return_value = None  # every table starts unwritten
+
+    return RedisDb(redis_client=client, expire=TTL_SECONDS), client
+
+
+def test_version_records_are_exempt_from_the_configured_ttl(redis_db_with_ttl):
+    """A version record that expires reads back as the floor and re-runs every migration.
+
+    `_store_record` applies `self.expire` by default, so `upsert_schema_version` has to opt
+    out via `apply_expiry=False`. This pins that opt-out: drop it in a refactor, or forget it
+    at a new call site, and the bug this suite exists to kill comes back on a TTL delay.
+    """
+    db, client = redis_db_with_ttl
+
+    db.upsert_schema_version(TABLE_A, "2.5.6")
+
+    key, _ = client.set.call_args.args
+    assert "versions" in key
+    assert client.set.call_args.kwargs.get("ex") is None, (
+        "a version record with a TTL expires into the 2.0.0 floor and re-runs every migration"
+    )
+
+
+def test_the_ttl_exemption_is_targeted_not_a_broken_expire(redis_db_with_ttl):
+    """The control for the test above: ordinary records on the same instance still expire.
+
+    Without this, `expire` being ignored everywhere would pass the exemption test too.
+    """
+    from egpt.session import AgentSession
+
+    db, client = redis_db_with_ttl
+
+    db.upsert_session(AgentSession(session_id="s1", runs=[]))
+
+    key, _ = client.set.call_args.args
+    assert "sessions" in key
+    assert client.set.call_args.kwargs.get("ex") == TTL_SECONDS

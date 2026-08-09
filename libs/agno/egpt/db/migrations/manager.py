@@ -48,6 +48,18 @@ class MigrationManager:
         instead of letting ``packaging.version.parse(None)`` raise and abort the whole run.
         The guard has to live here, before the parse -- a check on the parsed value can never
         fire, because ``parse`` raises on None rather than returning it.
+
+        Note the deliberate asymmetry between the two ways a table can be "unversioned":
+
+        - ``"2.0.0"`` means *not yet stamped*. Every backend returns this floor for a table it
+          has no record for, so the table gets migrated up from the earliest schema.
+        - ``None`` means *the backend is broken*. Now that all backends return the floor, an
+          override that still yields None is a bug in that override, and there is no version
+          to reason from -- so the table is skipped with a log rather than migrated blindly.
+
+        Skipping is the conservative read of "we do not know what state this table is in": a
+        crash takes unrelated tables down with it, and migrating from an assumed floor would
+        re-run migrations against a table that may already be current.
         """
         if isinstance(self.db, AsyncBaseDb):
             raw_version = await self.db.get_latest_schema_version(table_name)
