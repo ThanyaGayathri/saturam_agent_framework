@@ -90,16 +90,31 @@ class Registry:
                 register(tool.__name__, tool)
         return lookup
 
-    def rehydrate_function(self, func_dict: Dict[str, Any]) -> Function:
-        """Reconstruct a Function from dict, reattaching its entrypoint."""
-        func = Function.from_dict(func_dict)
-        source = self._entrypoint_lookup.get(func.name)
+    def resolve_entrypoint_source(self, name: str) -> Optional[Any]:
+        """The registered tool backing ``name`` -- a ``Function`` or a plain callable -- or None.
+
+        Public because the component-config validator has to answer "would rehydrating a tool
+        by this name find an entrypoint?" before a config is persisted, and reaching into the
+        private ``_entrypoint_lookup`` cached property from another module would couple it to
+        an implementation detail (including the stale-cache retry below).
+        """
+        source = self._entrypoint_lookup.get(name)
         if source is None:
             # Toolkits can gain functions after the lookup is first built -- MCP
             # toolkits only register their functions once connected -- so a miss
             # may just mean the cache is stale. Rebuild once and retry.
             self.__dict__.pop("_entrypoint_lookup", None)
-            source = self._entrypoint_lookup.get(func.name)
+            source = self._entrypoint_lookup.get(name)
+        return source
+
+    def has_entrypoint(self, name: str) -> bool:
+        """Whether a tool named ``name`` is registered with a usable entrypoint."""
+        return self.resolve_entrypoint_source(name) is not None
+
+    def rehydrate_function(self, func_dict: Dict[str, Any]) -> Function:
+        """Reconstruct a Function from dict, reattaching its entrypoint."""
+        func = Function.from_dict(func_dict)
+        source = self.resolve_entrypoint_source(func.name)
         if isinstance(source, Function):
             func.entrypoint = source.entrypoint
             # Entrypoints built for a fixed schema (e.g. MCP call proxies) must

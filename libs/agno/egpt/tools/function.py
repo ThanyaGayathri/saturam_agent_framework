@@ -222,12 +222,18 @@ class Function(BaseModel):
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Function":
-        """Reconstruct a Function from a dictionary."""
+        """Reconstruct a Function from a dictionary.
 
+        ``parameters`` is passed only when present: the field is a non-optional dict with a
+        default, so forwarding a missing key as ``None`` raised a pydantic error instead of
+        falling back to the empty schema. That made a hand-authored tool reference -- just a
+        name, letting the registered entrypoint supply the signature -- impossible to rebuild.
+        """
+        parameters = data.get("parameters")
         return cls(
             name=data.get("name"),
             description=data.get("description"),
-            parameters=data.get("parameters"),
+            **({"parameters": parameters} if parameters is not None else {}),
             strict=data.get("strict"),
             requires_confirmation=data.get("requires_confirmation", False),
             external_execution=data.get("external_execution", False),

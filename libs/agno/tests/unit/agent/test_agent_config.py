@@ -19,6 +19,7 @@ import pytest
 from egpt.agent.agent import Agent, get_agent_by_id, get_agents
 from egpt.db.base import BaseDb, ComponentType
 from egpt.registry import Registry
+from egpt.registry.schema import SCHEMA_VERSION, SCHEMA_VERSION_KEY
 
 # =============================================================================
 # Fixtures
@@ -874,3 +875,26 @@ class TestGetAgents:
 
         assert len(agents) == 1
         assert agents[0].db == mock_db
+
+
+# =============================================================================
+# Schema Version Tests (EGPT-2.2)
+# =============================================================================
+
+
+class TestSchemaVersion:
+    """A stored config has to say which schema it was written against."""
+
+    def test_to_dict_stamps_the_schema_version(self):
+        agent = Agent(name="Test Agent")
+
+        assert agent.to_dict()[SCHEMA_VERSION_KEY] == SCHEMA_VERSION
+
+    def test_from_dict_ignores_the_stamp(self):
+        """`from_dict` builds its kwargs explicitly, so the key round-trips without being read."""
+        rebuilt = Agent.from_dict({"name": "Test Agent", SCHEMA_VERSION_KEY: SCHEMA_VERSION})
+
+        assert rebuilt.name == "Test Agent"
+
+    def test_a_config_written_before_versioning_still_loads(self):
+        assert Agent.from_dict({"name": "Legacy Agent"}).name == "Legacy Agent"

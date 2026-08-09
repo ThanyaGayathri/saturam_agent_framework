@@ -38,6 +38,7 @@ from egpt.models.message import Message
 from egpt.models.metrics import RunMetrics
 from egpt.models.response import ModelResponse
 from egpt.registry.registry import Registry
+from egpt.registry.schema import ComponentSpec
 from egpt.run import RunContext, RunStatus
 from egpt.run.agent import RunEvent, RunOutput, RunOutputEvent
 from egpt.run.team import (
@@ -1552,6 +1553,14 @@ class Team:
         registry: Optional["Registry"] = None,
     ) -> "Team":
         return _storage.from_dict(cls, data=data, db=db, registry=registry)
+
+    @classmethod
+    def component_spec(cls, *, registry: Optional["Registry"] = None, db: Optional["BaseDb"] = None) -> "ComponentSpec":
+        """The contract `egpt.registry.schema` validates team configs against.
+
+        Sync-only by design: it builds and returns a descriptor with nothing to await.
+        """
+        return _storage.component_spec(registry=registry, db=db)
 
     def save(
         self,

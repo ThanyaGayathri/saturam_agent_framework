@@ -8,9 +8,12 @@ if TYPE_CHECKING:
     from egpt.team.mode import TeamMode
     from egpt.team.team import Team
 
+from functools import lru_cache
+from inspect import signature
 from typing import (
     Any,
     Dict,
+    FrozenSet,
     List,
     Optional,
     Union,
@@ -27,6 +30,7 @@ from egpt.models.base import Model
 from egpt.models.message import Message
 from egpt.models.utils import resolve_model
 from egpt.registry.registry import Registry
+from egpt.registry.schema import SCHEMA_VERSION, SCHEMA_VERSION_KEY, ComponentSpec
 from egpt.run.agent import RunOutput
 from egpt.run.team import (
     TeamRunOutput,
@@ -702,7 +706,35 @@ def to_dict(team: "Team") -> Dict[str, Any]:
     # Always serialize — default is False; omit-on-True would lose opt-in on from_dict
     config["telemetry"] = team.telemetry
 
+    # See the note in egpt/agent/_storage.py: `save()` bypasses the components API, so this is
+    # the only point where every stored config becomes self-describing.
+    config[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
+
     return config
+
+
+# Config keys that are not `Team` constructor parameters but are still legitimate.
+_TEAM_EXTRA_CONFIG_KEYS = frozenset({SCHEMA_VERSION_KEY, "workflow_id"})
+
+
+@lru_cache(maxsize=1)
+def _team_config_keys() -> FrozenSet[str]:
+    """Every key a team config may carry, derived from the constructor rather than listed."""
+    from egpt.team.team import Team
+
+    params = {name for name in signature(Team).parameters if name != "self"}
+    return frozenset(params | _TEAM_EXTRA_CONFIG_KEYS)
+
+
+def component_spec(*, registry: Optional["Registry"] = None, db: Optional["BaseDb"] = None) -> ComponentSpec:
+    """The team's side of the config-validation contract (see `egpt.registry.schema`)."""
+    from egpt.team.team import Team
+
+    return ComponentSpec(
+        component_type="team",
+        known_keys=_team_config_keys(),
+        hydrate=lambda config: from_dict(Team, data=config, db=db, registry=registry),
+    )
 
 
 def _deserialize_learning(value: Any) -> Any:

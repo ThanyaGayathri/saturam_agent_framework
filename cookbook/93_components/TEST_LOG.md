@@ -15,7 +15,7 @@ Test results for `cookbook/93_components/` examples.
 
 **Description:** Validates cookbook structure for all Python files under `cookbook/93_components/` recursively.
 
-**Result:** `.venvs/demo/bin/python cookbook/scripts/check_cookbook_pattern.py --base-dir cookbook/93_components --recursive` reported `Checked 14 file(s) ... Violations: 0`.
+**Result:** `.venvs/demo/bin/python cookbook/scripts/check_cookbook_pattern.py --base-dir cookbook/93_components --recursive` reported `Checked 14 file(s) ... Violations: 0`. Re-run after adding `validate_config.py` reported `Checked 21 file(s) ... Violations: 2`; both violations are pre-existing, in `workflows/registry_agents_in_workflow.py` and `workflows/save_hitl_condition_loop_router.py`.
 
 ---
 
@@ -40,3 +40,20 @@ Test results for `cookbook/93_components/` examples.
 **Result:** Registry contained the member agents' models and tool with no registry passed. App built successfully.
 
 ---
+
+### validate_config.py
+
+**Status:** PASS
+
+**Description:** Validates a valid agent definition and four invalid variants against the same
+validator the components API uses (EGPT-2.2). Runs offline -- no database and no model calls.
+
+**Result:** The valid definition was accepted and stamped `schema_version 1`. The four invalid
+variants each reported the expected field-level errors: `model / missing_required_field`,
+`instruction / unknown_field` (with the "Did you mean 'instructions'?" suggestion),
+`tools[0].name / unresolvable_ref`, and a three-error case reporting
+`num_history_runs / invalid_value`, `instruction / unknown_field` and
+`model.provider / unresolvable_ref` together.
+
+---
+
