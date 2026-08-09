@@ -77,6 +77,10 @@ _ROWS = {
     # index below drops "OpenAIResponses" as ambiguous.
     "openai": ("egpt.integrations.models.openai", "OpenAIResponses", "OpenAIResponses", "openai"),
     "openai-chat": ("egpt.integrations.models.openai", "OpenAIChat", "OpenAIChat", "openai"),
+    # The generic OpenAI-schema client for any self-hosted server. Its module is the
+    # `openai_like` package rather than `...models.openai`, which deliberately does not
+    # re-export it (it subclasses OpenAIChat, so re-exporting would cycle).
+    "openai-like": ("egpt.integrations.models.openai_like", "OpenAILike", "OpenAILike", "openai"),
     "openai-responses": ("egpt.integrations.models.openai", "OpenAIResponses", "OpenAIResponses", "openai"),
     "open-responses": ("egpt.integrations.models.openai", "OpenResponses", "OpenResponses", "openresponses"),
     "openrouter": ("egpt.integrations.models.openrouter", "OpenRouter", "OpenRouter", "openrouter"),

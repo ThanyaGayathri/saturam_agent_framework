@@ -18,7 +18,9 @@ placeholder reference to silence it is worse than three branches touching one im
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, List, Optional
+
+from pydantic import Field
 
 from egpt.settings.sources import BrandedSettings
 
@@ -42,12 +44,46 @@ class ProviderSettings(BrandedSettings):
     # -- Mode A: self-hosted SLM (EGPT-3.3) --------------------------------
     # Owned by #65. The in-VPC endpoint and adapter configuration.
     #
-    # Note for the implementer: `mode_a_base_url` must have NO default that points anywhere
-    # public. `egpt/integrations/models/ollama/chat.py:61` falls back to `https://ollama.com`
-    # and `vllm.py:57` to `http://localhost:8000/v1/` when unset, so a Mode A binding that
-    # lets either default through has silently left the VPC. Raise
-    # ModelProviderConfigError instead.
-    # (Add fields here.)
+    # `mode_a_base_url` has NO default, deliberately. `integrations/models/ollama/chat.py`
+    # falls back to `https://ollama.com` and `vllm.py` to `http://localhost:8000/v1/` when
+    # unset, so a Mode A binding that lets either default through has silently left the VPC.
+    # `LocalModelProvider` raises `ModelProviderConfigError` on None rather than constructing
+    # anything, and always passes the configured endpoint explicitly so neither SDK default
+    # can be reached.
+    mode_a_base_url: Optional[str] = None
+
+    # Which registry key serves Mode A. "vllm", "ollama" or "openai-like" -- all built by
+    # name through `discovery.construct`, so naming one here imports nothing.
+    mode_a_backend: str = "vllm"
+
+    # The model id served at that endpoint. A self-hosted deployment names its own weights,
+    # so there is no sensible default to guess.
+    mode_a_model_id: Optional[str] = None
+
+    # Credential for the endpoint. In-VPC vLLM/Ollama servers are commonly unauthenticated;
+    # `OpenAILike` defaults `api_key` to "not-provided" for exactly that case, and VLLM
+    # raises without one, so Mode A supplies a placeholder rather than reading VLLM_API_KEY.
+    mode_a_api_key: Optional[str] = None
+
+    # How a LoRA adapter is rendered onto the request. "model-id" follows vLLM's multi-LoRA
+    # convention, where each adapter is served as a first-class model id -- the default,
+    # because it is what a stock `vllm serve --lora-modules` deployment expects.
+    # "extra-body" instead threads it through the OpenAI `extra_body` passthrough, for
+    # servers that take the adapter as a side-channel parameter.
+    mode_a_adapter_mode: str = "model-id"
+
+    # The `extra_body` key an adapter is written to under `mode_a_adapter_mode="extra-body"`.
+    mode_a_adapter_field: str = "lora_request"
+
+    # Extra hostnames or domain suffixes that count as in-VPC. Mode A treats loopback, private
+    # IPs, dotless names and the usual internal suffixes (.internal, .svc.cluster.local, ...)
+    # as inside the network; a deployment whose internal domain is a public-looking name needs
+    # to name it here, or its own endpoint would be refused as egress.
+    mode_a_allowed_hosts: List[str] = Field(default_factory=list)
+
+    # Context window of the served model, when the deployment knows it. Advisory only:
+    # EGPT-3.5's "input too large" rule reads it, and None means "do not route on it".
+    mode_a_context_window: Optional[int] = None
 
     # -- Mode B: frontier provider (EGPT-3.4) ------------------------------
     # Owned by #66. Frontier selection plus optional gateway routing.

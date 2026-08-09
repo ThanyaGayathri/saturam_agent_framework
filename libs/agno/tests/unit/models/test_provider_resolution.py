@@ -247,7 +247,12 @@ def test_resolve_model_passes_through_unhandled_values():
 # Abstract/intermediate Model subclasses that are not concrete providers and so must not appear
 # in the model declarations. Add a class here only after a deliberate decision that it is not a
 # user-selectable provider. Keyed by (defining_module, class_name).
-_NON_PROVIDER_MODEL_CLASSES = {("egpt.integrations.models.openai_like.like", "OpenAILike")}
+#
+# OpenAILike was listed here until EGPT-3.3. Treating it as "intermediate infra" was the bug:
+# it is directly selectable (it is how you point EGPT at any self-hosted OpenAI-schema server),
+# and with no declaration row a serialized OpenAILike rebuilt as OpenAIResponses -- see
+# test_openai_like_round_trip_preserves_class below.
+_NON_PROVIDER_MODEL_CLASSES: set = set()
 
 
 # Names a shim exports that its target deliberately does not. Each entry needs a reason: the

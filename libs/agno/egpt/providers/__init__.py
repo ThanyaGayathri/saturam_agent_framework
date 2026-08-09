@@ -18,6 +18,7 @@ is what makes EGPT-3.1's seam a no-op on every agent nobody configured: the chec
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
+    from egpt.providers.mode_a import LocalModelProvider
     from egpt.providers.model_provider import (
         AsyncModelProvider,
         BaseModelProvider,
@@ -35,6 +36,7 @@ __all__ = [
     "AsyncModelProvider",
     "BaseModelProvider",
     "DetailedModelProvider",
+    "LocalModelProvider",
     "ModelCapabilities",
     "ModelProvider",
     "ModelProviderConfigError",
@@ -139,4 +141,10 @@ def __getattr__(name: str) -> Any:
         from egpt.providers import model_provider
 
         return getattr(model_provider, name)
+    if name == "LocalModelProvider":
+        # EGPT-3.3. Kept out of the tuple above because it lives in its own module: importing
+        # it eagerly would pull the settings stack into every `import egpt.providers`.
+        from egpt.providers.mode_a import LocalModelProvider
+
+        return LocalModelProvider
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
