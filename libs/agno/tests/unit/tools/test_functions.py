@@ -94,6 +94,75 @@ def test_function_to_dict():
     assert "entrypoint" not in result
 
 
+def test_function_from_dict_without_parameters_falls_back_to_default_schema():
+    """A name-only tool reference must rebuild, letting the registered entrypoint supply the signature.
+
+    ``parameters`` is a non-optional dict with a default, so forwarding a missing key as ``None``
+    raised a pydantic error and made a hand-authored reference impossible to hydrate.
+    """
+    func = Function.from_dict({"name": "lookup"})
+
+    assert func.name == "lookup"
+    assert func.parameters == {"type": "object", "properties": {}, "required": []}
+    assert func.description is None
+    assert func.strict is None
+    assert func.entrypoint is None
+
+
+def test_function_from_dict_with_explicit_null_parameters():
+    """An explicit ``parameters: None`` is the same missing key, not a value to forward."""
+    func = Function.from_dict({"name": "lookup", "parameters": None})
+
+    assert func.parameters == {"type": "object", "properties": {}, "required": []}
+
+
+def test_function_from_dict_preserves_parameters_when_present():
+    """A supplied schema is kept verbatim rather than replaced by the default."""
+    parameters = {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
+    func = Function.from_dict(
+        {
+            "name": "lookup",
+            "description": "Look something up",
+            "parameters": parameters,
+            "strict": True,
+            "requires_confirmation": True,
+            "external_execution": True,
+        }
+    )
+
+    assert func.parameters == parameters
+    assert func.description == "Look something up"
+    assert func.strict is True
+    assert func.requires_confirmation is True
+    assert func.external_execution is True
+
+
+def test_function_to_dict_from_dict_round_trip():
+    """``to_dict`` output feeds back through ``from_dict`` with every declared field intact.
+
+    The two flag defaults are not byte-identical across the first pass: ``from_dict`` reads a
+    missing ``requires_confirmation`` / ``external_execution`` as ``False`` while the field
+    default is ``None``, and ``to_dict`` excludes ``None``. So the flags appear from the first
+    rehydration onwards. That is pre-existing behaviour; what matters is that it is stable --
+    the second pass is byte-identical to the first, so a config cannot drift by being rewritten.
+    """
+    original = Function(
+        name="lookup",
+        description="Look something up",
+        parameters={"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
+        strict=True,
+    )
+    serialized = original.to_dict()
+
+    first = Function.from_dict(serialized).to_dict()
+    for key, value in serialized.items():
+        assert first[key] == value
+    assert first["requires_confirmation"] is False
+    assert first["external_execution"] is False
+
+    assert Function.from_dict(first).to_dict() == first
+
+
 def test_function_from_callable():
     """Test creating a Function from a callable."""
 
