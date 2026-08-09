@@ -31,10 +31,17 @@ if TYPE_CHECKING:
         supports_detailed_resolve,
     )
 
+    # EGPT-3.4 (Mode B). Lazy for the same reason as the contract names above, and doubly so
+    # here: mode_b reads settings, which pulls in pydantic-settings.
+    from egpt.providers.gateways import GatewayRoute, known_gateways, resolve_gateway
+    from egpt.providers.mode_b import FrontierModelProvider
+
 __all__ = [
     "AsyncModelProvider",
     "BaseModelProvider",
     "DetailedModelProvider",
+    "FrontierModelProvider",
+    "GatewayRoute",
     "ModelCapabilities",
     "ModelProvider",
     "ModelProviderConfigError",
@@ -42,7 +49,9 @@ __all__ = [
     "ModelResolveResult",
     "ProviderMode",
     "get_default_model_provider",
+    "known_gateways",
     "reset_provider_state_for_tests",
+    "resolve_gateway",
     "set_default_model_provider",
     "aresolve_via",
     "supports_detailed_resolve",
@@ -133,10 +142,24 @@ _LAZY_FROM_MODEL_PROVIDER = (
     "supports_detailed_resolve",
 )
 
+# Submodule-backed lazy exports, as name -> submodule. Same rule as above: the import happens
+# on first attribute access, never at package-import time.
+_LAZY_SUBMODULE = {
+    "FrontierModelProvider": "egpt.providers.mode_b",  # EGPT-3.4
+    "GatewayRoute": "egpt.providers.gateways",
+    "known_gateways": "egpt.providers.gateways",
+    "resolve_gateway": "egpt.providers.gateways",
+}
+
 
 def __getattr__(name: str) -> Any:
     if name in _LAZY_FROM_MODEL_PROVIDER:
         from egpt.providers import model_provider
 
         return getattr(model_provider, name)
+    module_name = _LAZY_SUBMODULE.get(name)
+    if module_name is not None:
+        from importlib import import_module
+
+        return getattr(import_module(module_name), name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
