@@ -67,6 +67,20 @@ method accepts a `tenant_id`:
 `component_id` remains the primary key and is therefore globally unique: two tenants
 cannot both own the same `component_id`.
 
+**Pre-existing rows disappear from scoped calls until they are backfilled.** The predicate
+is a strict `tenant_id = ?`; there is deliberately no `OR tenant_id IS NULL`, because
+treating NULL as "belongs to everyone" would be a cross-tenant leak. The consequence is a
+behavioural cliff at the moment a deployment starts passing `tenant_id`: components created
+before the migration carry NULL and are invisible to every scoped read, while remaining
+visible to unscoped ones. Backfill them to the owning tenant as part of adopting
+multi-tenancy:
+
+```sql
+UPDATE egpt_components        SET tenant_id = :tenant WHERE tenant_id IS NULL;
+UPDATE egpt_component_configs SET tenant_id = :tenant WHERE tenant_id IS NULL;
+UPDATE egpt_component_links   SET tenant_id = :tenant WHERE tenant_id IS NULL;
+```
+
 **Upgrading an existing deployment.** Migrations are not run automatically — table
 creation only stamps the schema version. A deployment that already has component
 tables must run the migration before those tables will load again, otherwise

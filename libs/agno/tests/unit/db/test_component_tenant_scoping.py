@@ -2,6 +2,14 @@
 
 Exercises a real SQLite database rather than mocks, so the assertions cover the actual DDL
 (column + composite indexes) and the actual SQL predicates, not just call signatures.
+
+Where the isolation actually lives: every mutation (delete_component, delete_config,
+set_current_version, upsert_config) runs a tenant-scoped existence precheck and bails before
+touching anything. **Those prechecks are the load-bearing layer, and they are what the
+cross-tenant tests below pin.** The tenant predicates on the inner UPDATE/DELETE statements
+are defence in depth: mutation testing shows removing one is survived by this suite, because
+the precheck has already refused. Do not "simplify" a precheck away on the belief that the
+inner predicate is covered -- it is not.
 """
 
 import os
@@ -441,6 +449,9 @@ def test_table_type_map_matches_basedb_attributes(sqlite_db):
 @pytest.mark.asyncio
 async def test_migration_manager_survives_db_without_component_tables(tmp_path):
     """up()/down() must not raise on an async db that models no component tables."""
+    # AsyncSqliteDb resolves the aiosqlite dialect in __init__, so without the driver this
+    # would fail rather than skip. The test genuinely needs a live async engine.
+    pytest.importorskip("aiosqlite", reason="MigrationManager.up() needs a real async engine")
     from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb
 
     db = AsyncSqliteDb(db_file=str(tmp_path / "async.db"))
@@ -453,6 +464,7 @@ async def test_migration_manager_survives_db_without_component_tables(tmp_path):
 @pytest.mark.asyncio
 async def test_migration_manager_reports_unmigratable_table_type(tmp_path):
     """Naming a table type the db cannot migrate warns and returns, rather than raising."""
+    pytest.importorskip("aiosqlite", reason="MigrationManager.up() needs a real async engine")
     from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb
 
     db = AsyncSqliteDb(db_file=str(tmp_path / "async.db"))
