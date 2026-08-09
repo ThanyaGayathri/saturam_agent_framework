@@ -519,6 +519,17 @@ class AsyncMongoDb(AsyncBaseDb):
                 )
             return self.schedule_runs_collection
 
+        if table_type == "versions":
+            if reset_cache or getattr(self, "versions_collection", None) is None:
+                if self.versions_table_name is None:
+                    raise ValueError("Versions collection was not provided on initialization")
+                self.versions_collection = await self._get_or_create_collection(
+                    collection_name=self.versions_table_name,
+                    collection_type="versions",
+                    create_collection_if_not_found=create_collection_if_not_found,
+                )
+            return self.versions_collection
+
         raise ValueError(f"Unknown table type: {table_type}")
 
     async def _get_or_create_collection(
@@ -562,13 +573,56 @@ class AsyncMongoDb(AsyncBaseDb):
             aggregate_cursor_or_coro = await aggregate_cursor_or_coro
         return await aggregate_cursor_or_coro.to_list(length=length)
 
-    def get_latest_schema_version(self):
-        """Get the latest version of the database schema."""
-        pass
+    async def get_latest_schema_version(self, table_name: str) -> str:
+        """Get the stored schema version for a table.
 
-    def upsert_schema_version(self, version: str) -> None:
-        """Upsert the schema version into the database."""
-        pass
+        Args:
+            table_name (str): The name of the table to look the version up for.
+
+        Returns:
+            str: The stored version, or "2.0.0" when none is recorded yet. The default
+                matches the SQL backends: an unversioned table is treated as being at the
+                earliest schema, so pending migrations are applied rather than skipped.
+        """
+        try:
+            collection = await self._get_collection(table_type="versions", create_collection_if_not_found=True)
+            if collection is None:
+                return "2.0.0"
+
+            record = await collection.find_one({"table_name": table_name})
+            if record is None:
+                return "2.0.0"
+
+            return record.get("version") or "2.0.0"
+
+        except Exception as e:
+            log_error(f"Error getting schema version for {table_name}: {str(e)}")
+            return "2.0.0"
+
+    async def upsert_schema_version(self, table_name: str, version: str) -> None:
+        """Record the schema version for a table.
+
+        Args:
+            table_name (str): The name of the table the version applies to.
+            version (str): The version to store.
+        """
+        try:
+            collection = await self._get_collection(table_type="versions", create_collection_if_not_found=True)
+            if collection is None:
+                return
+
+            now = datetime.now(timezone.utc).isoformat()
+            await collection.update_one(
+                {"table_name": table_name},
+                {
+                    "$set": {"table_name": table_name, "version": version, "updated_at": now},
+                    "$setOnInsert": {"created_at": now},
+                },
+                upsert=True,
+            )
+
+        except Exception as e:
+            log_error(f"Error upserting schema version for {table_name}: {str(e)}")
 
     # -- Session methods --
 

@@ -42,6 +42,9 @@ class InMemoryDb(BaseDb):
         self._eval_runs: List[Dict[str, Any]] = []
         self._knowledge: List[Dict[str, Any]] = []
         self._cultural_knowledge: List[Dict[str, Any]] = []
+        # Per-table schema versions. In-memory, so they reset with the process -- which is
+        # correct here: the data resets with it too.
+        self._schema_versions: Dict[str, str] = {}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "InMemoryDb":
@@ -53,13 +56,27 @@ class InMemoryDb(BaseDb):
         """In-memory implementation, always returns True."""
         return True
 
-    def get_latest_schema_version(self):
-        """Get the latest version of the database schema."""
-        pass
+    def get_latest_schema_version(self, table_name: str) -> str:
+        """Get the stored schema version for a table.
 
-    def upsert_schema_version(self, version: str) -> None:
-        """Upsert the schema version into the database."""
-        pass
+        Args:
+            table_name (str): The name of the table to look the version up for.
+
+        Returns:
+            str: The stored version, or "2.0.0" when none is recorded yet. The default
+                matches the SQL backends: an unversioned table is treated as being at the
+                earliest schema, so pending migrations are applied rather than skipped.
+        """
+        return self._schema_versions.get(table_name, "2.0.0")
+
+    def upsert_schema_version(self, table_name: str, version: str) -> None:
+        """Record the schema version for a table.
+
+        Args:
+            table_name (str): The name of the table the version applies to.
+            version (str): The version to store.
+        """
+        self._schema_versions[table_name] = version
 
     # -- Session methods --
     def delete_session(self, session_id: str, user_id: Optional[str] = None) -> bool:

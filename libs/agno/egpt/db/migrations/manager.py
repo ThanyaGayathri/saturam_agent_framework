@@ -41,6 +41,23 @@ class MigrationManager:
     def latest_schema_version(self) -> Version:
         return self.available_versions[-1][1]
 
+    async def _current_version(self, table_name: str) -> Optional[Version]:
+        """Read and parse a table's stored schema version.
+
+        Returns None when the backend reports no version, so callers can skip the table
+        instead of letting ``packaging.version.parse(None)`` raise and abort the whole run.
+        The guard has to live here, before the parse -- a check on the parsed value can never
+        fire, because ``parse`` raises on None rather than returning it.
+        """
+        if isinstance(self.db, AsyncBaseDb):
+            raw_version = await self.db.get_latest_schema_version(table_name)
+        else:
+            raw_version = self.db.get_latest_schema_version(table_name)
+
+        if raw_version is None:
+            return None
+        return packaging_version.parse(raw_version)
+
     def _resolve_tables(self, table_type: Optional[str]) -> Optional[list[tuple[str, str]]]:
         """Resolve the (table_type, table_name) pairs to migrate.
 
@@ -95,11 +112,7 @@ class MigrationManager:
 
         # Handle migrations for each table separately (extend in future if needed):
         for table_type, table_name in tables:
-            if isinstance(self.db, AsyncBaseDb):
-                current_version = packaging_version.parse(await self.db.get_latest_schema_version(table_name))
-            else:
-                current_version = packaging_version.parse(self.db.get_latest_schema_version(table_name))
-
+            current_version = await self._current_version(table_name)
             if current_version is None:
                 log_info(f"Skipping migration: No version found for table {table_name}.")
                 continue
@@ -171,10 +184,10 @@ class MigrationManager:
             return
 
         for table_type, table_name in tables:
-            if isinstance(self.db, AsyncBaseDb):
-                current_version = packaging_version.parse(await self.db.get_latest_schema_version(table_name))
-            else:
-                current_version = packaging_version.parse(self.db.get_latest_schema_version(table_name))
+            current_version = await self._current_version(table_name)
+            if current_version is None:
+                log_info(f"Skipping down migration: No version found for table {table_name}.")
+                continue
 
             if _target_version >= current_version and not force:
                 log_warning(

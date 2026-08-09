@@ -148,7 +148,12 @@ class RedisDb(BaseDb):
             raise ValueError(f"Unknown table type: {table_type}")
 
     def _store_record(
-        self, table_type: str, record_id: str, data: Dict[str, Any], index_fields: Optional[List[str]] = None
+        self,
+        table_type: str,
+        record_id: str,
+        data: Dict[str, Any],
+        index_fields: Optional[List[str]] = None,
+        apply_expiry: bool = True,
     ) -> bool:
         """Generic method to store a record in Redis, considering optional indexing.
 
@@ -157,6 +162,10 @@ class RedisDb(BaseDb):
             record_id (str): The ID of the record to store.
             data (Dict[str, Any]): The data to store in the record.
             index_fields (Optional[List[str]]): The fields to index the record by.
+            apply_expiry (bool): Whether the configured ``expire`` TTL applies. Pass False for
+                bookkeeping records that must outlive the data they describe -- schema versions
+                in particular, since an expired version record would silently read back as
+                "2.0.0" and re-run every migration.
 
         Returns:
             bool: True if the record was stored successfully, False otherwise.
@@ -165,7 +174,7 @@ class RedisDb(BaseDb):
             key = generate_redis_key(prefix=self.db_prefix, table_type=table_type, key_id=record_id)
             serialized_data = serialize_data(data)
 
-            self.redis_client.set(key, serialized_data, ex=self.expire)
+            self.redis_client.set(key, serialized_data, ex=self.expire if apply_expiry else None)
 
             if index_fields:
                 create_index_entries(
@@ -272,13 +281,57 @@ class RedisDb(BaseDb):
             log_error(f"Error getting all records for {table_type}: {str(e)}")
             return []
 
-    def get_latest_schema_version(self):
-        """Get the latest version of the database schema."""
-        pass
+    def get_latest_schema_version(self, table_name: str) -> str:
+        """Get the stored schema version for a table.
 
-    def upsert_schema_version(self, version: str) -> None:
-        """Upsert the schema version into the database."""
-        pass
+        Stored one record per table under the ``versions`` namespace, so the key is
+        ``{db_prefix}:versions:{table_name}``.
+
+        Args:
+            table_name (str): The name of the table to look the version up for.
+
+        Returns:
+            str: The stored version, or "2.0.0" when none is recorded yet. The default
+                matches the SQL backends: an unversioned table is treated as being at the
+                earliest schema, so pending migrations are applied rather than skipped.
+        """
+        try:
+            record = self._get_record(table_type="versions", record_id=table_name)
+            if record is None:
+                return "2.0.0"
+
+            return record.get("version") or "2.0.0"
+
+        except Exception as e:
+            log_error(f"Error getting schema version for {table_name}: {str(e)}")
+            return "2.0.0"
+
+    def upsert_schema_version(self, table_name: str, version: str) -> None:
+        """Record the schema version for a table.
+
+        Args:
+            table_name (str): The name of the table the version applies to.
+            version (str): The version to store.
+        """
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            existing = self._get_record(table_type="versions", record_id=table_name)
+            created_at = existing.get("created_at") if existing else now
+
+            self._store_record(
+                table_type="versions",
+                record_id=table_name,
+                data={
+                    "table_name": table_name,
+                    "version": version,
+                    "created_at": created_at,
+                    "updated_at": now,
+                },
+                apply_expiry=False,
+            )
+
+        except Exception as e:
+            log_error(f"Error upserting schema version for {table_name}: {str(e)}")
 
     # -- Session methods --
 
