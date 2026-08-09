@@ -265,12 +265,16 @@ jobs:
           uv pip install -e .[tests]
           uv pip install brave-search --no-deps
           uv pip install -e tests/fixtures/egpt_dummy_provider
-          # Remove exactly the storage/vectordb/channel drivers, keeping everything else
-          # test-and-build installs. Expressed as an uninstall rather than a lean extra
+          # Remove exactly the storage/vectordb/channel/SaaS-SDK drivers, keeping everything
+          # else test-and-build installs. Expressed as an uninstall rather than a lean extra
           # because the extras self-reference heavily (tests -> dev -> slack -> ...), so
           # subtracting after the fact is the only reliable way to express "minus drivers".
           # uv warns and exits 0 for anything not installed, so this stays correct as the
           # extras change.
+          #
+          # Invariant: one entry per driver family gated in tests/unit; extend this list when
+          # gating a new family, or the gates and the job that enforces them drift apart and
+          # the job goes blind to exactly the family it should be checking.
           uv pip uninstall \
             aioboto3 \
             aiosqlite \
@@ -278,6 +282,9 @@ jobs:
             asyncpg \
             boto3 \
             botocore \
+            google-api-python-client \
+            google-auth-httplib2 \
+            google-auth-oauthlib \
             lancedb \
             psycopg \
             psycopg-binary \

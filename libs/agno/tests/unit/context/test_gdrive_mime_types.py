@@ -14,7 +14,13 @@ from __future__ import annotations
 
 import pytest
 
-from egpt.integrations.tools.google.drive import GoogleDriveTools, WorkspaceType, _is_binary_mime
+pytest.importorskip("googleapiclient", reason="the Google Drive toolkit imports the Google API client at module level")
+
+from egpt.integrations.tools.google.drive import (  # noqa: E402
+    GoogleDriveTools,
+    WorkspaceType,
+    _is_binary_mime,
+)
 
 
 class TestGoogleWorkspaceExportable:
