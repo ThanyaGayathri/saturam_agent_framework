@@ -380,3 +380,29 @@ def test_aresolve_via_prefers_a_native_async_path():
     assert isinstance(provider, AsyncModelProvider)
     assert asyncio.run(aresolve_via(provider, ModelResolveRequest())) is model
     assert provider.async_calls == 1
+
+
+def test_equal_requests_hash_equally():
+    """``a == b`` must imply ``hash(a) == hash(b)`` -- memoization is the whole point.
+
+    The first fix for the unhashable-request finding hashed ``requested`` by address, which
+    does not raise but breaks the invariant: the generated ``__eq__`` compares by value, so two
+    equal requests hashed differently. An ``lru_cache`` over a policy lookup then never hits and
+    a hand-rolled dict grows one entry per call -- the same failure one layer down.
+    """
+    a = ModelResolveRequest(requested=_StubModel(id="m", provider="stub"))
+    b = ModelResolveRequest(requested=_StubModel(id="m", provider="stub"))
+
+    assert a == b
+    assert hash(a) == hash(b)
+    assert len({a: "first", b: "second"}) == 1
+    assert {a: "cached"}[b] == "cached"
+
+
+def test_requests_pinning_different_models_hash_differently():
+    """Non-vacuity: a hash ignoring ``requested`` entirely would pass the test above."""
+    a = ModelResolveRequest(requested=_StubModel(id="small", provider="stub"))
+    b = ModelResolveRequest(requested=_StubModel(id="frontier", provider="stub"))
+
+    assert a != b
+    assert hash(a) != hash(b)

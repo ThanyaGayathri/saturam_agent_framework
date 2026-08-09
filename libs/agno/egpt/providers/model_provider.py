@@ -141,9 +141,17 @@ class ModelResolveRequest:
     # *presents* as hashable -- but ``metadata`` is a mappingproxy and ``requested`` holds a
     # ``Model`` (an eq=True dataclass, so ``__hash__ = None``), and hashing either raises. A
     # provider memoizing resolution (an ``lru_cache`` over a policy lookup is the obvious
-    # implementation for EGPT-3.2) would hit that at agent-construction time. Hash the fields
-    # that actually identify a resolution instead; ``metadata`` is deliberately excluded, being
-    # an escape hatch whose contents are arbitrary and possibly unhashable.
+    # implementation for EGPT-3.2) would hit that at agent-construction time.
+    #
+    # Every component here must be hashed by *value*, because the generated ``__eq__`` compares
+    # by value and ``a == b`` must imply ``hash(a) == hash(b)``. Hashing ``requested`` by
+    # address (``id()``) satisfies the letter of "does not raise" and breaks that invariant:
+    # two equal requests would hash differently, so an ``lru_cache`` never hits and a
+    # hand-rolled dict grows one entry per call -- the same failure the hash was added to
+    # prevent, one layer down. ``requested.id`` is the model's own value-identity.
+    #
+    # ``metadata`` is excluded outright: unequal-but-same-hash is permitted, so dropping a
+    # field is safe where hashing it by address is not.
     def __hash__(self) -> int:
         return hash(
             (
@@ -151,7 +159,7 @@ class ModelResolveRequest:
                 self.user_id,
                 self.session_id,
                 self.agent_id,
-                id(self.requested) if self.requested is not None else None,
+                self.requested.id if self.requested is not None else None,
                 self.role,
                 self.mode,
                 self.adapter,

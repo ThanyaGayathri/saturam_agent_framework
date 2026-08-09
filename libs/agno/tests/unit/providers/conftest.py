@@ -48,3 +48,23 @@ def restore_default_model_provider():
         yield
     finally:
         set_default_model_provider(saved)
+
+
+@pytest.fixture(autouse=True)
+def reset_resolution_counter():
+    """The resolved-without-provider counter is process-global and never otherwise reset.
+
+    Without this, a test installing a provider after any earlier test resolved an agent emits
+    the ordering warning -- noise that reads like a real misconfiguration.
+
+    Resets the counter only, not the provider global: ``restore_default_model_provider`` above
+    owns that one, and ``reset_provider_state_for_tests`` would clear the value it is trying to
+    put back. Two autouse fixtures writing the same global is how a restore silently stops
+    restoring.
+    """
+    import egpt.providers as providers
+
+    try:
+        yield
+    finally:
+        providers._RESOLVED_WITHOUT_PROVIDER = 0

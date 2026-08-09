@@ -170,3 +170,37 @@ def test_without_a_provider_teams_resolve_as_before(monkeypatch):
 
     assert "openai-responses:gpt-5.4" in calls
     assert team.model is sentinel
+
+
+def test_an_explicit_team_model_still_reaches_members(provider_model):
+    """Pre-resolving members must not discard an explicitly pinned team model.
+
+    ``_set_default_model`` lets the team's explicit model outrank the provider (its
+    ``if team.model is None`` guard). Pre-resolving every member against the *process-wide*
+    provider inverted that one level down: the operator pinned a model and the members
+    silently ran on a different one. It is the mirror of the seam bypass -- that sent traffic
+    somewhere the operator did not want, this overrides what they deliberately chose.
+    """
+    pinned = _StubModel(id="user-pinned", provider="stub")
+    set_default_model_provider(_RecordingProvider(provider_model))
+
+    team = Team(name="T", model=pinned, members=[Agent(name="R")])
+    team.initialize_team()
+
+    assert team.model is pinned
+    assert team.members[0].model is pinned
+
+
+def test_a_member_provider_still_wins_over_an_explicit_team_model(provider_model):
+    """Non-vacuity for the test above: the gate is the member's *own* provider, not any."""
+    pinned = _StubModel(id="user-pinned", provider="stub")
+    member_model = _StubModel(id="member-specific", provider="stub")
+    set_default_model_provider(_RecordingProvider(provider_model))
+
+    member = Agent(name="Specialist")
+    member.model_provider = _RecordingProvider(member_model)
+    team = Team(name="T", model=pinned, members=[member])
+    team.initialize_team()
+
+    assert team.model is pinned
+    assert member.model is member_model

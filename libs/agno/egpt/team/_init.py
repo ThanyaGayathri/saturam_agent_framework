@@ -495,12 +495,22 @@ def _initialize_member(team: "Team", member: Union["Team", Agent], debug_mode: O
         member._team = team
         member.set_id()
 
-        # Resolve through the seam before inheriting (EGPT-3.1). Inheritance assigns a
-        # non-None model, which makes the member's own `set_default_model` short-circuit at its
-        # `if agent.model is None` guard -- so a member whose provider would route it elsewhere
-        # (its own adapter, its own tenant endpoint) silently ran on the team's model instead.
-        # Resolving first keeps inheritance as the fallback it was meant to be.
-        if member.model is None:
+        # Resolve through the seam before inheriting (EGPT-3.1), but only for a member that
+        # carries its *own* provider. Inheritance assigns a non-None model, which makes the
+        # member's own `set_default_model` short-circuit at its `if agent.model is None` guard,
+        # so a member configured to route elsewhere (its own adapter, its own tenant endpoint)
+        # would silently run on the team's model instead.
+        #
+        # Gating on the member's own provider rather than any provider is load-bearing: falling
+        # back to the process-wide one here would make this fire for *every* member whenever any
+        # provider is installed, so an explicit `Team(model=...)` would stop reaching its
+        # members. That inverts the precedence `_set_default_model` enforces one level up, where
+        # the team's explicit model outranks the provider -- and an explicitly pinned model is
+        # user intent, which outranks configuration everywhere else in this seam.
+        #
+        # When `team.model` is None the team has already resolved through the seam, so
+        # inheritance below carries the provider's model anyway.
+        if member.model is None and getattr(member, "model_provider", None) is not None:
             from egpt.agent._init import _resolve_via_provider
 
             member.model = _resolve_via_provider(member)
