@@ -26,6 +26,10 @@ from egpt.db.base import BaseDb, ComponentType
 from egpt.os.routers.components import get_components_router
 from egpt.os.settings import AgnoAPISettings
 
+# Since EGPT-2.2 a non-empty config is validated before it is persisted, and an agent
+# definition has to name a model. Tests that only care about the routing use this.
+VALID_AGENT_CONFIG = {"model": "openai:gpt-5.5"}
+
 # =============================================================================
 # Fixtures
 # =============================================================================
@@ -48,7 +52,16 @@ def mock_db():
     db = MockDbClass()
     db.id = "test-db"
     db.list_components = MagicMock()
-    db.get_component = MagicMock()
+    # Defaults to an existing agent: the config endpoints look the component up to find out
+    # which schema to validate against. Tests that care about the lookup override it.
+    db.get_component = MagicMock(
+        return_value={
+            "component_id": "agent-1",
+            "component_type": "agent",
+            "name": "Agent",
+            "created_at": 1234567890,
+        }
+    )
     db.upsert_component = MagicMock()
     db.delete_component = MagicMock()
     db.create_component_with_config = MagicMock()
@@ -159,7 +172,7 @@ class TestCreateComponent:
             json={
                 "name": "Test Agent",
                 "component_type": "agent",
-                "config": {"id": "test-agent"},
+                "config": {"id": "test-agent", **VALID_AGENT_CONFIG},
             },
         )
 
@@ -363,7 +376,7 @@ class TestCreateConfig:
 
         response = client.post(
             "/components/agent-1/configs",
-            json={"config": {"name": "Agent"}, "stage": "draft"},
+            json={"config": {"name": "Agent", **VALID_AGENT_CONFIG}, "stage": "draft"},
         )
 
         assert response.status_code == 201
@@ -468,7 +481,7 @@ class TestUpdateConfig:
 
         response = client.patch(
             "/components/agent-1/configs/1",
-            json={"config": {"name": "Updated Agent"}},
+            json={"config": {"name": "Updated Agent", **VALID_AGENT_CONFIG}},
         )
 
         assert response.status_code == 200
@@ -563,6 +576,187 @@ class TestSetCurrentConfig:
 
 
 # =============================================================================
+# Config Validation Tests (EGPT-2.2)
+# =============================================================================
+
+
+class TestConfigValidation:
+    """Semantic validation of the config blob on every write path."""
+
+    def test_create_component_rejects_config_without_model(self, client, mock_db):
+        response = client.post(
+            "/components",
+            json={"name": "Test", "component_type": "agent", "config": {"instructions": "be nice"}},
+        )
+
+        assert response.status_code == 422
+        body = response.json()
+        assert body["error_code"] == "CONFIG_VALIDATION_ERROR"
+        assert body["schema_version"] == 1
+        assert body["errors"] == [
+            {
+                "path": "config.model",
+                "message": "Field 'model' is required for an agent definition.",
+                "code": "missing_required_field",
+            }
+        ]
+        mock_db.create_component_with_config.assert_not_called()
+
+    def test_create_component_reports_every_error_at_once(self, client, mock_db):
+        response = client.post(
+            "/components",
+            json={
+                "name": "Test",
+                "component_type": "agent",
+                "config": {"model": {"id": "gpt-5.5", "provider": "nope"}, "instruction": "typo"},
+            },
+        )
+
+        assert response.status_code == 422
+        errors = {e["path"]: e["code"] for e in response.json()["errors"]}
+        assert errors == {"config.instruction": "unknown_field", "config.model.provider": "unresolvable_ref"}
+
+    def test_unknown_field_suggests_the_intended_one(self, client, mock_db):
+        response = client.post(
+            "/components",
+            json={"name": "Test", "component_type": "agent", "config": {**VALID_AGENT_CONFIG, "instruction": "hi"}},
+        )
+
+        assert response.status_code == 422
+        assert "Did you mean 'instructions'?" in response.json()["errors"][0]["message"]
+
+    def test_valid_config_is_persisted_with_a_schema_version(self, client, mock_db):
+        mock_db.create_component_with_config.return_value = (
+            {"component_id": "a", "name": "A", "component_type": "agent", "created_at": 1},
+            {"version": 1},
+        )
+
+        response = client.post(
+            "/components",
+            json={"name": "A", "component_type": "agent", "config": dict(VALID_AGENT_CONFIG)},
+        )
+
+        assert response.status_code == 201
+        persisted = mock_db.create_component_with_config.call_args.kwargs["config"]
+        assert persisted == {**VALID_AGENT_CONFIG, "schema_version": 1}
+
+    def test_empty_config_creates_a_shell_component(self, client, mock_db):
+        """A component with no config yet is a legitimate flow, so there is nothing to reject."""
+        mock_db.create_component_with_config.return_value = (
+            {"component_id": "a", "name": "A", "component_type": "team", "created_at": 1},
+            {"version": 1},
+        )
+
+        response = client.post("/components", json={"name": "A", "component_type": "team"})
+
+        assert response.status_code == 201
+
+    def test_team_config_is_validated_at_the_envelope_level(self, client, mock_db):
+        response = client.post(
+            "/components",
+            json={
+                "name": "T",
+                "component_type": "team",
+                "config": {"members": [{"type": "squad", "agent_id": "a"}]},
+            },
+        )
+
+        assert response.status_code == 422
+        assert response.json()["errors"][0] == {
+            "path": "config.members[0].type",
+            "message": "Member 'type' must be 'agent' or 'team'.",
+            "code": "invalid_value",
+        }
+
+    def test_team_cannot_contain_itself(self, client, mock_db):
+        response = client.post(
+            "/components",
+            json={
+                "name": "T",
+                "component_id": "t-1",
+                "component_type": "team",
+                "config": {"members": [{"type": "team", "team_id": "t-1"}]},
+            },
+        )
+
+        assert response.status_code == 422
+        assert response.json()["errors"][0]["code"] == "cyclic_reference"
+
+    def test_workflow_config_rejects_an_unknown_step_type(self, client, mock_db):
+        response = client.post(
+            "/components",
+            json={"name": "W", "component_type": "workflow", "config": {"steps": [{"type": "Frobnicate"}]}},
+        )
+
+        assert response.status_code == 422
+        assert response.json()["errors"][0]["path"] == "config.steps[0].type"
+
+    def test_create_config_validates_against_the_stored_component_type(self, client, mock_db):
+        mock_db.get_component.return_value = {
+            "component_id": "wf-1",
+            "component_type": "workflow",
+            "created_at": 1,
+        }
+
+        response = client.post("/components/wf-1/configs", json={"config": {"steps": [{"type": "Nope"}]}})
+
+        assert response.status_code == 422
+        assert response.json()["errors"][0]["path"] == "config.steps[0].type"
+        mock_db.upsert_config.assert_not_called()
+
+    def test_create_config_404s_for_an_unknown_component(self, client, mock_db):
+        mock_db.get_component.return_value = None
+
+        response = client.post("/components/nope/configs", json={"config": dict(VALID_AGENT_CONFIG)})
+
+        assert response.status_code == 404
+        mock_db.upsert_config.assert_not_called()
+
+    def test_update_config_rejects_an_invalid_config(self, client, mock_db):
+        response = client.patch("/components/agent-1/configs/1", json={"config": {"instructions": "hi"}})
+
+        assert response.status_code == 422
+        assert response.json()["errors"][0]["path"] == "config.model"
+        mock_db.upsert_config.assert_not_called()
+
+    def test_unresolvable_db_reference_is_rejected(self, client, mock_db):
+        """The router used to log this and store the config anyway."""
+        response = client.post(
+            "/components",
+            json={
+                "name": "A",
+                "component_type": "agent",
+                "config": {**VALID_AGENT_CONFIG, "db": {"id": "does-not-exist"}},
+            },
+        )
+
+        assert response.status_code == 422
+        assert response.json()["errors"][0] == {
+            "path": "config.db.id",
+            "message": (
+                "Database 'does-not-exist' could not be resolved. It matches neither the OS "
+                "database nor any db registered on the Registry."
+            ),
+            "code": "unresolvable_ref",
+        }
+
+    def test_config_rejection_is_422_not_400(self, client, mock_db):
+        """ConfigValidationError subclasses ValueError; the 400 handler must not swallow it."""
+        for method, url in (
+            (client.post, "/components"),
+            (client.post, "/components/agent-1/configs"),
+            (client.patch, "/components/agent-1/configs/1"),
+        ):
+            payload = {"config": {"instructions": "no model"}}
+            if url == "/components":
+                payload |= {"name": "A", "component_type": "agent"}
+
+            response = method(url, json=payload)
+
+            assert response.status_code == 422, url
+
+
+# =============================================================================
 # _resolve_db_in_config Tests
 # =============================================================================
 #
@@ -587,7 +781,7 @@ class TestResolveDbInConfig:
         os_db = self._make_os_db(tmp_path)
         config = {"name": "agent"}
 
-        out = _resolve_db_in_config(dict(config), os_db, None)
+        out, _unresolved = _resolve_db_in_config(dict(config), os_db, None)
 
         assert out == config
 
@@ -596,7 +790,7 @@ class TestResolveDbInConfig:
 
         os_db = self._make_os_db(tmp_path)
 
-        out = _resolve_db_in_config({"name": "agent", "db": None}, os_db, None)
+        out, _unresolved = _resolve_db_in_config({"name": "agent", "db": None}, os_db, None)
 
         assert "db" not in out
 
@@ -606,7 +800,7 @@ class TestResolveDbInConfig:
         os_db = self._make_os_db(tmp_path)
         payload = {"db": {"type": "sqlite", "session_table": "custom"}}
 
-        out = _resolve_db_in_config(dict(payload), os_db, None)
+        out, _unresolved = _resolve_db_in_config(dict(payload), os_db, None)
 
         assert out["db"] == payload["db"]
 
@@ -624,7 +818,7 @@ class TestResolveDbInConfig:
             },
         }
 
-        out = _resolve_db_in_config(dict(payload), os_db, None)
+        out, _unresolved = _resolve_db_in_config(dict(payload), os_db, None)
 
         assert out["db"]["session_table"] == "custom_sessions"
         assert out["db"]["memory_table"] == "custom_memories"
@@ -653,7 +847,7 @@ class TestResolveDbInConfig:
             },
         }
 
-        out = _resolve_db_in_config(dict(payload), os_db, None)
+        out, _unresolved = _resolve_db_in_config(dict(payload), os_db, None)
 
         resolved_db_dict = out["db"]
         # Connection fields MUST come from os_db, never from the caller.
@@ -678,7 +872,7 @@ class TestResolveDbInConfig:
             },
         }
 
-        out = _resolve_db_in_config(dict(payload), os_db, None)
+        out, _unresolved = _resolve_db_in_config(dict(payload), os_db, None)
 
         assert "arbitrary_extension" not in out["db"]
         assert out["db"]["session_table"] == "custom_sessions"
@@ -692,7 +886,7 @@ class TestResolveDbInConfig:
         os_db = self._make_os_db(tmp_path)
         payload = {"db": {"id": os_db.id, "table_prefix": "acme_"}}
 
-        out = _resolve_db_in_config(dict(payload), os_db, None)
+        out, _unresolved = _resolve_db_in_config(dict(payload), os_db, None)
 
         assert out["db"]["table_prefix"] == "acme_"
         # Connection metadata still comes from the resolved db.
@@ -716,7 +910,7 @@ class TestResolveDbInConfig:
             },
         }
 
-        out = _resolve_db_in_config(dict(payload), os_db, None)
+        out, _unresolved = _resolve_db_in_config(dict(payload), os_db, None)
 
         assert out["db"]["table_prefix"] == "acme_"
         assert out["db"]["session_table"] == "custom_sessions"

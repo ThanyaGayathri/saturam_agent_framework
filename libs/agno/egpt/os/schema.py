@@ -82,6 +82,45 @@ class InternalServerErrorResponse(BaseModel):
     error_code: Optional[str] = Field(None, description="Error code for categorization")
 
 
+class ConfigFieldError(BaseModel):
+    """One field-level problem with a component config."""
+
+    path: str = Field(..., description="Path to the offending field, e.g. 'config.model.provider'")
+    message: str = Field(..., description="What is wrong with the field")
+    code: str = Field(..., description="Machine-readable error code, e.g. 'unresolvable_ref'")
+
+
+class ConfigValidationErrorResponse(BaseModel):
+    """Returned (422) when a component config is well-formed JSON but not a valid definition.
+
+    Distinct from ``ValidationErrorResponse``, which carries FastAPI's request-shape errors:
+    the body matched ``ComponentCreate`` and was still rejected, so the caller needs to know
+    which field of the *config* is at fault.
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "detail": "Invalid agent configuration: 1 error.",
+                "error_code": "CONFIG_VALIDATION_ERROR",
+                "schema_version": 1,
+                "errors": [
+                    {
+                        "path": "config.model",
+                        "message": "Field 'model' is required for an agent definition.",
+                        "code": "missing_required_field",
+                    }
+                ],
+            }
+        }
+    )
+
+    detail: str = Field(..., description="Summary of what failed")
+    error_code: str = Field("CONFIG_VALIDATION_ERROR", description="Error code for categorization")
+    schema_version: int = Field(..., description="The config schema version this server validates against")
+    errors: List[ConfigFieldError] = Field(..., description="Every field-level problem found")
+
+
 class ScopeItem(BaseModel):
     """Write shape for one scope grant — the canonical RBAC payload for every scope-bearing API.
 

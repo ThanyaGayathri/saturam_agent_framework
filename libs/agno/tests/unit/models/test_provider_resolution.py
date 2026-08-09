@@ -15,9 +15,9 @@ from egpt.models.base import Model
 from egpt.models.utils import (
     _canonical_provider_display,
     _get_model_class,
-    _resolve_provider_key,
     get_model_from_dict,
     resolve_model,
+    resolve_provider_key,
 )
 from egpt.registry.discovery import declarations
 from tests.unit._layer_guards import (
@@ -99,7 +99,7 @@ def test_canonical_provider_display_matches_class(key):
     ],
 )
 def test_resolve_sdk_gated_providers(provider, name, expected_key):
-    assert _resolve_provider_key(provider, name) == expected_key
+    assert resolve_provider_key(provider, name) == expected_key
 
 
 @pytest.mark.parametrize(
@@ -124,7 +124,7 @@ def test_resolve_sdk_gated_providers(provider, name, expected_key):
     ],
 )
 def test_resolve_provider_aliases(provider, name, expected_key):
-    assert _resolve_provider_key(provider, name) == expected_key
+    assert resolve_provider_key(provider, name) == expected_key
 
 
 @pytest.mark.parametrize(
@@ -145,7 +145,7 @@ def test_resolve_provider_aliases(provider, name, expected_key):
     ],
 )
 def test_name_does_not_override_conflicting_provider(provider, name, expected_key):
-    assert _resolve_provider_key(provider, name) == expected_key
+    assert resolve_provider_key(provider, name) == expected_key
 
 
 def test_user_named_model_reconstructs_correct_provider():
@@ -165,15 +165,15 @@ def test_user_named_model_reconstructs_correct_provider():
 )
 def test_unrecognized_provider_not_overridden_by_name(provider, name):
     """A non-empty unsupported provider stays authoritative and is rejected, not name-routed."""
-    assert _resolve_provider_key(provider, name) == provider
+    assert resolve_provider_key(provider, name) == provider
     with pytest.raises(ValueError, match="is not supported"):
         get_model_from_dict({"provider": provider, "name": name, "id": "x"})
 
 
 def test_empty_provider_falls_back_to_name():
     """With no provider string, the serialized name is the only signal and is used."""
-    assert _resolve_provider_key("", "Groq") == "groq"
-    assert _resolve_provider_key(None, "OpenAIChat") == "openai-chat"
+    assert resolve_provider_key("", "Groq") == "groq"
+    assert resolve_provider_key(None, "OpenAIChat") == "openai-chat"
 
 
 def test_unsupported_provider_raises():

@@ -49,6 +49,7 @@ from egpt.models.fallback import FallbackConfig
 from egpt.models.message import Message
 from egpt.models.response import ToolExecution
 from egpt.registry.registry import Registry
+from egpt.registry.schema import ComponentSpec
 from egpt.run import RunContext, RunStatus
 from egpt.run.agent import (
     RunEvent,
@@ -947,6 +948,15 @@ class Agent:
     @classmethod
     def from_dict(cls, data: Dict[str, Any], registry: Optional[Registry] = None) -> "Agent":
         return _storage.from_dict(cls, data=data, registry=registry)
+
+    @classmethod
+    def component_spec(cls, *, registry: Optional[Registry] = None) -> "ComponentSpec":
+        """The contract `egpt.registry.schema` validates agent configs against.
+
+        Sync-only by design: this builds and returns a descriptor with nothing to await, the
+        same rationale as `BaseDb.clone_with_table_overrides`.
+        """
+        return _storage.component_spec(registry=registry)
 
     def save(
         self,

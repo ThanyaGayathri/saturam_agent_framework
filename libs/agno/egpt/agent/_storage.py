@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+from inspect import signature
 from typing import (
     TYPE_CHECKING,
     Any,
     Dict,
+    FrozenSet,
     List,
     Optional,
     Type,
@@ -24,6 +27,7 @@ from egpt.metrics import RunMetrics, SessionMetrics
 from egpt.models.base import Model
 from egpt.models.message import Message
 from egpt.registry.registry import Registry
+from egpt.registry.schema import SCHEMA_VERSION, SCHEMA_VERSION_KEY, ComponentSpec
 from egpt.run.agent import RunOutput
 from egpt.session import AgentSession, TeamSession, WorkflowSession
 from egpt.tools.function import Function
@@ -739,7 +743,57 @@ def to_dict(agent: Agent) -> Dict[str, Any]:
     # Always serialize — default is False; omit-on-True would lose opt-in on from_dict
     config["telemetry"] = agent.telemetry
 
+    # Stamped unconditionally: `save()` writes straight to the db without going through the
+    # components API, so `to_dict` is the only point where every stored config -- however it
+    # was written -- can be made self-describing. `from_dict` builds its kwargs from an
+    # explicit list, so the key round-trips without needing to be consumed.
+    config[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
+
     return config
+
+
+# Config keys that are not `Agent` constructor parameters but are still legitimate: the
+# version stamp, the parent ids `to_dict` emits for context, and the pre-rename aliases
+# `from_dict` still reads.
+_AGENT_EXTRA_CONFIG_KEYS = frozenset(
+    {
+        SCHEMA_VERSION_KEY,
+        "team_id",
+        "workflow_id",
+        "search_session_history",
+        "num_history_sessions",
+        "num_past_session_runs",
+    }
+)
+
+
+@lru_cache(maxsize=1)
+def _agent_config_keys() -> FrozenSet[str]:
+    """Every key an agent config may carry, derived from the constructor rather than listed.
+
+    Hand-listing ~90 settings would duplicate `Agent.__init__` and drift from it within a
+    release, leaving the validator rejecting a field the agent happily accepts. Reading the
+    signature is the same trick `egpt.db.utils.unsupported_table_overrides` uses.
+    """
+    from egpt.agent.agent import Agent
+
+    params = {name for name in signature(Agent).parameters if name != "self"}
+    return frozenset(params | _AGENT_EXTRA_CONFIG_KEYS)
+
+
+def component_spec(*, registry: Optional[Registry] = None) -> ComponentSpec:
+    """The agent's side of the config-validation contract (see `egpt.registry.schema`).
+
+    Core validates configs but must not import orchestration, so it takes the component's
+    key set and a dry-run hydrator from here instead of naming `Agent` itself.
+    """
+    from egpt.agent.agent import Agent
+
+    return ComponentSpec(
+        component_type="agent",
+        known_keys=_agent_config_keys(),
+        hydrate=lambda config: from_dict(Agent, data=config, registry=registry),
+    )
 
 
 def from_dict(cls: Type[Agent], data: Dict[str, Any], registry: Optional[Registry] = None) -> Agent:

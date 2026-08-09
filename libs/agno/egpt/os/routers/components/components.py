@@ -1,13 +1,15 @@
 import logging
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from fastapi.responses import JSONResponse
 
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.db.base import ComponentType as DbComponentType
 from egpt.db.utils import DB_CONFIG_OVERRIDE_KEYS, DB_TABLE_NAME_KEYS
 from egpt.os.auth import get_authentication_dependency
+from egpt.os.routers.components.validation import config_validation_response, validate_component_config
 from egpt.os.schema import (
     BadRequestResponse,
     ComponentConfigResponse,
@@ -17,6 +19,7 @@ from egpt.os.schema import (
     ComponentUpdate,
     ConfigCreate,
     ConfigUpdate,
+    ConfigValidationErrorResponse,
     InternalServerErrorResponse,
     NotFoundResponse,
     PaginatedResponse,
@@ -26,7 +29,8 @@ from egpt.os.schema import (
 )
 from egpt.os.settings import EgptServingSettings
 from egpt.registry import Registry
-from egpt.utils.log import log_error, log_warning
+from egpt.registry.schema import ConfigValidationError
+from egpt.utils.log import log_error
 from egpt.utils.string import generate_id_from_name
 
 logger = logging.getLogger(__name__)
@@ -36,7 +40,7 @@ def _resolve_db_in_config(
     config: Dict[str, Any],
     os_db: BaseDb,
     registry: Optional[Registry] = None,
-) -> Dict[str, Any]:
+) -> Tuple[Dict[str, Any], Optional[str]]:
     """
     Resolve db reference in config by looking up in registry or OS db.
 
@@ -55,8 +59,13 @@ def _resolve_db_in_config(
         registry: Optional registry containing registered databases
 
     Returns:
-        Updated config dict with resolved db
+        A ``(config, unresolved_db_id)`` pair. ``unresolved_db_id`` is the id the config
+        referenced when nothing could be resolved for it, and ``None`` otherwise. The caller
+        turns that into a field-level validation error -- this used to be logged and
+        forgotten, which let a config naming a db that does not exist be persisted and then
+        silently lose its db at hydration time.
     """
+    unresolved_db_id: Optional[str] = None
     component_db = config.get("db")
     if component_db is not None and isinstance(component_db, dict):
         component_db_id = component_db.get("id")
@@ -91,12 +100,13 @@ def _resolve_db_in_config(
                             merged.pop(key, None)
                 config["db"] = merged
             else:
+                unresolved_db_id = component_db_id
                 log_error(f"Could not resolve db with id: {component_db_id}")
     elif component_db is None and "db" in config:
         # Explicitly set to None, remove the key
         config.pop("db", None)
 
-    return config
+    return config, unresolved_db_id
 
 
 def get_components_router(
@@ -126,6 +136,18 @@ def attach_routes(
     if not isinstance(os_db, BaseDb):
         raise ValueError("Component routes require a sync database (BaseDb), not an async database.")
     db: BaseDb = os_db  # Type narrowed after isinstance check
+
+    def _component_type_of(component_id: str) -> str:
+        """The type a stored component was created as, needed to pick its config schema.
+
+        The config endpoints only carry a component id, so this read is what lets them validate
+        at all. It also turns "no such component" into a 404 here rather than the 400 the db
+        layer would raise further down.
+        """
+        component = db.get_component(component_id)
+        if component is None:
+            raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
+        return str(component["component_type"])
 
     @router.get(
         "/components",
@@ -177,12 +199,13 @@ def attach_routes(
         response_model_exclude_none=True,
         status_code=201,
         operation_id="create_component",
+        responses={422: {"description": "Config Validation Error", "model": ConfigValidationErrorResponse}},
         summary="Create Component",
         description="Create a new component (agent, team, or workflow) with initial config.",
     )
     async def create_component(
         body: ComponentCreate,
-    ) -> ComponentResponse:
+    ) -> Union[ComponentResponse, JSONResponse]:
         try:
             component_id = body.component_id
             if component_id is None:
@@ -192,16 +215,20 @@ def attach_routes(
 
             # Prepare config - ensure it's a dict and resolve db reference
             config = body.config or {}
-            config = _resolve_db_in_config(config, db, registry)
+            config, unresolved_db_id = _resolve_db_in_config(config, db, registry)
 
-            # Warn if creating a team without members
-            if body.component_type == ComponentType.TEAM:
-                members = config.get("members")
-                if not members or len(members) == 0:
-                    log_warning(
-                        f"Creating team '{body.name}' without members. "
-                        "If this is unintended, add members to the config."
-                    )
+            # An empty config is a shell component (members/steps added later), so there is
+            # nothing to validate yet. Validation runs after the db reference is resolved, so
+            # it sees exactly the bytes that get persisted.
+            if config:
+                config = validate_component_config(
+                    config,
+                    body.component_type.value,
+                    db=db,
+                    registry=registry,
+                    component_id=component_id,
+                    unresolved_db_id=unresolved_db_id,
+                )
 
             component, _config = db.create_component_with_config(
                 component_id=component_id,
@@ -216,6 +243,10 @@ def attach_routes(
             )
 
             return ComponentResponse(**component)
+        # Must precede `except ValueError`: ConfigValidationError subclasses it, and the
+        # ValueError arm would flatten the field-level errors into a plain 400 string.
+        except ConfigValidationError as e:
+            return config_validation_response(e)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
@@ -331,17 +362,29 @@ def attach_routes(
         response_model_exclude_none=True,
         status_code=201,
         operation_id="create_config",
+        responses={422: {"description": "Config Validation Error", "model": ConfigValidationErrorResponse}},
         summary="Create Config Version",
         description="Create a new config version for a component.",
     )
     async def create_config(
         component_id: str = Path(description="Component ID"),
         body: ConfigCreate = Body(description="Config data"),
-    ) -> ComponentConfigResponse:
+    ) -> Union[ComponentConfigResponse, JSONResponse]:
         try:
             # Resolve db from config if present
             config_data = body.config or {}
-            config_data = _resolve_db_in_config(config_data, db, registry)
+            config_data, unresolved_db_id = _resolve_db_in_config(config_data, db, registry)
+
+            if config_data:
+                config_data = validate_component_config(
+                    config_data,
+                    _component_type_of(component_id),
+                    db=db,
+                    registry=registry,
+                    component_id=component_id,
+                    unresolved_db_id=unresolved_db_id,
+                    links=body.links,
+                )
 
             config = db.upsert_config(
                 component_id=component_id,
@@ -353,6 +396,11 @@ def attach_routes(
                 links=body.links,
             )
             return ComponentConfigResponse(**config)
+        except HTTPException:
+            raise
+        # Must precede `except ValueError` -- see the note in create_component.
+        except ConfigValidationError as e:
+            return config_validation_response(e)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
@@ -365,6 +413,7 @@ def attach_routes(
         response_model_exclude_none=True,
         status_code=200,
         operation_id="update_config",
+        responses={422: {"description": "Config Validation Error", "model": ConfigValidationErrorResponse}},
         summary="Update Draft Config",
         description="Update an existing draft config. Cannot update published configs.",
     )
@@ -372,12 +421,22 @@ def attach_routes(
         component_id: str = Path(description="Component ID"),
         version: int = Path(description="Version number"),
         body: ConfigUpdate = Body(description="Config fields to update"),
-    ) -> ComponentConfigResponse:
+    ) -> Union[ComponentConfigResponse, JSONResponse]:
         try:
             # Resolve db from config if present
             config_data = body.config
             if config_data is not None:
-                config_data = _resolve_db_in_config(config_data, db, registry)
+                config_data, unresolved_db_id = _resolve_db_in_config(config_data, db, registry)
+                if config_data:
+                    config_data = validate_component_config(
+                        config_data,
+                        _component_type_of(component_id),
+                        db=db,
+                        registry=registry,
+                        component_id=component_id,
+                        unresolved_db_id=unresolved_db_id,
+                        links=body.links,
+                    )
 
             config = db.upsert_config(
                 component_id=component_id,
@@ -389,6 +448,11 @@ def attach_routes(
                 links=body.links,
             )
             return ComponentConfigResponse(**config)
+        except HTTPException:
+            raise
+        # Must precede `except ValueError` -- see the note in create_component.
+        except ConfigValidationError as e:
+            return config_validation_response(e)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:

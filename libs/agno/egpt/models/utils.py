@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 class _ProviderIndices(NamedTuple):
-    """The three lookups `_resolve_provider_key` needs, derived from the registry."""
+    """The three lookups `resolve_provider_key` needs, derived from the registry."""
 
     # key -> lowercased display `provider` string the class reports.
     key_to_provider: Dict[str, str]
@@ -73,7 +73,7 @@ def _canonical_provider_display(key: str) -> str:
     return _indices().key_to_provider.get(key, key)
 
 
-def _resolve_provider_key(model_provider: Optional[str], model_name: Optional[str] = None) -> str:
+def resolve_provider_key(model_provider: Optional[str], model_name: Optional[str] = None) -> str:
     """Resolve a serialized (provider, name) pair to a stable provider key.
 
     The provider string is authoritative. `name` is used only to disambiguate among classes that
@@ -81,6 +81,11 @@ def _resolve_provider_key(model_provider: Optional[str], model_name: Optional[st
     the OpenAI-compatible CometAPI). A `name` whose class reports a different provider is treated
     as a user-supplied label and ignored, so e.g. OpenAIChat(name="Gemini") still resolves to
     OpenAI rather than Google.
+
+    Public because the component-config validator (``egpt.registry.schema``) has to answer
+    "is this provider resolvable?" without importing the provider. Re-deriving the alias
+    handling there off ``discovery.entries("model")`` metadata would be a second
+    implementation of this function, and the two would drift.
     """
     indices = _indices()
     provider = (model_provider or "").strip().lower()
@@ -107,7 +112,7 @@ def _get_model_class(model_id: str, model_provider: str) -> Model:
     registration = discovery.get("model", model_provider)
     if registration is None:
         # Allow alias forms (e.g. "azure", "inceptionlabs") to resolve too.
-        registration = discovery.get("model", _resolve_provider_key(model_provider))
+        registration = discovery.get("model", resolve_provider_key(model_provider))
     if registration is None:
         raise ValueError(f"Model provider '{model_provider}' is not supported.")
 
@@ -138,7 +143,7 @@ def _parse_model_string(model_string: str) -> Model:
             f"Invalid model string format: '{model_string}'. Model strings should be in format '<provider>:<model_id>' e.g. 'openai:gpt-4o'"
         )
 
-    return _get_model_class(model_id, _resolve_provider_key(model_provider))
+    return _get_model_class(model_id, resolve_provider_key(model_provider))
 
 
 def get_model(model: Union[Model, str, None]) -> Optional[Model]:
@@ -165,7 +170,7 @@ def get_model_from_dict(model_data: Dict[str, Any]) -> Optional[Model]:
     if not model_id:
         raise ValueError(f"Model data is missing an 'id': {model_data}")
 
-    provider_key = _resolve_provider_key(model_data.get("provider"), model_data.get("name"))
+    provider_key = resolve_provider_key(model_data.get("provider"), model_data.get("name"))
     return _get_model_class(model_id, provider_key)
 
 
