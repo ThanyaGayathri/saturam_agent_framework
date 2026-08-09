@@ -7,6 +7,7 @@ The full end-to-end behaviour is covered by the cookbooks.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -25,6 +26,13 @@ from egpt.context.mode import ContextMode
 from egpt.context.slack import SlackContextProvider
 from egpt.context.web import ExaBackend, ExaMCPBackend, ParallelMCPBackend, WebContextProvider
 from egpt.context.workspace import WorkspaceContextProvider
+
+# SlackContextProvider imports cleanly without the SDK; only the tests that build its tool
+# surface (which instantiates SlackTools) need the driver.
+requires_slack_sdk = pytest.mark.skipif(
+    importlib.util.find_spec("slack_sdk") is None,
+    reason="building the Slack tool surface needs the Slack SDK",
+)
 
 # ---------------------------------------------------------------------------
 # Filesystem
@@ -440,6 +448,7 @@ def test_slack_status_reports_configured():
     assert "token configured" in status.detail
 
 
+@requires_slack_sdk
 def test_slack_read_surfaces_are_split_by_mode():
     p = SlackContextProvider(token="xoxb-x")
     bot_tools = p._ensure_bot_read_tools()
@@ -452,6 +461,7 @@ def test_slack_read_surfaces_are_split_by_mode():
     assert "get_thread" in assisted_tools.functions
 
 
+@requires_slack_sdk
 def test_slack_bot_token_without_user_token_excludes_search_messages():
     """Without a user token, search_messages should not be registered."""
     p = SlackContextProvider(token="xoxb-x")
@@ -462,6 +472,7 @@ def test_slack_bot_token_without_user_token_excludes_search_messages():
     assert "search_messages" not in assisted_tools.functions
 
 
+@requires_slack_sdk
 def test_slack_user_token_enables_search_messages():
     """With a user token, search_messages should be registered."""
     p = SlackContextProvider(token="xoxb-x", user_token="xoxp-user")
@@ -472,6 +483,7 @@ def test_slack_user_token_enables_search_messages():
     assert "search_messages" in assisted_tools.functions
 
 
+@requires_slack_sdk
 def test_slack_read_instructions_override_both_read_agents(monkeypatch):
     import egpt.context.slack.provider as slack_provider
 
@@ -491,6 +503,7 @@ def test_slack_read_instructions_override_both_read_agents(monkeypatch):
     assert captured["slack-assisted-read"] == "Custom read policy."
 
 
+@requires_slack_sdk
 def test_slack_default_read_instructions_stay_tool_specific(monkeypatch):
     import egpt.context.slack.provider as slack_provider
 
@@ -599,6 +612,7 @@ async def test_slack_uses_bot_read_without_action_token(monkeypatch):
     assert answer.text == "bot answer"
 
 
+@requires_slack_sdk
 def test_slack_tools_mode_uses_bot_read_surface():
     p = SlackContextProvider(token="xoxb-x", mode=ContextMode.tools)
     tools = p.get_tools()[0]

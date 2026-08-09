@@ -2,12 +2,12 @@ from unittest.mock import Mock, mock_open, patch
 
 import pytest
 
-try:
-    import redshift_connector
-except ImportError:
-    raise ImportError("`redshift_connector` not installed. Please install using `pip install redshift-connector`.")
+pytest.importorskip("redshift_connector", reason="RedshiftTools needs the driver")
+pytest.importorskip("boto3", reason="RedshiftTools resolves credentials through the AWS SDK")
 
-from egpt.integrations.tools.redshift import RedshiftTools
+import redshift_connector  # noqa: E402
+
+from egpt.integrations.tools.redshift import RedshiftTools  # noqa: E402
 
 # --- Mock Data for Tests ---
 MOCK_TABLES_RESULT = [("employees",), ("departments",), ("projects",)]

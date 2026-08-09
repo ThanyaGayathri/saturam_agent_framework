@@ -1,9 +1,12 @@
 from unittest.mock import Mock, mock_open, patch
 
-import psycopg
 import pytest
 
-from egpt.integrations.tools.postgres import PostgresTools
+pytest.importorskip("psycopg", reason="PostgresTools imports the driver at module scope")
+
+import psycopg  # noqa: E402
+
+from egpt.integrations.tools.postgres import PostgresTools  # noqa: E402
 
 # --- Mock Data for Tests ---
 MOCK_TABLES_RESULT = [{"table_name": "employees"}, {"table_name": "departments"}, {"table_name": "projects"}]

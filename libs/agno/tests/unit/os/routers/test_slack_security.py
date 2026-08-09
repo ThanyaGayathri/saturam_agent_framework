@@ -3,9 +3,12 @@ import hmac
 import time
 
 import pytest
-from fastapi import HTTPException
 
-from egpt.os.interfaces.slack.security import verify_slack_signature
+pytest.importorskip("slack_sdk", reason="the Slack interface needs the Slack SDK")
+
+from fastapi import HTTPException  # noqa: E402
+
+from egpt.os.interfaces.slack.security import verify_slack_signature  # noqa: E402
 
 
 def _sign(body: bytes, timestamp: str, secret: str) -> str:
