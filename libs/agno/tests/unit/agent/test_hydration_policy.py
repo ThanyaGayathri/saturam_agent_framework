@@ -22,8 +22,12 @@ from egpt.registry.policy import CapabilityPolicy, PolicyViolationError
 STORED_CONFIG = {"model": "openai:gpt-5.5", "tools": [{"name": "run_sql_query"}]}
 
 REVOKED = CapabilityPolicy.from_dict({"tenants": {"acme": {"models": ["openai"], "tools": ["*"]}}})
+# Both slugs, because these fixtures wire no registry: `run_sql_query` is a function of both
+# SQLTools and GoogleBigQueryTools, and with nothing registered to narrow it the fail-closed rule
+# requires every candidate to be granted. Classification itself is covered in
+# tests/unit/registry/test_capability_policy.py; here the grant just needs to hold.
 GRANTED = CapabilityPolicy.from_dict(
-    {"tenants": {"acme": {"models": ["openai"], "tools": ["*"], "granted_privileged": ["sql"]}}}
+    {"tenants": {"acme": {"models": ["openai"], "tools": ["*"], "granted_privileged": ["sql", "bigquery"]}}}
 )
 
 
@@ -118,6 +122,108 @@ class TestAgentLoad:
 
     def test_load_accepts_a_granted_config(self, mock_db):
         assert Agent.load("agent-1", db=mock_db, registry=Registry(capability_policy=GRANTED)) is not None
+
+
+class TestProgrammaticPolicyReachesHydration:
+    """A policy passed to EgptOS must be enforced even with no explicit `registry=`.
+
+    The parking block used to be guarded by `if registry is not None`, so
+    `EgptOS(db=..., capability_policy=p)` never parked it: `_ensure_registry` later built a fresh
+    `Registry(capability_policy=None)` and `resolve_policy` fell back to the environment, which is
+    unset precisely because the policy came from code. Hydration then ran against a *disabled*
+    policy while the EgptOS reported `enabled=True` (PR #53 review).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_env_policy(self, monkeypatch):
+        monkeypatch.delenv("EGPT_CAPABILITY_POLICY_FILE", raising=False)
+        monkeypatch.delenv("AGNO_CAPABILITY_POLICY_FILE", raising=False)
+
+    def _os_without_registry(self, mock_db, policy):
+        from egpt.os import EgptOS
+
+        return EgptOS(db=mock_db, capability_policy=policy)
+
+    def test_the_policy_is_parked_on_the_lazily_built_registry(self, mock_db):
+        from egpt.registry.policy import resolve_policy
+
+        os_ = self._os_without_registry(mock_db, REVOKED)
+
+        assert os_.capability_policy.enabled is True
+        assert os_.registry.capability_policy is REVOKED
+        assert resolve_policy(None, os_.registry).enabled is True
+
+    def test_hydration_actually_refuses(self, mock_db):
+        """The property that matters, asserted through the hydration path rather than the wiring."""
+        os_ = self._os_without_registry(mock_db, REVOKED)
+
+        with pytest.raises(PolicyViolationError):
+            get_agent_by_id(db=mock_db, id="agent-1", registry=os_.registry)
+
+    def test_an_explicit_policy_wins_over_one_a_previous_os_parked(self, mock_db):
+        """A shared registry must not leave the first (typically laxer) document in force."""
+        from egpt.os import EgptOS
+
+        shared = Registry()
+        EgptOS(db=mock_db, registry=shared, capability_policy=GRANTED)
+        EgptOS(db=mock_db, registry=shared, capability_policy=REVOKED)
+
+        assert shared.capability_policy is REVOKED
+
+
+class TestLoadIsGatedForEveryComponentType:
+    """`load()` is the natural entry point for a migration script, a CLI or a test fixture.
+
+    Those are exactly the callers with no policy in mind, so leaving them ungated would make the
+    control opt-in at the point it matters most (PR #53 review).
+    """
+
+    def test_agent_load_is_gated(self, mock_db):
+        with pytest.raises(PolicyViolationError):
+            Agent.load("agent-1", db=mock_db, registry=Registry(capability_policy=REVOKED))
+
+    def test_workflow_load_is_gated(self, mock_db):
+        from egpt.workflow.workflow import Workflow
+
+        with pytest.raises(PolicyViolationError):
+            Workflow.load("wf-1", db=mock_db, registry=Registry(capability_policy=REVOKED))
+
+    def test_team_load_is_gated(self, mock_db):
+        from egpt.team.team import Team
+
+        mock_db.load_component_graph = MagicMock(
+            return_value={
+                "component": {"component_id": "team-1"},
+                "config": {"config": dict(STORED_CONFIG), "tenant_id": "acme"},
+                "children": [],
+            }
+        )
+        with pytest.raises(PolicyViolationError):
+            Team.load("team-1", db=mock_db, registry=Registry(capability_policy=REVOKED))
+
+    def test_a_team_member_agent_is_gated_too(self, mock_db):
+        """Wrapping a disallowed agent in a team must not launder it past the gate."""
+        from egpt.team.team import Team
+
+        mock_db.load_component_graph = MagicMock(
+            return_value={
+                "component": {"component_id": "team-1"},
+                "config": {"config": {"model": "openai:gpt-5.5"}, "tenant_id": "acme"},
+                "children": [
+                    {
+                        "link": {"meta": {"type": "agent"}},
+                        "graph": {
+                            "component": {"component_id": "member-1"},
+                            "config": {"config": dict(STORED_CONFIG), "tenant_id": "acme"},
+                            "children": [],
+                        },
+                    }
+                ],
+            }
+        )
+        with pytest.raises(PolicyViolationError) as excinfo:
+            Team.load("team-1", db=mock_db, registry=Registry(capability_policy=REVOKED))
+        assert excinfo.value.component_id == "member-1"
 
 
 class TestStudioToolsPath:

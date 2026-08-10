@@ -7,6 +7,7 @@ any of the rest. That keeps the file green under the `unit-drivers-absent` CI jo
 `pytest.importorskip` gates.
 """
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -117,8 +118,14 @@ def _codes(violations):
 
 class TestPrivilegedInventory:
     def test_every_ticketed_toolkit_is_in_the_table(self):
-        """The eleven toolkits EGPT-2.3 names, and no silent omission."""
+        """The eleven toolkits EGPT-2.3 names, plus the five review found (PR #53).
+
+        `postgres` / `duckdb` / `redshift` / `bigquery` are raw SQL and `api` is arbitrary
+        outbound HTTP -- all of them the threat model's first case ("a tenant reaching data or
+        systems it was not granted"), and all of them ordinary tools before this.
+        """
         assert set(PRIVILEGED_TOOLKITS) == {
+            # From the ticket
             "shell",
             "python",
             "docker",
@@ -130,7 +137,66 @@ class TestPrivilegedInventory:
             "file",
             "local_file_system",
             "file_generation",
+            # Added in review
+            "postgres",
+            "duckdb",
+            "redshift",
+            "bigquery",
+            "api",
         }
+
+    def test_no_toolkit_in_the_tree_exposes_a_sensitive_verb_without_being_listed(self):
+        """The inventory must defend itself against the next toolkit added to the tree.
+
+        A hand-maintained denylist silently defaults new capabilities to *unprivileged*, which
+        is how `postgres`, `duckdb`, `redshift` and `api` were missed in the first pass -- raw
+        SQL and arbitrary outbound HTTP were ordinary tools. This walks every toolkit module
+        for a set of verbs that are privileged wherever they appear and fails on any that is
+        neither in PRIVILEGED_TOOLKITS nor explicitly reviewed-and-benign below.
+
+        Source is parsed, never imported: reading the AST keeps this free of every optional
+        SDK the toolkits depend on, so it runs in the drivers-absent CI job too.
+        """
+        sensitive = {"run_query", "make_request", "execute", "eval", "run_sql_query", "run_shell_command"}
+
+        # Reviewed and deliberately not privileged. Each entry needs a reason, because an
+        # unexplained entry here is how the guard gets hollowed out one exception at a time.
+        benign = {
+            # `execute` on a workflow/step-shaped toolkit runs in-process EGPT components, not
+            # arbitrary caller-supplied code, so it grants no capability the definition lacks.
+            "egpt.integrations.tools.egpt",
+        }
+
+        privileged_packages = {tk.module for tk in PRIVILEGED_TOOLKITS.values()}
+        tools_root = Path(__file__).parents[3] / "egpt" / "integrations" / "tools"
+        assert tools_root.is_dir(), f"toolkit tree not found: {tools_root}"
+
+        def covered(module: str, listed: set) -> bool:
+            # Mirrors _privileged_slug_for's prefix match, so a row registered at module
+            # granularity (google.bigquery) counts without sweeping in its siblings.
+            return any(module == entry or module.startswith(entry + ".") for entry in listed)
+
+        offenders = []
+        for path in sorted(tools_root.rglob("*.py")):
+            if path.name.startswith("_"):
+                continue
+            relative = path.relative_to(tools_root).with_suffix("")
+            module = "egpt.integrations.tools." + ".".join(relative.parts)
+            package = "egpt.integrations.tools." + relative.parts[0]
+            if covered(module, privileged_packages) or covered(module, benign) or package in benign:
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in sensitive:
+                    offenders.append(f"{module} exposes {node.name}() ({path.name}:{node.lineno})")
+
+        assert not offenders, (
+            "Toolkit(s) expose a privileged verb but are not in PRIVILEGED_TOOLKITS, so a tenant "
+            'with `tools: ["*"]` may use them:\n  ' + "\n  ".join(sorted(set(offenders)))
+        )
 
     def test_every_row_names_an_integrations_package(self):
         """The table is strings only; matching is by module prefix, so the shape has to hold.
@@ -150,7 +216,10 @@ class TestPrivilegedInventory:
         assert PRIVILEGED_FUNCTION_NAMES["read_file"] == ("daytona", "file", "local_file_system", "python")
         assert PRIVILEGED_FUNCTION_NAMES["run_shell_command"] == ("daytona", "shell")
         assert PRIVILEGED_FUNCTION_NAMES["run_python_code"] == ("e2b", "python")
-        assert PRIVILEGED_FUNCTION_NAMES["run_sql_query"] == ("sql",)
+        assert PRIVILEGED_FUNCTION_NAMES["run_sql_query"] == ("bigquery", "sql")
+        # The four SQL toolkits added in review all name their entry point `run_query`, so an
+        # unregistered one needs every candidate granted -- the fail-closed rule doing its job.
+        assert PRIVILEGED_FUNCTION_NAMES["run_query"] == ("duckdb", "postgres", "redshift")
 
 
 # =============================================================================
@@ -352,6 +421,36 @@ class TestModelChecks:
     def test_an_absent_model_is_not_a_policy_problem(self):
         assert check_capabilities({}, "agent", policy=_policy(models=[]), tenant_id=None) == []
 
+    @pytest.mark.parametrize(
+        "config",
+        [
+            {"model": {"provider": 123, "id": "gpt-5.5"}},
+            {"model": {"provider": "openai", "id": 99}},
+            {"model": {"provider": ["openai"], "id": None}},
+            {"model": {"provider": "openai", "id": "gpt-5.5", "name": 7}},
+            {"tools": [{"name": 123}]},
+            {"tools": [{"name": None}]},
+            {"tools": ["not-an-object"]},
+        ],
+    )
+    @pytest.mark.parametrize("component_type", ["agent", "team", "workflow"])
+    def test_a_wrong_typed_value_inside_a_config_never_raises(self, config, component_type):
+        """A 500 where the caller should have got a 422 (PR #53 review).
+
+        The shape check rejects a wrong *top-level* type, but a mapping carrying a wrong-typed
+        value inside reaches policy untouched -- and team/workflow configs have no declared
+        `model` field for the shape check to reject against at all, so policy is the first code
+        to touch it.
+        """
+        check_capabilities(config, component_type, policy=_policy(models=["*"], tools=["*"]), tenant_id=None)
+
+    def test_a_bogus_value_cannot_accidentally_match_an_allow_list(self):
+        """Hence `""` rather than `str()`: `str(123)` could match a pattern, `""` cannot."""
+        violations = check_capabilities(
+            {"model": {"provider": 123, "id": "gpt-5.5"}}, "agent", policy=_policy(models=["123"]), tenant_id=None
+        )
+        assert _codes(violations) == [CODE_CAPABILITY_NOT_PERMITTED]
+
 
 class TestPrivilegedToolChecks:
     def test_a_privileged_tool_is_blocked_by_default(self, sql_toolkit):
@@ -386,6 +485,43 @@ class TestPrivilegedToolChecks:
             {"tools": [{"name": "run_shell_command"}]}, "agent", policy=policy, tenant_id=None, registry=registry
         )
         assert _codes(still_blocked) == [CODE_PRIVILEGED_TOOL_BLOCKED]
+
+    def test_a_grant_works_alongside_a_narrow_tools_list(self):
+        """The grant must not then be refused by `tools` (PR #53 review).
+
+        Before this, a granted slug was re-checked against `allows_tool` and refused, and the
+        message told the operator to add the privileged slug to `tools` -- reading as though the
+        grant had done nothing. It also meant the documented mechanism only worked under
+        `tools: ["*"]`, the one configuration where the allow-list constrains nothing.
+        """
+        policy = _policy(models=["*"], tools=["duckduckgo"], granted_privileged=["sql"])
+        tenant = policy.for_tenant(None)
+
+        assert tenant.granted_privileged == ("sql",)
+        assert tenant.allows_tool("sql") is True
+        # With SQLTools registered the name resolves to `sql` alone, so this isolates the
+        # grant-vs-tools interaction from the separate ambiguity rule (run_sql_query is also a
+        # BigQuery function, and unregistered it would need both grants).
+        registry = Registry(tools=[_toolkit("sql_tools", "egpt.integrations.tools.sql.sql", run_sql_query="Run SQL.")])
+        assert (
+            check_capabilities(
+                {"tools": [{"name": "run_sql_query"}]},
+                "agent",
+                policy=policy,
+                tenant_id=None,
+                registry=registry,
+            )
+            == []
+        )
+
+    def test_a_narrow_tools_list_still_constrains_everything_not_granted(self):
+        """The exemption is scoped to granted slugs; it must not widen `tools` generally."""
+        policy = _policy(models=["*"], tools=["duckduckgo"], granted_privileged=["sql"])
+        registry = Registry(tools=[Function.from_callable(weather)])
+        violations = check_capabilities(
+            {"tools": [{"name": "weather"}]}, "agent", policy=policy, tenant_id=None, registry=registry
+        )
+        assert _codes(violations) == [CODE_CAPABILITY_NOT_PERMITTED]
 
     def test_an_ambiguous_name_needs_every_candidate_granted(self):
         """Fail-closed: the registry's entrypoint lookup is last-wins, so picking one would guess."""
@@ -435,6 +571,42 @@ class TestToolAndMcpChecks:
             )
             == []
         )
+
+    def test_a_name_owned_by_both_an_mcp_and_an_ordinary_toolkit_must_satisfy_both_gates(self):
+        """MCP servers pick their own function names, so this collision is attacker-influenceable.
+
+        Before this, any ordinary owner suppressed the MCP classification entirely, so a tenant
+        configured `mcp_servers: []` ("no MCP") had a colliding name checked only against `tools`
+        -- which a wildcard permits (PR #53 review).
+        """
+
+        class MCPTools(Toolkit):
+            pass
+
+        mcp = _toolkit("mcp_untrusted", "vendor.mcp", search="Search.")
+        mcp.__class__.__bases__ = (MCPTools,)
+        ordinary = _toolkit("house_tools", "myapp.tools", search="Search.")
+        registry = Registry(tools=[mcp, ordinary])
+
+        origin = classify_tools(["search"], registry)["search"]
+        assert origin.tool_ids == ("house_tools",)
+        assert origin.mcp_ids == ("mcp_untrusted",)
+
+        config = {"tools": [{"name": "search"}]}
+        refused = check_capabilities(
+            config, "agent", policy=_policy(tools=["*"], mcp_servers=[]), tenant_id=None, registry=registry
+        )
+        assert _codes(refused) == [CODE_CAPABILITY_NOT_PERMITTED]
+        assert "mcp_untrusted" in refused[0].message
+
+        permitted = check_capabilities(
+            config,
+            "agent",
+            policy=_policy(tools=["*"], mcp_servers=["mcp_untrusted"]),
+            tenant_id=None,
+            registry=registry,
+        )
+        assert permitted == []
 
     def test_an_mcp_tool_is_matched_against_mcp_servers_not_tools(self, mcp_toolkit):
         registry = Registry(tools=[mcp_toolkit])

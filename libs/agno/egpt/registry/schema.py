@@ -56,11 +56,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from egpt.models.utils import resolve_provider_key
 from egpt.registry import discovery
 from egpt.registry.policy import (
-    # Redundant aliases mark these as deliberate re-exports rather than unused imports: they are
-    # pulled in so the closed vocabulary stays enumerable from `vars(schema)`, which is how the
-    # doc guard checks the error-code table. See the CODE_* block below.
-    CODE_CAPABILITY_NOT_PERMITTED as CODE_CAPABILITY_NOT_PERMITTED,
-    CODE_PRIVILEGED_TOOL_BLOCKED as CODE_PRIVILEGED_TOOL_BLOCKED,
+    CODE_CAPABILITY_NOT_PERMITTED,
+    CODE_PRIVILEGED_TOOL_BLOCKED,
     CapabilityPolicy,
     check_capabilities,
 )
@@ -88,11 +85,12 @@ CODE_CYCLIC_REFERENCE = "cyclic_reference"
 CODE_UNSUPPORTED_SCHEMA_VERSION = "unsupported_schema_version"
 CODE_HYDRATION_FAILED = "hydration_failed"
 CODE_PROVIDER_NOT_INSTALLED = "provider_not_installed"
-# The vocabulary also includes the two capability-policy codes (EGPT-2.3),
-# CODE_CAPABILITY_NOT_PERMITTED and CODE_PRIVILEGED_TOOL_BLOCKED. They are defined in
+# The vocabulary also includes the two capability-policy codes (EGPT-2.3). They are defined in
 # `egpt.registry.policy` -- which owns the checks that raise them -- and imported into this
-# module's namespace above, so the closed vocabulary stays enumerable from `vars(schema)` the
-# way the doc guard expects.
+# module's namespace above, so the closed vocabulary stays enumerable from `vars(schema)` the way
+# the doc guard expects. This tuple is what makes that a *use* rather than an unused import:
+# a redundant `as` alias would say the same thing, but isort splits the import block over it.
+_POLICY_CODES: Tuple[str, ...] = (CODE_CAPABILITY_NOT_PERMITTED, CODE_PRIVILEGED_TOOL_BLOCKED)
 
 # How many registered names to list back in an "unresolvable ref" message before truncating.
 _MAX_SUGGESTED_NAMES = 12

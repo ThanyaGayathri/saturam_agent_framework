@@ -1183,12 +1183,17 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
     ``JWTMiddleware`` entry, building a validator from its kwargs the same way
     the middleware does, and caching the result on ``app.state``.
     """
+    # Every key here must also be produced by the two populated returns below, and stamped by
+    # JWTMiddleware's app.state cache block. `test_ws_jwt_config_carries_every_field` pins the
+    # key set so a field cannot be added in one place and forgotten in the others -- which is
+    # exactly how tenant_id_claim was missed when it was introduced (PR #53 review).
     blank: Dict[str, Any] = {
         "validator": None,
         "verify_audience": False,
         "audience": None,
         "admin_scope": None,
         "user_isolation": False,
+        "tenant_id_claim": None,
         "auth_required": False,
     }
 
@@ -1204,6 +1209,7 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
             "audience": getattr(state, "jwt_audience", None),
             "admin_scope": getattr(state, "admin_scope", None),
             "user_isolation": bool(getattr(state, "user_isolation_enabled", False)),
+            "tenant_id_claim": getattr(state, "tenant_id_claim", None),
             "auth_required": True,
         }
 
@@ -1256,6 +1262,7 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
             audience = kwargs.get("audience")
             admin_scope = kwargs.get("admin_scope")
             user_isolation = bool(kwargs.get("user_isolation", False))
+            tenant_id_claim = kwargs.get("tenant_id_claim")
 
             # Cache on app.state so subsequent WebSocket connections and the
             # HTTP middleware see the same validator instance.
@@ -1265,6 +1272,7 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
             if admin_scope:
                 state.admin_scope = admin_scope
             state.user_isolation_enabled = user_isolation
+            state.tenant_id_claim = tenant_id_claim
 
             return {
                 "validator": lazy_validator,
@@ -1272,6 +1280,7 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
                 "audience": audience,
                 "admin_scope": admin_scope,
                 "user_isolation": user_isolation,
+                "tenant_id_claim": tenant_id_claim,
                 "auth_required": True,
             }
 

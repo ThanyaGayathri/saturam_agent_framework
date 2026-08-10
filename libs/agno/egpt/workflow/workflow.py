@@ -1154,7 +1154,12 @@ class Workflow:
 
         Returns:
             The workflow loaded from the database or None if not found.
+
+        Raises:
+            PolicyViolationError: the stored config names a capability its tenant may not use.
         """
+        from egpt.registry.policy import enforce_policy_or_raise
+
         # TODO: Use db.load_component_graph instead of get_config
         data: Optional[Dict[str, Any]] = db.get_config(component_id=id, label=label, version=version)
         if data is None:
@@ -1163,6 +1168,17 @@ class Workflow:
         config = data.get("config")
         if config is None:
             return None
+
+        # `load` is the natural entry point for anything programmatic -- a migration script, a
+        # CLI, a test fixture -- and those are exactly the callers with no policy in mind, so
+        # leaving it ungated would make the control opt-in at the point it matters most.
+        enforce_policy_or_raise(
+            config,
+            "workflow",
+            tenant_id=data.get("tenant_id"),
+            registry=registry,
+            component_id=id,
+        )
 
         workflow = cls.from_dict(config, db=db, registry=registry)
 
@@ -10867,8 +10883,11 @@ def get_workflows(
     A workflow whose stored config violates the capability policy is omitted with a warning
     rather than failing the whole listing.
     """
-    from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise
+    from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise, resolve_policy
     from egpt.utils.log import log_warning
+
+    # Resolved once per call rather than per component -- see the note in agent.get_agents.
+    policy = resolve_policy(None, registry)
 
     workflows: List[Workflow] = []
     try:
@@ -10887,6 +10906,7 @@ def get_workflows(
                             "workflow",
                             tenant_id=config.get("tenant_id"),
                             registry=registry,
+                            policy=policy,
                             component_id=component_id,
                         )
                         workflow = Workflow.from_dict(workflow_config, db=db, registry=registry)

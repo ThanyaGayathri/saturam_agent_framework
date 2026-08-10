@@ -247,6 +247,73 @@ PRIVILEGED_TOOLKITS: Mapping[str, PrivilegedToolkit] = {
             "run_sql_query",
         ),
         _privileged(
+            "postgres",
+            "egpt.integrations.tools.postgres",
+            "PostgresTools",
+            "postgres_tools",
+            "arbitrary SQL against a configured database",
+            "run_query",
+            "inspect_query",
+            "show_tables",
+            "describe_table",
+            "summarize_table",
+            "export_table_to_path",
+        ),
+        _privileged(
+            "duckdb",
+            "egpt.integrations.tools.duckdb",
+            "DuckDbTools",
+            "duckdb_tools",
+            "arbitrary SQL plus local and S3 file access",
+            "run_query",
+            "inspect_query",
+            "show_tables",
+            "describe_table",
+            "summarize_table",
+            "get_table_name_from_path",
+            "create_table_from_path",
+            "export_table_to_path",
+            "load_local_path_to_table",
+            "load_local_csv_to_table",
+            "load_s3_path_to_table",
+            "load_s3_csv_to_table",
+            "create_fts_index",
+            "full_text_search",
+        ),
+        _privileged(
+            "redshift",
+            "egpt.integrations.tools.redshift",
+            "RedshiftTools",
+            "redshift_tools",
+            "arbitrary SQL against a configured data warehouse",
+            "run_query",
+            "inspect_query",
+            "show_tables",
+            "describe_table",
+            "summarize_table",
+            "export_table_to_path",
+        ),
+        _privileged(
+            "api",
+            "egpt.integrations.tools.api",
+            "CustomApiTools",
+            "api_tools",
+            "arbitrary outbound HTTP from the platform's network position",
+            "make_request",
+        ),
+        # Named at module rather than package granularity: `tools/google/` also holds calendar,
+        # drive, gmail, maps, sheets and slides, and prefix matching would sweep all of them in.
+        _privileged(
+            "bigquery",
+            "egpt.integrations.tools.google.bigquery",
+            "GoogleBigQueryTools",
+            "google_bigquery_tools",
+            "arbitrary SQL against a configured data warehouse",
+            "run_sql_query",
+            "list_tables",
+            "describe_table",
+        ),
+        _privileged(
             "aws_lambda",
             "egpt.integrations.tools.aws_lambda",
             "AWSLambdaTools",
@@ -363,7 +430,18 @@ class TenantPolicy:
         return False
 
     def allows_tool(self, capability_id: str) -> bool:
-        """True when this tenant may use a (non-privileged) tool capability."""
+        """True when this tenant may use a tool capability.
+
+        A capability the tenant has been explicitly *granted* counts as permitted regardless of
+        the ``tools`` allow-list. Without that, the grant is recorded and then immediately
+        refused by ``tools``, and the error tells the operator to add the privileged slug to
+        ``tools`` -- which reads as though the grant did nothing. It also meant the documented
+        mechanism only worked under ``tools: ["*"]``, i.e. exactly the configuration where the
+        allow-list stops constraining anything, so "one privileged capability plus a narrow tool
+        list" was inexpressible (PR #53 review).
+        """
+        if capability_id in self.granted_privileged:
+            return True
         return _matches_any(capability_id, self.tools)
 
     def allows_mcp(self, server_id: str) -> bool:
@@ -377,6 +455,19 @@ class TenantPolicy:
         load time. A tenant that should hold every privileged toolkit lists them.
         """
         return slug in self.granted_privileged
+
+
+def _text(value: Any) -> str:
+    """A stored config value as a trimmed string, or ``""`` when it is not usable as one.
+
+    A stored config is caller-supplied JSON. The shape check rejects a wrong *top-level* type,
+    but a mapping carrying a wrong-typed value inside reaches policy untouched -- and for team
+    and workflow definitions there is no declared ``model`` field for the shape check to reject
+    against at all, so policy is the first code to touch it. Returning ``""`` rather than
+    coercing with ``str()`` keeps a bogus value from accidentally *matching* an allow-list entry
+    (``str(123)`` could match a pattern; ``""`` cannot match anything but an explicit wildcard).
+    """
+    return value.strip() if isinstance(value, str) else ""
 
 
 def _matches_any(value: str, patterns: Optional[Tuple[str, ...]]) -> bool:
@@ -663,15 +754,34 @@ class PolicyViolationError(ValueError):
 class ToolOrigin:
     """What a serialized tool name could be, once the registry has been consulted.
 
-    ``ids`` holds more than one entry only when the name is ambiguous, which the checks treat
-    as "must satisfy all of them" rather than picking a winner.
+    ``tool_ids`` and ``mcp_ids`` are kept apart rather than collapsed into one list with a
+    ``kind`` discriminator, because a single name can genuinely be owned by both an MCP toolkit
+    and an in-tree one. Collapsing them meant an ordinary owner suppressed the MCP
+    classification entirely, so a tenant configured ``mcp_servers: []`` (i.e. "no MCP") had a
+    colliding name checked only against ``tools`` -- which a wildcard permits. MCP servers
+    choose their own function names and commonly expose generic ones (``search``, ``query``,
+    ``fetch``, ``read_file``), so the collision is both likely and attacker-influenceable
+    (PR #53 review). Both sets are now checked, and a doubly-owned name must satisfy both.
+
+    Either list holds more than one entry only when the name is ambiguous, which the checks
+    treat as "must satisfy all of them" rather than picking a winner.
     """
 
     name: str
-    kind: Literal["tool", "mcp"]
-    ids: Tuple[str, ...]
+    tool_ids: Tuple[str, ...]
+    mcp_ids: Tuple[str, ...]
     privileged_slugs: Tuple[str, ...]
     source: Literal["registry", "backstop", "unknown"]
+
+    @property
+    def ids(self) -> Tuple[str, ...]:
+        """Every capability this name could resolve to, across both gates."""
+        return tuple(sorted(set(self.tool_ids) | set(self.mcp_ids)))
+
+    @property
+    def kind(self) -> Literal["tool", "mcp"]:
+        """What the name is *predominantly*, for message wording only -- never for gating."""
+        return "mcp" if self.mcp_ids and not self.tool_ids else "tool"
 
     @property
     def ambiguous(self) -> bool:
@@ -766,14 +876,13 @@ def _classify_one(name: str, registry: Optional["Registry"]) -> ToolOrigin:
             else:
                 tool_ids.append(str(getattr(toolkit, "name", "") or name))
 
-        # An MCP server is one capability regardless of how many remote tools it exposes, and it
-        # is matched against `mcp_servers`, never against `tools`.
-        if mcp_ids and not tool_ids:
-            return ToolOrigin(name, "mcp", tuple(sorted(set(mcp_ids))), (), "registry")
+        # An MCP server is one capability regardless of how many remote tools it exposes. The two
+        # sets stay separate so a name owned by both is checked against BOTH gates rather than
+        # having its MCP identity suppressed by the ordinary owner.
         return ToolOrigin(
             name,
-            "tool",
-            tuple(sorted(set(tool_ids + mcp_ids))),
+            tuple(sorted(set(tool_ids))),
+            tuple(sorted(set(mcp_ids))),
             tuple(sorted(set(privileged))),
             "registry",
         )
@@ -781,13 +890,13 @@ def _classify_one(name: str, registry: Optional["Registry"]) -> ToolOrigin:
     if registry is not None and registry.has_entrypoint(name):
         # A bare Function or callable: the registry positively answered, so the backstop's
         # name-collision guesswork would only produce a false positive here.
-        return ToolOrigin(name, "tool", (name,), (), "registry")
+        return ToolOrigin(name, (name,), (), (), "registry")
 
     backstop = PRIVILEGED_FUNCTION_NAMES.get(name)
     if backstop:
-        return ToolOrigin(name, "tool", backstop, backstop, "backstop")
+        return ToolOrigin(name, backstop, (), backstop, "backstop")
 
-    return ToolOrigin(name, "tool", (name,), (), "unknown")
+    return ToolOrigin(name, (name,), (), (), "unknown")
 
 
 # ---------------------------------------------------------------------------------------------
@@ -841,8 +950,13 @@ def _check_model(
         provider_key = resolve_provider_key(provider.strip())
         model_id = model_id.strip()
     elif isinstance(model_data, Mapping):
-        model_id = str(model_data.get("id") or "")
-        provider_key = resolve_provider_key(model_data.get("provider"), model_data.get("name"))
+        # `_text` rather than a bare get: a Mapping with a wrong-typed *value* inside skips the
+        # `else` guard below, and `resolve_provider_key` assumes a string. A team or workflow
+        # config has no declared `model` field for the shape check to reject, so policy is the
+        # first code to touch it and an AttributeError here is a 500 where the caller should
+        # have got a 422 (PR #53 review).
+        model_id = _text(model_data.get("id"))
+        provider_key = resolve_provider_key(_text(model_data.get("provider")), _text(model_data.get("name")) or None)
     else:
         return  # a wrong type is the shape check's problem, not policy's
 
@@ -909,8 +1023,11 @@ def _check_tools(
             )
             continue
 
-        if origin.kind == "mcp":
-            refused = tuple(server for server in origin.ids if not tenant.allows_mcp(server))
+        # Both gates, not one or the other. A name owned by an MCP toolkit *and* an in-tree
+        # toolkit has to satisfy `mcp_servers` and `tools`; checking only the dominant kind let
+        # `tools: ["*"]` wave through a server the tenant had no MCP grant for.
+        if origin.mcp_ids:
+            refused = tuple(server for server in origin.mcp_ids if not tenant.allows_mcp(server))
             if refused:
                 violations.append(
                     PolicyViolation(
@@ -926,9 +1043,9 @@ def _check_tools(
                         tenant_id=tenant_id,
                     )
                 )
-            continue
+                continue  # one violation per path; the tool gate below would only re-report it
 
-        refused_tools = tuple(capability for capability in origin.ids if not tenant.allows_tool(capability))
+        refused_tools = tuple(capability for capability in origin.tool_ids if not tenant.allows_tool(capability))
         if refused_tools:
             violations.append(
                 PolicyViolation(

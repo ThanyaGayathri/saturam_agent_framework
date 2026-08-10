@@ -91,7 +91,10 @@ attempt("2. A privileged tool with no grant", SQL_CONFIG, tenant_id=None)
 # ---------------------------------------------------------------------------
 # 3. The same definition, for a tenant that has been granted it
 # ---------------------------------------------------------------------------
-# acme carries granted_privileged: ["sql"], so the identical config is accepted.
+# acme carries granted_privileged: ["sql"], so the identical config is accepted -- and note its
+# tools list is just ["duckduckgo"], not a wildcard. A grant stands on its own: it does not also
+# require the privileged capability to appear in `tools`, so "one privileged capability plus an
+# otherwise narrow tool list" is expressible.
 attempt("3. The same definition, for a granted tenant", SQL_CONFIG, tenant_id="acme")
 
 # ---------------------------------------------------------------------------

@@ -1863,8 +1863,11 @@ def get_teams(
         List of Team instances loaded from the database. A team whose stored config violates the
         capability policy is omitted with a warning rather than failing the whole listing.
     """
-    from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise
+    from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise, resolve_policy
     from egpt.utils.log import log_warning
+
+    # Resolved once per call rather than per component -- see the note in agent.get_agents.
+    policy = resolve_policy(None, registry)
 
     teams: List[Team] = []
     try:
@@ -1885,6 +1888,7 @@ def get_teams(
                             "team",
                             tenant_id=config.get("tenant_id"),
                             registry=registry,
+                            policy=policy,
                             component_id=component_id,
                         )
                         team = Team.from_dict(team_config, db=db, registry=registry)

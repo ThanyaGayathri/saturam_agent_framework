@@ -1128,10 +1128,23 @@ def _hydrate_from_graph(
     This avoids re-querying the DB for nested teams whose graphs are already available.
     """
     from egpt.agent.agent import Agent
+    from egpt.registry.policy import enforce_policy_or_raise
 
     config = graph["config"].get("config")
     if config is None:
         return None
+
+    # Gating here rather than in `load` covers three callers at once: `Team.load`, a nested team
+    # reached through recursion, and every member config below. `load` is the natural entry point
+    # for anything programmatic -- a migration script, a CLI, a test fixture -- and those are
+    # exactly the callers with no policy in mind (PR #53 review).
+    enforce_policy_or_raise(
+        config,
+        "team",
+        tenant_id=graph["config"].get("tenant_id"),
+        registry=registry,
+        component_id=graph["component"]["component_id"],
+    )
 
     team = cls.from_dict(config, db=db, registry=registry)
     team.id = graph["component"]["component_id"]
@@ -1156,6 +1169,16 @@ def _hydrate_from_graph(
         member_type = link_meta.get("type")
 
         if member_type == "agent":
+            # A member agent's own definition is checked here too: this path builds it straight
+            # from the graph rather than going through `get_agent_by_id`, so it would otherwise
+            # be a way to reach a disallowed capability by wrapping it in a team.
+            enforce_policy_or_raise(
+                child_config,
+                "agent",
+                tenant_id=child_graph["config"].get("tenant_id"),
+                registry=registry,
+                component_id=child_graph["component"]["component_id"],
+            )
             agent = Agent.from_dict(child_config)
             agent.id = child_graph["component"]["component_id"]
             if agent.db is None:

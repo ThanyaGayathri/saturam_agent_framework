@@ -1823,8 +1823,15 @@ def get_agents(
     than raising: one poisoned row must not empty a whole page of agents, and returning it would
     be the leak the policy exists to stop.
     """
-    from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise
+    from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise, resolve_policy
     from egpt.utils.log import log_error, log_warning
+
+    # Resolved once per call, not once per component. `get_default_policy` re-reads and re-parses
+    # the document on every call by design (staleness in a security control is worse than a file
+    # read), but that only needs to hold once per request -- re-reading it inside the loop bought
+    # no extra freshness and made a half-old/half-new page possible, while costing one blocking
+    # read_text + json.loads + policy construction per row on the event loop (PR #53 review).
+    policy = resolve_policy(None, registry)
 
     agents: List[Agent] = []
     try:
@@ -1845,6 +1852,7 @@ def get_agents(
                             "agent",
                             tenant_id=config.get("tenant_id"),
                             registry=registry,
+                            policy=policy,
                             component_id=component_id,
                         )
                         agent = Agent.from_dict(agent_config, registry=registry)

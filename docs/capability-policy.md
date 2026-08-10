@@ -137,15 +137,35 @@ column is the grant slug.
 | `e2b` | `egpt.integrations.tools.e2b` | `E2BTools` | remote sandbox execution and filesystem access |
 | `daytona` | `egpt.integrations.tools.daytona` | `DaytonaTools` | remote sandbox execution and filesystem access |
 | `sql` | `egpt.integrations.tools.sql` | `SQLTools` | arbitrary SQL against a configured database |
+| `postgres` | `egpt.integrations.tools.postgres` | `PostgresTools` | arbitrary SQL against a configured database |
+| `duckdb` | `egpt.integrations.tools.duckdb` | `DuckDbTools` | arbitrary SQL plus local and S3 file access |
+| `redshift` | `egpt.integrations.tools.redshift` | `RedshiftTools` | arbitrary SQL against a configured data warehouse |
+| `bigquery` | `egpt.integrations.tools.google.bigquery` | `GoogleBigQueryTools` | arbitrary SQL against a configured data warehouse |
+| `api` | `egpt.integrations.tools.api` | `CustomApiTools` | arbitrary outbound HTTP from the platform's network position |
 | `aws_lambda` | `egpt.integrations.tools.aws_lambda` | `AWSLambdaTools` | invocation of arbitrary cloud functions |
 | `aws_ses` | `egpt.integrations.tools.aws_ses` | `AWSSESTool` | outbound email from the platform's identity |
 | `file` | `egpt.integrations.tools.file` | `FileTools` | local filesystem read and write |
 | `local_file_system` | `egpt.integrations.tools.local_file_system` | `LocalFileSystemTools` | local filesystem read and write |
 | `file_generation` | `egpt.integrations.tools.file_generation` | `FileGenerationTools` | writing generated files to the local filesystem |
 
+`bigquery` is listed at *module* rather than package granularity, because
+`tools/google/` also holds calendar, drive, gmail, maps, sheets and slides — matching is by
+module prefix, so naming the package would sweep all of them in.
+
+**The inventory is name-based, and a toolkit not in this table is unprivileged by default.**
+That is the important thing to understand before relying on it: this is a denylist, not an
+exhaustive account of every privileged capability in the tree. A toolkit added tomorrow is an
+ordinary tool until someone adds a row. To stop that being purely a matter of remembering,
+`test_no_toolkit_in_the_tree_exposes_a_sensitive_verb_without_being_listed` walks every toolkit
+module's AST for a set of verbs that are privileged wherever they appear (`run_query`,
+`make_request`, `execute`, `eval`, `run_sql_query`, `run_shell_command`) and fails on any that is
+neither listed here nor explicitly recorded as reviewed-and-benign with a reason. Widen that verb
+set as new capability shapes appear.
+
 `egpt/registry/policy.py` is **core**, and core must not import integrations. These package paths
 are therefore compared as strings and never imported; a layering guard
-(`tests/unit/registry/test_schema_layering.py`) keeps it that way.
+(`tests/unit/registry/test_schema_layering.py`) keeps it that way — and the inventory guard above
+parses the toolkit tree rather than importing it, for the same reason.
 
 ---
 
@@ -218,8 +238,24 @@ A policy-rejected config is never dry-run: the capability check runs before hydr
 
 ### At hydration (403)
 
-`get_agent_by_id` / `get_agents` and their Team and Workflow siblings, `Agent.load`, and the
-`StudioTools` loaders — all four read paths, because three of them bypass the first one.
+Every path that turns a stored config into a live component:
+
+| Path | Where the gate is |
+|---|---|
+| `get_agent_by_id` / `get_agents` | `agent/agent.py` |
+| `get_team_by_id` / `get_teams` | `team/team.py` |
+| `get_workflow_by_id` / `get_workflows` | `workflow/workflow.py` |
+| `Agent.load` | `agent/_storage.py::load` |
+| `Workflow.load` | `workflow/workflow.py::load` |
+| `Team.load`, nested teams, **and member agents** | `team/_storage.py::_hydrate_from_graph` |
+| `StudioTools` loaders (all three) | `tools/studio.py::_load_config_from_db` |
+
+The `load()` methods matter as much as the `get_*` helpers: `load` is the natural entry point for
+anything programmatic — a migration script, a CLI, a test fixture — and those are exactly the
+callers that will not have a policy in mind.
+
+A team's **member agents** are gated where the graph is hydrated, so wrapping a disallowed agent
+in a team is not a way to launder it past the check.
 
 - **A single fetch raises**, and the api layer maps it to **403**. Not 404: the component exists
   and hydrates fine; the caller is just not permitted it.
@@ -300,8 +336,19 @@ Both belong to the closed vocabulary in
 
 ## 10. Known limits
 
-- **Top-level `model` and `tools` only.** A team member's or a workflow step's own definition is
-  checked when *that* component is written and hydrated, not transitively from its parent.
+- **Top-level `model` and `tools` only.** A workflow step's own definition is checked when *that*
+  component is hydrated, not transitively from its parent. (Team **members** are the exception —
+  they are gated with the parent, because `Team.load` builds them straight from the component
+  graph rather than going through `get_agent_by_id`.)
+- **Classification depends on whether a `Registry` is present, so the write and hydration paths
+  can in principle disagree.** The write path always has one; hydration usually does (`EgptOS`
+  populates `os.registry` and parks the policy on it), but a bare programmatic caller may not.
+  Where they differ, the registry-less backstop is normally the *stricter* answer — an
+  unregistered `run_shell_command` needs both `shell` and `daytona` granted, where a registered
+  one needs only `shell`. The one permissive direction is a function that a privileged toolkit
+  exposes but that is not in the static name table — a subclass adding a method, say: the
+  registry would catch it and the backstop would not. Register privileged toolkits on the
+  `Registry` if you want the two paths to agree exactly.
 - **An unconnected MCP toolkit escapes `mcp_servers`.** Its `Function`s do not exist until
   `build_tools()` runs, so at classification time the name resolves to nothing and falls through
   as an ordinary tool. Mitigated in the served path (`EgptOS` connects MCP toolkits at startup)

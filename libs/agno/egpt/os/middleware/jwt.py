@@ -915,13 +915,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # returns early once it sees ``jwt_validator``, so without the
         # companion fields a manual-setup WebSocket connection arriving after
         # the first HTTP request would silently drop verify_audience, the
-        # custom admin scope, and the user_isolation flag.
+        # custom admin scope, the user_isolation flag, and the tenant claim.
+        #
+        # A field added here must also be added to resolve_ws_jwt_config's returned dict, or
+        # the cached value never reaches the caller. `test_ws_jwt_config_carries_every_field`
+        # pins both halves, because this comment on its own did not prevent tenant_id_claim
+        # being missed the first time (PR #53 review).
         if self.validator is not None and not getattr(request.app.state, "jwt_validator", None):
             request.app.state.jwt_validator = self.validator
             request.app.state.jwt_verify_audience = self.verify_audience
             request.app.state.jwt_audience = self.audience
             request.app.state.admin_scope = self.admin_scope
             request.app.state.user_isolation_enabled = self.user_isolation
+            request.app.state.tenant_id_claim = self.tenant_id_claim
 
         path = request.url.path
         method = request.method

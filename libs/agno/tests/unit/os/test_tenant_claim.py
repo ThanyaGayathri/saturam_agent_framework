@@ -18,6 +18,7 @@ from egpt.os.config import AuthorizationConfig
 from egpt.os.middleware import JWTMiddleware
 from egpt.os.middleware.jwt import build_jwt_middleware_kwargs
 from egpt.os.tenancy import current_tenant_id, get_tenant_id
+from egpt.os.utils import resolve_ws_jwt_config
 
 JWT_SECRET = "test-secret-key-for-tenant-claim-tests"
 
@@ -81,6 +82,59 @@ class TestMiddlewareKwargs:
 # =============================================================================
 # Reading it back off the request
 # =============================================================================
+
+
+class TestWebSocketConfig:
+    """`resolve_ws_jwt_config` and the middleware's app.state cache must stay in lockstep.
+
+    The cache block's comment already said a new field has to be added in two places, and
+    `tenant_id_claim` was still missed -- the WebSocket surface ran untenanted, which resolves to
+    the policy's `defaults` block and is the permissive direction. A comment could not enforce
+    this; the key-set assertion can.
+    """
+
+    EXPECTED_KEYS = {
+        "validator",
+        "verify_audience",
+        "audience",
+        "admin_scope",
+        "user_isolation",
+        "tenant_id_claim",
+        "auth_required",
+    }
+
+    def test_ws_jwt_config_carries_every_field_when_unconfigured(self):
+        app = FastAPI()
+        assert set(resolve_ws_jwt_config(app)) == self.EXPECTED_KEYS
+
+    def test_ws_jwt_config_carries_every_field_when_cached(self):
+        """The early-return branch: it must not drop companion fields it did not know about."""
+        app = FastAPI()
+        app.state.jwt_validator = object()
+        app.state.tenant_id_claim = "tid"
+
+        config = resolve_ws_jwt_config(app)
+
+        assert set(config) == self.EXPECTED_KEYS
+        assert config["tenant_id_claim"] == "tid"
+        assert config["auth_required"] is True
+
+    def test_the_middleware_stamps_the_claim_onto_app_state(self):
+        """The HTTP dispatch is what populates the cache a later WS connection reads."""
+        app = FastAPI()
+
+        @app.get("/ping")
+        async def ping():
+            return {"ok": True}
+
+        app.add_middleware(JWTMiddleware, verification_keys=[JWT_SECRET], algorithm="HS256", tenant_id_claim="tid")
+        client = TestClient(app)
+        client.get(
+            "/ping", headers={"Authorization": f"Bearer {jwt.encode({'sub': 'u'}, JWT_SECRET, algorithm='HS256')}"}
+        )
+
+        assert getattr(client.app.state, "tenant_id_claim", "<missing>") == "tid"
+        assert resolve_ws_jwt_config(client.app)["tenant_id_claim"] == "tid"
 
 
 class TestCurrentTenantId:

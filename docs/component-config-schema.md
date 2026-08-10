@@ -473,10 +473,10 @@ reproduce these offline, without a database or a server.
   self-reference, not `a -> b -> a`. The dry run is gated to agent definitions. EGPT-2.2 was
   scoped to the agent definition; the rest is a follow-up.
 - **Stored configs are not retro-validated** (§3), except for the capability-policy half.
-- **Capability policy checks the top-level `model` and `tools` only.** A team member's or a
-  workflow step's own definition is checked when *that* component is written and hydrated, not
-  transitively from its parent. See
-  [capability-policy.md](./capability-policy.md#known-limits) for the rest.
+- **Capability policy checks the top-level `model` and `tools` only.** A workflow step's own
+  definition is checked when *that* component is hydrated, not transitively from its parent;
+  team members are gated with their parent. See
+  [capability-policy.md](./capability-policy.md#10-known-limits) for the rest.
 - **`PATCH /components/{id}` can change `component_type`** without revalidating the configs already
   stored under it, which would leave them checked against the wrong schema.
 - **`to_dict(from_dict(config))` is not byte-identical when the config has tools.** Rehydration
