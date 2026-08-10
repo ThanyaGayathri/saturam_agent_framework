@@ -61,6 +61,10 @@ _PATH_ENV_REQUIREMENTS: tuple[tuple[str, str], ...] = (
     ("models/lmstudio", "EGPT_INTEGRATION_LMSTUDIO"),
     ("models/vllm", "EGPT_INTEGRATION_VLLM"),
     # Local databases (opt-in)
+    # The OS tenancy suite needs a real Postgres too (EGPT-2.4). It lives under os/ rather than
+    # db/ because it exercises the HTTP surface, so it needs its own fragment -- os/ as a whole
+    # is ungated and runs on SQLite.
+    ("os/tenancy_postgres", "EGPT_INTEGRATION_POSTGRES"),
     ("db/postgres", "EGPT_INTEGRATION_POSTGRES"),
     ("db/async_postgres", "EGPT_INTEGRATION_POSTGRES"),
     ("db/async_mongo", "EGPT_INTEGRATION_MONGO"),

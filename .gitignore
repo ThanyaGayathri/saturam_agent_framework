@@ -102,6 +102,7 @@ cookbook/12_context/demo-wiki-git/
 !/docs/component-config-schema.md
 !/docs/di.md
 !/docs/integrations-inventory.md
+!/docs/tenancy.md
 /projects
 /agno-os
 /apps

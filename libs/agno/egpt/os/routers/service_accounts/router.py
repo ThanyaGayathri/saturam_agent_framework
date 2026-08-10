@@ -23,6 +23,7 @@ from egpt.os.service_accounts import (
     get_invalid_scopes,
     get_privileged_scopes,
 )
+from egpt.os.tenancy import current_tenant_id
 from egpt.utils.log import log_error
 
 # Valid DB method names that _db_call can invoke
@@ -150,6 +151,49 @@ def get_service_accounts_router(os_db: Any, settings: Any) -> APIRouter:
                 detail=f"Cannot grant scope(s) you do not hold: {', '.join(scopes_not_held)}",
             )
 
+    def _is_operator(request: Request) -> bool:
+        """Whether the caller is an operator rather than merely an untenanted principal.
+
+        Provisioning the first machine identity for a tenant has to be possible, but "has no
+        tenant" is not evidence of authority -- a PAT minted without one is untenanted by
+        accident, not by privilege. Only two principals count: the OS security key (root, and
+        the same branch _validate_requested_scopes already lets mint anything), and an explicit
+        admin-scope holder.
+        """
+        caller_scopes = getattr(request.state, "scopes", None)
+        if caller_scopes is None:
+            # No scope context at all. _validate_requested_scopes has already rejected the
+            # anonymous open-instance caller by the time this runs, so reaching here
+            # authenticated means the security key.
+            return bool(getattr(request.state, "authenticated", False))
+        return (_get_admin_scope(request) or AgentOSScope.ADMIN.value) in caller_scopes
+
+    def _resolve_minted_tenant(request: Request, body: ServiceAccountCreate) -> Optional[str]:
+        """The tenant to stamp on a new account (EGPT-2.4).
+
+        Mirrors the scope rule above: a caller may not mint an account with more reach than it
+        has. Naming a tenant that is not your own is an operator action, so it requires the
+        security key or the admin scope. Defaults to the caller's own tenant so the common case
+        needs no field.
+
+        Naming *any* tenant is "not your own" when the caller has none. Treating an absent
+        tenant as operator authority would have inverted the threat model -- the less
+        identified caller getting the wider reach -- and would have let an untenanted PAT with
+        service_accounts:write mint itself into any tenant, reopening the /components isolation
+        this ticket closes (PR #55 review).
+        """
+        caller_tenant = current_tenant_id(request)
+        requested = body.tenant_id
+        if requested is None or requested == caller_tenant:
+            return caller_tenant if requested is None else requested
+        # A tenanted caller is confined to its own tenant unconditionally -- admin included,
+        # since an admin is an admin *within* its tenant and minting elsewhere would be more
+        # reach than it has. Only a caller with no tenant of its own can name one, and then
+        # only if it is genuinely an operator.
+        if caller_tenant is not None or not _is_operator(request):
+            raise HTTPException(status_code=403, detail="Cannot mint a service account for another tenant.")
+        return requested
+
     @router.post("/service-accounts", response_model=ServiceAccountCreateResponse, status_code=201)
     async def create_service_account(
         body: ServiceAccountCreate,
@@ -185,6 +229,7 @@ def get_service_accounts_router(os_db: Any, settings: Any) -> APIRouter:
             expires_at=expires_at,
             created_by=getattr(request.state, "user_id", None),
             user_id=getattr(request.state, "user_id", None),
+            tenant_id=_resolve_minted_tenant(request, body),
         )
 
         try:
@@ -210,6 +255,7 @@ def get_service_accounts_router(os_db: Any, settings: Any) -> APIRouter:
         page: int = Query(1, ge=1),
         sort_by: str = Query("created_at"),
         sort_order: str = Query("desc"),
+        request: Request = None,  # type: ignore[assignment]
         _: bool = Depends(auth_dependency),
     ) -> PaginatedResponse[ServiceAccountResponse]:
         """List service accounts. Returns metadata and display prefixes only - never hashes or plaintext."""
@@ -220,6 +266,8 @@ def get_service_accounts_router(os_db: Any, settings: Any) -> APIRouter:
             page=page,
             sort_by=sort_by,
             sort_order=sort_order,
+            # None for an unscoped caller, which keeps the operator view of every account.
+            tenant_id=current_tenant_id(request),
         )
         total_pages = (total_count + limit - 1) // limit if total_count > 0 else 0
         return PaginatedResponse(
@@ -243,7 +291,9 @@ def get_service_accounts_router(os_db: Any, settings: Any) -> APIRouter:
         Takes effect immediately on this worker (the local verification cache entry is
         evicted) and within the cache TTL on other workers.
         """
-        existing = await _db_call("get_service_account", service_account_id)
+        # Tenant-scoped, so another tenant's account reads as absent on the existing 404 branch
+        # rather than being revocable across the boundary.
+        existing = await _db_call("get_service_account", service_account_id, tenant_id=current_tenant_id(request))
         if existing is None:
             raise HTTPException(status_code=404, detail=f"Service account '{service_account_id}' not found")
         if existing.get("revoked_at") is None:

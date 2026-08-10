@@ -1,13 +1,15 @@
 import asyncio
 import hmac
+import re
 from functools import lru_cache
-from typing import Any, Dict, List, Literal, Optional, Set
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
 
 from egpt.os.scopes import (
+    check_route_scopes,
     get_accessible_resource_ids,
     get_default_scope_mappings,
     has_required_scopes,
@@ -520,6 +522,100 @@ def require_resource_access(resource_type: str, action: str, resource_id_param: 
         resource_id = request.path_params.get(resource_id_param)
         if resource_id and not check_resource_access(request, resource_id, resource_type, action):
             raise HTTPException(status_code=403, detail=f"Access denied to {action} this {resource_singular}")
+
+    return dependency
+
+
+def _scope_table_for_prefix(prefix: str) -> Dict[Tuple[str, str], List[str]]:
+    """The route->scope entries under ``prefix``, keyed by ``(method, normalised path)``.
+
+    Built once at wiring time from :func:`get_default_scope_mappings`, so ``os/scopes.py``
+    remains the single place the vocabulary is written down. ``{param}`` is normalised to ``*``
+    exactly as :func:`get_required_scopes_for_route` does, so a table key and a FastAPI route
+    path converge on the same string.
+    """
+    table: Dict[Tuple[str, str], List[str]] = {}
+    for route_key, scopes in get_default_scope_mappings().items():
+        method, path = route_key.split(" ", 1)
+        if not path.startswith(prefix):
+            continue
+        table[(method, re.sub(r"\{[^}]+\}", "*", path))] = scopes
+
+    if not table:
+        raise ValueError(f"No scope mappings are declared for prefix {prefix!r}; refusing to build an empty gate.")
+
+    # A key that is a suffix of another key for the same method would make the suffix match
+    # below ambiguous, and the winner would depend on dict order. Reject it at wiring time
+    # rather than let a future route silently inherit a neighbour's scope.
+    for method, path in table:
+        for other_method, other_path in table:
+            if (method, path) != (other_method, other_path) and method == other_method and path.endswith(other_path):
+                raise ValueError(
+                    f"Ambiguous scope mappings for {prefix!r}: {method} {path!r} ends with {other_path!r}."
+                )
+    return table
+
+
+def require_route_scopes(prefix: str):
+    """Enforce the ``os/scopes.py`` route->scope map on a router, independently of middleware.
+
+    ``AuthMiddleware`` and the service-account path both consult the same map, but they key the
+    lookup on ``request.url.path``. Starlette leaves ``scope["path"]`` untouched when an app is
+    mounted (only ``root_path`` is extended), so under ``parent.mount("/api", os_app)`` the
+    middleware looks up ``"GET /api/components"``, finds nothing, and an unmapped route defaults
+    to *allow*. This dependency resolves the scope from the **route pattern** instead, which
+    carries no mount prefix, so the gate cannot be lifted by where the app is mounted.
+
+    It is deliberately gated on ``request.state.authorization_enabled`` -- the same condition
+    :func:`require_resource_access` uses. Instances that run without RBAC (no security key, a
+    bare ``FastAPI()`` in a router unit test, or JWT configured for identity only with
+    ``authorization`` falsy) are unaffected: this closes a bypass in deployments that asked for
+    authorization, it does not switch authorization on for deployments that did not.
+
+    Args:
+        prefix: The path prefix owning the routes, e.g. ``"/components"``. Every mapping under
+            it is collected once, here, at wiring time.
+    """
+    table = _scope_table_for_prefix(prefix)
+    # Longest first, so the suffix match below prefers the most specific declared route.
+    ordered = sorted(table.items(), key=lambda item: len(item[0][1]), reverse=True)
+
+    async def dependency(request: Request) -> None:
+        if not getattr(request.state, "authorization_enabled", False):
+            return
+
+        route = request.scope.get("route")
+        route_path = getattr(route, "path", None)
+        required_scopes: Optional[List[str]] = None
+        canonical_path: Optional[str] = None
+        if isinstance(route_path, str):
+            pattern = re.sub(r"\{[^}]+\}", "*", route_path)
+            for (method, path), scopes in ordered:
+                # Suffix rather than equality: `include_router(prefix=...)` and a mounted
+                # sub-app both prepend to the declared path, and neither changes what the
+                # route *is*.
+                if method == request.method and pattern.endswith(path):
+                    required_scopes, canonical_path = scopes, path
+                    break
+
+        if required_scopes is None or canonical_path is None:
+            # A route under this prefix with no mapping is a wiring mistake, not a public
+            # endpoint. Deny rather than inherit the unmapped-route default of allow.
+            raise HTTPException(status_code=403, detail=build_insufficient_permissions_detail(None))
+
+        admin_scope_raw = getattr(request.state, "admin_scope", None)
+        admin_scope = admin_scope_raw if isinstance(admin_scope_raw, str) else None
+        scope_check = check_route_scopes(
+            user_scopes=list(getattr(request.state, "scopes", None) or []),
+            scope_mappings={f"{request.method} {canonical_path}": required_scopes},
+            method=request.method,
+            path=canonical_path,
+            admin_scope=admin_scope,
+        )
+        if not scope_check.allowed:
+            raise HTTPException(
+                status_code=403, detail=build_insufficient_permissions_detail(scope_check.required_scopes)
+            )
 
     return dependency
 

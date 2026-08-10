@@ -60,6 +60,11 @@ class ServiceAccount:
     # the token); user_id is ownership. None means a workspace-level machine account
     # with no owning user.
     user_id: Optional[str] = None
+    # The tenant this account acts for (EGPT-2.4). Immutable like scopes and user_id --
+    # re-tenanting a minted token rebinds it, so revoke and mint a new one instead, which is
+    # why it stays out of SERVICE_ACCOUNT_MUTABLE_COLUMNS. None means an unscoped platform
+    # account; a tenancy-enabled deployment refuses those on the component routes.
+    tenant_id: Optional[str] = None
     created_at: Optional[int] = None
     expires_at: Optional[int] = None
     last_used_at: Optional[int] = None
@@ -94,6 +99,7 @@ class ServiceAccount:
             "id": self.id,
             "name": self.name,
             "user_id": self.user_id,
+            "tenant_id": self.tenant_id,
             "token_hash": self.token_hash,
             "token_prefix": self.token_prefix,
             "scopes": self.scopes,
@@ -111,6 +117,7 @@ class ServiceAccount:
             "id",
             "name",
             "user_id",
+            "tenant_id",
             "token_hash",
             "token_prefix",
             "scopes",

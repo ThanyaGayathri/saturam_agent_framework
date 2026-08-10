@@ -376,11 +376,14 @@ async def authenticate_service_account_request(
     # authorization gates (require_resource_access etc.) must be active too.
     request.state.authorization_enabled = True
     request.state.service_account_name = account.name
-    # Service accounts carry no tenant: `ServiceAccount` has no tenant column, and inferring one
-    # from the principal would be guessing. Set explicitly rather than left absent so the
-    # authenticated request.state shape is uniform across every credential type. Giving service
-    # accounts a tenant is EGPT-2.4's, along with the rest of the tenant-aware RBAC surface.
-    request.state.tenant_id = None
+    # The tenant this account was minted for (EGPT-2.4). Immutable for the life of the token,
+    # so it is safe to serve from the verification cache alongside the rest of the identity.
+    # None means an unscoped platform account -- still set explicitly rather than left absent,
+    # so the authenticated request.state shape is uniform across every credential type. A
+    # deployment that configured a tenant claim refuses those on the component routes
+    # (egpt.os.tenancy.require_tenant_id); moving an account to a tenant means minting a new
+    # one, since re-tenanting a live token is deliberately not possible.
+    request.state.tenant_id = account.tenant_id
     if admin_scope:
         request.state.admin_scope = admin_scope
     if user_isolation is not None:

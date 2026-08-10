@@ -17,6 +17,7 @@ class MigrationManager:
         ("v2_5_0", packaging_version.parse("2.5.0")),
         ("v2_5_6", packaging_version.parse("2.5.6")),
         ("v2_6_0", packaging_version.parse("2.6.0")),
+        ("v2_7_0", packaging_version.parse("2.7.0")),
     ]
 
     # Mapping from table_type to the BaseDb attribute holding that table's resolved name.
@@ -32,6 +33,10 @@ class MigrationManager:
         "components": "components_table_name",
         "component_configs": "component_configs_table_name",
         "component_links": "component_links_table_name",
+        # Added by EGPT-2.4 for v2_7_0. Without an entry here the table is simply unreachable
+        # by the runner, so a migration targeting it would never run -- which is exactly the
+        # state the component tables were in before EGPT-2.1 added theirs.
+        "service_accounts": "service_accounts_table_name",
     }
 
     def __init__(self, db: Union[AsyncBaseDb, BaseDb]):

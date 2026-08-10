@@ -17,6 +17,15 @@ Typical use:
         "the calculator toolkit."
     )
 
+.. warning::
+    **StudioTools runs unscoped and is not tenant-aware.** Every component read and write here
+    calls the db with no ``tenant_id``, so in a multi-tenant deployment it reaches every
+    tenant's components -- unlike the ``/components`` HTTP API, which enforces the caller's
+    tenant (EGPT-2.4, see ``docs/tenancy.md``). There is no HTTP principal at this layer to
+    derive a tenant from; threading one through belongs with the rest of the runtime-hydration
+    scoping in EGPT-2.5. Until then, do not expose ``StudioTools`` to a tenant-facing agent.
+    The EGPT-2.3 capability policy still applies to what a stored config may reference.
+
 Semantics:
     * create_* persists a new component with a single published config.
     * edit_* loads the component, applies the patch, and saves it:

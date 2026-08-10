@@ -1334,8 +1334,13 @@ class BaseDb(ABC):
         """Create a service account. Raises on failure (including duplicate active name)."""
         raise NotImplementedError
 
-    def get_service_account(self, service_account_id: str) -> Optional[Dict[str, Any]]:
-        """Get a service account by ID."""
+    def get_service_account(self, service_account_id: str, tenant_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Get a service account by ID.
+
+        ``tenant_id`` follows the same rule as the component methods: ``None`` applies no
+        tenant predicate, a value restricts the lookup to that tenant so a foreign account
+        reads as absent.
+        """
         raise NotImplementedError
 
     def get_service_account_by_token_hash(self, token_hash: str) -> Optional[Dict[str, Any]]:
@@ -1353,8 +1358,12 @@ class BaseDb(ABC):
         page: int = 1,
         sort_by: str = "created_at",
         sort_order: str = "desc",
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """List service accounts.
+
+        ``tenant_id=None`` applies no tenant predicate; a value restricts both the rows and
+        the returned count to that tenant.
 
         Returns:
             Tuple of (service_accounts, total_count)
@@ -2251,8 +2260,15 @@ class AsyncBaseDb(ABC):
         """Create a service account. Raises on failure (including duplicate active name)."""
         raise NotImplementedError
 
-    async def get_service_account(self, service_account_id: str) -> Optional[Dict[str, Any]]:
-        """Get a service account by ID."""
+    async def get_service_account(
+        self, service_account_id: str, tenant_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Get a service account by ID.
+
+        ``tenant_id`` follows the same rule as the component methods: ``None`` applies no
+        tenant predicate, a value restricts the lookup to that tenant so a foreign account
+        reads as absent.
+        """
         raise NotImplementedError
 
     async def get_service_account_by_token_hash(self, token_hash: str) -> Optional[Dict[str, Any]]:
@@ -2270,8 +2286,12 @@ class AsyncBaseDb(ABC):
         page: int = 1,
         sort_by: str = "created_at",
         sort_order: str = "desc",
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """List service accounts.
+
+        ``tenant_id=None`` applies no tenant predicate; a value restricts both the rows and
+        the returned count to that tenant.
 
         Returns:
             Tuple of (service_accounts, total_count)
