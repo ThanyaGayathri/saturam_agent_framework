@@ -977,8 +977,11 @@ class Agent:
         registry: Optional["Registry"] = None,
         label: Optional[str] = None,
         version: Optional[int] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional["Agent"]:
-        return _storage.load(cls, id=id, db=db, registry=registry, label=label, version=version)
+        return _storage.load(
+            cls, id=id, db=db, registry=registry, label=label, version=version, tenant_id=tenant_id
+        )
 
     def delete(
         self,
@@ -1749,6 +1752,7 @@ def get_agent_by_id(
     version: Optional[int] = None,
     label: Optional[str] = None,
     registry: Optional["Registry"] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional["Agent"]:
     """
     Get an Agent by id from the database (new entities/configs schema).
@@ -1762,19 +1766,26 @@ def get_agent_by_id(
         id: Agent entity_id.
         label: Optional label.
         registry: Optional Registry for reconstructing unserializable components.
+        tenant_id: Optional caller tenant (EGPT-2.5). Scopes the DB read -- a foreign
+            tenant's component resolves as None, indistinguishable from a missing one --
+            and selects the capability policy. None means an unscoped read.
 
     Returns:
-        Agent instance or None.
+        Agent instance, or None when no component matches (including cross-tenant reads).
 
     Raises:
         PolicyViolationError: the stored config names a capability its tenant may not use.
-            Deliberately not swallowed like every other failure here -- see below.
+        HydrationError: the config row exists but could not be built into an Agent.
+            Both are deliberately not swallowed -- see below.
     """
+    from egpt.registry.hydrate import HydrationError, fetch_config_row
     from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise
     from egpt.utils.log import log_error
 
     try:
-        row = db.get_config(component_id=id, label=label, version=version)
+        row = fetch_config_row(
+            db, id, "agent", version=version, label=label, tenant_id=tenant_id, registry=registry
+        )
         if row is None:
             return None
 
@@ -1785,11 +1796,13 @@ def get_agent_by_id(
         # The read-side half of the capability gate (EGPT-2.3). The write-side check alone is
         # bypassable in two ordinary ways: a policy can be tightened after a definition was
         # published, and a config row can be written by something other than the components API.
-        # The tenant comes off the row we already fetched, so this costs no extra query.
+        # The caller's tenant wins over the row's (EGPT-2.5): when the read is scoped the two
+        # are equal by construction, and when it is not, the row's self-attested tenant is
+        # still the only signal available.
         enforce_policy_or_raise(
             cfg,
             "agent",
-            tenant_id=row.get("tenant_id"),
+            tenant_id=tenant_id if tenant_id is not None else row.get("tenant_id"),
             registry=registry,
             component_id=id,
         )
@@ -1799,30 +1812,38 @@ def get_agent_by_id(
 
         return agent
 
-    except PolicyViolationError:
-        # A policy refusal is an authorization outcome, not a load failure. Letting it fall into
-        # the arm below would return None, which the API renders as 404 -- telling the caller
-        # "no such agent" when the truth is "you may not use this one".
+    except (PolicyViolationError, HydrationError):
+        # A policy refusal is an authorization outcome and a hydration failure is a broken or
+        # unpublished config -- neither is "no such agent". Letting either fall into the arm
+        # below would return None, which the API renders as 404, hiding the real cause.
         raise
     except Exception as e:
         log_error(f"Error loading Agent {id} from database: {str(e)}")
-        return None
+        raise HydrationError(
+            f"Component '{id}' failed to hydrate: {e}", component_id=id, component_type="agent"
+        ) from e
 
 
 def get_agents(
     db: "BaseDb",
     registry: Optional["Registry"] = None,
     exclude_component_ids: Optional[Set[str]] = None,
+    tenant_id: Optional[str] = None,
 ) -> List["Agent"]:
     """
     Get all agents from the database.
 
     Sets _version and _stage on each agent from the component metadata.
 
-    An agent whose stored config violates the capability policy is omitted with a warning rather
-    than raising: one poisoned row must not empty a whole page of agents, and returning it would
-    be the leak the policy exists to stop.
+    An agent whose stored config violates the capability policy -- or fails to hydrate,
+    including unpublished configs under published-only hydration -- is omitted with a warning
+    rather than raising: one poisoned row must not empty a whole page of agents, and returning
+    it would be the leak the policy exists to stop.
+
+    tenant_id (EGPT-2.5) scopes the listing and every per-row config read to the caller's
+    tenant; None means an unscoped read.
     """
+    from egpt.registry.hydrate import HydrationError, fetch_config_row
     from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise, resolve_policy
     from egpt.utils.log import log_error, log_warning
 
@@ -1836,11 +1857,15 @@ def get_agents(
     agents: List[Agent] = []
     try:
         components, _ = db.list_components(
-            component_type=ComponentType.AGENT, exclude_component_ids=exclude_component_ids
+            component_type=ComponentType.AGENT,
+            exclude_component_ids=exclude_component_ids,
+            tenant_id=tenant_id,
         )
         for component in components:
             try:
-                config = db.get_config(component_id=component["component_id"])
+                config = fetch_config_row(
+                    db, component["component_id"], "agent", tenant_id=tenant_id, registry=registry
+                )
                 if config is not None:
                     agent_config = config.get("config")
                     if agent_config is not None:
@@ -1850,7 +1875,7 @@ def get_agents(
                         enforce_policy_or_raise(
                             agent_config,
                             "agent",
-                            tenant_id=config.get("tenant_id"),
+                            tenant_id=tenant_id if tenant_id is not None else config.get("tenant_id"),
                             registry=registry,
                             policy=policy,
                             component_id=component_id,
@@ -1860,7 +1885,7 @@ def get_agents(
                         agent._version = component.get("current_version")
                         agent._stage = config.get("stage")
                         agents.append(agent)
-            except PolicyViolationError as e:
+            except (PolicyViolationError, HydrationError) as e:
                 log_warning(f"Omitting agent from listing: {e}")
                 continue
             except Exception as e:

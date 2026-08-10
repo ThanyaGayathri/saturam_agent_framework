@@ -49,6 +49,7 @@ from egpt.os.schema import (
     ValidationErrorResponse,
 )
 from egpt.os.settings import EgptServingSettings
+from egpt.os.tenancy import current_tenant_id
 from egpt.os.utils import (
     classify_upload_file,
     find_factory_by_id,
@@ -853,7 +854,7 @@ def get_agent_router(
 
         try:
             agent = get_agent_by_id(
-                agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True, tenant_id=current_tenant_id(request)
             )  # type: ignore[assignment]
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
@@ -1025,7 +1026,7 @@ def get_agent_router(
         else:
             try:
                 agent = get_agent_by_id(
-                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True, tenant_id=current_tenant_id(request)
                 )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
@@ -1198,7 +1199,7 @@ def get_agent_router(
 
         try:
             agent = get_agent_by_id(
-                agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True, tenant_id=current_tenant_id(request)
             )
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
@@ -1319,7 +1320,9 @@ def get_agent_router(
 
             # Exclude agents whose IDs are owned by the registry
             exclude_ids = registry.get_agent_ids() if registry else None
-            db_agents = get_agents(db=os.db, registry=registry, exclude_component_ids=exclude_ids or None)
+            db_agents = get_agents(
+                db=os.db, registry=registry, exclude_component_ids=exclude_ids or None, tenant_id=current_tenant_id(request)
+            )
             if db_agents:
                 # Apply the same RBAC filtering to DB-loaded agents
                 if getattr(request.state, "authorization_enabled", False):
@@ -1377,7 +1380,7 @@ def get_agent_router(
 
         try:
             agent = get_agent_by_id(
-                agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True, tenant_id=current_tenant_id(request)
             )  # type: ignore[assignment]
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
@@ -1435,7 +1438,7 @@ def get_agent_router(
         else:
             try:
                 agent = get_agent_by_id(
-                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True, tenant_id=current_tenant_id(request)
                 )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
@@ -1507,7 +1510,7 @@ def get_agent_router(
         else:
             try:
                 agent = get_agent_by_id(
-                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True, tenant_id=current_tenant_id(request)
                 )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
@@ -1572,7 +1575,7 @@ def get_agent_router(
         else:
             try:
                 agent = get_agent_by_id(
-                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True, tenant_id=current_tenant_id(request)
                 )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
@@ -1669,7 +1672,7 @@ def get_agent_router(
                 detail="Stream resumption is not supported for factory agents",
             )
 
-        agent = get_agent_by_id(agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True)
+        agent = get_agent_by_id(agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True, tenant_id=current_tenant_id(request))
         if agent is None:
             raise HTTPException(status_code=404, detail="Agent not found")
         if isinstance(agent, RemoteAgent):
@@ -1726,7 +1729,7 @@ def get_agent_router(
         else:
             try:
                 agent = get_agent_by_id(
-                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True, tenant_id=current_tenant_id(request)
                 )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant is

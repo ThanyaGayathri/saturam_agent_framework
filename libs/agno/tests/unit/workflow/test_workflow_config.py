@@ -425,7 +425,7 @@ class TestWorkflowLoad:
 
         Workflow.load(id="versioned-workflow", db=mock_db, version=2)
 
-        mock_db.get_config.assert_called_once_with(component_id="versioned-workflow", label=None, version=2)
+        mock_db.get_config.assert_called_once_with(component_id="versioned-workflow", label=None, version=2, tenant_id=None)
 
     def test_load_with_label(self, mock_db):
         """Test load retrieves labeled version."""
@@ -433,7 +433,7 @@ class TestWorkflowLoad:
 
         Workflow.load(id="labeled-workflow", db=mock_db, label="production")
 
-        mock_db.get_config.assert_called_once_with(component_id="labeled-workflow", label="production", version=None)
+        mock_db.get_config.assert_called_once_with(component_id="labeled-workflow", label="production", version=None, tenant_id=None)
 
     def test_load_returns_none_when_not_found(self, mock_db):
         """Test load returns None when workflow not found."""
@@ -545,7 +545,7 @@ class TestGetWorkflowById:
 
         get_workflow_by_id(db=mock_db, id="versioned", version=3)
 
-        mock_db.get_config.assert_called_once_with(component_id="versioned", version=3, label=None)
+        mock_db.get_config.assert_called_once_with(component_id="versioned", version=3, label=None, tenant_id=None)
 
     def test_get_workflow_by_id_with_label(self, mock_db):
         """Test get_workflow_by_id retrieves labeled version."""
@@ -557,7 +557,7 @@ class TestGetWorkflowById:
 
         get_workflow_by_id(db=mock_db, id="labeled", label="staging")
 
-        mock_db.get_config.assert_called_once_with(component_id="labeled", version=None, label="staging")
+        mock_db.get_config.assert_called_once_with(component_id="labeled", version=None, label="staging", tenant_id=None)
 
     def test_get_workflow_by_id_fetches_links(self, mock_db):
         """Test get_workflow_by_id fetches links for the workflow version."""
@@ -569,7 +569,7 @@ class TestGetWorkflowById:
 
         get_workflow_by_id(db=mock_db, id="linked-workflow")
 
-        mock_db.get_links.assert_called_once_with(component_id="linked-workflow", version=5)
+        mock_db.get_links.assert_called_once_with(component_id="linked-workflow", version=5, tenant_id=None)
 
     def test_get_workflow_by_id_returns_none_when_not_found(self, mock_db):
         """Test get_workflow_by_id returns None when not found."""
@@ -601,13 +601,14 @@ class TestGetWorkflowById:
         assert workflow is not None
         assert workflow.db == mock_db
 
-    def test_get_workflow_by_id_handles_error(self, mock_db):
-        """Test get_workflow_by_id returns None on error."""
+    def test_get_workflow_by_id_raises_hydration_error(self, mock_db):
+        """A failure on an existing row surfaces as HydrationError, not None (EGPT-2.5)."""
+        from egpt.registry.hydrate import HydrationError
+
         mock_db.get_config.side_effect = Exception("DB error")
 
-        workflow = get_workflow_by_id(db=mock_db, id="error-workflow")
-
-        assert workflow is None
+        with pytest.raises(HydrationError, match="error-workflow"):
+            get_workflow_by_id(db=mock_db, id="error-workflow")
 
 
 # =============================================================================
@@ -644,7 +645,7 @@ class TestGetWorkflows:
 
         get_workflows(db=mock_db)
 
-        mock_db.list_components.assert_called_once_with(component_type=ComponentType.WORKFLOW)
+        mock_db.list_components.assert_called_once_with(component_type=ComponentType.WORKFLOW, tenant_id=None)
 
     def test_get_workflows_returns_empty_list_on_error(self, mock_db):
         """Test get_workflows returns empty list on error."""

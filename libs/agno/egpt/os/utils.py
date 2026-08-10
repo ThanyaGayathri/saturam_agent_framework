@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.routing import APIRoute, APIRouter
 from pydantic import BaseModel, create_model
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.cors import CORSMiddleware
 
 from egpt.agent import Agent, AgentFactory, RemoteAgent
@@ -22,7 +23,9 @@ from egpt.media import Audio, Image, Video
 from egpt.media import File as FileMedia
 from egpt.models.message import Message
 from egpt.os.config import EgptOSConfig
+from egpt.os.tenancy import TENANCY_REQUIRED_DETAIL, current_tenant_id, tenancy_enabled
 from egpt.registry import Registry
+from egpt.registry.hydrate import HydrationError, NoPublishedVersionError
 from egpt.registry.policy import PolicyViolationError
 from egpt.remote.base import RemoteDb, RemoteKnowledge
 from egpt.run.agent import RunOutputEvent
@@ -861,6 +864,7 @@ def get_agent_by_id(
     version: Optional[int] = None,
     create_fresh: bool = False,
     ctx: Optional[RequestContext] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[Union[Agent, RemoteAgent, AgentProtocol]]:
     """Get an agent by ID, optionally creating a fresh instance for request isolation.
 
@@ -876,6 +880,8 @@ def get_agent_by_id(
         agents: List of agents (and/or AgentFactory entries) to search
         create_fresh: If True, creates a new instance using deep_copy()
         ctx: RequestContext for factory invocation (required if a factory is matched)
+        tenant_id: Optional caller tenant (EGPT-2.5). Scopes the DB arm only -- code-defined
+            agents in the in-memory list are deployment-owned, not tenant rows.
 
     Returns:
         The agent instance (shared or fresh copy based on create_fresh)
@@ -908,11 +914,12 @@ def get_agent_by_id(
         from egpt.agent.agent import get_agent_by_id as get_agent_by_id_db
 
         try:
-            db_agent = get_agent_by_id_db(db=db, id=agent_id, version=version, registry=registry)
+            db_agent = get_agent_by_id_db(db=db, id=agent_id, version=version, registry=registry, tenant_id=tenant_id)
             return db_agent
-        # A policy refusal must reach resolve_agent, which turns it into a 403. Collapsing it to
-        # None here would surface as "agent not found" instead.
-        except PolicyViolationError:
+        # A policy refusal must reach resolve_agent, which turns it into a 403, and a hydration
+        # failure must reach it as a 409/500. Collapsing either to None here would surface as
+        # "agent not found" instead.
+        except (PolicyViolationError, HydrationError):
             raise
         except Exception:
             logger.exception(f"Error getting agent {agent_id} from database")
@@ -929,6 +936,7 @@ async def get_agent_by_id_async(
     version: Optional[int] = None,
     create_fresh: bool = False,
     ctx: Optional[RequestContext] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[Union[Agent, RemoteAgent, AgentProtocol]]:
     """Async variant of get_agent_by_id that supports async factories."""
     if agent_id is None:
@@ -958,11 +966,16 @@ async def get_agent_by_id_async(
         from egpt.agent.agent import get_agent_by_id as get_agent_by_id_db
 
         try:
-            db_agent = get_agent_by_id_db(db=db, id=agent_id, version=version, registry=registry)
+            # The component getter is sync (AsyncBaseDb has no component API), so hop to the
+            # threadpool rather than blocking the event loop on DB reads.
+            db_agent = await run_in_threadpool(
+                get_agent_by_id_db, db=db, id=agent_id, version=version, registry=registry, tenant_id=tenant_id
+            )
             return db_agent
-        # A policy refusal must reach resolve_agent, which turns it into a 403. Collapsing it to
-        # None here would surface as "agent not found" instead.
-        except PolicyViolationError:
+        # A policy refusal must reach resolve_agent, which turns it into a 403, and a hydration
+        # failure must reach it as a 409/500. Collapsing either to None here would surface as
+        # "agent not found" instead.
+        except (PolicyViolationError, HydrationError):
             raise
         except Exception:
             logger.exception(f"Error getting agent {agent_id} from database")
@@ -979,6 +992,7 @@ def get_team_by_id(
     version: Optional[int] = None,
     registry: Optional[Registry] = None,
     ctx: Optional[RequestContext] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[Union[Team, RemoteTeam]]:
     """Get a team by ID, optionally creating a fresh instance for request isolation.
 
@@ -1018,9 +1032,9 @@ def get_team_by_id(
         from egpt.team.team import get_team_by_id as get_team_by_id_db
 
         try:
-            db_team = get_team_by_id_db(db=db, id=team_id, version=version, registry=registry)
+            db_team = get_team_by_id_db(db=db, id=team_id, version=version, registry=registry, tenant_id=tenant_id)
             return db_team
-        except PolicyViolationError:
+        except (PolicyViolationError, HydrationError):
             raise
         except Exception:
             logger.exception(f"Error getting team {team_id} from database")
@@ -1037,6 +1051,7 @@ async def get_team_by_id_async(
     version: Optional[int] = None,
     registry: Optional[Registry] = None,
     ctx: Optional[RequestContext] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[Union[Team, RemoteTeam]]:
     """Async variant of get_team_by_id that supports async factories."""
     if team_id is None:
@@ -1060,9 +1075,12 @@ async def get_team_by_id_async(
         from egpt.team.team import get_team_by_id as get_team_by_id_db
 
         try:
-            db_team = get_team_by_id_db(db=db, id=team_id, version=version, registry=registry)
+            # Sync component getter -- threadpool hop keeps DB reads off the event loop.
+            db_team = await run_in_threadpool(
+                get_team_by_id_db, db=db, id=team_id, version=version, registry=registry, tenant_id=tenant_id
+            )
             return db_team
-        except PolicyViolationError:
+        except (PolicyViolationError, HydrationError):
             raise
         except Exception:
             logger.exception(f"Error getting team {team_id} from database")
@@ -1079,6 +1097,7 @@ def get_workflow_by_id(
     version: Optional[int] = None,
     registry: Optional[Registry] = None,
     ctx: Optional[RequestContext] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[Union[Workflow, RemoteWorkflow]]:
     """Get a workflow by ID, optionally creating a fresh instance for request isolation.
 
@@ -1123,9 +1142,11 @@ def get_workflow_by_id(
         from egpt.workflow.workflow import get_workflow_by_id as get_workflow_by_id_db
 
         try:
-            db_workflow = get_workflow_by_id_db(db=db, id=workflow_id, version=version, registry=registry)
+            db_workflow = get_workflow_by_id_db(
+                db=db, id=workflow_id, version=version, registry=registry, tenant_id=tenant_id
+            )
             return db_workflow
-        except PolicyViolationError:
+        except (PolicyViolationError, HydrationError):
             raise
         except Exception:
             logger.exception(f"Error getting workflow {workflow_id} from database")
@@ -1142,6 +1163,7 @@ async def get_workflow_by_id_async(
     version: Optional[int] = None,
     registry: Optional[Registry] = None,
     ctx: Optional[RequestContext] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[Union[Workflow, RemoteWorkflow]]:
     """Async variant of get_workflow_by_id that supports async factories."""
     if workflow_id is None:
@@ -1167,9 +1189,12 @@ async def get_workflow_by_id_async(
         from egpt.workflow.workflow import get_workflow_by_id as get_workflow_by_id_db
 
         try:
-            db_workflow = get_workflow_by_id_db(db=db, id=workflow_id, version=version, registry=registry)
+            # Sync component getter -- threadpool hop keeps DB reads off the event loop.
+            db_workflow = await run_in_threadpool(
+                get_workflow_by_id_db, db=db, id=workflow_id, version=version, registry=registry, tenant_id=tenant_id
+            )
             return db_workflow
-        except PolicyViolationError:
+        except (PolicyViolationError, HydrationError):
             raise
         except Exception:
             logger.exception(f"Error getting workflow {workflow_id} from database")
@@ -2006,6 +2031,28 @@ def stringify_input_content(input_content: Union[str, Dict[str, Any], List[Any],
 # ---------------------------------------------------------------------------
 
 
+def _tenant_for_hydration(
+    request: Optional[Request],
+    tenant_id: Optional[str],
+    *,
+    in_memory: bool,
+    db: Optional[Union[BaseDb, AsyncBaseDb]],
+) -> Optional[str]:
+    """The tenant a resolve_* call hydrates as, failing closed on the DB arm (EGPT-2.5).
+
+    An explicit tenant_id wins; otherwise the tenant comes off the request the way the
+    components router reads it (egpt.os.tenancy). When the deployment has opted into tenancy
+    and the caller resolved to no tenant, a lookup that would fall through to the DB is
+    refused with the same 403 the components routes give -- `tenant_id=None` at the DB layer
+    means *no predicate*, so letting it through would hydrate across every tenant. The
+    in-memory list is exempt: code-defined agents are deployment-owned, not tenant rows.
+    """
+    tenant = tenant_id if tenant_id is not None else current_tenant_id(request)
+    if tenant is None and not in_memory and db is not None and request is not None and tenancy_enabled(request):
+        raise HTTPException(status_code=403, detail=TENANCY_REQUIRED_DETAIL)
+    return tenant
+
+
 async def resolve_agent(
     agent_id: str,
     agents: Optional[Sequence[Union[Agent, RemoteAgent, AgentProtocol, AgentFactory]]],
@@ -2016,14 +2063,21 @@ async def resolve_agent(
     user_id: Optional[str] = None,
     session_id: Optional[str] = None,
     factory_input: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Union[Agent, RemoteAgent, AgentProtocol]:
     """Resolve an agent by ID with proper error handling for both factory and non-factory paths.
 
     For factory agents: builds RequestContext, invokes factory, handles factory-specific errors.
     For non-factory agents: resolves via deep_copy or DB lookup.
 
+    tenant_id overrides the tenant otherwise read off the request (for callers without one,
+    e.g. websocket paths); the DB arm is scoped to it and fails closed when tenancy is enabled
+    but the caller has no tenant.
+
     Raises HTTPException on all error paths.
     """
+    in_memory = bool(agents) and any(getattr(a, "id", None) == agent_id for a in agents)
+    tenant = _tenant_for_hydration(request, tenant_id, in_memory=in_memory, db=db)
     is_factory = agents and any(isinstance(a, AgentFactory) and a.id == agent_id for a in agents)
     if is_factory:
         if request is None:
@@ -2031,7 +2085,7 @@ async def resolve_agent(
         ctx = build_request_context(request, user_id=user_id, session_id=session_id, factory_input=factory_input)
         try:
             agent = await get_agent_by_id_async(
-                agent_id, agents, db, registry, version=version, create_fresh=True, ctx=ctx
+                agent_id, agents, db, registry, version=version, create_fresh=True, ctx=ctx, tenant_id=tenant
             )
         except FactoryValidationError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -2045,13 +2099,23 @@ async def resolve_agent(
             raise HTTPException(status_code=500, detail=f"Error in agent factory: {e}")
     else:
         try:
-            agent = get_agent_by_id(agent_id, agents, db, registry, version=version, create_fresh=True)
+            agent = get_agent_by_id(agent_id, agents, db, registry, version=version, create_fresh=True, tenant_id=tenant)
         # 403, not 404 or 500: the component exists and hydrated fine, the caller's tenant is
         # just not permitted the capabilities it names. Sits beside the FactoryPermissionError
         # arm above, which is the same kind of outcome on the factory path.
         except PolicyViolationError as e:
             logger.warning(f"Capability policy blocked agent '{agent_id}': {e}")
             raise HTTPException(status_code=403, detail=str(e))
+        # 409: the component exists but has no published config to run. Same-tenant callers may
+        # know it exists; publishing is the fix, so a conflict beats a lie of 404.
+        except NoPublishedVersionError as e:
+            logger.warning(f"Published-only hydration refused agent '{agent_id}': {e}")
+            raise HTTPException(status_code=409, detail=str(e))
+        # 500 with the actual cause: the row exists but could not be built. Before EGPT-2.5
+        # this collapsed to None and rendered as a misleading 404.
+        except HydrationError as e:
+            logger.error(f"Hydration failed for agent '{agent_id}': {e}")
+            raise HTTPException(status_code=500, detail=str(e))
         except Exception as e:
             logger.error(f"Error resolving agent '{agent_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving agent: {e}")
@@ -2071,8 +2135,14 @@ async def resolve_team(
     user_id: Optional[str] = None,
     session_id: Optional[str] = None,
     factory_input: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Union[Team, RemoteTeam]:
-    """Resolve a team by ID with proper error handling for both factory and non-factory paths."""
+    """Resolve a team by ID with proper error handling for both factory and non-factory paths.
+
+    See resolve_agent for the tenant semantics (EGPT-2.5).
+    """
+    in_memory = bool(teams) and any(getattr(t, "id", None) == team_id for t in teams)
+    tenant = _tenant_for_hydration(request, tenant_id, in_memory=in_memory, db=db)
     is_factory = teams and any(isinstance(t, TeamFactory) and t.id == team_id for t in teams)
     if is_factory:
         if request is None:
@@ -2080,7 +2150,7 @@ async def resolve_team(
         ctx = build_request_context(request, user_id=user_id, session_id=session_id, factory_input=factory_input)
         try:
             team = await get_team_by_id_async(
-                team_id, teams, db=db, version=version, registry=registry, create_fresh=True, ctx=ctx
+                team_id, teams, db=db, version=version, registry=registry, create_fresh=True, ctx=ctx, tenant_id=tenant
             )
         except FactoryValidationError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -2094,10 +2164,18 @@ async def resolve_team(
             raise HTTPException(status_code=500, detail=f"Error in team factory: {e}")
     else:
         try:
-            team = get_team_by_id(team_id, teams, db=db, version=version, registry=registry, create_fresh=True)
+            team = get_team_by_id(
+                team_id, teams, db=db, version=version, registry=registry, create_fresh=True, tenant_id=tenant
+            )
         except PolicyViolationError as e:
             logger.warning(f"Capability policy blocked team '{team_id}': {e}")
             raise HTTPException(status_code=403, detail=str(e))
+        except NoPublishedVersionError as e:
+            logger.warning(f"Published-only hydration refused team '{team_id}': {e}")
+            raise HTTPException(status_code=409, detail=str(e))
+        except HydrationError as e:
+            logger.error(f"Hydration failed for team '{team_id}': {e}")
+            raise HTTPException(status_code=500, detail=str(e))
         except Exception as e:
             logger.error(f"Error resolving team '{team_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving team: {e}")
@@ -2117,8 +2195,14 @@ async def resolve_workflow(
     user_id: Optional[str] = None,
     session_id: Optional[str] = None,
     factory_input: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Union[Workflow, RemoteWorkflow]:
-    """Resolve a workflow by ID with proper error handling for both factory and non-factory paths."""
+    """Resolve a workflow by ID with proper error handling for both factory and non-factory paths.
+
+    See resolve_agent for the tenant semantics (EGPT-2.5).
+    """
+    in_memory = bool(workflows) and any(getattr(w, "id", None) == workflow_id for w in workflows)
+    tenant = _tenant_for_hydration(request, tenant_id, in_memory=in_memory, db=db)
     is_factory = workflows and any(isinstance(w, WorkflowFactory) and w.id == workflow_id for w in workflows)
     if is_factory:
         if request is None:
@@ -2126,7 +2210,14 @@ async def resolve_workflow(
         ctx = build_request_context(request, user_id=user_id, session_id=session_id, factory_input=factory_input)
         try:
             workflow = await get_workflow_by_id_async(
-                workflow_id, workflows, db=db, version=version, registry=registry, create_fresh=True, ctx=ctx
+                workflow_id,
+                workflows,
+                db=db,
+                version=version,
+                registry=registry,
+                create_fresh=True,
+                ctx=ctx,
+                tenant_id=tenant,
             )
         except FactoryValidationError as e:
             raise HTTPException(status_code=400, detail=str(e))
@@ -2141,11 +2232,17 @@ async def resolve_workflow(
     else:
         try:
             workflow = get_workflow_by_id(
-                workflow_id, workflows, db=db, version=version, registry=registry, create_fresh=True
+                workflow_id, workflows, db=db, version=version, registry=registry, create_fresh=True, tenant_id=tenant
             )
         except PolicyViolationError as e:
             logger.warning(f"Capability policy blocked workflow '{workflow_id}': {e}")
             raise HTTPException(status_code=403, detail=str(e))
+        except NoPublishedVersionError as e:
+            logger.warning(f"Published-only hydration refused workflow '{workflow_id}': {e}")
+            raise HTTPException(status_code=409, detail=str(e))
+        except HydrationError as e:
+            logger.error(f"Hydration failed for workflow '{workflow_id}': {e}")
+            raise HTTPException(status_code=500, detail=str(e))
         except Exception as e:
             logger.error(f"Error resolving workflow '{workflow_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving workflow: {e}")

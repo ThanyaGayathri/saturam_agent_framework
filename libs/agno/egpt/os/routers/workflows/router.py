@@ -46,6 +46,7 @@ from egpt.os.schema import (
     WorkflowSummaryResponse,
 )
 from egpt.os.settings import EgptServingSettings
+from egpt.os.tenancy import current_tenant_id
 from egpt.os.utils import (
     find_factory_by_id,
     format_sse_event,
@@ -135,14 +136,29 @@ async def handle_workflow_via_websocket(
                     registry=os.registry,
                     create_fresh=True,
                     ctx=ctx,
+                    # The websocket has no Request for os.tenancy to read, so hydration scopes
+                    # to the same factory-context tenant the ctx above carries (EGPT-2.5).
+                    tenant_id=ctx.tenant_id,
                 )
             except Exception as e:
                 await websocket.send_text(json.dumps({"event": "error", "error": f"Factory error: {e}"}))
                 return
         else:
+            # Same claims-derived tenant as the factory branch (EGPT-2.5): a websocket carries
+            # no Request, so the middleware-written request.state.tenant_id does not exist here.
+            ws_tenant_id = resolve_tenant_id(
+                ws_user_context.get("payload", {}) if ws_user_context else {},
+                user_id,
+                verified_user_id=ws_user_context.get("user_id") if ws_user_context else None,
+            )
             try:
                 workflow = get_workflow_by_id(
-                    workflow_id=workflow_id, workflows=os.workflows, db=os.db, registry=os.registry, create_fresh=True
+                    workflow_id=workflow_id,
+                    workflows=os.workflows,
+                    db=os.db,
+                    registry=os.registry,
+                    create_fresh=True,
+                    tenant_id=ws_tenant_id,
                 )
             except Exception as e:
                 await websocket.send_text(json.dumps({"event": "error", "error": f"Error resolving workflow: {e}"}))
@@ -1056,7 +1072,7 @@ def get_workflow_router(
         if os.db and isinstance(os.db, BaseDb):
             from egpt.workflow.workflow import get_workflows
 
-            for db_workflow in get_workflows(db=os.db, registry=os.registry):
+            for db_workflow in get_workflows(db=os.db, registry=os.registry, tenant_id=current_tenant_id(request)):
                 try:
                     workflows.append(WorkflowSummaryResponse.from_workflow(workflow=db_workflow, is_component=True))
                 except Exception:

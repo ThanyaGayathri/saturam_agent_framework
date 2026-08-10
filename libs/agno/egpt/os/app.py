@@ -84,6 +84,7 @@ from egpt.os.utils import (
     update_cors_middleware,
 )
 from egpt.registry import Registry
+from egpt.registry.hydrate import ComponentConfigCache
 from egpt.registry.policy import CapabilityPolicy, resolve_policy
 from egpt.remote.base import RemoteDb, RemoteKnowledge
 from egpt.settings import jwt_is_configured, resolve
@@ -360,14 +361,25 @@ class EgptOS:
         # registry but never this EgptOS -- enforces the same document the write path does.
         self.capability_policy = resolve_policy(capability_policy, registry)
         self._explicit_capability_policy = capability_policy
-        # Parking happens in _park_capability_policy, called from _ensure_registry, so it cannot
-        # depend on whether a registry was passed to the constructor. Doing it here would only
-        # cover `EgptOS(registry=...)`: with `registry=None` the registry is built lazily later
-        # and would never receive the policy, leaving hydration enforcing a *disabled* policy
-        # while this object reports enabled=True. Still parked eagerly when we already have one,
-        # so a caller inspecting `os.registry.capability_policy` before the first request sees it.
+
+        # Component config cache + published-only flag (EGPT-2.5). Built here, parked on the
+        # registry for the same reason as the capability policy: hydration is handed a
+        # Registry and never this EgptOS. The components router evicts through this same
+        # object on mutations.
+        self.component_config_cache = ComponentConfigCache(
+            ttl_seconds=self.settings.component_config_cache_ttl_seconds
+        )
+
+        # Parking happens in _park_capability_policy / _park_hydration_support, called from
+        # _ensure_registry, so it cannot depend on whether a registry was passed to the
+        # constructor. Doing it here would only cover `EgptOS(registry=...)`: with
+        # `registry=None` the registry is built lazily later and would never receive the
+        # policy, leaving hydration enforcing a *disabled* policy while this object reports
+        # enabled=True. Still parked eagerly when we already have one, so a caller inspecting
+        # `os.registry.capability_policy` before the first request sees it.
         if registry is not None:
             self._park_capability_policy(registry)
+            self._park_hydration_support(registry)
 
         # Composition root for internal services. Factories are lazy, so binding them
         # here (before the rest of __init__ runs) is safe.
@@ -770,7 +782,25 @@ class EgptOS:
         # `resolve_policy`'s environment fallback would not save it because the policy came
         # from code rather than from EGPT_CAPABILITY_POLICY_FILE.
         self._park_capability_policy(self.registry)
+        self._park_hydration_support(self.registry)
         return self.registry
+
+    def _park_hydration_support(self, registry: Registry) -> None:
+        """Put the component config cache and published-only flag on the registry (EGPT-2.5).
+
+        An existing cache on a shared registry is left in place -- two EgptOS instances over
+        the same registry should share one cache, or an eviction through one OS's router
+        would miss the other's entries. The published-only flag is only ever raised, never
+        lowered: if either OS (or a prior parking) demanded published-only, a laxer sibling
+        must not quietly turn drafts back on.
+        """
+        if registry.component_config_cache is None:
+            registry.component_config_cache = self.component_config_cache
+        else:
+            # Adopt the shared cache so this OS's router evicts from the one hydration reads.
+            self.component_config_cache = registry.component_config_cache
+        if self.settings.hydrate_published_only:
+            registry.hydrate_published_only = True
 
     def _park_capability_policy(self, registry: Registry) -> None:
         """Put the capability policy on the registry, so hydration enforces what writes enforce.

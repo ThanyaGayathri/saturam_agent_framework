@@ -653,22 +653,30 @@ def build_mcp_server(
             from egpt.team.team import get_teams
             from egpt.workflow.workflow import get_workflows
 
+            from egpt.os.tenancy import current_tenant_id
+
             registry = os.registry
+            # Scope the DB listings to the caller's tenant (EGPT-2.5), matching GET /agents etc.
+            tenant_id = current_tenant_id(request)
             agent_exclude = (registry.get_agent_ids() if registry else None) or None
             for a in _accessible(
-                get_agents(db=os.db, registry=registry, exclude_component_ids=agent_exclude), "agents"
+                get_agents(db=os.db, registry=registry, exclude_component_ids=agent_exclude, tenant_id=tenant_id),
+                "agents",
             ):
                 try:
                     agents_out.append(AgentSummaryResponse.from_agent(a).model_dump())
                 except Exception:
                     logger.exception("Error summarizing DB agent for get_agentos_config")
             team_exclude = (registry.get_team_ids() if registry else None) or None
-            for t in _accessible(get_teams(db=os.db, registry=registry, exclude_component_ids=team_exclude), "teams"):
+            for t in _accessible(
+                get_teams(db=os.db, registry=registry, exclude_component_ids=team_exclude, tenant_id=tenant_id),
+                "teams",
+            ):
                 try:
                     teams_out.append(TeamSummaryResponse.from_team(t).model_dump())
                 except Exception:
                     logger.exception("Error summarizing DB team for get_agentos_config")
-            for w in _accessible(get_workflows(db=os.db, registry=registry), "workflows"):
+            for w in _accessible(get_workflows(db=os.db, registry=registry, tenant_id=tenant_id), "workflows"):
                 try:
                     workflows_out.append(WorkflowSummaryResponse.from_workflow(w, is_component=True).model_dump())
                 except Exception:

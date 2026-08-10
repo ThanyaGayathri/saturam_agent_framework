@@ -420,7 +420,7 @@ class TestTeamFromDict:
 
             team = Team.from_dict(config, db=mock_db)
 
-            mock_get_agent.assert_called_once_with(id="agent-1", db=mock_db, registry=None)
+            mock_get_agent.assert_called_once_with(id="agent-1", db=mock_db, registry=None, tenant_id=None)
             assert team.members == [mock_agent]
 
     def test_from_dict_roundtrip(self, team_with_settings):
@@ -627,7 +627,7 @@ class TestTeamLoad:
 
         Team.load(id="versioned-team", db=mock_db, version=2)
 
-        mock_db.load_component_graph.assert_called_once_with("versioned-team", version=2, label=None)
+        mock_db.load_component_graph.assert_called_once_with("versioned-team", version=2, label=None, tenant_id=None)
 
     def test_load_with_label(self, mock_db):
         """Test load retrieves labeled version."""
@@ -639,7 +639,7 @@ class TestTeamLoad:
 
         Team.load(id="labeled-team", db=mock_db, label="production")
 
-        mock_db.load_component_graph.assert_called_once_with("labeled-team", version=None, label="production")
+        mock_db.load_component_graph.assert_called_once_with("labeled-team", version=None, label="production", tenant_id=None)
 
     def test_load_hydrates_member_agents(self, mock_db):
         """Test load hydrates member agents from graph."""
@@ -787,7 +787,7 @@ class TestGetTeamById:
 
         get_team_by_id(db=mock_db, id="versioned", version=3)
 
-        mock_db.get_config.assert_called_once_with(component_id="versioned", version=3, label=None)
+        mock_db.get_config.assert_called_once_with(component_id="versioned", version=3, label=None, tenant_id=None)
 
     def test_get_team_by_id_with_label(self, mock_db):
         """Test get_team_by_id retrieves labeled version."""
@@ -795,7 +795,7 @@ class TestGetTeamById:
 
         get_team_by_id(db=mock_db, id="labeled", label="staging")
 
-        mock_db.get_config.assert_called_once_with(component_id="labeled", version=None, label="staging")
+        mock_db.get_config.assert_called_once_with(component_id="labeled", version=None, label="staging", tenant_id=None)
 
     def test_get_team_by_id_with_registry(self, mock_db):
         """Test get_team_by_id passes registry."""
@@ -836,13 +836,14 @@ class TestGetTeamById:
         assert team is not None
         assert team.db == mock_db
 
-    def test_get_team_by_id_handles_error(self, mock_db):
-        """Test get_team_by_id returns None on error."""
+    def test_get_team_by_id_raises_hydration_error(self, mock_db):
+        """A failure on an existing row surfaces as HydrationError, not None (EGPT-2.5)."""
+        from egpt.registry.hydrate import HydrationError
+
         mock_db.get_config.side_effect = Exception("DB error")
 
-        team = get_team_by_id(db=mock_db, id="error-team")
-
-        assert team is None
+        with pytest.raises(HydrationError, match="error-team"):
+            get_team_by_id(db=mock_db, id="error-team")
 
 
 # =============================================================================
@@ -879,7 +880,7 @@ class TestGetTeams:
 
         get_teams(db=mock_db)
 
-        mock_db.list_components.assert_called_once_with(component_type=ComponentType.TEAM, exclude_component_ids=None)
+        mock_db.list_components.assert_called_once_with(component_type=ComponentType.TEAM, exclude_component_ids=None, tenant_id=None)
 
     def test_get_teams_with_registry(self, mock_db):
         """Test get_teams passes registry to from_dict."""

@@ -1110,6 +1110,7 @@ def load(
     registry: Optional[Registry] = None,
     label: Optional[str] = None,
     version: Optional[int] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[Agent]:
     """
     Load an agent by id.
@@ -1121,6 +1122,8 @@ def load(
         registry: Optional registry for rehydrating tools and schemas.
         label: The label of the agent to load.
         version: The version of the agent to load.
+        tenant_id: Optional caller tenant (EGPT-2.5). Scopes the read and selects the
+            capability policy; a foreign tenant's component loads as None.
 
     Returns:
         The agent loaded from the database or None if not found.
@@ -1128,10 +1131,16 @@ def load(
     Raises:
         PolicyViolationError: the stored config names a capability its tenant may not use.
             This function has no catch-all, so it propagates to the caller unchanged.
+        NoPublishedVersionError: published-only hydration is configured and the selected
+            config is not published.
     """
+    from egpt.registry.hydrate import fetch_config_row
     from egpt.registry.policy import enforce_policy_or_raise
 
-    data = db.get_config(component_id=id, label=label, version=version)
+    # `Agent.load` is a public entry point that does not go through `get_agent_by_id`, so the
+    # tenant scope, cache and capability gate all need their own copy here or this would be a
+    # way around them.
+    data = fetch_config_row(db, id, "agent", version=version, label=label, tenant_id=tenant_id, registry=registry)
     if data is None:
         return None
 
@@ -1139,12 +1148,11 @@ def load(
     if config is None:
         return None
 
-    # Read-side capability gate (EGPT-2.3). `Agent.load` is a public entry point that does not
-    # go through `get_agent_by_id`, so without this it would be a way around the policy.
+    # Read-side capability gate (EGPT-2.3); the caller's tenant wins over the row's (EGPT-2.5).
     enforce_policy_or_raise(
         config,
         "agent",
-        tenant_id=data.get("tenant_id"),
+        tenant_id=tenant_id if tenant_id is not None else data.get("tenant_id"),
         registry=registry,
         component_id=id,
     )

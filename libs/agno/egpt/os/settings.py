@@ -41,6 +41,27 @@ class EgptServingSettings(BrandedSettings):
         json_schema_extra=bare_env("SERVICE_ACCOUNT_CACHE_TTL_SECONDS"),
     )
 
+    # Seconds to cache a component's config row in-process during hydration (EGPT-2.5),
+    # to avoid a database read per hydration (one per team member / workflow step).
+    # A component mutation through the components API takes effect immediately on the
+    # worker that processes it and within this window on other workers -- and on writers
+    # that bypass the API (Agent.save, the studio toolkit). Set to 0 to disable the
+    # cache (read the DB on every hydration).
+    component_config_cache_ttl_seconds: int = Field(
+        default=30,
+        description="TTL (seconds) for the in-process component config hydration cache; 0 disables it",
+        json_schema_extra=bare_env("COMPONENT_CONFIG_CACHE_TTL_SECONDS"),
+    )
+
+    # When True, hydration refuses any stored component config whose stage is not
+    # "published" (including explicit-version reads): production should not run drafts.
+    # Default False so authoring and dev flows can run drafts freely.
+    hydrate_published_only: bool = Field(
+        default=False,
+        description="Refuse to hydrate component configs that are not published",
+        json_schema_extra=bare_env("HYDRATE_PUBLISHED_ONLY"),
+    )
+
     # Cors origin list to allow requests from.
     # This list is set using the set_cors_origin_list validator
     cors_origin_list: Optional[List[str]] = Field(

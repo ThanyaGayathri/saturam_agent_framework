@@ -1551,16 +1551,23 @@ class Team:
         data: Dict[str, Any],
         db: Optional["BaseDb"] = None,
         registry: Optional["Registry"] = None,
+        tenant_id: Optional[str] = None,
     ) -> "Team":
-        return _storage.from_dict(cls, data=data, db=db, registry=registry)
+        return _storage.from_dict(cls, data=data, db=db, registry=registry, tenant_id=tenant_id)
 
     @classmethod
-    def component_spec(cls, *, registry: Optional["Registry"] = None, db: Optional["BaseDb"] = None) -> "ComponentSpec":
+    def component_spec(
+        cls,
+        *,
+        registry: Optional["Registry"] = None,
+        db: Optional["BaseDb"] = None,
+        tenant_id: Optional[str] = None,
+    ) -> "ComponentSpec":
         """The contract `egpt.registry.schema` validates team configs against.
 
         Sync-only by design: it builds and returns a descriptor with nothing to await.
         """
-        return _storage.component_spec(registry=registry, db=db)
+        return _storage.component_spec(registry=registry, db=db, tenant_id=tenant_id)
 
     def save(
         self,
@@ -1581,8 +1588,11 @@ class Team:
         registry: Optional["Registry"] = None,
         label: Optional[str] = None,
         version: Optional[int] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional["Team"]:
-        return _storage.load(cls, id=id, db=db, registry=registry, label=label, version=version)
+        return _storage.load(
+            cls, id=id, db=db, registry=registry, label=label, version=version, tenant_id=tenant_id
+        )
 
     def delete(
         self,
@@ -1791,6 +1801,7 @@ def get_team_by_id(
     version: Optional[int] = None,
     label: Optional[str] = None,
     registry: Optional["Registry"] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional["Team"]:
     """
     Get a Team by id from the database.
@@ -1806,17 +1817,23 @@ def get_team_by_id(
         version: Optional integer config version.
         label: Optional version_label.
         registry: Optional Registry for reconstructing unserializable components.
+        tenant_id: Optional caller tenant (EGPT-2.5). Scopes the read -- and the member
+            hydration below it -- and selects the capability policy. None means unscoped.
 
     Returns:
         Team instance or None.
 
     Raises:
         PolicyViolationError: the stored config names a capability its tenant may not use.
+        HydrationError: the config row exists but could not be built into a Team.
     """
+    from egpt.registry.hydrate import HydrationError, fetch_config_row
     from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise
 
     try:
-        row = db.get_config(component_id=id, version=version, label=label)
+        row = fetch_config_row(
+            db, id, "team", version=version, label=label, tenant_id=tenant_id, registry=registry
+        )
         if row is None:
             return None
 
@@ -1825,31 +1842,35 @@ def get_team_by_id(
             raise ValueError(f"Invalid config found for team {id}")
 
         # Read-side capability gate (EGPT-2.3); see get_agent_by_id for why it is not swallowed.
+        # The caller's tenant wins over the row's (EGPT-2.5).
         enforce_policy_or_raise(
             cfg,
             "team",
-            tenant_id=row.get("tenant_id"),
+            tenant_id=tenant_id if tenant_id is not None else row.get("tenant_id"),
             registry=registry,
             component_id=id,
         )
 
-        team = Team.from_dict(cfg, db=db, registry=registry)
+        team = Team.from_dict(cfg, db=db, registry=registry, tenant_id=tenant_id)
         # Ensure team.id is set to the component_id
         team.id = id
 
         return team
 
-    except PolicyViolationError:
+    except (PolicyViolationError, HydrationError):
         raise
     except Exception as e:
         log_error(f"Error loading Team {id} from database: {str(e)}")
-        return None
+        raise HydrationError(
+            f"Component '{id}' failed to hydrate: {e}", component_id=id, component_type="team"
+        ) from e
 
 
 def get_teams(
     db: "BaseDb",
     registry: Optional["Registry"] = None,
     exclude_component_ids: Optional[Set[str]] = None,
+    tenant_id: Optional[str] = None,
 ) -> List["Team"]:
     """
     Get all teams from the database.
@@ -1858,11 +1879,15 @@ def get_teams(
         db: Database to load teams from
         registry: Optional registry for rehydrating tools
         exclude_component_ids: Component IDs to exclude from results.
+        tenant_id: Optional caller tenant (EGPT-2.5). Scopes the listing and every per-row
+            config read. None means unscoped.
 
     Returns:
         List of Team instances loaded from the database. A team whose stored config violates the
-        capability policy is omitted with a warning rather than failing the whole listing.
+        capability policy -- or fails to hydrate -- is omitted with a warning rather than failing
+        the whole listing.
     """
+    from egpt.registry.hydrate import HydrationError, fetch_config_row
     from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise, resolve_policy
     from egpt.utils.log import log_warning
 
@@ -1872,12 +1897,14 @@ def get_teams(
     teams: List[Team] = []
     try:
         components, _ = db.list_components(
-            component_type=ComponentType.TEAM, exclude_component_ids=exclude_component_ids
+            component_type=ComponentType.TEAM,
+            exclude_component_ids=exclude_component_ids,
+            tenant_id=tenant_id,
         )
         for component in components:
             component_id = component["component_id"]
             try:
-                config = db.get_config(component_id=component_id)
+                config = fetch_config_row(db, component_id, "team", tenant_id=tenant_id, registry=registry)
                 if config is not None:
                     team_config = config.get("config")
                     if team_config is not None:
@@ -1886,17 +1913,17 @@ def get_teams(
                         enforce_policy_or_raise(
                             team_config,
                             "team",
-                            tenant_id=config.get("tenant_id"),
+                            tenant_id=tenant_id if tenant_id is not None else config.get("tenant_id"),
                             registry=registry,
                             policy=policy,
                             component_id=component_id,
                         )
-                        team = Team.from_dict(team_config, db=db, registry=registry)
+                        team = Team.from_dict(team_config, db=db, registry=registry, tenant_id=tenant_id)
                         team.id = component_id
                         team._version = component.get("current_version")
                         team._stage = config.get("stage")
                         teams.append(team)
-            except PolicyViolationError as e:
+            except (PolicyViolationError, HydrationError) as e:
                 log_warning(f"Omitting team from listing: {e}")
                 continue
             except Exception as e:

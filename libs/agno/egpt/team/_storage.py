@@ -726,14 +726,24 @@ def _team_config_keys() -> FrozenSet[str]:
     return frozenset(params | _TEAM_EXTRA_CONFIG_KEYS)
 
 
-def component_spec(*, registry: Optional["Registry"] = None, db: Optional["BaseDb"] = None) -> ComponentSpec:
-    """The team's side of the config-validation contract (see `egpt.registry.schema`)."""
+def component_spec(
+    *,
+    registry: Optional["Registry"] = None,
+    db: Optional["BaseDb"] = None,
+    tenant_id: Optional[str] = None,
+) -> ComponentSpec:
+    """The team's side of the config-validation contract (see `egpt.registry.schema`).
+
+    tenant_id (EGPT-2.5) scopes the member hydration inside the validator's dry run.
+    Without it, a write-time dry run of a team config naming another tenant's component as a
+    member would hydrate it -- turning validation into an existence oracle for foreign ids.
+    """
     from egpt.team.team import Team
 
     return ComponentSpec(
         component_type="team",
         known_keys=_team_config_keys(),
-        hydrate=lambda config: from_dict(Team, data=config, db=db, registry=registry),
+        hydrate=lambda config: from_dict(Team, data=config, db=db, registry=registry, tenant_id=tenant_id),
     )
 
 
@@ -765,6 +775,7 @@ def from_dict(
     data: Dict[str, Any],
     db: Optional["BaseDb"] = None,
     registry: Optional["Registry"] = None,
+    tenant_id: Optional[str] = None,
 ) -> "Team":
     """
     Create a Team from a dictionary.
@@ -773,6 +784,8 @@ def from_dict(
         data: Dictionary containing team configuration
         db: Optional database for loading agents in members
         registry: Optional registry for rehydrating tools
+        tenant_id: Optional caller tenant (EGPT-2.5), forwarded into member hydration --
+            without it a tenant-scoped root team could still pull cross-tenant members.
 
     Returns:
         Team: Reconstructed team instance
@@ -797,7 +810,7 @@ def from_dict(
                 if db is None:
                     log_warning(f"Cannot load member agent {member_data['agent_id']}: db is None")
                     continue
-                agent = get_agent_by_id(id=member_data["agent_id"], db=db, registry=registry)
+                agent = get_agent_by_id(id=member_data["agent_id"], db=db, registry=registry, tenant_id=tenant_id)
                 if agent:
                     members.append(agent)
                 else:
@@ -807,7 +820,9 @@ def from_dict(
                 if db is None:
                     log_warning(f"Cannot load member team {member_data['team_id']}: db is None")
                     continue
-                nested_team = get_team_by_id(id=member_data["team_id"], db=db, registry=registry)
+                nested_team = get_team_by_id(
+                    id=member_data["team_id"], db=db, registry=registry, tenant_id=tenant_id
+                )
                 if nested_team:
                     members.append(nested_team)
                 else:
@@ -1121,6 +1136,7 @@ def _hydrate_from_graph(
     *,
     db: "BaseDb",
     registry: Optional["Registry"] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional["Team"]:
     """
     Hydrate a team and its members from an already-loaded component graph.
@@ -1128,25 +1144,29 @@ def _hydrate_from_graph(
     This avoids re-querying the DB for nested teams whose graphs are already available.
     """
     from egpt.agent.agent import Agent
+    from egpt.registry.hydrate import require_published
     from egpt.registry.policy import enforce_policy_or_raise
 
     config = graph["config"].get("config")
     if config is None:
         return None
 
+    require_published(graph["config"], graph["component"]["component_id"], "team", registry=registry)
+
     # Gating here rather than in `load` covers three callers at once: `Team.load`, a nested team
     # reached through recursion, and every member config below. `load` is the natural entry point
     # for anything programmatic -- a migration script, a CLI, a test fixture -- and those are
     # exactly the callers with no policy in mind (PR #53 review).
+    # The caller's tenant wins over the row's (EGPT-2.5).
     enforce_policy_or_raise(
         config,
         "team",
-        tenant_id=graph["config"].get("tenant_id"),
+        tenant_id=tenant_id if tenant_id is not None else graph["config"].get("tenant_id"),
         registry=registry,
         component_id=graph["component"]["component_id"],
     )
 
-    team = cls.from_dict(config, db=db, registry=registry)
+    team = cls.from_dict(config, db=db, registry=registry, tenant_id=tenant_id)
     team.id = graph["component"]["component_id"]
     # Only fall back to the caller-provided db if the config didn't
     # reconstruct one. Otherwise we'd clobber any custom table names
@@ -1169,24 +1189,26 @@ def _hydrate_from_graph(
         member_type = link_meta.get("type")
 
         if member_type == "agent":
+            member_id = child_graph["component"]["component_id"]
+            require_published(child_graph["config"], member_id, "agent", registry=registry)
             # A member agent's own definition is checked here too: this path builds it straight
             # from the graph rather than going through `get_agent_by_id`, so it would otherwise
             # be a way to reach a disallowed capability by wrapping it in a team.
             enforce_policy_or_raise(
                 child_config,
                 "agent",
-                tenant_id=child_graph["config"].get("tenant_id"),
+                tenant_id=tenant_id if tenant_id is not None else child_graph["config"].get("tenant_id"),
                 registry=registry,
-                component_id=child_graph["component"]["component_id"],
+                component_id=member_id,
             )
             agent = Agent.from_dict(child_config)
-            agent.id = child_graph["component"]["component_id"]
+            agent.id = member_id
             if agent.db is None:
                 agent.db = db
             team.members.append(agent)
         elif member_type == "team":
             # Recursively hydrate nested teams from the already-loaded child graph
-            nested_team = _hydrate_from_graph(cls, child_graph, db=db, registry=registry)
+            nested_team = _hydrate_from_graph(cls, child_graph, db=db, registry=registry, tenant_id=tenant_id)
             if nested_team:
                 team.members.append(nested_team)
 
@@ -1201,6 +1223,7 @@ def load(
     registry: Optional["Registry"] = None,
     label: Optional[str] = None,
     version: Optional[int] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional["Team"]:
     """
     Load a team by id, with hydrated members.
@@ -1209,16 +1232,20 @@ def load(
         id: The id of the team to load.
         db: The database to load the team from.
         label: The label of the team to load.
+        version: The version of the team to load.
+        tenant_id: Optional caller tenant (EGPT-2.5). Applied to the root and every child
+            resolved through the graph; a foreign tenant's team loads as None.
 
     Returns:
         The team loaded from the database with hydrated members, or None if not found.
     """
-    # Use graph to load team + all members in a single DB call
-    graph = db.load_component_graph(id, version=version, label=label)
+    # Use graph to load team + all members in a single DB call. Graph reads are not routed
+    # through the component config cache in EGPT-2.5 (see egpt.registry.hydrate).
+    graph = db.load_component_graph(id, version=version, label=label, tenant_id=tenant_id)
     if graph is None:
         return None
 
-    return _hydrate_from_graph(cls, graph, db=db, registry=registry)
+    return _hydrate_from_graph(cls, graph, db=db, registry=registry, tenant_id=tenant_id)
 
 
 def delete(
