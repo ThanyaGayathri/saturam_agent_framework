@@ -1,0 +1,440 @@
+{
+  "mode": "fixture",
+  "generated_utc": "20260810T093030Z",
+  "reports": [
+    {
+      "k": 5,
+      "judge": "stub",
+      "n_probes": 3,
+      "qa_accuracy": {
+        "value": 1.0,
+        "n": 3,
+        "ci95": [
+          0.43849391955098227,
+          1.0
+        ]
+      },
+      "qa_accuracy_by_category": {
+        "as_of_t": {
+          "value": 1.0,
+          "n": 1,
+          "ci95": [
+            0.20654329147389294,
+            1.0
+          ]
+        },
+        "decay": {
+          "value": 1.0,
+          "n": 1,
+          "ci95": [
+            0.20654329147389294,
+            1.0
+          ]
+        },
+        "knowledge_update": {
+          "value": 1.0,
+          "n": 1,
+          "ci95": [
+            0.20654329147389294,
+            1.0
+          ]
+        }
+      },
+      "temporal_accuracy": {
+        "value": 1.0,
+        "n": 2,
+        "ci95": [
+          0.34237195288961925,
+          1.0
+        ]
+      },
+      "retrieval": {
+        "recall_at_k": {
+          "value": 1.0,
+          "n": 3
+        },
+        "hit_at_k": {
+          "value": 1.0,
+          "n": 3
+        },
+        "ndcg_at_k": {
+          "value": 1.0,
+          "n": 3
+        },
+        "all_hops_hit_at_k": null,
+        "n_multihop": 0
+      },
+      "bitemporal": {
+        "accuracy": {
+          "value": 1.0,
+          "n": 2,
+          "ci95": [
+            0.34237195288961925,
+            1.0
+          ]
+        },
+        "as_of_leak_rate": 0.5,
+        "as_of_top1_leak_rate": 0.0,
+        "as_of_first_leak_rank": 1.0
+      },
+      "decay": {
+        "n": 1,
+        "suppression_at_k": 0.0,
+        "outranked": 1.0
+      },
+      "memory_footprint": {
+        "items": 3,
+        "tokens": 24
+      },
+      "latency_ms": {
+        "ingest": {
+          "n": 3,
+          "mean": 0.0002636710026611884,
+          "p50": 0.00033300602808594704,
+          "p95": 0.00033300602808594704,
+          "max": 0.00033300602808594704
+        },
+        "query": {
+          "n": 3,
+          "mean": 0.013791660118537644,
+          "p50": 0.014874996850267053,
+          "p95": 0.018662189540918916,
+          "max": 0.019082988728769124
+        },
+        "answer": {
+          "n": 3,
+          "mean": 0.0007223376693824927,
+          "p50": 0.0007089984137564898,
+          "p95": 0.000970906694419682,
+          "max": 0.00100000761449337
+        }
+      },
+      "cost": {
+        "n_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "price_in_per_1m": 1.25,
+        "price_out_per_1m": 10.0
+      },
+      "benchmark": "custom_temporal",
+      "provider": "recency_decay",
+      "answerer": "stub"
+    },
+    {
+      "k": 5,
+      "judge": "stub",
+      "n_probes": 2,
+      "qa_accuracy": {
+        "value": 1.0,
+        "n": 2,
+        "ci95": [
+          0.34237195288961925,
+          1.0
+        ]
+      },
+      "qa_accuracy_by_category": {
+        "single_session": {
+          "value": 1.0,
+          "n": 2,
+          "ci95": [
+            0.34237195288961925,
+            1.0
+          ]
+        }
+      },
+      "temporal_accuracy": null,
+      "retrieval": {
+        "recall_at_k": {
+          "value": 1.0,
+          "n": 2
+        },
+        "hit_at_k": {
+          "value": 1.0,
+          "n": 2
+        },
+        "ndcg_at_k": {
+          "value": 1.0,
+          "n": 2
+        },
+        "all_hops_hit_at_k": null,
+        "n_multihop": 0
+      },
+      "bitemporal": {
+        "accuracy": null,
+        "as_of_leak_rate": null,
+        "as_of_top1_leak_rate": null,
+        "as_of_first_leak_rank": null
+      },
+      "decay": null,
+      "memory_footprint": {
+        "items": 3,
+        "tokens": 23
+      },
+      "latency_ms": {
+        "ingest": {
+          "n": 2,
+          "mean": 0.00012450618669390678,
+          "p50": 0.00012450618669390678,
+          "p95": 0.00016185804270207882,
+          "max": 0.00016600824892520905
+        },
+        "query": {
+          "n": 2,
+          "mean": 0.007416500011458993,
+          "p50": 0.007416500011458993,
+          "p95": 0.008279141911771148,
+          "max": 0.008374991011805832
+        },
+        "answer": {
+          "n": 2,
+          "mean": 0.0003745008143596351,
+          "p50": 0.0003745008143596351,
+          "p95": 0.00044965636334382,
+          "max": 0.0004580069798976183
+        }
+      },
+      "cost": {
+        "n_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "price_in_per_1m": 1.25,
+        "price_out_per_1m": 10.0
+      },
+      "benchmark": "dmr",
+      "provider": "recency_decay",
+      "answerer": "stub"
+    },
+    {
+      "k": 5,
+      "judge": "stub",
+      "n_probes": 3,
+      "qa_accuracy": {
+        "value": 0.6666666666666666,
+        "n": 3,
+        "ci95": [
+          0.2076549551264879,
+          0.9385096847238394
+        ]
+      },
+      "qa_accuracy_by_category": {
+        "multi_session": {
+          "value": 1.0,
+          "n": 1,
+          "ci95": [
+            0.20654329147389294,
+            1.0
+          ]
+        },
+        "single_session": {
+          "value": 0.0,
+          "n": 1,
+          "ci95": [
+            0.0,
+            0.7934567085261071
+          ]
+        },
+        "temporal": {
+          "value": 1.0,
+          "n": 1,
+          "ci95": [
+            0.20654329147389294,
+            1.0
+          ]
+        }
+      },
+      "temporal_accuracy": {
+        "value": 1.0,
+        "n": 1,
+        "ci95": [
+          0.20654329147389294,
+          1.0
+        ]
+      },
+      "retrieval": {
+        "recall_at_k": {
+          "value": 1.0,
+          "n": 3
+        },
+        "hit_at_k": {
+          "value": 1.0,
+          "n": 3
+        },
+        "ndcg_at_k": {
+          "value": 0.8333333333333334,
+          "n": 3
+        },
+        "all_hops_hit_at_k": {
+          "value": 1.0,
+          "n": 1
+        },
+        "n_multihop": 1
+      },
+      "bitemporal": {
+        "accuracy": null,
+        "as_of_leak_rate": null,
+        "as_of_top1_leak_rate": null,
+        "as_of_first_leak_rank": null
+      },
+      "decay": null,
+      "memory_footprint": {
+        "items": 4,
+        "tokens": 26
+      },
+      "latency_ms": {
+        "ingest": {
+          "n": 2,
+          "mean": 0.0001039952621795237,
+          "p50": 0.0001039952621795237,
+          "p95": 0.00012288728612475097,
+          "max": 0.0001249863998964429
+        },
+        "query": {
+          "n": 3,
+          "mean": 0.0070829992182552814,
+          "p50": 0.00650000583846122,
+          "p95": 0.008449400775134563,
+          "max": 0.008666000212542713
+        },
+        "answer": {
+          "n": 3,
+          "mean": 0.0002776650944724679,
+          "p50": 0.0002500019036233425,
+          "p95": 0.00032469251891598105,
+          "max": 0.00033299147617071867
+        }
+      },
+      "cost": {
+        "n_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "price_in_per_1m": 1.25,
+        "price_out_per_1m": 10.0
+      },
+      "benchmark": "locomo[0]",
+      "provider": "recency_decay",
+      "answerer": "stub"
+    },
+    {
+      "k": 5,
+      "judge": "stub",
+      "n_probes": 3,
+      "qa_accuracy": {
+        "value": 0.6666666666666666,
+        "n": 3,
+        "ci95": [
+          0.2076549551264879,
+          0.9385096847238394
+        ]
+      },
+      "qa_accuracy_by_category": {
+        "abstention": {
+          "value": 0.0,
+          "n": 1,
+          "ci95": [
+            0.0,
+            0.7934567085261071
+          ]
+        },
+        "knowledge_update": {
+          "value": 1.0,
+          "n": 1,
+          "ci95": [
+            0.20654329147389294,
+            1.0
+          ]
+        },
+        "single_session": {
+          "value": 1.0,
+          "n": 1,
+          "ci95": [
+            0.20654329147389294,
+            1.0
+          ]
+        }
+      },
+      "temporal_accuracy": {
+        "value": 1.0,
+        "n": 1,
+        "ci95": [
+          0.20654329147389294,
+          1.0
+        ]
+      },
+      "retrieval": {
+        "recall_at_k": {
+          "value": 1.0,
+          "n": 2
+        },
+        "hit_at_k": {
+          "value": 1.0,
+          "n": 2
+        },
+        "ndcg_at_k": {
+          "value": 1.0,
+          "n": 2
+        },
+        "all_hops_hit_at_k": null,
+        "n_multihop": 0
+      },
+      "bitemporal": {
+        "accuracy": {
+          "value": 1.0,
+          "n": 1,
+          "ci95": [
+            0.20654329147389294,
+            1.0
+          ]
+        },
+        "as_of_leak_rate": 0.0,
+        "as_of_top1_leak_rate": 0.0,
+        "as_of_first_leak_rank": null
+      },
+      "decay": null,
+      "memory_footprint": {
+        "items": 7,
+        "tokens": 52
+      },
+      "latency_ms": {
+        "ingest": {
+          "n": 5,
+          "mean": 7.519847713410854e-05,
+          "p50": 8.298957254737616e-05,
+          "p95": 0.0001167994923889637,
+          "max": 0.00012500095181167126
+        },
+        "query": {
+          "n": 3,
+          "mean": 0.01101399539038539,
+          "p50": 0.01129199517890811,
+          "p95": 0.011553890362847596,
+          "max": 0.011582989827729762
+        },
+        "answer": {
+          "n": 3,
+          "mean": 0.0002500019036233425,
+          "p50": 0.0002500019036233425,
+          "p95": 0.000286895374301821,
+          "max": 0.00029099464882165194
+        }
+      },
+      "cost": {
+        "n_calls": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "price_in_per_1m": 1.25,
+        "price_out_per_1m": 10.0
+      },
+      "benchmark": "longmemeval",
+      "provider": "recency_decay",
+      "answerer": "stub"
+    }
+  ]
+}

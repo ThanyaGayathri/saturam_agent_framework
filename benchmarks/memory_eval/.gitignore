@@ -1,0 +1,17 @@
+# Real benchmark corpora are NEVER vendored (licensing). They are fetched on
+# demand into these gitignored raw dirs by the dataset downloaders. Only the
+# tiny, format-faithful synthetic fixtures under fixtures/ are committed.
+data/*/raw/
+data/**/raw/
+
+# LLM record/replay cache (mirrors benchmarks/memory_consolidation).
+results/llm_cache/
+
+# Local env for live LLM runs.
+.env
+
+# Tool caches.
+.mypy_cache/
+.ruff_cache/
+__pycache__/
+*.pyc

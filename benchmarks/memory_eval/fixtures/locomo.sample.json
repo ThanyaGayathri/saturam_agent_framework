@@ -1,0 +1,91 @@
+{
+  "name": "locomo[0]",
+  "sessions": [
+    {
+      "session_id": "session_1",
+      "turns": [
+        {
+          "turn_id": "D1:1",
+          "speaker": "Alice",
+          "text": "I moved to Berlin in March.",
+          "timestamp": 1700000000,
+          "t_valid": null,
+          "t_invalid": null
+        },
+        {
+          "turn_id": "D1:2",
+          "speaker": "Bob",
+          "text": "How's the new city treating you?",
+          "timestamp": 1700000001,
+          "t_valid": null,
+          "t_invalid": null
+        }
+      ]
+    },
+    {
+      "session_id": "session_2",
+      "turns": [
+        {
+          "turn_id": "D2:1",
+          "speaker": "Alice",
+          "text": "I started learning German at a school downtown.",
+          "timestamp": 1700086400,
+          "t_valid": null,
+          "t_invalid": null
+        },
+        {
+          "turn_id": "D2:2",
+          "speaker": "Bob",
+          "text": "Viel Erfolg!",
+          "timestamp": 1700086401,
+          "t_valid": null,
+          "t_invalid": null
+        }
+      ]
+    }
+  ],
+  "probes": [
+    {
+      "probe_id": "locomo0_q0",
+      "question": "Which city did Alice move to?",
+      "answer": "Berlin",
+      "category": "single_session",
+      "evidence_ids": [
+        "D1:1"
+      ],
+      "as_of": null,
+      "decay_target_turn_id": null,
+      "raw_category": "4"
+    },
+    {
+      "probe_id": "locomo0_q1",
+      "question": "What did Alice start learning after moving?",
+      "answer": "German",
+      "category": "multi_session",
+      "evidence_ids": [
+        "D1:1",
+        "D2:1"
+      ],
+      "as_of": null,
+      "decay_target_turn_id": null,
+      "raw_category": "1"
+    },
+    {
+      "probe_id": "locomo0_q2",
+      "question": "In which month did Alice move to Berlin?",
+      "answer": "March",
+      "category": "temporal",
+      "evidence_ids": [
+        "D1:1"
+      ],
+      "as_of": null,
+      "decay_target_turn_id": null,
+      "raw_category": "2"
+    }
+  ],
+  "meta": {
+    "source": "github.com/snap-research/locomo",
+    "sample_index": 0,
+    "license": "research use; not redistributed (fetched on demand)"
+  }
+}

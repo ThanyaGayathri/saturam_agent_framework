@@ -1,0 +1,19 @@
+[
+  {
+    "conversation": {
+      "session_1": [
+        {"speaker": "Alice", "text": "I moved to Berlin in March.", "dia_id": "D1:1"},
+        {"speaker": "Bob", "text": "How's the new city treating you?", "dia_id": "D1:2"}
+      ],
+      "session_2": [
+        {"speaker": "Alice", "text": "I started learning German at a school downtown.", "dia_id": "D2:1"},
+        {"speaker": "Bob", "text": "Viel Erfolg!", "dia_id": "D2:2"}
+      ]
+    },
+    "qa": [
+      {"question": "Which city did Alice move to?", "answer": "Berlin", "category": 4, "evidence": ["D1:1"]},
+      {"question": "What did Alice start learning after moving?", "answer": "German", "category": 1, "evidence": ["D1:1", "D2:1"]},
+      {"question": "In which month did Alice move to Berlin?", "answer": "March", "category": 2, "evidence": ["D1:1"]}
+    ]
+  }
+]

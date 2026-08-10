@@ -1,0 +1,60 @@
+{
+  "name": "custom_temporal",
+  "sessions": [
+    {
+      "session_id": "s_work_1",
+      "turns": [
+        {"turn_id": "ct_acme", "speaker": "Alice", "text": "I work at Acme Corp as an analyst.", "timestamp": 1700000000, "t_valid": 1700000000, "t_invalid": 1702592000}
+      ]
+    },
+    {
+      "session_id": "s_chat",
+      "turns": [
+        {"turn_id": "ct_pasta", "speaker": "Alice", "text": "The cafeteria served pasta today.", "timestamp": 1700172800}
+      ]
+    },
+    {
+      "session_id": "s_work_2",
+      "turns": [
+        {"turn_id": "ct_globex", "speaker": "Alice", "text": "I switched jobs; I now work at Globex.", "timestamp": 1702592000, "t_valid": 1702592000, "t_invalid": null}
+      ]
+    }
+  ],
+  "probes": [
+    {
+      "probe_id": "ct_asof_acme",
+      "question": "As of late November 2023, where did Alice work?",
+      "answer": "Acme Corp",
+      "category": "as_of_t",
+      "evidence_ids": ["ct_acme"],
+      "as_of": 1700432000,
+      "decay_target_turn_id": null,
+      "raw_category": "bi-temporal-asof"
+    },
+    {
+      "probe_id": "ct_update_globex",
+      "question": "Where does Alice work now?",
+      "answer": "Globex",
+      "category": "knowledge_update",
+      "evidence_ids": ["ct_globex"],
+      "as_of": 1705616000,
+      "decay_target_turn_id": null,
+      "raw_category": "latest-value-wins"
+    },
+    {
+      "probe_id": "ct_decay_job",
+      "question": "What is Alice's current job?",
+      "answer": "Globex",
+      "category": "decay",
+      "evidence_ids": ["ct_globex"],
+      "as_of": null,
+      "decay_target_turn_id": "ct_pasta",
+      "raw_category": "stale-low-salience"
+    }
+  ],
+  "meta": {
+    "source": "authored in-house (SM-R13)",
+    "license": "in-house; freely usable",
+    "caveat": "SINGLE-AUTHORED targeted probe; cross-check vs LongMemEval temporal/update categories"
+  }
+}

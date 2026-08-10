@@ -1,0 +1,127 @@
+{
+  "name": "longmemeval",
+  "sessions": [
+    {
+      "session_id": "s_intro",
+      "turns": [
+        {
+          "turn_id": "s_intro_t0",
+          "speaker": "user",
+          "text": "Hi, I'm planning a trip to Kyoto.",
+          "timestamp": 1684540800,
+          "t_valid": null,
+          "t_invalid": null
+        },
+        {
+          "turn_id": "s_intro_t1",
+          "speaker": "assistant",
+          "text": "Kyoto is lovely in spring.",
+          "timestamp": 1684540801,
+          "t_valid": null,
+          "t_invalid": null
+        }
+      ]
+    },
+    {
+      "session_id": "s_weekend",
+      "turns": [
+        {
+          "turn_id": "s_weekend_t0",
+          "speaker": "user",
+          "text": "I adopted a dog named Pixel last week.",
+          "timestamp": 1685145600,
+          "t_valid": null,
+          "t_invalid": null
+        },
+        {
+          "turn_id": "s_weekend_t1",
+          "speaker": "assistant",
+          "text": "Congratulations on Pixel!",
+          "timestamp": 1685145601,
+          "t_valid": null,
+          "t_invalid": null
+        }
+      ]
+    },
+    {
+      "session_id": "s_job1",
+      "turns": [
+        {
+          "turn_id": "s_job1_t0",
+          "speaker": "user",
+          "text": "I work at Acme Corp as an analyst.",
+          "timestamp": 1678406400,
+          "t_valid": null,
+          "t_invalid": null
+        }
+      ]
+    },
+    {
+      "session_id": "s_job2",
+      "turns": [
+        {
+          "turn_id": "s_job2_t0",
+          "speaker": "user",
+          "text": "I just started a new job at Globex.",
+          "timestamp": 1686787200,
+          "t_valid": null,
+          "t_invalid": null
+        }
+      ]
+    },
+    {
+      "session_id": "s_chat",
+      "turns": [
+        {
+          "turn_id": "s_chat_t0",
+          "speaker": "user",
+          "text": "The weather has been rainy lately.",
+          "timestamp": 1680307200,
+          "t_valid": null,
+          "t_invalid": null
+        }
+      ]
+    }
+  ],
+  "probes": [
+    {
+      "probe_id": "lme_dog",
+      "question": "What is the name of the user's dog?",
+      "answer": "Pixel",
+      "category": "single_session",
+      "evidence_ids": [
+        "s_weekend_t0"
+      ],
+      "as_of": 1685577600,
+      "decay_target_turn_id": null,
+      "raw_category": "single-session-user"
+    },
+    {
+      "probe_id": "lme_job",
+      "question": "Where does the user work now?",
+      "answer": "Globex",
+      "category": "knowledge_update",
+      "evidence_ids": [
+        "s_job2_t0"
+      ],
+      "as_of": 1688169600,
+      "decay_target_turn_id": null,
+      "raw_category": "knowledge-update"
+    },
+    {
+      "probe_id": "lme_color_abs",
+      "question": "What is the user's favorite color?",
+      "answer": "The user has not mentioned a favorite color.",
+      "category": "abstention",
+      "evidence_ids": [],
+      "as_of": 1688169600,
+      "decay_target_turn_id": null,
+      "raw_category": "single-session-user"
+    }
+  ],
+  "meta": {
+    "source": "github.com/xiaowu0162/LongMemEval",
+    "split": "longmemeval_raw.json",
+    "license": "research use; not redistributed (fetched on demand)"
+  }
+}

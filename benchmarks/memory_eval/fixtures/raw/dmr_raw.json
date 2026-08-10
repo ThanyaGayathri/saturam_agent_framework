@@ -1,0 +1,19 @@
+[
+  {
+    "question": "What is the user's sister's name?",
+    "answer": "Maria",
+    "context": [
+      {"role": "user", "text": "My sister Maria is visiting next week."},
+      {"role": "assistant", "text": "That's wonderful, enjoy the visit!"}
+    ],
+    "evidence": [0]
+  },
+  {
+    "question": "What instrument does the user play?",
+    "answer": "cello",
+    "messages": [
+      {"speaker": "user", "content": "I've played the cello since I was ten."}
+    ],
+    "evidence": [0]
+  }
+]

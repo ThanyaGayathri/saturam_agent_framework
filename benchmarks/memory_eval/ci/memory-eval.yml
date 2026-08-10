@@ -1,0 +1,70 @@
+# TEMPLATE GitHub Actions workflow for the memory eval harness.
+#
+# This file is a TEMPLATE committed under the deliverable folder, NOT installed
+# into .github/workflows (that is core/CI territory owned elsewhere; SM-X7 wires
+# it in for real). It documents the two-tier CI approach the plan proposes.
+#
+# Tier 1 - on-PR offline smoke (this file's `smoke` job): fast, deterministic,
+#          ZERO LLM spend. Runs the stdlib-only fixtures through the reference
+#          provider and enforces harness/gate.py. Gates the merge.
+# Tier 2 - scheduled full run (`full` job, manual/cron): downloads the real
+#          corpora and runs the real LLM judge (gpt-5.4/5.5 via secrets). Posts
+#          the summary + JSON as artifacts; gate thresholds ratcheted per SM-R1.
+
+name: memory-eval
+
+on:
+  pull_request:
+    paths:
+      - "benchmarks/memory_eval/**"
+  schedule:
+    - cron: "0 6 * * 1" # weekly full run, Monday 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  smoke:
+    # Offline, deterministic, no secrets. Runs on every PR touching the harness.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Unit tests (metrics + runner)
+        working-directory: benchmarks/memory_eval
+        run: |
+          python tests/test_metrics.py
+          python tests/test_runner.py
+      - name: Offline smoke + gate (reference provider)
+        working-directory: benchmarks/memory_eval
+        run: python run.py --mode fixture --benchmark all --provider recency_decay
+      - uses: actions/upload-artifact@v4
+        with:
+          name: memory-eval-smoke
+          path: benchmarks/memory_eval/results/*
+
+  full:
+    # Real corpora + real LLM judge. Scheduled / manual only (costs tokens).
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      HARNESS_LLM_MODE: live
+      HARNESS_JUDGE_MODEL: ${{ vars.HARNESS_JUDGE_MODEL }}
+      AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+      AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dev deps (egpt + openai)
+        run: ./scripts/dev_setup.sh
+      - name: Full run + gate
+        working-directory: benchmarks/memory_eval
+        run: |
+          . ../../.venv/bin/activate
+          python run.py --mode full --benchmark longmemeval --provider recency_decay --judge llm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: memory-eval-full
+          path: benchmarks/memory_eval/results/*

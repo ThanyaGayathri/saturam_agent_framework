@@ -1,0 +1,55 @@
+[
+  {
+    "question_id": "lme_dog",
+    "question_type": "single-session-user",
+    "question": "What is the name of the user's dog?",
+    "answer": "Pixel",
+    "question_date": "2023/06/01",
+    "haystack_session_ids": ["s_intro", "s_weekend"],
+    "haystack_dates": ["2023/05/20", "2023/05/27"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "Hi, I'm planning a trip to Kyoto."},
+        {"role": "assistant", "content": "Kyoto is lovely in spring."}
+      ],
+      [
+        {"role": "user", "content": "I adopted a dog named Pixel last week.", "has_answer": true},
+        {"role": "assistant", "content": "Congratulations on Pixel!"}
+      ]
+    ],
+    "answer_session_ids": ["s_weekend"]
+  },
+  {
+    "question_id": "lme_job",
+    "question_type": "knowledge-update",
+    "question": "Where does the user work now?",
+    "answer": "Globex",
+    "question_date": "2023/07/01",
+    "haystack_session_ids": ["s_job1", "s_job2"],
+    "haystack_dates": ["2023/03/10", "2023/06/15"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "I work at Acme Corp as an analyst."}
+      ],
+      [
+        {"role": "user", "content": "I just started a new job at Globex.", "has_answer": true}
+      ]
+    ],
+    "answer_session_ids": ["s_job2"]
+  },
+  {
+    "question_id": "lme_color_abs",
+    "question_type": "single-session-user",
+    "question": "What is the user's favorite color?",
+    "answer": "The user has not mentioned a favorite color.",
+    "question_date": "2023/07/01",
+    "haystack_session_ids": ["s_chat"],
+    "haystack_dates": ["2023/04/01"],
+    "haystack_sessions": [
+      [
+        {"role": "user", "content": "The weather has been rainy lately."}
+      ]
+    ],
+    "answer_session_ids": []
+  }
+]
