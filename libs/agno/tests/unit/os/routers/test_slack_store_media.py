@@ -4,16 +4,19 @@ from typing import Any, AsyncIterator, Iterator
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastapi import APIRouter, FastAPI
 
-from egpt.agent import RunEvent
-from egpt.agent.agent import Agent
-from egpt.media import Image
-from egpt.models.base import Model
-from egpt.models.message import MessageMetrics
-from egpt.models.response import ModelResponse
+pytest.importorskip("slack_sdk", reason="the Slack interface needs the Slack SDK")
 
-from .conftest import (
+from fastapi import APIRouter, FastAPI  # noqa: E402
+
+from egpt.agent import RunEvent  # noqa: E402
+from egpt.agent.agent import Agent  # noqa: E402
+from egpt.media import Image  # noqa: E402
+from egpt.models.base import Model  # noqa: E402
+from egpt.models.message import MessageMetrics  # noqa: E402
+from egpt.models.response import ModelResponse  # noqa: E402
+
+from .conftest import (  # noqa: E402
     build_app,
     make_async_client_mock,
     make_signed_request,

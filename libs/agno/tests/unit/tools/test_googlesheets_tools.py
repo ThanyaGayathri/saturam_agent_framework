@@ -35,6 +35,10 @@ def mock_drive_service():
 @pytest.fixture
 def sheets_tools(mock_credentials, mock_sheets_service):
     """Create GoogleSheetsTools instance with mocked dependencies."""
+    # Only the tests that build a toolkit need the driver — patching
+    # googleapiclient.discovery.build requires the module to be importable. The
+    # constructor/scope-validation tests in this file run without it.
+    pytest.importorskip("googleapiclient", reason="patching the Google API client needs it importable")
     with patch("googleapiclient.discovery.build") as mock_build:
         mock_build.return_value = mock_sheets_service
         tools = GoogleSheetsTools(creds=mock_credentials)

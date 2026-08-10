@@ -25,6 +25,8 @@ def sqlite_db():
 
 @pytest.fixture
 def async_sqlite_db():
+    pytest.importorskip("aiosqlite", reason="AsyncSqliteDb resolves the dialect in __init__")
+
     from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb
 
     fd, path = tempfile.mkstemp(suffix=".db")

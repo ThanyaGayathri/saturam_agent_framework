@@ -1,9 +1,12 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from boto3.session import Session
 
-from egpt.integrations.models.aws import AwsBedrock
+pytest.importorskip("boto3", reason="AwsBedrock needs the AWS SDK")
+
+from boto3.session import Session  # noqa: E402
+
+from egpt.integrations.models.aws import AwsBedrock  # noqa: E402
 
 
 def _make_frozen_creds(access_key="ASIATEMP", secret_key="secret", token="token"):

@@ -3,11 +3,14 @@ from unittest.mock import MagicMock, Mock, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from google.oauth2.credentials import Credentials
 
-from egpt.integrations.tools.google.auth import GoogleAuth
-from egpt.integrations.tools.google.calendar import GoogleCalendarTools
-from egpt.integrations.tools.google.gmail import GmailTools
+pytest.importorskip("googleapiclient", reason="the Google toolkits import the Google API client at module level")
+
+from google.oauth2.credentials import Credentials  # noqa: E402
+
+from egpt.integrations.tools.google.auth import GoogleAuth  # noqa: E402
+from egpt.integrations.tools.google.calendar import GoogleCalendarTools  # noqa: E402
+from egpt.integrations.tools.google.gmail import GmailTools  # noqa: E402
 
 
 @pytest.fixture

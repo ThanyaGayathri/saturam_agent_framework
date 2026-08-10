@@ -7,6 +7,7 @@ The full end-to-end behaviour is covered by the cookbooks.
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -14,17 +15,52 @@ import pytest
 from sqlalchemy import create_engine
 
 from egpt import __version__ as EGPT_VERSION
-from egpt.context.calendar import GoogleCalendarContextProvider
 from egpt.context.database import DatabaseContextProvider
 from egpt.context.fs import FilesystemContextProvider
-from egpt.context.gdrive import GoogleDriveContextProvider
-from egpt.context.gmail import GmailContextProvider
 from egpt.context.google import validate_google_credentials
 from egpt.context.mcp import MCPContextProvider
 from egpt.context.mode import ContextMode
 from egpt.context.slack import SlackContextProvider
 from egpt.context.web import ExaBackend, ExaMCPBackend, ParallelMCPBackend, WebContextProvider
 from egpt.context.workspace import WorkspaceContextProvider
+
+# SlackContextProvider imports cleanly without the SDK; only the tests that build its tool
+# surface (which instantiates SlackTools) need the driver.
+requires_slack_sdk = pytest.mark.skipif(
+    importlib.util.find_spec("slack_sdk") is None,
+    reason="building the Slack tool surface needs the Slack SDK",
+)
+
+_GOOGLE_API_REASON = "the Google providers import the Google API client at module level"
+
+
+# The Gmail/Calendar/Drive providers raise ImportError at import time without the Google
+# client libraries, so a module-level import of them would take this file's SDK-free
+# filesystem/database/web/MCP tests down with it. Import them through fixtures instead, so
+# only the Google tests skip.
+@pytest.fixture
+def gdrive_provider_cls():
+    pytest.importorskip("googleapiclient", reason=_GOOGLE_API_REASON)
+    from egpt.context.gdrive import GoogleDriveContextProvider
+
+    return GoogleDriveContextProvider
+
+
+@pytest.fixture
+def gmail_provider_cls():
+    pytest.importorskip("googleapiclient", reason=_GOOGLE_API_REASON)
+    from egpt.context.gmail import GmailContextProvider
+
+    return GmailContextProvider
+
+
+@pytest.fixture
+def calendar_provider_cls():
+    pytest.importorskip("googleapiclient", reason=_GOOGLE_API_REASON)
+    from egpt.context.calendar import GoogleCalendarContextProvider
+
+    return GoogleCalendarContextProvider
+
 
 # ---------------------------------------------------------------------------
 # Filesystem
@@ -440,6 +476,7 @@ def test_slack_status_reports_configured():
     assert "token configured" in status.detail
 
 
+@requires_slack_sdk
 def test_slack_read_surfaces_are_split_by_mode():
     p = SlackContextProvider(token="xoxb-x")
     bot_tools = p._ensure_bot_read_tools()
@@ -452,6 +489,7 @@ def test_slack_read_surfaces_are_split_by_mode():
     assert "get_thread" in assisted_tools.functions
 
 
+@requires_slack_sdk
 def test_slack_bot_token_without_user_token_excludes_search_messages():
     """Without a user token, search_messages should not be registered."""
     p = SlackContextProvider(token="xoxb-x")
@@ -462,6 +500,7 @@ def test_slack_bot_token_without_user_token_excludes_search_messages():
     assert "search_messages" not in assisted_tools.functions
 
 
+@requires_slack_sdk
 def test_slack_user_token_enables_search_messages():
     """With a user token, search_messages should be registered."""
     p = SlackContextProvider(token="xoxb-x", user_token="xoxp-user")
@@ -472,6 +511,7 @@ def test_slack_user_token_enables_search_messages():
     assert "search_messages" in assisted_tools.functions
 
 
+@requires_slack_sdk
 def test_slack_read_instructions_override_both_read_agents(monkeypatch):
     import egpt.context.slack.provider as slack_provider
 
@@ -491,6 +531,7 @@ def test_slack_read_instructions_override_both_read_agents(monkeypatch):
     assert captured["slack-assisted-read"] == "Custom read policy."
 
 
+@requires_slack_sdk
 def test_slack_default_read_instructions_stay_tool_specific(monkeypatch):
     import egpt.context.slack.provider as slack_provider
 
@@ -599,6 +640,7 @@ async def test_slack_uses_bot_read_without_action_token(monkeypatch):
     assert answer.text == "bot answer"
 
 
+@requires_slack_sdk
 def test_slack_tools_mode_uses_bot_read_surface():
     p = SlackContextProvider(token="xoxb-x", mode=ContextMode.tools)
     tools = p.get_tools()[0]
@@ -630,35 +672,35 @@ def test_slack_agent_mode_surface_is_query_only():
 # ---------------------------------------------------------------------------
 
 
-def test_gdrive_defaults_to_oauth_when_no_sa(monkeypatch):
+def test_gdrive_defaults_to_oauth_when_no_sa(gdrive_provider_cls, monkeypatch):
     """GDrive supports OAuth — status reports unauthenticated when no token."""
     monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_FILE", raising=False)
-    p = GoogleDriveContextProvider()
+    p = gdrive_provider_cls()
     status = p.status()
     assert status.ok is False
     assert "not authenticated" in status.detail
 
 
-def test_gdrive_status_fails_for_missing_sa_file(tmp_path):
+def test_gdrive_status_fails_for_missing_sa_file(gdrive_provider_cls, tmp_path):
     """When SA path points to nonexistent file, status reports failure."""
     missing = tmp_path / "missing.json"
-    p = GoogleDriveContextProvider(service_account_path=str(missing))
+    p = gdrive_provider_cls(service_account_path=str(missing))
     status = p.status()
     assert status.ok is False
     assert "not found" in status.detail
 
 
-def test_gdrive_status_fails_for_invalid_sa_json(tmp_path):
+def test_gdrive_status_fails_for_invalid_sa_json(gdrive_provider_cls, tmp_path):
     """When SA file is not valid JSON, status reports failure."""
     bad_sa = tmp_path / "bad.json"
     bad_sa.write_text("not valid json")
-    p = GoogleDriveContextProvider(service_account_path=str(bad_sa))
+    p = gdrive_provider_cls(service_account_path=str(bad_sa))
     status = p.status()
     assert status.ok is False
     assert "invalid" in status.detail
 
 
-def test_gdrive_status_reports_service_account_email(tmp_path, monkeypatch):
+def test_gdrive_status_reports_service_account_email(gdrive_provider_cls, tmp_path, monkeypatch):
     """When SA file is valid, status includes the service account email."""
     from unittest.mock import MagicMock
 
@@ -675,16 +717,16 @@ def test_gdrive_status_reports_service_account_email(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sa_module.Credentials, "from_service_account_file", mock_from_sa_file)
 
-    p = GoogleDriveContextProvider(service_account_path=str(sa))
+    p = gdrive_provider_cls(service_account_path=str(sa))
     status = p.status()
     assert status.ok is True
     assert "service_account" in status.detail
     assert "test@test-project.iam.gserviceaccount.com" in status.detail
 
 
-def test_gdrive_default_surface_is_single_query_tool(monkeypatch):
+def test_gdrive_default_surface_is_single_query_tool(gdrive_provider_cls, monkeypatch):
     monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_FILE", raising=False)
-    p = GoogleDriveContextProvider()
+    p = gdrive_provider_cls()
     tools = p.get_tools()
     assert [t.name for t in tools] == ["query_gdrive"]
 
@@ -694,41 +736,41 @@ def test_gdrive_default_surface_is_single_query_tool(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_gmail_requires_delegated_user_with_sa(tmp_path, monkeypatch):
+def test_gmail_requires_delegated_user_with_sa(gmail_provider_cls, tmp_path, monkeypatch):
     """Gmail SA requires delegated_user because SAs have no inbox."""
     monkeypatch.delenv("GOOGLE_DELEGATED_USER", raising=False)
     sa = tmp_path / "sa.json"
     sa.write_text("{}")
     with pytest.raises(ValueError, match="delegated_user"):
-        GmailContextProvider(service_account_path=str(sa))
+        gmail_provider_cls(service_account_path=str(sa))
 
 
-def test_gmail_status_fails_for_missing_sa_file(tmp_path):
+def test_gmail_status_fails_for_missing_sa_file(gmail_provider_cls, tmp_path):
     missing = tmp_path / "missing.json"
-    p = GmailContextProvider(service_account_path=str(missing), delegated_user="user@example.com")
+    p = gmail_provider_cls(service_account_path=str(missing), delegated_user="user@example.com")
     status = p.status()
     assert status.ok is False
     assert "not found" in status.detail
 
 
-def test_gmail_status_reports_oauth_not_authenticated(monkeypatch):
+def test_gmail_status_reports_oauth_not_authenticated(gmail_provider_cls, monkeypatch):
     monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_FILE", raising=False)
-    p = GmailContextProvider(token_path="/nonexistent/token.json")
+    p = gmail_provider_cls(token_path="/nonexistent/token.json")
     status = p.status()
     assert status.ok is False
     assert "not authenticated" in status.detail
 
 
-def test_gmail_default_surface_is_single_query_tool(monkeypatch):
+def test_gmail_default_surface_is_single_query_tool(gmail_provider_cls, monkeypatch):
     monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_FILE", raising=False)
-    p = GmailContextProvider()
+    p = gmail_provider_cls()
     tools = p.get_tools()
     assert [t.name for t in tools] == ["query_gmail"]
 
 
-def test_gmail_write_enabled_adds_update_tool(monkeypatch):
+def test_gmail_write_enabled_adds_update_tool(gmail_provider_cls, monkeypatch):
     monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_FILE", raising=False)
-    p = GmailContextProvider(write=True)
+    p = gmail_provider_cls(write=True)
     tools = p.get_tools()
     assert [t.name for t in tools] == ["query_gmail", "update_gmail"]
 
@@ -738,7 +780,7 @@ def test_gmail_write_enabled_adds_update_tool(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_calendar_does_not_require_delegated_user(tmp_path, monkeypatch):
+def test_calendar_does_not_require_delegated_user(calendar_provider_cls, tmp_path, monkeypatch):
     """Calendar SA can use its own calendar, unlike Gmail."""
     from unittest.mock import MagicMock
 
@@ -755,45 +797,45 @@ def test_calendar_does_not_require_delegated_user(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sa_module.Credentials, "from_service_account_file", mock_from_sa_file)
 
-    p = GoogleCalendarContextProvider(service_account_path=str(sa))
+    p = calendar_provider_cls(service_account_path=str(sa))
     status = p.status()
     assert status.ok is True
 
 
-def test_calendar_status_fails_for_missing_sa_file(tmp_path):
+def test_calendar_status_fails_for_missing_sa_file(calendar_provider_cls, tmp_path):
     missing = tmp_path / "missing.json"
-    p = GoogleCalendarContextProvider(service_account_path=str(missing))
+    p = calendar_provider_cls(service_account_path=str(missing))
     status = p.status()
     assert status.ok is False
     assert "not found" in status.detail
 
 
-def test_calendar_status_reports_oauth_not_authenticated(monkeypatch):
+def test_calendar_status_reports_oauth_not_authenticated(calendar_provider_cls, monkeypatch):
     monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_FILE", raising=False)
-    p = GoogleCalendarContextProvider(token_path="/nonexistent/token.json")
+    p = calendar_provider_cls(token_path="/nonexistent/token.json")
     status = p.status()
     assert status.ok is False
     assert "not authenticated" in status.detail
 
 
-def test_calendar_default_surface_is_single_query_tool(monkeypatch):
+def test_calendar_default_surface_is_single_query_tool(calendar_provider_cls, monkeypatch):
     monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_FILE", raising=False)
-    p = GoogleCalendarContextProvider()
+    p = calendar_provider_cls()
     tools = p.get_tools()
     assert [t.name for t in tools] == ["query_calendar"]
 
 
-def test_calendar_write_enabled_adds_update_tool(monkeypatch):
+def test_calendar_write_enabled_adds_update_tool(calendar_provider_cls, monkeypatch):
     monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_FILE", raising=False)
-    p = GoogleCalendarContextProvider(write=True)
+    p = calendar_provider_cls(write=True)
     tools = p.get_tools()
     assert [t.name for t in tools] == ["query_calendar", "update_calendar"]
 
 
-def test_calendar_write_toolkit_includes_find_available_slots(monkeypatch):
+def test_calendar_write_toolkit_includes_find_available_slots(calendar_provider_cls, monkeypatch):
     """Write agent needs find_available_slots to schedule meetings."""
     monkeypatch.delenv("GOOGLE_SERVICE_ACCOUNT_FILE", raising=False)
-    p = GoogleCalendarContextProvider(write=True)
+    p = calendar_provider_cls(write=True)
     write_toolkit = p._build_write_toolkit()
     assert "find_available_slots" in write_toolkit.functions
 

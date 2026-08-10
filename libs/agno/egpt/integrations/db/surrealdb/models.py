@@ -27,6 +27,7 @@ TableType = Literal[
     "teams",
     "traces",
     "users",
+    "versions",
     "workflows",
 ]
 
@@ -265,7 +266,15 @@ def serialize_eval_run_record(eval_run_record: EvalRunRecord, table_names: dict[
 
 def get_schema(table_type: TableType, table_name: str) -> str:
     define_table = f"DEFINE TABLE {table_name} SCHEMALESS;"
-    if table_type == "memories":
+    if table_type == "versions":
+        # One record per table, keyed by table_name -- schema versions are per-table, which is
+        # why the BaseDb contract passes a table_name.
+        return dedent(f"""
+            {define_table}
+            DEFINE FIELD OVERWRITE updated_at ON {table_name} TYPE datetime VALUE time::now();
+            DEFINE INDEX idx_versions_table_name ON {table_name} FIELDS table_name UNIQUE;
+            """)
+    elif table_type == "memories":
         return dedent(f"""
             {define_table}
             DEFINE FIELD OVERWRITE updated_at ON {table_name} TYPE datetime VALUE time::now();

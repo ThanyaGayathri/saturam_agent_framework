@@ -6,10 +6,13 @@ from typing import Any, Dict
 from unittest.mock import MagicMock, Mock, mock_open, patch
 
 import pytest
-from google.oauth2.credentials import Credentials
-from googleapiclient.errors import HttpError
 
-from egpt.integrations.tools.google.gmail import GmailTools
+pytest.importorskip("googleapiclient", reason="the Gmail toolkit imports the Google API client at module level")
+
+from google.oauth2.credentials import Credentials  # noqa: E402
+from googleapiclient.errors import HttpError  # noqa: E402
+
+from egpt.integrations.tools.google.gmail import GmailTools  # noqa: E402
 
 
 @pytest.fixture

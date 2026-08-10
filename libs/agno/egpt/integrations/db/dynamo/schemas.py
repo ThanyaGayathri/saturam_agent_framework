@@ -416,6 +416,19 @@ SPAN_TABLE_SCHEMA = {
 }
 
 
+# One item per table, keyed by table_name -- schema versions are per-table, which is why the
+# BaseDb contract passes a table_name. No secondary indexes: every access is a point lookup.
+VERSIONS_TABLE_SCHEMA = {
+    "TableName": f"{TABLE_PREFIX}schema_versions",
+    "KeySchema": [{"AttributeName": "table_name", "KeyType": "HASH"}],
+    "AttributeDefinitions": [
+        {"AttributeName": "table_name", "AttributeType": "S"},
+    ],
+    "BillingMode": "PROVISIONED",
+    "ProvisionedThroughput": {"ReadCapacityUnits": 5, "WriteCapacityUnits": 5},
+}
+
+
 def get_table_schema_definition(table_type: str) -> Dict[str, Any]:
     """
     Get the expected schema definition for the given table.
@@ -435,6 +448,7 @@ def get_table_schema_definition(table_type: str) -> Dict[str, Any]:
         "culture": CULTURAL_KNOWLEDGE_TABLE_SCHEMA,
         "traces": TRACE_TABLE_SCHEMA,
         "spans": SPAN_TABLE_SCHEMA,
+        "versions": VERSIONS_TABLE_SCHEMA,
     }
 
     schema = schemas.get(table_type, {})

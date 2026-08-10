@@ -12,11 +12,13 @@ from pathlib import Path
 
 import pytest
 
-from egpt.integrations.tools.file import FileTools
-from egpt.integrations.tools.file_generation import FileGenerationTools
-from egpt.integrations.tools.slack import SlackTools
-from egpt.skills.utils import is_safe_path
-from egpt.tools import Toolkit
+pytest.importorskip("slack_sdk", reason="SlackTools is one of the five callers compared here")
+
+from egpt.integrations.tools.file import FileTools  # noqa: E402
+from egpt.integrations.tools.file_generation import FileGenerationTools  # noqa: E402
+from egpt.integrations.tools.slack import SlackTools  # noqa: E402
+from egpt.skills.utils import is_safe_path  # noqa: E402
+from egpt.tools import Toolkit  # noqa: E402
 
 # Inputs every caller rejects: control chars, empty, dot-dot.
 ALL_REJECT = [

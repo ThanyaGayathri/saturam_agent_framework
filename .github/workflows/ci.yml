@@ -235,6 +235,83 @@ jobs:
           source ../../.venv/bin/activate
           python -m build
 
+  unit-drivers-absent:
+    # A unit test that needs an optional driver must gate on it (pytest.importorskip) so it
+    # SKIPS where the driver is absent. `test-and-build` structurally cannot catch a missed
+    # gate: it installs .[tests], which transitively pulls in every driver, so an ungated
+    # test passes there and only breaks for someone who installed a subset. Five such
+    # regressions shipped and all five were caught by a human reading the diff
+    # (aicoe-tracker#161). This job is the machine that reads the diff.
+    name: unit-drivers-absent
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install egpt without the backend drivers
+        working-directory: libs/agno
+        run: |
+          set -e
+          uv venv ../../.venv --python 3.12
+          source ../../.venv/bin/activate
+          uv pip install -e .[tests]
+          uv pip install brave-search --no-deps
+          uv pip install -e tests/fixtures/egpt_dummy_provider
+          # Remove exactly the storage/vectordb/channel/SaaS-SDK drivers, keeping everything
+          # else test-and-build installs. Expressed as an uninstall rather than a lean extra
+          # because the extras self-reference heavily (tests -> dev -> slack -> ...), so
+          # subtracting after the fact is the only reliable way to express "minus drivers".
+          # uv warns and exits 0 for anything not installed, so this stays correct as the
+          # extras change.
+          #
+          # Invariant: one entry per driver family gated in tests/unit; extend this list when
+          # gating a new family, or the gates and the job that enforces them drift apart and
+          # the job goes blind to exactly the family it should be checking.
+          uv pip uninstall \
+            aioboto3 \
+            aiosqlite \
+            asyncmy \
+            asyncpg \
+            boto3 \
+            botocore \
+            google-api-python-client \
+            google-auth-httplib2 \
+            google-auth-oauthlib \
+            lancedb \
+            psycopg \
+            psycopg-binary \
+            psycopg2-binary \
+            pymysql \
+            redshift-connector \
+            slack-sdk \
+            weaviate-client
+
+      - name: Run unit tests with drivers absent
+        env:
+          EGPT_TELEMETRY: false
+          EGPT_TEST_ENTRY_POINTS: "1"
+        run: |
+          set -e
+          source .venv/bin/activate
+          # Skips are the expected outcome here. Failures and collection errors are not:
+          # each one is a test that forgot its gate.
+          python -m pytest \
+            -n auto --dist loadfile \
+            --max-worker-restart=0 \
+            --timeout=180 --timeout-method=thread \
+            -o log_cli=false \
+            -p no:cacheprovider \
+            -m "not integration and not system" \
+            ./libs/agno/tests/unit
+
   ci-success:
     name: ci-success
     runs-on: ubuntu-latest
@@ -242,6 +319,7 @@ jobs:
       - validate
       - validate-egpt-infra
       - test-and-build
+      - unit-drivers-absent
     # always() is intentional: without it, this job is skipped when an upstream
     # job fails, and GitHub branch protection treats "skipped" as "passed".
     # The shell checks below enforce the real result.
@@ -259,5 +337,9 @@ jobs:
           fi
           if [[ "${{ needs.test-and-build.result }}" != "success" ]]; then
             echo "test-and-build failed: ${{ needs.test-and-build.result }}"
+            exit 1
+          fi
+          if [[ "${{ needs.unit-drivers-absent.result }}" != "success" ]]; then
+            echo "unit-drivers-absent failed: ${{ needs.unit-drivers-absent.result }}"
             exit 1
           fi

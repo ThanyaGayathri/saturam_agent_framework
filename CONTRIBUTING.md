@@ -72,6 +72,35 @@ Before submitting a pull request, ensure all tests pass locally:
 
 Make sure all tests pass before submitting your pull request. If you add new features, include appropriate test coverage.
 
+### Unit tests must gate on optional dependencies
+
+A unit test that imports an optional dependency — a database driver, a vector DB client, a
+channel SDK — must gate on it, so it **skips** where the dependency is absent instead of
+failing:
+
+```python
+import pytest
+
+pytest.importorskip("pymysql", reason="real dialect resolution needs the driver")
+
+from egpt.integrations.db.mysql.mysql import MySQLDb  # noqa: E402
+```
+
+Put the `importorskip` above the import that needs it, at module scope, and give it a
+`reason`. Where only some tests in a module need the dependency, use a marker instead:
+
+```python
+requires_slack_sdk = pytest.mark.skipif(
+    importlib.util.find_spec("slack_sdk") is None,
+    reason="building the Slack tool surface needs the Slack SDK",
+)
+```
+
+Why this matters: a missed gate is invisible to the author. The development environment has
+every driver installed, so the test passes locally and in the main CI job; it only breaks for
+someone who installed a subset of the extras. The `unit-drivers-absent` CI job runs the unit
+suite with the backend drivers uninstalled specifically to catch this.
+
 ## Adding a new Vector Database
 
 1. Setup your local environment by following the [Development setup](#development-setup).

@@ -161,6 +161,14 @@ SPAN_COLLECTION_SCHEMA = [
 ]
 
 
+# One document per table, keyed by table_name -- schema versions are per-table, which is why
+# the BaseDb contract passes a table_name. Point lookups only, so no composite indexes.
+VERSIONS_COLLECTION_SCHEMA = [
+    {"key": "table_name"},
+    {"key": "updated_at"},
+]
+
+
 def get_collection_indexes(collection_type: str) -> List[Dict[str, Any]]:
     """Get the index definitions for a specific collection type."""
     index_definitions = {
@@ -172,6 +180,7 @@ def get_collection_indexes(collection_type: str) -> List[Dict[str, Any]]:
         "culture": CULTURAL_KNOWLEDGE_COLLECTION_SCHEMA,
         "traces": TRACE_COLLECTION_SCHEMA,
         "spans": SPAN_COLLECTION_SCHEMA,
+        "versions": VERSIONS_COLLECTION_SCHEMA,
     }
 
     indexes = index_definitions.get(collection_type)

@@ -2,11 +2,13 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from egpt.agent import RunEvent
-from egpt.os.interfaces.slack.events import process_event
-from egpt.os.interfaces.slack.state import StreamState
-from egpt.run.team import TeamRunEvent
-from egpt.run.workflow import WorkflowRunEvent
+pytest.importorskip("slack_sdk", reason="the Slack interface needs the Slack SDK")
+
+from egpt.agent import RunEvent  # noqa: E402
+from egpt.os.interfaces.slack.events import process_event  # noqa: E402
+from egpt.os.interfaces.slack.state import StreamState  # noqa: E402
+from egpt.run.team import TeamRunEvent  # noqa: E402
+from egpt.run.workflow import WorkflowRunEvent  # noqa: E402
 
 
 def _stream():

@@ -134,6 +134,14 @@ SCHEDULE_RUNS_COLLECTION_SCHEMA = [
     {"key": "created_at"},
 ]
 
+# One document per table, keyed by table_name -- schema versions are per-table, which is why
+# the BaseDb contract passes a table_name.
+VERSIONS_COLLECTION_SCHEMA = [
+    {"key": "table_name", "unique": True},
+    {"key": "created_at"},
+    {"key": "updated_at"},
+]
+
 
 def get_collection_indexes(collection_type: str) -> List[Dict[str, Any]]:
     """Get the index definitions for a specific collection type."""
@@ -149,6 +157,7 @@ def get_collection_indexes(collection_type: str) -> List[Dict[str, Any]]:
         "learnings": LEARNINGS_COLLECTION_SCHEMA,
         "schedules": SCHEDULES_COLLECTION_SCHEMA,
         "schedule_runs": SCHEDULE_RUNS_COLLECTION_SCHEMA,
+        "versions": VERSIONS_COLLECTION_SCHEMA,
     }
 
     indexes = index_definitions.get(collection_type)

@@ -1,9 +1,13 @@
 import threading
 from unittest.mock import MagicMock, patch
 
-from boto3.session import Session
+import pytest
 
-from egpt.integrations.models.aws import Claude
+pytest.importorskip("boto3", reason="the AWS Claude client needs the AWS SDK")
+
+from boto3.session import Session  # noqa: E402
+
+from egpt.integrations.models.aws import Claude  # noqa: E402
 
 
 def _make_frozen_creds(access_key="ASIATEMP", secret_key="secret", token="token"):

@@ -3,9 +3,12 @@
 from unittest.mock import Mock, patch
 
 import pytest
-from botocore.exceptions import ClientError
 
-from egpt.integrations.tools.aws_ses import AWSSESTool
+pytest.importorskip("botocore", reason="AWSSESTool needs the AWS SDK")
+
+from botocore.exceptions import ClientError  # noqa: E402
+
+from egpt.integrations.tools.aws_ses import AWSSESTool  # noqa: E402
 
 
 class TestAWSSESTool:

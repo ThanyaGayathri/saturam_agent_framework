@@ -2,7 +2,9 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from egpt.os.interfaces.slack.helpers import (
+pytest.importorskip("slack_sdk", reason="the Slack interface needs the Slack SDK")
+
+from egpt.os.interfaces.slack.helpers import (  # noqa: E402
     BotNameResolver,
     download_event_files_async,
     extract_event_context,
@@ -14,7 +16,7 @@ from egpt.os.interfaces.slack.helpers import (
     task_id,
     upload_response_media_async,
 )
-from egpt.os.interfaces.slack.state import StreamState
+from egpt.os.interfaces.slack.state import StreamState  # noqa: E402
 
 
 class TestTaskId:

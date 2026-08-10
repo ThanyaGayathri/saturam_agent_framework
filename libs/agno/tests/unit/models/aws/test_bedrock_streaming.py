@@ -1,6 +1,10 @@
 """Unit tests for AWS Bedrock streaming response parsing, specifically tool call handling."""
 
-from egpt.integrations.models.aws import AwsBedrock
+import pytest
+
+pytest.importorskip("boto3", reason="AwsBedrock needs the AWS SDK")
+
+from egpt.integrations.models.aws import AwsBedrock  # noqa: E402
 
 
 def test_parse_streaming_tool_call_with_single_chunk():
