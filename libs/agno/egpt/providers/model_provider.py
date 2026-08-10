@@ -132,6 +132,19 @@ class ModelResolveRequest:
         # Same trick as ``registry.discovery.Registration``: freeze the mapping so a provider
         # holding the request cannot mutate what the caller passed.
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        # Coerce ``mode`` at the boundary: every provider compares it with ``is``, and a
+        # string that arrived from JSON, a settings value or a serialized run record is
+        # equal-but-not-identical to the enum member. ProviderMode is a str Enum precisely so
+        # 'local' validates by construction -- so honour that here, once, for every consumer.
+        if self.mode is not None and not isinstance(self.mode, ProviderMode):
+            try:
+                object.__setattr__(self, "mode", ProviderMode(str(self.mode).strip().lower()))
+            except ValueError:
+                known = ", ".join(repr(m.value) for m in ProviderMode)
+                raise ModelProviderConfigError(
+                    f"Unknown mode {self.mode!r}. Expected one of: {known}.",
+                    field_name="mode",
+                ) from None
         if self.escalation_level < 0:
             raise ValueError("escalation_level must be >= 0")
         if self.max_escalations < 0:
@@ -259,7 +272,11 @@ class ModelResolveResult:
 
     model: Model
     mode: ProviderMode
-    provider_key: str
+    # The registry key the model resolved through -- the exact string
+    # ``discovery.resolve("model", key)`` accepts. ``None`` when the model was caller-supplied
+    # and no registry declaration matches its class: a display name that merely looks like a
+    # key would crash any consumer that feeds it back through the seam.
+    provider_key: Optional[str]
     adapter: Optional[str] = None
     escalated_from: Optional[str] = None  # provider_key we escalated away from
     reason: Optional[str] = None
@@ -408,6 +425,56 @@ class BaseModelProvider:
 
     def capabilities(self) -> ModelCapabilities:
         return ModelCapabilities()
+
+    @staticmethod
+    def _registry_key_for(model: Model) -> Optional[str]:
+        """The discovery key that registers ``model``'s class, or ``None`` when unregistered.
+
+        ``Model.provider`` is a human-facing display name ('VLLM', 'OpenAI'), not the lowercase
+        key ``discovery.resolve`` accepts, so it cannot stand in for one: feeding it back through
+        the seam raises unknown-provider on a model that resolved fine, and metrics split 'VLLM'
+        from 'vllm' for a single backend.
+
+        Two match strategies, because the registry holds two kinds of row:
+
+        * A runtime registration (tests, plugins) stores the class itself, so match on identity.
+        * A lazy declaration stores ``(module, attr)`` strings -- and those name the *package
+          that re-exports* the class, not the module that defines it
+          (``egpt.integrations.models.vllm`` vs ``...vllm.vllm``). Comparing them to
+          ``cls.__module__``/``__qualname__`` therefore fails for 40 of the 42 in-tree model
+          registrations, so resolve the declaration and compare by identity instead. That also
+          follows aliases, and cannot confuse same-named classes in sibling modules the way a
+          bare ``__qualname__`` comparison can.
+
+        Only already-imported modules are inspected (``sys.modules.get``, never ``import_module``):
+        the caller handed us a live instance, so the module defining its class is loaded by
+        construction, and probing the rest of the table would drag every optional SDK into the
+        process -- exactly what the lazy registry exists to avoid. ``test_discovery_laziness.py``
+        pins that this stays true.
+        """
+        import sys
+
+        from egpt.registry import discovery
+
+        cls = type(model)
+        # entries(), not declarations(): the guard-facing declarations view deliberately omits
+        # runtime registrations, which are the ones tests and plugins rely on.
+        for key, registration in discovery.entries("model").items():
+            if registration.obj is not None and registration.obj is cls:
+                return key
+            if registration.module is None or registration.attr is None:
+                continue
+            target: Any = sys.modules.get(registration.module)
+            if target is None:
+                continue
+            try:
+                for part in registration.attr.split("."):
+                    target = getattr(target, part)
+            except AttributeError:
+                continue
+            if target is cls:
+                return key
+        return None
 
     @staticmethod
     def _construct(provider_key: str, model_id: str, **config: Any) -> Model:

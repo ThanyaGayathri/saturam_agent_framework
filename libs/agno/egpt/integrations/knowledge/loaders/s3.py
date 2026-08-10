@@ -9,12 +9,12 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, cast
 
-from egpt.knowledge.content import Content, ContentStatus
 from egpt.integrations.knowledge.loaders.base import BaseLoader
-from egpt.knowledge.reader import Reader
 from egpt.integrations.knowledge.remote_content.base import BaseStorageConfig
 from egpt.integrations.knowledge.remote_content.remote_content import S3Content
 from egpt.integrations.knowledge.remote_content.s3 import S3Config
+from egpt.knowledge.content import Content, ContentStatus
+from egpt.knowledge.reader import Reader
 from egpt.utils.log import log_error, log_info
 from egpt.utils.string import generate_id
 

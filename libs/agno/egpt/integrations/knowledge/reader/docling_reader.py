@@ -5,11 +5,11 @@ from pathlib import Path
 from typing import IO, Any, Dict, List, Optional, Union
 from uuid import uuid4
 
+from egpt.integrations.knowledge.reader.utils.url_validation import is_host_allowed, validate_allowed_hosts
 from egpt.knowledge.chunking.document import DocumentChunking
 from egpt.knowledge.chunking.strategy import ChunkingStrategy, ChunkingStrategyType
 from egpt.knowledge.document.base import Document
 from egpt.knowledge.reader.base import Reader
-from egpt.integrations.knowledge.reader.utils.url_validation import is_host_allowed, validate_allowed_hosts
 from egpt.knowledge.types import ContentType
 from egpt.utils.log import log_debug, log_error
 

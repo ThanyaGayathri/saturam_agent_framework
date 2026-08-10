@@ -3,16 +3,16 @@ import io
 from pathlib import Path
 from typing import IO, Any, Iterable, List, Optional, Sequence, Tuple, Union
 
-from egpt.knowledge.chunking.row import RowChunking
-from egpt.knowledge.chunking.strategy import ChunkingStrategy, ChunkingStrategyType
-from egpt.knowledge.document.base import Document
-from egpt.knowledge.reader.base import Reader
 from egpt.integrations.knowledge.reader.utils import (
     convert_xls_cell_value,
     excel_rows_to_documents,
     get_workbook_name,
     infer_file_extension,
 )
+from egpt.knowledge.chunking.row import RowChunking
+from egpt.knowledge.chunking.strategy import ChunkingStrategy, ChunkingStrategyType
+from egpt.knowledge.document.base import Document
+from egpt.knowledge.reader.base import Reader
 from egpt.knowledge.types import ContentType
 from egpt.utils.log import log_debug, log_error
 

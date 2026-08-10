@@ -12,16 +12,16 @@ try:
 except ImportError:
     raise ImportError("The `bs4` package is not installed. Please install it via `pip install beautifulsoup4`.")
 
-from egpt.knowledge.chunking.fixed import FixedSizeChunking
-from egpt.knowledge.chunking.strategy import ChunkingStrategy, ChunkingStrategyType
-from egpt.knowledge.document.base import Document
-from egpt.knowledge.reader.base import Reader
 from egpt.integrations.knowledge.reader.utils.url_validation import (
     is_host_allowed,
     make_async_redirect_guard,
     make_redirect_guard,
     validate_allowed_hosts,
 )
+from egpt.knowledge.chunking.fixed import FixedSizeChunking
+from egpt.knowledge.chunking.strategy import ChunkingStrategy, ChunkingStrategyType
+from egpt.knowledge.document.base import Document
+from egpt.knowledge.reader.base import Reader
 from egpt.knowledge.types import ContentType
 from egpt.utils.http import async_fetch_with_retry, fetch_with_retry
 from egpt.utils.log import log_debug, log_error, log_warning

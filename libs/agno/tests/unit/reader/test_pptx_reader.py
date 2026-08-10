@@ -5,8 +5,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from egpt.knowledge.document.base import Document
 from egpt.integrations.knowledge.reader.pptx_reader import PPTXReader
+from egpt.knowledge.document.base import Document
 
 
 @pytest.fixture

@@ -1,8 +1,8 @@
 """Tests for Knowledge.get_readers() method, specifically testing list to dict conversion."""
 
+from egpt.integrations.knowledge.reader.text_reader import TextReader
 from egpt.knowledge.knowledge import Knowledge
 from egpt.knowledge.reader.base import Reader
-from egpt.integrations.knowledge.reader.text_reader import TextReader
 from egpt.vectordb.base import VectorDb
 
 

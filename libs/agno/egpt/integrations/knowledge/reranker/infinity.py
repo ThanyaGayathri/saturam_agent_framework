@@ -1,8 +1,8 @@
 from typing import Any, List, Optional
 from urllib.parse import urlparse
 
-from egpt.knowledge.document import Document
 from egpt.integrations.knowledge.reranker.base import Reranker
+from egpt.knowledge.document import Document
 from egpt.utils.log import log_error, logger
 
 try:

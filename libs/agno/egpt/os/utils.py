@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Type, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Set, Type, Union
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile
 from fastapi.routing import APIRoute, APIRouter
@@ -794,7 +794,47 @@ def build_request_context(
         request=request,
         input=parsed_input,
         trusted=trusted,
+        tenant_id=resolve_tenant_id(claims, user_id, verified_user_id=getattr(request.state, "user_id", None)),
     )
+
+
+def resolve_tenant_id(
+    claims: Mapping[str, Any],
+    user_id: Optional[str],
+    *,
+    verified_user_id: Optional[str] = None,
+) -> Optional[str]:
+    """The tenant for this request: a verified claim if the IdP sends one, else the
+    ``user_id`` -- but only when that user_id is the middleware-verified identity.
+
+    A tenant id selects a ``ModelPolicy``: the backend, the adapter, and the ``config`` blob
+    (which may carry a base_url or credentials). So it must never be client-nameable. The
+    ``user_id`` that reaches this function originates from a ``Form(None)`` field, and is only
+    overwritten by a verified value when JWT middleware or user isolation ran -- both of which
+    stamp ``request.state.user_id``. The fallback therefore requires ``user_id`` to match
+    ``verified_user_id`` (that stamped value): a raw form value on an unauthenticated or
+    admin-scope request yields ``tenant_id=None`` and the default policy, not the tenant of
+    the caller's choosing.
+
+    There is still no real tenant concept in this tree: for verified callers, ``user_id`` is
+    the de-facto tenant axis and config-driven resolution is per-user wearing a tenant-shaped
+    interface. When Lane A's tenant column lands, only this function changes.
+
+    The claim name is configurable (``EGPT_TENANT_CLAIM``) because IdPs disagree: Auth0 emits
+    ``org_id``, Entra emits ``tid``.
+    """
+    from egpt.settings.providers import resolve_provider_setting
+
+    # A single live env read, not a whole ProviderSettings model: this runs on every
+    # factory-backed request, and constructing the model per request costs ~0.5ms to read one
+    # string that changes only on redeploy.
+    claim_name = resolve_provider_setting("tenant_claim") or "tenant_id"
+    value = claims.get(claim_name) if claims else None
+    if isinstance(value, str) and value.strip():
+        return value
+    if user_id is not None and user_id == verified_user_id:
+        return user_id
+    return None
 
 
 def find_factory_by_id(

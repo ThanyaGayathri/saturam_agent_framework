@@ -245,8 +245,23 @@ def test_an_explicitly_requested_model_is_returned_unchanged():
 
     assert result.model is pinned
     assert result.mode is ProviderMode.FRONTIER
-    assert result.provider_key == "requested"
+    # `_FakeModel` is not in the registry, and the widened `Optional[str]` contract lets that be
+    # said honestly. The old literal "requested" existed only because the field was `str`, and it
+    # was indistinguishable from a real key to anything feeding this back through the seam.
+    assert result.provider_key is None
     assert result.gateway is None
+
+
+def test_a_pinned_in_tree_model_is_attributed_to_its_registry_key():
+    """Mode B's half of finding 3747619518: the shared helper must follow the registry's
+    re-export declarations, so a pinned model that *is* registered gets its real key rather
+    than the None reserved for genuinely unknown classes."""
+    from egpt.integrations.models.vllm.vllm import VLLM
+
+    result = _provider(provider_key="openai").resolve_detailed(ModelResolveRequest(requested=VLLM(id="qwen3-8b")))
+
+    assert result.provider_key == "vllm"
+    assert discovery.resolve("model", result.provider_key) is VLLM
 
 
 def test_a_local_mode_request_is_rejected():

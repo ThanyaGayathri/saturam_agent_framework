@@ -8,9 +8,9 @@ import pytest
 
 bs4 = pytest.importorskip("bs4")
 
-from egpt.integrations.tools.llms_txt import LLMsTxtTools  # noqa: E402
 from egpt.integrations.knowledge.reader.llms_txt_reader import LLMsTxtEntry, LLMsTxtReader  # noqa: E402
 from egpt.integrations.knowledge.reader.utils.url_validation import is_host_allowed  # noqa: E402
+from egpt.integrations.tools.llms_txt import LLMsTxtTools  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Fixtures

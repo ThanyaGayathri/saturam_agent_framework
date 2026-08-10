@@ -52,6 +52,7 @@ from egpt.os.utils import (
     get_request_kwargs,
     get_workflow_by_id,
     get_workflow_by_id_async,
+    resolve_tenant_id,
     resolve_workflow,
 )
 from egpt.run.base import RunStatus
@@ -119,6 +120,11 @@ async def handle_workflow_via_websocket(
                 session_id=session_id,
                 input=factory_input,
                 trusted=trusted,
+                tenant_id=resolve_tenant_id(
+                    trusted.claims,
+                    user_id,
+                    verified_user_id=ws_user_context.get("user_id") if ws_user_context else None,
+                ),
             )
             try:
                 workflow = await get_workflow_by_id_async(

@@ -22,7 +22,8 @@ from typing import Any, Optional
 
 from pydantic import Field
 
-from egpt.settings.sources import BrandedSettings, vendor_env
+from egpt.settings.sources import BrandedSettings, bare_env_name, vendor_env
+from egpt.utils.env import get_branded_env_with_bare_fallback
 
 
 class ProviderSettings(BrandedSettings):
@@ -39,7 +40,16 @@ class ProviderSettings(BrandedSettings):
 
     # -- config-driven resolution (EGPT-3.2) -------------------------------
     # Owned by #64. Path to the per-tenant policy document, and the fallback identity claim.
-    # (Add fields here.)
+    #
+    # Path to a JSON policy document consumed by `ProviderConfig.from_dict`. None means "no
+    # document": a deployment may equally build its `ProviderConfig` in code and hand it to
+    # `ConfigDrivenModelProvider(...)` directly, which is what the tests do.
+    policy_file: Optional[str] = None
+    # Which verified JWT claim carries the tenant. There is no tenant concept in this tree
+    # yet, so `egpt/os/utils.py` reads this claim when present and falls back to `user_id`;
+    # the fallback is what actually runs today. Named here so a deployment whose IdP calls it
+    # `org_id` or `tid` does not have to patch the framework.
+    tenant_claim: str = "tenant_id"
 
     # -- Mode A: self-hosted SLM (EGPT-3.3) --------------------------------
     # Owned by #65. The in-VPC endpoint and adapter configuration.
@@ -89,4 +99,21 @@ def get_provider_settings(**overrides: Any) -> ProviderSettings:
     return ProviderSettings(**overrides)
 
 
-__all__ = ["ProviderSettings", "get_provider_settings"]
+def resolve_provider_setting(field_name: str) -> Optional[str]:
+    """Live three-way read of a single ``ProviderSettings`` field, without building the model.
+
+    The counterpart of ``egpt.settings.resolve``, and it exists for the same reason: reading one
+    string on a per-request path must not construct and re-validate a whole pydantic model.
+    ``tenant_claim`` is read on every factory-backed HTTP request, so that cost is real.
+
+    Live, not cached, so the no-stale-reads property of ``get_provider_settings`` is preserved:
+    a test that sets the variable after an earlier call still sees the new value.
+
+    ``field_name`` must name a real field -- a typo raises ``KeyError`` rather than silently
+    resolving to ``None``.
+    """
+    field = ProviderSettings.model_fields[field_name]
+    return get_branded_env_with_bare_fallback(field_name.upper(), bare=bare_env_name(field))
+
+
+__all__ = ["ProviderSettings", "get_provider_settings", "resolve_provider_setting"]

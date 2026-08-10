@@ -3,9 +3,9 @@ from typing import Callable, List, Optional
 
 import httpx
 
-from egpt.knowledge.knowledge import Knowledge
 from egpt.integrations.knowledge.reader.llms_txt_reader import LLMsTxtReader
 from egpt.integrations.knowledge.reader.utils.url_validation import is_host_allowed
+from egpt.knowledge.knowledge import Knowledge
 from egpt.tools import Toolkit
 from egpt.utils.log import log_debug, log_info
 

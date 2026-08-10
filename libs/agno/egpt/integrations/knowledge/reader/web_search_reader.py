@@ -7,16 +7,16 @@ from urllib.parse import urlparse
 
 import httpx
 
-from egpt.knowledge.chunking.semantic import SemanticChunking
-from egpt.knowledge.chunking.strategy import ChunkingStrategy, ChunkingStrategyType
-from egpt.knowledge.document.base import Document
-from egpt.knowledge.reader.base import Reader
 from egpt.integrations.knowledge.reader.utils.url_validation import (
     is_host_allowed,
     make_async_redirect_guard,
     make_redirect_guard,
     validate_allowed_hosts,
 )
+from egpt.knowledge.chunking.semantic import SemanticChunking
+from egpt.knowledge.chunking.strategy import ChunkingStrategy, ChunkingStrategyType
+from egpt.knowledge.document.base import Document
+from egpt.knowledge.reader.base import Reader
 from egpt.knowledge.types import ContentType
 from egpt.utils.log import log_debug, log_error, log_warning, logger
 

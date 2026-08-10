@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from egpt.knowledge.document.base import Document
 from egpt.integrations.knowledge.reader.json_reader import JSONReader
+from egpt.knowledge.document.base import Document
 
 
 @pytest.fixture

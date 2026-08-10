@@ -5,8 +5,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from egpt.knowledge.document.base import Document
 from egpt.integrations.knowledge.reader.docling_reader import DoclingReader
+from egpt.knowledge.document.base import Document
 
 
 @pytest.fixture

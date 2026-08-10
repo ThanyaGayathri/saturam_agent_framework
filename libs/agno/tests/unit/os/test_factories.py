@@ -210,6 +210,64 @@ class TestRequestContext:
         with pytest.raises(Exception):
             ctx.user_id = "u2"  # type: ignore[misc]
 
+    def test_tenant_id_is_additive(self):
+        """EGPT-3.2 added tenant_id as a trailing field with a default.
+
+        Constructing without it -- which every pre-3.2 call site does -- must keep working,
+        including positionally: the field is last, so no existing positional argument shifts.
+        """
+        assert RequestContext().tenant_id is None
+        assert RequestContext(user_id="u1", session_id="s1").tenant_id is None
+        assert RequestContext("u1", "s1").user_id == "u1"
+        assert RequestContext(tenant_id="acme").tenant_id == "acme"
+
+
+class TestResolveTenantId:
+    """EGPT-3.2: tenant_id comes from a verified claim, else the *verified* user identity.
+
+    A tenant id selects a ModelPolicy (backend, adapter, config blob), so it must never be
+    client-nameable: the raw Form user_id only becomes the tenant when it matches the
+    middleware-verified identity stamped on request.state.
+    """
+
+    def test_a_form_only_user_id_is_not_a_tenant(self):
+        """The spoofing path from the EGPT-3.2 review: posting user_id=acme in a form field
+        must not select acme's policy. No verified identity -> no tenant."""
+        from egpt.os.utils import resolve_tenant_id
+
+        assert resolve_tenant_id({}, "acme") is None
+        assert resolve_tenant_id({}, "acme", verified_user_id=None) is None
+        assert resolve_tenant_id({}, "acme", verified_user_id="someone-else") is None
+
+    def test_falls_back_to_user_id_when_it_is_the_verified_identity(self):
+        from egpt.os.utils import resolve_tenant_id
+
+        assert resolve_tenant_id({}, "u1", verified_user_id="u1") == "u1"
+        assert resolve_tenant_id({"sub": "u1"}, "u1", verified_user_id="u1") == "u1"
+
+    def test_a_verified_claim_wins_over_user_id(self):
+        from egpt.os.utils import resolve_tenant_id
+
+        assert resolve_tenant_id({"tenant_id": "acme"}, "u1") == "acme"
+
+    def test_the_claim_name_is_configurable(self, monkeypatch):
+        from egpt.os.utils import resolve_tenant_id
+
+        monkeypatch.setenv("EGPT_TENANT_CLAIM", "org_id")
+        assert resolve_tenant_id({"org_id": "acme", "tenant_id": "ignored"}, "u1") == "acme"
+
+    def test_a_blank_or_non_string_claim_falls_back(self):
+        from egpt.os.utils import resolve_tenant_id
+
+        assert resolve_tenant_id({"tenant_id": "  "}, "u1", verified_user_id="u1") == "u1"
+        assert resolve_tenant_id({"tenant_id": 42}, "u1", verified_user_id="u1") == "u1"
+        assert resolve_tenant_id({"tenant_id": None}, "u1", verified_user_id="u1") == "u1"
+
+    def test_no_claim_and_no_user_id_yields_none(self):
+        from egpt.os.utils import resolve_tenant_id
+
+        assert resolve_tenant_id({}, None) is None
+
 
 # ---------------------------------------------------------------------------
 # get_agent_by_id with factories

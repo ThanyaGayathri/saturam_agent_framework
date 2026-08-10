@@ -3,8 +3,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import ConfigDict, Field
 
-from egpt.knowledge.document import Document
 from egpt.integrations.knowledge.reranker.base import Reranker
+from egpt.knowledge.document import Document
 from egpt.utils.log import log_error, logger
 
 try:

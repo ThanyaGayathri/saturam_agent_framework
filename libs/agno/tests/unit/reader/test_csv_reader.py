@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from egpt.knowledge.document.base import Document
 from egpt.integrations.knowledge.reader.csv_reader import CSVReader
+from egpt.knowledge.document.base import Document
 
 # Sample CSV data
 SAMPLE_CSV = """name,age,city

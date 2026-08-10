@@ -18,6 +18,13 @@ is what makes EGPT-3.1's seam a no-op on every agent nobody configured: the chec
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
+    from egpt.providers.config import ModelPolicy, PolicyKey, ProviderConfig
+    from egpt.providers.config_provider import ConfigDrivenModelProvider
+
+    # EGPT-3.4 (Mode B). Lazy for the same reason as the contract names above, and doubly so
+    # here: mode_b reads settings, which pulls in pydantic-settings.
+    from egpt.providers.gateways import GatewayRoute, known_gateways, resolve_gateway
+    from egpt.providers.mode_b import FrontierModelProvider
     from egpt.providers.model_provider import (
         AsyncModelProvider,
         BaseModelProvider,
@@ -31,22 +38,21 @@ if TYPE_CHECKING:
         supports_detailed_resolve,
     )
 
-    # EGPT-3.4 (Mode B). Lazy for the same reason as the contract names above, and doubly so
-    # here: mode_b reads settings, which pulls in pydantic-settings.
-    from egpt.providers.gateways import GatewayRoute, known_gateways, resolve_gateway
-    from egpt.providers.mode_b import FrontierModelProvider
-
 __all__ = [
     "AsyncModelProvider",
     "BaseModelProvider",
+    "ConfigDrivenModelProvider",
     "DetailedModelProvider",
     "FrontierModelProvider",
     "GatewayRoute",
     "ModelCapabilities",
+    "ModelPolicy",
     "ModelProvider",
     "ModelProviderConfigError",
     "ModelResolveRequest",
     "ModelResolveResult",
+    "PolicyKey",
+    "ProviderConfig",
     "ProviderMode",
     "get_default_model_provider",
     "known_gateways",
@@ -142,6 +148,11 @@ _LAZY_FROM_MODEL_PROVIDER = (
     "supports_detailed_resolve",
 )
 
+# Lazily re-exported from the EGPT-3.2 config modules, for the same reason: importing
+# config_provider here would pull egpt.models.base into every `import egpt.providers`.
+_LAZY_FROM_CONFIG = ("ModelPolicy", "PolicyKey", "ProviderConfig")
+_LAZY_FROM_CONFIG_PROVIDER = ("ConfigDrivenModelProvider",)
+
 # Submodule-backed lazy exports, as name -> submodule. Same rule as above: the import happens
 # on first attribute access, never at package-import time.
 _LAZY_SUBMODULE = {
@@ -157,6 +168,14 @@ def __getattr__(name: str) -> Any:
         from egpt.providers import model_provider
 
         return getattr(model_provider, name)
+    if name in _LAZY_FROM_CONFIG:
+        from egpt.providers import config
+
+        return getattr(config, name)
+    if name in _LAZY_FROM_CONFIG_PROVIDER:
+        from egpt.providers import config_provider
+
+        return getattr(config_provider, name)
     module_name = _LAZY_SUBMODULE.get(name)
     if module_name is not None:
         from importlib import import_module

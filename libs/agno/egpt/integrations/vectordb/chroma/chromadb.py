@@ -16,9 +16,9 @@ except ImportError:
     raise ImportError("The `chromadb` package is not installed. Please install it via `pip install chromadb`.")
 
 from egpt.filters import FilterExpr
+from egpt.integrations.knowledge.reranker.base import Reranker
 from egpt.knowledge.document import Document
 from egpt.knowledge.embedder import Embedder
-from egpt.integrations.knowledge.reranker.base import Reranker
 from egpt.utils.log import log_debug, log_error, log_info, log_warning, logger
 from egpt.vectordb.base import VectorDb
 from egpt.vectordb.distance import Distance

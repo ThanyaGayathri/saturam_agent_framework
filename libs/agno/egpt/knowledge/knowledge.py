@@ -15,9 +15,6 @@ from httpx import AsyncClient
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.filters import EQ, FilterExpr
-from egpt.knowledge.content import Content, ContentAuth, ContentStatus, FileData
-from egpt.knowledge.document import Document
-from egpt.knowledge.reader import Reader, ReaderFactory
 
 # ACCEPTED DEBT (docs/adr/0001-layered-architecture.md, extraction prerequisite #1). This
 # pipeline is core, and core must not import the integrations layer -- but it names the
@@ -32,6 +29,9 @@ from egpt.integrations.knowledge.remote_content.remote_content import (
     RemoteContent,
 )
 from egpt.integrations.knowledge.remote_knowledge import RemoteKnowledge
+from egpt.knowledge.content import Content, ContentAuth, ContentStatus, FileData
+from egpt.knowledge.document import Document
+from egpt.knowledge.reader import Reader, ReaderFactory
 from egpt.knowledge.types import ContentType
 from egpt.knowledge.utils import merge_user_metadata, set_agno_metadata, strip_agno_metadata
 from egpt.utils.http import async_fetch_with_retry
