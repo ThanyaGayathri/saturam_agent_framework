@@ -20,7 +20,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from egpt.settings.sources import BrandedSettings
+from pydantic import Field
+
+from egpt.settings.sources import BrandedSettings, vendor_env
 
 
 class ProviderSettings(BrandedSettings):
@@ -56,7 +58,26 @@ class ProviderSettings(BrandedSettings):
     # deliberately NOT fields here. Their names are owned by the provider SDK convention, and
     # `egpt/settings/__init__.py` documents why the framework does not re-namespace them. Only
     # gateway endpoints and EGPT-owned routing config belong in this block.
-    # (Add fields here.)
+    #
+    # Which frontier backend to build when the caller pins nothing. These are registry keys
+    # ("anthropic", "openai", "google", "aws-bedrock", "azure-openai"), not import paths:
+    # naming one imports nothing, and `discovery.construct` turns the string into a class only
+    # when a resolution actually happens.
+    mode_b_provider: Optional[str] = None
+    mode_b_model: Optional[str] = None
+
+    # Optional gateway in front of the frontier. None means "talk to the frontier directly".
+    # "portkey" is the tested path; "litellm" is code-only and raises at resolve time while the
+    # package stays blocked (libs/agno/pyproject.toml ~line 249).
+    mode_b_gateway: Optional[str] = None
+    # EGPT-owned routing config for that gateway.
+    #
+    # `PORTKEY_*` is the vendor's supported convention, not a deprecated EGPT spelling. Use a
+    # non-warning vendor fallback rather than `bare_env`, while keeping EGPT_/AGNO_ precedence
+    # and resolving the values before Mode B performs its clear missing-credential checks.
+    mode_b_gateway_api_key: Optional[str] = Field(default=None, json_schema_extra=vendor_env("PORTKEY_API_KEY"))
+    mode_b_gateway_base_url: Optional[str] = None
+    mode_b_gateway_virtual_key: Optional[str] = Field(default=None, json_schema_extra=vendor_env("PORTKEY_VIRTUAL_KEY"))
 
 
 def get_provider_settings(**overrides: Any) -> ProviderSettings:
