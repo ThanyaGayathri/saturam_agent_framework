@@ -55,6 +55,14 @@ class Registry:
     agents: List[Any] = field(default_factory=list)
     teams: List[Any] = field(default_factory=list)
 
+    # The tenant capability policy in force (EGPT-2.3), or None when none is configured.
+    # It rides on the Registry rather than being threaded through every hydration signature
+    # because the registry is already the one object both the write path and the hydration path
+    # are handed. Typed `Any` to keep this module free of an import cycle: `registry.policy`
+    # needs `Registry` for its own annotations, and a string annotation here buys nothing that
+    # `resolve_policy`'s getattr does not already provide.
+    capability_policy: Optional[Any] = None
+
     @cached_property
     def _entrypoint_lookup(self) -> Dict[str, Any]:
         # Maps function name -> source: the Function that owns the entrypoint

@@ -84,6 +84,7 @@ from egpt.os.utils import (
     update_cors_middleware,
 )
 from egpt.registry import Registry
+from egpt.registry.policy import CapabilityPolicy, resolve_policy
 from egpt.remote.base import RemoteDb, RemoteKnowledge
 from egpt.settings import jwt_is_configured, resolve
 from egpt.team import RemoteTeam, Team, TeamFactory
@@ -249,6 +250,7 @@ class EgptOS:
         run_hooks_in_background: bool = False,
         telemetry: bool = False,
         registry: Optional[Registry] = None,
+        capability_policy: Optional[CapabilityPolicy] = None,
         scheduler: bool = False,
         scheduler_poll_interval: int = 15,
         scheduler_base_url: Optional[str] = None,
@@ -291,6 +293,11 @@ class EgptOS:
             run_hooks_in_background: If True, run agent/team pre/post hooks as FastAPI background tasks (non-blocking)
             telemetry: Whether to enable telemetry
             registry: Optional registry to use for the EgptOS
+            capability_policy: Optional tenant capability policy (EGPT-2.3) restricting which
+                models, tools and MCP servers a DB-authored definition may reference. When
+                omitted it is loaded from EGPT_CAPABILITY_POLICY_FILE; with neither configured
+                no capability check runs and behaviour is unchanged. Enforced on write by the
+                components router and again at hydration.
             scheduler: Whether to enable the cron scheduler
             scheduler_poll_interval: Seconds between scheduler poll cycles (default: 15)
             scheduler_base_url: Base URL for scheduler HTTP calls (default: http://127.0.0.1:7777)
@@ -346,6 +353,21 @@ class EgptOS:
         self.lifespan = lifespan
 
         self.registry = registry
+
+        # Tenant capability policy (EGPT-2.3). Resolved eagerly so a mistyped
+        # EGPT_CAPABILITY_POLICY_FILE fails at construction rather than silently leaving the
+        # control off, and parked on the registry so the hydration path -- which is handed a
+        # registry but never this EgptOS -- enforces the same document the write path does.
+        self.capability_policy = resolve_policy(capability_policy, registry)
+        if registry is not None:
+            if capability_policy is not None:
+                # An explicitly supplied policy is authoritative, including over one a previous
+                # EgptOS parked on this same registry. Without this, a second OS built on a
+                # shared registry would quietly enforce the first one's document -- and since
+                # the first is typically the more permissive, that fails open.
+                registry.capability_policy = capability_policy
+            elif registry.capability_policy is None and self.capability_policy.enabled:
+                registry.capability_policy = self.capability_policy
 
         # Composition root for internal services. Factories are lazy, so binding them
         # here (before the rest of __init__ runs) is safe.
@@ -517,7 +539,11 @@ class EgptOS:
         # Routes that require a database
         if self.db is not None:
             if isinstance(self.db, BaseDb):
-                updated_routers.append(get_components_router(os_db=self.db, registry=self.registry))
+                updated_routers.append(
+                    get_components_router(
+                        os_db=self.db, registry=self.registry, capability_policy=self.capability_policy
+                    )
+                )
             else:
                 updated_routers.append(_get_disabled_feature_router("/components", "Components", "sync db (BaseDb)"))
             updated_routers.append(get_schedule_router(os_db=self.db, settings=self.settings))
@@ -1056,7 +1082,11 @@ class EgptOS:
         # Routes that require a database
         if self.db is not None:
             if isinstance(self.db, BaseDb):
-                routers.append(get_components_router(os_db=self.db, registry=self.registry))
+                routers.append(
+                    get_components_router(
+                        os_db=self.db, registry=self.registry, capability_policy=self.capability_policy
+                    )
+                )
             else:
                 routers.append(_get_disabled_feature_router("/components", "Components", "sync db (BaseDb)"))
             routers.append(get_schedule_router(os_db=self.db, settings=self.settings))

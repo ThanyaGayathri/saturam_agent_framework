@@ -382,6 +382,7 @@ def build_jwt_middleware_kwargs(
     audience = None
     admin_scope: Optional[str] = None
     user_isolation = False
+    tenant_id_claim: Optional[str] = None
 
     if authorization_config:
         algorithm = authorization_config.algorithm or "RS256"
@@ -391,6 +392,7 @@ def build_jwt_middleware_kwargs(
         audience = authorization_config.audience
         admin_scope = authorization_config.admin_scope
         user_isolation = authorization_config.user_isolation
+        tenant_id_claim = authorization_config.tenant_id_claim
 
     kwargs: Dict[str, Any] = {
         "verification_keys": verification_keys,
@@ -406,6 +408,8 @@ def build_jwt_middleware_kwargs(
         kwargs["admin_scope"] = admin_scope
     if user_isolation:
         kwargs["user_isolation"] = True
+    if tenant_id_claim:
+        kwargs["tenant_id_claim"] = tenant_id_claim
     if service_account_verifier is not None:
         kwargs["service_account_verifier"] = service_account_verifier
     return kwargs
@@ -520,6 +524,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         excluded_route_paths: Optional[List[str]] = None,
         admin_scope: Optional[str] = None,
         user_isolation: bool = False,
+        tenant_id_claim: Optional[str] = None,
         service_account_verifier: Optional["ServiceAccountVerifier"] = None,
         security_key: Optional[str] = None,
     ):
@@ -563,6 +568,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
                            Format: {"POST /agents/*/runs": ["agents:run"], "GET /public": []}
             excluded_route_paths: List of route paths to exclude from JWT/RBAC checks
             admin_scope: The scope that grants admin access (default: "agent_os:admin")
+            tenant_id_claim: JWT claim naming the caller's tenant (EGPT-2.3). Unset (the
+                default) means no tenant is resolved and request.state.tenant_id stays None,
+                which applies no tenant predicate to any DB call and selects a capability
+                policy's `defaults` block -- i.e. exactly pre-EGPT-2.3 behaviour. When set, the
+                claim must be a non-empty string; any other value is a 401 rather than a
+                fallback to None, because None means "unscoped" and an unpinnable caller must
+                not be handed the unscoped view.
             service_account_verifier: Verifier for service account tokens (agno_pat_...).
                 When set (or available on app.state.service_account_verifier), bearer
                 tokens with the agno_pat_ prefix authenticate as service accounts
@@ -694,6 +706,27 @@ class AuthMiddleware(BaseHTTPMiddleware):
         )
         self.admin_scope = admin_scope or AgentOSScope.ADMIN.value
         self.user_isolation = user_isolation
+        self.tenant_id_claim = tenant_id_claim
+
+    def _extract_tenant_id(self, payload: Dict[str, Any]) -> Optional[str]:
+        """The tenant this token claims, or None when no tenant claim is configured.
+
+        Returns None -- meaning "unscoped" -- only when the operator has not configured a claim
+        at all. Once they have, a claim that is present but not a non-empty string raises
+        rather than degrading: "unscoped" is the *widest* tenancy, so silently falling back to
+        it would turn a malformed claim into an escalation.
+
+        Raises:
+            ValueError: the claim is configured and present but is not a usable tenant id.
+        """
+        if not self.tenant_id_claim:
+            return None
+        raw = payload.get(self.tenant_id_claim)
+        if raw is None:
+            return None
+        if not isinstance(raw, str) or not raw.strip():
+            raise ValueError(f"Claim '{self.tenant_id_claim}' must be a non-empty string tenant id")
+        return raw.strip()
 
     def _get_default_excluded_routes(self) -> List[str]:
         """Get default routes that should be excluded from RBAC checks."""
@@ -950,6 +983,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             request.state.authorization_enabled = self.authorization or False
             request.state.admin_scope = self.admin_scope
             request.state.user_isolation_enabled = self.user_isolation
+            # The scheduler is a platform principal, not a tenant's.
+            request.state.tenant_id = None
 
             # Enforce RBAC for internal token (do not skip scope checks). Deliberately
             # the strict check, not _check_scopes: the GET-listing fallback would turn
@@ -1014,6 +1049,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
             elif not isinstance(scopes, list):
                 scopes = []
 
+            # Resolve the tenant before anything is written to request.state, so a malformed
+            # claim cannot leave a half-populated identity behind on the rejection path.
+            try:
+                tenant_id = self._extract_tenant_id(payload)
+            except ValueError as e:
+                log_warning(f"Rejected JWT with an unusable tenant claim: {e}")
+                return self._create_error_response(401, "Invalid token tenant", origin, cors_allowed_origins)
+
             # Store claims in request.state
             request.state.authenticated = True
             request.state.user_id = user_id
@@ -1029,6 +1072,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
             # to None when this is False, so the DB wrapper and route-level
             # ownership gates stay dormant.
             request.state.user_isolation_enabled = self.user_isolation
+            # The tenant this caller authenticated as (EGPT-2.3), or None when no tenant claim
+            # is configured. Read via egpt.os.tenancy; None applies no DB tenant predicate.
+            request.state.tenant_id = tenant_id
 
             # Extract dependencies claims
             dependencies = {}
@@ -1106,6 +1152,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             request.state.user_id = None
             request.state.admin_scope = self.admin_scope
             request.state.user_isolation_enabled = self.user_isolation
+            request.state.tenant_id = None
             if self.authorization:
                 error_response = self._check_scopes(request, method, path, [], origin, cors_allowed_origins)
                 if error_response is not None:

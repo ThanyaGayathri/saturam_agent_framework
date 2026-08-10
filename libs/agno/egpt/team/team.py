@@ -1809,7 +1809,12 @@ def get_team_by_id(
 
     Returns:
         Team instance or None.
+
+    Raises:
+        PolicyViolationError: the stored config names a capability its tenant may not use.
     """
+    from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise
+
     try:
         row = db.get_config(component_id=id, version=version, label=label)
         if row is None:
@@ -1819,12 +1824,23 @@ def get_team_by_id(
         if cfg is None:
             raise ValueError(f"Invalid config found for team {id}")
 
+        # Read-side capability gate (EGPT-2.3); see get_agent_by_id for why it is not swallowed.
+        enforce_policy_or_raise(
+            cfg,
+            "team",
+            tenant_id=row.get("tenant_id"),
+            registry=registry,
+            component_id=id,
+        )
+
         team = Team.from_dict(cfg, db=db, registry=registry)
         # Ensure team.id is set to the component_id
         team.id = id
 
         return team
 
+    except PolicyViolationError:
+        raise
     except Exception as e:
         log_error(f"Error loading Team {id} from database: {str(e)}")
         return None
@@ -1844,8 +1860,12 @@ def get_teams(
         exclude_component_ids: Component IDs to exclude from results.
 
     Returns:
-        List of Team instances loaded from the database
+        List of Team instances loaded from the database. A team whose stored config violates the
+        capability policy is omitted with a warning rather than failing the whole listing.
     """
+    from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise
+    from egpt.utils.log import log_warning
+
     teams: List[Team] = []
     try:
         components, _ = db.list_components(
@@ -1860,11 +1880,21 @@ def get_teams(
                     if team_config is not None:
                         if "id" not in team_config:
                             team_config["id"] = component_id
+                        enforce_policy_or_raise(
+                            team_config,
+                            "team",
+                            tenant_id=config.get("tenant_id"),
+                            registry=registry,
+                            component_id=component_id,
+                        )
                         team = Team.from_dict(team_config, db=db, registry=registry)
                         team.id = component_id
                         team._version = component.get("current_version")
                         team._stage = config.get("stage")
                         teams.append(team)
+            except PolicyViolationError as e:
+                log_warning(f"Omitting team from listing: {e}")
+                continue
             except Exception as e:
                 log_error(f"Error loading Team {component_id} from database: {str(e)}")
                 continue

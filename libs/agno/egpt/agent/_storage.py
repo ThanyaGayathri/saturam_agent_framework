@@ -1124,7 +1124,12 @@ def load(
 
     Returns:
         The agent loaded from the database or None if not found.
+
+    Raises:
+        PolicyViolationError: the stored config names a capability its tenant may not use.
+            This function has no catch-all, so it propagates to the caller unchanged.
     """
+    from egpt.registry.policy import enforce_policy_or_raise
 
     data = db.get_config(component_id=id, label=label, version=version)
     if data is None:
@@ -1133,6 +1138,16 @@ def load(
     config = data.get("config")
     if config is None:
         return None
+
+    # Read-side capability gate (EGPT-2.3). `Agent.load` is a public entry point that does not
+    # go through `get_agent_by_id`, so without this it would be a way around the policy.
+    enforce_policy_or_raise(
+        config,
+        "agent",
+        tenant_id=data.get("tenant_id"),
+        registry=registry,
+        component_id=id,
+    )
 
     agent = cls.from_dict(config, registry=registry)
     agent.id = id

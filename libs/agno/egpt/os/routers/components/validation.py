@@ -18,6 +18,7 @@ from egpt.agent import Agent
 from egpt.db.base import BaseDb
 from egpt.os.schema import ConfigFieldError, ConfigValidationErrorResponse
 from egpt.registry import Registry
+from egpt.registry.policy import CapabilityPolicy
 from egpt.registry.schema import SCHEMA_VERSION, ComponentSpec, ConfigValidationError, validate_config
 from egpt.team import Team
 from egpt.workflow import Workflow
@@ -53,13 +54,20 @@ def validate_component_config(
     component_id: Optional[str] = None,
     unresolved_db_id: Optional[str] = None,
     links: Optional[List[Dict[str, Any]]] = None,
+    policy: Optional[CapabilityPolicy] = None,
+    tenant_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Validate a config and return the version-stamped dict to persist.
 
+    `policy` and `tenant_id` add the EGPT-2.3 capability check on top of the EGPT-2.2 schema
+    check. Both default to None, which skips it -- a deployment that has configured no policy
+    validates exactly as it did before.
+
     Raises:
-        ConfigValidationError: the config is not a valid definition. Callers must catch this
-            **above** any `except ValueError` arm -- it subclasses `ValueError`, so a handler
-            in the wrong order flattens the field-level errors into a plain 400 string.
+        ConfigValidationError: the config is not a valid definition, or names a capability this
+            tenant may not use. Callers must catch this **above** any `except ValueError` arm --
+            it subclasses `ValueError`, so a handler in the wrong order flattens the field-level
+            errors into a plain 400 string.
     """
     spec = component_spec_for(component_type, registry=registry, db=db, links=links)
     return validate_config(
@@ -69,6 +77,8 @@ def validate_component_config(
         spec=spec,
         unresolved_db_id=unresolved_db_id,
         self_component_id=component_id,
+        policy=policy,
+        tenant_id=tenant_id,
     )
 
 

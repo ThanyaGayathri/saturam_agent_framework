@@ -1765,7 +1765,12 @@ def get_agent_by_id(
 
     Returns:
         Agent instance or None.
+
+    Raises:
+        PolicyViolationError: the stored config names a capability its tenant may not use.
+            Deliberately not swallowed like every other failure here -- see below.
     """
+    from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise
     from egpt.utils.log import log_error
 
     try:
@@ -1777,11 +1782,28 @@ def get_agent_by_id(
         if cfg is None:
             raise ValueError(f"Invalid config found for agent {id}")
 
+        # The read-side half of the capability gate (EGPT-2.3). The write-side check alone is
+        # bypassable in two ordinary ways: a policy can be tightened after a definition was
+        # published, and a config row can be written by something other than the components API.
+        # The tenant comes off the row we already fetched, so this costs no extra query.
+        enforce_policy_or_raise(
+            cfg,
+            "agent",
+            tenant_id=row.get("tenant_id"),
+            registry=registry,
+            component_id=id,
+        )
+
         agent = Agent.from_dict(cfg, registry=registry)
         agent.id = id
 
         return agent
 
+    except PolicyViolationError:
+        # A policy refusal is an authorization outcome, not a load failure. Letting it fall into
+        # the arm below would return None, which the API renders as 404 -- telling the caller
+        # "no such agent" when the truth is "you may not use this one".
+        raise
     except Exception as e:
         log_error(f"Error loading Agent {id} from database: {str(e)}")
         return None
@@ -1796,8 +1818,13 @@ def get_agents(
     Get all agents from the database.
 
     Sets _version and _stage on each agent from the component metadata.
+
+    An agent whose stored config violates the capability policy is omitted with a warning rather
+    than raising: one poisoned row must not empty a whole page of agents, and returning it would
+    be the leak the policy exists to stop.
     """
-    from egpt.utils.log import log_error
+    from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise
+    from egpt.utils.log import log_error, log_warning
 
     agents: List[Agent] = []
     try:
@@ -1813,11 +1840,21 @@ def get_agents(
                         component_id = component["component_id"]
                         if "id" not in agent_config:
                             agent_config["id"] = component_id
+                        enforce_policy_or_raise(
+                            agent_config,
+                            "agent",
+                            tenant_id=config.get("tenant_id"),
+                            registry=registry,
+                            component_id=component_id,
+                        )
                         agent = Agent.from_dict(agent_config, registry=registry)
                         agent.id = component_id
                         agent._version = component.get("current_version")
                         agent._stage = config.get("stage")
                         agents.append(agent)
+            except PolicyViolationError as e:
+                log_warning(f"Omitting agent from listing: {e}")
+                continue
             except Exception as e:
                 component_id = component.get("component_id", "unknown")
                 log_error(f"Error loading Agent {component_id} from database: {str(e)}")

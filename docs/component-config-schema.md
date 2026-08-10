@@ -76,6 +76,14 @@ Two deliberate non-behaviours:
 Validation runs *after* the `db` reference is resolved, so it sees exactly the bytes that get
 persisted.
 
+**Capability policy is the exception to the second point.** When a tenant capability policy is
+configured (EGPT-2.3), the *policy* half — and only that half, never the shape or the reference
+checks — is re-run at hydration, because the write-path check alone is bypassable in two ordinary
+ways: a policy can be tightened after a definition was published, and a config row can be written
+by something other than the components API. A stored definition that no longer passes is refused
+with a **403** on a single fetch, and omitted with a warning from a listing. See
+[capability-policy.md](./capability-policy.md).
+
 ---
 
 ## 4. The schema
@@ -307,6 +315,14 @@ messages are written for humans and may be reworded.
 | `unsupported_schema_version` | `schema_version` exceeds `SCHEMA_VERSION` | `schema_version` |
 | `hydration_failed` | The dry run raised | varies; `""` when unattributable |
 | `provider_not_installed` | The provider is registered but its SDK is absent here | `model.provider` |
+| `capability_not_permitted` | A model, tool or MCP server outside this tenant's allow-list | `model`, `tools[0].name` |
+| `privileged_tool_blocked` | A tool belonging to a privileged toolkit this tenant has not been granted | `tools[0].name` |
+
+The last two are capability policy (EGPT-2.3) rather than schema validity — a config can be
+perfectly well-formed and still name a capability its tenant may not use. They are defined in
+`registry/policy.py`, which owns the checks that raise them, and imported into `registry/schema.py`
+so the vocabulary stays enumerable from one module. See
+[capability-policy.md](./capability-policy.md).
 
 Adding a code is a schema change: extend the vocabulary here and in `registry/schema.py` together.
 A test asserts the two agree.
@@ -456,7 +472,11 @@ reproduce these offline, without a database or a server.
   component that does not exist is accepted, and cycle detection catches only direct
   self-reference, not `a -> b -> a`. The dry run is gated to agent definitions. EGPT-2.2 was
   scoped to the agent definition; the rest is a follow-up.
-- **Stored configs are not retro-validated** (§3).
+- **Stored configs are not retro-validated** (§3), except for the capability-policy half.
+- **Capability policy checks the top-level `model` and `tools` only.** A team member's or a
+  workflow step's own definition is checked when *that* component is written and hydrated, not
+  transitively from its parent. See
+  [capability-policy.md](./capability-policy.md#known-limits) for the rest.
 - **`PATCH /components/{id}` can change `component_type`** without revalidating the configs already
   stored under it, which would leave them checked against the wrong schema.
 - **`to_dict(from_dict(config))` is not byte-identical when the config has tools.** Rehydration
@@ -492,4 +512,14 @@ try:
 except ConfigValidationError as error:
     for item in error.errors:
         print(item.path, item.code, item.message)
+```
+
+To include the capability check, pass the policy and the tenant. Both default to `None`, which
+skips it entirely:
+
+```python
+from egpt.registry.policy import CapabilityPolicy
+
+policy = CapabilityPolicy.from_file("/etc/egpt/capability-policy.json")
+stored = validate_component_config(config, "agent", registry=registry, policy=policy, tenant_id="acme")
 ```

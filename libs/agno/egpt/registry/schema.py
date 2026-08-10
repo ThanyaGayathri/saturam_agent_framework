@@ -55,6 +55,15 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from egpt.models.utils import resolve_provider_key
 from egpt.registry import discovery
+from egpt.registry.policy import (
+    # Redundant aliases mark these as deliberate re-exports rather than unused imports: they are
+    # pulled in so the closed vocabulary stays enumerable from `vars(schema)`, which is how the
+    # doc guard checks the error-code table. See the CODE_* block below.
+    CODE_CAPABILITY_NOT_PERMITTED as CODE_CAPABILITY_NOT_PERMITTED,
+    CODE_PRIVILEGED_TOOL_BLOCKED as CODE_PRIVILEGED_TOOL_BLOCKED,
+    CapabilityPolicy,
+    check_capabilities,
+)
 from egpt.utils.log import log_error, log_warning
 
 if TYPE_CHECKING:
@@ -79,6 +88,11 @@ CODE_CYCLIC_REFERENCE = "cyclic_reference"
 CODE_UNSUPPORTED_SCHEMA_VERSION = "unsupported_schema_version"
 CODE_HYDRATION_FAILED = "hydration_failed"
 CODE_PROVIDER_NOT_INSTALLED = "provider_not_installed"
+# The vocabulary also includes the two capability-policy codes (EGPT-2.3),
+# CODE_CAPABILITY_NOT_PERMITTED and CODE_PRIVILEGED_TOOL_BLOCKED. They are defined in
+# `egpt.registry.policy` -- which owns the checks that raise them -- and imported into this
+# module's namespace above, so the closed vocabulary stays enumerable from `vars(schema)` the
+# way the doc guard expects.
 
 # How many registered names to list back in an "unresolvable ref" message before truncating.
 _MAX_SUGGESTED_NAMES = 12
@@ -687,6 +701,35 @@ def _dry_run(config: Dict[str, Any], spec: ComponentSpec, errors: _Errors) -> No
         errors.add("", f"Config could not be hydrated: {type(exc).__name__}: {exc}", CODE_HYDRATION_FAILED)
 
 
+def _check_policy(
+    config: Dict[str, Any],
+    component_type: str,
+    policy: Optional[CapabilityPolicy],
+    tenant_id: Optional[str],
+    registry: Optional["Registry"],
+    errors: _Errors,
+) -> None:
+    """Reject capabilities this tenant's policy does not permit (EGPT-2.3).
+
+    Unlike every other reference check here, this one runs even when ``registry`` is None. That
+    inversion is deliberate and reads like a bug without the reason: the checks above skip
+    themselves without a registry because they cannot tell "unknown name" from "nothing is
+    registered", but policy has a static fallback for exactly that case. A privileged-tool check
+    that switched itself off when unwired would be off on the one path where nothing else can
+    catch a ``run_shell_command``.
+
+    ``mode="warn"`` logs instead of rejecting, so an operator can audit an existing corpus before
+    turning enforcement on.
+    """
+    if policy is None or not policy.enabled:
+        return
+    for violation in check_capabilities(config, component_type, policy=policy, tenant_id=tenant_id, registry=registry):
+        if policy.mode == "warn":
+            log_warning(f"[capability-policy:warn] {violation.message}")
+            continue
+        errors.add(violation.path, violation.message, violation.code)
+
+
 def validate_config(
     config: Dict[str, Any],
     component_type: str,
@@ -695,6 +738,8 @@ def validate_config(
     spec: Optional[ComponentSpec] = None,
     unresolved_db_id: Optional[str] = None,
     self_component_id: Optional[str] = None,
+    policy: Optional[CapabilityPolicy] = None,
+    tenant_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Validate a component config and return it stamped with the current schema version.
 
@@ -716,6 +761,11 @@ def validate_config(
             unknown-key check and the dry run are skipped.
         unresolved_db_id: A db id the caller already failed to resolve, reported at ``db.id``.
         self_component_id: The id being written, used to catch a component referencing itself.
+        policy: The tenant capability policy in force, when one is configured. ``None`` (the
+            default) skips the capability checks entirely, which is what keeps EGPT-2.3 a no-op
+            for a deployment that has not opted in.
+        tenant_id: The tenant authoring this definition, used to select its allow-list. ``None``
+            selects the policy's ``defaults`` block.
 
     Returns:
         The config plus ``schema_version``.
@@ -749,6 +799,11 @@ def validate_config(
     else:
         _check_db_ref(config, unresolved_db_id, errors)
         _check_steps(config, errors)
+
+    # Runs for all three component types, not just agents: a team config carries a `model`, and
+    # `tools` reaches every type through `extra="allow"`, so scoping this to agents would leave
+    # a team definition as the bypass.
+    _check_policy(config, component_type, policy, tenant_id, registry, errors)
 
     # Hydration is the catch-all for everything the checks above cannot model, so it only runs
     # once they pass -- dry-running a config already known to be broken produces noise, not
