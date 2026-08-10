@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     # EGPT-3.4 (Mode B). Lazy for the same reason as the contract names above, and doubly so
     # here: mode_b reads settings, which pulls in pydantic-settings.
     from egpt.providers.gateways import GatewayRoute, known_gateways, resolve_gateway
+    from egpt.providers.mode_a import LocalModelProvider
     from egpt.providers.mode_b import FrontierModelProvider
     from egpt.providers.model_provider import (
         AsyncModelProvider,
@@ -45,6 +46,7 @@ __all__ = [
     "DetailedModelProvider",
     "FrontierModelProvider",
     "GatewayRoute",
+    "LocalModelProvider",
     "ModelCapabilities",
     "ModelPolicy",
     "ModelProvider",
@@ -158,6 +160,7 @@ _LAZY_FROM_CONFIG_PROVIDER = ("ConfigDrivenModelProvider",)
 _LAZY_SUBMODULE = {
     "FrontierModelProvider": "egpt.providers.mode_b",  # EGPT-3.4
     "GatewayRoute": "egpt.providers.gateways",
+    "LocalModelProvider": "egpt.providers.mode_a",  # EGPT-3.3
     "known_gateways": "egpt.providers.gateways",
     "resolve_gateway": "egpt.providers.gateways",
 }
@@ -176,6 +179,9 @@ def __getattr__(name: str) -> Any:
         from egpt.providers import config_provider
 
         return getattr(config_provider, name)
+    # EGPT-3.3's LocalModelProvider is routed through _LAZY_SUBMODULE rather than its own
+    # branch: that dict is the generic form of the same "import on first access, never at
+    # package-import time" rule, and a per-name `if` would only be a second way to say it.
     module_name = _LAZY_SUBMODULE.get(name)
     if module_name is not None:
         from importlib import import_module
