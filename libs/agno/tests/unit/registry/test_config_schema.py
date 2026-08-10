@@ -392,24 +392,29 @@ class TestJsonSchema:
 # =============================================================================
 # Documentation
 # =============================================================================
+#
+# docs/component-config-schema.md is normative: clients are told to branch on the error codes
+# rather than on message text, and the concrete lists it publishes are the kind of fact that
+# goes stale silently. Every hand-written fact in it is pinned against the live value here, so
+# extending the vocabulary or registering a backend fails the suite instead of the document
+# quietly becoming wrong.
+
+DOC_PATH = Path(__file__).parents[5] / "docs" / "component-config-schema.md"
+
+
+def doc_text() -> str:
+    if not DOC_PATH.exists():
+        pytest.skip(f"{DOC_PATH.name} is not present in this checkout")
+    return DOC_PATH.read_text()
 
 
 class TestDocumentedErrorCodes:
-    """The error-code vocabulary is closed, and clients branch on it rather than on messages.
-
-    That only holds if the normative doc lists exactly what the module exports, so an
-    eleventh code has to be documented in the same change that introduces it.
-    """
-
-    DOC_PATH = Path(__file__).parents[5] / "docs" / "component-config-schema.md"
+    """The error-code vocabulary is closed, so an eleventh code must be documented with it."""
 
     def _documented_codes(self):
-        if not self.DOC_PATH.exists():
-            pytest.skip(f"{self.DOC_PATH.name} is not present in this checkout")
-        text = self.DOC_PATH.read_text()
         # Scoped to the vocabulary section: the field tables elsewhere in the doc have the same
         # row shape, and matching those would compare the codes against every documented field.
-        section = re.search(r"^## \d+\. Error codes$(.*?)^## ", text, flags=re.MULTILINE | re.DOTALL)
+        section = re.search(r"^## \d+\. Error codes$(.*?)^## ", doc_text(), flags=re.MULTILINE | re.DOTALL)
         assert section is not None, "the doc no longer has an 'Error codes' section"
         # The table's first column, e.g. "| `unknown_field` | Fires when ... |".
         return set(re.findall(r"^\|\s*`([a-z_]+)`\s*\|", section.group(1), flags=re.MULTILINE))
@@ -421,7 +426,17 @@ class TestDocumentedErrorCodes:
         assert self._documented_codes() == exported
 
     def test_the_documented_schema_version_is_the_current_one(self):
-        if not self.DOC_PATH.exists():
-            pytest.skip(f"{self.DOC_PATH.name} is not present in this checkout")
+        assert f"`SCHEMA_VERSION = {SCHEMA_VERSION}`" in doc_text()
 
-        assert f"`SCHEMA_VERSION = {SCHEMA_VERSION}`" in self.DOC_PATH.read_text()
+
+class TestDocumentedDbTypes:
+    """The doc enumerates the registered db backends, and an enumeration is one backend from stale."""
+
+    def test_documented_db_types_match_the_registry(self):
+        # The block is marked in the source so the parse cannot drift onto neighbouring prose,
+        # which is full of backticked field names that look just like backend names.
+        block = re.search(r"<!-- db-types:.*?-->\s*```text\n(.*?)```", doc_text(), flags=re.DOTALL)
+        assert block is not None, "the doc no longer has a marked db-types block"
+        documented = {name.strip() for name in block.group(1).replace("\n", " ").split(",") if name.strip()}
+
+        assert documented == set(discovery.names("db"))

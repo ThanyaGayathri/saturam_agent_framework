@@ -166,9 +166,24 @@ The tables above carry the required fields, the reference shapes, and the fields
 domain. They are **not** a restatement of every serializable setting — that would duplicate
 `Agent.__init__` and drift from it within a release.
 
-The scalar long tail passes through (`extra="allow"`), and the allowed key set is derived from
-`inspect.signature(Agent)` at runtime — today 119 keys for an agent, 122 for a team, 28 for a
-workflow. A new agent setting is therefore valid the moment it exists, with no schema edit.
+The scalar long tail passes through (`extra="allow"`), and the allowed key set is computed at
+runtime rather than listed: the constructor's parameters, from `inspect.signature`, union a small
+set of keys the constructor does not take but a serialized component still carries —
+`schema_version`, plus ownership and session-history fields that vary by component type. A new
+setting is therefore valid the moment it exists, with no schema edit.
+
+The two numbers differ, so it is worth being exact about which is which:
+
+<!-- key-counts: asserted against the live values by TestDocumentedKeyCounts -->
+
+| Component | Constructor parameters | Config keys accepted |
+|---|---|---|
+| `agent` | 115 | 119 |
+| `team` | 120 | 122 |
+| `workflow` | 27 | 28 |
+
+Those counts are pinned by test, not maintained by hand — if they no longer match the live
+signatures, the suite fails rather than the document quietly going stale.
 
 What this buys you is the other half: a key that is *not* a constructor parameter is rejected.
 `from_dict` builds its kwargs from an explicit list, so an unknown key is not merely ignored, it is
@@ -204,9 +219,18 @@ cannot call.
 ### 5.3 `db`
 
 A `DbRef` needs an `id` (to reference a registered db) or a `type` (to construct one); neither is
-`missing_required_field`. A `type` is checked against the registered backends: `clickhouse`,
-`dynamo`, `firestore`, `gcs_json`, `in_memory`, `json`, `mongo`, `mysql`, `postgres`, `redis`,
-`singlestore`, `sqlite`, `surrealdb`.
+`missing_required_field`. A `type` is checked against the registered backends, which are whatever
+`discovery.names("db")` reports — today:
+
+<!-- db-types: asserted against discovery.names("db") by TestDocumentedDbTypes -->
+
+```text
+clickhouse, dynamo, firestore, gcs_json, in_memory, json, mongo, mysql, postgres, redis,
+singlestore, sqlite, surrealdb
+```
+
+That list is pinned by test too: registering a fourteenth backend fails the suite until it is
+listed here.
 
 An `id` is resolved by the router's `_resolve_db_in_config` before validation — against the OS
 database, then the `Registry`. If it resolves, the referenced db's connection fields (`type`,
