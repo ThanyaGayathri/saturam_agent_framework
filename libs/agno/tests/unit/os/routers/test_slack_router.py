@@ -5,24 +5,27 @@ from typing import Any, Dict
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastapi import APIRouter, FastAPI
 
-from egpt.agent import RunEvent
-from egpt.models.response import ToolExecution
-from egpt.os.interfaces.slack.event_handler import EventContext, SlackEventHandler
-from egpt.os.interfaces.slack.helpers import BotNameResolver
-from egpt.os.interfaces.slack.hitl import HITLHandler
-from egpt.os.interfaces.slack.ids import (
+pytest.importorskip("slack_sdk", reason="the Slack interface needs the Slack SDK")
+
+from fastapi import APIRouter, FastAPI  # noqa: E402
+
+from egpt.agent import RunEvent  # noqa: E402
+from egpt.models.response import ToolExecution  # noqa: E402
+from egpt.os.interfaces.slack.event_handler import EventContext, SlackEventHandler  # noqa: E402
+from egpt.os.interfaces.slack.helpers import BotNameResolver  # noqa: E402
+from egpt.os.interfaces.slack.hitl import HITLHandler  # noqa: E402
+from egpt.os.interfaces.slack.ids import (  # noqa: E402
     ACTION_CHECK_STATUS,
     ACTION_SUBMIT,
     encode_admin_approval_button_value,
     encode_submit_button_value,
     row_block_id,
 )
-from egpt.os.interfaces.slack.state import StreamState
-from egpt.run.requirement import RunRequirement
+from egpt.os.interfaces.slack.state import StreamState  # noqa: E402
+from egpt.run.requirement import RunRequirement  # noqa: E402
 
-from .conftest import (
+from .conftest import (  # noqa: E402
     build_app,
     content_chunk,
     make_agent_mock,

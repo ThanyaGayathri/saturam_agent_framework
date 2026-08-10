@@ -177,6 +177,13 @@ pytest libs/agno/tests/
 pytest libs/agno/tests/unit/test_agent.py
 ```
 
+**Optional dependencies:** a unit test that imports an optional dependency (db driver,
+vector DB client, channel SDK) must gate on it with `pytest.importorskip("<module>",
+reason="...")` at module scope, or a `pytest.mark.skipif` on the individual tests. The dev
+environment installs every driver, so a missed gate passes locally and in the main CI job and
+only breaks on a partial install — the `unit-drivers-absent` CI job exists to catch it. See
+CONTRIBUTING.md for the pattern.
+
 ---
 
 ## When Implementing Features

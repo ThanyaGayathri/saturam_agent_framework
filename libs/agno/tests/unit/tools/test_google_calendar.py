@@ -6,9 +6,12 @@ import tempfile
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
-from google.oauth2.credentials import Credentials
 
-from egpt.integrations.tools.google.calendar import GoogleCalendarTools
+pytest.importorskip("googleapiclient", reason="the Calendar toolkit imports the Google API client at module level")
+
+from google.oauth2.credentials import Credentials  # noqa: E402
+
+from egpt.integrations.tools.google.calendar import GoogleCalendarTools  # noqa: E402
 
 
 @pytest.fixture

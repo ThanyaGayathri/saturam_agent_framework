@@ -4,9 +4,11 @@ from typing import List
 
 import pytest
 
-from egpt.integrations.vectordb.lancedb import LanceDb
-from egpt.knowledge.document import Document
-from egpt.vectordb.search import SearchType
+pytest.importorskip("lancedb", reason="the LanceDb vector db needs its client")
+
+from egpt.integrations.vectordb.lancedb import LanceDb  # noqa: E402
+from egpt.knowledge.document import Document  # noqa: E402
+from egpt.vectordb.search import SearchType  # noqa: E402
 
 TEST_TABLE = "test_table"
 TEST_PATH = "tmp/test_lancedb"

@@ -1,5 +1,7 @@
 """Tests for configurable database table prefix (EGPT-0.7)."""
 
+import importlib.util
+
 import pytest
 
 from egpt.db.table_names import (
@@ -15,6 +17,13 @@ from egpt.integrations.db.json.json_db import JsonDb
 from egpt.integrations.db.postgres.postgres import PostgresDb
 from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb
 from egpt.integrations.db.sqlite.sqlite import SqliteDb
+
+# Constructing an AsyncSqliteDb resolves the aiosqlite dialect; rejecting a bad prefix does
+# not get that far, so only the constructing tests are gated.
+requires_aiosqlite = pytest.mark.skipif(
+    importlib.util.find_spec("aiosqlite") is None,
+    reason="AsyncSqliteDb resolves the dialect in __init__",
+)
 
 # Literal expectations, intentionally NOT derived from DEFAULT_TABLE_PREFIX:
 # if the constant regresses to "agno_" these assertions must fail.
@@ -185,6 +194,7 @@ class TestTablePrefixSerialization:
 
 
 class TestAsyncTablePrefix:
+    @requires_aiosqlite
     def test_async_sqlite_uses_branded_default_prefix(self, tmp_path):
         db = AsyncSqliteDb(db_file=str(tmp_path / "test.db"))
 
@@ -193,6 +203,7 @@ class TestAsyncTablePrefix:
         assert db.memory_table_name == "egpt_memories"
         assert db.knowledge_table_name == "egpt_knowledge"
 
+    @requires_aiosqlite
     def test_async_sqlite_custom_prefix_and_override(self, tmp_path):
         db = AsyncSqliteDb(
             db_file=str(tmp_path / "test.db"),

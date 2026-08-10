@@ -2,10 +2,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from egpt.integrations.tools.google.auth import AuthConfig
-from egpt.integrations.tools.google.calendar import GoogleCalendarTools
-from egpt.integrations.tools.google.drive import GoogleDriveTools
-from egpt.integrations.tools.google.gmail import GmailTools
+pytest.importorskip("googleapiclient", reason="the Google toolkits import the Google API client at module level")
+
+from egpt.integrations.tools.google.auth import AuthConfig  # noqa: E402
+from egpt.integrations.tools.google.calendar import GoogleCalendarTools  # noqa: E402
+from egpt.integrations.tools.google.drive import GoogleDriveTools  # noqa: E402
+from egpt.integrations.tools.google.gmail import GmailTools  # noqa: E402
 
 
 @pytest.fixture

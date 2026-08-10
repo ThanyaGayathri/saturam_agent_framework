@@ -5,10 +5,12 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from egpt.integrations.vectordb.weaviate import Weaviate
-from egpt.integrations.vectordb.weaviate.index import Distance, VectorIndex
-from egpt.knowledge.document import Document
-from egpt.vectordb.search import SearchType
+pytest.importorskip("weaviate", reason="the Weaviate vector db needs its client")
+
+from egpt.integrations.vectordb.weaviate import Weaviate  # noqa: E402
+from egpt.integrations.vectordb.weaviate.index import Distance, VectorIndex  # noqa: E402
+from egpt.knowledge.document import Document  # noqa: E402
+from egpt.vectordb.search import SearchType  # noqa: E402
 
 
 @pytest.fixture

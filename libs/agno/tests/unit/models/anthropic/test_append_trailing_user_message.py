@@ -302,6 +302,7 @@ class TestAutoDetectionVertexAI:
         assert Claude(id="claude-sonnet-4@20250514").append_trailing_user_message is False
 
 
+@_skip_boto3
 class TestAutoDetectionAwsClaude:
     """Tests for AWS Bedrock Claude (anthropic SDK) auto-detection."""
 

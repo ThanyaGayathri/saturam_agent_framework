@@ -3,10 +3,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from google.oauth2.credentials import Credentials
-from googleapiclient.errors import HttpError
 
-from egpt.integrations.tools.google.drive import GoogleDriveTools
+pytest.importorskip("googleapiclient", reason="the Google Drive toolkit imports the Google API client at module level")
+
+from google.oauth2.credentials import Credentials  # noqa: E402
+from googleapiclient.errors import HttpError  # noqa: E402
+
+from egpt.integrations.tools.google.drive import GoogleDriveTools  # noqa: E402
 
 
 @pytest.fixture

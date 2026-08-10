@@ -110,6 +110,10 @@ def mock_credentials():
 
 @pytest.fixture
 def tools(mock_credentials, mock_slides_service, mock_drive_service):
+    # Only the tests that build a toolkit need the driver — patching
+    # googleapiclient.discovery.build requires the module to be importable. The pure-logic
+    # tests in this file (id uniqueness, layout constants) run without it.
+    pytest.importorskip("googleapiclient", reason="patching the Google API client needs it importable")
     with (
         patch("googleapiclient.discovery.build"),
         patch("egpt.integrations.tools.google.slides.authenticate", lambda func: func),

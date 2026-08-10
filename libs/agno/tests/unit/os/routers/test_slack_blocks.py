@@ -1,8 +1,12 @@
 from typing import Any, Dict
 
-from egpt.models.response import ToolExecution
-from egpt.os.interfaces.slack.builders import build_pause_message
-from egpt.os.interfaces.slack.ids import (
+import pytest
+
+pytest.importorskip("slack_sdk", reason="the Slack interface needs the Slack SDK")
+
+from egpt.models.response import ToolExecution  # noqa: E402
+from egpt.os.interfaces.slack.builders import build_pause_message  # noqa: E402
+from egpt.os.interfaces.slack.ids import (  # noqa: E402
     ACTION_EXTERNAL_RESULT,
     ACTION_FEEDBACK_SELECT,
     ACTION_INPUT_FIELD_PREFIX,
@@ -13,9 +17,9 @@ from egpt.os.interfaces.slack.ids import (
     pause_block_id,
     row_block_id,
 )
-from egpt.os.interfaces.slack.interactions import parse_submit_payload
-from egpt.run.requirement import RunRequirement, UserFeedbackQuestion
-from egpt.tools.function import UserFeedbackOption, UserInputField
+from egpt.os.interfaces.slack.interactions import parse_submit_payload  # noqa: E402
+from egpt.run.requirement import RunRequirement, UserFeedbackQuestion  # noqa: E402
+from egpt.tools.function import UserFeedbackOption, UserInputField  # noqa: E402
 
 # -- Helpers --
 

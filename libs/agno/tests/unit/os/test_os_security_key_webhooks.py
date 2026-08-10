@@ -5,12 +5,15 @@ import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from fastapi.testclient import TestClient
 
-from egpt.agent import Agent
-from egpt.os.app import EgptOS
-from egpt.os.interfaces.slack import Slack
-from egpt.os.settings import AgnoAPISettings
+pytest.importorskip("slack_sdk", reason="these webhook tests mount the Slack interface")
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from egpt.agent import Agent  # noqa: E402
+from egpt.os.app import EgptOS  # noqa: E402
+from egpt.os.interfaces.slack import Slack  # noqa: E402
+from egpt.os.settings import AgnoAPISettings  # noqa: E402
 
 SIGNING_SECRET = "test-signing-secret"
 OS_KEY = "test-os-security-key"

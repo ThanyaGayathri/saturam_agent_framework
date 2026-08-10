@@ -5,9 +5,12 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-from slack_sdk.errors import SlackApiError
 
-from egpt.integrations.tools.slack import SlackTools
+pytest.importorskip("slack_sdk", reason="SlackTools needs the Slack SDK")
+
+from slack_sdk.errors import SlackApiError  # noqa: E402
+
+from egpt.integrations.tools.slack import SlackTools  # noqa: E402
 
 
 def _make_slack_tools_with_output_dir(output_dir: str) -> SlackTools:
