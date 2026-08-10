@@ -55,6 +55,7 @@ from egpt.os.utils import (
     resolve_tenant_id,
     resolve_workflow,
 )
+from egpt.registry.policy import PolicyViolationError
 from egpt.run.base import RunStatus
 from egpt.run.workflow import WorkflowErrorEvent
 from egpt.utils.log import log_debug, log_warning, logger
@@ -1110,6 +1111,10 @@ def get_workflow_router(
                 create_fresh=True,
                 version=version,
             )  # type: ignore[assignment]
+        except PolicyViolationError as e:
+            # 403, not 500: the component exists and hydrates fine -- the caller's tenant
+            # is just not permitted the capabilities it names (EGPT-2.3).
+            raise HTTPException(status_code=403, detail=str(e))
         except Exception as e:
             logger.error(f"Error resolving workflow '{workflow_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving workflow: {e}")
@@ -1517,6 +1522,10 @@ def get_workflow_router(
             workflow = get_workflow_by_id(
                 workflow_id=workflow_id, workflows=os.workflows, db=os.db, registry=os.registry, create_fresh=True
             )  # type: ignore[assignment]
+        except PolicyViolationError as e:
+            # 403, not 500: the component exists and hydrates fine -- the caller's tenant
+            # is just not permitted the capabilities it names (EGPT-2.3).
+            raise HTTPException(status_code=403, detail=str(e))
         except Exception as e:
             logger.error(f"Error resolving workflow '{workflow_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving workflow: {e}")
@@ -1673,6 +1682,10 @@ def get_workflow_router(
                 workflow = get_workflow_by_id(
                     workflow_id=workflow_id, workflows=os.workflows, db=os.db, registry=os.registry, create_fresh=True
                 )  # type: ignore[assignment]
+            except PolicyViolationError as e:
+                # 403, not 500: the component exists and hydrates fine -- the caller's tenant
+                # is just not permitted the capabilities it names (EGPT-2.3).
+                raise HTTPException(status_code=403, detail=str(e))
             except Exception as e:
                 logger.error(f"Error resolving workflow '{workflow_id}': {e}")
                 raise HTTPException(status_code=500, detail=f"Error resolving workflow: {e}")

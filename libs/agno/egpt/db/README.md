@@ -81,6 +81,12 @@ UPDATE egpt_component_configs SET tenant_id = :tenant WHERE tenant_id IS NULL;
 UPDATE egpt_component_links   SET tenant_id = :tenant WHERE tenant_id IS NULL;
 ```
 
+**What actually starts passing `tenant_id`.** As of EGPT-2.3 the components router does, taken
+from the JWT claim named by `AuthorizationConfig(tenant_id_claim=...)`. That claim is unset by
+default, so `tenant_id` stays `None` and no predicate is applied until an operator configures it —
+which is the point at which the backfill above stops being advice and becomes a prerequisite. See
+[docs/capability-policy.md](../../../../docs/capability-policy.md).
+
 **Upgrading an existing deployment.** Migrations are not run automatically — table
 creation only stamps the schema version. A deployment that already has component
 tables must run the migration before those tables will load again, otherwise

@@ -137,6 +137,13 @@ class AuthorizationConfig(BaseModel):
     # When False (default) JWT/RBAC still apply, but routes operate on the
     # unscoped DB and don't add per-user ownership gates on top of RBAC.
     user_isolation: bool = False
+    # JWT claim naming the caller's tenant (EGPT-2.3). None (the default) means no tenant is
+    # resolved: ``request.state.tenant_id`` stays None, no component DB call gains a tenant
+    # predicate, and a capability policy falls back to its ``defaults`` block -- nothing
+    # changes. Set it to whatever claim your issuer puts the tenant in ("tid", "org_id", ...)
+    # to turn on per-tenant component scoping and per-tenant capability policy. Distinct from
+    # ``user_isolation``, which scopes by *user* within a deployment; this scopes by tenant.
+    tenant_id_claim: Optional[str] = None
 
 
 class EvalsDomainConfig(BaseModel):

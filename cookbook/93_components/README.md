@@ -35,6 +35,8 @@ The Agent-as-Config feature allows you to:
 | `auto_populate_registry.py` | Inspect how EgptOS auto-discovers components from teams and workflows |
 | `auto_populate_registry_os.py` | Serve an EgptOS and see the auto-discovered components over the API |
 | `validate_config.py` | Validate an agent definition and read the field-level errors it produces |
+| `capability_policy.py` | Restrict which models, tools and MCP servers a tenant's definition may reference |
+| `capability_policy.json` | The policy document `capability_policy.py` loads |
 
 ---
 

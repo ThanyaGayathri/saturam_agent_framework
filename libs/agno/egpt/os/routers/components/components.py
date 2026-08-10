@@ -28,7 +28,9 @@ from egpt.os.schema import (
     ValidationErrorResponse,
 )
 from egpt.os.settings import EgptServingSettings
+from egpt.os.tenancy import get_tenant_id
 from egpt.registry import Registry
+from egpt.registry.policy import CapabilityPolicy, resolve_policy
 from egpt.registry.schema import ConfigValidationError
 from egpt.utils.log import log_error
 from egpt.utils.string import generate_id_from_name
@@ -113,8 +115,15 @@ def get_components_router(
     os_db: Union[BaseDb, AsyncBaseDb],
     settings: EgptServingSettings = EgptServingSettings(),
     registry: Optional[Registry] = None,
+    capability_policy: Optional[CapabilityPolicy] = None,
 ) -> APIRouter:
-    """Create components router."""
+    """Create components router.
+
+    Args:
+        capability_policy: The tenant capability policy to enforce on write (EGPT-2.3). When
+            None, it is resolved from the registry and then the environment; with nothing
+            configured anywhere the resulting policy is disabled and no capability check runs.
+    """
     router = APIRouter(
         dependencies=[Depends(get_authentication_dependency(settings))],
         tags=["Components"],
@@ -126,25 +135,32 @@ def get_components_router(
             500: {"description": "Internal Server Error", "model": InternalServerErrorResponse},
         },
     )
-    return attach_routes(router=router, os_db=os_db, registry=registry)
+    return attach_routes(router=router, os_db=os_db, registry=registry, capability_policy=capability_policy)
 
 
 def attach_routes(
-    router: APIRouter, os_db: Union[BaseDb, AsyncBaseDb], registry: Optional[Registry] = None
+    router: APIRouter,
+    os_db: Union[BaseDb, AsyncBaseDb],
+    registry: Optional[Registry] = None,
+    capability_policy: Optional[CapabilityPolicy] = None,
 ) -> APIRouter:
     # Component routes require sync database
     if not isinstance(os_db, BaseDb):
         raise ValueError("Component routes require a sync database (BaseDb), not an async database.")
     db: BaseDb = os_db  # Type narrowed after isinstance check
 
-    def _component_type_of(component_id: str) -> str:
+    # Resolved once at wiring time rather than per request: the document is operator config, and
+    # re-reading it on every write would put a file read in the request path.
+    policy = resolve_policy(capability_policy, registry)
+
+    def _component_type_of(component_id: str, tenant_id: Optional[str] = None) -> str:
         """The type a stored component was created as, needed to pick its config schema.
 
         The config endpoints only carry a component id, so this read is what lets them validate
         at all. It also turns "no such component" into a 404 here rather than the 400 the db
         layer would raise further down.
         """
-        component = db.get_component(component_id)
+        component = db.get_component(component_id, tenant_id=tenant_id)
         if component is None:
             raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
         return str(component["component_type"])
@@ -162,6 +178,7 @@ def attach_routes(
         component_type: Optional[ComponentType] = Query(None, description="Filter by type: agent, team, workflow"),
         page: int = Query(1, ge=1, description="Page number"),
         limit: int = Query(20, ge=1, le=100, description="Items per page"),
+        tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> PaginatedResponse[ComponentResponse]:
         try:
             start_time_ms = time.time() * 1000
@@ -175,6 +192,7 @@ def attach_routes(
                 limit=limit,
                 offset=offset,
                 exclude_component_ids=exclude_ids or None,
+                tenant_id=tenant_id,
             )
 
             total_pages = (total_count + limit - 1) // limit if limit > 0 else 0
@@ -205,6 +223,7 @@ def attach_routes(
     )
     async def create_component(
         body: ComponentCreate,
+        tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> Union[ComponentResponse, JSONResponse]:
         try:
             component_id = body.component_id
@@ -228,6 +247,8 @@ def attach_routes(
                     registry=registry,
                     component_id=component_id,
                     unresolved_db_id=unresolved_db_id,
+                    policy=policy,
+                    tenant_id=tenant_id,
                 )
 
             component, _config = db.create_component_with_config(
@@ -240,6 +261,7 @@ def attach_routes(
                 label=body.label,
                 stage=body.stage or "draft",
                 notes=body.notes,
+                tenant_id=tenant_id,
             )
 
             return ComponentResponse(**component)
@@ -264,9 +286,10 @@ def attach_routes(
     )
     async def get_component(
         component_id: str = Path(description="Component ID"),
+        tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> ComponentResponse:
         try:
-            component = db.get_component(component_id)
+            component = db.get_component(component_id, tenant_id=tenant_id)
             if component is None:
                 raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
             return ComponentResponse(**component)
@@ -288,13 +311,16 @@ def attach_routes(
     async def update_component(
         component_id: str = Path(description="Component ID"),
         body: ComponentUpdate = Body(description="Component fields to update"),
+        tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> ComponentResponse:
         try:
-            existing = db.get_component(component_id)
+            existing = db.get_component(component_id, tenant_id=tenant_id)
             if existing is None:
                 raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
 
-            update_kwargs: Dict[str, Any] = {"component_id": component_id}
+            # tenant_id scopes the lookup behind the upsert; it is never *changed* by an update,
+            # per the BaseDb contract -- a component does not move between tenants.
+            update_kwargs: Dict[str, Any] = {"component_id": component_id, "tenant_id": tenant_id}
             if body.name is not None:
                 update_kwargs["name"] = body.name
             if body.description is not None:
@@ -325,9 +351,10 @@ def attach_routes(
     )
     async def delete_component(
         component_id: str = Path(description="Component ID"),
+        tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> None:
         try:
-            deleted = db.delete_component(component_id)
+            deleted = db.delete_component(component_id, tenant_id=tenant_id)
             if not deleted:
                 raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
         except HTTPException:
@@ -348,9 +375,10 @@ def attach_routes(
     async def list_configs(
         component_id: str = Path(description="Component ID"),
         include_config: bool = Query(True, description="Include full config blob"),
+        tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> List[ComponentConfigResponse]:
         try:
-            configs = db.list_configs(component_id, include_config=include_config)
+            configs = db.list_configs(component_id, include_config=include_config, tenant_id=tenant_id)
             return [ComponentConfigResponse(**c) for c in configs]
         except Exception as e:
             log_error(f"Error listing configs: {str(e)}")
@@ -369,6 +397,7 @@ def attach_routes(
     async def create_config(
         component_id: str = Path(description="Component ID"),
         body: ConfigCreate = Body(description="Config data"),
+        tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> Union[ComponentConfigResponse, JSONResponse]:
         try:
             # Resolve db from config if present
@@ -378,12 +407,14 @@ def attach_routes(
             if config_data:
                 config_data = validate_component_config(
                     config_data,
-                    _component_type_of(component_id),
+                    _component_type_of(component_id, tenant_id),
                     db=db,
                     registry=registry,
                     component_id=component_id,
                     unresolved_db_id=unresolved_db_id,
                     links=body.links,
+                    policy=policy,
+                    tenant_id=tenant_id,
                 )
 
             config = db.upsert_config(
@@ -394,6 +425,7 @@ def attach_routes(
                 stage=body.stage,
                 notes=body.notes,
                 links=body.links,
+                tenant_id=tenant_id,
             )
             return ComponentConfigResponse(**config)
         except HTTPException:
@@ -421,6 +453,7 @@ def attach_routes(
         component_id: str = Path(description="Component ID"),
         version: int = Path(description="Version number"),
         body: ConfigUpdate = Body(description="Config fields to update"),
+        tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> Union[ComponentConfigResponse, JSONResponse]:
         try:
             # Resolve db from config if present
@@ -430,12 +463,14 @@ def attach_routes(
                 if config_data:
                     config_data = validate_component_config(
                         config_data,
-                        _component_type_of(component_id),
+                        _component_type_of(component_id, tenant_id),
                         db=db,
                         registry=registry,
                         component_id=component_id,
                         unresolved_db_id=unresolved_db_id,
                         links=body.links,
+                        policy=policy,
+                        tenant_id=tenant_id,
                     )
 
             config = db.upsert_config(
@@ -446,6 +481,7 @@ def attach_routes(
                 stage=body.stage,
                 notes=body.notes,
                 links=body.links,
+                tenant_id=tenant_id,
             )
             return ComponentConfigResponse(**config)
         except HTTPException:
@@ -470,9 +506,10 @@ def attach_routes(
     )
     async def get_current_config(
         component_id: str = Path(description="Component ID"),
+        tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> ComponentConfigResponse:
         try:
-            config = db.get_config(component_id)
+            config = db.get_config(component_id, tenant_id=tenant_id)
             if config is None:
                 raise HTTPException(status_code=404, detail=f"No current config for {component_id}")
             return ComponentConfigResponse(**config)
@@ -494,9 +531,10 @@ def attach_routes(
     async def get_config_version(
         component_id: str = Path(description="Component ID"),
         version: int = Path(description="Version number"),
+        tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> ComponentConfigResponse:
         try:
-            config = db.get_config(component_id, version=version)
+            config = db.get_config(component_id, version=version, tenant_id=tenant_id)
 
             if config is None:
                 raise HTTPException(status_code=404, detail=f"Config {component_id} v{version} not found")
@@ -517,10 +555,11 @@ def attach_routes(
     async def delete_config_version(
         component_id: str = Path(description="Component ID"),
         version: int = Path(description="Version number"),
+        tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> None:
         try:
             # Resolve version number
-            deleted = db.delete_config(component_id, version=version)
+            deleted = db.delete_config(component_id, version=version, tenant_id=tenant_id)
             if not deleted:
                 raise HTTPException(status_code=404, detail=f"Config {component_id} v{version} not found")
         except HTTPException:
@@ -543,16 +582,17 @@ def attach_routes(
     async def set_current_config(
         component_id: str = Path(description="Component ID"),
         version: int = Path(description="Version number"),
+        tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> ComponentResponse:
         try:
-            success = db.set_current_version(component_id, version=version)
+            success = db.set_current_version(component_id, version=version, tenant_id=tenant_id)
             if not success:
                 raise HTTPException(
                     status_code=404, detail=f"Component {component_id} or config version {version} not found"
                 )
 
             # Fetch and return updated component
-            component = db.get_component(component_id)
+            component = db.get_component(component_id, tenant_id=tenant_id)
             if component is None:
                 raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
 
