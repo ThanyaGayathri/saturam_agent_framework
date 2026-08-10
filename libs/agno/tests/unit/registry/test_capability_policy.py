@@ -132,15 +132,18 @@ class TestPrivilegedInventory:
             "file_generation",
         }
 
-    def test_the_table_names_module_paths_it_never_imports(self):
-        import sys
+    def test_every_row_names_an_integrations_package(self):
+        """The table is strings only; matching is by module prefix, so the shape has to hold.
 
-        for toolkit in PRIVILEGED_TOOLKITS.values():
-            assert toolkit.module.startswith("egpt.integrations.tools.")
-            assert toolkit.module not in sys.modules, (
-                f"{toolkit.module} was imported. The privileged table is deliberately strings only "
-                "-- importing it would put an integrations edge in core."
-            )
+        That the module is never actually *imported* is a layering property, and it is asserted
+        where the other layering properties live -- `test_schema_layering.py`, in a subprocess.
+        An in-process `module not in sys.modules` check here would pass or fail on which other
+        test file the xdist worker happened to run first, not on the property.
+        """
+        for slug, toolkit in PRIVILEGED_TOOLKITS.items():
+            assert toolkit.module.startswith("egpt.integrations.tools."), slug
+            assert not toolkit.module.endswith("."), slug
+            assert toolkit.functions, f"{slug} exposes no functions, so nothing would ever match it"
 
     def test_the_backstop_records_every_colliding_owner(self):
         """The collisions are the reason the backstop fails closed rather than picking one."""

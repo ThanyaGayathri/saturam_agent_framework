@@ -87,3 +87,44 @@ def test_importing_the_validator_pulls_in_no_vendor_sdk():
         f"Importing egpt.registry.schema imported vendor SDKs: {leaked}. Reference checking "
         "must answer from the declaration table (discovery.get), never by loading a provider."
     )
+
+
+def test_importing_the_policy_pulls_in_no_toolkit():
+    """The privileged table must stay a table of strings, transitively as well as directly.
+
+    The AST guard above proves `policy.py` names no integrations module itself. This proves the
+    stronger property that nothing it *does* import drags a toolkit in behind it -- which is what
+    would actually put an integrations edge in core.
+
+    A subprocess for the same reason the test above uses one: under pytest `sys.modules` is
+    already full of whatever ran first, so an in-process assertion would measure test ordering
+    rather than the property.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            textwrap.dedent(
+                """
+                import json
+                import sys
+
+                import egpt.registry.policy  # noqa: F401
+
+                prefix = "egpt.integrations."
+                print(json.dumps(sorted(n for n in sys.modules if n.startswith(prefix))))
+                """
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    assert result.returncode == 0, f"subprocess failed:\n{result.stdout}\n{result.stderr}"
+    leaked = json.loads(result.stdout.strip().splitlines()[-1])
+    assert leaked == [], (
+        f"Importing egpt.registry.policy imported integrations modules: {leaked}. The privileged "
+        "toolkit table is deliberately strings only -- classification compares module paths and "
+        "must never load the toolkit it is classifying."
+    )
