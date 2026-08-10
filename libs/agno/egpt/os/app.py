@@ -1288,6 +1288,21 @@ class EgptOS:
                 "JWT and anonymous requests are not authenticated and RBAC is not enforced. For "
                 "service-account-only enforcement, use a db without authorization=True."
             )
+        # Tenancy without a JWT is legal but narrow, and quiet enough to look like a bug: the
+        # claim is what carries a tenant on a JWT, so with no JWT configured the only principal
+        # that can present one is a service-account PAT (which reads its tenant from its own
+        # column). A security-key or anonymous caller resolves to no tenant and is refused on
+        # the component routes by require_tenant_id -- correct, but indistinguishable from a
+        # broken credential unless the operator is told here. Warn rather than raise: PAT-only
+        # tenancy is a real deployment, and this is the setup an operator who forgot
+        # authorization=True also lands in. (PR #55 review.)
+        if middleware_kwargs.get("tenant_id_claim") and not jwt_configured:
+            log_warning(
+                "tenant_id_claim is set but no JWT verification key is configured, so no JWT can "
+                "present a tenant. Only service-account tokens will resolve one; the OS security key "
+                "and anonymous callers resolve to no tenant and are refused on /components. Set "
+                "authorization=True with a verification key if you meant to scope JWT callers by tenant."
+            )
         log_info("Adding EgptOS auth middleware" + (f" (JWT algorithm: {algorithm})" if jwt_configured else ""))
 
         # A JWT validator on app.state is only meaningful (and only constructible --

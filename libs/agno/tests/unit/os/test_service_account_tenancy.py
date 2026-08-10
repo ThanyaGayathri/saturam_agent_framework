@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from egpt.db.schemas.service_accounts import SERVICE_ACCOUNT_MUTABLE_COLUMNS, ServiceAccount
 from egpt.os.routers.service_accounts import get_service_accounts_router
+from egpt.os.scopes import AgentOSScope
 from egpt.os.service_accounts import (
     DEFAULT_SERVICE_ACCOUNT_SCOPES,
     ServiceAccountVerification,
@@ -62,7 +63,10 @@ def mock_db():
     return db
 
 
-def build_client(mock_db, tenant_id=None) -> TestClient:
+def build_client(mock_db, tenant_id=None, scopes=None) -> TestClient:
+    """A principal with `scopes=None` is the OS security key: authenticated, no scope context.
+    Passing a list models a JWT or PAT caller, which is what separates an operator from a
+    merely untenanted credential."""
     app = FastAPI()
 
     @app.middleware("http")
@@ -70,6 +74,8 @@ def build_client(mock_db, tenant_id=None) -> TestClient:
         request.state.authenticated = True
         request.state.user_id = "admin-user"
         request.state.tenant_id = tenant_id
+        if scopes is not None:
+            request.state.scopes = list(scopes)
         return await call_next(request)
 
     app.include_router(get_service_accounts_router(os_db=mock_db, settings=EgptServingSettings()))
@@ -127,7 +133,7 @@ class TestMintingCannotCrossTenants:
         )
         assert response.status_code == 201
 
-    def test_an_unscoped_operator_may_provision_for_any_tenant(self, mock_db):
+    def test_the_security_key_root_may_provision_for_any_tenant(self, mock_db):
         """Without this there is no way to create the first tenanted machine identity."""
         response = build_client(mock_db, tenant_id=None).post(
             "/service-accounts", json={"name": "ci-bot", "tenant_id": OWNER}
@@ -139,6 +145,46 @@ class TestMintingCannotCrossTenants:
         response = build_client(mock_db, tenant_id=None).post("/service-accounts", json={"name": "ci-bot"})
         assert response.status_code == 201
         assert mock_db.create_service_account.call_args.args[0]["tenant_id"] is None
+
+
+class TestAnAbsentTenantIsNotAuthority:
+    """Having no tenant is not evidence of privilege (PR #55 review).
+
+    The guard used to be skipped entirely when the caller had no tenant, so an untenanted PAT
+    holding `service_accounts:write` could mint itself a token stamped for any tenant and read
+    that tenant's components -- the less identified caller getting the wider reach, and a
+    two-request bypass of the isolation this ticket adds.
+    """
+
+    def test_an_untenanted_scoped_caller_cannot_name_a_tenant(self, mock_db):
+        response = build_client(mock_db, tenant_id=None, scopes=DEFAULT_SERVICE_ACCOUNT_SCOPES).post(
+            "/service-accounts", json={"name": "pivot", "tenant_id": OWNER}
+        )
+        assert response.status_code == 403
+        mock_db.create_service_account.assert_not_called()
+
+    def test_it_applies_to_the_service_accounts_scope_that_makes_it_reachable(self, mock_db):
+        caller = [*DEFAULT_SERVICE_ACCOUNT_SCOPES, "service_accounts:write"]
+        response = build_client(mock_db, tenant_id=None, scopes=caller).post(
+            "/service-accounts", json={"name": "pivot", "tenant_id": OWNER}
+        )
+        assert response.status_code == 403
+
+    def test_an_untenanted_scoped_caller_may_still_mint_unscoped(self, mock_db):
+        """Only naming a tenant is restricted; ordinary minting is untouched."""
+        response = build_client(mock_db, tenant_id=None, scopes=DEFAULT_SERVICE_ACCOUNT_SCOPES).post(
+            "/service-accounts", json={"name": "ci-bot"}
+        )
+        assert response.status_code == 201
+        assert mock_db.create_service_account.call_args.args[0]["tenant_id"] is None
+
+    def test_an_admin_may_provision_for_any_tenant(self, mock_db):
+        """The deliberate operator keeps the capability the accidental one loses."""
+        response = build_client(mock_db, tenant_id=None, scopes=[AgentOSScope.ADMIN.value]).post(
+            "/service-accounts", json={"name": "ci-bot", "tenant_id": OWNER}
+        )
+        assert response.status_code == 201
+        assert mock_db.create_service_account.call_args.args[0]["tenant_id"] == OWNER
 
 
 # =============================================================================

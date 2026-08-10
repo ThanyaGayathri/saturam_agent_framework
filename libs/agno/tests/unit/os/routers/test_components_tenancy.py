@@ -176,6 +176,23 @@ class TestIdCollisionIsUniform:
         body = {"name": "Test Agent", "component_type": "agent"}
         assert call(build_client(mock_db), "POST", "/components", body, OWNER).status_code == 400
 
+    def test_a_label_collision_keeps_its_own_message(self, mock_db):
+        """The 409 arm matches the id message exactly, not by substring (PR #55 review).
+
+        `create_component_with_config` raises a second ValueError containing "already exists"
+        for a duplicate `label`. A substring test caught it too and replaced the detail with a
+        message about `component_id` -- naming a field the caller got right and dropping the
+        one they got wrong. The 409 reasoning is about id collisions only; everything else
+        keeps the 400 and its real message, as the sibling version routes already do.
+        """
+        mock_db.create_component_with_config = MagicMock(
+            side_effect=ValueError("Label 'v1' already exists for agent-1")
+        )
+        body = {"name": "Test Agent", "component_id": "agent-1", "component_type": "agent"}
+        response = call(build_client(mock_db), "POST", "/components", body, OWNER)
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Label 'v1' already exists for agent-1"
+
 
 # =============================================================================
 # The principal's tenant always wins

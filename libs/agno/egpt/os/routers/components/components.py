@@ -299,7 +299,13 @@ def attach_routes(
             # 409-for-mine and 404-for-theirs would therefore not conceal the collision, it
             # would only *label* it, handing a prober a cleaner ownership oracle than the
             # undifferentiated 400 this replaces.
-            if "already exists" in str(e):
+            # Matched exactly, not by substring: the label-uniqueness ValueError raised further
+            # down the same db method also contains "already exists", and a substring test
+            # would relabel a duplicate `label` as an id collision -- reporting a field the
+            # caller got right and discarding the one they got wrong. The reasoning above is
+            # about *id* collisions only, so everything else falls through to its real message
+            # (which is what the sibling version-creating routes already do).
+            if str(e) == f"Component {component_id} already exists":
                 raise HTTPException(status_code=409, detail=f"Component {component_id} already exists")
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:

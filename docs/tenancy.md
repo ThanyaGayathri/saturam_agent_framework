@@ -39,7 +39,7 @@ reads it (`current_tenant_id`, and the `get_tenant_id` / `require_tenant_id` dep
 | JWT with a non-string or empty claim | — | **401** (the middleware refuses the token) |
 | Service account | its `tenant_id` column | served if set, **403** if `NULL` |
 | Scheduler (`__scheduler__`) | `None` | **403** — a platform identity, not a tenant's; it holds no `components:*` scope either |
-| `OS_SECURITY_KEY` root | `None` | unreachable in practice: the key path only runs when JWT is not configured, and `tenancy_enabled` is false there |
+| `OS_SECURITY_KEY` root | `None` | **403** — reachable, see below |
 
 ### Why an absent claim is a refusal
 
@@ -50,6 +50,24 @@ mean a token that simply omits the claim is more powerful than one that carries 
 
 It is **components-only** on purpose. Making it global in the middleware would lock out every
 existing untenanted caller on every other router; sequencing that is EGPT-2.7's.
+
+### The security key is refused too
+
+An earlier draft of this table called the security-key row unreachable, on the grounds that the
+key path only runs when JWT is unconfigured and tenancy could not be on in that case. The first
+half is right; the second is not. `tenant_id_claim` can be set *without* `authorization=True` —
+that is how a PAT-only tenancy deployment is configured, and it is also where an operator who
+forgot `authorization=True` lands. `tenancy_enabled` then reads the claim off `app.state` and
+refuses the key with a 403 on `/components`.
+
+That refusal is deliberate and stays: the key is an operator break-glass with no tenant, and
+exempting it would hand its holder every tenant's rows — the exact "unscoped is the widest
+tenancy" escalation this ticket exists to close. Turning a lockout into a leak is the wrong
+trade. An operator who needs component access under tenancy should present a JWT carrying the
+claim, or a PAT stamped with the tenant.
+
+Because the 403 blames the *credential* for what is usually a configuration mistake, `EgptOS`
+logs a warning at startup when `tenant_id_claim` is set with no JWT key configured.
 
 ---
 
@@ -132,9 +150,15 @@ Minting mirrors the existing scope rule — a caller may not mint an account wit
 it has:
 
 - No `tenant_id` in the body → the account inherits the caller's tenant.
-- A tenanted caller naming a *different* tenant → **403**.
-- An unscoped (operator) caller may name any tenant. Without this there would be no way to
-  create the first tenanted machine identity.
+- A tenanted caller naming a *different* tenant → **403**, admin included: an admin is an admin
+  within its tenant, and minting elsewhere is more reach than it has.
+- A caller with **no** tenant may name one only if it is genuinely an operator — the OS security
+  key, or an explicit admin-scope holder. Without this there would be no way to create the first
+  tenanted machine identity.
+- Any other untenanted caller naming a tenant → **403**. Having no tenant is not evidence of
+  privilege: a PAT minted without one is untenanted by accident, not by authority. Treating the
+  two alike let an untenanted PAT holding `service_accounts:write` mint itself into any tenant
+  and read its components in two requests, bypassing everything above (PR #55 review).
 
 Listing and revocation are tenant-scoped: another tenant's account reads as absent, so it is
 neither disclosed nor revocable.

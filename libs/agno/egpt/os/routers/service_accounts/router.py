@@ -151,20 +151,46 @@ def get_service_accounts_router(os_db: Any, settings: Any) -> APIRouter:
                 detail=f"Cannot grant scope(s) you do not hold: {', '.join(scopes_not_held)}",
             )
 
+    def _is_operator(request: Request) -> bool:
+        """Whether the caller is an operator rather than merely an untenanted principal.
+
+        Provisioning the first machine identity for a tenant has to be possible, but "has no
+        tenant" is not evidence of authority -- a PAT minted without one is untenanted by
+        accident, not by privilege. Only two principals count: the OS security key (root, and
+        the same branch _validate_requested_scopes already lets mint anything), and an explicit
+        admin-scope holder.
+        """
+        caller_scopes = getattr(request.state, "scopes", None)
+        if caller_scopes is None:
+            # No scope context at all. _validate_requested_scopes has already rejected the
+            # anonymous open-instance caller by the time this runs, so reaching here
+            # authenticated means the security key.
+            return bool(getattr(request.state, "authenticated", False))
+        return (_get_admin_scope(request) or AgentOSScope.ADMIN.value) in caller_scopes
+
     def _resolve_minted_tenant(request: Request, body: ServiceAccountCreate) -> Optional[str]:
         """The tenant to stamp on a new account (EGPT-2.4).
 
         Mirrors the scope rule above: a caller may not mint an account with more reach than it
-        has. A tenanted caller may only mint for its own tenant; an unscoped caller (a JWT with
-        no tenant claim, or the OS security key) may name any tenant, which is what lets an
-        operator provision tenanted machine identities in the first place. Defaults to the
-        caller's own tenant so the common case needs no field.
+        has. Naming a tenant that is not your own is an operator action, so it requires the
+        security key or the admin scope. Defaults to the caller's own tenant so the common case
+        needs no field.
+
+        Naming *any* tenant is "not your own" when the caller has none. Treating an absent
+        tenant as operator authority would have inverted the threat model -- the less
+        identified caller getting the wider reach -- and would have let an untenanted PAT with
+        service_accounts:write mint itself into any tenant, reopening the /components isolation
+        this ticket closes (PR #55 review).
         """
         caller_tenant = current_tenant_id(request)
         requested = body.tenant_id
-        if requested is None:
-            return caller_tenant
-        if caller_tenant is not None and requested != caller_tenant:
+        if requested is None or requested == caller_tenant:
+            return caller_tenant if requested is None else requested
+        # A tenanted caller is confined to its own tenant unconditionally -- admin included,
+        # since an admin is an admin *within* its tenant and minting elsewhere would be more
+        # reach than it has. Only a caller with no tenant of its own can name one, and then
+        # only if it is genuinely an operator.
+        if caller_tenant is not None or not _is_operator(request):
             raise HTTPException(status_code=403, detail="Cannot mint a service account for another tenant.")
         return requested
 

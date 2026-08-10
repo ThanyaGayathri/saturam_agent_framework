@@ -47,8 +47,9 @@ class ServiceAccountCreate(BaseModel):
     tenant_id: Optional[str] = Field(
         default=None,
         description="The tenant this account acts for. Defaults to the caller's own tenant. "
-        "Naming a different tenant is only permitted for an unscoped (operator) caller, so a "
-        "tenanted caller can never mint an account outside its own tenant.",
+        "Naming a tenant other than your own requires an operator credential (the OS security "
+        "key or the admin scope) and a caller that has no tenant of its own, so a tenanted "
+        "caller can never mint an account outside its own tenant.",
     )
 
     @field_validator("name")
