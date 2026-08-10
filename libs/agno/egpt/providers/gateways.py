@@ -127,16 +127,16 @@ def resolve_gateway(
         )
     provider_key, distribution = key_and_dist
 
-    if find_spec(distribution) is None:
-        blocked = _BLOCKED_GATEWAYS.get(name)
-        if blocked is not None:
-            raise ModelProviderConfigError(
-                f"Gateway '{name}' is configured but unavailable: {blocked}",
-                field_name="mode_b_gateway",
-            )
+    # Blocked gateways are refused first, before any probe. Nesting this inside the
+    # ``find_spec`` miss made the supply-chain block depend on the package being *absent*: with
+    # ``litellm`` importable for any reason -- a transitive dependency, a leftover install, a
+    # developer who installed it directly -- the guard was skipped and every frontier request
+    # routed through the compromised package. The block is a policy decision about the
+    # dependency, not a report on the local environment, so it cannot be conditioned on it.
+    blocked = _BLOCKED_GATEWAYS.get(name)
+    if blocked is not None:
         raise ModelProviderConfigError(
-            f"Gateway '{name}' is configured but the '{distribution}' package is not installed. "
-            f"Install it with `pip install egpt[{name}]`.",
+            f"Gateway '{name}' is configured but unavailable: {blocked}",
             field_name="mode_b_gateway",
         )
 
@@ -152,8 +152,22 @@ def resolve_gateway(
                 field_name="mode_b_gateway_api_key",
             )
         config["portkey_api_key"] = api_key
-        if virtual_key:
-            config["virtual_key"] = virtual_key
+        # Required, not optional. Portkey names its upstream provider *only* through the
+        # virtual key (`Portkey._get_client_params` puts it in the request headers and has no
+        # other field for it), so the configured `mode_b_provider` cannot be forwarded through
+        # this gateway by any other means. Treating it as optional meant requests reached
+        # Portkey with no upstream selected: served by whatever the account default is -- wrong
+        # vendor, wrong billing -- or rejected with a gateway 4xx at request time, in both
+        # cases silently ignoring the frontier provider the deployment configured.
+        if not virtual_key:
+            raise ModelProviderConfigError(
+                "Gateway 'portkey' is configured but no virtual key is set. Portkey selects the "
+                "upstream frontier provider by virtual key, so without one the configured "
+                "EGPT_MODE_B_PROVIDER cannot be routed. Set EGPT_MODE_B_GATEWAY_VIRTUAL_KEY "
+                "(or PORTKEY_VIRTUAL_KEY).",
+                field_name="mode_b_gateway_virtual_key",
+            )
+        config["virtual_key"] = virtual_key
         if base_url:
             config["base_url"] = base_url
     else:
@@ -163,5 +177,19 @@ def resolve_gateway(
             config["api_key"] = api_key
         if base_url:
             config["api_base"] = base_url
+
+    # The install probe runs last, after the config is known to be valid. Everything above is
+    # pure planning -- name lookup, policy check, building a kwargs dict -- and needs no
+    # package, so requiring one up front made eight tests hard-fail in the sanctioned dev venv
+    # (`libs/agno[dev]` does not pull `egpt[models]`, so `portkey_ai` is absent there while CI's
+    # `.[tests]` hides it). Ordering it after validation also means a deployment missing *both*
+    # the key and the package is told about the key -- the setting it controls -- rather than
+    # about a dependency it may not need to install.
+    if find_spec(distribution) is None:
+        raise ModelProviderConfigError(
+            f"Gateway '{name}' is configured but the '{distribution}' package is not installed. "
+            f"Install it with `pip install egpt[{name}]`.",
+            field_name="mode_b_gateway",
+        )
 
     return GatewayRoute(name=name, provider_key=provider_key, config=config)

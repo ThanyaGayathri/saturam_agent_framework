@@ -20,9 +20,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from pydantic import Field
-
-from egpt.settings.sources import BrandedSettings, bare_env
+from egpt.settings.sources import BrandedSettings
 
 
 class ProviderSettings(BrandedSettings):
@@ -70,13 +68,22 @@ class ProviderSettings(BrandedSettings):
     # "portkey" is the tested path; "litellm" is code-only and raises at resolve time while the
     # package stays blocked (libs/agno/pyproject.toml ~line 249).
     mode_b_gateway: Optional[str] = None
-    # EGPT-owned routing config for that gateway. The gateway key is ours -- we provision it
-    # and it names no SDK convention -- so unlike the frontier credentials it belongs here.
-    mode_b_gateway_api_key: Optional[str] = Field(default=None, json_schema_extra=bare_env("PORTKEY_API_KEY"))
+    # EGPT-owned routing config for that gateway.
+    #
+    # Deliberately NOT marked `bare_env("PORTKEY_API_KEY")`. In this codebase `bare_env` does
+    # not mean "also readable" -- `get_branded_env_with_bare_fallback` routes the bare name
+    # through `_warn_bare_env_var`, which emits `FutureWarning: PORTKEY_API_KEY is deprecated`.
+    # Every other `bare_env` in the tree names a legacy EGPT/agno-owned spelling, but
+    # `PORTKEY_*` is the vendor's own convention: `integrations/models/portkey/portkey.py`
+    # reads `getenv("PORTKEY_VIRTUAL_KEY")` directly and names these variables in its own
+    # errors. Marking them deprecated told a correctly-configured deployment its Portkey setup
+    # was obsolete, and broke anything running under `-W error::FutureWarning`.
+    #
+    # The vendor names still work -- the Portkey class reads them itself, which is exactly the
+    # arrangement the frontier-credential comment above describes.
+    mode_b_gateway_api_key: Optional[str] = None
     mode_b_gateway_base_url: Optional[str] = None
-    # Portkey routes to an upstream provider by virtual key rather than by a raw credential;
-    # that indirection is the reason Mode B can carry no frontier credential of its own.
-    mode_b_gateway_virtual_key: Optional[str] = Field(default=None, json_schema_extra=bare_env("PORTKEY_VIRTUAL_KEY"))
+    mode_b_gateway_virtual_key: Optional[str] = None
 
 
 def get_provider_settings(**overrides: Any) -> ProviderSettings:

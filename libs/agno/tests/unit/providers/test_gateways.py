@@ -34,6 +34,7 @@ def test_known_gateways_lists_both_names():
 
 
 def test_portkey_route_carries_configured_settings():
+    pytest.importorskip("portkey_ai", reason="the gateway route probes for the SDK before returning")
     route = resolve_gateway(
         GATEWAY_PORTKEY,
         api_key="pk-test",
@@ -53,10 +54,24 @@ def test_portkey_route_carries_configured_settings():
 
 
 def test_portkey_route_omits_unset_optional_config():
-    """An unset virtual key/base_url must not be forwarded as None -- Portkey has its own
-    defaults for both, and passing None would override them."""
-    route = resolve_gateway(GATEWAY_PORTKEY, api_key="pk-test")
-    assert route.config == {"portkey_api_key": "pk-test"}
+    """An unset base_url must not be forwarded as None -- Portkey has its own default, and
+    passing None would override it. The virtual key is *not* optional (see below)."""
+    pytest.importorskip("portkey_ai", reason="the gateway route probes for the SDK before returning")
+    route = resolve_gateway(GATEWAY_PORTKEY, api_key="pk-test", virtual_key="vk-test")
+    assert route.config == {"portkey_api_key": "pk-test", "virtual_key": "vk-test"}
+
+
+def test_portkey_without_a_virtual_key_is_a_config_error():
+    """Portkey names its upstream provider only through the virtual key.
+
+    Treating it as optional meant the configured `mode_b_provider` reached the gateway
+    unexpressed: requests were served by whatever the Portkey account default is -- wrong
+    vendor, wrong billing -- or rejected with a gateway 4xx at request time.
+    """
+    with pytest.raises(ModelProviderConfigError) as excinfo:
+        resolve_gateway(GATEWAY_PORTKEY, api_key="pk-test")
+
+    assert excinfo.value.field_name == "mode_b_gateway_virtual_key"
 
 
 def test_portkey_without_api_key_is_a_config_error():
@@ -81,7 +96,8 @@ def test_unknown_gateway_names_the_known_ones():
 
 def test_route_is_frozen():
     """Routes are derived per resolution and handed to a constructor; nothing may edit one."""
-    route = resolve_gateway(GATEWAY_PORTKEY, api_key="pk-test")
+    pytest.importorskip("portkey_ai", reason="the gateway route probes for the SDK before returning")
+    route = resolve_gateway(GATEWAY_PORTKEY, api_key="pk-test", virtual_key="vk-test")
     with pytest.raises(Exception):
         route.provider_key = "openai"  # type: ignore[misc]
 
@@ -115,3 +131,25 @@ def test_litellm_gateway_degrades_to_a_config_error_while_blocked():
     assert "compromised on PyPI" in message
     # The error must not push the reader toward undoing the supply-chain decision.
     assert "pip install litellm" not in message
+
+
+def test_a_blocked_gateway_is_refused_even_when_its_package_is_importable():
+    """The supply-chain block is a policy decision about the dependency, not a report on the
+    local environment.
+
+    Nesting it inside the `find_spec` miss made it depend on litellm being *absent*: with the
+    package importable for any reason -- a transitive dependency, a leftover install -- the
+    guard was skipped and every frontier request routed through it.
+    """
+    import egpt.providers.gateways as gateways
+
+    real_find_spec = gateways.find_spec
+    gateways.find_spec = lambda name, *a, **k: object() if name == "litellm" else real_find_spec(name, *a, **k)
+    try:
+        with pytest.raises(ModelProviderConfigError) as excinfo:
+            resolve_gateway(GATEWAY_LITELLM, api_key="x", virtual_key="v")
+    finally:
+        gateways.find_spec = real_find_spec
+
+    assert excinfo.value.field_name == "mode_b_gateway"
+    assert "compromised on PyPI" in str(excinfo.value)

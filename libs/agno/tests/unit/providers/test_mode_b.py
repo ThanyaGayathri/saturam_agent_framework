@@ -153,6 +153,7 @@ def test_gateway_off_resolves_directly_to_the_frontier():
 def test_gateway_on_resolves_through_the_gateway_key_instead():
     """The same configured frontier yields a different ``provider_key`` and a set ``gateway``
     once routing is turned on -- that difference is the whole observable effect of a gateway."""
+    pytest.importorskip("portkey_ai", reason="the gateway route probes for the SDK before returning")
     _register_fake("anthropic")
     _register_fake("portkey")
 
@@ -172,6 +173,7 @@ def test_gateway_on_resolves_through_the_gateway_key_instead():
 
 
 def test_gateway_config_reaches_the_constructed_model():
+    pytest.importorskip("portkey_ai", reason="the gateway route probes for the SDK before returning")
     _register_fake("portkey")
     result = _provider(
         provider_key="anthropic",
@@ -205,11 +207,13 @@ def test_each_resolve_builds_a_fresh_model():
 
 
 def test_model_config_is_forwarded_and_wins_over_gateway_config():
+    pytest.importorskip("portkey_ai", reason="the gateway route probes for the SDK before returning")
     _register_fake("portkey")
     result = _provider(
         model_id="gpt-5.5",
         gateway=GATEWAY_PORTKEY,
         gateway_api_key="pk-test",
+        gateway_virtual_key="vk-test",
         model_config={"temperature": 0.1, "base_url": "http://127.0.0.1:1/v1"},
     ).resolve_detailed(ModelResolveRequest())
 
@@ -320,8 +324,12 @@ def test_a_blank_gateway_means_no_gateway(blank: str):
 def test_blank_routing_config_is_rejected(bad: str):
     with pytest.raises(ModelProviderConfigError):
         _provider(provider_key=bad)
-    with pytest.raises(ModelProviderConfigError):
+    # A blank model id on the *default* provider is the case that reaches the model-id check;
+    # `_provider` pins a non-default provider, which the provider/model coherence check catches
+    # first. Both raise ModelProviderConfigError, so assert on the field to prove which fired.
+    with pytest.raises(ModelProviderConfigError) as excinfo:
         _provider(model_id=bad)
+    assert excinfo.value.field_name == "mode_b_model"
 
 
 def test_no_frontier_credential_is_read_from_settings():
@@ -374,3 +382,128 @@ def test_frontier_keys_are_all_registered():
     table's names, which imports no provider module."""
     registered = set(discovery.names("model"))
     assert set(FRONTIER_PROVIDER_KEYS) <= registered
+
+
+# --------------------------------------------------------------------------- #
+# Review findings (EGPT-3.4). Each was reproduced before being fixed.
+# --------------------------------------------------------------------------- #
+
+
+def test_an_unknown_provider_key_fails_at_construction():
+    """A typo must not pass startup and health checks and fail the first request under load.
+
+    Deferring to ``discovery.resolve`` produced a bare ValueError dumping sixty registry names
+    and carrying no field name, so a handler catching ModelProviderConfigError could not say
+    which setting was wrong.
+    """
+    with pytest.raises(ModelProviderConfigError) as excinfo:
+        _provider(provider_key="antropic", model_id="claude-sonnet-4-5")
+
+    assert excinfo.value.field_name == "mode_b_provider"
+
+
+def test_a_non_default_provider_requires_its_own_model_id():
+    """`_DEFAULT_MODEL_ID` belongs to the default provider and to no other.
+
+    Defaulting the two independently built `Claude(id="gpt-5.5")`: construction succeeded,
+    `capabilities()` reported the wrong id as fact, and every request died with a vendor 404
+    naming neither setting.
+    """
+    with pytest.raises(ModelProviderConfigError) as excinfo:
+        _provider(provider_key="anthropic")
+
+    assert excinfo.value.field_name == "mode_b_model"
+
+
+def test_the_default_provider_still_works_bare():
+    """Non-vacuity for the test above: a bare provider must remain constructible."""
+    provider = _provider()
+    assert provider.capabilities().model_ids == ("gpt-5.5",)
+
+
+@pytest.mark.parametrize("padded,expected", [(" anthropic ", "anthropic"), ("\tanthropic\n", "anthropic")])
+def test_routing_config_is_stored_stripped(padded: str, expected: str):
+    """Validating `.strip()` while storing the raw value deferred the failure to resolve time,
+    where it surfaced as `Unknown model ' anthropic '` with no field name."""
+    provider = _provider(provider_key=padded, model_id=" claude-sonnet-4-5 ")
+    assert provider.capabilities().notes["provider_key"] == expected
+    assert provider.capabilities().model_ids == ("claude-sonnet-4-5",)
+
+
+def test_a_string_mode_is_accepted():
+    """ProviderMode is a (str, Enum) precisely so a raw config value round-trips.
+
+    Identity comparison rejected a valid `mode="frontier"` request, and the rejection then
+    dereferenced `.value` on a str -- an AttributeError, which is not a ValueError and so
+    escaped every `except ValueError` around model resolution.
+    """
+    _register_fake("openai")
+    result = _provider().resolve_detailed(ModelResolveRequest(mode="frontier"))  # type: ignore[arg-type]
+    assert result.mode is ProviderMode.FRONTIER
+
+
+def test_a_wrong_string_mode_raises_a_config_error_not_an_attribute_error():
+    provider = _provider()
+    with pytest.raises(ModelProviderConfigError) as excinfo:
+        provider.resolve_detailed(ModelResolveRequest(mode="local"))  # type: ignore[arg-type]
+
+    assert excinfo.value.field_name == "mode"
+    assert isinstance(excinfo.value, ValueError)
+
+
+def test_a_pinned_model_is_not_attributed_to_the_bypassed_route():
+    """Stamping the configured provider/gateway onto a pinned result described a call that
+    never happened -- wrong cost attribution for escalation logging, wrong gateway-coverage
+    numbers for any tracing hook reading `gateway`."""
+    pinned = _FakeModel(id="claude-sonnet-4-5", provider="Anthropic")
+    result = _provider(
+        provider_key="openai",
+        model_id="gpt-5.5",
+        gateway=GATEWAY_PORTKEY,
+        gateway_api_key="pk-test",
+        gateway_virtual_key="vk-test",
+    ).resolve_detailed(ModelResolveRequest(requested=pinned))
+
+    assert result.model is pinned
+    assert result.gateway is None, "the gateway was bypassed and must not be claimed"
+    assert result.provider_key == "Anthropic", "attribution follows the pinned model, not config"
+
+
+def test_aresolve_is_overridden_to_leave_the_event_loop_free():
+    """The base delegates to the sync path and names a gateway probe as the case that must
+    override it. Mode B probes the filesystem and triggers a first-time SDK import."""
+    import asyncio
+
+    from egpt.providers.model_provider import AsyncModelProvider, BaseModelProvider
+
+    provider = _provider()
+    assert FrontierModelProvider.aresolve is not BaseModelProvider.aresolve
+    assert isinstance(provider, AsyncModelProvider)
+
+    _register_fake("openai")
+    model = asyncio.run(provider.aresolve(ModelResolveRequest()))
+    assert isinstance(model, _FakeModel)
+
+
+def test_vendor_portkey_variables_are_not_marked_deprecated(monkeypatch):
+    """`bare_env` does not mean "also readable" here -- it routes the name through
+    `_warn_bare_env_var`, emitting `FutureWarning: PORTKEY_API_KEY is deprecated`.
+
+    Every other `bare_env` in the tree names a legacy EGPT/agno-owned spelling. `PORTKEY_*` is
+    the vendor's own convention, read directly by the Portkey class, so marking it deprecated
+    told a correctly-configured deployment its setup was obsolete and broke anything running
+    under `-W error::FutureWarning`.
+    """
+    import warnings
+
+    from egpt.settings.providers import get_provider_settings
+
+    monkeypatch.setenv("PORTKEY_API_KEY", "pk-test")
+    monkeypatch.setenv("PORTKEY_VIRTUAL_KEY", "vk-test")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        get_provider_settings()
+
+    portkey_warnings = [w for w in caught if "PORTKEY" in str(w.message)]
+    assert not portkey_warnings, f"vendor variables must not be deprecated: {portkey_warnings}"

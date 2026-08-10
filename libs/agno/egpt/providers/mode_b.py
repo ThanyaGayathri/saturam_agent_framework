@@ -32,7 +32,13 @@ The LiteLLM gateway path is INERT by deliberate decision: ``egpt[litellm]`` is c
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
+
+if TYPE_CHECKING:
+    # Annotation only, for ``aresolve``'s return type. Imported under TYPE_CHECKING rather than
+    # at module scope so this module stays as cheap to import as ``capabilities()`` needs it to
+    # be, and `from __future__ import annotations` above keeps the annotation a string.
+    from egpt.models.base import Model
 
 from egpt.providers.gateways import GatewayRoute, known_gateways, resolve_gateway
 from egpt.providers.model_provider import (
@@ -75,6 +81,18 @@ def _first_set(*candidates: Optional[str]) -> str:
         if candidate is not None:
             return candidate
     return ""
+
+
+def _first_set_or_none(*candidates: Optional[str]) -> Optional[str]:
+    """``_first_set``, but reporting "nothing was configured" as None rather than "".
+
+    The caller needs all three states apart: a real value, an explicitly blank value (a
+    configuration error to report), and nothing set at all (fall back to the default).
+    """
+    for candidate in candidates:
+        if candidate is not None:
+            return candidate
+    return None
 
 
 class FrontierModelProvider(BaseModelProvider):
@@ -130,10 +148,23 @@ class FrontierModelProvider(BaseModelProvider):
         # ``_first_set`` rather than ``or``: a blank string must reach the validation below as
         # a blank rather than silently falling through to the default. ``EGPT_MODE_B_PROVIDER=""``
         # is a deployment mistake, and defaulting it to OpenAI would answer it by guessing.
+        # Stripped at assignment, not merely when validated. Validating `.strip()` while storing
+        # the raw value let `EGPT_MODE_B_PROVIDER=" openai "` -- a trailing space in a .env file
+        # or a compose interpolation -- pass startup and then fail every request inside
+        # `discovery.construct` with a bare `Unknown model ' openai '` and no field name. The
+        # gateway name below was already stripped, so this was inconsistent within one
+        # constructor.
         self._provider_key: str = _first_set(
             provider_key, getattr(settings, "mode_b_provider", None), _DEFAULT_PROVIDER_KEY
-        )
-        self._model_id: str = _first_set(model_id, getattr(settings, "mode_b_model", None), _DEFAULT_MODEL_ID)
+        ).strip()
+        # Whether the model id was chosen by this deployment or fell back to the default. The
+        # default is only coherent with the default provider, so the pairing is checked below.
+        #
+        # `is None`, not `or`: `_first_set` deliberately preserves an explicitly blank setting
+        # so the blank-check below can report it, and collapsing "" to the default here would
+        # discard exactly the distinction it exists to keep.
+        configured_model: Optional[str] = _first_set_or_none(model_id, getattr(settings, "mode_b_model", None))
+        self._model_id: str = (_DEFAULT_MODEL_ID if configured_model is None else configured_model).strip()
         # A blank gateway means "no gateway", not "a gateway named ''". The branded-env source
         # deliberately preserves empty-but-set values, so a compose file passing through an
         # unset host var (``EGPT_MODE_B_GATEWAY=${GATEWAY:-}``) arrives here as "". Reading that
@@ -147,15 +178,43 @@ class FrontierModelProvider(BaseModelProvider):
         )
         self._model_config: Dict[str, Any] = dict(model_config or {})
 
-        if not self._provider_key.strip():
+        if not self._provider_key:
             raise ModelProviderConfigError(
                 "Mode B provider key is empty. Set EGPT_MODE_B_PROVIDER to a frontier registry "
                 f"key, e.g. one of: {', '.join(FRONTIER_PROVIDER_KEYS)}.",
                 field_name="mode_b_provider",
             )
-        if not self._model_id.strip():
+        if not self._model_id:
             raise ModelProviderConfigError(
                 "Mode B model id is empty. Set EGPT_MODE_B_MODEL to a frontier model id.",
+                field_name="mode_b_model",
+            )
+        # Fail at construction on an unrecognized provider, the way the gateway check below
+        # already does. Deferring to `discovery.resolve` meant `EGPT_MODE_B_PROVIDER=antropic`
+        # passed startup and health checks, then failed the first user request under load with a
+        # bare ValueError dumping sixty registry names and carrying no field name -- so a
+        # handler catching ModelProviderConfigError could not say which setting was wrong.
+        #
+        # Checked against the registry rather than FRONTIER_PROVIDER_KEYS: that tuple is the
+        # curated shortlist for error messages, and refusing a valid out-of-tree provider
+        # registered through an `egpt.models` entry point would defeat the discovery seam.
+        from egpt.registry import discovery
+
+        if discovery.get("model", self._provider_key) is None:
+            raise ModelProviderConfigError(
+                f"Unknown Mode B provider '{self._provider_key}'. Set EGPT_MODE_B_PROVIDER to a "
+                f"registered model key, e.g. one of: {', '.join(FRONTIER_PROVIDER_KEYS)}.",
+                field_name="mode_b_provider",
+            )
+        # The default model id is only coherent with the default provider. Defaulting them
+        # independently meant `EGPT_MODE_B_PROVIDER=anthropic` alone built `Claude(id="gpt-5.5")`
+        # -- construction succeeded, capabilities() reported the wrong id as fact, and every
+        # request died with a vendor 404 that named neither setting.
+        if configured_model is None and self._provider_key != _DEFAULT_PROVIDER_KEY:
+            raise ModelProviderConfigError(
+                f"Mode B provider '{self._provider_key}' is configured with no model id, and the "
+                f"default '{_DEFAULT_MODEL_ID}' belongs to '{_DEFAULT_PROVIDER_KEY}'. Set "
+                "EGPT_MODE_B_MODEL to a model this provider serves.",
                 field_name="mode_b_model",
             )
         if self._gateway is not None and self._gateway not in known_gateways():
@@ -215,9 +274,8 @@ class FrontierModelProvider(BaseModelProvider):
         A non-None ``request.requested`` is returned unchanged: the contract makes user intent
         outrank configuration, and Mode B has no policy that overrides it.
 
-        Sync-only, like the rest of the ``ModelProvider`` contract. This builds an object and
-        has nothing to await -- an ``async`` twin would be dead weight, the exemption
-        CLAUDE.md grants pure-construction methods (cf. ``discovery.construct``).
+        Blocking: see ``aresolve`` below. This is not the pure-construction case CLAUDE.md
+        exempts -- it probes the filesystem and triggers a first-time SDK import.
 
         Raises:
             ModelProviderConfigError: the gateway is unknown, its package is unavailable, or
@@ -225,19 +283,41 @@ class FrontierModelProvider(BaseModelProvider):
             ImportError: the frontier backend's own SDK is not installed. Propagated
                 unwrapped, matching ``discovery.resolve``.
         """
-        if request.mode is not None and request.mode is not ProviderMode.FRONTIER:
-            raise ModelProviderConfigError(
-                f"Mode B serves {ProviderMode.FRONTIER.value!r} requests; got {request.mode.value!r}.",
-                field_name="mode",
-            )
+        if request.mode is not None:
+            # Coerce rather than compare by identity. ProviderMode is deliberately a (str, Enum)
+            # so a raw config value round-trips, ModelResolveRequest does no coercion, and
+            # ProviderSettings.default_mode is typed Optional[str] -- so `mode="frontier"` is a
+            # semantically valid frontier request that identity comparison rejected. The
+            # rejection then crashed on `.value` with AttributeError, which is not a ValueError
+            # and so escaped every `except ValueError` around model resolution. Formatting the
+            # raw value keeps the message right for both forms.
+            try:
+                requested_mode = ProviderMode(request.mode)
+            except ValueError:
+                raise ModelProviderConfigError(
+                    f"Unknown mode {request.mode!r}. Mode B serves {ProviderMode.FRONTIER.value!r} requests.",
+                    field_name="mode",
+                ) from None
+            if requested_mode is not ProviderMode.FRONTIER:
+                raise ModelProviderConfigError(
+                    f"Mode B serves {ProviderMode.FRONTIER.value!r} requests; got {request.mode!r}.",
+                    field_name="mode",
+                )
 
         if request.requested is not None:
+            # No provider_key, no gateway: this route was bypassed, and stamping the configured
+            # ones onto the result described a call that never happened. With provider_key
+            # "openai" and gateway "portkey" configured, `Agent(model=Claude(...))` reported a
+            # request to OpenAI through Portkey when it went direct to Anthropic -- wrong cost
+            # attribution for EGPT-3.5's escalation logging and wrong gateway-coverage numbers
+            # for any tracing hook reading `gateway`. The pinned model's own `provider` is the
+            # only honest attribution available here.
             return ModelResolveResult(
                 model=request.requested,
                 mode=ProviderMode.FRONTIER,
-                provider_key=self._provider_key,
+                provider_key=request.requested.provider or "requested",
                 reason="caller pinned an explicit model",
-                gateway=self._gateway,
+                gateway=None,
             )
 
         if self._gateway is None:
@@ -261,6 +341,25 @@ class FrontierModelProvider(BaseModelProvider):
             reason=f"frontier resolution via the {route.name} gateway",
             gateway=route.name,
         )
+
+    async def aresolve(self, request: ModelResolveRequest) -> Model:
+        """Resolve off the event loop.
+
+        ``BaseModelProvider.aresolve`` delegates to the sync path and scopes that to "a provider
+        that only reads local config", naming a gateway probe as the case that must override it.
+        Mode B is that case: ``find_spec`` walks every ``sys.path`` entry, and
+        ``discovery.construct`` triggers the first-time import of a vendor SDK (``anthropic``,
+        ``openai``, ``portkey_ai``) -- hundreds of milliseconds of disk I/O and module execution.
+
+        Because the base class defines ``aresolve``, ``aresolve_via`` treats this provider as
+        async-capable and awaits it, so without this override the first resolution in each
+        worker would stall the event loop and everything queued behind it. Offloading to a
+        thread keeps the loop free; the work itself is unchanged, and the import is cached after
+        the first call.
+        """
+        import asyncio
+
+        return await asyncio.to_thread(self.resolve, request)
 
     # -- internals ----------------------------------------------------------
 
