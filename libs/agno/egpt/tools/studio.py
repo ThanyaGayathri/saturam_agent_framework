@@ -511,7 +511,19 @@ class StudioTools(Toolkit):
         When ``component_type`` is given, the stored component must be of that
         type; a mismatch returns None so that, e.g., a team id never loads as an
         Agent (mirrors the typed ``get_component`` guard used by delete_agent).
+
+        This is also where the capability policy is re-checked for the studio (EGPT-2.3). The
+        three ``_load_*_from_db`` helpers deliberately bypass ``get_agent_by_id`` / ``Agent.load``
+        (see their docstrings), so hooking only those would leave the studio as a way around the
+        policy. Enforcing here covers all three at their one shared read, and because each caller
+        invokes this *outside* its ``except Exception`` block, the refusal propagates instead of
+        being flattened into a generic load failure.
+
+        Raises:
+            PolicyViolationError: the stored config names a capability its tenant may not use.
         """
+        from egpt.registry.policy import enforce_policy_or_raise
+
         if self.db is None:
             return None
         if component_type is not None and self.db.get_component(component_id, component_type=component_type) is None:
@@ -520,7 +532,17 @@ class StudioTools(Toolkit):
         if row is None:
             return None
         config = row.get("config") if isinstance(row, dict) else None
-        return config if isinstance(config, dict) else None
+        if not isinstance(config, dict):
+            return None
+        if component_type is not None:
+            enforce_policy_or_raise(
+                config,
+                component_type.value,
+                tenant_id=row.get("tenant_id"),
+                registry=self.registry,
+                component_id=component_id,
+            )
+        return config
 
     # ------------------------------------------------------------------
     # Discovery tools

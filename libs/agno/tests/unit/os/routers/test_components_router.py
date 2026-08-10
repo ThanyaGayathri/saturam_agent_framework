@@ -353,7 +353,9 @@ class TestListConfigs:
         response = client.get("/components/agent-1/configs?include_config=false")
 
         assert response.status_code == 200
-        mock_db.list_configs.assert_called_once_with("agent-1", include_config=False)
+        # tenant_id=None is what an unauthenticated caller resolves to (EGPT-2.3); per the
+        # BaseDb contract it applies no tenant predicate, so the query is unchanged.
+        mock_db.list_configs.assert_called_once_with("agent-1", include_config=False, tenant_id=None)
 
 
 # =============================================================================

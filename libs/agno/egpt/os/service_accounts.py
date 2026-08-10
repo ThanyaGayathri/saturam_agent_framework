@@ -376,6 +376,11 @@ async def authenticate_service_account_request(
     # authorization gates (require_resource_access etc.) must be active too.
     request.state.authorization_enabled = True
     request.state.service_account_name = account.name
+    # Service accounts carry no tenant: `ServiceAccount` has no tenant column, and inferring one
+    # from the principal would be guessing. Set explicitly rather than left absent so the
+    # authenticated request.state shape is uniform across every credential type. Giving service
+    # accounts a tenant is EGPT-2.4's, along with the rest of the tenant-aware RBAC surface.
+    request.state.tenant_id = None
     if admin_scope:
         request.state.admin_scope = admin_scope
     if user_isolation is not None:

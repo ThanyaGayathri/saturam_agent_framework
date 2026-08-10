@@ -23,6 +23,7 @@ from egpt.media import File as FileMedia
 from egpt.models.message import Message
 from egpt.os.config import EgptOSConfig
 from egpt.registry import Registry
+from egpt.registry.policy import PolicyViolationError
 from egpt.remote.base import RemoteDb, RemoteKnowledge
 from egpt.run.agent import RunOutputEvent
 from egpt.run.team import TeamRunOutputEvent
@@ -909,6 +910,10 @@ def get_agent_by_id(
         try:
             db_agent = get_agent_by_id_db(db=db, id=agent_id, version=version, registry=registry)
             return db_agent
+        # A policy refusal must reach resolve_agent, which turns it into a 403. Collapsing it to
+        # None here would surface as "agent not found" instead.
+        except PolicyViolationError:
+            raise
         except Exception:
             logger.exception(f"Error getting agent {agent_id} from database")
             return None
@@ -955,6 +960,10 @@ async def get_agent_by_id_async(
         try:
             db_agent = get_agent_by_id_db(db=db, id=agent_id, version=version, registry=registry)
             return db_agent
+        # A policy refusal must reach resolve_agent, which turns it into a 403. Collapsing it to
+        # None here would surface as "agent not found" instead.
+        except PolicyViolationError:
+            raise
         except Exception:
             logger.exception(f"Error getting agent {agent_id} from database")
             return None
@@ -1011,6 +1020,8 @@ def get_team_by_id(
         try:
             db_team = get_team_by_id_db(db=db, id=team_id, version=version, registry=registry)
             return db_team
+        except PolicyViolationError:
+            raise
         except Exception:
             logger.exception(f"Error getting team {team_id} from database")
             return None
@@ -1051,6 +1062,8 @@ async def get_team_by_id_async(
         try:
             db_team = get_team_by_id_db(db=db, id=team_id, version=version, registry=registry)
             return db_team
+        except PolicyViolationError:
+            raise
         except Exception:
             logger.exception(f"Error getting team {team_id} from database")
             return None
@@ -1112,6 +1125,8 @@ def get_workflow_by_id(
         try:
             db_workflow = get_workflow_by_id_db(db=db, id=workflow_id, version=version, registry=registry)
             return db_workflow
+        except PolicyViolationError:
+            raise
         except Exception:
             logger.exception(f"Error getting workflow {workflow_id} from database")
             return None
@@ -1154,6 +1169,8 @@ async def get_workflow_by_id_async(
         try:
             db_workflow = get_workflow_by_id_db(db=db, id=workflow_id, version=version, registry=registry)
             return db_workflow
+        except PolicyViolationError:
+            raise
         except Exception:
             logger.exception(f"Error getting workflow {workflow_id} from database")
             return None
@@ -1206,12 +1223,17 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
     ``JWTMiddleware`` entry, building a validator from its kwargs the same way
     the middleware does, and caching the result on ``app.state``.
     """
+    # Every key here must also be produced by the two populated returns below, and stamped by
+    # JWTMiddleware's app.state cache block. `test_ws_jwt_config_carries_every_field` pins the
+    # key set so a field cannot be added in one place and forgotten in the others -- which is
+    # exactly how tenant_id_claim was missed when it was introduced (PR #53 review).
     blank: Dict[str, Any] = {
         "validator": None,
         "verify_audience": False,
         "audience": None,
         "admin_scope": None,
         "user_isolation": False,
+        "tenant_id_claim": None,
         "auth_required": False,
     }
 
@@ -1227,6 +1249,7 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
             "audience": getattr(state, "jwt_audience", None),
             "admin_scope": getattr(state, "admin_scope", None),
             "user_isolation": bool(getattr(state, "user_isolation_enabled", False)),
+            "tenant_id_claim": getattr(state, "tenant_id_claim", None),
             "auth_required": True,
         }
 
@@ -1279,6 +1302,7 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
             audience = kwargs.get("audience")
             admin_scope = kwargs.get("admin_scope")
             user_isolation = bool(kwargs.get("user_isolation", False))
+            tenant_id_claim = kwargs.get("tenant_id_claim")
 
             # Cache on app.state so subsequent WebSocket connections and the
             # HTTP middleware see the same validator instance.
@@ -1288,6 +1312,7 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
             if admin_scope:
                 state.admin_scope = admin_scope
             state.user_isolation_enabled = user_isolation
+            state.tenant_id_claim = tenant_id_claim
 
             return {
                 "validator": lazy_validator,
@@ -1295,6 +1320,7 @@ def resolve_ws_jwt_config(app: FastAPI) -> Dict[str, Any]:
                 "audience": audience,
                 "admin_scope": admin_scope,
                 "user_isolation": user_isolation,
+                "tenant_id_claim": tenant_id_claim,
                 "auth_required": True,
             }
 
@@ -2020,6 +2046,12 @@ async def resolve_agent(
     else:
         try:
             agent = get_agent_by_id(agent_id, agents, db, registry, version=version, create_fresh=True)
+        # 403, not 404 or 500: the component exists and hydrated fine, the caller's tenant is
+        # just not permitted the capabilities it names. Sits beside the FactoryPermissionError
+        # arm above, which is the same kind of outcome on the factory path.
+        except PolicyViolationError as e:
+            logger.warning(f"Capability policy blocked agent '{agent_id}': {e}")
+            raise HTTPException(status_code=403, detail=str(e))
         except Exception as e:
             logger.error(f"Error resolving agent '{agent_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving agent: {e}")
@@ -2063,6 +2095,9 @@ async def resolve_team(
     else:
         try:
             team = get_team_by_id(team_id, teams, db=db, version=version, registry=registry, create_fresh=True)
+        except PolicyViolationError as e:
+            logger.warning(f"Capability policy blocked team '{team_id}': {e}")
+            raise HTTPException(status_code=403, detail=str(e))
         except Exception as e:
             logger.error(f"Error resolving team '{team_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving team: {e}")
@@ -2108,6 +2143,9 @@ async def resolve_workflow(
             workflow = get_workflow_by_id(
                 workflow_id, workflows, db=db, version=version, registry=registry, create_fresh=True
             )
+        except PolicyViolationError as e:
+            logger.warning(f"Capability policy blocked workflow '{workflow_id}': {e}")
+            raise HTTPException(status_code=403, detail=str(e))
         except Exception as e:
             logger.error(f"Error resolving workflow '{workflow_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving workflow: {e}")

@@ -16,6 +16,8 @@ import subprocess
 import sys
 import textwrap
 
+import pytest
+
 from tests.unit._layer_guards import imported_modules, package_root
 
 # Layers the validator must not reach into, and why each one matters:
@@ -31,14 +33,22 @@ _FORBIDDEN_PREFIXES = (
 )
 
 
-def test_the_validator_names_no_orchestration_module():
-    path = package_root() / "egpt" / "registry" / "schema.py"
+@pytest.mark.parametrize("module_name", ["schema.py", "policy.py"])
+def test_the_validator_names_no_orchestration_module(module_name):
+    """Both halves of the validator are core and must stay there.
+
+    `policy.py` is the sharper case of the two: its whole job is to recognise toolkits that live
+    in `egpt.integrations.tools.*`, and it does that by comparing module paths as *strings*. The
+    table it compares against reads exactly like an import list, so this guard is what keeps
+    someone from "tidying it up" into real imports.
+    """
+    path = package_root() / "egpt" / "registry" / module_name
     assert path.is_file(), f"validator not found: {path}"
 
     offenders = sorted(name for name in imported_modules(path) if name.startswith(_FORBIDDEN_PREFIXES))
 
     assert not offenders, (
-        f"egpt/registry/schema.py imports {offenders}. Core must not reach into orchestration "
+        f"egpt/registry/{module_name} imports {offenders}. Core must not reach into orchestration "
         "or the api layer -- the component contract is injected as a ComponentSpec instead. "
         "A function-local import does not help: import-linter reads the AST, not the runtime."
     )
@@ -76,4 +86,45 @@ def test_importing_the_validator_pulls_in_no_vendor_sdk():
     assert leaked == [], (
         f"Importing egpt.registry.schema imported vendor SDKs: {leaked}. Reference checking "
         "must answer from the declaration table (discovery.get), never by loading a provider."
+    )
+
+
+def test_importing_the_policy_pulls_in_no_toolkit():
+    """The privileged table must stay a table of strings, transitively as well as directly.
+
+    The AST guard above proves `policy.py` names no integrations module itself. This proves the
+    stronger property that nothing it *does* import drags a toolkit in behind it -- which is what
+    would actually put an integrations edge in core.
+
+    A subprocess for the same reason the test above uses one: under pytest `sys.modules` is
+    already full of whatever ran first, so an in-process assertion would measure test ordering
+    rather than the property.
+    """
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            textwrap.dedent(
+                """
+                import json
+                import sys
+
+                import egpt.registry.policy  # noqa: F401
+
+                prefix = "egpt.integrations."
+                print(json.dumps(sorted(n for n in sys.modules if n.startswith(prefix))))
+                """
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+
+    assert result.returncode == 0, f"subprocess failed:\n{result.stdout}\n{result.stderr}"
+    leaked = json.loads(result.stdout.strip().splitlines()[-1])
+    assert leaked == [], (
+        f"Importing egpt.registry.policy imported integrations modules: {leaked}. The privileged "
+        "toolkit table is deliberately strings only -- classification compares module paths and "
+        "must never load the toolkit it is classifying."
     )

@@ -323,6 +323,9 @@ def get_websocket_router(
         ws_audience = ws_jwt_config.get("audience")
         ws_admin_scope: str = ws_jwt_config.get("admin_scope") or AgentOSScope.ADMIN.value
         ws_user_isolation_enabled: bool = bool(ws_jwt_config.get("user_isolation", False))
+        # Without this the capability policy runs untenanted on the WebSocket surface, which
+        # resolves to the document's `defaults` block -- the permissive direction (PR #53 review).
+        ws_tenant_id_claim: Optional[str] = ws_jwt_config.get("tenant_id_claim")
         # Derive the scope required to run a workflow from the shared scope-mapping table
         # (same source REST and MCP use) instead of hardcoding "workflows:run" here, so a
         # change to the mapping applies to the WebSocket surface automatically.
@@ -443,6 +446,13 @@ def get_websocket_router(
                             websocket_user_context["user_id"] = claims["user_id"]
                             websocket_user_context["scopes"] = claims["scopes"]
                             websocket_user_context["payload"] = payload
+                            # Same rule as the HTTP middleware: only a non-empty string is a
+                            # usable tenant, and anything else stays None rather than being
+                            # coerced -- None means unscoped, so a bad claim must not widen.
+                            if ws_tenant_id_claim:
+                                raw_tenant = payload.get(ws_tenant_id_claim)
+                                if isinstance(raw_tenant, str) and raw_tenant.strip():
+                                    websocket_user_context["tenant_id"] = raw_tenant.strip()
 
                             await websocket.send_text(
                                 json.dumps(

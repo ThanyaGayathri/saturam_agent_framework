@@ -1154,7 +1154,12 @@ class Workflow:
 
         Returns:
             The workflow loaded from the database or None if not found.
+
+        Raises:
+            PolicyViolationError: the stored config names a capability its tenant may not use.
         """
+        from egpt.registry.policy import enforce_policy_or_raise
+
         # TODO: Use db.load_component_graph instead of get_config
         data: Optional[Dict[str, Any]] = db.get_config(component_id=id, label=label, version=version)
         if data is None:
@@ -1163,6 +1168,17 @@ class Workflow:
         config = data.get("config")
         if config is None:
             return None
+
+        # `load` is the natural entry point for anything programmatic -- a migration script, a
+        # CLI, a test fixture -- and those are exactly the callers with no policy in mind, so
+        # leaving it ungated would make the control opt-in at the point it matters most.
+        enforce_policy_or_raise(
+            config,
+            "workflow",
+            tenant_id=data.get("tenant_id"),
+            registry=registry,
+            component_id=id,
+        )
 
         workflow = cls.from_dict(config, db=db, registry=registry)
 
@@ -10810,7 +10826,12 @@ def get_workflow_by_id(
 
     Returns:
         Workflow instance or None.
+
+    Raises:
+        PolicyViolationError: the stored config names a capability its tenant may not use.
     """
+    from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise
+
     try:
         row = db.get_config(component_id=id, version=version, label=label)
         if row is None:
@@ -10819,6 +10840,17 @@ def get_workflow_by_id(
         cfg = row.get("config") if isinstance(row, dict) else None
         if cfg is None:
             raise ValueError(f"Invalid config found for workflow {id}")
+
+        # Read-side capability gate (EGPT-2.3); see get_agent_by_id for why it is not swallowed.
+        # A workflow's *steps* reference agents by id, and those are re-checked in turn when
+        # `get_agent_by_id` hydrates them -- this call covers the workflow's own envelope.
+        enforce_policy_or_raise(
+            cfg,
+            "workflow",
+            tenant_id=row.get("tenant_id"),
+            registry=registry,
+            component_id=id,
+        )
 
         resolved_version = row.get("version")
 
@@ -10832,6 +10864,8 @@ def get_workflow_by_id(
 
         return workflow
 
+    except PolicyViolationError:
+        raise
     except Exception as e:
         log_error(f"Error loading Workflow {id} from database: {str(e)}")
         return None
@@ -10845,7 +10879,16 @@ def get_workflows(
     Get all workflows from the database.
 
     Sets _version and _stage on each workflow from the component metadata.
+
+    A workflow whose stored config violates the capability policy is omitted with a warning
+    rather than failing the whole listing.
     """
+    from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise, resolve_policy
+    from egpt.utils.log import log_warning
+
+    # Resolved once per call rather than per component -- see the note in agent.get_agents.
+    policy = resolve_policy(None, registry)
+
     workflows: List[Workflow] = []
     try:
         components, _ = db.list_components(component_type=ComponentType.WORKFLOW)
@@ -10858,11 +10901,22 @@ def get_workflows(
                         component_id = component["component_id"]
                         if "id" not in workflow_config:
                             workflow_config["id"] = component_id
+                        enforce_policy_or_raise(
+                            workflow_config,
+                            "workflow",
+                            tenant_id=config.get("tenant_id"),
+                            registry=registry,
+                            policy=policy,
+                            component_id=component_id,
+                        )
                         workflow = Workflow.from_dict(workflow_config, db=db, registry=registry)
                         workflow.id = component_id
                         workflow._version = component.get("current_version")
                         workflow._stage = config.get("stage")
                         workflows.append(workflow)
+            except PolicyViolationError as e:
+                log_warning(f"Omitting workflow from listing: {e}")
+                continue
             except Exception as e:
                 component_id = component.get("component_id", "unknown")
                 log_error(f"Error loading Workflow {component_id} from database: {str(e)}")

@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "mode": "enforce",
+  "unknown_tenant": "defaults",
+
+  "defaults": {
+    "models": ["openai:*"],
+    "tools": ["*"],
+    "mcp_servers": [],
+    "granted_privileged": []
+  },
+
+  "tenants": {
+    "acme": {
+      "models": ["openai:gpt-5.5"],
+      "tools": ["duckduckgo"],
+      "granted_privileged": ["sql"]
+    },
+    "locked-down": {
+      "models": [],
+      "tools": [],
+      "mcp_servers": []
+    }
+  }
+}

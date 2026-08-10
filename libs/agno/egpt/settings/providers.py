@@ -18,7 +18,7 @@ placeholder reference to silence it is worse than three branches touching one im
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, List, Optional, Union
 
 from pydantic import Field
 
@@ -54,12 +54,69 @@ class ProviderSettings(BrandedSettings):
     # -- Mode A: self-hosted SLM (EGPT-3.3) --------------------------------
     # Owned by #65. The in-VPC endpoint and adapter configuration.
     #
-    # Note for the implementer: `mode_a_base_url` must have NO default that points anywhere
-    # public. `egpt/integrations/models/ollama/chat.py:61` falls back to `https://ollama.com`
-    # and `vllm.py:57` to `http://localhost:8000/v1/` when unset, so a Mode A binding that
-    # lets either default through has silently left the VPC. Raise
-    # ModelProviderConfigError instead.
-    # (Add fields here.)
+    # `mode_a_base_url` has NO default, deliberately. `integrations/models/ollama/chat.py`
+    # falls back to `https://ollama.com` and `vllm.py` to `http://localhost:8000/v1/` when
+    # unset, so a Mode A binding that lets either default through has silently left the VPC.
+    # `LocalModelProvider` raises `ModelProviderConfigError` on None rather than constructing
+    # anything, and always passes the configured endpoint explicitly so neither SDK default
+    # can be reached.
+    mode_a_base_url: Optional[str] = None
+
+    # Which registry key serves Mode A. "vllm", "ollama" or "openai-like" -- all built by
+    # name through `discovery.construct`, so naming one here imports nothing.
+    mode_a_backend: str = "vllm"
+
+    # The model id served at that endpoint. A self-hosted deployment names its own weights,
+    # so there is no sensible default to guess.
+    mode_a_model_id: Optional[str] = None
+
+    # Credential for the endpoint. In-VPC vLLM/Ollama servers are commonly unauthenticated;
+    # `OpenAILike` defaults `api_key` to "not-provided" for exactly that case, and VLLM
+    # raises without one, so Mode A supplies a placeholder when nothing is configured.
+    mode_a_api_key: Optional[str] = None
+
+    # The credential each backend documents for itself, declared here rather than read with a
+    # raw `getenv` (which `tests/unit/test_env_read_guard.py` rejects for `egpt/providers/`).
+    # Mode A passes `api_key` explicitly so this module is the only thing deciding it, and that
+    # suppresses the backend's own fallback -- VLLM reads `VLLM_API_KEY` only when the field is
+    # falsy, so the truthy "not-provided" placeholder made the documented setting dead, and a
+    # token-protected in-VPC server started 401ing every run. `vendor_env` gives the vendor
+    # spelling as the final fallback with no deprecation warning, since the SDK owns that name;
+    # `EGPT_MODE_A_API_KEY` still outranks both as the Mode A-specific statement.
+    mode_a_vllm_api_key: Optional[str] = Field(default=None, json_schema_extra=vendor_env("VLLM_API_KEY"))
+    mode_a_ollama_api_key: Optional[str] = Field(default=None, json_schema_extra=vendor_env("OLLAMA_API_KEY"))
+
+    # How a LoRA adapter is rendered onto the request. "model-id" follows vLLM's multi-LoRA
+    # convention, where each adapter is served as a first-class model id -- the default,
+    # because it is what a stock `vllm serve --lora-modules` deployment expects.
+    # "extra-body" instead threads it through the OpenAI `extra_body` passthrough, for
+    # servers that take the adapter as a side-channel parameter.
+    mode_a_adapter_mode: str = "model-id"
+
+    # The `extra_body` key an adapter is written to under `mode_a_adapter_mode="extra-body"`.
+    mode_a_adapter_field: str = "lora_request"
+
+    # Extra hostnames or domain suffixes that count as in-VPC. Mode A treats loopback, private
+    # IPs, dotless names and the usual internal suffixes (.internal, .svc.cluster.local, ...)
+    # as inside the network; a deployment whose internal domain is a public-looking name needs
+    # to name it here, or its own endpoint would be refused as egress.
+    #
+    # Typed to accept a bare string as well as a list, and normalized by
+    # `mode_a_allowed_hosts_list` below. pydantic-settings JSON-decodes *complex* fields, and
+    # that decode happens in the settings source, before any field validator: with a plain
+    # `List[str]`, the bare `EGPT_MODE_A_ALLOWED_HOSTS=llm.acme.com` that Mode A's own
+    # remediation text tells the operator to set raised SettingsError from the source -- which
+    # broke every read of ProviderSettings in the process rather than just this field, so
+    # `default_mode` and all of Mode B became unreadable too.
+    #
+    # `Union[str, List[str]]` is not "complex" in the sense that triggers the source's JSON
+    # decode, so the env string arrives intact; a programmatic caller passing a real list still
+    # type-checks and still works. Read through the property, never this field directly.
+    mode_a_allowed_hosts: Union[str, List[str], None] = None
+
+    # Context window of the served model, when the deployment knows it. Advisory only:
+    # EGPT-3.5's "input too large" rule reads it, and None means "do not route on it".
+    mode_a_context_window: Optional[int] = None
 
     # -- Mode B: frontier provider (EGPT-3.4) ------------------------------
     # Owned by #66. Frontier selection plus optional gateway routing.
@@ -88,6 +145,36 @@ class ProviderSettings(BrandedSettings):
     mode_b_gateway_api_key: Optional[str] = Field(default=None, json_schema_extra=vendor_env("PORTKEY_API_KEY"))
     mode_b_gateway_base_url: Optional[str] = None
     mode_b_gateway_virtual_key: Optional[str] = Field(default=None, json_schema_extra=vendor_env("PORTKEY_VIRTUAL_KEY"))
+
+    # -- derived views -----------------------------------------------------
+
+    @property
+    def mode_a_allowed_hosts_list(self) -> List[str]:
+        """``mode_a_allowed_hosts`` split into hostnames.
+
+        Comma-separated is the documented form, matching what Mode A's remediation text tells
+        the operator to write. A JSON array is still accepted, so a deployment that wrote one
+        while this field was typed ``List[str]`` keeps working across the upgrade.
+        """
+        configured = self.mode_a_allowed_hosts
+        if configured is None:
+            return []
+        if not isinstance(configured, str):
+            return [str(item).strip() for item in configured if str(item).strip()]
+        raw = configured.strip()
+        if not raw:
+            return []
+        if raw.startswith("["):
+            from json import JSONDecodeError, loads
+
+            try:
+                decoded = loads(raw)
+            except JSONDecodeError:
+                pass
+            else:
+                if isinstance(decoded, list):
+                    return [str(item).strip() for item in decoded if str(item).strip()]
+        return [part.strip() for part in raw.split(",") if part.strip()]
 
 
 def get_provider_settings(**overrides: Any) -> ProviderSettings:
