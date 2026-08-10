@@ -171,7 +171,17 @@ def get_model_from_dict(model_data: Dict[str, Any]) -> Optional[Model]:
         raise ValueError(f"Model data is missing an 'id': {model_data}")
 
     provider_key = resolve_provider_key(model_data.get("provider"), model_data.get("name"))
-    return _get_model_class(model_id, provider_key)
+    model = _get_model_class(model_id, provider_key)
+    # A serialized OpenAI-schema proxy carries no endpoint (`Model.to_dict` stores only
+    # id/name/provider, deliberately -- `to_dict` also feeds telemetry, and an internal hostname
+    # must not leave the deployment). Such a model would otherwise fall back to the vendor SDK
+    # default, i.e. leave the VPC, so refuse the placeholder credential that hides the problem:
+    # None restores `OpenAIChat`'s own env fallback, and Mode A reconfigures both explicitly.
+    # getattr/setattr, not attribute access: `api_key` is declared by the concrete OpenAI-schema
+    # classes, not by the `Model` base this function is typed against.
+    if getattr(model, "is_openai_compatible_proxy", False) and getattr(model, "api_key", None) == "not-provided":
+        setattr(model, "api_key", None)
+    return model
 
 
 def resolve_model(model_data: Any, registry: Optional["Registry"] = None) -> Any:

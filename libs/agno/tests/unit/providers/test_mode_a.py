@@ -615,3 +615,252 @@ def test_openai_like_row_stays_lazy():
     """A row carrying a preloaded object would mean the module was imported to declare it."""
     registration = discovery.declarations("model")["openai-like"]
     assert registration.obj is None
+
+
+# --------------------------------------------------------------------------- #
+# Review round 2 (PR #48): regressions for nandha-saturam's findings
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "host, label",
+    [
+        ("134744072", "integer form of 8.8.8.8"),
+        ("0x08080808", "hex form of 8.8.8.8"),
+        ("0x08.0x08.0x08.0x08", "dotted-hex form of 8.8.8.8"),
+    ],
+)
+def test_a_numeric_public_address_is_not_mistaken_for_a_service_name(host, label):
+    """`ip_address` parses only the dotted-quad spelling, but getaddrinfo -- and so every HTTP
+    client -- accepts the integer and hex forms too. Those reached the "no dot means a
+    Kubernetes service name" shortcut and were declared in-VPC, so prompts left the network
+    under a positive `egress_free=True` assurance. The allowlist comment argues that a false
+    positive is worse than no check at all; this is that case."""
+    provider = _provider(mode_a_base_url=VPC_URL, mode_a_model_id="qwen")
+
+    assert provider._endpoint_is_in_vpc(f"http://{host}:8000/v1") is False, (
+        f"the {label} resolves to a public address and must not count as in-VPC"
+    )
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["2130706433", "0x7f000001", "167772161"],
+)
+def test_numeric_private_and_loopback_addresses_are_still_in_vpc(host):
+    """The numeric-form fix must not refuse the private/loopback addresses it normalizes:
+    127.0.0.1 and 10.0.0.1 spelled as integers are still inside the network."""
+    provider = _provider(mode_a_base_url=VPC_URL, mode_a_model_id="qwen")
+
+    assert provider._endpoint_is_in_vpc(f"http://{host}:8000/v1") is True
+
+
+def test_a_single_allowed_host_string_is_not_iterated_per_character():
+    """`str` satisfies `Iterable[str]`, so `allowed_hosts="llm.acme.com"` type-checked and
+    iterated *characters* -- turning the allowlist into ('l','l','m',...) and refusing the very
+    endpoint the operator had just allowed, with remediation text pointing at the setting they
+    had already set."""
+    provider = LocalModelProvider(
+        settings=_settings(mode_a_base_url="https://llm.acme.com/v1", mode_a_model_id="qwen"),
+        allowed_hosts="llm.acme.com",
+    )
+
+    assert provider.allowed_hosts == ("llm.acme.com",)
+    assert provider._endpoint_is_in_vpc("https://llm.acme.com/v1") is True
+
+
+def test_settings_strings_are_stripped_at_assignment():
+    """A trailing space from a .env line or a compose interpolation made the backend fail
+    construction with a message quoting an invisible space, and reached the server as a
+    404-ing model id. mode_b.py strips for the same reason."""
+    provider = LocalModelProvider(
+        settings=_settings(),
+        backend=" vllm ",
+        base_url=f" {VPC_URL} ",
+        model_id=" qwen ",
+    )
+
+    assert (provider.backend, provider.base_url, provider.model_id) == ("vllm", VPC_URL, "qwen")
+
+
+def test_an_out_of_tree_backend_registered_through_discovery_is_accepted():
+    """The backend was validated against the hardcoded LOCAL_BACKENDS tuple, so a deployment
+    registering its own OpenAI-schema server through the `egpt.models` entry point -- the
+    discovery seam's whole purpose -- was refused at construction even though
+    `discovery.construct` would have built it. mode_b.py checks the registry for this reason."""
+    discovery.register("model", "my-inference-server", obj=_FakeOpenAISchemaBackend, override=True)
+    try:
+        provider = LocalModelProvider(
+            settings=_settings(mode_a_base_url=VPC_URL, mode_a_model_id="qwen"),
+            backend="my-inference-server",
+        )
+        assert provider.backend == "my-inference-server"
+    finally:
+        discovery._reset_for_tests()
+
+
+def test_a_string_mode_equal_to_local_is_served_not_crashed():
+    """ProviderMode is a str mixin so a config value ('local') validates by construction. An
+    `is not` identity test sent that equal-but-not-identical string into the raise branch, which
+    then formatted `.value` on a plain str -- an AttributeError naming neither field nor
+    provider."""
+    provider = _provider(mode_a_base_url=VPC_URL, mode_a_model_id="qwen")
+    request = ModelResolveRequest()
+    object.__setattr__(request, "mode", "local")
+
+    result = provider.resolve_detailed(request)
+
+    assert result.mode is ProviderMode.LOCAL
+
+
+def test_a_rejected_string_mode_reports_the_value_without_crashing():
+    """The other half: a non-LOCAL *string* must still produce a ModelProviderConfigError naming
+    the field, not an AttributeError from `.value` on a str."""
+    provider = _provider(mode_a_base_url=VPC_URL, mode_a_model_id="qwen")
+    request = ModelResolveRequest()
+    object.__setattr__(request, "mode", "frontier")
+
+    with pytest.raises(ModelProviderConfigError) as exc:
+        provider.resolve_detailed(request)
+
+    assert exc.value.field_name == "mode"
+    assert "frontier" in str(exc.value)
+
+
+def test_a_pinned_model_outside_the_vpc_is_not_reported_as_local():
+    """A pinned `Agent(model=Claude(...))` in a Mode A deployment was stamped `mode=LOCAL` and
+    `provider_key=<backend>`, so an operator auditing "did anything leave the VPC?" from these
+    records saw zero egress while every such request went to a public frontier API."""
+    provider = _provider(mode_a_base_url=VPC_URL, mode_a_model_id="qwen")
+    pinned = _FakeOpenAISchemaBackend(id="claude-sonnet-4-5")
+    pinned.base_url = "https://api.anthropic.com/v1"
+
+    result = provider.resolve_detailed(ModelResolveRequest(requested=pinned))
+
+    assert result.model is pinned
+    assert result.mode is ProviderMode.FRONTIER, "an out-of-VPC pinned model is not a local resolution"
+    assert "not in-VPC" in (result.reason or "")
+
+
+def test_a_pinned_in_vpc_model_is_still_reported_as_local():
+    """The counterpart: pinning the deployment's own in-VPC model is a genuine LOCAL
+    resolution, so the honesty fix must not relabel it as egress."""
+    provider = _provider(mode_a_base_url=VPC_URL, mode_a_model_id="qwen")
+    pinned = _FakeOpenAISchemaBackend(id="qwen")
+    pinned.base_url = VPC_URL
+
+    result = provider.resolve_detailed(ModelResolveRequest(requested=pinned))
+
+    assert result.mode is ProviderMode.LOCAL
+
+
+async def test_aresolve_detailed_runs_off_the_event_loop():
+    """`BaseModelProvider.aresolve` delegates to the sync path and scopes that to "reads local
+    config only". Mode A triggers a first-time vendor SDK import through `discovery.construct`,
+    so without an override the first resolution per worker stalls the loop and everything queued
+    behind it. mode_b.py overrides both for the same reason."""
+    import asyncio
+    import threading
+
+    provider = _provider(mode_a_base_url=VPC_URL, mode_a_model_id="qwen")
+    loop_thread = threading.get_ident()
+    ran_on: Dict[str, int] = {}
+    inner = provider.resolve_detailed
+
+    def spy(request: ModelResolveRequest) -> Any:
+        ran_on["tid"] = threading.get_ident()
+        return inner(request)
+
+    provider.resolve_detailed = spy  # type: ignore[method-assign]
+    await provider.aresolve_detailed(ModelResolveRequest())
+
+    assert ran_on["tid"] != loop_thread, "resolution ran on the event-loop thread"
+    assert asyncio.iscoroutinefunction(LocalModelProvider.aresolve)
+
+
+def test_a_restored_openai_schema_proxy_drops_the_placeholder_credential():
+    """`OpenAILike.api_key` defaults to the truthy "not-provided", which suppresses
+    `OpenAIChat`'s own OPENAI_API_KEY fallback. A persisted config carries no endpoint or
+    credential (`Model.to_dict` stores only id/name/provider -- deliberately, since it also
+    feeds telemetry), so the rebuilt client aimed at the OpenAI SaaS default holding a
+    placeholder key and failed its first run with 401. None restores the env fallback."""
+    pytest.importorskip("openai")
+    from egpt.models.utils import get_model_from_dict
+
+    rebuilt = get_model_from_dict({"provider": "OpenAI", "name": "OpenAILike", "id": "qwen"})
+
+    assert rebuilt is not None
+    assert rebuilt.api_key is None, "the placeholder must not survive a restore and mask the env fallback"
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("llm.acme.com", ["llm.acme.com"]),
+        ("a.acme.com,b.acme.com", ["a.acme.com", "b.acme.com"]),
+        (" spaced.com , x.com ", ["spaced.com", "x.com"]),
+        ('["json.com","two.com"]', ["json.com", "two.com"]),
+        ("", []),
+    ],
+)
+def test_allowed_hosts_accepts_the_form_the_error_message_recommends(monkeypatch, raw, expected):
+    """`_assert_no_egress` tells the operator to "add its domain to EGPT_MODE_A_ALLOWED_HOSTS".
+    With the field typed `List[str]`, pydantic-settings JSON-decoded it in the settings *source*
+    -- before any validator -- so the bare domain raised SettingsError and took down every read
+    of ProviderSettings in the process, not just this field: `default_mode` and all of Mode B
+    became unreadable too. The documented instruction now works, and a JSON array still does."""
+    from egpt.settings.providers import get_provider_settings
+
+    monkeypatch.setenv("EGPT_MODE_A_ALLOWED_HOSTS", raw)
+
+    settings = get_provider_settings()
+
+    assert settings.mode_a_allowed_hosts_list == expected
+    # The whole model must stay readable -- the original failure was process-wide.
+    assert settings.default_mode is None
+
+
+def test_allowed_hosts_still_accepts_a_real_list_programmatically():
+    """The env-string support must not cost the in-code spelling a caller already uses."""
+    settings = _settings(mode_a_allowed_hosts=["acme-corp.io", "other.io"])
+
+    assert settings.mode_a_allowed_hosts_list == ["acme-corp.io", "other.io"]
+
+
+def test_the_backends_own_credential_is_used_before_the_placeholder(monkeypatch):
+    """VLLM reads `VLLM_API_KEY` only when its `api_key` field is falsy, and Mode A always
+    passed the truthy "not-provided" placeholder -- so a token-protected in-VPC server
+    configured the documented way received `Authorization: Bearer not-provided` and 401'd every
+    run, with no config error because Mode A considered itself fully configured."""
+    monkeypatch.setenv("VLLM_API_KEY", "secret-token")
+
+    provider = LocalModelProvider(backend="vllm", base_url=VPC_URL, model_id="qwen")
+    result = provider.resolve_detailed(ModelResolveRequest())
+
+    assert result.model.api_key == "secret-token"
+
+
+def test_the_mode_a_credential_outranks_the_backends_own(monkeypatch):
+    """`EGPT_MODE_A_API_KEY` is the Mode A-specific statement, so it wins over the vendor name."""
+    monkeypatch.setenv("VLLM_API_KEY", "vendor-token")
+
+    provider = LocalModelProvider(
+        settings=_settings(mode_a_api_key="mode-a-token"),
+        backend="vllm",
+        base_url=VPC_URL,
+        model_id="qwen",
+    )
+    result = provider.resolve_detailed(ModelResolveRequest())
+
+    assert result.model.api_key == "mode-a-token"
+
+
+def test_the_placeholder_still_applies_when_nothing_is_configured(monkeypatch):
+    """An unauthenticated in-VPC server is the common case, and VLLM raises without any key --
+    so the placeholder must remain the last resort rather than being dropped."""
+    monkeypatch.delenv("VLLM_API_KEY", raising=False)
+
+    provider = LocalModelProvider(settings=_settings(), backend="vllm", base_url=VPC_URL, model_id="qwen")
+    result = provider.resolve_detailed(ModelResolveRequest())
+
+    assert result.model.api_key == "not-provided"

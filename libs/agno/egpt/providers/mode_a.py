@@ -25,7 +25,7 @@ is a ratchet, and a raw ``getenv`` here would fail it.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Dict, Iterable, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Mapping, Optional, Tuple
 
 from egpt.providers.model_provider import (
     BaseModelProvider,
@@ -86,6 +86,40 @@ _PRIVATE_SUFFIXES: Tuple[str, ...] = (
 # that merely *mentioned* one would make `adapter` unusable in a config shared across backends.
 _ADAPTER_BACKENDS: Tuple[str, ...] = ("vllm", "openai-like")
 
+# Which ProviderSettings field carries each backend's own documented credential. Read through
+# settings, never a raw getenv: `tests/unit/test_env_read_guard.py` is a ratchet over
+# `egpt/providers/`, and the settings field is also what gives the vendor spelling
+# (`VLLM_API_KEY`) its no-warning fallback.
+_BACKEND_API_KEY_FIELD: Mapping[str, str] = {
+    "vllm": "mode_a_vllm_api_key",
+    "ollama": "mode_a_ollama_api_key",
+}
+
+
+def _backend_api_key(settings: "ProviderSettings", backend: Optional[str]) -> Optional[str]:
+    """The credential the backend itself would have read, via its settings field.
+
+    Mode A passes ``api_key`` explicitly so that this module is the only thing deciding it, but
+    that also suppresses each backend's own env fallback (they read it only when the field is
+    falsy). Consulting the same value here keeps the documented per-backend setting working
+    instead of shadowing it with a placeholder.
+    """
+    field = _BACKEND_API_KEY_FIELD.get(backend or "")
+    return getattr(settings, field, None) if field else None
+
+
+def _clean(value: Optional[str]) -> Optional[str]:
+    """Strip a configured string, mapping blank to ``None``.
+
+    A blank-but-set value ("" from `EGPT_MODE_A_BASE_URL=${URL:-}` in a compose file) means
+    "unset", not "a host named ''". Collapsing it here keeps every `is None` check downstream
+    honest instead of each site re-testing for emptiness.
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
 
 class LocalModelProvider(BaseModelProvider):
     """Resolve every request to a self-hosted model at a configured in-VPC endpoint.
@@ -119,15 +153,41 @@ class LocalModelProvider(BaseModelProvider):
 
             settings = get_provider_settings()
 
-        self.base_url = base_url if base_url is not None else settings.mode_a_base_url
-        self.backend = backend if backend is not None else settings.mode_a_backend
-        self.model_id = model_id if model_id is not None else settings.mode_a_model_id
+        # Every string setting is stripped at assignment. Validating `.strip()` while storing
+        # the raw value let `EGPT_MODE_A_BACKEND=' vllm '` -- a trailing space in a .env file or
+        # a compose interpolation -- fail construction with a message quoting the invisible
+        # space, and `EGPT_MODE_A_MODEL_ID='qwen '` reach the server as a 404-ing model id.
+        # Matches how mode_b.py handles the same class of value.
+        self.base_url = _clean(base_url if base_url is not None else settings.mode_a_base_url)
+        # `backend`, `adapter_mode` and `adapter_field` stay non-Optional: each has a real
+        # default in ProviderSettings, and the validation below rejects a blank one outright, so
+        # widening them to Optional would only push a `None` check onto every reader.
+        self.backend: str = _clean(backend if backend is not None else settings.mode_a_backend) or ""
+        self.model_id = _clean(model_id if model_id is not None else settings.mode_a_model_id)
+        # `EGPT_MODE_A_API_KEY` first, then the backend's own documented credential. Resolved
+        # here, once, because settings are read at construction and never per resolve.
         self.api_key = api_key if api_key is not None else settings.mode_a_api_key
-        self.adapter_mode = adapter_mode if adapter_mode is not None else settings.mode_a_adapter_mode
-        self.adapter_field = adapter_field if adapter_field is not None else settings.mode_a_adapter_field
+        self._backend_api_key = _backend_api_key(
+            settings, _clean(backend if backend is not None else settings.mode_a_backend)
+        )
+        self.adapter_mode: str = (
+            _clean(adapter_mode if adapter_mode is not None else settings.mode_a_adapter_mode) or ""
+        )
+        self.adapter_field: str = (
+            _clean(adapter_field if adapter_field is not None else settings.mode_a_adapter_field) or ""
+        )
         self.context_window = context_window if context_window is not None else settings.mode_a_context_window
-        raw_hosts = allowed_hosts if allowed_hosts is not None else settings.mode_a_allowed_hosts
-        self.allowed_hosts: Tuple[str, ...] = tuple(host.strip().lower().lstrip(".") for host in raw_hosts if host)
+        raw_hosts: Iterable[str] = allowed_hosts if allowed_hosts is not None else settings.mode_a_allowed_hosts_list
+        # A bare `str` satisfies `Iterable[str]`, so `allowed_hosts="llm.acme.com"` type-checks
+        # and would iterate *characters* -- turning the operator's own allowlist into
+        # ('l','l','m',...) and refusing the very endpoint they configured, with remediation
+        # text pointing at the setting they had already set. Accept the single-host spelling
+        # instead of silently shredding it.
+        if isinstance(raw_hosts, str):
+            raw_hosts = [raw_hosts]
+        self.allowed_hosts: Tuple[str, ...] = tuple(
+            cleaned for host in raw_hosts if (cleaned := str(host).strip().lower().lstrip("."))
+        )
         # An adapter applied when the request names none. Lets a deployment pin one domain
         # adapter without every call site passing it.
         self.default_adapter = default_adapter
@@ -135,9 +195,17 @@ class LocalModelProvider(BaseModelProvider):
         # Validated at construction, not at first resolve: a misconfigured backend or adapter
         # mode is a deployment mistake, and surfacing it when the process wires up its provider
         # is far better than surfacing it on a user's first request.
-        if self.backend not in LOCAL_BACKENDS:
+        # Checked against the discovery registry rather than LOCAL_BACKENDS: that tuple is the
+        # curated shortlist for error messages, and refusing a valid out-of-tree backend
+        # registered through an `egpt.models` entry point would defeat the discovery seam --
+        # a deployment running its own OpenAI-schema inference server is exactly the Mode A
+        # use case. Same rationale as mode_b.py's provider-key check.
+        from egpt.registry import discovery
+
+        if not self.backend or discovery.get("model", self.backend) is None:
             raise ModelProviderConfigError(
-                f"Unknown Mode A backend '{self.backend}'. Supported: {', '.join(LOCAL_BACKENDS)}.",
+                f"Unknown Mode A backend '{self.backend}'. Supported: {', '.join(LOCAL_BACKENDS)} "
+                "(or any model registered through the 'egpt.models' entry point).",
                 field_name="mode_a_backend",
             )
         if self.adapter_mode not in ADAPTER_MODES:
@@ -161,10 +229,16 @@ class LocalModelProvider(BaseModelProvider):
         # rather than quietly serving a local model is the point: a caller that asked for
         # FRONTIER and silently got the SLM would look like a quality regression, not a
         # configuration error.
-        if request.mode is not None and request.mode is not ProviderMode.LOCAL:
+        # `!=`, not `is not`: ProviderMode is a str mixin so that a config value ('local')
+        # validates by construction, and an equal-but-not-identical string must take the same
+        # path as the enum member. `ModelResolveRequest` coerces at the boundary today, but an
+        # identity test here would break again for any caller constructing the result of that
+        # coercion differently -- and the raise branch below formats `.value`, which a plain str
+        # does not have, so the failure was an AttributeError naming neither field nor provider.
+        if request.mode is not None and request.mode != ProviderMode.LOCAL:
+            asked = getattr(request.mode, "value", request.mode)
             raise ModelProviderConfigError(
-                f"{type(self).__name__} serves {ProviderMode.LOCAL.value!r} only, "
-                f"but the request asked for {request.mode.value!r}.",
+                f"{type(self).__name__} serves {ProviderMode.LOCAL.value!r} only, but the request asked for {asked!r}.",
                 field_name="mode",
             )
 
@@ -172,11 +246,23 @@ class LocalModelProvider(BaseModelProvider):
         # unchanged, as the frozen EGPT-3.1 contract requires. Mode A has no policy that
         # overrides a pinned model: someone who named a model meant that model.
         if request.requested is not None:
+            # Attribute the *pinned* model, never this provider's configuration. Reporting
+            # `mode=LOCAL` and `provider_key=<backend>` here meant that in a Mode A deployment
+            # an `Agent(model=Claude(...))` was recorded as an in-VPC vLLM resolution while the
+            # request went to api.anthropic.com -- so an operator auditing "did anything leave
+            # the VPC?" from these records saw zero egress. The pinned model's own endpoint
+            # decides the mode; when it names no in-VPC endpoint, this is egress and says so.
+            pinned_endpoint = getattr(request.requested, "base_url", None) or getattr(request.requested, "host", None)
+            pinned_is_local = bool(pinned_endpoint) and self._endpoint_is_in_vpc(str(pinned_endpoint))
             return ModelResolveResult(
                 model=request.requested,
-                mode=ProviderMode.LOCAL,
-                provider_key=self.backend,
-                reason="mode-a: caller pinned an explicit model",
+                mode=ProviderMode.LOCAL if pinned_is_local else ProviderMode.FRONTIER,
+                provider_key=self._registry_key_for(request.requested),
+                reason=(
+                    "mode-a: caller pinned an explicit model at an in-VPC endpoint"
+                    if pinned_is_local
+                    else "mode-a: caller pinned an explicit model that is not in-VPC"
+                ),
             )
 
         base_url = self._require_base_url()
@@ -193,6 +279,31 @@ class LocalModelProvider(BaseModelProvider):
             adapter=adapter if self._adapter_applies(adapter) else None,
             reason=f"mode-a: self-hosted {self.backend} at {base_url}",
         )
+
+    async def aresolve(self, request: ModelResolveRequest) -> Model:
+        """Resolve off the event loop.
+
+        ``BaseModelProvider.aresolve`` delegates to the sync path and scopes that to "a provider
+        that only reads local config". Mode A is not that case: ``discovery.construct`` triggers
+        the first-time import of a vendor SDK (``vllm``, ``ollama``, ``openai``) -- hundreds of
+        milliseconds of disk I/O and module execution.
+
+        Because the base class defines ``aresolve``, ``aresolve_via`` treats this provider as
+        async-capable and awaits it, so without this override the first resolution in each worker
+        would stall the loop and everything queued behind it. Same override, same reasoning, as
+        ``mode_b.FrontierModelProvider``.
+        """
+        return (await self.aresolve_detailed(request)).model
+
+    async def aresolve_detailed(self, request: ModelResolveRequest) -> ModelResolveResult:
+        """Resolve the detailed result off the event loop as well as the bare-model path.
+
+        Leaving the inherited implementation in place made direct async detailed callers run the
+        same first-time SDK import synchronously on the event-loop thread.
+        """
+        import asyncio
+
+        return await asyncio.to_thread(self.resolve_detailed, request)
 
     def capabilities(self) -> ModelCapabilities:
         """What Mode A can do. Pure and cheap: it imports no SDK and asks no server.
@@ -264,7 +375,14 @@ class LocalModelProvider(BaseModelProvider):
             # VLLM raises ModelAuthenticationError when it finds no key, and an in-VPC server
             # is usually unauthenticated. OpenAILike's own "not-provided" placeholder is the
             # established convention for that case.
-            config["api_key"] = self.api_key or "not-provided"
+            #
+            # The backend's own env var is consulted *before* the placeholder: VLLM only reads
+            # `VLLM_API_KEY` when `self.api_key` is falsy, so passing the truthy placeholder
+            # unconditionally made that documented fallback dead code -- a token-protected
+            # in-VPC server configured the documented way started receiving
+            # `Authorization: Bearer not-provided` and 401ing every run, with no config error
+            # to explain it because Mode A considered itself fully configured.
+            config["api_key"] = self.api_key or self._backend_api_key or "not-provided"
 
         if self._adapter_applies(adapter):
             if self.adapter_mode == "model-id":
@@ -319,6 +437,30 @@ class LocalModelProvider(BaseModelProvider):
 
         if host == "localhost":
             return True
+
+        # `ip_address` accepts only the dotted-quad form, but `getaddrinfo` -- and therefore
+        # every HTTP client -- also accepts the integer, hex and octal spellings of the same
+        # address. `http://134744072:8000` is 8.8.8.8, and reaching the dotless shortcut below
+        # would have declared it in-VPC and reported `egress_free=True` while prompts left the
+        # network. Resolve those forms to a real address and judge it as an IP.
+        #
+        # int(host, 0) covers 0x/0o/0b prefixes and plain decimal; a bare leading-zero string
+        # ("010") is rejected by int(_, 0) as ambiguous, so it is retried as octal, which is how
+        # inet_aton reads it.
+        if host.isascii() and (host.isdigit() or host.startswith(("0x", "0o", "0b"))):
+            for base in (0, 8):
+                try:
+                    packed = int(host, base)
+                except ValueError:
+                    continue
+                try:
+                    numeric = ip_address(packed)
+                except ValueError:
+                    break
+                return numeric.is_private or numeric.is_loopback or numeric.is_link_local
+            # A numeric-looking host that is not a usable address is not a service name.
+            return False
+
         # A bare name with no dot is a container/Kubernetes service name, which cannot be a
         # public FQDN.
         if "." not in host:
