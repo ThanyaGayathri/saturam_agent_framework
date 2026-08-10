@@ -10,7 +10,6 @@ to gain remote content loading capabilities.
 
 from typing import List, Optional
 
-from egpt.knowledge.content import Content
 from egpt.integrations.knowledge.loaders.azure_blob import AzureBlobLoader
 from egpt.integrations.knowledge.loaders.gcs import GCSLoader
 from egpt.integrations.knowledge.loaders.github import GitHubLoader
@@ -24,6 +23,7 @@ from egpt.integrations.knowledge.remote_content.remote_content import (
     S3Content,
     SharePointContent,
 )
+from egpt.knowledge.content import Content
 from egpt.utils.log import log_warning
 
 

@@ -91,9 +91,9 @@ def test_s3_reader_propagates_chunk_flag_to_inner_reader():
     """S3Reader must forward chunk/chunk_size/chunking_strategy to its inner reader."""
     pytest.importorskip("egpt.integrations.knowledge.reader.s3_reader", exc_type=ImportError)
 
-    from egpt.knowledge.chunking.fixed import FixedSizeChunking
     from egpt.integrations.knowledge.reader.s3_reader import S3Reader
     from egpt.integrations.knowledge.reader.text_reader import TextReader
+    from egpt.knowledge.chunking.fixed import FixedSizeChunking
 
     strategy = FixedSizeChunking(chunk_size=123)
     reader = S3Reader(chunk=False, chunk_size=123, chunking_strategy=strategy)

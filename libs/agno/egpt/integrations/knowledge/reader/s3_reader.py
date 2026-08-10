@@ -3,12 +3,12 @@ from io import BytesIO
 from pathlib import Path
 from typing import List, Optional
 
+from egpt.integrations.knowledge.reader.pdf_reader import PDFReader
+from egpt.integrations.knowledge.reader.text_reader import TextReader
 from egpt.knowledge.chunking.fixed import FixedSizeChunking
 from egpt.knowledge.chunking.strategy import ChunkingStrategy, ChunkingStrategyType
 from egpt.knowledge.document.base import Document
 from egpt.knowledge.reader.base import Reader
-from egpt.integrations.knowledge.reader.pdf_reader import PDFReader
-from egpt.integrations.knowledge.reader.text_reader import TextReader
 from egpt.knowledge.types import ContentType
 from egpt.utils.log import log_debug, log_error
 

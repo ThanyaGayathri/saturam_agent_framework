@@ -20,7 +20,6 @@ import os
 
 import pytest
 
-from egpt.knowledge.document import Document
 from egpt.integrations.knowledge.reranker.aws_bedrock import (
     AMAZON_RERANK_V1,
     COHERE_RERANK_V3_5,
@@ -28,6 +27,7 @@ from egpt.integrations.knowledge.reranker.aws_bedrock import (
     AwsBedrockReranker,
     CohereBedrockReranker,
 )
+from egpt.knowledge.document import Document
 
 
 def _has_aws_credentials() -> bool:

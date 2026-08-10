@@ -20,9 +20,9 @@ from couchbase.options import ClusterOptions
 from couchbase.result import GetResult, MultiMutationResult
 from couchbase.scope import Scope
 
+from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 from egpt.integrations.vectordb.couchbase.couchbase import CouchbaseSearch
 from egpt.knowledge.document import Document
-from egpt.integrations.knowledge.embedder.openai import OpenAIEmbedder
 
 
 @pytest.fixture

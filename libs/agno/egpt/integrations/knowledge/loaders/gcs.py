@@ -8,12 +8,12 @@ Provides methods for loading content from Google Cloud Storage.
 from io import BytesIO
 from typing import Any, Dict, Optional, cast
 
-from egpt.knowledge.content import Content, ContentStatus
 from egpt.integrations.knowledge.loaders.base import BaseLoader
-from egpt.knowledge.reader import Reader
 from egpt.integrations.knowledge.remote_content.base import BaseStorageConfig
 from egpt.integrations.knowledge.remote_content.gcs import GcsConfig
 from egpt.integrations.knowledge.remote_content.remote_content import GCSContent
+from egpt.knowledge.content import Content, ContentStatus
+from egpt.knowledge.reader import Reader
 from egpt.utils.log import log_info, log_warning
 from egpt.utils.string import generate_id
 

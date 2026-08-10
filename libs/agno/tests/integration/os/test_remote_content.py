@@ -6,8 +6,6 @@ import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
-from egpt.knowledge.content import Content
-from egpt.knowledge.knowledge import Knowledge
 from egpt.integrations.knowledge.remote_content import (
     AzureBlobConfig,
     GcsConfig,
@@ -15,6 +13,8 @@ from egpt.integrations.knowledge.remote_content import (
     S3Config,
     SharePointConfig,
 )
+from egpt.knowledge.content import Content
+from egpt.knowledge.knowledge import Knowledge
 from egpt.os.routers.knowledge.knowledge import attach_routes
 
 

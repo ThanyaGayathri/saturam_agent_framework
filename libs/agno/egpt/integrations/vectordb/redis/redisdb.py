@@ -13,9 +13,9 @@ except ImportError:
     raise ImportError("`redis` and `redisvl` not installed. Please install using `pip install redis redisvl`")
 
 from egpt.filters import FilterExpr
+from egpt.integrations.knowledge.reranker.base import Reranker
 from egpt.knowledge.document import Document
 from egpt.knowledge.embedder import Embedder
-from egpt.integrations.knowledge.reranker.base import Reranker
 from egpt.utils.log import log_debug, log_error, log_warning
 from egpt.utils.string import hash_string_sha256
 from egpt.vectordb.base import VectorDb

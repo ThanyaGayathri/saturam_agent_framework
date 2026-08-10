@@ -280,8 +280,8 @@ class TestLoadFromGithubMissingRepo:
 
     @pytest.fixture
     def content_without_repo(self):
-        from egpt.knowledge.content import Content
         from egpt.integrations.knowledge.remote_content.remote_content import GitHubContent
+        from egpt.knowledge.content import Content
 
         return Content(
             name="README.md",

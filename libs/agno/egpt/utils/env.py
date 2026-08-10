@@ -112,6 +112,26 @@ def get_branded_env_with_bare_fallback(
     return value if value is not None else default
 
 
+def get_branded_env_with_vendor_fallback(name: str, vendor: str, default: Optional[str] = None) -> Optional[str]:
+    """Read ``EGPT_<name>``, then ``AGNO_<name>``, then a vendor-owned name.
+
+    Unlike :func:`get_branded_env_with_bare_fallback`, the final spelling is not deprecated:
+    it belongs to an external SDK or service and remains a supported configuration surface.
+    The fallback is still explicit per field so unrelated unprefixed variables cannot bind by
+    accident.
+    """
+    value = get_branded_env(name)
+    if value:
+        return value
+
+    vendor_value = getenv(vendor)
+    if vendor_value:
+        return vendor_value
+    if value is not None:
+        return value
+    return vendor_value if vendor_value is not None else default
+
+
 def _reset_warning_state() -> None:
     """Test hook: clear every once-per-name dedupe set in this module at once."""
     _warned_legacy_env_vars.clear()

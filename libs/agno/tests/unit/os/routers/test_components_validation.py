@@ -6,6 +6,9 @@ the dry-run hydration they close, and the promise that a definition written thro
 comes back out as the same agent.
 """
 
+import re
+from inspect import signature
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,7 +22,9 @@ from egpt.os.routers.components.validation import (
 )
 from egpt.registry import Registry
 from egpt.registry.schema import SCHEMA_VERSION, SCHEMA_VERSION_KEY, ConfigValidationError
+from egpt.team import Team
 from egpt.tools.function import Function
+from egpt.workflow import Workflow
 
 
 def weather(city: str) -> str:
@@ -202,3 +207,44 @@ class TestErrorResponse:
             validate_component_config(["not", "an", "object"], "agent")
 
         assert '"path":"config"' in config_validation_response(exc_info.value).body.decode()
+
+
+# =============================================================================
+# Documentation
+# =============================================================================
+
+
+class TestDocumentedKeyCounts:
+    """docs/component-config-schema.md publishes the size of each component's key set.
+
+    The point of that section is that the set is computed, never hand-listed -- so the two
+    numbers it quotes are exactly the sort of fact that goes stale the next time a component
+    gains a setting. They live here rather than beside the other doc guards because only this
+    layer may import the component classes. The counts differ because `known_keys` is the
+    constructor's parameters plus the serialization-only keys the constructor does not take.
+    """
+
+    DOC_PATH = Path(__file__).parents[6] / "docs" / "component-config-schema.md"
+
+    def _documented_counts(self):
+        if not self.DOC_PATH.exists():
+            pytest.skip(f"{self.DOC_PATH.name} is not present in this checkout")
+        text = self.DOC_PATH.read_text()
+        # The marker sits on its own line, then a blank line, then the table.
+        block = re.search(r"<!-- key-counts:.*?-->\s*\n((?:\|.*\n)+)", text)
+        assert block is not None, "the doc no longer has a marked key-counts table"
+        # Rows read "| `agent` | 115 | 119 |".
+        rows = re.findall(r"^\|\s*`(\w+)`\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|", block.group(1), flags=re.MULTILINE)
+        return {name: (int(params), int(keys)) for name, params, keys in rows}
+
+    @pytest.mark.parametrize(
+        "component_type,component_cls",
+        [("agent", Agent), ("team", Team), ("workflow", Workflow)],
+    )
+    def test_documented_counts_match_the_live_signature(self, component_type, component_cls):
+        documented = self._documented_counts()
+
+        assert component_type in documented, f"{component_type} is missing from the doc's key-counts table"
+        documented_params, documented_keys = documented[component_type]
+        assert documented_params == len(signature(component_cls).parameters)
+        assert documented_keys == len(component_spec_for(component_type).known_keys)

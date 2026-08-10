@@ -1,9 +1,9 @@
 import pytest
 
 from egpt.agent import Agent
+from egpt.integrations.knowledge.reader.arxiv_reader import ArxivReader
 from egpt.integrations.vectordb.chroma import ChromaDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.integrations.knowledge.reader.arxiv_reader import ArxivReader
 
 
 @pytest.fixture

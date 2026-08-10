@@ -2,9 +2,9 @@ from unittest.mock import patch
 
 import pytest
 
+from egpt.integrations.knowledge.reader.firecrawl_reader import FirecrawlReader
 from egpt.knowledge.chunking.fixed import FixedSizeChunking
 from egpt.knowledge.document.base import Document
-from egpt.integrations.knowledge.reader.firecrawl_reader import FirecrawlReader
 
 
 @pytest.fixture

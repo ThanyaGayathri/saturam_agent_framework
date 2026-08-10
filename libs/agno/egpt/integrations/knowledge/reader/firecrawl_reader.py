@@ -2,11 +2,11 @@ import asyncio
 from dataclasses import dataclass
 from typing import Dict, List, Literal, Optional
 
+from egpt.integrations.knowledge.reader.utils.url_validation import is_host_allowed, validate_allowed_hosts
 from egpt.knowledge.chunking.semantic import SemanticChunking
 from egpt.knowledge.chunking.strategy import ChunkingStrategy, ChunkingStrategyType
 from egpt.knowledge.document.base import Document
 from egpt.knowledge.reader.base import Reader
-from egpt.integrations.knowledge.reader.utils.url_validation import is_host_allowed, validate_allowed_hosts
 from egpt.knowledge.types import ContentType
 from egpt.utils.log import log_debug, logger
 

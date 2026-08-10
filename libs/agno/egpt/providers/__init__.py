@@ -18,7 +18,14 @@ is what makes EGPT-3.1's seam a no-op on every agent nobody configured: the chec
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
+    from egpt.providers.config import ModelPolicy, PolicyKey, ProviderConfig
+    from egpt.providers.config_provider import ConfigDrivenModelProvider
+
+    # EGPT-3.4 (Mode B). Lazy for the same reason as the contract names above, and doubly so
+    # here: mode_b reads settings, which pulls in pydantic-settings.
+    from egpt.providers.gateways import GatewayRoute, known_gateways, resolve_gateway
     from egpt.providers.mode_a import LocalModelProvider
+    from egpt.providers.mode_b import FrontierModelProvider
     from egpt.providers.model_provider import (
         AsyncModelProvider,
         BaseModelProvider,
@@ -35,16 +42,24 @@ if TYPE_CHECKING:
 __all__ = [
     "AsyncModelProvider",
     "BaseModelProvider",
+    "ConfigDrivenModelProvider",
     "DetailedModelProvider",
+    "FrontierModelProvider",
+    "GatewayRoute",
     "LocalModelProvider",
     "ModelCapabilities",
+    "ModelPolicy",
     "ModelProvider",
     "ModelProviderConfigError",
     "ModelResolveRequest",
     "ModelResolveResult",
+    "PolicyKey",
+    "ProviderConfig",
     "ProviderMode",
     "get_default_model_provider",
+    "known_gateways",
     "reset_provider_state_for_tests",
+    "resolve_gateway",
     "set_default_model_provider",
     "aresolve_via",
     "supports_detailed_resolve",
@@ -135,16 +150,41 @@ _LAZY_FROM_MODEL_PROVIDER = (
     "supports_detailed_resolve",
 )
 
+# Lazily re-exported from the EGPT-3.2 config modules, for the same reason: importing
+# config_provider here would pull egpt.models.base into every `import egpt.providers`.
+_LAZY_FROM_CONFIG = ("ModelPolicy", "PolicyKey", "ProviderConfig")
+_LAZY_FROM_CONFIG_PROVIDER = ("ConfigDrivenModelProvider",)
+
+# Submodule-backed lazy exports, as name -> submodule. Same rule as above: the import happens
+# on first attribute access, never at package-import time.
+_LAZY_SUBMODULE = {
+    "FrontierModelProvider": "egpt.providers.mode_b",  # EGPT-3.4
+    "GatewayRoute": "egpt.providers.gateways",
+    "LocalModelProvider": "egpt.providers.mode_a",  # EGPT-3.3
+    "known_gateways": "egpt.providers.gateways",
+    "resolve_gateway": "egpt.providers.gateways",
+}
+
 
 def __getattr__(name: str) -> Any:
     if name in _LAZY_FROM_MODEL_PROVIDER:
         from egpt.providers import model_provider
 
         return getattr(model_provider, name)
-    if name == "LocalModelProvider":
-        # EGPT-3.3. Kept out of the tuple above because it lives in its own module: importing
-        # it eagerly would pull the settings stack into every `import egpt.providers`.
-        from egpt.providers.mode_a import LocalModelProvider
+    if name in _LAZY_FROM_CONFIG:
+        from egpt.providers import config
 
-        return LocalModelProvider
+        return getattr(config, name)
+    if name in _LAZY_FROM_CONFIG_PROVIDER:
+        from egpt.providers import config_provider
+
+        return getattr(config_provider, name)
+    # EGPT-3.3's LocalModelProvider is routed through _LAZY_SUBMODULE rather than its own
+    # branch: that dict is the generic form of the same "import on first access, never at
+    # package-import time" rule, and a per-name `if` would only be a second way to say it.
+    module_name = _LAZY_SUBMODULE.get(name)
+    if module_name is not None:
+        from importlib import import_module
+
+        return getattr(import_module(module_name), name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

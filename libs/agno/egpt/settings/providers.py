@@ -22,7 +22,10 @@ from typing import Any, List, Optional
 
 from pydantic import Field
 
-from egpt.settings.sources import BrandedSettings
+from pydantic import Field
+
+from egpt.settings.sources import BrandedSettings, bare_env_name, vendor_env
+from egpt.utils.env import get_branded_env_with_bare_fallback
 
 
 class ProviderSettings(BrandedSettings):
@@ -39,7 +42,16 @@ class ProviderSettings(BrandedSettings):
 
     # -- config-driven resolution (EGPT-3.2) -------------------------------
     # Owned by #64. Path to the per-tenant policy document, and the fallback identity claim.
-    # (Add fields here.)
+    #
+    # Path to a JSON policy document consumed by `ProviderConfig.from_dict`. None means "no
+    # document": a deployment may equally build its `ProviderConfig` in code and hand it to
+    # `ConfigDrivenModelProvider(...)` directly, which is what the tests do.
+    policy_file: Optional[str] = None
+    # Which verified JWT claim carries the tenant. There is no tenant concept in this tree
+    # yet, so `egpt/os/utils.py` reads this claim when present and falls back to `user_id`;
+    # the fallback is what actually runs today. Named here so a deployment whose IdP calls it
+    # `org_id` or `tid` does not have to patch the framework.
+    tenant_claim: str = "tenant_id"
 
     # -- Mode A: self-hosted SLM (EGPT-3.3) --------------------------------
     # Owned by #65. The in-VPC endpoint and adapter configuration.
@@ -92,7 +104,26 @@ class ProviderSettings(BrandedSettings):
     # deliberately NOT fields here. Their names are owned by the provider SDK convention, and
     # `egpt/settings/__init__.py` documents why the framework does not re-namespace them. Only
     # gateway endpoints and EGPT-owned routing config belong in this block.
-    # (Add fields here.)
+    #
+    # Which frontier backend to build when the caller pins nothing. These are registry keys
+    # ("anthropic", "openai", "google", "aws-bedrock", "azure-openai"), not import paths:
+    # naming one imports nothing, and `discovery.construct` turns the string into a class only
+    # when a resolution actually happens.
+    mode_b_provider: Optional[str] = None
+    mode_b_model: Optional[str] = None
+
+    # Optional gateway in front of the frontier. None means "talk to the frontier directly".
+    # "portkey" is the tested path; "litellm" is code-only and raises at resolve time while the
+    # package stays blocked (libs/agno/pyproject.toml ~line 249).
+    mode_b_gateway: Optional[str] = None
+    # EGPT-owned routing config for that gateway.
+    #
+    # `PORTKEY_*` is the vendor's supported convention, not a deprecated EGPT spelling. Use a
+    # non-warning vendor fallback rather than `bare_env`, while keeping EGPT_/AGNO_ precedence
+    # and resolving the values before Mode B performs its clear missing-credential checks.
+    mode_b_gateway_api_key: Optional[str] = Field(default=None, json_schema_extra=vendor_env("PORTKEY_API_KEY"))
+    mode_b_gateway_base_url: Optional[str] = None
+    mode_b_gateway_virtual_key: Optional[str] = Field(default=None, json_schema_extra=vendor_env("PORTKEY_VIRTUAL_KEY"))
 
 
 def get_provider_settings(**overrides: Any) -> ProviderSettings:
@@ -104,4 +135,21 @@ def get_provider_settings(**overrides: Any) -> ProviderSettings:
     return ProviderSettings(**overrides)
 
 
-__all__ = ["ProviderSettings", "get_provider_settings"]
+def resolve_provider_setting(field_name: str) -> Optional[str]:
+    """Live three-way read of a single ``ProviderSettings`` field, without building the model.
+
+    The counterpart of ``egpt.settings.resolve``, and it exists for the same reason: reading one
+    string on a per-request path must not construct and re-validate a whole pydantic model.
+    ``tenant_claim`` is read on every factory-backed HTTP request, so that cost is real.
+
+    Live, not cached, so the no-stale-reads property of ``get_provider_settings`` is preserved:
+    a test that sets the variable after an earlier call still sees the new value.
+
+    ``field_name`` must name a real field -- a typo raises ``KeyError`` rather than silently
+    resolving to ``None``.
+    """
+    field = ProviderSettings.model_fields[field_name]
+    return get_branded_env_with_bare_fallback(field_name.upper(), bare=bare_env_name(field))
+
+
+__all__ = ["ProviderSettings", "get_provider_settings", "resolve_provider_setting"]

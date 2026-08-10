@@ -11,12 +11,12 @@ from typing import Dict, List, Optional, cast
 import httpx
 from httpx import AsyncClient
 
-from egpt.knowledge.content import Content, ContentStatus
 from egpt.integrations.knowledge.loaders.base import BaseLoader
-from egpt.knowledge.reader import Reader
 from egpt.integrations.knowledge.remote_content.base import BaseStorageConfig
 from egpt.integrations.knowledge.remote_content.remote_content import SharePointContent
 from egpt.integrations.knowledge.remote_content.sharepoint import SharePointConfig
+from egpt.knowledge.content import Content, ContentStatus
+from egpt.knowledge.reader import Reader
 from egpt.utils.log import log_error, log_info, log_warning
 
 

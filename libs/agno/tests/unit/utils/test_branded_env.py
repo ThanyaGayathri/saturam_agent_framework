@@ -7,7 +7,13 @@ import warnings
 import pytest
 
 from egpt.utils import env as env_module
-from egpt.utils.env import get_branded_env, get_branded_env_bool, get_branded_env_with_bare_fallback, get_from_env
+from egpt.utils.env import (
+    get_branded_env,
+    get_branded_env_bool,
+    get_branded_env_with_bare_fallback,
+    get_branded_env_with_vendor_fallback,
+    get_from_env,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -140,3 +146,22 @@ def test_bare_fallback_empty_branded_falls_through(monkeypatch: pytest.MonkeyPat
 def test_bare_fallback_returns_default_when_all_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_three_way(monkeypatch, "OS_SECURITY_KEY", "OS_SECURITY_KEY")
     assert get_branded_env_with_bare_fallback("OS_SECURITY_KEY", bare="OS_SECURITY_KEY", default="d") == "d"
+
+
+def test_vendor_fallback_binds_without_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_three_way(monkeypatch, "MODE_B_GATEWAY_API_KEY", "PORTKEY_API_KEY")
+    monkeypatch.setenv("PORTKEY_API_KEY", "vendor")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        value = get_branded_env_with_vendor_fallback("MODE_B_GATEWAY_API_KEY", vendor="PORTKEY_API_KEY")
+
+    assert value == "vendor"
+    assert not caught
+
+
+def test_vendor_fallback_prefers_branded(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_three_way(monkeypatch, "MODE_B_GATEWAY_API_KEY", "PORTKEY_API_KEY")
+    monkeypatch.setenv("EGPT_MODE_B_GATEWAY_API_KEY", "branded")
+    monkeypatch.setenv("PORTKEY_API_KEY", "vendor")
+    assert get_branded_env_with_vendor_fallback("MODE_B_GATEWAY_API_KEY", vendor="PORTKEY_API_KEY") == "branded"

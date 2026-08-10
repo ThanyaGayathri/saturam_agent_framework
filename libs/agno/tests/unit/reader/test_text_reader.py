@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from egpt.knowledge.document.base import Document
 from egpt.integrations.knowledge.reader.text_reader import TextReader
+from egpt.knowledge.document.base import Document
 
 
 @pytest.fixture
@@ -341,8 +341,8 @@ async def test_async_parallel_chunking():
 
 def test_text_reader_chunk_size_propagation():
     """Test that chunk_size is propagated to default chunking strategy"""
-    from egpt.knowledge.chunking.fixed import FixedSizeChunking
     from egpt.integrations.knowledge.reader.text_reader import TextReader
+    from egpt.knowledge.chunking.fixed import FixedSizeChunking
 
     reader = TextReader(chunk_size=400)
     assert reader.chunk_size == 400
@@ -352,8 +352,8 @@ def test_text_reader_chunk_size_propagation():
 
 def test_text_reader_default_chunk_size():
     """Test default chunk_size is 5000"""
-    from egpt.knowledge.chunking.fixed import FixedSizeChunking
     from egpt.integrations.knowledge.reader.text_reader import TextReader
+    from egpt.knowledge.chunking.fixed import FixedSizeChunking
 
     reader = TextReader()
     assert reader.chunk_size == 5000

@@ -9,10 +9,10 @@ try:
 except ImportError:
     raise ImportError("`aiofiles` not installed. Please install it with `pip install aiofiles`")
 
+from egpt.integrations.knowledge.reader.utils import stringify_cell_value
 from egpt.knowledge.chunking.strategy import ChunkingStrategyType
 from egpt.knowledge.document.base import Document
 from egpt.knowledge.reader.base import Reader
-from egpt.integrations.knowledge.reader.utils import stringify_cell_value
 from egpt.knowledge.types import ContentType
 from egpt.utils.log import log_debug, log_error, log_warning
 

@@ -3,9 +3,9 @@ import os
 import pytest
 
 from egpt.agent import Agent
+from egpt.integrations.knowledge.reader.firecrawl_reader import FirecrawlReader
 from egpt.integrations.vectordb.lancedb import LanceDb
 from egpt.knowledge.knowledge import Knowledge
-from egpt.integrations.knowledge.reader.firecrawl_reader import FirecrawlReader
 
 
 @pytest.fixture

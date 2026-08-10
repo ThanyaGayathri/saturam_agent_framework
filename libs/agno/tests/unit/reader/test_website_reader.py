@@ -3,10 +3,10 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from egpt.knowledge.chunking.fixed import FixedSizeChunking
-from egpt.knowledge.document.base import Document
 from egpt.integrations.knowledge.reader.utils.url_validation import is_host_allowed
 from egpt.integrations.knowledge.reader.website_reader import WebsiteReader
+from egpt.knowledge.chunking.fixed import FixedSizeChunking
+from egpt.knowledge.document.base import Document
 
 
 @pytest.fixture

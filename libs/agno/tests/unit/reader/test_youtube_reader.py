@@ -2,8 +2,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from egpt.knowledge.document.base import Document
 from egpt.integrations.knowledge.reader.youtube_reader import YouTubeReader
+from egpt.knowledge.document.base import Document
 
 
 @pytest.fixture
@@ -278,8 +278,8 @@ async def test_async_read_video_unicode_content():
 
 def test_youtube_reader_chunk_size_propagation():
     """Test that chunk_size is propagated to default chunking strategy"""
-    from egpt.knowledge.chunking.recursive import RecursiveChunking
     from egpt.integrations.knowledge.reader.youtube_reader import YouTubeReader
+    from egpt.knowledge.chunking.recursive import RecursiveChunking
 
     reader = YouTubeReader(chunk_size=500)
     assert reader.chunk_size == 500
@@ -289,8 +289,8 @@ def test_youtube_reader_chunk_size_propagation():
 
 def test_youtube_reader_default_chunk_size():
     """Test default chunk_size is 5000"""
-    from egpt.knowledge.chunking.recursive import RecursiveChunking
     from egpt.integrations.knowledge.reader.youtube_reader import YouTubeReader
+    from egpt.knowledge.chunking.recursive import RecursiveChunking
 
     reader = YouTubeReader()
     assert reader.chunk_size == 5000
