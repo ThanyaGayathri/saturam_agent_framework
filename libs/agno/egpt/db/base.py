@@ -643,16 +643,26 @@ class BaseDb(ABC):
 
     # --- Components (Optional) ---
     # These methods are optional. Override in subclasses to enable component persistence.
+    #
+    # Tenant scoping: every component method takes an optional ``tenant_id``.
+    #   - On writes it is stored on the rows created by the call. It is never changed by an
+    #     update: a component does not move between tenants via an upsert.
+    #   - On reads and on the lookups behind a mutation, ``None`` applies no tenant predicate
+    #     (rows from every tenant are visible) and a value restricts the statement to that
+    #     tenant. Rows written before multi-tenancy carry a NULL ``tenant_id`` and are only
+    #     reachable with ``tenant_id=None``.
     def get_component(
         self,
         component_id: str,
         component_type: Optional[ComponentType] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Get a component by ID.
 
         Args:
             component_id: The component ID.
             component_type: Optional filter by type (agent|team|workflow).
+            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
 
         Returns:
             Component dictionary or None if not found.
@@ -667,6 +677,7 @@ class BaseDb(ABC):
         description: Optional[str] = None,
         current_version: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create or update a component.
 
@@ -677,6 +688,7 @@ class BaseDb(ABC):
             description: Optional description.
             current_version: Optional current version.
             metadata: Optional metadata dict.
+            tenant_id: Optional tenant. Stored on create; scopes the lookup on update.
 
         Returns:
             Created/updated component dictionary.
@@ -690,12 +702,14 @@ class BaseDb(ABC):
         self,
         component_id: str,
         hard_delete: bool = False,
+        tenant_id: Optional[str] = None,
     ) -> bool:
         """Delete a component and all its configs/links.
 
         Args:
             component_id: The component ID.
             hard_delete: If True, permanently delete. Otherwise soft-delete.
+            tenant_id: Optional tenant to scope the delete to. None means no tenant filter.
 
         Returns:
             True if deleted, False if not found or already deleted.
@@ -709,6 +723,7 @@ class BaseDb(ABC):
         limit: int = 20,
         offset: int = 0,
         exclude_component_ids: Optional[Set[str]] = None,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """List components with pagination.
 
@@ -718,6 +733,7 @@ class BaseDb(ABC):
             limit: Maximum number of items to return.
             offset: Number of items to skip.
             exclude_component_ids: Component IDs to exclude from results.
+            tenant_id: Optional tenant to scope the listing to. None means no tenant filter.
 
         Returns:
             Tuple of (list of component dicts, total count).
@@ -736,6 +752,7 @@ class BaseDb(ABC):
         stage: str = "draft",
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
+        tenant_id: Optional[str] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Create a component with its initial config atomically.
 
@@ -750,6 +767,7 @@ class BaseDb(ABC):
             stage: "draft" or "published".
             notes: Optional notes.
             links: Optional list of links. Each must have child_version set.
+            tenant_id: Optional tenant. Stored on the component, config and link rows.
 
         Returns:
             Tuple of (component dict, config dict).
@@ -765,6 +783,7 @@ class BaseDb(ABC):
         component_id: str,
         version: Optional[int] = None,
         label: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Get a config by component ID and version or label.
 
@@ -772,6 +791,7 @@ class BaseDb(ABC):
             component_id: The component ID.
             version: Specific version number. If None, uses current.
             label: Config label to lookup. Ignored if version is provided.
+            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
 
         Returns:
             Config dictionary or None if not found.
@@ -787,6 +807,7 @@ class BaseDb(ABC):
         stage: Optional[str] = None,
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
+        tenant_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create or update a config version for a component.
 
@@ -803,6 +824,7 @@ class BaseDb(ABC):
             stage: "draft" or "published". Defaults to "draft" for new configs.
             notes: Optional notes.
             links: Optional list of links. Each link must have child_version set.
+            tenant_id: Optional tenant. Stored on new config and link rows; scopes every lookup.
 
         Returns:
             Created/updated config dictionary.
@@ -817,6 +839,7 @@ class BaseDb(ABC):
         self,
         component_id: str,
         version: int,
+        tenant_id: Optional[str] = None,
     ) -> bool:
         """Delete a specific config version.
 
@@ -826,6 +849,7 @@ class BaseDb(ABC):
         Args:
             component_id: The component ID.
             version: The version to delete.
+            tenant_id: Optional tenant to scope the delete to. None means no tenant filter.
 
         Returns:
             True if deleted, False if not found.
@@ -839,12 +863,14 @@ class BaseDb(ABC):
         self,
         component_id: str,
         include_config: bool = False,
+        tenant_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """List all config versions for a component.
 
         Args:
             component_id: The component ID.
             include_config: If True, include full config blob. Otherwise just metadata.
+            tenant_id: Optional tenant to scope the listing to. None means no tenant filter.
 
         Returns:
             List of config dictionaries, newest first.
@@ -856,6 +882,7 @@ class BaseDb(ABC):
         self,
         component_id: str,
         version: int,
+        tenant_id: Optional[str] = None,
     ) -> bool:
         """Set a specific published version as current.
 
@@ -866,6 +893,7 @@ class BaseDb(ABC):
         Args:
             component_id: The component ID.
             version: The version to set as current (must be published).
+            tenant_id: Optional tenant to scope the update to. None means no tenant filter.
 
         Returns:
             True if successful, False if component or version not found.
@@ -881,6 +909,7 @@ class BaseDb(ABC):
         component_id: str,
         version: int,
         link_kind: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Get links for a config version.
 
@@ -888,6 +917,7 @@ class BaseDb(ABC):
             component_id: The component ID.
             version: The config version.
             link_kind: Optional filter by link kind (member|step).
+            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
 
         Returns:
             List of link dictionaries, ordered by position.
@@ -898,12 +928,14 @@ class BaseDb(ABC):
         self,
         component_id: str,
         version: Optional[int] = None,
+        tenant_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Find all components that reference this component.
 
         Args:
             component_id: The component ID to find dependents of.
             version: Optional specific version. If None, finds links to any version.
+            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
 
         Returns:
             List of link dictionaries showing what depends on this component.
@@ -915,6 +947,7 @@ class BaseDb(ABC):
         component_id: str,
         version: Optional[int] = None,
         label: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Load a component with its full resolved graph.
 
@@ -924,6 +957,8 @@ class BaseDb(ABC):
             component_id: The component ID.
             version: Specific version or None for current.
             label: Optional label of the component.
+            tenant_id: Optional tenant. Applied to the root component and every child
+                resolved through the graph. None means no tenant filter.
 
         Returns:
             Dictionary with component, config, children, and resolved_versions.

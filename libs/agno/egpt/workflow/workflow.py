@@ -1,6 +1,8 @@
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
+from inspect import signature as inspect_signature
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -8,6 +10,7 @@ from typing import (
     Awaitable,
     Callable,
     Dict,
+    FrozenSet,
     Iterator,
     List,
     Literal,
@@ -36,6 +39,7 @@ from egpt.media import Audio, File, Image, Video
 from egpt.models.message import Message
 from egpt.models.metrics import RunMetrics, SessionMetrics
 from egpt.registry import Registry
+from egpt.registry.schema import SCHEMA_VERSION, SCHEMA_VERSION_KEY, ComponentSpec
 from egpt.run import RunContext, RunStatus
 from egpt.run.agent import (
     RunCancelledEvent as AgentRunCancelledEvent,
@@ -927,6 +931,10 @@ class Workflow:
         if self.steps and isinstance(self.steps, list):
             config["steps"] = [step.to_dict() for step in self.steps if hasattr(step, "to_dict")]
 
+        # See the note in egpt/agent/_storage.py: `save()` bypasses the components API, so this
+        # is the only point where every stored config becomes self-describing.
+        config[SCHEMA_VERSION_KEY] = SCHEMA_VERSION
+
         return config
 
     @classmethod
@@ -1009,6 +1017,20 @@ class Workflow:
             # --- Steps ---
             steps=steps,
         )
+
+    @classmethod
+    def component_spec(
+        cls,
+        *,
+        registry: Optional["Registry"] = None,
+        db: Optional["BaseDb"] = None,
+        links: Optional[List[Dict[str, Any]]] = None,
+    ) -> "ComponentSpec":
+        """The contract `egpt.registry.schema` validates workflow configs against.
+
+        Sync-only by design: it builds and returns a descriptor with nothing to await.
+        """
+        return component_spec(registry=registry, db=db, links=links)
 
     def save(
         self,
@@ -10737,6 +10759,31 @@ class Workflow:
                 return copy(step)
             except Exception:
                 return step
+
+
+# Config keys that are not `Workflow` constructor parameters but are still legitimate.
+_WORKFLOW_EXTRA_CONFIG_KEYS = frozenset({SCHEMA_VERSION_KEY})
+
+
+@lru_cache(maxsize=1)
+def _workflow_config_keys() -> FrozenSet[str]:
+    """Every key a workflow config may carry, derived from the constructor rather than listed."""
+    params = {name for name in inspect_signature(Workflow).parameters if name != "self"}
+    return frozenset(params | _WORKFLOW_EXTRA_CONFIG_KEYS)
+
+
+def component_spec(
+    *,
+    registry: Optional["Registry"] = None,
+    db: Optional["BaseDb"] = None,
+    links: Optional[List[Dict[str, Any]]] = None,
+) -> ComponentSpec:
+    """The workflow's side of the config-validation contract (see `egpt.registry.schema`)."""
+    return ComponentSpec(
+        component_type="workflow",
+        known_keys=_workflow_config_keys(),
+        hydrate=lambda config: Workflow.from_dict(config, db=db, links=links, registry=registry),
+    )
 
 
 def get_workflow_by_id(

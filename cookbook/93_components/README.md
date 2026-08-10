@@ -34,6 +34,7 @@ The Agent-as-Config feature allows you to:
 | `registry.py` | Use a registry for non-serializable components |
 | `auto_populate_registry.py` | Inspect how EgptOS auto-discovers components from teams and workflows |
 | `auto_populate_registry_os.py` | Serve an EgptOS and see the auto-discovered components over the API |
+| `validate_config.py` | Validate an agent definition and read the field-level errors it produces |
 
 ---
 
@@ -395,4 +396,39 @@ python cookbook/93_components/get_workflow.py
 
 # Registry example
 python cookbook/93_components/registry.py
+
+# Config validation example (offline, no database needed)
+python cookbook/93_components/validate_config.py
 ```
+
+---
+
+## Config Validation
+
+Every config written through the components API (`POST /components`,
+`POST /components/{id}/configs`, `PATCH /components/{id}/configs/{version}`) is validated
+before it is persisted. An agent definition must name a resolvable model, may only use fields
+the agent understands, and has to hydrate — so an unrunnable definition is rejected at
+authoring time instead of failing in the middle of someone's run.
+
+An invalid definition comes back as a 422 listing every problem at once:
+
+```json
+{
+  "detail": "Invalid agent configuration: 2 errors.",
+  "error_code": "CONFIG_VALIDATION_ERROR",
+  "schema_version": 1,
+  "errors": [
+    {"path": "config.model", "message": "Field 'model' is required for an agent definition.",
+     "code": "missing_required_field"},
+    {"path": "config.instruction", "message": "Unknown field 'instruction'. Did you mean 'instructions'?",
+     "code": "unknown_field"}
+  ]
+}
+```
+
+Configs also carry a `schema_version`. `to_dict()` stamps it, so `save()` writes versioned
+configs too, and `from_dict()` ignores it — an older config without the key still loads.
+
+Run `validate_config.py` to see a valid definition and three rejected ones. The full field
+tables and error-code vocabulary are in `docs/component-config-schema.md`.

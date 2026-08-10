@@ -165,8 +165,13 @@ def _get_span_table_schema(traces_table_name: str = TABLE_PREFIX + "traces", db_
     }
 
 
+# ``tenant_id`` scopes a component to a tenant. It is nullable: rows written before
+# multi-tenancy (and by single-tenant callers that never pass one) carry NULL, which means
+# "unscoped". It leads every composite index below, so a bare tenant filter is served by
+# the composite and no separate single-column index is needed.
 COMPONENT_TABLE_SCHEMA = {
     "component_id": {"type": String, "primary_key": True},
+    "tenant_id": {"type": String, "nullable": True},
     "component_type": {"type": String, "nullable": False, "index": True},  # agent|team|workflow
     "name": {"type": String, "nullable": True, "index": True},
     "description": {"type": Text, "nullable": True},
@@ -175,11 +180,15 @@ COMPONENT_TABLE_SCHEMA = {
     "created_at": {"type": BigInteger, "nullable": False, "index": True},
     "updated_at": {"type": BigInteger, "nullable": True},
     "deleted_at": {"type": BigInteger, "nullable": True},
+    "__composite_indexes__": [
+        {"name": "tenant_id_component_id", "columns": ["tenant_id", "component_id"]},
+    ],
 }
 
 COMPONENT_CONFIGS_TABLE_SCHEMA = {
     "component_id": {"type": String, "primary_key": True, "foreign_key": "components.component_id"},
     "version": {"type": Integer, "primary_key": True},
+    "tenant_id": {"type": String, "nullable": True},
     "label": {"type": String, "nullable": True},  # stable|v1.2.0|pre-refactor
     "stage": {"type": String, "nullable": False, "default": "draft", "index": True},  # draft|published
     "config": {"type": JSONB, "nullable": False},
@@ -187,11 +196,15 @@ COMPONENT_CONFIGS_TABLE_SCHEMA = {
     "created_at": {"type": BigInteger, "nullable": False, "index": True},
     "updated_at": {"type": BigInteger, "nullable": True},
     "deleted_at": {"type": BigInteger, "nullable": True},
+    "__composite_indexes__": [
+        {"name": "tenant_id_component_id", "columns": ["tenant_id", "component_id"]},
+    ],
 }
 
 COMPONENT_LINKS_TABLE_SCHEMA = {
     "parent_component_id": {"type": String, "nullable": False},
     "parent_version": {"type": Integer, "nullable": False},
+    "tenant_id": {"type": String, "nullable": True},
     "link_kind": {"type": String, "nullable": False, "index": True},
     "link_key": {"type": String, "nullable": False},
     "child_component_id": {"type": String, "nullable": False, "foreign_key": "components.component_id"},
@@ -207,6 +220,12 @@ COMPONENT_LINKS_TABLE_SCHEMA = {
             "ref_table": "component_configs",
             "ref_columns": ["component_id", "version"],
         }
+    ],
+    # Both directions are indexed: parent lookups drive get_links/load_component_graph,
+    # child lookups drive get_dependents.
+    "__composite_indexes__": [
+        {"name": "tenant_id_parent_component_id", "columns": ["tenant_id", "parent_component_id"]},
+        {"name": "tenant_id_child_component_id", "columns": ["tenant_id", "child_component_id"]},
     ],
 }
 LEARNINGS_TABLE_SCHEMA = {
