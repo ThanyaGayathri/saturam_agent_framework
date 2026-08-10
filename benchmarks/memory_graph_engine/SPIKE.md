@@ -5,7 +5,12 @@
 - **Depends on:** SM-R1 (#76, ADR — [PR #54](https://github.com/Saturam-Inc/saturam-agent-framework/pull/54)
   is **OPEN / not merged**, therefore **not ratified**). Every place this doc leans on an SM-R1
   output is marked **provisional pending SM-R1**.
-- **Feeds:** SM-G* (graph tier), SM-H4 (PPR integration), SM-X11 (persistence)
+- **Feeds:** **SM-G1** (per the issue), and downstream SM-G4/G5 (bi-temporal edges/invalidation),
+  SM-H4 (PPR integration), SM-X11 (persistence)
+- **Grounded in:** `MEMORY-RESEARCH-episodic-and-neurosymbolic.md` (decisions D7 + D8).
+  **Note:** as SM-R1 records, that file is cited by every sibling as
+  `docs/MEMORY-RESEARCH-...` but is **not present in `docs/`** in this checkout, so it is cited
+  second-hand through the siblings that quote it, never quoted directly here.
 - **Type:** Spike — deliverable is the runnable comparison in this folder plus this recommendation.
 
 ---
@@ -28,6 +33,51 @@ The issue framed this as a four-way choice. Measured, it is not close:
 
 **Graphiti scores 63.3%, i.e. 6.6 points above a store with no bi-temporal model at all.**
 The gap is not tuning — it is three structural defects in its write path (§2.1).
+
+> **The issue names Graphiti-over-Neo4j as "preferred".** That preference is not adopted. It is
+> overturned on measurement, not on taste: the engine underneath it (Neo4j) *is* the
+> recommendation — what is rejected is the **library's temporal layer**, which scores 63.3% where
+> the layer we already own scores 100%. So this lands close to the stated preference on
+> infrastructure and against it on the pipeline.
+
+---
+
+## Questions to answer (from the issue)
+
+| Question | Answer |
+|---|---|
+| Graphiti library directly (over Neo4j) vs the framework's `lightrag` vs Cognee vs raw Neo4j + our own bi-temporal layer? | **Raw Neo4j + our own bi-temporal layer** (SM-R10's, already built). Measured: Graphiti **19/30**, our layer **30/30**, Cognee **8/30 inexpressible**, `lightrag` has no temporal surface at all. §2. |
+| Self-host footprint + license fit: Neo4j Community vs alternatives (FalkorDB, Kuzu)? | **Neo4j Community (GPLv3), self-hosted as a separate Bolt server.** Kuzu (MIT, embedded) is lighter and FalkorDB is mid-weight, but **neither has personalized PPR**, which is a hard requirement from SM-R9. ⚠️ The GDS plugin's own license text is contradictory and needs legal review. §5.3. |
+| Can we get bi-temporal edges, **incremental** updates (no batch recompute), and a **no-query-time-LLM** read path? | **Yes, yes (with one qualification), yes.** Bi-temporal: 30/30. Incremental: the store is; **GDS projections are static snapshots**, so the PPR layer needs a re-projection cadence — measured, §Part 3. Read path: rule-based extraction at write time, pure-Cypher predicates at read time. |
+| How much of Graphiti's pipeline (entity/edge/temporal extraction) can we reuse vs must wrap? | **None of Graphiti's pipeline is reused.** Its temporal extraction/invalidation is the part measured unfit (§2.1). We reuse **Neo4j** (storage, Cypher, GDS PageRank) and wrap every temporal semantic ourselves. §Reused vs wrapped. |
+
+## Options evaluated (from the issue)
+
+| Option | Exercised? | Result / disposition |
+|---|---|---|
+| **Graphiti over Neo4j** — *the issue's preferred option* | **Yes** — real `graphiti-core` 0.29.3 vs real Neo4j 5.26, scored on SM-R10's 30 probes | **REJECTED on measurement. 19/30 (63.3%)** vs 56.7% for a store with no bi-temporal model. Three structural write-path defects (§2.1): in-place mutation with no bounded reinsert, no same-`t_valid` tie rule, no back-dated bounding. Ships no 5a/5b predicate (0 `COALESCE`, 0 `expired_at IS NULL`). |
+| **Framework `lightrag` graph-RAG** | **Yes** — source inspection of the in-tree client | **REJECTED as an engine; retained as a complement.** No temporal fields, no PPR, and `async_search` **silently discards filters**, so a point-in-time predicate cannot even be sent (§2.2). |
+| **Cognee** | **Yes** — cognee 1.4.2 probed structurally against the same scenarios | **REJECTED on data model.** Single valid-time axis (`Event{time_from,time_to}`); **8 of 30 probes inexpressible**. Bi-temporal fields are import-only; its own docstring says bi-temporal search has not landed. Query-time LLM on the read path. Also Route B (no pagerank). §2.3. |
+| **Raw Neo4j + custom bi-temporal layer** | **Yes** — already built and measured by SM-R10; cited, not rebuilt | **CHOSEN. 30/30** across five backends, SQL-native and Cypher-native probe-for-probe identical to the reference; guardrail 8/8; 5c 10/10. §2.4. |
+| *(Zep Cloud — named in the issue's seed context)* | **Yes** — source inspection of `ZepTools` | **REJECTED on self-host.** Hosted SaaS requiring `ZEP_API_KEY`; incompatible with the self-host axis the issue asks about, and with Mode A offline operation. §Seed-context. |
+
+## Seed-context verification & disposition
+
+The issue's three named seed surfaces, verified against **current** post-rebrand code. All three
+of the issue's paths are now **deprecated compatibility shims** — the real implementations moved
+under `integrations/`.
+
+| Seed (issue) | Current location | Verified | Disposition |
+|---|---|---|---|
+| `vectordb/lightrag/lightrag.py` — graph-RAG, not bi-temporal | real: [`egpt/integrations/vectordb/lightrag/lightrag.py`](../../libs/agno/egpt/integrations/vectordb/lightrag/lightrag.py) (391 lines); `egpt/vectordb/lightrag/lightrag.py` is a 29-line **deprecated shim (EGPT-1.7)** | Yes — thin HTTP client to an external LightRAG server; 0 temporal fields, 0 PPR; **filters silently dropped** | **COMPLEMENT — not promoted, not deleted.** Cannot carry a time predicate (§2.2). Matches SM-R1 §4 (provisional). |
+| `tools/neo4j.py` — Neo4j as an agent tool | real: [`egpt/integrations/tools/neo4j/neo4j.py`](../../libs/agno/egpt/integrations/tools/neo4j/neo4j.py) (134 lines); `egpt/tools/neo4j/neo4j.py` is a **deprecated shim** | Yes — `GraphDatabase` driver + Cypher runner; a *tool*, not a store | **REUSE the driver dependency; the memory backend is NEW.** Confirms the issue's framing that the tier is net-new. |
+| `tools/zep.py` — Zep as an agent tool | real: [`egpt/integrations/tools/zep/zep.py`](../../libs/agno/egpt/integrations/tools/zep/zep.py) (454 lines); `egpt/tools/zep/zep.py` is a **deprecated shim** | Yes — `zep_cloud` client, requires `ZEP_API_KEY`; exposes `graph.search`; **0 temporal fields locally** | **OUT — SaaS, fails self-host.** Zep Cloud is the managed form of Graphiti's model, so it inherits §2.1's semantics *and* adds a hosted dependency. Excluded on the issue's own self-host/license axis and incompatible with Mode A offline (SM-R1 §A.3c, provisional). |
+
+> **Path-citation drift, for the record.** SM-R9's disposition table cites
+> `libs/agno/egpt/tools/neo4j.py` and SM-R1 §4 cites `vectordb/lightrag/lightrag.py`. Both now
+> resolve only to deprecated shims (and neither is a flat `.py` — each is a package directory).
+> Cosmetic, but downstream tasks reading those tables will land on the shim rather than the
+> implementation.
 
 ---
 
@@ -509,24 +559,48 @@ remove the need to.
 
 ---
 
-## Acceptance criteria
+## Acceptance criteria (verbatim from #77)
 
 - [x] **Prototype ingests a sample corpus into a temporal graph and answers a point-in-time and a
       multi-hop query.** Point-in-time: SM-R10's 30 probes, re-run here for Graphiti (19/30) and
       cited for the incumbent (30/30). Multi-hop: SM-R9's PPR prototype, plus a **new** measured
       `gds.pageRank(sourceNodes)` run over an SM-R10 5a-filtered projection
-      ([`run_ppr_route.py`](run_ppr_route.py)) — the first time the two compose on real temporal data.
-- [x] **Engine recommendation documented with license + self-host notes** — §5.3, incl. the GDS
-      license flag.
+      ([`run_ppr_route.py`](run_ppr_route.py)) — the first time the two compose on temporal data.
+      *Honest scope:* the corpora are the siblings' (SM-R10's constructed timelines, SM-R9's
+      2Wiki-derived KG), not a new one — deliberately, so the engines are scored on one ruler.
+- [x] **Engine recommendation documented with license + self-host notes (Neo4j vs FalkorDB/Kuzu)**
+      — §5.3, including the GDS license flag and the measured PPR-capability table.
 - [x] **Confirms bi-temporal + incremental + no-query-time-LLM feasibility** — §Part 3, with the
       GDS-projection-staleness qualification stated rather than glossed.
-- [x] **States how much of the pipeline is reused vs wrapped** — §Reused vs wrapped.
-- [x] **States relationship to `lightrag` (replace / complement)** — §2.2: **complement**, on
-      measured evidence (filters silently dropped; no temporal fields; no PPR), not inherited assumption.
+- [x] **States how much of the chosen engine's pipeline we reuse vs wrap** — §Reused vs wrapped.
+- [x] **Notes relationship to the existing `lightrag` backend (replace / complement)** — §2.2:
+      **COMPLEMENT**, on measured evidence (filters silently dropped; no temporal fields; no PPR),
+      not the inherited assumption.
+
+**Also delivered (not issue ACs — added by the task brief):**
+
 - [x] **Resolves or escalates the SM-R9 PPR-ownership gap** — §Part 4: already resolved to SM-H4
-      (#134); the residue is a stale SM-R10 §12.1 doc, raised for its owner.
-- [x] **States which Route applies and sizes Route B** — §5.1: **Route A**, verified; Route B
-      sized as the avoided cost.
+      (#134) before this spike; the residue is a stale SM-R10 §12.1, raised for its owner.
+- [x] **States which Route applies and sizes Route B** — §5.1: **Route A**, verified on a real
+      deployment; Route B sized as the avoided cost.
+
+### Latency & integration cost (issue Deliverable asks for latency notes)
+
+The issue's deliverable line asks for "license, self-host, **latency**, and integration-cost
+notes". Stated honestly, because **this spike did not run a latency benchmark**:
+
+| Source | Number | Status |
+|---|---|---|
+| PPR compute (SM-R9, 285-passage KG) | **<100 ms** — hybrid retrieves in 0.056 s mean once query embed/NER are cached | measured by SM-R9, cited |
+| SM-R9 end-to-end query p95 | vector 2.2 s / hippo 3.8 s — **dominated by live query-time API calls**, not PageRank | measured by SM-R9, cited |
+| Neo4j per-op (SM-R10 prototype) | ~0.7–4.7 s for the whole set — SM-R10 calls this **"a naive-session artifact, not a tuned number"** | measured by SM-R10, explicitly not a target |
+| GDS projection build | **not measured here** — the §Part 3 graphs are 3–5 nodes; they establish capability, not performance | **gap** |
+| Integration cost | **Route A = 1:1 mapping**, `nx.pagerank(personalization=)` → `gds.pageRank(sourceNodes=)`; no new component. Route B avoided. | §5.1 |
+
+**The one latency item this spike newly creates is the re-projection cadence** (§Part 3): GDS
+projections are snapshots, so PPR freshness is bounded by how often the projection is rebuilt.
+Sizing that against corpus size is **SM-H4's**, and it needs a real graph — flagged, not faked.
+No latency target is claimed or ratified here; **targets are SM-R1's** (provisional).
 
 ---
 
@@ -547,6 +621,9 @@ remove the need to.
 | **SM-R1** (#76) | **NOT RATIFIED** (PR #54 open) | §4's ruling ("engine explicitly NOT chosen; weigh SM-R9's PPR requirement as an input; cost Route B if non-GDS") is followed. All SM-R1-derived claims marked provisional. |
 | **SM-R9** (#84) | **consistent; its conditional is now discharged** | Its GDS assumption was conditional on SM-R2 picking a GDS-capable engine. It does — Route A. Its "three of five non-GDS" framing is reconciled, not contradicted (§5.2). |
 | **SM-R10** (#85) | **ratified as the engine's temporal layer; one stale section** | 30/30 cited, not rebuilt. §12.1(b)/(c) is now the only doc calling PPR ownership open (§1.2). Its §6.1 Neo4j-enforcement gap is recorded here as it asked. |
+| **SM-R11** (#20, provider spec) | **consistent — and this spike supplies the answer it deferred** | SM-R11 §"Out of scope" says *"Graph engine choice → SM-R2"* and its disposition table lists `tools/neo4j.py` / `tools/zep.py` as *"Repurpose-candidates as `GraphSubstrate` backends (SM-R2 / SM-G1)"*. **Answered here:** Neo4j **in**, Zep **out** (SaaS, fails self-host). Neo4j also matches its Mode A wiring (*"in-VPC pgvector + Neo4j"*). **One label to fix:** its substrate diagram reads `GraphSubstrate (Neo4j+Graphiti / Zep …)` — this decision **splits that pair**, taking Neo4j and rejecting the Graphiti library. Illustrative text, not a decision, but it will mislead if read as one. |
+| **SM-R12** (#18, data model) | **no conflict** | Zero engine mentions in its SPEC; `SemanticRelation` is the bi-temporal graph edge, which is exactly what SM-R10's layer implements. Nothing here changes its schema. |
+| **SM-R3** (#78, vectordb) | **no conflict** | Explicitly out of scope on its side: *"graph/temporal tier (SM-R2/R10) — not decided here."* |
 | **SM-R4 / SM-R8** | untouched | no embedder or fusion claim made here. |
 
 ## Reproducibility
