@@ -53,7 +53,7 @@ def run_benchmark(
 
     ingest_ms: List[float] = []
     for session in _ordered_sessions(benchmark):
-        events = events_of(session)
+        events = events_of(session, config.tenant)
         t0 = time.perf_counter()
         provider.write(events)
         ingest_ms.append((time.perf_counter() - t0) * 1000.0)
@@ -64,7 +64,7 @@ def run_benchmark(
     records: List[ProbeRecord] = []
     for probe in benchmark.probes:
         t0 = time.perf_counter()
-        mems = provider.read(probe.question, k=config.k, as_of=probe.as_of, types=config.types)
+        mems = provider.read(probe.question, k=config.k, as_of=probe.as_of, types=config.types, tenant=config.tenant)
         query_ms = (time.perf_counter() - t0) * 1000.0
 
         t1 = time.perf_counter()
@@ -112,7 +112,7 @@ async def arun_benchmark(
 
     ingest_ms: List[float] = []
     for session in _ordered_sessions(benchmark):
-        events = events_of(session)
+        events = events_of(session, config.tenant)
         t0 = time.perf_counter()
         await provider.awrite(events)
         ingest_ms.append((time.perf_counter() - t0) * 1000.0)
@@ -123,7 +123,9 @@ async def arun_benchmark(
     records: List[ProbeRecord] = []
     for probe in benchmark.probes:
         t0 = time.perf_counter()
-        mems = await provider.aread(probe.question, k=config.k, as_of=probe.as_of, types=config.types)
+        mems = await provider.aread(
+            probe.question, k=config.k, as_of=probe.as_of, types=config.types, tenant=config.tenant
+        )
         query_ms = (time.perf_counter() - t0) * 1000.0
 
         t1 = time.perf_counter()

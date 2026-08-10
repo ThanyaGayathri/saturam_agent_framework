@@ -36,18 +36,34 @@ Round-2 verification: ruff + `ruff format --check` clean; mypy clean (20 files);
 tests** pass; suite-adapter SKIP offline; reference gate PASS at 50 ms; footprint renders (e.g.
 `custom_temporal` 3 items / 24 tok); `git diff origin/main -- libs/` = 0.
 
+## Design-review round (paranthaman-commits, APPROVED conditional — 1 major + 3 minor)
+
+| # | Review item | Resolution |
+|---|---|---|
+| 1 (Major) | No graph/multi-hop dimension (all-hops-hit@k / PPR / graph dataset) — the SM-R9 + SM-R10-SS12.1(c) deferral had no home. | **`all_hops_hit@k`** metric wired + tested (`metrics.py`, `retrieval.all_hops_hit_at_k`), multi-hop probes exercised (LOCOMO 2-hop); graph-traversal/**PPR provider** + bridge dataset + bi-temporal-graph probe **scoped to SM-X7** with named upstream owners (`findings/03`, PLAN §2.6/§6). |
+| 2 (Minor) | No cross-tenant isolation probe (a provider-level security check). | Threaded `tenant` (→ R11 `Scope.tenant_id`); added `harness/isolation.py` (write A+B, read each, assert 0 leak), a **gate** (`run.py` fails on any leak), and `test_cross_tenant_isolation`. Both baselines: 0 leak. |
+| 3 (Minor) | `as_of_leak_rate` checked top-1 only; a stale fact at rank 2..k escaped. | Now scans the **whole top-k** (leak if ANY top-k turn invalid at T); kept `as_of_top1_leak_rate` + `as_of_first_leak_rank`. New `test_asof_leak_topk_catches_rank2`. (Lexical baselines now show top-1 valid but top-k leak — honest, only a bi-temporal provider → 0.) |
+| 4 (Minor) | "Construction-validated, not run end-to-end" should be pinned as THE main caveat. | Added a prominent ⚠️ STATUS CAVEAT block at the top of `PLAN.md` (run_cases unrun, stub judge, composite_quality unrun; SM-X7 must run for real). |
+
+Review-round verification: ruff + `ruff format --check` clean (34 files); mypy clean (21 files, py3.10);
+**10 metric + 9 runner tests** pass; suite-adapter SKIP offline; isolation gate = 0 leak both providers;
+reference gate PASS. Core untouched: **my commits touch no `libs/` file** (`git log origin/main..HEAD
+-- libs/` empty). NOTE: `git diff origin/main -- libs/` is now non-empty only because origin/main
+advanced (PR #22 mcp-2.0 merge) after this branch's base — not from this branch.
+
 ---
 
 ### tests/test_metrics.py
 
-**Status:** PASS (8/8)
+**Status:** PASS (10/10)
 
 **Description:** Unit tests for the metric engine on hand-computed values — recall@k / hit@k,
 nDCG@k (DCG/IDCG spelled out), percentile/p95, Wilson interval, StubJudge, an end-to-end
 `aggregate` check (per-category QA, temporal slice, retrieval means, bi-temporal leak, decay), and
 the **two-sided** bi-temporal leak (future + stale-superseded, SM-R10 `t_valid <= T < t_invalid`).
 
-**Result:** `8 metric tests passed` (added the two-sided leak test + a `valid_at` t_valid=None
+**Result:** `10 metric tests passed` (added `all_hops_hit@k` + top-k as-of-leak-catches-rank-2 tests;
+earlier: the two-sided leak test + a `valid_at` t_valid=None
 default test). Formulas cross-checked in-test against independent closed-form
 expressions (not hardcoded constants).
 
@@ -55,14 +71,14 @@ expressions (not hardcoded constants).
 
 ### tests/test_runner.py
 
-**Status:** PASS (8/8)
+**Status:** PASS (9/9)
 
 **Description:** End-to-end runner + provider protocol: report has all sections; both baselines
 conform to the `MemoryProvider` protocol (runtime_checkable); no-evidence probes excluded from
 recall (`n==2` on longmemeval); time-aware provider ≥ naive on update-heavy sets; recency respects
 `as_of` (leak 0.0); the `consolidate()` seam runs end-to-end (`consolidate=True`); async == sync.
 
-**Result:** `8 runner tests passed` (added a labelless `memory_footprint` test).
+**Result:** `9 runner tests passed` (added `memory_footprint` + `cross_tenant_isolation` tests).
 
 ---
 

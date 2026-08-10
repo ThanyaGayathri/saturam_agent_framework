@@ -43,7 +43,7 @@ def test_report_has_all_sections() -> None:
         "cost",
     ):
         assert key in rep, f"missing report section {key}"
-    for key in ("recall_at_k", "hit_at_k", "ndcg_at_k"):
+    for key in ("recall_at_k", "hit_at_k", "ndcg_at_k", "all_hops_hit_at_k"):
         assert key in rep["retrieval"]
 
 
@@ -94,9 +94,23 @@ def test_time_aware_provider_beats_naive_on_updates() -> None:
         assert aware >= naive, f"{bench}: recency_decay {aware} < lexical {naive}"
 
 
-def test_recency_respects_as_of_no_leak() -> None:
+def test_recency_head_valid_but_topk_may_leak() -> None:
+    # recency filters future (timestamp <= as_of) so the HEAD (top-1) is always valid
+    # at T. It does NOT implement bi-temporal invalidation, so a stale-superseded
+    # fact can still appear DEEPER in top-k — which the top-k leak metric now catches.
+    # Only a real bi-temporal provider (SM-R10) would drive as_of_leak_rate to 0.
     rep = _run("custom_temporal", "recency_decay")
-    assert rep["bitemporal"]["as_of_leak_rate"] == 0.0
+    assert rep["bitemporal"]["as_of_top1_leak_rate"] == 0.0  # head respects as_of
+    assert rep["bitemporal"]["as_of_leak_rate"] >= rep["bitemporal"]["as_of_top1_leak_rate"]
+
+
+def test_cross_tenant_isolation() -> None:
+    # Security: write two tenants into one provider, read each scope -> 0 foreign leak.
+    from harness.isolation import cross_tenant_leak
+
+    for pname in ("lexical", "recency_decay"):
+        leak = cross_tenant_leak(get_provider(pname))
+        assert leak["leaked"] == 0, f"{pname} leaked across tenants: {leak}"
 
 
 def test_async_matches_sync() -> None:

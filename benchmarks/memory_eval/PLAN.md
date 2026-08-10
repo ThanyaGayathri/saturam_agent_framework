@@ -20,6 +20,15 @@ A **plan** whose claims are backed by a **runnable harness skeleton** (`harness/
 ingest→query→answer→score loop, computes every metric defined below, and gates on them — proven
 by scoring two baseline providers offline (`results/`). SM-X7 lifts this onto `eval/suite.py`.
 
+> ⚠️ **STATUS CAVEAT (the main one): this instrument is CONSTRUCTION-VALIDATED, NOT run end-to-end.**
+> Offline it uses a **stub lexical judge** (a proxy that tracks recall) and **lexical baselines**;
+> the seed **`run_cases` is NOT executed** here (needs egpt + an LLM — the wiring is static-traced,
+> not run), the **real LLM-judge** runs are budget-gated and unrun, and SM-R7's label-based
+> **`composite_quality` is NOT run** (only the labelless footprint). So the committed numbers prove
+> the harness *computes and discriminates*, **not** system quality — consolidation *quality* (the
+> hardest problem, PR #8) in particular cannot be judged from them. **SM-X7 MUST run this on real
+> corpora + the LLM judge + SM-R7 labels before any decision leans on its numbers.**
+
 ---
 
 ## Acceptance criteria (verbatim from #88)
@@ -100,22 +109,26 @@ reported overall, **per canonical category**, and with a **Wilson 95% CI** (`sta
 options are not ranked inside noise (skill §5). Offline: deterministic `StubJudge`; full runs:
 `LLMJudge` = seed `AgentAsJudgeEval` (gpt-5.4/5.5, Azure per `.env`).
 
-### 2.2 Retrieval — recall@k, hit@k, nDCG@k
+### 2.2 Retrieval — recall@k, hit@k, nDCG@k, all_hops_hit@k
 Over probes that have gold `evidence_ids` E and the provider's ranked `retrieved_ids` (top-k):
 `recall@k = |E ∩ top-k| / |E|`; `hit@k = 1[E ∩ top-k ≠ ∅]`;
-`nDCG@k = DCG/IDCG`, binary relevance, `DCG=Σ rel_i/log2(i+2)`, `IDCG=Σ_{i<min(|E|,k)} 1/log2(i+2)`.
-Probes without evidence (DMR-thin, abstention) return `None` and are **excluded** (never scored 0).
+`nDCG@k = DCG/IDCG`, binary relevance, `DCG=Σ rel_i/log2(i+2)`, `IDCG=Σ_{i<min(|E|,k)} 1/log2(i+2)`;
+**`all_hops_hit@k = 1[E ⊆ top-k]`** over multi-hop probes (`|E| >= 2`) — the strict multi-hop
+retrieval signal (SM-R9), since hit/recall reward partial retrieval. Probes without evidence
+(DMR-thin, abstention) return `None` and are **excluded** (never scored 0). Graph/PPR retrieval path
++ bridge dataset are scoped to SM-X7 — see §2.6.
 
 ### 2.3 Temporal, bi-temporal ("true at T"), decay
 - **temporal accuracy** = QA accuracy over categories {temporal, knowledge_update, as_of_t}.
-- **bi-temporal** = QA over {as_of_t, knowledge_update} **plus** a **two-sided** `as_of_leak_rate`.
+- **bi-temporal** = QA over {as_of_t, knowledge_update} **plus** a **two-sided, top-k** `as_of_leak_rate`.
   SM-R10 canonical (SPEC §7): a fact is true at T iff `t_valid <= T < t_invalid` (**both bounds
   required**). `Turn` carries `t_valid`/`t_invalid` (open interval → +inf). For any probe with an
-  `as_of` = T, the top-1 retrieved turn must satisfy `valid_at(T)`; a leak = top-1 NOT valid at T,
-  i.e. it **post-dates T** (future) OR was **already superseded** (`t_invalid <= T`, a stale fact
-  returned as current). A one-sided future-only check misses the stale-superseded case — the exact
-  failure bi-temporal beats single-time on in SM-R10's eval. (`RecencyDecayProvider` honors `as_of`
-  → 0 leak; the two-sided catch is unit-tested in `tests/test_metrics.py`.)
+  `as_of` = T, **every** top-k retrieved turn must satisfy `valid_at(T)`; a leak = **any** top-k turn
+  NOT valid at T — **post-dates T** (future) OR **already superseded** (`t_invalid <= T`, a stale
+  fact returned as current). Checking only top-1 would miss a stale fact at rank 2..k, so the metric
+  scans the whole top-k; `as_of_top1_leak_rate` + `as_of_first_leak_rank` keep the head/rank signal.
+  (The lexical baselines lack bi-temporal invalidation → top-1 valid but top-k can leak; only a real
+  bi-temporal provider drives it to 0. Unit-tested in `tests/test_metrics.py`.)
 - **decay** = for a probe naming a stale turn D: `suppression@k` = fraction with D **not** in top-k;
   `outranked` = fraction where every gold evidence turn ranks above D. Higher = better forgetting.
 
@@ -144,6 +157,19 @@ p95 measures `provider.read()` only (the retrieval hot path) — the number the 
 ~50 ms budget; end-to-end QA latency (incl. LLM answer+judge) is reported separately and not gated
 on that budget. Cost = measured tokens × price table (`usage.py`; rates via `HARNESS_PRICE_IN/OUT`)
 — a measured number, never cited.
+
+### 2.6 Graph / multi-hop track + cross-tenant isolation
+- **Graph/multi-hop (D8's graph half).** SM-R9 (multi-hop + HippoRAG PPR) and SM-R10 SS12.1(c)
+  (bi-temporal PPR) assign "PPR ranking quality over a time-filtered projection" to this eval. Wired
+  now: **`all_hops_hit@k`** (§2.2) + multi-hop probes (e.g. LOCOMO 2-hop) + composition with the
+  top-k `as_of_leak`. Scoped to **SM-X7** (named owner): the graph-traversal/**PPR provider** (consumes
+  SM-R9 + SM-G1), a **bridge-passage graph dataset**, and the **bi-temporal-graph PPR probe** — all
+  drop in behind the existing seam with no harness change. Full rationale: `findings/03`.
+- **Cross-tenant isolation (security).** The harness threads a `tenant` (→ R11 `Scope.tenant_id`) and
+  ships a provider-level probe (`harness/isolation.py`): write tenant A + B into one provider, read
+  each scope, assert **0** foreign memories. It is a **gate** — any cross-tenant leak fails the build
+  (`run.py`; unit-tested). This catches a provider scope-binding/cache leak the store-level tests
+  (SM-R3 #7, data model #18) cannot see.
 
 ## 3. Integration point — how the harness drives a MemoryProvider, wired to `eval/suite.py`
 
@@ -198,6 +224,10 @@ the LLM ones and the baselines for R7/R8 providers with no metric/runner changes
 - **Embedder choice → SM-R4** (#79, ratified `bge-base-en-v1.5`/`text-embedding-3-large`); this
   harness ships **lexical-only** baselines (no embedder). Known coverage gap — semantic/embedding
   retrieval is not exercised here; `findings/02`.
+- **Graph-traversal / PPR retrieval provider + bridge-passage graph dataset + bi-temporal-graph PPR
+  probe → SM-X7 (#143)** (consuming **SM-R9** PPR + **SM-G1** graph store + **SM-R10** bi-temporal).
+  The multi-hop *metric* (`all_hops_hit@k`) + probe shape are wired here (§2.6); the graph *provider*
+  + dataset are the deferral's runnable subject, owned by SM-X7. `findings/03`.
 - Tool-call reliability eval (`eval/reliability.py`) — not memory quality.
 
 ## 7. Consistency with dependencies

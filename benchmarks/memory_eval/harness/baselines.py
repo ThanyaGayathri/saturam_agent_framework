@@ -73,11 +73,19 @@ class _BaseLexical:
         raise NotImplementedError
 
     def read(
-        self, query: str, *, k: int, as_of: Optional[int] = None, types: Optional[Sequence[str]] = None
+        self,
+        query: str,
+        *,
+        k: int,
+        as_of: Optional[int] = None,
+        types: Optional[Sequence[str]] = None,
+        tenant: str = "eval",
     ) -> List[RetrievedMemory]:
         qt = _tokens(query)
         scored: List[RetrievedMemory] = []
         for ev in self._events:
+            if ev.tenant != tenant:  # tenant isolation boundary (R11 Scope.tenant_id)
+                continue
             if as_of is not None and ev.timestamp > as_of and self._respects_as_of:
                 continue
             base = _overlap(qt, ev.text)
@@ -89,9 +97,15 @@ class _BaseLexical:
         return scored[:k]
 
     async def aread(
-        self, query: str, *, k: int, as_of: Optional[int] = None, types: Optional[Sequence[str]] = None
+        self,
+        query: str,
+        *,
+        k: int,
+        as_of: Optional[int] = None,
+        types: Optional[Sequence[str]] = None,
+        tenant: str = "eval",
     ) -> List[RetrievedMemory]:
-        return self.read(query, k=k, as_of=as_of, types=types)
+        return self.read(query, k=k, as_of=as_of, types=types, tenant=tenant)
 
     _respects_as_of = False
 
@@ -138,10 +152,16 @@ class RecencyDecayProvider(_BaseLexical):
         return max(candidates) if candidates else 0
 
     def read(
-        self, query: str, *, k: int, as_of: Optional[int] = None, types: Optional[Sequence[str]] = None
+        self,
+        query: str,
+        *,
+        k: int,
+        as_of: Optional[int] = None,
+        types: Optional[Sequence[str]] = None,
+        tenant: str = "eval",
     ) -> List[RetrievedMemory]:
         self._ref = self._reference_time(as_of)
-        return super().read(query, k=k, as_of=as_of, types=types)
+        return super().read(query, k=k, as_of=as_of, types=types, tenant=tenant)
 
     def _score(self, event: MemoryEvent, base: float, now: Optional[int]) -> float:
         # age from CREATION (non-production; SM-R5 uses now - last_accessed_at).

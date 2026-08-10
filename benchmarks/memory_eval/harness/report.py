@@ -38,10 +38,10 @@ def render_markdown(reports: List[dict], *, title: str, generated_utc: str, mode
         lines.append("")
 
     header = (
-        "| benchmark | provider | k | QA | temporal | recall@k | nDCG@k | bitemporal | as_of_leak | "
-        "decay(supp/outr) | mem(items/tok) | ingest p95 | query p95 | cost |"
+        "| benchmark | provider | k | QA | temporal | recall@k | nDCG@k | allhops@k | bitemporal | "
+        "as_of_leak(topk/top1) | decay(supp/outr) | mem(items/tok) | ingest p95 | query p95 | cost |"
     )
-    sep = "| " + " | ".join(["---"] * 14) + " |"
+    sep = "| " + " | ".join(["---"] * 15) + " |"
     lines.append(header)
     lines.append(sep)
 
@@ -52,6 +52,9 @@ def render_markdown(reports: List[dict], *, title: str, generated_utc: str, mode
         cost_s = "-" if not cost else f"${cost['cost_usd']:.4f}"
         fp = r.get("memory_footprint")
         fp_s = "-" if not fp else f"{fp['items']}/{fp['tokens']}"
+        leak_topk = r["bitemporal"].get("as_of_leak_rate")
+        leak_top1 = r["bitemporal"].get("as_of_top1_leak_rate")
+        leak_s = "-" if leak_topk is None else f"{leak_topk:.2f}/{(leak_top1 if leak_top1 is not None else 0):.2f}"
         row = [
             r.get("benchmark", "-"),
             r.get("provider", "-"),
@@ -60,8 +63,9 @@ def render_markdown(reports: List[dict], *, title: str, generated_utc: str, mode
             _fmt_opt(r.get("temporal_accuracy")),
             _fmt_opt(r["retrieval"].get("recall_at_k")),
             _fmt_opt(r["retrieval"].get("ndcg_at_k"), pct=False),
+            _fmt_opt(r["retrieval"].get("all_hops_hit_at_k")),
             _fmt_opt(r["bitemporal"].get("accuracy")),
-            _fmt_float(r["bitemporal"].get("as_of_leak_rate")),
+            leak_s,
             decay_s,
             fp_s,
             _fmt_float(r["latency_ms"]["ingest"]["p95"], "ms"),
@@ -74,8 +78,9 @@ def render_markdown(reports: List[dict], *, title: str, generated_utc: str, mode
     lines.append(
         "Columns: QA = LLM-judged answer correctness; temporal = QA over "
         "{temporal, knowledge_update, as_of_t}; recall@k / nDCG@k over probes with gold "
-        "evidence; bitemporal = QA over {as_of_t, knowledge_update}; as_of_leak = fraction of "
-        "as-of probes whose top-1 retrieval is NOT valid at T (two-sided: future OR "
+        "evidence; allhops@k = all gold hops in top-k over multi-hop probes (SM-R9 signal); "
+        "bitemporal = QA over {as_of_t, knowledge_update}; as_of_leak(topk/top1) = fraction of "
+        "as-of probes with ANY / top-1 retrieval NOT valid at T (two-sided: future OR "
         "stale-superseded; SM-R10 t_valid<=T<t_invalid; lower better); "
         "decay supp/outr = stale-target suppression@k / gold-outranks-stale (higher better); "
         "mem = labelless footprint (stored items / token proxy — lower = more consolidated)."

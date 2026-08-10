@@ -60,20 +60,25 @@ class MemoryEvent:
     speaker: str
     timestamp: int
     session_id: str
+    # Tenant this event belongs to — projects R11's ``Scope.tenant_id``. The harness
+    # runs single-tenant by default ("eval"); the isolation probe writes/reads under
+    # distinct tenants to prove a provider does not leak across the boundary.
+    tenant: str = "eval"
 
     @staticmethod
-    def from_turn(turn: Turn, session_id: str) -> "MemoryEvent":
+    def from_turn(turn: Turn, session_id: str, tenant: str = "eval") -> "MemoryEvent":
         return MemoryEvent(
             event_id=turn.turn_id,
             text=turn.as_memory_text(),
             speaker=turn.speaker,
             timestamp=turn.timestamp,
             session_id=session_id,
+            tenant=tenant,
         )
 
 
-def events_of(session: Session) -> List[MemoryEvent]:
-    return [MemoryEvent.from_turn(t, session.session_id) for t in session.turns]
+def events_of(session: Session, tenant: str = "eval") -> List[MemoryEvent]:
+    return [MemoryEvent.from_turn(t, session.session_id, tenant) for t in session.turns]
 
 
 @dataclass(frozen=True)
@@ -102,11 +107,23 @@ class MemoryProvider(Protocol):
     async def awrite(self, events: Sequence[MemoryEvent]) -> None: ...
 
     def read(
-        self, query: str, *, k: int, as_of: Optional[int] = None, types: Optional[Sequence[str]] = None
+        self,
+        query: str,
+        *,
+        k: int,
+        as_of: Optional[int] = None,
+        types: Optional[Sequence[str]] = None,
+        tenant: str = "eval",
     ) -> List[RetrievedMemory]: ...
 
     async def aread(
-        self, query: str, *, k: int, as_of: Optional[int] = None, types: Optional[Sequence[str]] = None
+        self,
+        query: str,
+        *,
+        k: int,
+        as_of: Optional[int] = None,
+        types: Optional[Sequence[str]] = None,
+        tenant: str = "eval",
     ) -> List[RetrievedMemory]: ...
 
     # Param is ``tiers`` (which tiers to consolidate) to match R11's

@@ -136,7 +136,7 @@ def build_memory_cases(
 
     config = config or RunConfig()
     for session in sorted(benchmark.sessions, key=lambda s: s.start_ts):
-        provider.write(events_of(session))
+        provider.write(events_of(session, config.tenant))
 
     agent = _answer_agent()
     # Pin the JUDGE model on every Case. Without this, run_cases builds the judge as
@@ -150,7 +150,7 @@ def build_memory_cases(
     mode = JudgeMode.NUMERIC if judge_mode == "numeric" else JudgeMode.BINARY
 
     for probe in benchmark.probes:
-        mems = provider.read(probe.question, k=config.k, as_of=probe.as_of, types=config.types)
+        mems = provider.read(probe.question, k=config.k, as_of=probe.as_of, types=config.types, tenant=config.tenant)
         retrieved[probe.probe_id] = [sid for m in mems for sid in m.source_ids]
         context = "\n".join(f"- {m.text}" for m in mems) or "(no relevant memories found)"
         criteria = (

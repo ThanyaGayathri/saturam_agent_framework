@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness.baselines import PROVIDERS, get_answerer, get_provider  # noqa: E402
 from harness.datasets import get_loader, list_benchmarks  # noqa: E402
 from harness.gate import check_all  # noqa: E402
+from harness.isolation import cross_tenant_leak  # noqa: E402
 from harness.judge import StubJudge  # noqa: E402
 from harness.provider import RunConfig  # noqa: E402
 from harness.report import render_markdown  # noqa: E402
@@ -100,14 +101,21 @@ def main(argv: List[str] | None = None) -> int:
     print(f"wrote {md_path.relative_to(_RESULTS.parent)}")
 
     if not args.no_gate:
-        passed, failures = check_all(reports)
+        _passed, failures = check_all(reports)
+        # Provider-level cross-tenant isolation is a SECURITY gate: any leak fails.
+        for pname in providers:
+            leak = cross_tenant_leak(get_provider(pname))
+            if leak["leaked"] > 0:
+                failures.append(f"{pname}: cross-tenant leak = {leak['leaked']} memories (must be 0)")
+            else:
+                print(f"isolation {pname}: 0 cross-tenant leak")
         if failures:
             print("\nGATE FAILURES:")
             for f in failures:
                 print(f"  - {f}")
         else:
             print("\nGATE: PASS")
-        return 0 if passed else 1
+        return 0 if not failures else 1
     return 0
 
 

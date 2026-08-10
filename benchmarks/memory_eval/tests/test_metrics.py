@@ -17,6 +17,7 @@ from harness.judge import StubJudge  # noqa: E402
 from harness.metrics import (  # noqa: E402
     ProbeRecord,
     aggregate,
+    all_hops_hit_at_k,
     hit_at_k,
     ndcg_at_k,
     recall_at_k,
@@ -122,6 +123,32 @@ def test_aggregate_end_to_end() -> None:
     assert rep["decay"]["n"] == 1
     assert _approx(rep["decay"]["suppression_at_k"], 0.0)
     assert _approx(rep["decay"]["outranked"], 1.0)
+
+
+def test_all_hops_hit_at_k() -> None:
+    # multi-hop: ALL gold hops must be in top-k. Partial retrieval scores 0.
+    assert all_hops_hit_at_k(["a", "b"], ["a", "b", "x"], 3) == 1.0
+    assert all_hops_hit_at_k(["a", "b"], ["a", "x", "y"], 3) == 0.0  # only 1 of 2 hops
+    # single-hop probes are not multi-hop -> None (excluded from the mean)
+    assert all_hops_hit_at_k(["a"], ["a"], 3) is None
+    assert all_hops_hit_at_k([], ["a"], 3) is None
+
+
+def test_asof_leak_topk_catches_rank2() -> None:
+    # A stale-superseded fact at rank 2 (index 1) must be caught by the top-k check
+    # even though top-1 is valid — the reviewer's exact concern.
+    j = StubJudge()
+    T = 100
+    turn_index = {
+        "valid": Turn("valid", "A", "v", timestamp=10, t_valid=10, t_invalid=None),
+        "stale": Turn("stale", "A", "s", timestamp=10, t_valid=10, t_invalid=50),  # invalid at T=100
+    }
+    p = Probe(probe_id="p", question="q", answer="x", category="as_of_t", evidence_ids=[], as_of=T)
+    rec = ProbeRecord(probe=p, retrieved_ids=["valid", "stale"], answer="x", verdict=j.judge("q", "x", "x"))
+    rep = aggregate([rec], k=5, turn_index=turn_index)
+    assert _approx(rep["bitemporal"]["as_of_leak_rate"], 1.0)  # top-k: stale@rank2 leaks
+    assert _approx(rep["bitemporal"]["as_of_top1_leak_rate"], 0.0)  # top-1 valid
+    assert _approx(rep["bitemporal"]["as_of_first_leak_rank"], 1.0)  # leak first at rank index 1
 
 
 def test_valid_at_default_lower_bound() -> None:
