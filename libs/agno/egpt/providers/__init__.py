@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     from egpt.providers.config import ModelPolicy, PolicyKey, ProviderConfig
     from egpt.providers.config_provider import ConfigDrivenModelProvider
+    from egpt.providers.escalation import EscalatingModelProvider, EscalationRule
+    from egpt.providers.events import EscalationEvent
 
     # EGPT-3.4 (Mode B). Lazy for the same reason as the contract names above, and doubly so
     # here: mode_b reads settings, which pulls in pydantic-settings.
@@ -44,6 +46,9 @@ __all__ = [
     "BaseModelProvider",
     "ConfigDrivenModelProvider",
     "DetailedModelProvider",
+    "EscalatingModelProvider",
+    "EscalationEvent",
+    "EscalationRule",
     "FrontierModelProvider",
     "GatewayRoute",
     "LocalModelProvider",
@@ -166,11 +171,30 @@ _LAZY_SUBMODULE = {
 }
 
 
+# EGPT-3.5. Kept in their own tuples so the escalation module -- which imports
+# egpt.models.fallback lazily and the events module eagerly -- is only imported when one of its
+# names is actually asked for.
+_LAZY_FROM_ESCALATION = (
+    "EscalatingModelProvider",
+    "EscalationRule",
+)
+
+_LAZY_FROM_EVENTS = ("EscalationEvent",)
+
+
 def __getattr__(name: str) -> Any:
     if name in _LAZY_FROM_MODEL_PROVIDER:
         from egpt.providers import model_provider
 
         return getattr(model_provider, name)
+    if name in _LAZY_FROM_ESCALATION:
+        from egpt.providers import escalation
+
+        return getattr(escalation, name)
+    if name in _LAZY_FROM_EVENTS:
+        from egpt.providers import events
+
+        return getattr(events, name)
     if name in _LAZY_FROM_CONFIG:
         from egpt.providers import config
 

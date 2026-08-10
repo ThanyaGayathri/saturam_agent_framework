@@ -160,6 +160,19 @@ def deep_copy(agent: Agent, *, update: Optional[Dict[str, Any]] = None) -> Agent
             # setattr, not attribute assignment: the name is not declared on Agent until
             # EGPT-3.4, so mypy rightly rejects the direct form.
             setattr(new_agent, "model_provider", provider)  # noqa: B010
+
+        # Carry the *original's* pin rather than letting `__init__` re-derive one from the copied
+        # `model`. Same class of problem as `model_provider` above, opposite direction: `model` IS
+        # a declared field, so the loop copies it -- and by copy time it holds whatever a provider
+        # assigned, which `Agent.__init__` would then record as "the caller's pin". On the AgentOS
+        # path that is every request (startup calls `initialize_agent`, each request calls
+        # `deep_copy`), so a config-driven provider would see `requested` set on every run and
+        # return it unchanged -- bypassing per-tenant routing for the whole deployment and
+        # attributing it to a pin no caller made.
+        #
+        # Correct in all three cases: a genuine pin carries over, a provider-assigned model does
+        # not become one, and a pinless agent stays pinless.
+        new_agent._user_pinned_model = agent._user_pinned_model
         log_debug(f"Created new {agent.__class__.__name__}")
         return new_agent
     except Exception as e:

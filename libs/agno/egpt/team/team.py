@@ -428,6 +428,10 @@ class Team:
     _learning: Optional[LearningMachine] = None
     # Whether learning init has been attempted (prevents repeated attempts when db is None)
     _learning_init_attempted: bool = False
+    # The model the caller passed explicitly, recorded by `_set_default_model` before anything can
+    # overwrite `model`. Feeds the provider seam's `requested` field, which means "an explicit
+    # Team(model=...)" -- a distinction that is gone once a provider has assigned a model.
+    _user_pinned_model: Optional[Model] = None
     # Lazy-initialized shared thread pool executor for background tasks
     _background_executor: Optional[Any] = None
     # Callable factory caches
@@ -682,6 +686,14 @@ class Team:
             callable_knowledge_cache_key=callable_knowledge_cache_key,
             callable_members_cache_key=callable_members_cache_key,
         )
+
+        # The caller's own model, captured at construction -- the one moment it is unambiguous.
+        # Same reasoning as `Agent.__init__`: `initialize_team` runs on every entrypoint, so a
+        # deferred record guarded on `is None` cannot tell "not recorded yet" from "nothing was
+        # pinned" and latches whatever the previous run resolved. `_init.__init__` may have
+        # coerced a `str` model into a `Model`, so read it back off self rather than reusing the
+        # raw argument.
+        self._user_pinned_model: Optional[Model] = self.model
 
         # Component metadata (set by get_teams during DB loading)
         self._version: Optional[int] = None

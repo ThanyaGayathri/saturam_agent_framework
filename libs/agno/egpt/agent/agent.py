@@ -503,6 +503,17 @@ class Agent:
         callable_knowledge_cache_key: Optional[Callable[..., Optional[str]]] = None,
     ):
         self.model = model  # type: ignore[assignment]
+        # The caller's own model, captured at construction -- the one moment it is unambiguous.
+        # The provider seam's `requested` field means "an explicit Agent(model=...)", and every
+        # later observation is confounded: `initialize_agent` runs on every entrypoint, so a
+        # deferred record guarded on `is None` cannot distinguish "not recorded yet" from
+        # "nothing was pinned" and latches whatever the previous run resolved -- which re-pins
+        # every subsequent run to run 1's answer, the exact failure the seam exists to avoid.
+        #
+        # Stored as given, including the ``"provider:id"`` string form; ``get_models`` coerces
+        # ``self.model`` later and this is re-pointed at the coerced object there, so the seam
+        # always sees a real ``Model``.
+        self._user_pinned_model: Optional[Union[Model, str]] = model
         if fallback_config is not None:
             if fallback_models:
                 log_warning("Both fallback_config and fallback_models provided. Using fallback_config.")

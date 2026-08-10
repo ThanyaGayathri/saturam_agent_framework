@@ -150,6 +150,24 @@ def deep_copy(team: Team, *, update: Optional[Dict[str, Any]] = None) -> Team:
     # Create a new Team
     try:
         new_team = team.__class__(**fields_for_new_team)
+
+        # Both of these are plain attributes rather than declared fields, so the `fields(team)`
+        # loop above cannot see them and dropping them is silent.
+        #
+        # `model_provider` (EGPT-3.1): shared by reference, matching `agent/_utils.py` and the
+        # process-wide provider -- a provider is a resolution policy, not per-team state. Without
+        # this a copied Team silently loses its provider and resolves as if Epic 3 were not
+        # configured.
+        provider = getattr(team, "model_provider", None)
+        if provider is not None:
+            setattr(new_team, "model_provider", provider)  # noqa: B010
+
+        # `_user_pinned_model`: carry the *original's* pin rather than letting `__init__` re-derive
+        # one from the copied `model`, which by copy time holds whatever a provider assigned. See
+        # the longer note in `agent/_utils.py`; a Team copies every member the same way, so the
+        # same laundering would apply per member.
+        new_team._user_pinned_model = team._user_pinned_model
+
         log_debug(f"Created new {team.__class__.__name__}")
         return new_team
     except Exception as e:

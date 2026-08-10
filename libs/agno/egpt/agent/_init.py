@@ -155,8 +155,10 @@ def _resolve_via_provider(component: Any, *, role: str = "model") -> Optional[Mo
     return resolved
 
 
-def resolve_run_model(agent: Agent, request: ModelResolveRequest) -> Optional[Model]:
-    """Resolve the model for a single run. Complete but deliberately UNCALLED (EGPT-3.1).
+def resolve_run_model(agent: Any, request: ModelResolveRequest) -> Optional[Model]:
+    """Resolve the model for a single run (EGPT-3.1; wired by EGPT-3.5).
+
+    Takes an ``Agent`` or a ``Team`` -- see ``_model_provider_for`` for why this is ``Any``.
 
     ``set_default_model`` resolves once per Agent *object*: ``initialize_agent`` is
     idempotent by the ``if agent.model is None`` guard, so once a model is assigned no later
@@ -165,17 +167,34 @@ def resolve_run_model(agent: Agent, request: ModelResolveRequest) -> Optional[Mo
     needs either this hook called per run, or the ``AgentFactory`` path, which builds a fresh
     Agent per request and therefore re-resolves naturally.
 
-    This is the former. EGPT-3.5 (#67) wires it from ``egpt/agent/_run.py``, where the
-    per-run signals on ``ModelResolveRequest`` are actually knowable. Shipping it uncalled
-    keeps EGPT-3.1's runtime blast radius at zero while fixing the signature both tickets
-    code against.
+    This is the former. EGPT-3.5 wires it from ``egpt/agent/_run.py`` and
+    ``egpt/team/_run.py`` -- both, because a Team runs turns against a model too, and a Team
+    that could not escalate would be stuck on the small model for precisely the requests most
+    likely to need the frontier: a team run carries every member's output.
 
-    Returns None when no provider is configured, leaving the caller on ``agent.model``.
+    Returns None when no provider is configured, leaving the caller on its current model.
     """
     provider = _model_provider_for(agent)
     if provider is None:
         return None
     return provider.resolve(request)
+
+
+async def aresolve_run_model(agent: Any, request: ModelResolveRequest) -> Optional[Model]:
+    """Async counterpart of ``resolve_run_model``.
+
+    Required rather than decorative: ``resolve`` may read a per-tenant policy row (EGPT-3.2) or
+    probe a gateway (EGPT-3.4), so calling the sync variant from an async run path blocks the
+    event loop for the duration. ``aresolve_via`` is what selects a provider's own ``aresolve``
+    when it has one, and offloads to a thread when it does not -- so this is also the only path
+    on which an ``AsyncModelProvider`` implementation is actually reached.
+    """
+    from egpt.providers.model_provider import aresolve_via
+
+    provider = _model_provider_for(agent)
+    if provider is None:
+        return None
+    return await aresolve_via(provider, request)
 
 
 def set_default_model(agent: Agent) -> None:
@@ -345,9 +364,17 @@ def get_models(agent: Agent) -> None:
     from egpt.metrics import ModelType
 
     if agent.model is not None:
+        was_user_pinned = agent._user_pinned_model is not None
         agent.model = get_model(agent.model)
         if agent.model is not None:
             agent.model.model_type = ModelType.MODEL
+        # Re-point the recorded pin at the coerced object, so the provider seam's `requested`
+        # always carries a real `Model` rather than the `"provider:id"` string a caller may have
+        # passed. Gated on there having *been* a pin: assigning unconditionally would turn a
+        # provider-assigned model into "the user's pin" on the next run, which is the latching
+        # bug this record exists to avoid.
+        if was_user_pinned:
+            agent._user_pinned_model = agent.model
     if agent.reasoning_model is not None:
         agent.reasoning_model = get_model(agent.reasoning_model)
         if agent.reasoning_model is not None:

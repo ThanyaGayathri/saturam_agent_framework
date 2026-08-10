@@ -245,7 +245,7 @@ def test_resolve_run_model_returns_none_without_a_provider():
 
 
 def test_resolve_run_model_passes_the_request_through(provider_model):
-    """Unwired in EGPT-3.1 by design; #67 calls it from _run.py."""
+    """Wired from ``_run.py`` by EGPT-3.5 (#67); see the test below."""
     provider = _RecordingProvider(provider_model)
     set_default_model_provider(provider)
 
@@ -256,9 +256,12 @@ def test_resolve_run_model_passes_the_request_through(provider_model):
     assert provider.requests == [request]
 
 
-def test_resolve_run_model_is_not_wired_into_the_run_path():
-    """Non-vacuity for the claim above: if #67 wires it, this test is the one to delete."""
+def test_resolve_run_model_is_wired_into_the_run_path():
+    """Non-vacuity for the claim above. EGPT-3.1 shipped this hook deliberately uncalled and
+    asserted its *absence* here; EGPT-3.5 (#67) wires it, so the guard inverts rather than
+    disappearing -- the run path calling it is what makes per-run escalation reachable at all.
+    """
     from pathlib import Path
 
     run_path = Path(agent_init.__file__).parent / "_run.py"
-    assert "resolve_run_model" not in run_path.read_text(encoding="utf-8")
+    assert "resolve_run_model" in run_path.read_text(encoding="utf-8")

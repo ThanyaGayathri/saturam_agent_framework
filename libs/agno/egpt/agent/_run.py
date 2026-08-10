@@ -127,6 +127,312 @@ _CANCEL_BYPASS_EVENT_TYPES = (
 )
 
 # ---------------------------------------------------------------------------
+# Per-run model resolution (EGPT-3.5)
+# ---------------------------------------------------------------------------
+
+
+def _run_model_request(
+    agent: Any,
+    run_context: RunContext,
+    tools: Optional[List[Any]],
+    response_format: Any,
+    images: Optional[Sequence[Any]],
+    estimated_input_tokens: Optional[int],
+    estimated_tool_count: Optional[int],
+) -> Any:
+    """Build the ``ModelResolveRequest`` for one run, or return None when no provider is set.
+
+    Split out so the sync and async hooks cannot drift in what they ask the provider, and so the
+    cheap no-provider guard lives in exactly one place.
+    """
+    from egpt.providers import get_default_model_provider
+
+    # Cheapest possible guard, and the reason this costs nothing on the default path: no provider
+    # configured means no import of the seam and no request construction.
+    if getattr(agent, "model_provider", None) is None and get_default_model_provider() is None:
+        return None
+
+    from egpt.providers.model_provider import ModelResolveRequest
+
+    return ModelResolveRequest(
+        # The model the caller actually pinned, recorded by `set_default_model` before anything
+        # could overwrite it. Passing `agent.model` instead would re-pin every run to whatever the
+        # first run resolved; passing None told every provider "nothing was pinned" and let a
+        # default policy silently replace a user's explicit `Agent(model=...)`.
+        requested=getattr(agent, "_user_pinned_model", None),
+        agent_id=agent.id,
+        user_id=run_context.user_id,
+        session_id=run_context.session_id,
+        role="model",
+        # `estimated_tool_count` is the Team path's pre-count: its tools are assembled inside
+        # the binding call that must run *after* resolution, so there is no list to measure here.
+        tool_count=(estimated_tool_count if estimated_tool_count is not None else (len(tools) if tools else 0)),
+        requires_structured_output=response_format is not None,
+        # Both of these gate live rules (`vision_unsupported`, `input_exceeds_context_window`)
+        # that could never fire while they were left at their defaults.
+        requires_vision=bool(images),
+        estimated_input_tokens=estimated_input_tokens,
+        # The run's own metadata, which is what makes `explicit_policy_flag` reachable: a caller
+        # sets `metadata={"escalate": True}` to force the frontier tier for one request, and with
+        # this left empty that documented escape hatch could not fire from `run()` at all.
+        #
+        # Forwarded rather than filtered. The escalation rules read one key and treat anything
+        # else as absent, and `metadata` is already caller-supplied context that reaches prompts
+        # and tool hooks -- so a caller that can set it can already influence a run far more
+        # directly than by asking for a more capable model.
+        metadata=run_context.metadata or {},
+    )
+
+
+def _stamp_resolved_model(agent: Any, run_response: Any, resolved: Any) -> bool:
+    """Assign the resolved model, re-stamp the run's attribution, and report whether it changed.
+
+    `run_response.model`/`model_provider` are written before the run body is entered, so a run
+    that escalates otherwise reported the *pre*-escalation model: cost dashboards under-counted
+    frontier usage and the audit trail claimed an out-of-VPC request was served in-VPC.
+
+    The return value is what lets the caller recompute model-dependent derivations *only* when
+    the model actually moved -- a provider that returns the model already assigned is the common
+    steady state, and redoing the derivations there costs a schema rebuild per run for no change.
+    """
+    # Identity *or* same-class-same-id: every in-tree provider builds a fresh `Model` per resolve
+    # (`mode_a` and `mode_b` both go through `_construct`), so a pure `is not` check reported a
+    # change on essentially every run and the gate below never actually saved the work it was
+    # added to save. Comparing class and id closes that, and is safe for this use: the
+    # derivations gated on it read only class-level capability flags
+    # (`supports_native_structured_outputs` / `supports_json_schema_outputs`).
+    current = agent.model
+    changed = not (
+        resolved is current
+        or (
+            current is not None
+            and type(resolved) is type(current)
+            and getattr(resolved, "id", None) == getattr(current, "id", None)
+        )
+    )
+    agent.model = resolved
+    if run_response is not None:
+        run_response.model = getattr(resolved, "id", None)
+        run_response.model_provider = getattr(resolved, "provider", None)
+    return changed
+
+
+def estimate_component_tool_count(component: Any) -> int:
+    """How many tools a run is likely to bind, without building any of them.
+
+    Exists for the Team path, where the tool set is assembled *inside*
+    ``_determine_tools_for_model`` -- which must run after model resolution so the tools bind to
+    the model that will serve them. Every Team call site therefore had no tool list to pass and
+    sent ``None``, so ``tool_count`` was always 0 and neither tool rule could ever fire for a
+    Team: a 20-tool team on a primary with ``supports_tools=False`` never escalated and failed at
+    the provider instead.
+
+    Counts the declared tools, one delegation tool per member, **and the built-ins
+    ``_determine_tools_for_model`` appends** -- read off the same flags it reads
+    (``team/_tools.py``). Missing those made this a *lower* bound rather than the upper bound it
+    claimed: a ``Team(members=[], tools=None, read_chat_history=True)`` reported 0, so
+    ``tools_unsupported`` could not fire even though the binding then attached a real tool, and
+    the call failed at the provider -- exactly what this function exists to prevent.
+
+    Still an estimate, and the remaining error is deliberately one-directional: a ``Toolkit``
+    counts as 1 here and expands to N ``Function`` s at bind time, and the learning machine's tool
+    count is not knowable without asking it. Both make this an **under**-count, which is the safe
+    direction for the two rules that read it -- an under-count can only fail to escalate a
+    borderline request, never escalate one that did not need it. (An earlier version counted one
+    delegation tool *per member*, which broke that property and made every large team escalate
+    forever; see the members branch below.)
+
+    Reads only already-resolved attributes -- a callable ``tools`` or ``members`` is not invoked,
+    since that would duplicate work the binding does properly moments later.
+    """
+    total = 0
+    tools = getattr(component, "tools", None)
+    if isinstance(tools, (list, tuple)):
+        total += len(tools)
+    # ONE delegation tool for the whole member list, not one per member: `team/_tools.py` builds
+    # a single `delegate_task_func` from the resolved members and appends it once. `len(members)`
+    # over-counted by `len(members) - 1`, so a 10-member team with no declared tools estimated 10,
+    # cleared the threshold of 8, and escalated on *every* run for a binding that produces one
+    # tool -- silently, because `too_many_tools` is a threshold rather than a capability gap and
+    # deliberately does not warn.
+    members = getattr(component, "members", None)
+    if isinstance(members, (list, tuple)) and members:
+        total += 1
+        if getattr(component, "get_member_information_tool", False):
+            total += 1
+
+    # The built-ins, gated on the same attributes `_determine_tools_for_model` checks. Each is a
+    # single Function except the learning tools, whose count is unknowable here -- one is the
+    # floor, and under-counting cannot make a rule fire spuriously.
+    if getattr(component, "read_chat_history", False):
+        total += 1
+    if getattr(component, "memory_manager", None) is not None and getattr(component, "enable_agentic_memory", False):
+        total += 1
+    if getattr(component, "_learning", None) is not None:
+        total += 1
+    if getattr(component, "enable_agentic_state", False):
+        total += 1
+    if getattr(component, "search_past_sessions", False):
+        total += 2  # the search tool plus the read-past-session tool
+    if (
+        getattr(component, "knowledge", None) is not None or getattr(component, "knowledge_retriever", None) is not None
+    ) and getattr(component, "search_knowledge", False):
+        total += 1
+    return total
+
+
+def recompute_response_format(
+    agent: Any, run_context: RunContext, response_format: Any, *, model_changed: bool = True
+) -> Any:
+    """Re-derive ``response_format`` against the model that will actually serve the run.
+
+    ``get_response_format`` branches on the model's ``supports_native_structured_outputs`` /
+    ``supports_json_schema_outputs``, and it runs *before* the run body is entered -- so a run
+    that escalated sent the primary's answer to a different model. Two ways that broke: a
+    primary without structured-output support yielded ``{"type": "json_object"}``, which the
+    escalation target then honoured as plain JSON mode even though it supports real schemas (the
+    escalation is paid for and the schema still is not enforced); and a primary *with* native
+    support yielded the raw pydantic class, which a target accepting only a ``json_schema`` dict
+    rejects with a 400.
+
+    ``model_changed`` gates the work: a provider that returns the model already assigned is the
+    steady state, and recomputing there costs a second ``get_response_format`` plus a
+    ``model_json_schema()`` build per run for an identical answer. So the no-provider path really
+    is untouched, and so is every run that resolved to the same model.
+
+    Keyed on ``run_context.output_schema`` rather than on the incoming value, because
+    ``get_response_format`` legitimately returns ``None`` for a live schema (``agent/_response.py``
+    does this when the model takes json-schema output and ``structured_outputs`` is set). An
+    ``is None`` early return therefore swallowed the ``None`` -> schema direction: escalating from
+    such a primary to a model with native support should start enforcing the schema, and returning
+    early left it unenforced on the tier that could have enforced it.
+    """
+    if not model_changed or agent.parser_model is not None:
+        return response_format
+    if response_format is None and getattr(run_context, "output_schema", None) is None:
+        # Nothing was asked for and nothing is configured: there is no schema to re-derive.
+        return None
+
+    from egpt.agent._response import get_response_format
+
+    return get_response_format(agent, run_context=run_context)
+
+
+def apply_run_model(
+    agent: Any,
+    run_context: RunContext,
+    tools: Optional[List[Any]],
+    response_format: Any = None,
+    *,
+    run_response: Any = None,
+    images: Optional[Sequence[Any]] = None,
+    estimated_input_tokens: Optional[int] = None,
+    estimated_tool_count: Optional[int] = None,
+) -> bool:
+    """Re-resolve the component's model for this run through the configured provider.
+
+    Takes an ``Agent`` or a ``Team``: both carry ``model``, ``id`` and an optional
+    ``model_provider``, and both run turns against a model, so both must be able to escalate.
+    Typed as ``Any`` rather than a union because ``egpt.team`` imports ``egpt.agent`` -- naming
+    ``Team`` here would close an import cycle. A Team that could not escalate would be stuck on
+    the small model for exactly the requests most likely to need the frontier: a team run
+    carries every member's output, so it is the *larger* context, not the smaller one.
+
+    ``set_default_model`` resolves once per Agent *object*, so a long-lived Agent can never
+    escalate: by the second run its model is already assigned and the seam is not re-entered.
+    This is the per-run hook ``resolve_run_model`` was shipped for, called here because the
+    routing signals -- how many tools are bound, whether a schema is required, whether the
+    input carries images -- are only knowable once tools and messages exist.
+
+    A no-op when no provider is configured: ``resolve_run_model`` returns None and
+    ``agent.model`` is left exactly as it was, which is the pre-Epic-3 path byte for byte.
+
+    **Known limit -- per-object storage for per-run state.** The resolved model is written back
+    onto ``component.model``, which a reused component shares across runs. Two consequences worth
+    knowing about: under ``asyncio.gather(agent.arun(a), agent.arun(b))`` a run that escalates
+    changes the model the other run's in-flight call will use; and the escalation outlives the run,
+    so a later resolution that fails keeps the *escalated* model rather than the original. Fixing
+    it properly means threading a per-run model through to the model call instead of assigning it
+    here -- roughly 105 read sites across ``agent/_run.py`` and ``team/_run.py`` -- which is a
+    refactor of the run path rather than a change to this seam. Tracked as aicoe-tracker#166; until then a
+    deployment that escalates should construct per-request components (the ``AgentFactory`` path
+    already does) rather than sharing one across concurrent runs.
+
+    A configuration or policy error propagates; a transient one does not. The original blanket
+    ``except`` downgraded every failure to a warning, which meant a Mode A provider whose policy
+    denied the tenant -- or whose gateway was unreachable -- let the run proceed against the
+    already-assigned frontier model. That ships tenant prompts out of the VPC on exactly the
+    request the provider was configured to prevent, and returns success. ``_resolve_via_provider``
+    raises on the init path for this reason; the per-run seam now matches it.
+    """
+    request = _run_model_request(
+        agent, run_context, tools, response_format, images, estimated_input_tokens, estimated_tool_count
+    )
+    if request is None:
+        return False
+
+    from egpt.agent._init import resolve_run_model
+    from egpt.providers.model_provider import ModelProviderConfigError
+
+    try:
+        resolved = resolve_run_model(agent, request)
+    except ModelProviderConfigError:
+        # Misconfiguration or a denied policy. Loud, for the reason in the docstring.
+        raise
+    except Exception as e:
+        # Transient: a missing SDK, an SDK-level error. Keeping the assigned model is better than
+        # failing a run that would have succeeded.
+        log_warning(f"Per-run model resolution failed; keeping the current model: {e}")
+        return False
+
+    if resolved is None:
+        return False
+    return _stamp_resolved_model(agent, run_response, resolved)
+
+
+async def aapply_run_model(
+    agent: Any,
+    run_context: RunContext,
+    tools: Optional[List[Any]],
+    response_format: Any = None,
+    *,
+    run_response: Any = None,
+    images: Optional[Sequence[Any]] = None,
+    estimated_input_tokens: Optional[int] = None,
+    estimated_tool_count: Optional[int] = None,
+) -> bool:
+    """Async counterpart of ``apply_run_model``.
+
+    Not a courtesy override. ``resolve_run_model`` calls ``provider.resolve()``, and a provider
+    may read a per-tenant policy row (EGPT-3.2) or probe a gateway (EGPT-3.4) inside it -- so
+    calling the sync hook from ``_arun`` blocked the event loop and stalled every other in-flight
+    request in that worker behind one model resolution. It also meant a provider implementing
+    ``aresolve`` never had it called. ``aresolve_run_model`` routes through ``aresolve_via``,
+    which is what picks the async path when the provider offers one.
+    """
+    request = _run_model_request(
+        agent, run_context, tools, response_format, images, estimated_input_tokens, estimated_tool_count
+    )
+    if request is None:
+        return False
+
+    from egpt.agent._init import aresolve_run_model
+    from egpt.providers.model_provider import ModelProviderConfigError
+
+    try:
+        resolved = await aresolve_run_model(agent, request)
+    except ModelProviderConfigError:
+        raise
+    except Exception as e:
+        log_warning(f"Per-run model resolution failed; keeping the current model: {e}")
+        return False
+
+    if resolved is None:
+        return False
+    return _stamp_resolved_model(agent, run_response, resolved)
+
+
+# ---------------------------------------------------------------------------
 # Run dependency resolution
 # ---------------------------------------------------------------------------
 
@@ -461,6 +767,34 @@ def _run(
                     session=agent_session,
                     user_id=user_id,
                 )
+                # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
+                #
+                # BEFORE `determine_tools_for_model`, not after: that call bakes the model's
+                # capabilities into each Function (`parse_tools` computes `strict` from
+                # `supports_native_structured_outputs` and freezes it into the definition), so
+                # escalating afterwards shipped tool definitions built for the primary to a
+                # different model -- strict-mode schemas to a model that rejects them, or the
+                # silent loss of strict mode in the other direction.
+                #
+                # `processed_tools` is the pre-binding count: the routing signal needs a tool
+                # count and the binding needs the final model, which is circular. Counting the
+                # unbound set breaks it -- `determine_tools_for_model` filters, so this is an
+                # upper bound, and the two threshold rules that read it are "too many tools"
+                # tests where an upper bound is the safe direction.
+                _model_changed = apply_run_model(
+                    agent,
+                    run_context,
+                    processed_tools,
+                    response_format,
+                    run_response=run_response,
+                    images=run_input.images,
+                )
+                # `response_format` was derived from the pre-resolution model; re-derive it only
+                # if the model actually moved.
+                response_format = recompute_response_format(
+                    agent, run_context, response_format, model_changed=_model_changed
+                )
+
                 _tools = determine_tools_for_model(
                     agent,
                     model=agent.model,
@@ -873,6 +1207,34 @@ def _run_stream(
                     session=agent_session,
                     user_id=user_id,
                 )
+                # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
+                #
+                # BEFORE `determine_tools_for_model`, not after: that call bakes the model's
+                # capabilities into each Function (`parse_tools` computes `strict` from
+                # `supports_native_structured_outputs` and freezes it into the definition), so
+                # escalating afterwards shipped tool definitions built for the primary to a
+                # different model -- strict-mode schemas to a model that rejects them, or the
+                # silent loss of strict mode in the other direction.
+                #
+                # `processed_tools` is the pre-binding count: the routing signal needs a tool
+                # count and the binding needs the final model, which is circular. Counting the
+                # unbound set breaks it -- `determine_tools_for_model` filters, so this is an
+                # upper bound, and the two threshold rules that read it are "too many tools"
+                # tests where an upper bound is the safe direction.
+                _model_changed = apply_run_model(
+                    agent,
+                    run_context,
+                    processed_tools,
+                    response_format,
+                    run_response=run_response,
+                    images=run_input.images,
+                )
+                # `response_format` was derived from the pre-resolution model; re-derive it only
+                # if the model actually moved.
+                response_format = recompute_response_format(
+                    agent, run_context, response_format, model_changed=_model_changed
+                )
+
                 _tools = determine_tools_for_model(
                     agent,
                     model=agent.model,
@@ -1598,6 +1960,23 @@ async def _arun(
                     user_id=user_id,
                 )
 
+                # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
+                # Before the tool binding below, and awaited rather than called synchronously --
+                # see `aapply_run_model` for both reasons.
+                _model_changed = await aapply_run_model(
+                    agent,
+                    run_context,
+                    processed_tools,
+                    response_format,
+                    run_response=run_response,
+                    images=run_input.images,
+                )
+                # `response_format` was derived from the pre-resolution model; re-derive it only
+                # if the model actually moved.
+                response_format = recompute_response_format(
+                    agent, run_context, response_format, model_changed=_model_changed
+                )
+
                 _tools = determine_tools_for_model(
                     agent,
                     model=agent.model,
@@ -2278,6 +2657,23 @@ async def _arun_stream(
                     run_context=run_context,
                     session=agent_session,
                     user_id=user_id,
+                )
+
+                # Re-resolve the model for this run (EGPT-3.5). No-op unless a provider is set.
+                # Before the tool binding below, and awaited rather than called synchronously --
+                # see `aapply_run_model` for both reasons.
+                _model_changed = await aapply_run_model(
+                    agent,
+                    run_context,
+                    processed_tools,
+                    response_format,
+                    run_response=run_response,
+                    images=run_input.images,
+                )
+                # `response_format` was derived from the pre-resolution model; re-derive it only
+                # if the model actually moved.
+                response_format = recompute_response_format(
+                    agent, run_context, response_format, model_changed=_model_changed
                 )
 
                 _tools = determine_tools_for_model(
