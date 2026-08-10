@@ -1,0 +1,615 @@
+# ADR 0003: Symbiotic Memory — Neuro-Symbolic Memory Architecture
+
+- **Status:** Proposed
+- **Date:** 2026-08-10
+- **Backlog:** SM-R1 ([aicoe-tracker#76](https://github.com/Saturam-Inc/aicoe-tracker/issues/76))
+- **Epic:** Symbiotic Memory (Neuro-Symbolic)
+- **Deciders:** Architecture owners (framework)
+- **Decisions covered:** D7 (deferred-then-scoped), D8 (neuro-symbolic hybrid: vector + temporal graph)
+
+## Context
+
+This ADR is nominally the root of the Symbiotic Memory milestone ("Dependencies: None"). In
+practice it is being written **last**: eleven downstream decision tasks (SM-R3 … SM-R13) have
+already shipped, each flagging its own numbers as *"provisional pending SM-R1 to ratify."* Ten are
+merged to `main`; SM-R11 is open as
+[PR #20](https://github.com/Saturam-Inc/saturam-agent-framework/pull/20).
+
+So this document is **not a greenfield design**. Its job is to (a) describe the system that was
+actually built, (b) ratify or change the provisional targets those eleven tasks are blocked on, and
+(c) resolve the cross-decision conflicts that no single sibling had authority to close.
+
+Every claim below is sourced from the real decision document in-repo, not from a PR description.
+That distinction is load-bearing: SM-R4's PR body still names `gte-base` while its merged
+`DECISION.md` §1 selects `bge-base-en-v1.5`. Where a sibling's own text is quoted, it is quoted.
+
+### The seed's two existing memory systems
+
+| Surface | What it is today |
+|---|---|
+| `learn/machine.py:53` `LearningMachine` | Orchestrates 6 stores behind the `LearningStore` protocol (`learn/stores/protocol.py:16`): `recall` / `process`+`aprocess` / `build_context` / `get_tools` / `was_updated` / `schema`. `Curator` (`learn/curate.py:28`) does prune/dedup. |
+| `memory/manager.py:46` `MemoryManager` | CRUD over `UserMemory`. `search_user_memories` (`:597`) is `last_n` / `first_n` / `agentic` — **not** vector search; no embedder. `SummarizeStrategy` (`memory/strategies/summarize.py:15`) is the only consolidation. |
+| `db/schemas/memory.py:9` `UserMemory` | `memory`, `memory_id`, `topics[]`, `user_id`, `agent_id`, `team_id`, `input`, `feedback`, `created_at`, `updated_at`. No embedding, no `tenant_id`, no temporal fields. |
+| Graph capability | `vectordb/lightrag/` only (graph-RAG, **not** bi-temporal). `tools/neo4j.py`, `tools/zep.py` are agent **tools**, not memory backends. |
+
+Confirmed absent from the seed (SM-R11 §6.2, verified against current code): episodic tier,
+vector-search-over-memory, temporal knowledge graph, bi-temporal model, async consolidation loop.
+
+---
+
+## Decision
+
+### 1. Tier → substrate mapping
+
+The CoALA tiers map onto the two first-class substrates as follows. This mapping is **not
+aspirational** — it is cross-checked against the schema SM-R12 already implements (`model.py`,
+`ddl/schema.sql`) and the bi-temporal scope SM-R10 already specified.
+
+| Tier | Vector | Graph | Persisted model (SM-R12) | Notes |
+|---|:--:|:--:|---|---|
+| **working** | — | — | `WorkingMemory` (no table; session store) | Context only. Not embedded, not bi-temporal. Extends seed `SessionContext`. |
+| **episodic** | ✓ | ✓ | `EpisodicRecord` | Raw non-lossy events. Vector for recall; graph for the episode node + bi-temporal linkage. Carries SM-R6's identity contract (`revision`, `supersedes`/`superseded_by[]`, `boundary_*`, `refined`, `segmenter_version`). |
+| **semantic — fact** | ✓ | ✓ | `SemanticFact` | SPO + `source_episode_ids[]` + `derived_by` provenance (SM-R7 §7). Bi-temporal. |
+| **semantic — entity** | ✓ | ✓ | `SemanticEntity` | Graph node. Embeddable; **not** bi-temporal (identity is stable). |
+| **semantic — relation** | — | ✓ | `SemanticRelation` | Graph edge. **The primary SM-R10 bi-temporal surface.** Not embedded. |
+| **procedural** | ✓ | — | `ProceduralRecord` (`rule`/`skill`/`prompt_fragment`) | Rules/prompt. Extends seed `LearnedKnowledge`. Not bi-temporal. |
+| *(links)* | — | ✓ | `MemoryLink` | First-classes seed `EntityMemory.relationships`. Bi-temporal. |
+
+Two corrections to the issue's own strawman diagram, forced by what was actually built:
+
+1. The issue draws `SEMANTIC → VEC` and `SEMANTIC → GRA` as one arrow. The real schema splits
+   semantic three ways, and **only `SemanticRelation` is bi-temporal + graph-only**;
+   `SemanticEntity` is embeddable but *not* bi-temporal. The ADR adopts SM-R12's three-way split.
+2. **The graph is the bi-temporal system-of-record.** Per SM-R10 §9, the vector/episodic tier
+   carries **filter-only** `valid_from`/`valid_to` with **no invalidation authority** — no
+   `t_invalid`, no `expired_at`. This is ratified: invalidation is single-homed on the graph to
+   avoid split-brain contradiction resolution.
+
+Every seed memory surface has a disposition (traceability requirement from the issue's Testing
+Notes) — see §2.2. No orphans.
+
+### 2. Extend-vs-new for `learn.LearningMachine` and `memory.MemoryManager`
+
+**Decision: WRAP / EXTEND. Neither system is replaced or forked.**
+
+This **ratifies** the calls two siblings already made, and it is a ratification, not an
+independent re-derivation:
+
+- **SM-R11 §6** decided *"WRAP / extend. `MemoryProvider` is a superset seam whose tiers delegate
+  to wrapped seed components; it does not fork or discard them."* Its §6.1 disposition table
+  covers **12 seed surfaces**, every one verified `file:line` against post-rebrand code, and
+  **no surface is marked REPLACE**.
+- **SM-R12 §5** decided *"extend the seed's shared-base dataclass pattern; do not fork"* —
+  `UserMemory` **extends** into `EpisodicRecord`/`SemanticFact` rather than being superseded, and
+  `EntityMemory` is **normalised** into entity/fact/episode/relation rows rather than replaced.
+
+I land in the same place, so there is no conflict to flag.
+
+#### 2.1 The path
+
+1. **`LearningStore` (protocol) — EXTEND.** It is the seam to build on:
+   `recall → read_tier`, `process → write_tier`, `build_context → MemorySlice.as_context`.
+   `MemoryProvider` adds what it lacks: substrate-awareness, cross-tier fusion, `consolidate`.
+2. **`LearningMachine` — REUSE (wrap).** Its `custom_stores: Dict[str, LearningStore]` is the DI
+   point where the net-new **episodic** store and the vector/graph substrates slot in.
+3. **`MemoryManager` — REUSE (wrap) + EXTEND.** Wrapped for write and non-vector search; extended
+   with vector search via a `VectorSubstrate` (it has no embedder today).
+4. **`Curator` — REUSE** inside `consolidate` (dedup + forgetting lane). The decay *model* is
+   SM-R5's.
+5. **`SummarizeStrategy` — REUSE + EXTEND** as the distillation step, extended with extraction
+   and contradiction-resolution.
+6. **Net-new (SM-R11 §6.2):** episodic tier, vector-search-over-memory, temporal knowledge graph,
+   bi-temporal model, async consolidation loop.
+
+#### 2.2 Tier ownership of the six `learn` stores
+
+Ratifying SM-R11 §6.1's mapping so no seed store is orphaned:
+`session_context → WORKING`; `user_memory` / `entity_memory` / `user_profile → SEMANTIC`;
+`learned_knowledge` / `decision_log → PROCEDURAL`. **No EPISODIC store exists → NEW.**
+`SessionSummaryManager` (`session/summary.py:63`) feeds WORKING-tier context and consolidation
+input; it is noted, not restructured.
+
+### 3. Read / write / async-consolidate data flow
+
+**The interface is SM-R11's shipped `interface.py`, not the issue's sketch.** Issue #76 (and #86)
+sketch `read(tenant, agent, query, types)`. SM-R11 §5.3 carries a deliberate-deviation callout
+rejecting that literal, and SM-R13 already shipped a draft copying the strawman before correcting
+it (SM-R13 §3: *"An earlier draft copied the issue-#86 strawman … now corrected"*). **This ADR
+ratifies the real signatures and retires the strawman. Do not reintroduce it.**
+
+Verified directly against `interface.py` on `origin/feat/memory-SM-R11`:
+
+```python
+read(scope: Scope, query: MemoryQuery)            -> MemorySlice
+write(scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt
+consolidate(scope: Scope, tiers=None)              -> ConsolidationReport
+read_tier(scope, tier, query) -> List[MemoryRecord]
+write_tier(scope, tier, events) -> WriteReceipt
+substrates() -> Dict[Substrate, bool]
+```
+
+`tenant` + `agent` fold into `Scope` (`tenant_id` mandatory on every call); the issue's `types`
+becomes `MemoryQuery.tiers`. All verbs ship sync **and** async with the `a`-prefix (`aread`,
+`awrite`, `aconsolidate`) matching the `learn`/`memory` convention. `vectordb/base.py` uses
+`async_`; the adapter bridges the two prefixes internally.
+
+**Flow:**
+
+- **write (write-back), request path.** Append raw events, default EPISODIC. Cheap, non-lossy, no
+  distillation. Inline segmentation prior only: `time_gap` (900 s) + `max_turns_per_episode` (40),
+  O(1), no model call (SM-R6 §4).
+- **read (feed-forward), hot path.** `embed query → BM25 → fuse → [optional rerank] → [filter]`.
+  **Zero query-time LLM** (SM-R8 §1.4). Fusion is **weighted / relative-score**, `vector_weight
+  ≈ 0.4–0.5` (SM-R8 §1.1); reranker **off by default**; PPR **off by default, per-tenant flag**
+  (SM-R9). `MemoryQuery.as_of` applies SM-R10's two-sided point-in-time predicate.
+- **consolidate (write-back → semantic), async / sleep-time lane.** Async is the primary lane.
+  Per SM-R7 §1: **mem0-style extract + merge is the mandatory backbone**, with an **optional**
+  sleep-time reflection layer. Whole-corpus/rolling-blob summarization is **rejected as the
+  primary mechanism** (provenance precision 0.35 vs 0.85 — SM-R7 §5.1). Provenance
+  (`source_episode_ids`) is populated at extraction and **unioned forward** on UPDATE/NOOP.
+  Conflicts supersede bi-temporally; nothing is destroyed. This lane also runs SM-R6's async
+  re-segmentation under the stable-id + supersede/revision identity contract.
+
+**Ordering rule (ratified from SM-R5 §6):** decay-pruning **must run after** the
+consolidation/reflection pass, never before — otherwise an episodic row can be pruned before its
+knowledge is consolidated into the semantic tier.
+
+### 4. Temporal-graph placement vs `lightrag`
+
+**Decision: the temporal knowledge graph is a NEW backend behind the `GraphSubstrate` port.
+`lightrag` is not promoted to be it.**
+
+Rationale, from source: `lightrag` is graph-RAG (`vectordb/lightrag/lightrag.py` — verified by
+SM-R9 as a thin HTTP client to an external LightRAG server, modes local/global/hybrid, **no PPR**)
+and is **not bi-temporal**. The bi-temporal four-timestamp model (SM-R10 §5) is the reason to pay
+for a graph at all. `lightrag` remains available as a `GraphSubstrate` *candidate* backend and is
+not deleted.
+
+**The engine is explicitly NOT chosen here.** Neo4j vs Graphiti vs Cognee vs FalkorDB/Kuzu is
+SM-R2 ([#77](https://github.com/Saturam-Inc/aicoe-tracker/issues/77)), which depends on this ADR
+and has not run (0/5 ACs).
+
+> ⚠️ **Live risk for SM-R2 to close, recorded here so it is not inherited as settled.** Two
+> siblings have already built and measured against **Neo4j specifically, ahead of SM-R2**:
+>
+> - **SM-R10** proved its spec on real Postgres **and** real Neo4j, and ships Cypher predicates —
+>   but kept itself *deliberately engine-agnostic* (§11: the Neo4j use is *"a proof that the model
+>   is engine-agnostic, not an engine recommendation"*). Low risk.
+> - **SM-R9** did **not**. Its integration route assumes `gds.pageRank(sourceNodes=…)`, and its
+>   own §Decision says so bluntly: *"issue #77 is OPEN with 0/5 acceptance criteria … and its own
+>   candidate list includes FalkorDB, Kuzu, `lightrag` and Cognee — none of which provide
+>   `gds.pageRank(sourceNodes=…)`."* **Three of five candidates are not GDS-capable.** SM-R9's
+>   Route B (hand-rolled sparse power-iteration over an exported adjacency) is explicitly
+>   *"moderate — unbudgeted; adds a component SM-H4 does not currently plan for."*
+>
+> **Ruling:** Neo4j is **not** pre-selected by this ADR. SM-R2 must weigh SM-R9's concrete
+> capability requirement (*personalized* PageRank with source-node seeding) as an **input**, and
+> must cost Route B if it lands on a non-GDS engine. SM-H4 should not begin PPR integration until
+> SM-R2 closes, or must scope Route B explicitly.
+>
+> One further asymmetry SM-R2 must record: Postgres can enforce append-only history with the
+> `memory_edge_append_only` trigger (SM-R10 §6.1, measured 8/8); **Neo4j has no
+> property-immutability constraint**, so parity needs either APOC triggers (unverified) or a
+> write-through repository plus a scheduled invariant audit (verified, but detection-after-the-fact
+> and strictly weaker). SM-R10 asks that this asymmetry *"be recorded wherever the engine choice is
+> ratified"* — it is recorded here, and SM-R2 owns closing it.
+
+### 5. Dual-mode (Mode A / Mode B) placement behind `MemoryProvider`
+
+**Decision: mode is a config choice at one construction call site. Ratified.**
+
+```python
+MemoryProviderConfig(provider, mode=CO_LOCATED|EXTERNAL, vector={}, graph={}, fusion={}, options={})
+build_memory_provider(config) -> MemoryProvider     # the ONLY construction call site
+register_provider(key)                              # adapters self-register on import
+```
+
+- **Mode A** wires co-located in-VPC substrates (pgvector + graph); **Mode B** wires external
+  services. Both satisfy the same `VectorSubstrate` / `GraphSubstrate` ports, so the provider and
+  all consumers are unchanged.
+- Mode also selects the embedder: **Mode A `bge-base-en-v1.5` @768**, **Mode B Azure
+  `text-embedding-3-large` truncated to 1024** (SM-R4 §1). Mode B is **optional and not a quality
+  upgrade** — it statistically *ties* Mode A (Holm p=0.21).
+
+**Verification — I did not take the config-only claim on faith.** Re-read
+`swap_test.py` and `results/swap_results.json` on `origin/feat/memory-SM-R11`:
+
+- The proof is **structural**: one function, `consumer_workload(provider, scope)`, is run verbatim
+  against providers built from two configs differing **only** in `provider` + `mode`. It touches
+  only the abstract type and never branches on provider identity. If the seam leaked, one function
+  could not drive both.
+- `swap_results.json`: **`"passed": true`, `"deterministic": true`, 11/11 checks ok** (SM-R11's
+  own §Phase-status prose says "10/10" — its artifact has since grown to 11; the artifact is
+  authoritative and all 11 pass), including
+  *"swap is config-only (no call-site change) — consumer_workload run verbatim on 2 providers"*,
+  tenant isolation (**leaked=0**), both SM-R10 two-sided bounds, SM-R7 dual-substrate write, and
+  sync+async parity.
+- Registry confirmed in `adapters.py`: `@register_provider("co_located")` and
+  `@register_provider("external_stub")`.
+
+**Honest limit on that proof, stated rather than glossed:** `external_stub` is, per its own
+docstring, *"a minimal contract-complete stub standing in for an external service."* The swap test
+proves the **seam shape** is config-only. It does **not** prove a real external Mode B deployment
+is config-only — no network, no real provider SDK, no real latency is exercised. **SM-C1 must
+re-prove config-only swap against a real external backend.** The claim is ratified as far as it
+was measured, and no further.
+
+### 6. `UserMemory` gaps for SM-R12 / SM-C3 — already filled; citing where
+
+The issue asks that the gaps be *recorded*. They have since been *closed* by SM-R12, so this ADR
+records the actual field list rather than re-deriving a different one. Source: SM-R12 §4.2
+(`model.py`) and `ddl/schema.sql`.
+
+| Gap (issue #76) | Filled by | Fields |
+|---|---|---|
+| No embedding | `Embeddable` mixin | `embedding`, `embedding_dim` (768 A / 1024 B), `embedding_version` (`bge-base-en-v1.5/d768/cos/v1`) |
+| No `tenant_id` | `TenantScoped` mixin | **`tenant_id` required** (SM-R3 partition key), `user_id`/`agent_id`/`team_id`/`session_id`, `created_at`, `updated_at`, `metadata` |
+| No temporal | `BiTemporal` mixin | `t_valid`, `t_invalid`, `expired_at`, `superseded_by` (+ inherited `created_at` as transaction-time-in) |
+| *(added by SM-R5)* | `Decaying` mixin | `importance` (default 0.5), `last_accessed_at` |
+
+**`strength` is deliberately absent** — SM-R5 §5 lists it under *"Deferred (do NOT add now)"*
+(negligible measured benefit; `last_accessed_at` + `importance` capture the behaviour with one
+fewer stateful field), and SM-R12 §10 follows that. See the correction in §9.6 — two open tickets
+still ask for it.
+
+Status is stronger than "recorded": SM-R12's `roundtrip_test.py` runs write→read→assert for all 6
+persisted tiers on **real embedded PostgreSQL + pgvector**, including point-in-time via SM-R10's
+full 5a predicate, the insert-only guardrail, CHECK constraints on all four bi-temporal tables, and
+cross-tenant isolation (0 leakage). **SM-C3 promotes these shapes into core schemas + migrations.**
+
+---
+
+## Part A — Ratification of the provisional targets
+
+Eleven tasks are blocked on this section. Each row is **RATIFIED**, **CHANGED**, or **HELD OPEN**.
+
+### A.1 Scale — RATIFIED with an arithmetic correction
+
+| Parameter | Ratified |
+|---|---|
+| Memories per tenant | **100k – 1M** (SM-R3) |
+| Tenants | **up to ~50** (SM-R3) |
+| Total vector tier | **10M vectors** (SM-R4/SM-R12) |
+
+**Correction, surfaced not silently resolved:** these three were ratified independently and do not
+multiply. 50 tenants × 1M/tenant = **50M**, five times the 10M envelope. Ratified reading:
+**10M is the v1 platform sizing envelope**; the 1M/tenant ceiling and the ~50-tenant ceiling are
+**not simultaneously reachable** in v1. Plan capacity as *10M total*, distributed
+(e.g. 10 × 1M or 50 × 200k). Crossing 10M total triggers SM-R4 §6's `halfvec` path and re-opens
+SM-R3's Qdrant escalation criteria. SM-R3's own switch criterion (">~10M vectors") is exactly this
+boundary, so the envelope is self-consistent once stated as a total.
+
+Multi-tenancy layout is **RATIFIED as SM-R3 decided**: pgvector **declarative partitioning by
+`tenant_id`**; the shared-table `tenant_id` filter is **rejected on data** (recall 0.80 → 0.56 →
+0.22 as tenants go 1 → 10 → 50). SM-R12's DDL already implements `PARTITION BY LIST (tenant_id)`.
+
+### A.2 Language — RATIFIED
+
+**English-only** for v1. SM-R4 §6 documents the switch (`bge-m3` / `multilingual-e5-base`, requires
+re-benchmark). A multilingual requirement re-opens SM-R4, not this ADR.
+
+### A.3 Quality floor — RATIFIED and met
+
+**nDCG@10 ≥ 0.88** on the memory-representative set. Met: `bge-base` **0.911** [0.888, 0.934].
+`bge-base` significantly beats `bge-small`@384 (Holm p=0.002) and `gte-base` (Holm p=0.016), and
+ties `bge-large`/`e5-base`/Azure. **Ratified embedder: `BAAI/bge-base-en-v1.5` @768 (Mode A);
+Azure `text-embedding-3-large`@1024 (Mode B, optional).**
+
+### A.4 The p95 ≤ 50 ms latency gap — CHANGED (this is the explicit ruling SM-R4 asked for)
+
+SM-R4 §2 flags this as an **open gate for R1**, with three named options: relax the target, add
+GPU/vLLM or a query-embed cache, or accept 384.
+
+**Root cause — the two "50 ms" targets are not the same budget.** Reading both sources:
+
+- **SM-R4's** p95 ≤ 50 ms is **query-embedding** latency. **Not met by any 768-dim model on CPU,
+  even idle** (bge-base p95 482 ms; idle gte ≈ 276–316 ms). ONNX does not rescue it (measured
+  *slower* per-item than PyTorch, quality-identical). Only **bge-small@384 via ONNX** meets it
+  (p50 13 ms / p95 19 ms).
+- **SM-R8's** p95 < ~50 ms is the **retrieval hot path** and **explicitly excludes** query
+  embedding: *"Query-embedding latency is provider-dependent (SM-R4) and excluded here as
+  option-invariant."* Measured 6–24 ms p50 for embed-free BM25 + fusion; SM-R3 measures 13–21 ms
+  p95 for the partitioned vector search.
+
+They were never one budget. Ratifying them as one is what produced the apparent contradiction.
+
+**Ruling:**
+
+1. **RATIFIED — retrieval hot path (post-embedding: vector search + BM25 + fusion): p95 ≤ 50 ms
+   in-VPC.** Met by both SM-R3 and SM-R8 measurements. This is the budget SM-R13's gate holds.
+2. **CHANGED — query embedding is a separate, named budget, and ≤ 50 ms is NOT ratified for it on
+   CPU.** The quality floor (A.3) wins over the latency target: **do not drop to bge-small@384.**
+   384 is significantly worse (Holm p=0.002) and the nDCG floor is the harder requirement.
+3. **Mitigation is mandatory, not optional, for latency-sensitive deployments:** GPU/vLLM-served
+   query embedding (SM-R4 confirms `vllm`/`ollama` are present as in-VPC server options), and/or a
+   query-embed cache. Mode A's `sentence_transformer` CPU path is for correctness and air-gapped
+   fallback, not for a 50 ms SLO.
+4. **NAMED, ACCEPTED EXCEPTION — CPU-only air-gapped Mode A does not meet a 50 ms read path and is
+   blessed as such for v1.** Such a deployment either accepts a materially higher end-to-end p95
+   (measured ~0.5 s, dominated by query embedding) or opts into bge-small@384 with the documented
+   quality loss. This is a per-deployment choice, recorded rather than hidden.
+5. **No composite end-to-end p95 number is invented here.** SM-C1/SM-H3 must **measure and report**
+   `end_to_end_read_p95 = query_embed_p95 + retrieval_p95` on the production embedder and target
+   hardware; that measurement, not this ADR, sets the SLO. SM-R4 §7 already requires this
+   reconciliation.
+
+Storage budget is **RATIFIED**: ≤ ~80 GB vector tier at 10M (768d float32; 40 GB `halfvec`).
+
+### A.5 The SM-R13 "1500 ms" gate — NO ACTION NEEDED (already corrected upstream)
+
+The 30× discrepancy is **stale**. SM-R13's merged `PLAN.md` §4 reads:
+`max_query_p95_ms=50` *("SM-R8 ratified hot-path p95 `<~50 ms`, retrieval read only — **was
+mis-cited as 1500**")*, and §2.5 scopes it to `provider.read()` only, with end-to-end QA latency
+reported separately and **not** gated on that budget. SM-R13 fixed this before merge.
+
+**Ratified:** SM-R13's gate at `max_query_p95_ms=50` against the **retrieval hot path only** is
+correct and consistent with A.4.1. Nothing to resolve. Recorded because the task brief for this ADR
+still described the 1500 ms value as live — see §10.
+
+### A.6 SM-R8's RRF-vs-weighted at 3 legs — HELD OPEN (deliberately not ratified)
+
+- **RATIFIED for the 2-leg (dense + BM25) case: WEIGHTED / relative-score fusion**,
+  `vector_weight ≈ 0.4–0.5` (consider ~0.3 for memory-heavy tenants — LongMemEval peaks there).
+  Weighted significantly beats RRF on **all 4 datasets**, and the finding **survived
+  re-validation on SM-R4's actual ratified embedder** on all 3 re-run datasets (p < 0.01).
+- **HELD OPEN for the 3-leg (+graph) case.** SM-R8 asked to keep it provisional; I am declining to
+  ratify it, because the evidence is genuinely contradictory:
+
+| Measurement | Graph leg | Result |
+|---|---|---|
+| SM-R8 §3.5 | synthetic k-NN + real PPR | **weighted** +0.076 (p=0.0001); survives decorrelation at +0.060. 3-leg RRF fell *below* 2-leg RRF. |
+| SM-R9 §Fusion | **real** LLM+OpenIE KG + PPR | **RRF** numerically ahead at every weight; weighted's optimum degenerate at w=0.0. **n.s. at n=30 (p=0.26)**. |
+
+SM-R9's 95% CI **excludes** SM-R8's effect size, so the two are *not reconcilable as one underlying
+effect*. Neither is conclusive. SM-R9 also records that both proposed mechanisms for RRF's local
+advantage were **refuted by measurement**, so there is no principled tiebreak either.
+
+**Ruling: HELD OPEN, gated on SM-G9.** SM-H2/H3 must measure 3-leg weighted-vs-RRF (and per-leg
+*calibrated* weighted) against SM-G9's real graph retriever before either is ratified. Both
+strategies stay wired and N-leg-capable (`fusion.RRFFusion(k=60)`, `fusion.WeightedFusion(w)`).
+**Do not adopt RRF automatically when the graph leg joins**, and do not read either result as
+settling it. The caveat is carried forward, not discharged.
+
+> **New finding, flagged here because no sibling owns it.** SM-R11's `co_located` adapter defaults
+> to **weighted** for a **vector + graph** pairing. SM-R11 §9 is honest that this is *"a
+> mechanism-based transfer to re-validate against real backends, not a measured result for this
+> exact pairing"* — SM-R8's legs were dense+BM25(±graph), and SM-R9's were dense+PPR. **No
+> measurement covers vector+graph directly.** SM-C1 inherits a defaulted-but-unmeasured choice;
+> it is in scope for the same SM-G9 gate.
+
+### A.7 Other provisional values — ratified as-is
+
+| Source | Value | Ruling |
+|---|---|---|
+| SM-R5 | `base_half_life` **5 d**, `imp_factor` **4.0**, α=β=1.0, prune floor 0.05, default importance 0.5 | **RATIFIED as defaults**, with A.8 below |
+| SM-R6 | `time_gap` 900 s, `max_turns` 40, `min_turns` 3, drift `threshold_c` 0.75 / block 3, EM-LLM γ=1.0 / modularity / radius 3 | **RATIFIED** |
+| SM-R6 | segmentation acceptance F1 ≥ 0.70, Pk ≤ 0.35 on a held-out **real** set | **RATIFIED**; only the LLM currently approaches it (0.62). LLM is the async **quality default**; cheap methods are the cost fallback. Hybrid stays **withdrawn**. |
+| SM-R7 | CI gate: `provenance_validity == 1.0`, `provenance_precision ≥ 0.80`, `conflict_accuracy ≥ 0.90`, `dedup ≥ 0.75`, `fact_recall ≥ 0.95` | **RATIFIED** |
+| SM-R8 | rerank budget ≤ 300 ms added, GPU/served only; **off the default hot path** | **RATIFIED** (CPU measured 2.0–2.5 s MiniLM, ~40–50 s bge-reranker-v2-m3) |
+| SM-R9 | PPR adopt threshold: chaining all-hops gain ≥ 0.15 over dense; default **off**; on above ~50% multi-hop query mix | **RATIFIED** — the n=30 unratifiability caveat is **discharged**: SM-R9 re-measured at **n=120**: hybrid **+0.208** (p<0.0001), hippo **+0.250** (p=0.0001). Thresholds must be expressed as **gains over dense**, never absolute scores. |
+| SM-R10 | point-in-time reconstruction accuracy target **1.00** | **RATIFIED** (measured 30/30 across five backends; single-time baseline 17/30) |
+| SM-R13 | `min_qa_accuracy=0.50`, `min_recall_at_k=0.60` | **RATIFIED** as v1 CI floors |
+
+### A.8 Two ratifications carrying explicit conditions
+
+1. **SM-R5's decay targets are ratified as *direction*, not as met.** SM-R5 §7 is candid that
+   decay-resistance (idle-30d+ ≥ 0.50) and embedding recall (≥ 0.90) are **not met at the current
+   defaults** (0.362 / 0.782 synthetic; 0.029 / 0.703 under real embeddings). Ratified: the
+   **model** (importance-weighted exponential recency, ranking-primary) and the **defaults as a
+   starting point**. SM-E4 must re-tune `imp_factor` / `base_half_life` upward on the production
+   embedder and **enable confirmed-only reinforcement**, which SM-R5 measured lifts idle-30d+
+   from 0.362 to **0.642** on its own. The stale-hit and false-forget goals — the actual point of
+   decay — **are** met.
+2. **Gated on importance-scorer calibration.** SM-R5 §2.4 shows the salience *targeting* benefit
+   shrinks ~65% as importance decorrelates from ground truth. **Ratification is conditional on
+   SM-E5 delivering a calibrated importance scorer.** Until it exists, the decision degrades
+   gracefully to "longer effective half-life" — still ahead of pure-recency peers, without the
+   targeting edge. SM-R1 was asked to gate on this; it is gated.
+3. **SM-R6's on-prem SLM path is NOT foreclosed, and the re-test is commissioned.** SM-R6 §6 asks
+   SM-R1 to commission a GPU + per-window SLM re-test before concluding SLMs are unfit; its only
+   measurement (F1 0.335, llama3-8B/CPU/whole-conversation) is explicitly worst-case.
+   **Commissioned** — owner SM-E3, and it must not be read as a Mode-A veto. Note SM-R9's sharper
+   point: **no sibling has evaluated an SLM on OpenIE triple extraction**, which is a third task
+   again, and SM-R7's `AZURE_OPENAI_EXTRACTOR_DEPLOYMENT` hook is a cheaper *Azure* (Mode B)
+   deployment, **not** an on-prem Mode-A SLM. Plan graph-extraction economics at frontier prices
+   until an SLM is actually measured.
+
+---
+
+## Part B — Explicit conflict resolution
+
+The issue's Testing Notes require internal consistency. These are the known tensions between
+shipped decisions. None is left silent.
+
+### B.1 SM-R5 vs SM-R8 on recency — RESOLVED, and the naming question is CORRECTED
+
+**Not a contradiction.** SM-R8 §3.6 already established this by reading SM-R5's actual numbers, and
+I confirm it from both sources: **both decisions independently measured that adding recency to
+ranking costs retrieval quality.** SM-R5's own `no_decay` baseline has the *highest* nDCG/recall of
+every strategy it tested (0.893 → 0.903), and SM-R5 §2.3 says so directly — *"no_decay
+significantly beats it on raw recall/nDCG … the expected cost of decay, paid to buy the staleness
+and growth wins."* They diverge only in what that trade buys:
+
+- **SM-R8** optimizes single-query nDCG@10 on a static corpus. Nothing there offsets the cost →
+  recency weight **0** on the hot path.
+- **SM-R5** optimizes a memory-*tier* objective over a 90-day horizon (bounded growth, stale-hit
+  reduction). It accepts the same cost deliberately.
+
+**Ratified guidance (one voice, so nothing inherits split direction):** consume SM-R5's
+decayed-relevance/importance output as a **write-time prior**. Do **not** additionally re-enable a
+per-query additive recency rescore on top of retrieval fusion — SM-R8 measured that hurts
+independently of SM-R5's mechanism (`recency_weight` monotonically degrades 0.8934 → 0.7265).
+Recency remains available as an **optional pre-filter** for explicitly time-scoped queries.
+
+**The epic-naming question — CORRECTED, not merely confirmed.** SM-R8 §3.6 flagged an unresolved
+"epic-reference mismatch" (SM-R8 → SM-E7; SM-R5 → SM-E4/SM-E9) and asked whoever owns epic planning
+to confirm whether these are the same task under different names. **They are not the same task, and
+there is no mismatch.** Verified against the tracker:
+
+| Ticket | Title |
+|---|---|
+| SM-E4 ([#111](https://github.com/Saturam-Inc/aicoe-tracker/issues/111)) | Episodic recency-decay scoring |
+| SM-E5 ([#112](https://github.com/Saturam-Inc/aicoe-tracker/issues/112)) | Episodic importance/salience scoring |
+| SM-E6 ([#113](https://github.com/Saturam-Inc/aicoe-tracker/issues/113)) | Episodic relevance scoring |
+| SM-E7 ([#114](https://github.com/Saturam-Inc/aicoe-tracker/issues/114)) | **Composite** episodic scoring |
+| SM-E9 ([#116](https://github.com/Saturam-Inc/aicoe-tracker/issues/116)) | Episode forgetting / pruning |
+
+They are a **pipeline, not duplicates**. #111 says its output is *"expose it as a ranking signal to
+composite scoring (SM-E7)"*; #114 says it *"combine[s] recency (SM-E4) + importance (SM-E5) +
+relevance (SM-E6) into one normalized episodic score."* So SM-R5 correctly hands its **decay curve**
+to SM-E4 and its **pruning policy** to SM-E9; SM-R8 correctly hands **placement and weighting** to
+SM-E7, which composes E4's output. Integration into retrieval ranking is SM-H5 (#135).
+
+**Ratified division of labour:** SM-E4 owns the decay function and reinforcement-on-access. SM-E7
+owns the composite and its weights — and per B.1 it consumes SM-E4's decayed score as a **write-time
+prior**, with `w_recency = 0` for any additive per-query rescore on the fused hot path. SM-E9 owns
+pruning under the A.7/SM-R5 recency floor. **SM-E7, SM-E4 and SM-E9 do not inherit split guidance.**
+
+### B.2 SM-R9's PPR-over-bi-temporal-projection ownership — CONFIRMED (already assigned)
+
+**Owner: SM-H4 ([#134](https://github.com/Saturam-Inc/aicoe-tracker/issues/134)), with SM-G
+supplying the temporal graph. Confirmed by this ADR.**
+
+It was **not** left unowned a second time — SM-R9 records this as **RESOLVED (2026-07-29)**, and
+#134 exists and is OPEN. The rationale is right and is ratified: SM-G builds the graph, SM-H4 runs
+PPR against it, so ranking quality over a filtered projection belongs with the **consumer**, not
+the producer. It is explicitly **not** SM-R10's — SM-R10 §11 excludes ranking from scope (*"This
+spec only adds the valid-time filter columns, not ranking"*), which is exactly why the earlier
+assignment to SM-R10 was wrong.
+
+**Status stays honest:** ownership is settled, **the measurement is not done**. SM-R9's AC #4
+remains `[~]`. Binding constraint carried into SM-H4: the projection **must** use SM-R10 §7's full
+5a predicate verbatim, including `coalesce(e.t_invalid, ∞)` and `e.expired_at IS NULL`. Dropping
+the first silently removes every currently-true (open-ended) edge; dropping the second readmits
+superseded and retracted rows. Both change graph **topology**, which is what PPR ranks over — so
+both are **correctness** bugs, not cosmetic. Expect degradation to be worst where edge churn is
+highest, i.e. episodic memory.
+
+### B.3 SM-R10's edge-lifecycle-across-siblings — CONSISTENT with the §2 WRAP answer
+
+SM-R10 §12.1(a) reconciled with SM-R5 by quoting SM-R5 §6 verbatim: decay-pruning runs **after**
+consolidation and must **archive/tier rather than hard-delete**. **Confirmed consistent with §2's
+extend/wrap ruling**, and the check the brief asks for is real — a "new layer that subsumes the
+seed" answer *would* have undermined it, because a fresh store could plausibly have been given its
+own delete path. It is not.
+
+Ratified, adopting SM-R10's graph-tier refinements unchanged:
+
+- **Decay has no authority over bi-temporal graph edges at all.** SM-R5 is a ranking model over the
+  episodic/vector tier; the §6.1 append-only trigger makes edge removal structurally impossible.
+- **"Archive/tier rather than hard-delete" maps onto `expired_at`** (R2 retract). An archived row
+  drops out of 5a but stays reconstructable through 5b.
+- **The one sanctioned hard `DELETE`** is the consolidation-owned conflict / explicit-forget path.
+  For a bi-temporal edge it should still be expressed as R2 retract wherever the requirement is
+  "stop believing this."
+- Because `Curator` is **REUSED inside `consolidate`** rather than replaced, the ordering rule is
+  enforced at the seam, not by convention.
+
+**Answering SM-R10's direct question to SM-R1** (§12.1(a): *"Flagged for SM-R1 to confirm whether
+erasure needs its own path"*): **yes, and it is out of scope for v1.** Right-to-erasure is a
+*tenant-data* operation, categorically different from invalidate-not-delete, and it cannot be
+expressed as `expired_at` — SCD-2 retains the row by design. **Recorded as a named gap with no
+owner yet**; it needs its own ticket before any tenant-facing GDPR/erasure commitment. It is
+deliberately not folded into SM-R5, SM-R10, or SM-G5.
+
+### B.4 Dimension/schema simplification (`vector(768)`, Mode A only) — BLESSED for v1 + follow-up
+
+**Confirmed from source, not assumed.** `ddl/schema.sql` hardcodes `vector(768)` on all four
+embeddable tables, with the header comment: *"Embedding dim = 768 (SM-R4 Mode A default). Mode B:
+swap vector(768) -> vector(1024)."* SM-R12 §9 states `embedding_dim` is *"a per-deployment
+constant … not per-row."* So **one deployment cannot serve both modes today.**
+
+**Ruling: BLESSED as acceptable for v1, with a named follow-up.** Rationale: mode is a
+*deployment-time* choice (§5), Mode B is optional and a measured quality **tie** with Mode A, and
+mixing dimensions in one column family would break HNSW index construction regardless of schema
+convenience. A per-deployment constant is the honest shape of the constraint, not a shortcut.
+
+**Follow-up recorded for SM-C3** (does not block v1):
+1. Make the dimension a **migration parameter**, not a hardcoded literal, so Mode B provisioning is
+   not a manual DDL edit — the current comment-driven "swap it by hand" step is a live footgun.
+2. Enforce `embedding_dim` against the **column width** on write (SM-R12 §9 already assigns this to
+   SM-C3; the model-level validator only checks vector length against `embedding_dim`).
+3. Carry SM-R4's `embedding_version` (`model/dim/metric/rev`) through the dual-write + backfill +
+   cutover path, so a dimension change is a versioned migration rather than a schema swap.
+4. `halfvec` at >10M (A.1) is a *third* column shape — fold it into the same parameterization.
+
+### B.5 Terminology — DRIFT FOUND AND FIXED HERE
+
+Grepped all 11 source documents. Three real drifts, corrected in this ADR's own text rather than
+adding a fourth variant:
+
+1. **"CoALA" appears in ZERO of the 11 documents.** It is used only in the research doc and issue
+   #76. The siblings say "tiers," "memory tier," "episodic tier." **Ruling:** "CoALA tiers" is the
+   canonical collective name (it is the cited source, arXiv:2309.02427), and the four tier names —
+   **working / episodic / semantic / procedural** — are canonical individually. Siblings need not be
+   retrofitted; new work uses these names.
+2. **The tier axis and the substrate axis are conflated.** Documents write "vector tier" and "graph
+   tier" (SM-R4, SM-R10, SM-R9) interchangeably with "episodic tier" and "semantic tier" (SM-R7,
+   SM-R10). These are **orthogonal**: a tier is *what kind of memory*; a substrate is *where it is
+   stored*. §1 is a matrix precisely because episodic and semantic each live in **both**
+   substrates. **Ruling:** say **tier** only for working/episodic/semantic/procedural, and
+   **substrate** only for vector/graph. SM-R10's "vector/episodic tier" should be read as "the
+   episodic tier's vector substrate."
+3. **`semantic` is a homonym across siblings.** SM-R6 uses "semantic" 15 times and **never** means
+   the semantic memory tier — it means embedding-similarity ("semantic re-segmenter," "semantic
+   drift," "semantic methods"). **Ruling:** unqualified "semantic" means the **tier**. For SM-R6's
+   sense write **"embedding-similarity"** or **"semantic-similarity segmentation."** SM-E3 should
+   not read SM-R6's "semantic v2" as touching the semantic tier — it does not.
+
+**Seam naming — consistent, no fix needed.** `MemoryProvider` is named identically in SM-R9,
+SM-R11 and SM-R13. SM-R12's `MemoryStore` is **not** a competing name: SM-R11 §7 reconciles the
+altitudes explicitly — R12 `read/write` = one row by primary key; R11 `read/write` = query →
+`MemorySlice` / event write-back. Both stand. `VectorSubstrate` / `GraphSubstrate` appear only in
+SM-R11 and are hereby canonical.
+
+---
+
+## Consequences
+
+- SM-R3 … SM-R13 can move from "Proposed (provisional)" toward accepted on the targets ratified in
+  Part A. Three items are **not** ratified and stay explicitly open: 3-leg fusion (A.6), the
+  query-embedding latency budget on CPU (A.4), and PPR ranking quality over a bi-temporal
+  projection (B.2).
+- SM-R2 is unblocked, and inherits a **live risk** (§4) rather than a foregone Neo4j conclusion.
+- SM-C1 implements the SM-R11 seam and must re-prove config-only swap against a **real** external
+  backend (§5).
+- SM-C3 promotes SM-R12's shapes and picks up the B.4 follow-up.
+- Right-to-erasure (B.3) is a named, unowned gap needing its own ticket.
+- Cost reality carried forward: SM-R9 sizes graph extraction at **~$220/tenant at 100k memories,
+  ~$2,200/tenant at 1M**, recurring-marginal rather than one-time, and **~2.4× worse per useful
+  triple on dialogue** than on Wikipedia. Per-tenant gating is what keeps this bounded.
+
+## Out of scope
+
+Graph engine choice (SM-R2). Vector-store engine thresholds (SM-R3). Decay curve (SM-R5).
+Implementation of anything (SM Groups C–X). No `libs/agno/egpt/**` change — this ADR is docs-only.
+
+## Acceptance criteria (issue #76)
+
+- [x] ADR approved with the CoALA tier → substrate mapping — §1
+- [x] Extend-vs-new decided for `learn.LearningMachine` and `memory.MemoryManager` (with a path) — §2
+- [x] Read / write / async-consolidate data flow specified — §3
+- [x] Temporal-graph placement vs `lightrag` decided (feeds SM-R2; engine choice explicitly NOT made here) — §4
+- [x] Dual-mode (Mode A/B) placement behind the `MemoryProvider` seam documented — §5
+- [x] Gaps in `UserMemory` recorded for SM-R12/SM-C3 (already filled — cited) — §6
+
+## References
+
+| Task | Source read |
+|---|---|
+| SM-R3 | `benchmarks/memory_vectordb/DECISION.md` |
+| SM-R4 | `benchmarks/memory_embedding/DECISION.md` |
+| SM-R5 | `benchmarks/memory_decay/DECISION.md` |
+| SM-R6 | `benchmarks/memory_event_segmentation/DECISION.md` |
+| SM-R7 | `benchmarks/memory_consolidation/RESEARCH.md` |
+| SM-R8 | `benchmarks/memory_retrieval/DECISION.md` |
+| SM-R9 | `benchmarks/memory_multihop/SPIKE.md` |
+| SM-R10 | `benchmarks/memory_bitemporal/SPEC.md` |
+| SM-R11 | `benchmarks/memory_provider_spec/SPEC.md` + `interface.py` + `swap_test.py` + `results/swap_results.json` (`origin/feat/memory-SM-R11`, PR #20 open) |
+| SM-R12 | `benchmarks/memory_datamodel/SPEC.md` + `model.py` + `ddl/schema.sql` |
+| SM-R13 | `benchmarks/memory_eval/PLAN.md` |
+
+Grounding: `MEMORY-RESEARCH-episodic-and-neurosymbolic.md` (D7/D8). **Note:** that file is cited by
+every sibling as `docs/MEMORY-RESEARCH-episodic-and-neurosymbolic.md`, but it is **not present in
+`docs/`** in this checkout — SM-R12 §11 and SM-R13 §8 both record the gap. It should be added to the
+now-tracked `docs/` directory so the citations resolve.
