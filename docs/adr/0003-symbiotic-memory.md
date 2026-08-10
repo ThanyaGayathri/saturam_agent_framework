@@ -48,7 +48,7 @@ aspirational** — it is cross-checked against the schema SM-R12 already impleme
 | Tier | Vector | Graph | Persisted model (SM-R12) | Notes |
 |---|:--:|:--:|---|---|
 | **working** | — | — | `WorkingMemory` (no table; session store) | Context only. Not embedded, not bi-temporal. Extends seed `SessionContext`. |
-| **episodic** | ✓ | ✓ | `EpisodicRecord` | Raw non-lossy events. Vector for recall; graph for the episode node + bi-temporal linkage. Carries SM-R6's identity contract (`revision`, `supersedes`/`superseded_by[]`, `boundary_*`, `refined`, `segmenter_version`). |
+| **episodic** | ✓ | **(✓)** | `EpisodicRecord` | Raw non-lossy events. Vector for recall. **Graph presence is a pointer, not yet a node type** — see the qualification below. Carries SM-R6's identity contract (`revision`, `supersedes`/`superseded_by[]`, `boundary_*`, `refined`, `segmenter_version`). |
 | **semantic — fact** | ✓ | ✓ | `SemanticFact` | SPO + `source_episode_ids[]` + `derived_by` provenance (SM-R7 §7). Bi-temporal. |
 | **semantic — entity** | ✓ | ✓ | `SemanticEntity` | Graph node. Embeddable; **not** bi-temporal (identity is stable). |
 | **semantic — relation** | — | ✓ | `SemanticRelation` | Graph edge. **The primary SM-R10 bi-temporal surface.** Not embedded. |
@@ -65,6 +65,17 @@ Two corrections to the issue's own strawman diagram, forced by what was actually
    `t_invalid`, no `expired_at`," which **conflicts with the schema SM-R12 actually shipped**.
    That conflict is real, was not surfaced by either sibling, and is resolved in **§B.6** — not
    here, and not silently. §B.6 is the governing text; this table reflects its outcome.
+
+**Qualification on episodic → graph `(✓)`.** SM-R11 §4's map says "EPISODIC → vector + graph," but
+SM-R12's shipped schema does **not** define an episode node: the only graph node type is
+`SemanticEntity`, and `model.py` describes `graph_node_id` as an *"optional 1:1 promotion link into
+the graph"* — **an untyped pointer with no defined referent.** SM-R9's KG shape does posit
+"entity nodes + passage/episode nodes," but that is a prototype over a 2Wiki-derived KG, not
+SM-R12's schema. **Ratified as `(✓)` — intended, not yet realised.** Defining the episode node type
+(or ruling that episodes reach the graph only via `entity_ids[]`) belongs to **SM-G1** once SM-R2
+picks an engine. This is the same class of gap as §B.7's undefined edge→memory join key: cross-tier
+links are the least-specified part of the data model, and SM-C3/SM-G1 should settle them together
+rather than one at a time.
 
 **Traceability (issue Testing Notes: "every seed memory surface appears in the mapping, no
 orphan").** Dispositions are distributed by topic, not all in one section: the six `learn` stores
@@ -284,21 +295,49 @@ Eleven tasks are blocked on this section. Each row is **RATIFIED**, **CHANGED**,
 | SM-R12 | scale/dim targets | A.1 · B.4 |
 | SM-R13 | gate thresholds | A.5 · A.7 |
 
-### A.1 Scale — RATIFIED with an arithmetic correction
+### A.1 Scale — RATIFIED, with a unit reconciliation and an arithmetic correction
 
-| Parameter | Ratified |
-|---|---|
-| Memories per tenant | **100k – 1M** (SM-R3) |
-| Tenants | **up to ~50** (SM-R3) |
-| Total vector tier | **10M vectors** (SM-R4/SM-R12) |
+**Units first, because SM-R3 and SM-R4 do not use the same one and nothing downstream reconciles
+them.** SM-R4 §2 ratifies *"10M memory **vectors**"*; SM-R3 ratifies *"**memories** per tenant
+100k–1M."* These are **not the same quantity**, and treating them as interchangeable — as an
+earlier revision of this ADR did — mis-sizes the storage tier.
 
-**Correction, surfaced not silently resolved:** these three were ratified independently and do not
-multiply. 50 tenants × 1M/tenant = **50M**, five times the 10M envelope. Ratified reading:
-**10M is the v1 platform sizing envelope**; the 1M/tenant ceiling and the ~50-tenant ceiling are
-**not simultaneously reachable** in v1. Plan capacity as *10M total*, distributed
-(e.g. 10 × 1M or 50 × 200k). Crossing 10M total triggers SM-R4 §6's `halfvec` path and re-opens
-SM-R3's Qdrant escalation criteria. SM-R3's own switch criterion (">~10M vectors") is exactly this
-boundary, so the envelope is self-consistent once stated as a total.
+**Why they differ (structural, from SM-R12 §4.4):** one ingested memory does not produce one
+vector. **Four tiers are `Embeddable`** — episodic, semantic.fact, semantic.entity, procedural — so
+a single episode yields an episodic vector *plus* the vectors for every semantic fact and entity
+consolidation derives from it. Two measured data points from siblings bracket the effect:
+
+| Source | Measured | Direction |
+|---|---|---|
+| SM-R7 §5.2 (LOCOMO) | 76 episodes → **29** atomic facts | facts **compress** (~0.4× per episode) |
+| SM-R9 §Prototype (2Wiki) | 285 passages → **3,393** entities (all embedded) | entities **expand** (~11.9× per passage) |
+
+So the fan-out is **> 1× and entity-dominated**, but its magnitude is genuinely unknown for our
+corpora. Two things move it and neither is measured here: **entity dedup** (entity nodes are shared
+globally, so the marginal rate falls as a tenant's corpus grows), and **fact density** — SM-R9
+§Measurements found dialogue yields **7.56 triples/100 words vs 17.82** on Wikipedia, so SM-R9's
+11.9× is an upper bound drawn from entity-dense factual text, not conversational memory.
+
+**Ratified:**
+
+| Parameter | Ratified | Unit |
+|---|---|---|
+| Total vector **substrate** | **10M** (SM-R4 §2) | **vectors** |
+| Memories per tenant | **100k – 1M** (SM-R3) | **memories** |
+| Tenants | **up to ~50** (SM-R3) | — |
+| memory → vector fan-out | **NOT RATIFIED — must be measured** | ratio |
+
+**HELD OPEN — the fan-out ratio.** SM-C3/SM-V1 must measure vectors-per-memory on real tenant data
+(with graph memory both on and off, since entities dominate) and report it before infrastructure is
+sized. Until then, **plan capacity in vectors, not memories**, and treat any memory-count target as
+un-converted.
+
+**Arithmetic correction (unchanged, and now unit-correct):** the ceilings do not multiply. Even at
+a 1:1 fan-out, 50 tenants × 1M memories = **50M vectors**, five times the 10M envelope — and at any
+realistic fan-out the gap is far wider. **10M vectors is the v1 sizing envelope; the 1M/tenant and
+~50-tenant ceilings are not simultaneously reachable.** Crossing 10M vectors triggers SM-R4 §6's
+`halfvec` path and SM-R3's Qdrant escalation — and note this trigger now fires at a **much lower
+memory count** than the raw numbers suggest, which is the practical cost of the unit confusion.
 
 Multi-tenancy layout is **RATIFIED as SM-R3 decided**: pgvector **declarative partitioning by
 `tenant_id`**; the shared-table `tenant_id` filter is **rejected on data** (recall 0.80 → 0.56 →
@@ -331,14 +370,25 @@ band. SM-R3 names the cause and the lever: measurements are at `ef_search = 64`,
 per-tenant recall (0.88–0.95) trails Qdrant's (1.0) — an operating-point gap that a higher pgvector
 `ef` narrows at some latency cost."*
 
-**Ruling:** `Recall@10 ≥ 0.95` is ratified as the target, and **`ef_search` is a per-deployment
-tuning parameter, not the benchmark's constant 64.** SM-V1/SM-C3 must calibrate `ef_search` upward
-until 0.95 is met at the deployed per-tenant size, and **report the resulting p95 against A.4.1's
-50 ms retrieval budget** — the two trade against each other and there is headroom (15.2 ms measured
-vs a 50 ms budget). If 0.95 proves unreachable within that budget at 1M/tenant, that is an SM-R3
-escalation trigger to Qdrant per-tenant collections (measured 1.000 / 13–14 ms), **not** grounds to
-quietly lower the floor. The shared-table `tenant_id` filter stays rejected regardless (0.217 at 50
-tenants).
+**The obvious mitigation is NOT measured — say so rather than assume it.** SM-R3's exact words are
+that a higher `ef` **"narrows"** the gap *"at some latency cost."* It does **not** show the gap
+**closes** to 0.95 at 100k/tenant, and there is **no `ef_search` sweep in SM-R3's `results/`.** An
+earlier revision of this ADR instructed SM-V1 to *"calibrate `ef_search` upward until 0.95 is met"*
+— that presumed a reachability the evidence does not establish.
+
+**Ruling — a two-step gate, not a target plus a hope:**
+
+1. **`Recall@10 ≥ 0.95` is ratified as the platform target**, and **`ef_search` is a per-deployment
+   tuning parameter, not the benchmark's constant 64.**
+2. **It is CONDITIONAL on measurement.** SM-V1 must run an `ef_search` sweep at the deployed
+   per-tenant size and report recall **and** p95 together. There is budget headroom to spend
+   (15.2 ms measured against A.4.1's 50 ms), but how much recall that buys is unknown.
+3. **If the sweep cannot reach 0.95 within the 50 ms budget**, the ratified position becomes:
+   pgvector's floor is its **measured 0.881** at that operating point, and **0.95 becomes the
+   SM-R3 escalation trigger to Qdrant per-tenant collections** (measured 1.000 / 13–14 ms). It is
+   **not** grounds to quietly lower the floor and stay on pgvector.
+
+The shared-table `tenant_id` filter stays rejected regardless (0.217 at 50 tenants).
 
 ### A.3c Offline capability for Mode A — RATIFIED, with a named trap
 
@@ -392,7 +442,9 @@ They were never one budget. Ratifying them as one is what produced the apparent 
    hardware; that measurement, not this ADR, sets the SLO. SM-R4 §7 already requires this
    reconciliation.
 
-Storage budget is **RATIFIED**: ≤ ~80 GB vector tier at 10M (768d float32; 40 GB `halfvec`).
+Storage budget is **RATIFIED, and it is per-vector**: ≤ ~80 GB for the vector substrate at **10M
+**vectors** (768d float32; 40 GB `halfvec`). Per A.1 this is **not** ≤80 GB at 10M *memories* — the
+memory→vector fan-out is unratified, so this budget converts only once SM-C3/SM-V1 measure it.
 
 ### A.5 The SM-R13 "1500 ms" gate — NO ACTION NEEDED (already corrected upstream)
 
@@ -557,7 +609,8 @@ own delete path. It is not.
 Ratified, adopting SM-R10's graph-tier refinements unchanged:
 
 - **Decay has no authority over bi-temporal graph edges at all.** SM-R5 is a ranking model over the
-  episodic/vector tier; the §6.1 append-only trigger makes edge removal structurally impossible.
+  episodic tier's vector substrate; the §6.1 append-only trigger makes edge removal structurally
+  impossible.
 - **"Archive/tier rather than hard-delete" maps onto `expired_at`** (R2 retract). An archived row
   drops out of 5a but stays reconstructable through 5b.
 - **The one sanctioned hard `DELETE`** is the consolidation-owned conflict / explicit-forget path.
@@ -707,9 +760,14 @@ statement itself remains explicitly illustrative and unexecuted.
 ## Consequences
 
 - SM-R3 … SM-R13 can move from "Proposed (provisional)" toward accepted on the targets ratified in
-  Part A. Three items are **not** ratified and stay explicitly open: 3-leg fusion (A.6), the
-  query-embedding latency budget on CPU (A.4), and PPR ranking quality over a bi-temporal
-  projection (B.2).
+  Part A. **Five items are not fully ratified** and stay explicitly open or conditional:
+  3-leg fusion (A.6, held open), the query-embedding latency budget on CPU (A.4, split and
+  re-scoped), PPR ranking quality over a bi-temporal projection (B.2, owned/unmeasured), the
+  **memory → vector fan-out ratio** (A.1, held open — blocks capacity sizing), and
+  **`Recall@10 ≥ 0.95`** (A.3b, ratified *conditional* on an unmeasured `ef_search` sweep).
+- **Nobody should size infrastructure off this ADR until A.1's fan-out is measured.** The 10M
+  envelope and the ≤80 GB storage budget are both stated **in vectors**; the per-tenant ceilings
+  are stated **in memories**, and the conversion between them is unknown and entity-dominated.
 - SM-R2 is unblocked, and inherits a **live risk** (§4) rather than a foregone Neo4j conclusion.
 - SM-C1 implements the SM-R11 seam and must re-prove config-only swap against a **real** external
   backend (§5), and must **reject `HuggingfaceCustomEmbedder` for `mode=CO_LOCATED`** (A.3c).
