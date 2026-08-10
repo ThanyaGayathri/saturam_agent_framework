@@ -52,7 +52,7 @@ aspirational** — it is cross-checked against the schema SM-R12 already impleme
 | **semantic — fact** | ✓ | ✓ | `SemanticFact` | SPO + `source_episode_ids[]` + `derived_by` provenance (SM-R7 §7). Bi-temporal. |
 | **semantic — entity** | ✓ | ✓ | `SemanticEntity` | Graph node. Embeddable; **not** bi-temporal (identity is stable). |
 | **semantic — relation** | — | ✓ | `SemanticRelation` | Graph edge. **The primary SM-R10 bi-temporal surface.** Not embedded. |
-| **procedural** | ✓ | — | `ProceduralRecord` (`rule`/`skill`/`prompt_fragment`) | Rules/prompt. Extends seed `LearnedKnowledge`. Not bi-temporal. |
+| **procedural** | ✓ | — | `ProceduralRecord` (`rule`/`skill`/`prompt_fragment`) | Rules/prompt. Extends seed `LearnedKnowledge`. Not bi-temporal. **Divergence resolved:** SM-R11 §4's map says "PROCEDURAL → rules/prompt" with no substrate; SM-R12 makes `ProceduralRecord` `Embeddable`. Ratified as **vector ✓** (SM-R12's shipped schema wins — procedural rules are retrieved by similarity, and the field exists). |
 | *(links)* | — | ✓ | `MemoryLink` | First-classes seed `EntityMemory.relationships`. Bi-temporal. |
 
 Two corrections to the issue's own strawman diagram, forced by what was actually built:
@@ -60,13 +60,18 @@ Two corrections to the issue's own strawman diagram, forced by what was actually
 1. The issue draws `SEMANTIC → VEC` and `SEMANTIC → GRA` as one arrow. The real schema splits
    semantic three ways, and **only `SemanticRelation` is bi-temporal + graph-only**;
    `SemanticEntity` is embeddable but *not* bi-temporal. The ADR adopts SM-R12's three-way split.
-2. **The graph is the bi-temporal system-of-record.** Per SM-R10 §9, the vector/episodic tier
-   carries **filter-only** `valid_from`/`valid_to` with **no invalidation authority** — no
-   `t_invalid`, no `expired_at`. This is ratified: invalidation is single-homed on the graph to
-   avoid split-brain contradiction resolution.
+2. **The graph is the bi-temporal system-of-record for *semantic contradiction*.** SM-R10 §9 states
+   this as "the vector/**episodic** tier carries filter-only `valid_from`/`valid_to` … no
+   `t_invalid`, no `expired_at`," which **conflicts with the schema SM-R12 actually shipped**.
+   That conflict is real, was not surfaced by either sibling, and is resolved in **§B.6** — not
+   here, and not silently. §B.6 is the governing text; this table reflects its outcome.
 
-Every seed memory surface has a disposition (traceability requirement from the issue's Testing
-Notes) — see §2.2. No orphans.
+**Traceability (issue Testing Notes: "every seed memory surface appears in the mapping, no
+orphan").** Dispositions are distributed by topic, not all in one section: the six `learn` stores
+and `SessionSummaryManager` in **§2.2**; `LearningStore`, `LearningMachine`, `MemoryManager`,
+`Curator`, `SummarizeStrategy` in **§2.1**; `lightrag`, `tools/neo4j.py`, `tools/zep.py` in **§4**;
+`UserMemory` in **§6**; `VectorDb` / `BaseDb` behind the substrate ports in **§5**. All 12 surfaces
+SM-R11 §6.1 verified are covered. No orphans.
 
 ### 2. Extend-vs-new for `learn.LearningMachine` and `memory.MemoryManager`
 
@@ -244,7 +249,7 @@ records the actual field list rather than re-deriving a different one. Source: S
 |---|---|---|
 | No embedding | `Embeddable` mixin | `embedding`, `embedding_dim` (768 A / 1024 B), `embedding_version` (`bge-base-en-v1.5/d768/cos/v1`) |
 | No `tenant_id` | `TenantScoped` mixin | **`tenant_id` required** (SM-R3 partition key), `user_id`/`agent_id`/`team_id`/`session_id`, `created_at`, `updated_at`, `metadata` |
-| No temporal | `BiTemporal` mixin | `t_valid`, `t_invalid`, `expired_at`, `superseded_by` (+ inherited `created_at` as transaction-time-in) |
+| No temporal | `BiTemporal` mixin | `t_valid`, `t_invalid`, `expired_at`, `superseded_by` (+ inherited `created_at` as transaction-time-in). Per **§B.6**, `expired_at`/`superseded_by` on the **episodic** tier are written only by SM-R6 re-segmentation and SM-R5 archival — never by contradiction resolution. |
 | *(added by SM-R5)* | `Decaying` mixin | `importance` (default 0.5), `last_accessed_at` |
 
 **`strength` is deliberately absent** — SM-R5 §5 lists it under *"Deferred (do NOT add now)"*
@@ -262,6 +267,22 @@ cross-tenant isolation (0 leakage). **SM-C3 promotes these shapes into core sche
 ## Part A — Ratification of the provisional targets
 
 Eleven tasks are blocked on this section. Each row is **RATIFIED**, **CHANGED**, or **HELD OPEN**.
+
+**Coverage (auditable — every provisional row in every source, so a gap is visible not silent):**
+
+| Source | Provisional rows | Where ratified |
+|---|---|---|
+| SM-R3 | memories/tenant · tenants · latency · **recall@10** | A.1 · A.1 · A.4 · **A.3b** |
+| SM-R4 | scale · language · quality floor · latency · storage · **offline** | A.1 · A.2 · A.3 · A.4 · A.4 · **A.3c** |
+| SM-R5 | decay params · acceptance targets · importance-calibration gate | A.7 · A.8.1 · A.8.2 |
+| SM-R6 | segmentation params · model/pricing · F1/Pk targets · SLM re-test | A.7 · A.7 · A.7 · A.8.3 |
+| SM-R7 | CI quality gate | A.7 |
+| SM-R8 | 2-leg fusion · **3-leg fusion** · rerank budget · latency budget | A.6 · **A.6 (HELD OPEN)** · A.7 · A.4 |
+| SM-R9 | PPR adopt thresholds · default-off · engine dependency | A.7 · A.7 · §4 |
+| SM-R10 | point-in-time accuracy · scale/latency · erasure question | A.7 · A.1/A.4 · B.3 |
+| SM-R11 | wrap-vs-replace · seam/mode | §2 · §5 |
+| SM-R12 | scale/dim targets | A.1 · B.4 |
+| SM-R13 | gate thresholds | A.5 · A.7 |
 
 ### A.1 Scale — RATIFIED with an arithmetic correction
 
@@ -294,6 +315,44 @@ re-benchmark). A multilingual requirement re-opens SM-R4, not this ADR.
 `bge-base` significantly beats `bge-small`@384 (Holm p=0.002) and `gte-base` (Holm p=0.016), and
 ties `bge-large`/`e5-base`/Azure. **Ratified embedder: `BAAI/bge-base-en-v1.5` @768 (Mode A);
 Azure `text-embedding-3-large`@1024 (Mode B, optional).**
+
+### A.3b Retrieval recall — RATIFIED, conditional on the operating point
+
+SM-R3's fourth provisional target: **`Recall@10 ≥ 0.95`**. Ratified — **with a condition, because
+it is not met at the operating point A.1 ratifies.**
+
+| SM-R3 run | Layout | recall@10 | p95 |
+|---|---|---|---|
+| Run B — 20k/tenant × 50 | pgvector partition | **1.000** | 13.7 ms |
+| Run A — 100k/tenant × 10 | pgvector partition | **0.881** | 15.2 ms |
+
+Run B clears 0.95; **Run A does not** — and Run A (100k/tenant) sits inside the ratified 100k–1M
+band. SM-R3 names the cause and the lever: measurements are at `ef_search = 64`, and *"pgvector's
+per-tenant recall (0.88–0.95) trails Qdrant's (1.0) — an operating-point gap that a higher pgvector
+`ef` narrows at some latency cost."*
+
+**Ruling:** `Recall@10 ≥ 0.95` is ratified as the target, and **`ef_search` is a per-deployment
+tuning parameter, not the benchmark's constant 64.** SM-V1/SM-C3 must calibrate `ef_search` upward
+until 0.95 is met at the deployed per-tenant size, and **report the resulting p95 against A.4.1's
+50 ms retrieval budget** — the two trade against each other and there is headroom (15.2 ms measured
+vs a 50 ms budget). If 0.95 proves unreachable within that budget at 1M/tenant, that is an SM-R3
+escalation trigger to Qdrant per-tenant collections (measured 1.000 / 13–14 ms), **not** grounds to
+quietly lower the floor. The shared-table `tenant_id` filter stays rejected regardless (0.217 at 50
+tenants).
+
+### A.3c Offline capability for Mode A — RATIFIED, with a named trap
+
+SM-R4's sixth provisional row: **offline capability is REQUIRED for Mode A.** Ratified — Mode A is
+the air-gapped deployment path (§5), so this is a hard constraint, not a preference. `bge-base` via
+`sentence_transformer` / `fastembed` (ONNX) satisfies it; `vllm` / `ollama` are the in-VPC GPU
+server options that also satisfy it (and are the A.4 latency mitigation).
+
+**Carried forward because it is a live trap, not a footnote:** SM-R4 §5 records that
+**`HuggingfaceCustomEmbedder` is a remote HF Inference API client despite being listed among the
+self-hostable embedders.** Selecting it in a Mode A deployment silently breaks the air-gap.
+**SM-C1/SM-V2 must reject it at config validation for `mode=CO_LOCATED`**, not merely document it.
+The same §5 records that `SentenceTransformerEmbedder` lacks `trust_remote_code` / `device`
+passthrough (patch saved in SM-R4 `findings/`) — needed for CPU pinning and for `nomic`.
 
 ### A.4 The p95 ≤ 50 ms latency gap — CHANGED (this is the explicit ruling SM-R4 asked for)
 
@@ -418,8 +477,10 @@ settling it. The caveat is carried forward, not discharged.
 
 ## Part B — Explicit conflict resolution
 
-The issue's Testing Notes require internal consistency. These are the known tensions between
-shipped decisions. None is left silent.
+The issue's Testing Notes require internal consistency. **B.1–B.5** are tensions a sibling had
+already surfaced but nobody had authority to close. **B.6–B.7** were found by this ADR's own
+second-pass audit and had been surfaced by *no one* — B.6 in particular is a live disagreement
+between two merged, tested specs. None is left silent.
 
 ### B.1 SM-R5 vs SM-R8 on recency — RESOLVED, and the naming question is CORRECTED
 
@@ -562,6 +623,85 @@ altitudes explicitly — R12 `read/write` = one row by primary key; R11 `read/wr
 `MemorySlice` / event write-back. Both stand. `VectorSubstrate` / `GraphSubstrate` appear only in
 SM-R11 and are hereby canonical.
 
+### B.6 SM-R10 vs SM-R12 on the episodic tier's temporal fields — CONFLICT SURFACED AND RULED
+
+**This conflict was not surfaced by either sibling.** Both are merged; both are tested; they
+disagree, and neither acknowledges the other's position.
+
+| | SM-R10 §9 / AC#5 | SM-R12 `ddl/schema.sql` + `model.py` |
+|---|---|---|
+| Episodic temporal fields | `valid_from`, `valid_to` — **filter-only**, *"no `t_invalid`/`expired_at`, no invalidation authority"* | `t_valid`, `t_invalid`, `expired_at`, `superseded_by TEXT[]` + both CHECK constraints |
+
+**First: most of it is a naming difference, already unified.** SM-R12's `TEMPORAL_FIELD_MAP` maps
+`valid_from → t_valid` and `valid_to → t_invalid` explicitly. Two of the four fields are the *same*
+decision under two names, and SM-R11's `MemoryRecord` and SM-R13's `Turn` already follow SM-R12's
+canonical names. **The genuine divergence is one field: `expired_at` (and `superseded_by`) on the
+episodic row.**
+
+**Ruling: adopt SM-R12's shape; keep SM-R10's constraint, re-scoped.** Four reasons, all from
+source:
+
+1. **SM-R10 contradicts itself.** §9 denies episodic an `expired_at`; §12.1(a) — written later,
+   specifically to reconcile with SM-R5 — says *"'Archive/tier rather than hard-delete' maps onto
+   this model as `expired_at`"* and states that SM-R5's *"prune gate acts on episodic rows."*
+   Under §9 those rows have no `expired_at` to set. §12.1(a) needs the field §9 denies.
+2. **SM-R10's own two-axis principle argues against its §9.** §5 is emphatic that `t_invalid`
+   ("became false in the world") and `expired_at` ("system stopped holding this version") are
+   independent and both load-bearing. Without `expired_at`, SM-R7 §7 is forced into *"DELETE sets
+   `valid_to` (retire) but keeps the row"* — writing a **belief-time** event onto the
+   **world-time** axis. Retiring a row is not a claim the fact became false. Denying `expired_at`
+   corrupts the very axis separation SM-R10 exists to protect.
+3. **§9's split-brain rationale covers only half of what §9 covers.** It is sound for the *derived
+   semantic projection*, whose `valid_to` mirrors graph edge invalidation. But §9 says
+   "vector/**episodic** tier." Episodes are not derived — SM-R7 §8.5 makes them the source of
+   truth (*"episodes are the source of truth; semantic memory is a derived, rebuildable view"*).
+   No graph edge owns an episode's validity, so there is no second writer to be split-brained with.
+4. **SM-R6 imposes a requirement SM-R10 never considered.** Async re-segmentation supersedes
+   episodes on re-cut (`revision`, `supersedes[]`, `superseded_by[]`, retained-not-deleted). That
+   is episodic-local supersede machinery, unrelated to fact contradiction. SM-R12 carries it and
+   round-trip tests it on real pgvector through the psycopg driver.
+
+**What is ratified:**
+
+- **Schema:** SM-R12's shape stands. Canonical `t_valid` / `t_invalid` / `created_at` /
+  `expired_at` / `superseded_by` everywhere, episodic included. SM-R12's merged DDL needs **no
+  correction**. SM-R9's §Composition bug — shipping a predicate that dropped
+  `coalesce(t_invalid, ∞)` and `expired_at IS NULL` — is direct evidence that two vocabularies for
+  one concept produce correctness bugs, so the unification is a safety property, not tidiness.
+- **Authority (SM-R10's rule, preserved and re-scoped):** SM-R10 §9's *decision* narrows from "the
+  vector/episodic tier" to **"the derived semantic projection."** The graph remains **sole
+  authority for semantic contradiction/invalidation**; a vector copy of a derived semantic fact is
+  a projection — never decided locally, never propagated back (§9.1's "never the reverse
+  direction" survives intact).
+- **Episodic `expired_at` has exactly two sanctioned writers**, neither of which is contradiction
+  resolution: **SM-R6** async re-segmentation, and **SM-R5** decay archival. Both are episodic
+  lifecycle events, not world-truth claims — so neither reopens split-brain.
+- **Schema capability ≠ write authority.** SM-R10 §9 conflated the two; authority is a write-path
+  property. **Action for SM-C3:** enforce it structurally, with the same append-only discipline
+  SM-R10 §6.1 applies to `memory_edge`. SM-R12's DDL ships the CHECK constraints but **no
+  equivalent trigger** on the memory tables, so today the two-writer rule is convention only.
+
+Net effect: nothing merged is reverted, SM-R10 §12.1(a)'s self-tension resolves, and SM-C3
+inherits one rule instead of two.
+
+### B.7 SM-R10 §9.1's undefined edge→memory join key — RECORDED (owner exists)
+
+SM-R10 §9.1's `valid_to` re-sync statement assumes a join `m.memory_id = e.edge_id` and says
+plainly that it *"presumes an edge→memory provenance link written at consolidation time. No such
+column is specified in §5 or §9."* It cross-references SM-R12's `source_episode_ids[]` /
+`derived_by` on `SemanticRelation` as a candidate (`... WHERE m.memory_id = ANY(e.source_episode_ids)`),
+notes the cardinality problem — one edge can produce several memories and one memory can cite
+several edges, so this may need a **link table** rather than a column — and asks that **SM-X11
+settle it with SM-R12 rather than inventing a third link**, *"flagged so it is not rediscovered
+independently."*
+
+**Recorded, not resolved here.** It has a named owner (SM-X11) and is a schema-detail decision, not
+a cross-decision conflict, so it does not block this ADR. But a consistency pass that omitted it
+would not be complete. Note SM-R12 already ships `MemoryLink` (`from_id`/`from_tier`,
+`to_id`/`to_tier`, `link_type`, bi-temporal) — **that is very likely the link table SM-R10 is
+reaching for**, and SM-X11 should evaluate it before designing a fourth mechanism. The re-sync
+statement itself remains explicitly illustrative and unexecuted.
+
 ---
 
 ## Consequences
@@ -572,8 +712,14 @@ SM-R11 and are hereby canonical.
   projection (B.2).
 - SM-R2 is unblocked, and inherits a **live risk** (§4) rather than a foregone Neo4j conclusion.
 - SM-C1 implements the SM-R11 seam and must re-prove config-only swap against a **real** external
-  backend (§5).
-- SM-C3 promotes SM-R12's shapes and picks up the B.4 follow-up.
+  backend (§5), and must **reject `HuggingfaceCustomEmbedder` for `mode=CO_LOCATED`** (A.3c).
+- SM-C3 promotes SM-R12's shapes and picks up three follow-ups: the B.4 dimension parameterization,
+  the **B.6 append-only trigger** on the memory tables (today the two-writer rule on episodic
+  `expired_at` is convention, not enforcement), and `ef_search` calibration per A.3b.
+- **SM-R10 §9 is narrowed by B.6** — its filter-only rule now scopes to the derived semantic
+  projection, not the episodic tier. SM-R12's DDL is unchanged and correct. Nothing is reverted.
+- SM-X11 owns SM-R10 §9.1's undefined edge→memory join key (B.7) and should evaluate SM-R12's
+  existing `MemoryLink` before inventing a third mechanism.
 - Right-to-erasure (B.3) is a named, unowned gap needing its own ticket.
 - Cost reality carried forward: SM-R9 sizes graph extraction at **~$220/tenant at 100k memories,
   ~$2,200/tenant at 1M**, recurring-marginal rather than one-time, and **~2.4× worse per useful
