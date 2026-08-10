@@ -381,8 +381,8 @@ async def authenticate_service_account_request(
     # None means an unscoped platform account -- still set explicitly rather than left absent,
     # so the authenticated request.state shape is uniform across every credential type. A
     # deployment that configured a tenant claim refuses those on the component routes
-    # (egpt.os.tenancy.require_tenant_id); such accounts must be revoked and re-minted with a
-    # tenant, since re-tenanting a live token is deliberately not possible.
+    # (egpt.os.tenancy.require_tenant_id); moving an account to a tenant means minting a new
+    # one, since re-tenanting a live token is deliberately not possible.
     request.state.tenant_id = account.tenant_id
     if admin_scope:
         request.state.admin_scope = admin_scope

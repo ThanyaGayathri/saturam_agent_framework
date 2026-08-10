@@ -100,14 +100,8 @@ carry a tenant of their own. See [docs/tenancy.md](../../../../docs/tenancy.md).
 semantics as the component methods: `None` applies no predicate, a value restricts the rows
 (and, for the listing, the returned count).
 
-> **⚠️ Deploy order matters more here than it did for `v2_6_0`.** `_get_table` raises
-> `Table ... has an invalid schema` for a live table missing a declared column, and
-> `ServiceAccountVerifier` turns that into `UNAVAILABLE` — so a deployment that ships this code
-> before running the migration fails **every** service-account token with a 503 until it does.
-> Run `asyncio.run(MigrationManager(db).up())` first, or in the same maintenance step.
-
-Tokens minted before this change carry `tenant_id = NULL` (unscoped) and are refused on the
-component routes of a tenancy-enabled deployment; they must be re-minted.
+Rows that predate the migration carry `tenant_id = NULL`, which reads as an unscoped platform
+account.
 
 **Upgrading an existing deployment.** Migrations are not run automatically — table
 creation only stamps the schema version. A deployment that already has component

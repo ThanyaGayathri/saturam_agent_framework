@@ -105,12 +105,7 @@ class TestReadsAreTenantScoped:
 
 
 class TestMigrationV2_7_0:
-    """The column and index are added and removed cleanly, and existing rows are untouched.
-
-    Note the deploy-order hazard this migration carries: `_get_table` rejects a live table
-    missing a column the schema declares, and `ServiceAccountVerifier` turns that into
-    UNAVAILABLE -- so shipping the code before running the migration fails every PAT.
-    """
+    """The column and index are added and removed cleanly, and existing rows are untouched."""
 
     def _table(self, sa_db) -> str:
         return sa_db.service_accounts_table_name

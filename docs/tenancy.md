@@ -143,22 +143,18 @@ Account **name** uniqueness stays global rather than becoming per-tenant. The `u
 partial unique index is not cleanly reversible if rebuilt, and two tenants wanting the same
 account name is a naming annoyance, not a security boundary.
 
-### ⚠️ Upgrade note
+### Upgrade note
 
-Migration `v2_7_0` adds the column. Migrations are **not** auto-run, and `_get_table` raises
-when a live table is missing a column the schema declares — which `ServiceAccountVerifier` turns
-into `UNAVAILABLE`. So a deployment that ships this code before running the migration will fail
-**every** service-account token with a 503 until it does:
+A table created from now on already has the column. Migration `v2_7_0` adds it to a
+`service_accounts` table that predates this change; migrations are not auto-run, so:
 
 ```python
 asyncio.run(MigrationManager(db).up())
 ```
 
-Run it first, or in the same maintenance step. Reverting is
-`MigrationManager(db).down(target_version="2.6.0")`; on SQLite the column drop needs 3.35+.
-
-Service accounts minted before this change have `tenant_id = NULL`. In a tenancy-enabled
-deployment they are refused on the component routes and must be re-minted.
+Reverting is `MigrationManager(db).down(target_version="2.6.0")`; on SQLite the column drop needs
+3.35+. Rows that existed before the migration get `tenant_id = NULL`, which reads as an unscoped
+platform account.
 
 ---
 
