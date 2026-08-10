@@ -58,6 +58,11 @@
       "ok": true
     },
     {
+      "detail": "current=1 expired=2 bound=60 original_untouched=True",
+      "name": "SM-R10 write is expire-and-reinsert (SCD-2), no in-place clobber",
+      "ok": true
+    },
+    {
       "detail": "written=1 vector=1 graph=1",
       "name": "SM-R7: consolidate writes the semantic fact to both substrates",
       "ok": true

@@ -236,6 +236,11 @@ class ConsolidationReport:
     adapter implements deterministic dedup + the dual-substrate write; LLM-based
     extraction and contradiction-resolution are SM-C* work (SM-R7 owns the
     consolidation strategy), so ``contradictions_resolved`` stays 0 in the stub.
+
+    ONE WRITE MODEL: any contradiction consolidation produces on the graph
+    substrate resolves through the **same SM-R10 expire-and-reinsert (SCD-2)**
+    path as ``GraphSubstrate.invalidate`` — never a second, in-place resolution
+    path. SM-C1/SM-R7 must route contradiction writes through that primitive.
     """
 
     scope: Scope
@@ -284,9 +289,16 @@ class VectorSubstrate(Protocol):
 class GraphSubstrate(Protocol):
     """Symbolic substrate: temporal knowledge graph (bi-temporal, multi-hop).
 
-    ``invalidate`` implements invalidate-not-delete (SM-R10): a contradiction
-    sets ``t_invalid`` on the old edge rather than deleting it, preserving
-    point-in-time reconstruction + provenance.
+    Bi-temporal writes follow SM-R10's ratified model: **expire-and-reinsert
+    (SCD-2)**, never in-place mutation (SM-R10 §6/§6.1 proved in-place wrong via
+    its P3 5a/5b eval). ``invalidate`` mirrors SM-R10's
+    ``invalidate_edge(edge_id, t_invalid, at=None)`` and carries TWO times:
+    ``t_invalid`` = valid-time the fact became false in the world; ``at`` =
+    transaction-time the system recorded it (defaults to now). A production
+    backend delegates to SM-R10's ``upsert_edge``/``invalidate_edge``/
+    ``retract_edge``; the seam only exposes the primitive, it does not prescribe
+    in-place mutation. Reads select current belief (``expired_at IS NULL``) valid
+    at ``T`` (SM-R10 §7 5a).
     """
 
     def upsert_episode(self, scope: Scope, event: MemoryEvent) -> None: ...
@@ -307,9 +319,9 @@ class GraphSubstrate(Protocol):
         tier: Optional[MemoryTier] = None,
     ) -> List[MemoryRecord]: ...
 
-    def invalidate(self, scope: Scope, edge_id: str, at: int) -> None: ...
+    def invalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None: ...
 
-    async def ainvalidate(self, scope: Scope, edge_id: str, at: int) -> None: ...
+    async def ainvalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None: ...
 
 
 # =============================================================================

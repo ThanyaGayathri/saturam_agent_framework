@@ -108,8 +108,11 @@ class DictGraphSubstrate:
     """Symbolic substrate stand-in: topic-overlap traversal + bi-temporal invalidate.
 
     Structurally satisfies ``GraphSubstrate``. Swap for an SM-R2 Graphiti/Neo4j
-    backend without touching the provider. ``invalidate`` sets ``t_invalid`` rather
-    than deleting (invalidate-not-delete, SM-R10).
+    backend without touching the provider. ``invalidate`` follows SM-R10's
+    **expire-and-reinsert (SCD-2)**: it expires the live version on the
+    transaction axis (``expired_at``) and inserts a bounded copy carrying
+    ``t_invalid`` — it never mutates an already-set bound in place. ``traverse``
+    returns current belief only (``expired_at IS NULL``).
     """
 
     def __init__(self) -> None:
@@ -133,6 +136,8 @@ class DictGraphSubstrate:
         for record in self._bucket(scope):
             if record.tier not in wanted:
                 continue
+            if record.expired_at is not None:
+                continue  # SM-R10 §7 5a: current belief only (expired_at IS NULL)
             if query.as_of is not None and not _valid_at(record, query.as_of):
                 continue  # SM-R10 "true at T": two-sided t_valid <= as_of < t_invalid
             overlap = (
@@ -149,13 +154,27 @@ class DictGraphSubstrate:
     ) -> List[MemoryRecord]:
         return self.traverse(scope, query, tier)
 
-    def invalidate(self, scope: Scope, edge_id: str, at: int) -> None:
+    def invalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None:
+        # SM-R10 expire-and-reinsert (SCD-2), never in-place. Two times:
+        # t_invalid = valid-time the fact became false; at = transaction-time recorded.
+        txn = _tick() if at is None else at
         for record in self._bucket(scope):
-            if record.id == edge_id and record.t_invalid is None:
-                record.t_invalid = at
+            if record.id == edge_id and record.expired_at is None:
+                # 1. bounded copy of the live version becomes the new current belief,
+                #    carrying t_invalid (min with any existing bound). Copied BEFORE
+                #    expiring the original so it inherits expired_at=None.
+                bounded = _copy_with(record, score=0.0, substrate=Substrate.GRAPH)
+                bounded.t_invalid = _min_t_invalid(record.t_invalid, t_invalid)
+                bounded.created_at = txn
+                bounded.superseded_by = None
+                # 2. expire the old version on the transaction axis (NOT its bounds).
+                record.expired_at = txn
+                record.superseded_by = bounded.id
+                self._bucket(scope).append(bounded)
+                return
 
-    async def ainvalidate(self, scope: Scope, edge_id: str, at: int) -> None:
-        self.invalidate(scope, edge_id, at)
+    async def ainvalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None:
+        self.invalidate(scope, edge_id, t_invalid, at)
 
 
 def _copy_with(record: MemoryRecord, score: float, substrate: Optional[Substrate]) -> MemoryRecord:
@@ -254,8 +273,10 @@ def _weighted(ranked_lists: Sequence[List[MemoryRecord]], weights: Sequence[floa
     fuses. Defaulting to weighted here is a reasonable *transfer* by the same
     mechanism (tunable relative-score fusion subsumes RRF and single-leg), and
     SM-R8's 3-leg result points the same way, but it is unmeasured for this exact
-    pairing and must be re-validated against real backends (SM-G9 graph + SM-R3
-    store). RRF stays available via ``method="rrf"`` for that gated case.
+    pairing. **SM-R13 (#19) owns measuring vector+graph weighted-vs-RRF on this
+    seam before the default is ratified** — and #19 currently has no graph/multi-hop
+    retrieval metric, so that gap and this transfer are the same open work. RRF
+    stays available via ``method="rrf"`` for the SM-G9-gated case.
     """
     fused: Dict[str, MemoryRecord] = {}
     combined: Dict[str, float] = {}

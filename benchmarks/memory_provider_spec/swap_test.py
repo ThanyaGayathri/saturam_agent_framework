@@ -180,7 +180,7 @@ def run() -> Result:
     )
     eid = r.event_ids[0]
     before = bt.read(bt_scope, MemoryQuery(text="hq boston", tiers=[MemoryTier.EPISODIC]))
-    bt._graph.invalidate(bt_scope, eid, at=1000)  # type: ignore[attr-defined]
+    bt._graph.invalidate(bt_scope, eid, t_invalid=1000)  # type: ignore[attr-defined]  # SM-R10 SCD-2
     after_now = bt.read(bt_scope, MemoryQuery(text="hq boston", tiers=[MemoryTier.EPISODIC], as_of=2000))
     after_past = bt.read(bt_scope, MemoryQuery(text="hq boston", tiers=[MemoryTier.EPISODIC], as_of=500))
     result.check(
@@ -219,7 +219,7 @@ def run() -> Result:
         bi_scope,
         [MemoryEvent(content="Acme leased floor 3", scope=bi_scope, topics=["lease", "floor"], occurred_at=100)],
     )
-    bi._graph.invalidate(bi_scope, rb.event_ids[0], at=300)  # type: ignore[attr-defined]  # t_invalid=300
+    bi._graph.invalidate(bi_scope, rb.event_ids[0], t_invalid=300)  # type: ignore[attr-defined]  # SM-R10 SCD-2
     biq = "lease floor"
     n_before = len(bi.read(bi_scope, MemoryQuery(text=biq, tiers=[MemoryTier.EPISODIC], as_of=50)).records)
     n_within = len(bi.read(bi_scope, MemoryQuery(text=biq, tiers=[MemoryTier.EPISODIC], as_of=200)).records)
@@ -228,6 +228,30 @@ def run() -> Result:
         "SM-R10 bounded interval [t_valid, t_invalid): both bounds enforced",
         n_before == 0 and n_within == 1 and n_after == 0,
         "before_valid={b} within={w} after_invalid={a}".format(b=n_before, w=n_within, a=n_after),
+    )
+
+    # 5b''. SM-R10 write model: invalidate is expire-and-reinsert (SCD-2), NOT in-place, and a
+    # second invalidate does not clobber the first's already-set bound (the P3/5a bug).
+    sc_scope = Scope(tenant_id="acme", user_id="scd2")
+    sc = build_memory_provider(CONFIGS[0])
+    re = sc.write(
+        sc_scope, [MemoryEvent(content="Acme CEO is Ada", scope=sc_scope, topics=["ceo", "ada"], occurred_at=10)]
+    )
+    eid2 = re.event_ids[0]
+    sc._graph.invalidate(sc_scope, eid2, t_invalid=100)  # type: ignore[attr-defined]
+    sc._graph.invalidate(sc_scope, eid2, t_invalid=60)  # type: ignore[attr-defined]  # second, tighter
+    rows = [r for r in sc._graph._bucket(sc_scope) if r.id == eid2]  # type: ignore[attr-defined]
+    expired = [r for r in rows if r.expired_at is not None]
+    current = [r for r in rows if r.expired_at is None]
+    # Two invalidations -> 2 expired versions + 1 current belief; nothing deleted.
+    # Original row untouched in place (its t_invalid stays None); current bound is tightest (60).
+    original_untouched = any(r.t_invalid is None and r.expired_at is not None for r in rows)
+    result.check(
+        "SM-R10 write is expire-and-reinsert (SCD-2), no in-place clobber",
+        len(current) == 1 and current[0].t_invalid == 60 and original_untouched and len(expired) == 2,
+        "current={c} expired={e} bound={b} original_untouched={o}".format(
+            c=len(current), e=len(expired), b=current[0].t_invalid if current else None, o=original_untouched
+        ),
     )
 
     # 5c. SM-R7 reference consolidate writes the distilled fact to BOTH substrates.

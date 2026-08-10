@@ -106,6 +106,28 @@ Surfaced by a second-pass self-review of the consistency fixes (F5–F8):
 Both are honest-caveat items, not code bugs; the seam behavior is correct, the *claims* are now
 scoped to what was actually measured/implemented.
 
+## F10 — SM-R10 WRITE side: invalidate must be expire-and-reinsert (SCD-2), not in-place
+
+**Found by:** PR #20 review (Major). The self-review fixed the *read* side (two-sided `as_of`) but
+missed the *write* side.
+**Symptom:** `GraphSubstrate.invalidate(scope, edge_id, at)` did `record.t_invalid = at` — an
+**in-place** bound mutation with a **single** time argument.
+**Contradiction:** SM-R10 (PR #17, approved) proved in-place mutation wrong (its P3 5a/5b eval:
+a later fact clobbers an already-set bound; belief-evolution reconstruction breaks) and ratified
+**expire-and-reinsert (SCD-2)** with a **two-time** primitive
+`invalidate_edge(edge_id, t_invalid, at=None)` (`t_invalid` = valid-time false; `at` =
+transaction-time recorded).
+**Fix:**
+- Port widened to `invalidate(scope, edge_id, t_invalid, at=None)` (+ async), docstring points to
+  SM-R10's `upsert_edge`/`invalidate_edge`/`retract_edge`.
+- Reference `DictGraphSubstrate.invalidate` now expires the live row on the transaction axis
+  (`expired_at`) and inserts a bounded copy carrying `t_invalid` — never mutates a bound in place.
+- `traverse` selects current belief only (`expired_at IS NULL`, SM-R10 §7 5a).
+- Regression test: two invalidations accumulate rows (nothing deleted), exactly one current-belief
+  row, tightest bound applied, and the original row keeps `t_invalid=None` (no in-place clobber).
+**Contract for SM-C1:** route ALL bi-temporal writes — including consolidation-produced
+contradictions (SM-R7) — through SM-R10's SCD-2 primitive. One write model, not two.
+
 ## Note — "empty query text = scan" convention
 
 `consolidate` needs to enumerate all episodic records, not run a relevance search. Rather than

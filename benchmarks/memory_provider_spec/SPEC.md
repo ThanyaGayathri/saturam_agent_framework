@@ -160,7 +160,7 @@ class VectorSubstrate(Protocol):   # neural: similarity + full-text
 class GraphSubstrate(Protocol):    # symbolic: temporal KG, multi-hop
     def upsert_episode(scope, event); async def aupsert_episode(...)
     def traverse(scope, query, tier=None) -> List[MemoryRecord]; async def atraverse(...)
-    def invalidate(scope, edge_id, at); async def ainvalidate(...)   # invalidate-not-delete (SM-R10)
+    def invalidate(scope, edge_id, t_invalid, at=None); async def ainvalidate(...)   # SM-R10 SCD-2, two times
 ```
 
 Both are `runtime_checkable` Protocols (structural), so an existing `VectorDb` subclass can
@@ -246,8 +246,8 @@ loop. These are the additive build surface `MemoryProvider` exposes — WRAP the
 | **SM-R2 / SM-G1** (graph engine) | Selected as the `GraphSubstrate` backend via `config.graph`. |
 | **SM-R8** (retrieval fusion) | `config.fusion` — **weighted is the default** (`method="weighted"`, `vector_weight≈0.5`), RRF selectable but reserved for the SM-G9-gated graph-join case; optional cross-encoder rerank (off by default). The provider owns fusion in `read` (`_weighted`/`_rrf`). **Caveat:** SM-R8 measured weighted-over-RRF for dense+BM25 (2-leg) and dense+BM25+graph (3-leg), **not** this seam's vector+graph pairing; defaulting to weighted is a mechanism-based *transfer* to re-validate against real backends (SM-G9/SM-R3), not a measured result for this exact pairing. |
 | **SM-R9** (multi-hop / PPR) | `config.fusion["ppr"]` — optional personalized-PageRank, **per-tenant flag, default off** (SM-R9's decision, not SM-R8's). |
-| **SM-R10** (bi-temporal) | `t_valid`/`t_invalid`/`created_at`/`expired_at`/`superseded_by` on records; `MemoryQuery.as_of` point-in-time read enforces the **two-sided** `t_valid <= as_of < t_invalid`; `GraphSubstrate.invalidate` (invalidate-not-delete). |
-| **SM-R7** (consolidation) | `consolidate` distills episodic→semantic and writes to **both** substrates; deterministic dedup here, LLM extraction + contradiction-resolution deferred to SM-C*. **Caveat:** the reference graph write is a **flat provenance-carrying stand-in** (via `upsert_episode`), not the SM-R12 `SemanticEntity`/`SemanticRelation` + fact↔episode-edge shape SM-R7 intends; SM-C1 needs a semantic-fact upsert on the `GraphSubstrate` port. |
+| **SM-R10** (bi-temporal) | `t_valid`/`t_invalid`/`created_at`/`expired_at`/`superseded_by` on records. **Reads:** `MemoryQuery.as_of` enforces the **two-sided** `t_valid <= as_of < t_invalid` over **current belief** (`expired_at IS NULL`, §7 5a). **Writes:** `GraphSubstrate.invalidate(scope, edge_id, t_invalid, at=None)` mirrors SM-R10's `invalidate_edge` — **two times** (valid-time false + transaction-time) and **expire-and-reinsert (SCD-2)**, never in-place mutation. A real backend delegates to SM-R10's `upsert_edge`/`invalidate_edge`/`retract_edge`. |
+| **SM-R7** (consolidation) | `consolidate` distills episodic→semantic and writes to **both** substrates; deterministic dedup here, LLM extraction + contradiction-resolution deferred to SM-C*. **One write model:** any contradiction it produces on the graph resolves through the **same SM-R10 expire-and-reinsert (SCD-2)** path as `invalidate` — not a second, in-place path. **Caveat:** the reference graph write is a **flat provenance-carrying stand-in** (via `upsert_episode`), not the SM-R12 `SemanticEntity`/`SemanticRelation` + fact↔episode-edge shape SM-R7 intends; SM-C1 needs a semantic-fact upsert on the `GraphSubstrate` port. |
 | **SM-R12** (data model, [PR #18](https://github.com/Saturam-Inc/saturam-agent-framework/pull/18)) | Owns the per-tier row schemas (`EpisodicRecord`/`SemanticFact`/…) **and** a row-level `MemoryStore` port (`read(model, tenant_id, id)` / `write(rec)` + async; `Pg`/`InMemory` adapters). This seam's `MemoryRecord` is a read-projection over those rows; a `MemoryProvider` adapter **composes** `MemoryStore` for single-row persistence beneath the seam. Altitudes differ: R12 `read/write` = one row by primary key; R11 `read/write` = query→`MemorySlice` / event write-back. The seam envelope (`MemorySlice`/`MemoryEvent`/`Scope`) is owned here; R12 defines none of it. |
 
 ---
@@ -281,15 +281,22 @@ loop. These are the additive build surface `MemoryProvider` exposes — WRAP the
   ("weighted is the default; RRF selectable by config"). **Honest caveat:** SM-R8 never measured a
   vector+graph pairing (its legs were dense+BM25±graph), so the weighted default *here* is a
   mechanism-based transfer to re-validate with real backends, not a measured result for this pairing.
+  **SM-R13 (#19) owns measuring vector+graph weighted-vs-RRF on this seam** before the default is
+  ratified; #19 currently lacks a graph/multi-hop retrieval metric, so that gap and this transfer
+  are the same open work.
 - **SM-R9 (multi-hop / PPR, ratified):** PPR is exposed as an optional **per-tenant flag, default
   off**, and attributed to SM-R9 (previously mis-cited as SM-R8).
-- **SM-R10 (bi-temporal, ratified):** point-in-time reads enforce the **two-sided** "true at T"
-  rule `t_valid <= as_of < t_invalid` (both bounds), matching SM-R10 §7; a future-dated record is
-  excluded before `t_valid` (swap test "SM-R10 two-sided"). Field names/types track R12's
-  `BiTemporal` spine.
+- **SM-R10 (bi-temporal, ratified):** **reads** enforce the **two-sided** "true at T" rule
+  `t_valid <= as_of < t_invalid` over current belief (`expired_at IS NULL`), matching SM-R10 §7.
+  **Writes** now match SM-R10's ratified model too: `invalidate(scope, edge_id, t_invalid, at=None)`
+  carries two times and does **expire-and-reinsert (SCD-2)**, never in-place mutation (SM-R10 §6
+  proved in-place wrong). Verified by the swap test ("expire-and-reinsert (SCD-2), no in-place
+  clobber": two invalidations accumulate rows, one current belief, tightest bound, original
+  untouched). Field names/types track R12's `BiTemporal` spine.
 - **SM-R7 (consolidation, ratified spike):** the reference `consolidate` writes the distilled fact
   to **both** substrates (so the "both substrates" claim is true even in the stub); LLM extraction
-  and contradiction-resolution are explicitly deferred to SM-C*.
+  and contradiction-resolution are deferred to SM-C*, and any contradiction it produces resolves
+  through the **same SM-R10 SCD-2 write path** (one write model, not two).
 
 ### 9.1 Pre-review self-check dispositions (against issue #86 + siblings)
 
@@ -302,6 +309,14 @@ loop. These are the additive build surface `MemoryProvider` exposes — WRAP the
 | 4 | Internal: §9 claimed fusion "config, not decided" vs hardcoded RRF | **Fixed** — fusion is config-selectable (this section + swap test). |
 | 5 | SM-R9: PPR mis-cited as SM-R8 | **Fixed** — relabelled SM-R9 in `interface.py` + here. |
 | 6 | SM-R12 field/type alignment | **Re-confirmed** — no record-schema drift; `tenant_id: str`, int epoch-seconds, `t_valid/t_invalid/...` intact (also fixed a stale `valid_from/valid_to` reference in §7). |
+
+### 9.2 Review-response dispositions (PR #20 conditional approval)
+
+| # | Severity | Comment | Disposition |
+|---|----------|---------|-------------|
+| 1 | **Major** | `GraphSubstrate.invalidate` did in-place `t_invalid` mutation + wrong arity (SM-R10 proved in-place wrong; primitive is `invalidate_edge(edge_id, t_invalid, at)`) | **Fixed** — port widened to `invalidate(scope, edge_id, t_invalid, at=None)` (two times); reference adapter now does **expire-and-reinsert (SCD-2)** — expires the live row on the transaction axis + inserts a bounded copy, never in-place; reads select current belief (`expired_at IS NULL`). New regression test proves no in-place clobber across two invalidations. Real backend delegates to SM-R10's write primitives. |
+| 2 | Minor | Weighted default for vector+graph is an unvalidated transfer — name SM-R13 (#19) as owner; ties to #19's missing graph metric | **Fixed** — `_weighted` docstring + SPEC §7/§9 now name **SM-R13 (#19)** as owner of measuring vector+graph weighted-vs-RRF, and note #19's missing graph metric is the same open work. |
+| 3 | Minor | `consolidate` contradiction path stubbed + bi-temporal handoff unspecified | **Fixed** — `ConsolidationReport` docstring + SPEC §7 state contradictions resolve through the **same SM-R10 SCD-2 write path** (one write model, not two). |
 
 ---
 
