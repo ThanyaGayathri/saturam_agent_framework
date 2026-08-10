@@ -5,9 +5,12 @@ where a test deliberately supplies a hydrator. That separation is the point of t
 core validates what it can see, and takes the component contract as an argument.
 """
 
+import re
+from pathlib import Path
+
 import pytest
 
-from egpt.registry import discovery
+from egpt.registry import discovery, schema
 from egpt.registry.schema import (
     SCHEMA_VERSION,
     SCHEMA_VERSION_KEY,
@@ -384,3 +387,41 @@ class TestJsonSchema:
     def test_an_unknown_component_type_raises(self):
         with pytest.raises(ValueError, match="Unknown component type"):
             json_schema("sandwich")
+
+
+# =============================================================================
+# Documentation
+# =============================================================================
+
+
+class TestDocumentedErrorCodes:
+    """The error-code vocabulary is closed, and clients branch on it rather than on messages.
+
+    That only holds if the normative doc lists exactly what the module exports, so an
+    eleventh code has to be documented in the same change that introduces it.
+    """
+
+    DOC_PATH = Path(__file__).parents[5] / "docs" / "component-config-schema.md"
+
+    def _documented_codes(self):
+        if not self.DOC_PATH.exists():
+            pytest.skip(f"{self.DOC_PATH.name} is not present in this checkout")
+        text = self.DOC_PATH.read_text()
+        # Scoped to the vocabulary section: the field tables elsewhere in the doc have the same
+        # row shape, and matching those would compare the codes against every documented field.
+        section = re.search(r"^## \d+\. Error codes$(.*?)^## ", text, flags=re.MULTILINE | re.DOTALL)
+        assert section is not None, "the doc no longer has an 'Error codes' section"
+        # The table's first column, e.g. "| `unknown_field` | Fires when ... |".
+        return set(re.findall(r"^\|\s*`([a-z_]+)`\s*\|", section.group(1), flags=re.MULTILINE))
+
+    def test_documented_codes_match_the_exported_vocabulary(self):
+        exported = {value for name, value in vars(schema).items() if name.startswith("CODE_")}
+
+        assert exported, "no CODE_* constants found; the vocabulary moved"
+        assert self._documented_codes() == exported
+
+    def test_the_documented_schema_version_is_the_current_one(self):
+        if not self.DOC_PATH.exists():
+            pytest.skip(f"{self.DOC_PATH.name} is not present in this checkout")
+
+        assert f"`SCHEMA_VERSION = {SCHEMA_VERSION}`" in self.DOC_PATH.read_text()
