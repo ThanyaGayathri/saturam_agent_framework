@@ -205,6 +205,8 @@ class DynamoDb(BaseDb):
             # Ensure traces table exists first (spans reference traces)
             self._get_table("traces", create_table_if_not_found=True)
             table_name = self.span_table_name
+        elif table_type == "versions":
+            table_name = self.versions_table_name
         else:
             raise ValueError(f"Unknown table type: {table_type}")
 
@@ -216,13 +218,60 @@ class DynamoDb(BaseDb):
 
         return table_name
 
-    def get_latest_schema_version(self):
-        """Get the latest version of the database schema."""
-        pass
+    def get_latest_schema_version(self, table_name: str) -> str:
+        """Get the stored schema version for a table.
 
-    def upsert_schema_version(self, version: str) -> None:
-        """Upsert the schema version into the database."""
-        pass
+        Args:
+            table_name (str): The name of the table to look the version up for.
+
+        Returns:
+            str: The stored version, or "2.0.0" when none is recorded yet. The default
+                matches the SQL backends: an unversioned table is treated as being at the
+                earliest schema, so pending migrations are applied rather than skipped.
+        """
+        try:
+            versions_table = self._get_table("versions", create_table_if_not_found=True)
+            if versions_table is None:
+                return "2.0.0"
+
+            response = self.client.get_item(
+                TableName=versions_table,
+                Key={"table_name": {"S": table_name}},
+            )
+            item = response.get("Item")
+            if not item:
+                return "2.0.0"
+
+            return item.get("version", {}).get("S") or "2.0.0"
+
+        except Exception as e:
+            log_error(f"Error getting schema version for {table_name}: {str(e)}")
+            return "2.0.0"
+
+    def upsert_schema_version(self, table_name: str, version: str) -> None:
+        """Record the schema version for a table.
+
+        Args:
+            table_name (str): The name of the table the version applies to.
+            version (str): The version to store.
+        """
+        try:
+            versions_table = self._get_table("versions", create_table_if_not_found=True)
+            if versions_table is None:
+                return
+
+            now = datetime.now(timezone.utc).isoformat()
+            self.client.put_item(
+                TableName=versions_table,
+                Item={
+                    "table_name": {"S": table_name},
+                    "version": {"S": version},
+                    "updated_at": {"S": now},
+                },
+            )
+
+        except Exception as e:
+            log_error(f"Error upserting schema version for {table_name}: {str(e)}")
 
     # --- Sessions ---
 

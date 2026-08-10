@@ -154,13 +154,51 @@ class GcsJsonDb(BaseDb):
             log_error(f"Error writing to the {blob_name} JSON file in GCS: {str(e)}")
             return
 
-    def get_latest_schema_version(self):
-        """Get the latest version of the database schema."""
-        pass
+    def get_latest_schema_version(self, table_name: str) -> str:
+        """Get the stored schema version for a table.
 
-    def upsert_schema_version(self, version: str) -> None:
-        """Upsert the schema version into the database."""
-        pass
+        Args:
+            table_name (str): The name of the table to look the version up for.
+
+        Returns:
+            str: The stored version, or "2.0.0" when none is recorded yet. The default
+                matches the SQL backends: an unversioned table is treated as being at the
+                earliest schema, so pending migrations are applied rather than skipped.
+        """
+        try:
+            records = self._read_json_file(self.versions_table_name, create_table_if_not_found=True)
+            for record in records:
+                if record.get("table_name") == table_name:
+                    return record.get("version") or "2.0.0"
+            return "2.0.0"
+
+        except Exception as e:
+            log_error(f"Error getting schema version for {table_name}: {str(e)}")
+            return "2.0.0"
+
+    def upsert_schema_version(self, table_name: str, version: str) -> None:
+        """Record the schema version for a table.
+
+        Args:
+            table_name (str): The name of the table the version applies to.
+            version (str): The version to store.
+        """
+        try:
+            records = self._read_json_file(self.versions_table_name, create_table_if_not_found=True)
+            now = datetime.now(timezone.utc).isoformat()
+
+            for record in records:
+                if record.get("table_name") == table_name:
+                    record["version"] = version
+                    record["updated_at"] = now
+                    break
+            else:
+                records.append({"table_name": table_name, "version": version, "created_at": now, "updated_at": now})
+
+            self._write_json_file(self.versions_table_name, records)
+
+        except Exception as e:
+            log_error(f"Error upserting schema version for {table_name}: {str(e)}")
 
     # -- Session methods --
 

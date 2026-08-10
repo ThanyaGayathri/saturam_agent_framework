@@ -256,20 +256,26 @@ class ClickhouseDb(BaseDb):
             log_error(f"table_exists check failed for {table_name}: {e}")
             return False
 
-    def get_latest_schema_version(self, table_name: str) -> Optional[str]:
+    def get_latest_schema_version(self, table_name: str) -> str:
+        """Get the stored schema version for a table.
+
+        Returns "2.0.0" when none is recorded, matching the SQL backends: an unversioned
+        table is treated as being at the earliest schema so pending migrations are applied.
+        Returning None here would reach ``packaging.version.parse`` and raise.
+        """
         try:
             qualified = self._get_table("versions")
             if qualified is None:
-                return None
+                return "2.0.0"
             res = self._client.query(
                 f"SELECT version FROM {qualified} FINAL WHERE table_name = %(t)s LIMIT 1",
                 parameters={"t": table_name},
             )
             if res.result_rows:
-                return res.result_rows[0][0]
+                return res.result_rows[0][0] or "2.0.0"
         except Exception as e:
             log_debug(f"get_latest_schema_version failed: {e}")
-        return None
+        return "2.0.0"
 
     def upsert_schema_version(self, table_name: str, version: str) -> None:
         now = datetime.now(timezone.utc)
