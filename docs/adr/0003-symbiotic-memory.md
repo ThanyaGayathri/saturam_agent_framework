@@ -11,9 +11,16 @@
 
 This ADR is nominally the root of the Symbiotic Memory milestone ("Dependencies: None"). In
 practice it is being written **last**: eleven downstream decision tasks (SM-R3 … SM-R13) have
-already shipped, each flagging its own numbers as *"provisional pending SM-R1 to ratify."* Ten are
-merged to `main`; SM-R11 is open as
-[PR #20](https://github.com/Saturam-Inc/saturam-agent-framework/pull/20).
+already shipped, each flagging its own numbers as *"provisional pending SM-R1 to ratify."*
+**All eleven are now merged to `main`** — SM-R11 landed last via
+[PR #20](https://github.com/Saturam-Inc/saturam-agent-framework/pull/20) (`e266ac30`).
+
+> **Freshness — this ADR consolidates eleven moving documents, so it states its own basis.**
+> **Verified against `origin/main` @ `e266ac30` (2026-08-10).** Any sibling merging after this sha
+> may invalidate a claim below; re-verify before relying on a specific number. This is not
+> hypothetical: **SM-R11 changed materially between the branch tip and its merge** — a **Major**
+> write-side fix caught in PR #20 review (§3) — and an earlier revision of this ADR documented the
+> superseded version.
 
 So this document is **not a greenfield design**. Its job is to (a) describe the system that was
 actually built, (b) ratify or change the provisional targets those eleven tasks are blocked on, and
@@ -133,7 +140,7 @@ rejecting that literal, and SM-R13 already shipped a draft copying the strawman 
 it (SM-R13 §3: *"An earlier draft copied the issue-#86 strawman … now corrected"*). **This ADR
 ratifies the real signatures and retires the strawman. Do not reintroduce it.**
 
-Verified directly against `interface.py` on `origin/feat/memory-SM-R11`:
+Verified directly against `interface.py` on `origin/main` (@ `e266ac30`, post-merge):
 
 ```python
 read(scope: Scope, query: MemoryQuery)            -> MemorySlice
@@ -148,6 +155,28 @@ substrates() -> Dict[Substrate, bool]
 becomes `MemoryQuery.tiers`. All verbs ship sync **and** async with the `a`-prefix (`aread`,
 `awrite`, `aconsolidate`) matching the `learn`/`memory` convention. `vectordb/base.py` uses
 `async_`; the adapter bridges the two prefixes internally.
+
+**The substrate-port write primitive — take the POST-MERGE signature, not the branch one.** PR #20's
+review found a **Major** on the write side that SM-R11's own self-review had missed: `invalidate`
+took a single time and did an **in-place `t_invalid` mutation**, which SM-R10 §6 had already proved
+wrong via its P3 5a/5b eval (a later fact clobbers an already-set bound; belief-evolution stops
+reconstructing). The merged port is:
+
+```python
+GraphSubstrate.invalidate(scope, edge_id, t_invalid, at=None)   # + ainvalidate
+```
+
+**Two times** — `t_invalid` = valid-time the fact became false in the world; `at` = transaction-time
+the system recorded it — and **expire-and-reinsert (SCD-2)**, never in-place mutation. A production
+backend delegates to SM-R10's `upsert_edge` / `invalidate_edge` / `retract_edge`; reads select
+current belief (`expired_at IS NULL`, SM-R10 §7 5a). Verified by the merged swap test
+(*"expire-and-reinsert (SCD-2), no in-place clobber"*: two invalidations accumulate rows, exactly
+one current belief, tightest bound applied, original untouched).
+
+**ONE WRITE MODEL (ratified).** Merged SM-R11 adds the constraint that **every** bi-temporal graph
+write — *including contradictions produced by consolidation (SM-R7)* — resolves through that same
+SCD-2 primitive, never a second in-place path. Ratified as stated. See **§B.6** for the row-vs-edge
+boundary this must be read against.
 
 **Flow:**
 
@@ -228,15 +257,16 @@ register_provider(key)                              # adapters self-register on 
   upgrade** — it statistically *ties* Mode A (Holm p=0.21).
 
 **Verification — I did not take the config-only claim on faith.** Re-read
-`swap_test.py` and `results/swap_results.json` on `origin/feat/memory-SM-R11`:
+`swap_test.py` and `results/swap_results.json` on `origin/main` (@ `e266ac30`, post-merge):
 
 - The proof is **structural**: one function, `consumer_workload(provider, scope)`, is run verbatim
   against providers built from two configs differing **only** in `provider` + `mode`. It touches
   only the abstract type and never branches on provider identity. If the seam leaked, one function
   could not drive both.
-- `swap_results.json`: **`"passed": true`, `"deterministic": true`, 11/11 checks ok** (SM-R11's
-  own §Phase-status prose says "10/10" — its artifact has since grown to 11; the artifact is
-  authoritative and all 11 pass), including
+- `swap_results.json`: **`"passed": true`, `"deterministic": true`, 12/12 checks ok.** (SM-R11's
+  own §Phase-status prose still reads "10/10" — its artifact has since grown to **12**, so the
+  narrative now trails its own results file by two. The artifact is authoritative; all 12 pass.
+  Flagged upstream; not a defect in the seam.) Checks include
   *"swap is config-only (no call-site change) — consumer_workload run verbatim on 2 providers"*,
   tenant isolation (**leaked=0**), both SM-R10 two-sided bounds, SM-R7 dual-substrate write, and
   sync+async parity.
@@ -481,12 +511,25 @@ strategies stay wired and N-leg-capable (`fusion.RRFFusion(k=60)`, `fusion.Weigh
 **Do not adopt RRF automatically when the graph leg joins**, and do not read either result as
 settling it. The caveat is carried forward, not discharged.
 
-> **New finding, flagged here because no sibling owns it.** SM-R11's `co_located` adapter defaults
-> to **weighted** for a **vector + graph** pairing. SM-R11 §9 is honest that this is *"a
+> **Related, and now MIS-owned — R1 arbitrates.** SM-R11's `co_located` adapter defaults to
+> **weighted** for a **vector + graph** pairing. SM-R11 §9 is honest that this is *"a
 > mechanism-based transfer to re-validate against real backends, not a measured result for this
 > exact pairing"* — SM-R8's legs were dense+BM25(±graph), and SM-R9's were dense+PPR. **No
-> measurement covers vector+graph directly.** SM-C1 inherits a defaulted-but-unmeasured choice;
-> it is in scope for the same SM-G9 gate.
+> measurement covers vector+graph directly.**
+>
+> Merged SM-R11 §9 assigns that measurement: *"SM-R13 (#19) owns measuring vector+graph
+> weighted-vs-RRF on this seam."* **That assignment does not work.** PR #19 merged at **09:50Z, ~3.5
+> hours before #20**, and SM-R13's `PLAN.md` §6 explicitly puts *"graph-traversal / PPR retrieval
+> provider + bridge-passage graph dataset + bi-temporal-graph PPR probe"* **out of scope, deferred
+> to SM-X7 (#143)**. So the work was handed to a closed task that had already declined that exact
+> scope — it would sit unowned.
+>
+> **Ruling: the owner is SM-X7 ([#143](https://github.com/Saturam-Inc/aicoe-tracker/issues/143)),
+> not SM-R13.** SM-X7 already owns the graph/PPR retrieval provider, the bridge-passage dataset and
+> the bi-temporal-graph PPR probe — the same measurement surface — and SM-R13 §2.6 names it as the
+> owner of exactly this deferral. This is the same class of call as **§B.2**, and it is R1's to
+> make rather than to leave to two merged documents that disagree. The vector+graph default remains
+> **provisional**, gated on that measurement alongside the 3-leg question above.
 
 ### A.7 Other provisional values — ratified as-is
 
@@ -734,6 +777,24 @@ source:
   SM-R10 §6.1 applies to `memory_edge`. SM-R12's DDL ships the CHECK constraints but **no
   equivalent trigger** on the memory tables, so today the two-writer rule is convention only.
 
+**Row vs edge — the boundary SM-C1 must not blur.** Merged SM-R11 ratifies a **ONE WRITE MODEL**
+rule (§3): *"route ALL bi-temporal writes — including consolidation-produced contradictions — through
+SM-R10's SCD-2 primitive."* Read literally, "ALL" would send episode archival through
+`invalidate_edge`. It must not. SM-R10's primitives (`upsert_edge` / `invalidate_edge` /
+`retract_edge`) are **edge** operations on the graph; the two sanctioned writers above act on
+**episodic rows**, which are not edges and have no graph edge owning their validity. The rule reads:
+
+| Write | Target | Path |
+|---|---|---|
+| Semantic contradiction / invalidation | graph **edge** | SM-R10 SCD-2 primitive — **one model, no exceptions** |
+| SM-R6 async re-segmentation supersede | episodic **row** | row-level `expire()` + `superseded_by[]` (SM-R12) |
+| SM-R5 decay archival | episodic **row** | row-level `expired_at` (SM-R12) |
+
+Both column families are append-only and invalidate-not-delete; they are simply different objects.
+**Independent corroboration:** SM-R11's post-merge `findings/F2` — *"the vector substrate is not the
+source of truth for validity"* — and F10's one-write-model rule were derived without reference to
+this ADR and land on the same place as the ruling above.
+
 Net effect: nothing merged is reverted, SM-R10 §12.1(a)'s self-tension resolves, and SM-C3
 inherits one rule instead of two.
 
@@ -809,7 +870,7 @@ Implementation of anything (SM Groups C–X). No `libs/agno/egpt/**` change — 
 | SM-R8 | `benchmarks/memory_retrieval/DECISION.md` |
 | SM-R9 | `benchmarks/memory_multihop/SPIKE.md` |
 | SM-R10 | `benchmarks/memory_bitemporal/SPEC.md` |
-| SM-R11 | `benchmarks/memory_provider_spec/SPEC.md` + `interface.py` + `swap_test.py` + `results/swap_results.json` (`origin/feat/memory-SM-R11`, PR #20 open) |
+| SM-R11 | `benchmarks/memory_provider_spec/SPEC.md` + `interface.py` + `swap_test.py` + `results/swap_results.json` + `findings/README.md` (**merged**; all claims re-verified post-merge — see §3) |
 | SM-R12 | `benchmarks/memory_datamodel/SPEC.md` + `model.py` + `ddl/schema.sql` |
 | SM-R13 | `benchmarks/memory_eval/PLAN.md` |
 
