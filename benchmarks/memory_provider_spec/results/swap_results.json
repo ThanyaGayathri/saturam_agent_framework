@@ -1,0 +1,109 @@
+{
+  "async_observations": {
+    "co_located": {
+      "accepted": 4,
+      "episodic_scanned": 4,
+      "read_records": 2
+    },
+    "external_stub": {
+      "accepted": 4,
+      "episodic_scanned": 4,
+      "read_records": 2
+    }
+  },
+  "checks": [
+    {
+      "detail": "accepted=4 read=2 tier=1",
+      "name": "co_located: write+read+consolidate via one seam",
+      "ok": true
+    },
+    {
+      "detail": "accepted=4 read=2 tier=1",
+      "name": "external_stub: write+read+consolidate via one seam",
+      "ok": true
+    },
+    {
+      "detail": "consumer_workload run verbatim on 2 providers",
+      "name": "swap is config-only (no call-site change)",
+      "ok": true
+    },
+    {
+      "detail": "method=weighted fused=1 vector_hits=1 graph_hits=1",
+      "name": "co_located: fusion folds a cross-substrate match to one record",
+      "ok": true
+    },
+    {
+      "detail": "default=weighted rrf-config=rrf",
+      "name": "SM-R8: weighted is the default fusion; RRF selectable by config",
+      "ok": true
+    },
+    {
+      "detail": "cross-tenant records leaked=0",
+      "name": "tenant isolation",
+      "ok": true
+    },
+    {
+      "detail": "before=1 as_of_after=0 as_of_before=1",
+      "name": "bi-temporal invalidate-not-delete + as_of upper bound",
+      "ok": true
+    },
+    {
+      "detail": "as_of<t_valid=0 as_of>t_valid=1",
+      "name": "SM-R10 two-sided: future-dated record excluded before t_valid",
+      "ok": true
+    },
+    {
+      "detail": "before_valid=0 within=1 after_invalid=0",
+      "name": "SM-R10 bounded interval [t_valid, t_invalid): both bounds enforced",
+      "ok": true
+    },
+    {
+      "detail": "current=1 expired=2 bound=60 original_untouched=True",
+      "name": "SM-R10 write is expire-and-reinsert (SCD-2), no in-place clobber",
+      "ok": true
+    },
+    {
+      "detail": "written=1 vector=1 graph=1",
+      "name": "SM-R7: consolidate writes the semantic fact to both substrates",
+      "ok": true
+    },
+    {
+      "detail": "async accepted+read verified for 2 providers",
+      "name": "sync + async variants both satisfy the contract",
+      "ok": true
+    }
+  ],
+  "deterministic": true,
+  "passed": true,
+  "providers": [
+    "co_located",
+    "external_stub"
+  ],
+  "sync_observations": {
+    "co_located": {
+      "accepted": 4,
+      "episodic_scanned": 4,
+      "fusion_method": "weighted",
+      "read_records": 2,
+      "read_tier_hits": 1,
+      "read_top": "Acme migrated its vector store to pgvector last quarter",
+      "substrates": {
+        "graph": true,
+        "vector": true
+      }
+    },
+    "external_stub": {
+      "accepted": 4,
+      "episodic_scanned": 4,
+      "fusion_method": "external",
+      "read_records": 2,
+      "read_tier_hits": 1,
+      "read_top": "Acme migrated its vector store to pgvector last quarter",
+      "substrates": {
+        "graph": false,
+        "vector": true
+      }
+    }
+  },
+  "task": "SM-R11 swap test"
+}
