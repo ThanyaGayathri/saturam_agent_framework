@@ -425,7 +425,9 @@ class TestWorkflowLoad:
 
         Workflow.load(id="versioned-workflow", db=mock_db, version=2)
 
-        mock_db.get_config.assert_called_once_with(component_id="versioned-workflow", label=None, version=2, tenant_id=None)
+        mock_db.get_config.assert_called_once_with(
+            component_id="versioned-workflow", label=None, version=2, tenant_id=None
+        )
 
     def test_load_with_label(self, mock_db):
         """Test load retrieves labeled version."""
@@ -433,7 +435,9 @@ class TestWorkflowLoad:
 
         Workflow.load(id="labeled-workflow", db=mock_db, label="production")
 
-        mock_db.get_config.assert_called_once_with(component_id="labeled-workflow", label="production", version=None, tenant_id=None)
+        mock_db.get_config.assert_called_once_with(
+            component_id="labeled-workflow", label="production", version=None, tenant_id=None
+        )
 
     def test_load_returns_none_when_not_found(self, mock_db):
         """Test load returns None when workflow not found."""
@@ -557,7 +561,9 @@ class TestGetWorkflowById:
 
         get_workflow_by_id(db=mock_db, id="labeled", label="staging")
 
-        mock_db.get_config.assert_called_once_with(component_id="labeled", version=None, label="staging", tenant_id=None)
+        mock_db.get_config.assert_called_once_with(
+            component_id="labeled", version=None, label="staging", tenant_id=None
+        )
 
     def test_get_workflow_by_id_fetches_links(self, mock_db):
         """Test get_workflow_by_id fetches links for the workflow version."""

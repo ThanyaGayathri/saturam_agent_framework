@@ -1590,9 +1590,7 @@ class Team:
         version: Optional[int] = None,
         tenant_id: Optional[str] = None,
     ) -> Optional["Team"]:
-        return _storage.load(
-            cls, id=id, db=db, registry=registry, label=label, version=version, tenant_id=tenant_id
-        )
+        return _storage.load(cls, id=id, db=db, registry=registry, label=label, version=version, tenant_id=tenant_id)
 
     def delete(
         self,
@@ -1831,9 +1829,7 @@ def get_team_by_id(
     from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise
 
     try:
-        row = fetch_config_row(
-            db, id, "team", version=version, label=label, tenant_id=tenant_id, registry=registry
-        )
+        row = fetch_config_row(db, id, "team", version=version, label=label, tenant_id=tenant_id, registry=registry)
         if row is None:
             return None
 
@@ -1861,9 +1857,7 @@ def get_team_by_id(
         raise
     except Exception as e:
         log_error(f"Error loading Team {id} from database: {str(e)}")
-        raise HydrationError(
-            f"Component '{id}' failed to hydrate: {e}", component_id=id, component_type="team"
-        ) from e
+        raise HydrationError(f"Component '{id}' failed to hydrate: {e}", component_id=id, component_type="team") from e
 
 
 def get_teams(

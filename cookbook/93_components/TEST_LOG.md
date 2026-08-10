@@ -81,3 +81,21 @@ falling back to the static name table.
 
 ---
 
+
+### tenant_scoped_hydration.py
+
+**Status:** PASS
+
+**Description:** Exercises tenant-scoped, cached hydration (EGPT-2.5) against a real Postgres
+(`./cookbook/scripts/run_pgvector.sh`). Seeds one published agent per tenant (`acme`, `globex`),
+hydrates with `tenant_id`, and demonstrates the `ComponentConfigCache` parked on the Registry.
+
+**Result:** (1) `acme` hydrated its own agent. (2) `acme` asking for globex's component id got
+`None`, indistinguishable from a missing component. (3) The repeat hydration was served from the
+cache. (4) `invalidate()` evicted the entry for the next read. The final `print_response` call
+requires `OPENAI_API_KEY` and reported the missing key cleanly in this environment; the
+hydration and tenancy behavior under test all passed.
+
+**Note:** Run against `.venv/bin/python` in this workspace, which has no `.venvs/demo`.
+
+---

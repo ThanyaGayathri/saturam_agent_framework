@@ -2076,7 +2076,7 @@ async def resolve_agent(
 
     Raises HTTPException on all error paths.
     """
-    in_memory = bool(agents) and any(getattr(a, "id", None) == agent_id for a in agents)
+    in_memory = agents is not None and any(getattr(a, "id", None) == agent_id for a in agents)
     tenant = _tenant_for_hydration(request, tenant_id, in_memory=in_memory, db=db)
     is_factory = agents and any(isinstance(a, AgentFactory) and a.id == agent_id for a in agents)
     if is_factory:
@@ -2099,7 +2099,9 @@ async def resolve_agent(
             raise HTTPException(status_code=500, detail=f"Error in agent factory: {e}")
     else:
         try:
-            agent = get_agent_by_id(agent_id, agents, db, registry, version=version, create_fresh=True, tenant_id=tenant)
+            agent = get_agent_by_id(
+                agent_id, agents, db, registry, version=version, create_fresh=True, tenant_id=tenant
+            )
         # 403, not 404 or 500: the component exists and hydrated fine, the caller's tenant is
         # just not permitted the capabilities it names. Sits beside the FactoryPermissionError
         # arm above, which is the same kind of outcome on the factory path.
@@ -2141,7 +2143,7 @@ async def resolve_team(
 
     See resolve_agent for the tenant semantics (EGPT-2.5).
     """
-    in_memory = bool(teams) and any(getattr(t, "id", None) == team_id for t in teams)
+    in_memory = teams is not None and any(getattr(t, "id", None) == team_id for t in teams)
     tenant = _tenant_for_hydration(request, tenant_id, in_memory=in_memory, db=db)
     is_factory = teams and any(isinstance(t, TeamFactory) and t.id == team_id for t in teams)
     if is_factory:
@@ -2201,7 +2203,7 @@ async def resolve_workflow(
 
     See resolve_agent for the tenant semantics (EGPT-2.5).
     """
-    in_memory = bool(workflows) and any(getattr(w, "id", None) == workflow_id for w in workflows)
+    in_memory = workflows is not None and any(getattr(w, "id", None) == workflow_id for w in workflows)
     tenant = _tenant_for_hydration(request, tenant_id, in_memory=in_memory, db=db)
     is_factory = workflows and any(isinstance(w, WorkflowFactory) and w.id == workflow_id for w in workflows)
     if is_factory:

@@ -366,9 +366,7 @@ class EgptOS:
         # registry for the same reason as the capability policy: hydration is handed a
         # Registry and never this EgptOS. The components router evicts through this same
         # object on mutations.
-        self.component_config_cache = ComponentConfigCache(
-            ttl_seconds=self.settings.component_config_cache_ttl_seconds
-        )
+        self.component_config_cache = ComponentConfigCache(ttl_seconds=self.settings.component_config_cache_ttl_seconds)
 
         # Parking happens in _park_capability_policy / _park_hydration_support, called from
         # _ensure_registry, so it cannot depend on whether a registry was passed to the

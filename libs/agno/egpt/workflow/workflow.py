@@ -10862,9 +10862,7 @@ def get_workflow_by_id(
     from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise
 
     try:
-        row = fetch_config_row(
-            db, id, "workflow", version=version, label=label, tenant_id=tenant_id, registry=registry
-        )
+        row = fetch_config_row(db, id, "workflow", version=version, label=label, tenant_id=tenant_id, registry=registry)
         if row is None:
             return None
 
@@ -10887,11 +10885,7 @@ def get_workflow_by_id(
         resolved_version = row.get("version")
 
         # Get links for this workflow version
-        links = (
-            db.get_links(component_id=id, version=resolved_version, tenant_id=tenant_id)
-            if resolved_version
-            else []
-        )
+        links = db.get_links(component_id=id, version=resolved_version, tenant_id=tenant_id) if resolved_version else []
 
         workflow = Workflow.from_dict(cfg, db=db, links=links, registry=registry, tenant_id=tenant_id)
 
@@ -10953,9 +10947,7 @@ def get_workflows(
                             policy=policy,
                             component_id=component_id,
                         )
-                        workflow = Workflow.from_dict(
-                            workflow_config, db=db, registry=registry, tenant_id=tenant_id
-                        )
+                        workflow = Workflow.from_dict(workflow_config, db=db, registry=registry, tenant_id=tenant_id)
                         workflow.id = component_id
                         workflow._version = component.get("current_version")
                         workflow._stage = config.get("stage")

@@ -543,7 +543,10 @@ class StudioTools(Toolkit):
 
         if self.db is None:
             return None
-        if component_type is not None and self.db.get_component(component_id, component_type=component_type, tenant_id=self.tenant_id) is None:
+        if (
+            component_type is not None
+            and self.db.get_component(component_id, component_type=component_type, tenant_id=self.tenant_id) is None
+        ):
             return None
         row = self.db.get_config(component_id=component_id, version=version, tenant_id=self.tenant_id)
         if row is None:
@@ -1288,7 +1291,9 @@ class StudioTools(Toolkit):
                     self._sync_component_row(component_id, target)
                     return json.dumps({"status": "already_published", "id": component_id, "version": target})
 
-            result = self.db.upsert_config(component_id=component_id, version=target, stage="published", tenant_id=self.tenant_id)
+            result = self.db.upsert_config(
+                component_id=component_id, version=target, stage="published", tenant_id=self.tenant_id
+            )
             published_version = result.get("version", target)
             self._sync_component_row(component_id, published_version)
             return json.dumps(
@@ -1397,7 +1402,9 @@ class StudioTools(Toolkit):
         try:
             from egpt.db.base import ComponentType
 
-            component = self.db.get_component(workflow_id, component_type=ComponentType.WORKFLOW, tenant_id=self.tenant_id)
+            component = self.db.get_component(
+                workflow_id, component_type=ComponentType.WORKFLOW, tenant_id=self.tenant_id
+            )
             if component is None:
                 return json.dumps({"error": f"Workflow not found: {workflow_id}"})
             deleted = self.db.delete_component(workflow_id, hard_delete=True, tenant_id=self.tenant_id)

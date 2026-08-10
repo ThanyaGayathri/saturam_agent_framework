@@ -65,9 +65,7 @@ class TestLabelResolution:
 
     def test_label_resolves_the_labeled_version_not_current(self, sqlite_db):
         _create(sqlite_db, "agent-1", label="stable", config={"model": "v1-model"})
-        sqlite_db.upsert_config(
-            "agent-1", config={"model": "v2-model"}, stage="published", tenant_id=TENANT_A
-        )
+        sqlite_db.upsert_config("agent-1", config={"model": "v2-model"}, stage="published", tenant_id=TENANT_A)
 
         labeled = sqlite_db.load_component_graph("agent-1", label="stable", tenant_id=TENANT_A)
         assert labeled is not None

@@ -819,7 +819,14 @@ def get_team_router(
             return JSONResponse(content={}, status_code=200)
 
         try:
-            team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True, tenant_id=current_tenant_id(request))  # type: ignore[assignment]
+            team = get_team_by_id(
+                team_id=team_id,
+                teams=os.teams,
+                db=os.db,
+                registry=registry,
+                create_fresh=True,
+                tenant_id=current_tenant_id(request),
+            )  # type: ignore[assignment]
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant
             # is just not permitted the capabilities it names (EGPT-2.3).
@@ -908,7 +915,14 @@ def get_team_router(
                 detail="Stream resumption is not supported for factory teams",
             )
 
-        team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True, tenant_id=current_tenant_id(request))
+        team = get_team_by_id(
+            team_id=team_id,
+            teams=os.teams,
+            db=os.db,
+            registry=registry,
+            create_fresh=True,
+            tenant_id=current_tenant_id(request),
+        )
         if team is None:
             raise HTTPException(status_code=404, detail="Team not found")
         if isinstance(team, RemoteTeam):
@@ -1026,7 +1040,14 @@ def get_team_router(
             )
         else:
             try:
-                team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True, tenant_id=current_tenant_id(request))  # type: ignore[assignment]
+                team = get_team_by_id(
+                    team_id=team_id,
+                    teams=os.teams,
+                    db=os.db,
+                    registry=registry,
+                    create_fresh=True,
+                    tenant_id=current_tenant_id(request),
+                )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant
                 # is just not permitted the capabilities it names (EGPT-2.3).
@@ -1192,7 +1213,14 @@ def get_team_router(
             user_id = request.state.user_id
 
         try:
-            team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True, tenant_id=current_tenant_id(request))
+            team = get_team_by_id(
+                team_id=team_id,
+                teams=os.teams,
+                db=os.db,
+                registry=registry,
+                create_fresh=True,
+                tenant_id=current_tenant_id(request),
+            )
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant
             # is just not permitted the capabilities it names (EGPT-2.3).
@@ -1338,7 +1366,10 @@ def get_team_router(
             # Exclude teams whose IDs are owned by the registry
             exclude_ids = registry.get_team_ids() if registry else None
             db_teams = get_teams(
-                db=os.db, registry=registry, exclude_component_ids=exclude_ids or None, tenant_id=current_tenant_id(request)
+                db=os.db,
+                registry=registry,
+                exclude_component_ids=exclude_ids or None,
+                tenant_id=current_tenant_id(request),
             )
             for db_team in db_teams:
                 team_response = await TeamResponse.from_team(team=db_team, is_component=True)
@@ -1438,7 +1469,14 @@ def get_team_router(
             return TeamResponse.from_factory(factory)
 
         try:
-            team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True, tenant_id=current_tenant_id(request))  # type: ignore[assignment]
+            team = get_team_by_id(
+                team_id=team_id,
+                teams=os.teams,
+                db=os.db,
+                registry=registry,
+                create_fresh=True,
+                tenant_id=current_tenant_id(request),
+            )  # type: ignore[assignment]
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant
             # is just not permitted the capabilities it names (EGPT-2.3).
@@ -1486,7 +1524,14 @@ def get_team_router(
             )
         else:
             try:
-                team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True, tenant_id=current_tenant_id(request))  # type: ignore[assignment]
+                team = get_team_by_id(
+                    team_id=team_id,
+                    teams=os.teams,
+                    db=os.db,
+                    registry=registry,
+                    create_fresh=True,
+                    tenant_id=current_tenant_id(request),
+                )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant
                 # is just not permitted the capabilities it names (EGPT-2.3).
@@ -1553,7 +1598,14 @@ def get_team_router(
             )
         else:
             try:
-                team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True, tenant_id=current_tenant_id(request))  # type: ignore[assignment]
+                team = get_team_by_id(
+                    team_id=team_id,
+                    teams=os.teams,
+                    db=os.db,
+                    registry=registry,
+                    create_fresh=True,
+                    tenant_id=current_tenant_id(request),
+                )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant
                 # is just not permitted the capabilities it names (EGPT-2.3).
@@ -1616,7 +1668,14 @@ def get_team_router(
             )
         else:
             try:
-                team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True, tenant_id=current_tenant_id(request))  # type: ignore[assignment]
+                team = get_team_by_id(
+                    team_id=team_id,
+                    teams=os.teams,
+                    db=os.db,
+                    registry=registry,
+                    create_fresh=True,
+                    tenant_id=current_tenant_id(request),
+                )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant
                 # is just not permitted the capabilities it names (EGPT-2.3).
@@ -1679,7 +1738,14 @@ def get_team_router(
             )
         else:
             try:
-                team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True, tenant_id=current_tenant_id(request))  # type: ignore[assignment]
+                team = get_team_by_id(
+                    team_id=team_id,
+                    teams=os.teams,
+                    db=os.db,
+                    registry=registry,
+                    create_fresh=True,
+                    tenant_id=current_tenant_id(request),
+                )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant
                 # is just not permitted the capabilities it names (EGPT-2.3).

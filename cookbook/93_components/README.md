@@ -37,6 +37,7 @@ The Agent-as-Config feature allows you to:
 | `validate_config.py` | Validate an agent definition and read the field-level errors it produces |
 | `capability_policy.py` | Restrict which models, tools and MCP servers a tenant's definition may reference |
 | `capability_policy.json` | The policy document `capability_policy.py` loads |
+| `tenant_scoped_hydration.py` | Hydrate DB-defined agents scoped to a tenant, with the config cache |
 
 ---
 
@@ -377,6 +378,29 @@ agent.save()
 # Load specific version (coming soon)
 # agent = get_agent_by_id(db=db, id="my-agent", version=1)
 ```
+
+---
+
+## Tenant-Scoped Hydration
+
+In a multi-tenant deployment every hydration entry point takes a `tenant_id` (EGPT-2.5). The
+read is scoped to that tenant -- a foreign tenant's component id resolves like a missing one --
+and the tenant is carried into team-member and workflow-step hydration. A
+`ComponentConfigCache` parked on the `Registry` avoids a database read per hydration; the
+components HTTP API evicts it on every mutation, and programmatic writers converge within the
+TTL (default 30 seconds).
+
+```python
+from egpt.registry import Registry
+from egpt.registry.hydrate import ComponentConfigCache
+
+registry = Registry(component_config_cache=ComponentConfigCache(ttl_seconds=30))
+agent = get_agent_by_id(db=db, id="my-agent", registry=registry, tenant_id="acme")
+```
+
+See `tenant_scoped_hydration.py` for the full example, and `docs/tenancy.md` for the
+normative reference (including `HYDRATE_PUBLISHED_ONLY`, which makes hydration refuse
+unpublished configs).
 
 ---
 

@@ -179,11 +179,12 @@ def fetch_config_row(
     # isinstance rather than truthiness: registry duck-types here (tests pass mocks, and a
     # bare programmatic caller may pass anything), so only a real cache is a cache.
     cache = getattr(registry, "component_config_cache", None)
-    use_cache = isinstance(cache, ComponentConfigCache) and label is None
+    if not isinstance(cache, ComponentConfigCache) or label is not None:
+        cache = None
 
     row: Optional[Dict[str, Any]] = None
     key = None
-    if use_cache:
+    if cache is not None:
         key = cache.make_key(db, component_id, version=version, tenant_id=tenant_id)
         cached = cache.get(key)
         if cached is not None:
@@ -193,7 +194,7 @@ def fetch_config_row(
         row = db.get_config(component_id=component_id, version=version, label=label, tenant_id=tenant_id)
         if row is None:
             return None
-        if use_cache:
+        if cache is not None and key is not None:
             cache.put(key, copy.deepcopy(row))
 
     require_published(row, component_id, component_type, registry=registry)

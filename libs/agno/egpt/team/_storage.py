@@ -820,9 +820,7 @@ def from_dict(
                 if db is None:
                     log_warning(f"Cannot load member team {member_data['team_id']}: db is None")
                     continue
-                nested_team = get_team_by_id(
-                    id=member_data["team_id"], db=db, registry=registry, tenant_id=tenant_id
-                )
+                nested_team = get_team_by_id(id=member_data["team_id"], db=db, registry=registry, tenant_id=tenant_id)
                 if nested_team:
                     members.append(nested_team)
                 else:

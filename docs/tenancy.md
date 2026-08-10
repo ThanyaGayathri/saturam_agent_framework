@@ -1,4 +1,4 @@
-# Tenant scoping (EGPT-2.4)
+# Tenant scoping (EGPT-2.4, runtime hydration EGPT-2.5)
 
 Normative reference for how a request's tenant is resolved and what the component registry API
 does with it. Companion to [capability-policy.md](capability-policy.md), which covers *which
@@ -182,19 +182,56 @@ platform account.
 
 ---
 
-## 5. Known limits
+## 5. Runtime hydration (EGPT-2.5)
 
-- **Runtime hydration is not tenant-scoped.** `get_agent_by_id`, `Agent.load` and the team and
-  workflow equivalents read a stored config with no tenant predicate, so `POST /agents/{id}/runs`
-  can still hydrate another tenant's component even though `GET /components/{id}` would 404. The
-  capability policy is the only control there today. **EGPT-2.5.**
-- **`tools/studio.py` runs unscoped** — the in-process toolkit over the same tables has no HTTP
-  principal to derive a tenant from. Do not expose it to a tenant-facing agent until 2.5.
-- **The dry-run hydration in write validation is unscoped**, so a team config naming another
-  tenant's component as a member hydrates successfully. Whether the write is accepted is
-  therefore a weak existence oracle for foreign component ids. **EGPT-2.5.**
+Hydration — turning a stored config row into a live Agent/Team/Workflow — is scoped to the
+caller's tenant end to end:
+
+- **Every hydration entry point takes a trailing `tenant_id`**: the component getters
+  (`get_agent_by_id`, `get_team_by_id`, `get_workflow_by_id` and their `get_*s` listings),
+  `Agent.load` / `Team.load` / `Workflow.load`, the OS-level getters and the
+  `resolve_agent/team/workflow` helpers. The tenant is applied to the DB read *and* carried
+  into the recursion — team members and workflow-step executors are read as the same tenant,
+  so a scoped root cannot pull foreign children one level down. A cross-tenant id resolves
+  exactly like a missing one.
+- **`resolve_*` derive the tenant off the request** the same way the components router does
+  (`egpt.os.tenancy`), and **fail closed**: when `tenant_id_claim` is configured and the
+  principal resolves to no tenant, a lookup that would fall through to the DB is refused with
+  the same 403 as `/components`. The in-memory list of code-defined agents is exempt — those
+  are deployment-owned, not tenant rows.
+- **The capability policy is re-checked as the caller.** The hydration-side
+  `enforce_policy_or_raise` now selects the policy by the caller's tenant (falling back to the
+  row's tenant only for unscoped reads, which is exactly the pre-2.5 behaviour).
+- **Config rows are cached** in a per-process TTL'd LRU (`egpt.registry.hydrate`), keyed by
+  `(db, tenant, component_id, version selector)` and parked on the `Registry` by `EgptOS`.
+  The components router evicts a component's entries on every successful mutation; other
+  workers — and writers that bypass the API, like `Agent.save` or the studio toolkit —
+  converge within `COMPONENT_CONFIG_CACHE_TTL_SECONDS` (default 30; `0` disables the cache).
+  `ComponentConfigCache.invalidate` is the seam the EGPT-2.6 lifecycle events will call.
+- **`HYDRATE_PUBLISHED_ONLY=true`** makes hydration refuse any config whose stage is not
+  `published` (including explicit-version reads) with a 409 — production should not run
+  drafts. Default off.
+- **Hydration failures are distinguishable from missing components**: a row that exists but
+  cannot be built raises `HydrationError` (rendered as a 500 with the cause) instead of
+  collapsing into a misleading 404.
+- **`tools/studio.py` takes a constructor `tenant_id`** and scopes every component read and
+  write to it. The default `None` keeps the old unscoped behaviour — acceptable only for
+  single-tenant or operator-facing agents.
+- **The write-validation dry run is scoped**: a team or workflow config naming another
+  tenant's component as a member/step no longer hydrates it, closing the foreign-id
+  existence oracle.
+
+## 6. Known limits
+
 - **`component_id` is globally unique**, so two tenants cannot both own `support-agent`. The 404
   hides who holds it; the id is still unavailable.
-- **Every router other than `/components` is unscoped** — sessions, memories, runs. **EGPT-2.7.**
+- **Every router other than `/components` is unscoped** — sessions, memories, runs. Hydration
+  itself is scoped (section 5), but the surrounding run/session data is not. **EGPT-2.7.**
 - **The DB layer does not require a tenant.** `tenant_id=None` still means "no predicate" at
   every `BaseDb` method; making it mandatory is **EGPT-2.7**.
+- **Two tenant resolvers exist**: `egpt.os.tenancy.current_tenant_id` (middleware-written
+  request state) and `egpt.os.utils.resolve_tenant_id` (factory-context claims, used by the
+  workflow websocket path, which has no `Request`). Each hydration path threads the value it
+  already has; reconciling them is follow-up work.
+- **Cache staleness across workers is bounded by the TTL**, not eliminated: only the worker
+  that processes a mutation evicts immediately. Event-driven invalidation is **EGPT-2.6**.

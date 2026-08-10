@@ -650,10 +650,9 @@ def build_mcp_server(
         # discoverable -- and therefore runnable -- over MCP, matching the REST list routes.
         if os.db is not None and isinstance(os.db, BaseDb):
             from egpt.agent.agent import get_agents
+            from egpt.os.tenancy import current_tenant_id
             from egpt.team.team import get_teams
             from egpt.workflow.workflow import get_workflows
-
-            from egpt.os.tenancy import current_tenant_id
 
             registry = os.registry
             # Scope the DB listings to the caller's tenant (EGPT-2.5), matching GET /agents etc.

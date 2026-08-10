@@ -639,7 +639,9 @@ class TestTeamLoad:
 
         Team.load(id="labeled-team", db=mock_db, label="production")
 
-        mock_db.load_component_graph.assert_called_once_with("labeled-team", version=None, label="production", tenant_id=None)
+        mock_db.load_component_graph.assert_called_once_with(
+            "labeled-team", version=None, label="production", tenant_id=None
+        )
 
     def test_load_hydrates_member_agents(self, mock_db):
         """Test load hydrates member agents from graph."""
@@ -795,7 +797,9 @@ class TestGetTeamById:
 
         get_team_by_id(db=mock_db, id="labeled", label="staging")
 
-        mock_db.get_config.assert_called_once_with(component_id="labeled", version=None, label="staging", tenant_id=None)
+        mock_db.get_config.assert_called_once_with(
+            component_id="labeled", version=None, label="staging", tenant_id=None
+        )
 
     def test_get_team_by_id_with_registry(self, mock_db):
         """Test get_team_by_id passes registry."""
@@ -880,7 +884,9 @@ class TestGetTeams:
 
         get_teams(db=mock_db)
 
-        mock_db.list_components.assert_called_once_with(component_type=ComponentType.TEAM, exclude_component_ids=None, tenant_id=None)
+        mock_db.list_components.assert_called_once_with(
+            component_type=ComponentType.TEAM, exclude_component_ids=None, tenant_id=None
+        )
 
     def test_get_teams_with_registry(self, mock_db):
         """Test get_teams passes registry to from_dict."""
