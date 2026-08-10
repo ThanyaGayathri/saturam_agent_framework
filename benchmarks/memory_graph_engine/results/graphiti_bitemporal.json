@@ -1,0 +1,375 @@
+{
+  "engine": "graphiti-core (real library)",
+  "backend": "neo4j:5",
+  "probes": 30,
+  "correct": 19,
+  "accuracy": 0.6333,
+  "by_scenario": {
+    "simple_insert": {
+      "n": 3,
+      "ok": 3
+    },
+    "supersede_relocation": {
+      "n": 3,
+      "ok": 2
+    },
+    "idempotent_noop": {
+      "n": 1,
+      "ok": 1
+    },
+    "three_way_chain": {
+      "n": 3,
+      "ok": 1
+    },
+    "backfilled_since_jan": {
+      "n": 2,
+      "ok": 1
+    },
+    "retract_error": {
+      "n": 2,
+      "ok": 2
+    },
+    "predicate_isolation": {
+      "n": 2,
+      "ok": 2
+    },
+    "tenant_isolation": {
+      "n": 2,
+      "ok": 2
+    },
+    "belief_evolution": {
+      "n": 3,
+      "ok": 2
+    },
+    "same_t_valid_tiebreak": {
+      "n": 4,
+      "ok": 1
+    },
+    "deep_recorrection": {
+      "n": 5,
+      "ok": 2
+    }
+  },
+  "detail": [
+    {
+      "scenario": "simple_insert",
+      "probe": "t=1701388800",
+      "note": "before valid start",
+      "kind": "5a",
+      "expected": null,
+      "got": [],
+      "ok": true
+    },
+    {
+      "scenario": "simple_insert",
+      "probe": "t=1706745600",
+      "note": "",
+      "kind": "5a",
+      "expected": "NYC",
+      "got": [
+        "NYC"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "simple_insert",
+      "probe": "t=1733011200",
+      "note": "open interval -> still true",
+      "kind": "5a",
+      "expected": "NYC",
+      "got": [
+        "NYC"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "supersede_relocation",
+      "probe": "t=1706745600",
+      "note": "past truth preserved",
+      "kind": "5a",
+      "expected": "NYC",
+      "got": [],
+      "ok": false
+    },
+    {
+      "scenario": "supersede_relocation",
+      "probe": "t=1719792000",
+      "note": "current truth",
+      "kind": "5a",
+      "expected": "LA",
+      "got": [
+        "LA"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "supersede_relocation",
+      "probe": "t=1701388800",
+      "note": "",
+      "kind": "5a",
+      "expected": null,
+      "got": [],
+      "ok": true
+    },
+    {
+      "scenario": "idempotent_noop",
+      "probe": "t=1733011200",
+      "note": "",
+      "kind": "5a",
+      "expected": "LA",
+      "got": [
+        "LA"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "three_way_chain",
+      "probe": "t=1706745600",
+      "note": "",
+      "kind": "5a",
+      "expected": "NYC",
+      "got": [],
+      "ok": false
+    },
+    {
+      "scenario": "three_way_chain",
+      "probe": "t=1719792000",
+      "note": "",
+      "kind": "5a",
+      "expected": "LA",
+      "got": [],
+      "ok": false
+    },
+    {
+      "scenario": "three_way_chain",
+      "probe": "t=1733011200",
+      "note": "",
+      "kind": "5a",
+      "expected": "SF",
+      "got": [
+        "SF"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "backfilled_since_jan",
+      "probe": "t=1706745600",
+      "note": "backfilled past",
+      "kind": "5a",
+      "expected": "NYC",
+      "got": [
+        "NYC"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "backfilled_since_jan",
+      "probe": "t=1719792000",
+      "note": "later fact wins its window",
+      "kind": "5a",
+      "expected": "LA",
+      "got": [
+        "NYC",
+        "LA"
+      ],
+      "ok": false
+    },
+    {
+      "scenario": "retract_error",
+      "probe": "t=1706745600",
+      "note": "current belief: retracted",
+      "kind": "5a",
+      "expected": null,
+      "got": [],
+      "ok": true
+    },
+    {
+      "scenario": "retract_error",
+      "probe": "t=1706745600,tt=1706745600",
+      "note": "5b: believed tea before retract",
+      "kind": "5b",
+      "expected": "tea",
+      "got": [
+        "tea"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "predicate_isolation",
+      "probe": "t=1719792000",
+      "note": "unaffected by lives_in change",
+      "kind": "5a",
+      "expected": "Acme",
+      "got": [
+        "Acme"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "predicate_isolation",
+      "probe": "t=1719792000",
+      "note": "",
+      "kind": "5a",
+      "expected": "LA",
+      "got": [
+        "LA"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "tenant_isolation",
+      "probe": "t=1719792000",
+      "note": "u2 unaffected",
+      "kind": "5a",
+      "expected": "Paris",
+      "got": [
+        "Paris"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "tenant_isolation",
+      "probe": "t=1719792000",
+      "note": "",
+      "kind": "5a",
+      "expected": "LA",
+      "got": [
+        "LA"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "belief_evolution",
+      "probe": "t=1719792000,tt=1709251200",
+      "note": "as-of Mar: LA unknown",
+      "kind": "5b",
+      "expected": "NYC",
+      "got": [],
+      "ok": false
+    },
+    {
+      "scenario": "belief_evolution",
+      "probe": "t=1719792000,tt=1725148800",
+      "note": "as-of Sep: LA known",
+      "kind": "5b",
+      "expected": "LA",
+      "got": [
+        "LA"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "belief_evolution",
+      "probe": "t=1706745600,tt=1725148800",
+      "note": "as-of Sep about Feb",
+      "kind": "5b",
+      "expected": "NYC",
+      "got": [
+        "NYC"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "same_t_valid_tiebreak",
+      "probe": "t=1717200000",
+      "note": "tie-break: last writer wins at t_valid",
+      "kind": "5a",
+      "expected": "LA",
+      "got": [
+        "LA",
+        "NYC"
+      ],
+      "ok": false
+    },
+    {
+      "scenario": "same_t_valid_tiebreak",
+      "probe": "t=1733011200",
+      "note": "and onward",
+      "kind": "5a",
+      "expected": "LA",
+      "got": [
+        "LA",
+        "NYC"
+      ],
+      "ok": false
+    },
+    {
+      "scenario": "same_t_valid_tiebreak",
+      "probe": "t=1719792000,tt=1717200000",
+      "note": "5b: loser auditable pre-tie-break",
+      "kind": "5b",
+      "expected": "NYC",
+      "got": [
+        "NYC"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "same_t_valid_tiebreak",
+      "probe": "t=1717200000,tt=1725148800",
+      "note": "5b: winner after tie-break",
+      "kind": "5b",
+      "expected": "LA",
+      "got": [
+        "LA",
+        "NYC"
+      ],
+      "ok": false
+    },
+    {
+      "scenario": "deep_recorrection",
+      "probe": "t=1706745600",
+      "note": "NYC re-bounded to [Jan, Mar)",
+      "kind": "5a",
+      "expected": "NYC",
+      "got": [],
+      "ok": false
+    },
+    {
+      "scenario": "deep_recorrection",
+      "probe": "t=1709251200",
+      "note": "SF owns [Mar, Jun)",
+      "kind": "5a",
+      "expected": "SF",
+      "got": [
+        "SF"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "deep_recorrection",
+      "probe": "t=1719792000",
+      "note": "LA still owns [Jun, inf)",
+      "kind": "5a",
+      "expected": "LA",
+      "got": [
+        "SF",
+        "LA"
+      ],
+      "ok": false
+    },
+    {
+      "scenario": "deep_recorrection",
+      "probe": "t=1709251200,tt=1717200000",
+      "note": "5b lvl1: as-of Jun, Mar was NYC",
+      "kind": "5b",
+      "expected": "NYC",
+      "got": [
+        "NYC"
+      ],
+      "ok": true
+    },
+    {
+      "scenario": "deep_recorrection",
+      "probe": "t=1709251200,tt=1725148800",
+      "note": "5b lvl2: as-of Sep, Mar is SF",
+      "kind": "5b",
+      "expected": "SF",
+      "got": [
+        "SF",
+        "NYC"
+      ],
+      "ok": false
+    }
+  ]
+}
