@@ -71,6 +71,13 @@ class _FakeModel(Model):
         raise NotImplementedError
 
 
+@dataclass
+class _PackageReExportModel(_FakeModel):
+    """Mimic a built-in whose declaration names its re-exporting provider package."""
+
+    __module__ = "tests.fake_frontier.implementation"
+
+
 def _register_fake(key: str) -> None:
     """Register ``_FakeModel`` under a model key for the duration of one test.
 
@@ -238,6 +245,8 @@ def test_an_explicitly_requested_model_is_returned_unchanged():
 
     assert result.model is pinned
     assert result.mode is ProviderMode.FRONTIER
+    assert result.provider_key == "requested"
+    assert result.gateway is None
 
 
 def test_a_local_mode_request_is_rejected():
@@ -455,6 +464,7 @@ def test_a_pinned_model_is_not_attributed_to_the_bypassed_route():
     """Stamping the configured provider/gateway onto a pinned result described a call that
     never happened -- wrong cost attribution for escalation logging, wrong gateway-coverage
     numbers for any tracing hook reading `gateway`."""
+    _register_fake("anthropic")
     pinned = _FakeModel(id="claude-sonnet-4-5", provider="Anthropic")
     result = _provider(
         provider_key="openai",
@@ -466,10 +476,42 @@ def test_a_pinned_model_is_not_attributed_to_the_bypassed_route():
 
     assert result.model is pinned
     assert result.gateway is None, "the gateway was bypassed and must not be claimed"
-    assert result.provider_key == "Anthropic", "attribution follows the pinned model, not config"
+    assert result.provider_key == "anthropic", "attribution is the pinned model's registry key"
+    assert discovery.get("model", result.provider_key) is not None
 
 
-def test_aresolve_is_overridden_to_leave_the_event_loop_free():
+def test_a_pinned_builtin_is_matched_through_its_reexport_package(monkeypatch):
+    """Built-in declarations point at provider packages, not class-defining submodules.
+
+    Anthropic, for example, declares ``egpt.integrations.models.anthropic:Claude`` while the
+    runtime class is ``egpt.integrations.models.anthropic.claude:Claude``. Azure Foundry also
+    exports its internal ``Claude`` class as ``AzureFoundryClaude``. Matching declaration strings
+    therefore silently labelled real pinned models as ``requested``.
+    """
+    import sys
+    from types import ModuleType
+
+    package = ModuleType("tests.fake_frontier")
+    package.ExportedModel = _PackageReExportModel  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, package.__name__, package)
+    discovery.names("model")
+    discovery.register(
+        "model",
+        "anthropic",
+        module="tests.fake_frontier",
+        attr="ExportedModel",
+        override=True,
+    )
+    pinned = _PackageReExportModel(id="claude-sonnet-4-5", provider="Anthropic")
+
+    result = _provider().resolve_detailed(ModelResolveRequest(requested=pinned))
+
+    assert result.model is pinned
+    assert result.provider_key == "anthropic"
+    assert discovery.resolve("model", result.provider_key) is _PackageReExportModel
+
+
+def test_async_resolve_variants_leave_the_event_loop_free(monkeypatch):
     """The base delegates to the sync path and names a gateway probe as the case that must
     override it. Mode B probes the filesystem and triggers a first-time SDK import."""
     import asyncio
@@ -478,32 +520,73 @@ def test_aresolve_is_overridden_to_leave_the_event_loop_free():
 
     provider = _provider()
     assert FrontierModelProvider.aresolve is not BaseModelProvider.aresolve
+    assert FrontierModelProvider.aresolve_detailed is not BaseModelProvider.aresolve_detailed
     assert isinstance(provider, AsyncModelProvider)
 
     _register_fake("openai")
+    import threading
+
+    event_loop_thread = threading.get_ident()
+    resolution_threads = []
+    resolve_detailed = provider.resolve_detailed
+
+    def tracked_resolve(request):
+        resolution_threads.append(threading.get_ident())
+        return resolve_detailed(request)
+
+    monkeypatch.setattr(provider, "resolve_detailed", tracked_resolve)
+
+    detailed = asyncio.run(provider.aresolve_detailed(ModelResolveRequest()))
+    assert isinstance(detailed.model, _FakeModel)
+    assert len(resolution_threads) == 1
+    assert resolution_threads[0] != event_loop_thread
+
     model = asyncio.run(provider.aresolve(ModelResolveRequest()))
     assert isinstance(model, _FakeModel)
+    assert len(resolution_threads) == 2
+    assert all(thread != event_loop_thread for thread in resolution_threads)
 
 
-def test_vendor_portkey_variables_are_not_marked_deprecated(monkeypatch):
+def test_vendor_portkey_variables_route_without_deprecation(monkeypatch):
     """`bare_env` does not mean "also readable" here -- it routes the name through
     `_warn_bare_env_var`, emitting `FutureWarning: PORTKEY_API_KEY is deprecated`.
 
-    Every other `bare_env` in the tree names a legacy EGPT/agno-owned spelling. `PORTKEY_*` is
-    the vendor's own convention, read directly by the Portkey class, so marking it deprecated
-    told a correctly-configured deployment its setup was obsolete and broke anything running
-    under `-W error::FutureWarning`.
+    Removing the deprecated alias without replacing it made the advertised vendor variables
+    inert: Mode B rejected the request before Portkey could be constructed. This exercises the
+    whole settings-to-route path, not only warning collection.
     """
     import warnings
 
-    from egpt.settings.providers import get_provider_settings
+    import egpt.providers.gateways as gateways
+
+    for name in (
+        "EGPT_MODE_B_GATEWAY_API_KEY",
+        "AGNO_MODE_B_GATEWAY_API_KEY",
+        "EGPT_MODE_B_GATEWAY_VIRTUAL_KEY",
+        "AGNO_MODE_B_GATEWAY_VIRTUAL_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
 
     monkeypatch.setenv("PORTKEY_API_KEY", "pk-test")
     monkeypatch.setenv("PORTKEY_VIRTUAL_KEY", "vk-test")
+    real_find_spec = gateways.find_spec
+    monkeypatch.setattr(
+        gateways,
+        "find_spec",
+        lambda name, *args, **kwargs: object() if name == "portkey_ai" else real_find_spec(name, *args, **kwargs),
+    )
+    _register_fake("portkey")
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        get_provider_settings()
+        result = FrontierModelProvider(
+            provider_key="anthropic",
+            model_id="claude-sonnet-4-5",
+            gateway=GATEWAY_PORTKEY,
+        ).resolve_detailed(ModelResolveRequest())
 
     portkey_warnings = [w for w in caught if "PORTKEY" in str(w.message)]
     assert not portkey_warnings, f"vendor variables must not be deprecated: {portkey_warnings}"
+    assert isinstance(result.model, _FakeModel)
+    assert result.model.portkey_api_key == "pk-test"
+    assert result.model.virtual_key == "vk-test"

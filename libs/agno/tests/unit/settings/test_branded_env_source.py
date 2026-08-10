@@ -8,7 +8,7 @@ from typing import List, Optional
 import pytest
 from pydantic import Field
 
-from egpt.settings.sources import BrandedSettings, bare_env
+from egpt.settings.sources import BrandedSettings, bare_env, vendor_env
 from egpt.utils import env as env_module
 
 
@@ -22,6 +22,7 @@ def _clear_env_warnings() -> None:
 class _Probe(BrandedSettings):
     plain: Optional[str] = Field(default=None)
     bare_field: Optional[str] = Field(default=None, json_schema_extra=bare_env("BARE_FIELD"))
+    vendor_field: Optional[str] = Field(default=None, json_schema_extra=vendor_env("VENDOR_FIELD"))
     origins: Optional[List[str]] = Field(default=None)
     flag: bool = False
 
@@ -57,6 +58,43 @@ def test_marked_field_binds_bare_name_with_warning(monkeypatch: pytest.MonkeyPat
         warnings.simplefilter("always")
         assert _Probe().bare_field == "value"
     assert any("BARE_FIELD is deprecated" in str(item.message) for item in caught)
+
+
+def test_vendor_field_binds_without_a_deprecation_warning(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EGPT_VENDOR_FIELD", raising=False)
+    monkeypatch.delenv("AGNO_VENDOR_FIELD", raising=False)
+    monkeypatch.setenv("VENDOR_FIELD", "vendor")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert _Probe().vendor_field == "vendor"
+
+    assert not any("VENDOR_FIELD" in str(item.message) for item in caught)
+
+
+def test_branded_field_takes_precedence_over_vendor_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EGPT_VENDOR_FIELD", "branded")
+    monkeypatch.setenv("VENDOR_FIELD", "vendor")
+    assert _Probe().vendor_field == "branded"
+
+
+def test_legacy_field_takes_precedence_over_vendor_and_still_warns(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EGPT_VENDOR_FIELD", raising=False)
+    monkeypatch.setenv("AGNO_VENDOR_FIELD", "legacy")
+    monkeypatch.setenv("VENDOR_FIELD", "vendor")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert _Probe().vendor_field == "legacy"
+
+    assert any("AGNO_VENDOR_FIELD is deprecated" in str(item.message) for item in caught)
+
+
+def test_empty_branded_field_falls_through_to_vendor(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EGPT_VENDOR_FIELD", "")
+    monkeypatch.delenv("AGNO_VENDOR_FIELD", raising=False)
+    monkeypatch.setenv("VENDOR_FIELD", "vendor")
+    assert _Probe().vendor_field == "vendor"
 
 
 def test_default_env_source_does_not_bind_unprefixed(monkeypatch: pytest.MonkeyPatch) -> None:

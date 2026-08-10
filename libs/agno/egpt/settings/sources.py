@@ -1,7 +1,7 @@
 """Shared branded-env pydantic-settings source.
 
 Every EGPT settings model reads through :class:`BrandedEnvSettingsSource`
-instead of the default env source, so ``EGPT_*`` / ``AGNO_*`` / (opt-in) bare
+instead of the default env source, so ``EGPT_*`` / ``AGNO_*`` / opt-in fallback
 names resolve the same way everywhere. This module must stay a leaf: it may
 only import ``pydantic``, ``pydantic_settings``, and ``egpt.utils.env`` --
 nothing under ``egpt.os`` or ``egpt.api``, which import *this* module.
@@ -14,9 +14,10 @@ from typing import Any, Dict, Optional, Tuple, Type
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, EnvSettingsSource, PydanticBaseSettingsSource, SettingsConfigDict
 
-from egpt.utils.env import get_branded_env_with_bare_fallback
+from egpt.utils.env import get_branded_env_with_bare_fallback, get_branded_env_with_vendor_fallback
 
 _BARE_ENV_KEY = "egpt_bare_env"
+_VENDOR_ENV_KEY = "egpt_vendor_env"
 
 
 def bare_env(name: str) -> Dict[str, Any]:
@@ -39,8 +40,27 @@ def bare_env_name(field: FieldInfo) -> Optional[str]:
     return None
 
 
+def vendor_env(name: str) -> Dict[str, Any]:
+    """Mark a field as readable from a non-deprecated vendor-owned env name.
+
+    Branded and legacy EGPT spellings retain precedence. The vendor name is the final fallback
+    and emits no migration warning because the external SDK or service owns that convention.
+    """
+    return {_VENDOR_ENV_KEY: name}
+
+
+def vendor_env_name(field: FieldInfo) -> Optional[str]:
+    """Return the vendor env name a field opted into via :func:`vendor_env`."""
+    extra = field.json_schema_extra
+    if isinstance(extra, dict):
+        value = extra.get(_VENDOR_ENV_KEY)
+        if isinstance(value, str):
+            return value
+    return None
+
+
 class BrandedEnvSettingsSource(EnvSettingsSource):
-    """Read ``EGPT_<FIELD>``, then ``AGNO_<FIELD>``, then an opt-in bare name.
+    """Read branded, legacy, then an explicitly declared fallback env name.
 
     Subclasses :class:`EnvSettingsSource` (not ``PydanticBaseSettingsSource``)
     so the inherited ``prepare_field_value`` keeps JSON-decoding complex
@@ -56,7 +76,11 @@ class BrandedEnvSettingsSource(EnvSettingsSource):
     """
 
     def get_field_value(self, field: FieldInfo, field_name: str) -> Tuple[Any, str, bool]:
-        value = get_branded_env_with_bare_fallback(field_name.upper(), bare=bare_env_name(field))
+        vendor = vendor_env_name(field)
+        if vendor is not None:
+            value = get_branded_env_with_vendor_fallback(field_name.upper(), vendor=vendor)
+        else:
+            value = get_branded_env_with_bare_fallback(field_name.upper(), bare=bare_env_name(field))
         return value, field_name, self.field_is_complex(field)
 
 

@@ -95,6 +95,40 @@ def _first_set_or_none(*candidates: Optional[str]) -> Optional[str]:
     return None
 
 
+def _registry_key_for(model: "Model") -> str:
+    """Return the discovery key that declares ``model``'s class, when known.
+
+    ``Model.provider`` is a human-facing display name (for example ``"Anthropic"``), not the
+    lowercase registry key accepted by ``discovery.resolve``. Match runtime registrations by
+    object identity. For lazy registrations, inspect only already-loaded export modules and match
+    the exported target by identity. This handles package re-exports and aliases without importing
+    another integration or confusing same-named classes in sibling modules. The current frozen
+    result contract requires a string, so an unregistered caller-owned class retains the explicit
+    ``"requested"`` fallback.
+    """
+    import sys
+
+    from egpt.registry import discovery
+
+    cls = type(model)
+    for key, registration in discovery.entries("model").items():
+        if registration.obj is not None and registration.obj is cls:
+            return key
+        if registration.module is None or registration.attr is None:
+            continue
+        target = sys.modules.get(registration.module)
+        if target is None:
+            continue
+        try:
+            for part in registration.attr.split("."):
+                target = getattr(target, part)
+        except AttributeError:
+            continue
+        if target is cls:
+            return key
+    return "requested"
+
+
 class FrontierModelProvider(BaseModelProvider):
     """Resolves every request to a hosted frontier model, optionally via a gateway.
 
@@ -310,12 +344,12 @@ class FrontierModelProvider(BaseModelProvider):
             # "openai" and gateway "portkey" configured, `Agent(model=Claude(...))` reported a
             # request to OpenAI through Portkey when it went direct to Anthropic -- wrong cost
             # attribution for EGPT-3.5's escalation logging and wrong gateway-coverage numbers
-            # for any tracing hook reading `gateway`. The pinned model's own `provider` is the
-            # only honest attribution available here.
+            # for any tracing hook reading `gateway`. Recover the pinned model class's registry
+            # key when it has one; its `provider` attribute is only a human-facing display name.
             return ModelResolveResult(
                 model=request.requested,
                 mode=ProviderMode.FRONTIER,
-                provider_key=request.requested.provider or "requested",
+                provider_key=_registry_key_for(request.requested),
                 reason="caller pinned an explicit model",
                 gateway=None,
             )
@@ -357,9 +391,17 @@ class FrontierModelProvider(BaseModelProvider):
         thread keeps the loop free; the work itself is unchanged, and the import is cached after
         the first call.
         """
+        return (await self.aresolve_detailed(request)).model
+
+    async def aresolve_detailed(self, request: ModelResolveRequest) -> ModelResolveResult:
+        """Resolve the detailed result off the event loop as well as the bare-model path.
+
+        Leaving the inherited implementation in place made direct async detailed callers run
+        the same gateway probe and first-time SDK import synchronously on the event-loop thread.
+        """
         import asyncio
 
-        return await asyncio.to_thread(self.resolve, request)
+        return await asyncio.to_thread(self.resolve_detailed, request)
 
     # -- internals ----------------------------------------------------------
 
