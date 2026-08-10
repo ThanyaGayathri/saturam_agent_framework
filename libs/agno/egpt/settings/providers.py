@@ -22,8 +22,6 @@ from typing import Any, List, Optional
 
 from pydantic import Field
 
-from pydantic import Field
-
 from egpt.settings.sources import BrandedSettings, bare_env_name, vendor_env
 from egpt.utils.env import get_branded_env_with_bare_fallback
 
