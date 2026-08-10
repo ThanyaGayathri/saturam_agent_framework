@@ -4310,66 +4310,101 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         version: Optional[int] = None,
+        label: Optional[str] = None,
         tenant_id: Optional[str] = None,
+        *,
+        _visited: Optional[Set[Tuple[str, int]]] = None,
+        _max_depth: int = 50,
     ) -> Optional[Dict[str, Any]]:
         """Load a component with its full resolved graph.
+
+        Handles cycles by returning a stub with cycle_detected=True.
+        Has a max depth guard to prevent stack overflow.
 
         Args:
             component_id: The component ID.
             version: Specific version or None for current.
+            label: Optional label of the component. Ignored if version is provided.
             tenant_id: Optional tenant. Applied to the root component and every child
                 resolved through the graph. None means no tenant filter.
+            _visited: Internal cycle tracking (do not pass).
+            _max_depth: Internal depth limit (do not pass).
 
         Returns:
-            Dictionary with component, config, links, and resolved children.
+            Dictionary with component, config, children, and resolved_versions.
+            Returns None if component not found or depth exceeded.
         """
         try:
-            # Get component
+            if _max_depth <= 0:
+                return None
+
             component = self.get_component(component_id, tenant_id=tenant_id)
             if component is None:
                 return None
 
-            # Resolve version
+            if version is None and label is not None:
+                labeled = self.get_config(component_id, label=label, tenant_id=tenant_id)
+                if labeled is None:
+                    return None
+                version = labeled.get("version")
+
             resolved_version = self.resolve_version(component_id, version, tenant_id=tenant_id)
             if resolved_version is None:
                 return None
 
-            # Get config
+            # Cycle detection
+            if _visited is None:
+                _visited = set()
+
+            node_key = (component_id, resolved_version)
+            if node_key in _visited:
+                return {
+                    "component": component,
+                    "config": self.get_config(component_id, version=resolved_version, tenant_id=tenant_id),
+                    "children": [],
+                    "resolved_versions": {component_id: resolved_version},
+                    "cycle_detected": True,
+                }
+            _visited.add(node_key)
+
             config = self.get_config(component_id, version=resolved_version, tenant_id=tenant_id)
             if config is None:
                 return None
 
-            # Get links
             links = self.get_links(component_id, resolved_version, tenant_id=tenant_id)
 
-            # Resolve children recursively
-            children = []
+            children: List[Dict[str, Any]] = []
             resolved_versions: Dict[str, Optional[int]] = {component_id: resolved_version}
 
             for link in links:
-                child_version = self.resolve_version(
-                    link["child_component_id"],
-                    link["child_version"],
-                    tenant_id=tenant_id,
-                )
-                resolved_versions[link["child_component_id"]] = child_version
+                child_id = link["child_component_id"]
+                child_ver = link.get("child_version")
+
+                resolved_child_ver = self.resolve_version(child_id, child_ver, tenant_id=tenant_id)
+                resolved_versions[child_id] = resolved_child_ver
+
+                if resolved_child_ver is None:
+                    children.append(
+                        {
+                            "link": link,
+                            "graph": None,
+                            "error": "child_version_unresolvable",
+                        }
+                    )
+                    continue
 
                 child_graph = self.load_component_graph(
-                    link["child_component_id"],
-                    version=child_version,
+                    child_id,
+                    version=resolved_child_ver,
                     tenant_id=tenant_id,
+                    _visited=_visited,
+                    _max_depth=_max_depth - 1,
                 )
 
                 if child_graph:
-                    # Merge nested resolved versions
                     resolved_versions.update(child_graph.get("resolved_versions", {}))
 
-                children.append(
-                    {
-                        "link": link,
-                        "graph": child_graph,
-                    }
-                )
+                children.append({"link": link, "graph": child_graph})
 
             return {
                 "component": component,
