@@ -44,6 +44,12 @@ class ServiceAccountCreate(BaseModel):
         description="Required to grant privileged scopes: any write or delete action, the admin scope, "
         "or any service_accounts scope. Privileged tokens must be deliberate, never accidental.",
     )
+    tenant_id: Optional[str] = Field(
+        default=None,
+        description="The tenant this account acts for. Defaults to the caller's own tenant. "
+        "Naming a different tenant is only permitted for an unscoped (operator) caller, so a "
+        "tenanted caller can never mint an account outside its own tenant.",
+    )
 
     @field_validator("name")
     @classmethod
@@ -83,6 +89,11 @@ class ServiceAccountResponse(BaseModel):
         description="The user this account belongs to; None for workspace-level accounts. "
         "Distinct from created_by, which records who minted the token.",
     )
+    tenant_id: Optional[str] = Field(
+        default=None,
+        description="The tenant this account acts for; None for an unscoped platform account. "
+        "Immutable: re-tenanting requires revoking and minting a new token.",
+    )
     token_prefix: str = Field(..., description="First characters of the token, for display only")
     scopes: List[ScopeSchema] = Field(
         default_factory=list, description="Scopes granted to the token, in the shared RBAC read shape"
@@ -107,6 +118,7 @@ class ServiceAccountResponse(BaseModel):
             revoked_at=data.get("revoked_at"),
             created_by=data.get("created_by"),
             user_id=data.get("user_id"),
+            tenant_id=data.get("tenant_id"),
         )
 
 

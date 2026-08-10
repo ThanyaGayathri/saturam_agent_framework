@@ -311,6 +311,12 @@ SERVICE_ACCOUNT_TABLE_SCHEMA = {
     # Ownership: the user this account belongs to (created_by is audit: who minted it).
     # NULL means a workspace-level machine account with no owning user.
     "user_id": {"type": String, "nullable": True},
+    # The tenant this account acts for (EGPT-2.4). NULL means an unscoped platform account.
+    # Nullable and un-backfilled, so every pre-2.4 row stays valid and the down-migration is a
+    # clean DROP COLUMN. Note name uniqueness stays global rather than per-tenant: the partial
+    # unique index below is not cleanly reversible if rebuilt, and a cross-tenant name clash is
+    # a naming annoyance, not a security boundary.
+    "tenant_id": {"type": String, "nullable": True, "index": True},
     "token_hash": {"type": String, "nullable": False, "unique": True, "index": True},
     "token_prefix": {"type": String, "nullable": False},
     "scopes": {"type": JSON, "nullable": False},

@@ -23,6 +23,7 @@ from egpt.os.service_accounts import (
     get_invalid_scopes,
     get_privileged_scopes,
 )
+from egpt.os.tenancy import current_tenant_id
 from egpt.utils.log import log_error
 
 # Valid DB method names that _db_call can invoke
@@ -150,6 +151,23 @@ def get_service_accounts_router(os_db: Any, settings: Any) -> APIRouter:
                 detail=f"Cannot grant scope(s) you do not hold: {', '.join(scopes_not_held)}",
             )
 
+    def _resolve_minted_tenant(request: Request, body: ServiceAccountCreate) -> Optional[str]:
+        """The tenant to stamp on a new account (EGPT-2.4).
+
+        Mirrors the scope rule above: a caller may not mint an account with more reach than it
+        has. A tenanted caller may only mint for its own tenant; an unscoped caller (a JWT with
+        no tenant claim, or the OS security key) may name any tenant, which is what lets an
+        operator provision tenanted machine identities in the first place. Defaults to the
+        caller's own tenant so the common case needs no field.
+        """
+        caller_tenant = current_tenant_id(request)
+        requested = body.tenant_id
+        if requested is None:
+            return caller_tenant
+        if caller_tenant is not None and requested != caller_tenant:
+            raise HTTPException(status_code=403, detail="Cannot mint a service account for another tenant.")
+        return requested
+
     @router.post("/service-accounts", response_model=ServiceAccountCreateResponse, status_code=201)
     async def create_service_account(
         body: ServiceAccountCreate,
@@ -185,6 +203,7 @@ def get_service_accounts_router(os_db: Any, settings: Any) -> APIRouter:
             expires_at=expires_at,
             created_by=getattr(request.state, "user_id", None),
             user_id=getattr(request.state, "user_id", None),
+            tenant_id=_resolve_minted_tenant(request, body),
         )
 
         try:
@@ -210,6 +229,7 @@ def get_service_accounts_router(os_db: Any, settings: Any) -> APIRouter:
         page: int = Query(1, ge=1),
         sort_by: str = Query("created_at"),
         sort_order: str = Query("desc"),
+        request: Request = None,  # type: ignore[assignment]
         _: bool = Depends(auth_dependency),
     ) -> PaginatedResponse[ServiceAccountResponse]:
         """List service accounts. Returns metadata and display prefixes only - never hashes or plaintext."""
@@ -220,6 +240,8 @@ def get_service_accounts_router(os_db: Any, settings: Any) -> APIRouter:
             page=page,
             sort_by=sort_by,
             sort_order=sort_order,
+            # None for an unscoped caller, which keeps the operator view of every account.
+            tenant_id=current_tenant_id(request),
         )
         total_pages = (total_count + limit - 1) // limit if total_count > 0 else 0
         return PaginatedResponse(
@@ -243,7 +265,9 @@ def get_service_accounts_router(os_db: Any, settings: Any) -> APIRouter:
         Takes effect immediately on this worker (the local verification cache entry is
         evicted) and within the cache TTL on other workers.
         """
-        existing = await _db_call("get_service_account", service_account_id)
+        # Tenant-scoped, so another tenant's account reads as absent on the existing 404 branch
+        # rather than being revocable across the boundary.
+        existing = await _db_call("get_service_account", service_account_id, tenant_id=current_tenant_id(request))
         if existing is None:
             raise HTTPException(status_code=404, detail=f"Service account '{service_account_id}' not found")
         if existing.get("revoked_at") is None:

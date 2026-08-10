@@ -4151,13 +4151,18 @@ class AsyncSqliteDb(AsyncBaseDb):
             log_error(f"Error creating service account: {str(e)}")
             raise
 
-    async def get_service_account(self, service_account_id: str) -> Optional[Dict[str, Any]]:
+    async def get_service_account(
+        self, service_account_id: str, tenant_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
         try:
             table = await self._get_table(table_type="service_accounts")
             if table is None:
                 return None
             async with self.async_session_factory() as sess:
-                result = await sess.execute(select(table).where(table.c.id == service_account_id))
+                stmt = select(table).where(table.c.id == service_account_id)
+                if tenant_id is not None:
+                    stmt = stmt.where(table.c.tenant_id == tenant_id)
+                result = await sess.execute(stmt)
                 row = result.fetchone()
                 return dict(row._mapping) if row else None
         except Exception as e:
@@ -4213,6 +4218,7 @@ class AsyncSqliteDb(AsyncBaseDb):
         page: int = 1,
         sort_by: str = "created_at",
         sort_order: str = "desc",
+        tenant_id: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         try:
             table = await self._get_table(table_type="service_accounts")
@@ -4223,6 +4229,10 @@ class AsyncSqliteDb(AsyncBaseDb):
                 base_query = select(table)
                 if not include_revoked:
                     base_query = base_query.where(table.c.revoked_at.is_(None))
+                # Applied to base_query, before the count aliases it, so total_count reflects
+                # the tenant's accounts and not every tenant's.
+                if tenant_id is not None:
+                    base_query = base_query.where(table.c.tenant_id == tenant_id)
 
                 # Get total count
                 count_stmt = select(func.count()).select_from(base_query.alias())

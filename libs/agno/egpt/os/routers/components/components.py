@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.db.base import ComponentType as DbComponentType
 from egpt.db.utils import DB_CONFIG_OVERRIDE_KEYS, DB_TABLE_NAME_KEYS
-from egpt.os.auth import get_authentication_dependency
+from egpt.os.auth import get_authentication_dependency, require_route_scopes
 from egpt.os.routers.components.validation import config_validation_response, validate_component_config
 from egpt.os.schema import (
     BadRequestResponse,
@@ -28,7 +28,7 @@ from egpt.os.schema import (
     ValidationErrorResponse,
 )
 from egpt.os.settings import EgptServingSettings
-from egpt.os.tenancy import get_tenant_id
+from egpt.os.tenancy import get_tenant_id, require_tenant_id
 from egpt.registry import Registry
 from egpt.registry.policy import CapabilityPolicy, resolve_policy
 from egpt.registry.schema import ConfigValidationError
@@ -119,18 +119,30 @@ def get_components_router(
 ) -> APIRouter:
     """Create components router.
 
+    The three router-level dependencies are the EGPT-2.4 hardening, in the order they are
+    resolved: authenticate, then check the caller holds the route's ``components:*`` scope,
+    then refuse a caller with no tenant when the deployment scopes by tenant. Both gates are
+    inert unless the deployment enabled the corresponding feature, so an open instance and the
+    bare-``FastAPI()`` router unit tests are unaffected.
+
     Args:
         capability_policy: The tenant capability policy to enforce on write (EGPT-2.3). When
             None, it is resolved from the registry and then the environment; with nothing
             configured anywhere the resulting policy is disabled and no capability check runs.
     """
     router = APIRouter(
-        dependencies=[Depends(get_authentication_dependency(settings))],
+        dependencies=[
+            Depends(get_authentication_dependency(settings)),
+            Depends(require_route_scopes("/components")),
+            Depends(require_tenant_id),
+        ],
         tags=["Components"],
         responses={
             400: {"description": "Bad Request", "model": BadRequestResponse},
             401: {"description": "Unauthorized", "model": UnauthenticatedResponse},
+            403: {"description": "Forbidden", "model": UnauthenticatedResponse},
             404: {"description": "Not Found", "model": NotFoundResponse},
+            409: {"description": "Conflict", "model": BadRequestResponse},
             422: {"description": "Validation Error", "model": ValidationErrorResponse},
             500: {"description": "Internal Server Error", "model": InternalServerErrorResponse},
         },
@@ -144,6 +156,12 @@ def attach_routes(
     registry: Optional[Registry] = None,
     capability_policy: Optional[CapabilityPolicy] = None,
 ) -> APIRouter:
+    """Attach the component routes to an existing router.
+
+    Note that the EGPT-2.4 authentication, scope and tenancy gates live on the router built by
+    :func:`get_components_router`, not here. A caller that builds its own ``APIRouter`` and
+    passes it in is responsible for adding them.
+    """
     # Component routes require sync database
     if not isinstance(os_db, BaseDb):
         raise ValueError("Component routes require a sync database (BaseDb), not an async database.")
@@ -153,17 +171,21 @@ def attach_routes(
     # re-reading it on every write would put a file read in the request path.
     policy = resolve_policy(capability_policy, registry)
 
-    def _component_type_of(component_id: str, tenant_id: Optional[str] = None) -> str:
-        """The type a stored component was created as, needed to pick its config schema.
+    def _require_component(component_id: str, tenant_id: Optional[str] = None) -> Dict[str, Any]:
+        """The stored component, or a 404 -- the single tenant-scoped existence check.
 
-        The config endpoints only carry a component id, so this read is what lets them validate
-        at all. It also turns "no such component" into a 404 here rather than the 400 the db
-        layer would raise further down.
+        Every config route runs this *unconditionally* (EGPT-2.4). It used to run only when the
+        request carried a non-empty config, because its original job was to supply the
+        ``component_type`` the validator needs; a config-less write skipped it and fell through
+        to ``upsert_config``, whose own (tenant-scoped) probe raises ``ValueError`` and surfaced
+        as a **400**. So the same foreign component answered 404 or 400 depending on whether a
+        config blob was attached. Hoisting it makes absent, soft-deleted and another tenant's
+        component one indistinguishable 404 on every route.
         """
         component = db.get_component(component_id, tenant_id=tenant_id)
         if component is None:
             raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
-        return str(component["component_type"])
+        return component
 
     @router.get(
         "/components",
@@ -270,6 +292,15 @@ def attach_routes(
         except ConfigValidationError as e:
             return config_validation_response(e)
         except ValueError as e:
+            # An id collision answers 409 whether the id is taken inside the caller's tenant or
+            # in another one, and the two bodies are byte-identical. `component_id` is the
+            # global primary key (EGPT-2.1 kept `tenant_id` out of it), so a collision is
+            # always observable as "not 201" -- there is no scheme that hides it. Answering
+            # 409-for-mine and 404-for-theirs would therefore not conceal the collision, it
+            # would only *label* it, handing a prober a cleaner ownership oracle than the
+            # undifferentiated 400 this replaces.
+            if "already exists" in str(e):
+                raise HTTPException(status_code=409, detail=f"Component {component_id} already exists")
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             log_error(f"Error creating component: {str(e)}")
@@ -378,6 +409,9 @@ def attach_routes(
         tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> List[ComponentConfigResponse]:
         try:
+            # No existence check on purpose: a foreign component, a component with no configs
+            # and an absent component all return [] already, so there is nothing to distinguish
+            # and an extra read would buy nothing.
             configs = db.list_configs(component_id, include_config=include_config, tenant_id=tenant_id)
             return [ComponentConfigResponse(**c) for c in configs]
         except Exception as e:
@@ -400,6 +434,10 @@ def attach_routes(
         tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> Union[ComponentConfigResponse, JSONResponse]:
         try:
+            # Unconditional, so a config-less write on another tenant's component is the same
+            # 404 as one that carries a config. See _require_component.
+            component = _require_component(component_id, tenant_id)
+
             # Resolve db from config if present
             config_data = body.config or {}
             config_data, unresolved_db_id = _resolve_db_in_config(config_data, db, registry)
@@ -407,7 +445,7 @@ def attach_routes(
             if config_data:
                 config_data = validate_component_config(
                     config_data,
-                    _component_type_of(component_id, tenant_id),
+                    str(component["component_type"]),
                     db=db,
                     registry=registry,
                     component_id=component_id,
@@ -456,6 +494,9 @@ def attach_routes(
         tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> Union[ComponentConfigResponse, JSONResponse]:
         try:
+            # Unconditional -- see create_config.
+            component = _require_component(component_id, tenant_id)
+
             # Resolve db from config if present
             config_data = body.config
             if config_data is not None:
@@ -463,7 +504,7 @@ def attach_routes(
                 if config_data:
                     config_data = validate_component_config(
                         config_data,
-                        _component_type_of(component_id, tenant_id),
+                        str(component["component_type"]),
                         db=db,
                         registry=registry,
                         component_id=component_id,
@@ -558,6 +599,10 @@ def attach_routes(
         tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> None:
         try:
+            # Ahead of the mutation, so another tenant's component is a 404 rather than
+            # whatever the db raises for the version it cannot see.
+            _require_component(component_id, tenant_id)
+
             # Resolve version number
             deleted = db.delete_config(component_id, version=version, tenant_id=tenant_id)
             if not deleted:
@@ -585,6 +630,9 @@ def attach_routes(
         tenant_id: Optional[str] = Depends(get_tenant_id),
     ) -> ComponentResponse:
         try:
+            # Ahead of the mutation -- see delete_config_version.
+            _require_component(component_id, tenant_id)
+
             success = db.set_current_version(component_id, version=version, tenant_id=tenant_id)
             if not success:
                 raise HTTPException(

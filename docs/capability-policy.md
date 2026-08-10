@@ -312,11 +312,26 @@ component DB call it makes.
   dropping the claim). To refuse unscoped traffic, write an empty `defaults`, or set
   `unknown_tenant: "deny"` and enumerate your tenants.
 
-### Deferred to EGPT-2.4
+### Delivered by EGPT-2.4
 
-- Tenants on service-account tokens and the scheduler principal (both resolve to `None` today).
-- Tenant scoping of every router other than components.
-- Tenant-aware RBAC scopes and cross-tenant read enforcement on run/session data.
+- **Service-account tokens carry a tenant.** `ServiceAccount.tenant_id` is stamped at mint time
+  and attached to `request.state.tenant_id` on every authenticated request. See
+  [tenancy.md](tenancy.md).
+- **Unscoped principals are refused on the component routes** once `tenant_id_claim` is
+  configured. The third bullet above still describes what `None` *means*; what changed is that
+  the components router no longer serves a caller who resolves to it. Other routers are
+  unchanged.
+
+The scheduler principal stays `None` deliberately — it is a platform identity, not a tenant's,
+and `INTERNAL_SERVICE_SCOPES` grants it no `components:*` scope in any case.
+
+### Deferred to EGPT-2.5 / 2.7
+
+- Tenant scoping of every router other than components (**2.7**).
+- Tenant-aware RBAC scopes and cross-tenant read enforcement on run/session data (**2.7**).
+- Tenant scoping of runtime hydration — `get_agent_by_id`, `Agent.load` and the team/workflow
+  equivalents still read a stored config with no tenant predicate (**2.5**).
+- `tools/studio.py`, the in-process toolkit over the same tables, runs unscoped (**2.5**).
 - Any tenants table, tenant CRUD, or a policy stored in the database.
 - Backfill tooling for rows carrying a NULL `tenant_id`.
 

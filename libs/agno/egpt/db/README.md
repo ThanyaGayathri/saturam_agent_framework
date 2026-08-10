@@ -87,6 +87,28 @@ default, so `tenant_id` stays `None` and no predicate is applied until an operat
 which is the point at which the backfill above stops being advice and becomes a prerequisite. See
 [docs/capability-policy.md](../../../../docs/capability-policy.md).
 
+As of EGPT-2.4 the components router additionally **refuses** a caller who resolves to no tenant
+once that claim is configured, rather than serving them every tenant's rows, and service accounts
+carry a tenant of their own. See [docs/tenancy.md](../../../../docs/tenancy.md).
+
+## Service account tenancy (EGPT-2.4)
+
+`egpt_service_accounts` gained a nullable `tenant_id` column and an index on it, via migration
+`v2_7_0`. The value is stamped at mint time and is **immutable** — it is not in
+`SERVICE_ACCOUNT_MUTABLE_COLUMNS`, so re-tenanting requires revoking and re-minting.
+`get_service_account` and `get_service_accounts` take a trailing `tenant_id` with the same
+semantics as the component methods: `None` applies no predicate, a value restricts the rows
+(and, for the listing, the returned count).
+
+> **⚠️ Deploy order matters more here than it did for `v2_6_0`.** `_get_table` raises
+> `Table ... has an invalid schema` for a live table missing a declared column, and
+> `ServiceAccountVerifier` turns that into `UNAVAILABLE` — so a deployment that ships this code
+> before running the migration fails **every** service-account token with a 503 until it does.
+> Run `asyncio.run(MigrationManager(db).up())` first, or in the same maintenance step.
+
+Tokens minted before this change carry `tenant_id = NULL` (unscoped) and are refused on the
+component routes of a tenancy-enabled deployment; they must be re-minted.
+
 **Upgrading an existing deployment.** Migrations are not run automatically — table
 creation only stamps the schema version. A deployment that already has component
 tables must run the migration before those tables will load again, otherwise

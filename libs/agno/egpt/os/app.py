@@ -1303,6 +1303,12 @@ class EgptOS:
         # JWT/RBAC still apply but the per-user DB wrapper and ownership gates
         # added by the user-scoped-DB work stay dormant.
         fastapi_app.state.user_isolation_enabled = user_isolation
+        # The tenant claim (EGPT-2.3) is stamped eagerly here as well as lazily by
+        # AuthMiddleware.dispatch, because egpt.os.tenancy.tenancy_enabled reads it to decide
+        # whether an untenanted principal should be refused (EGPT-2.4). A flag that only
+        # becomes true after the first JWT request would leave the very first request
+        # unprotected, and would make the setting unassertable without issuing one.
+        fastapi_app.state.tenant_id_claim = middleware_kwargs.get("tenant_id_claim")
 
         # Only interfaces that verify the authenticity of their own inbound requests
         # (Slack HMAC, Telegram/WhatsApp webhook secrets -- see
