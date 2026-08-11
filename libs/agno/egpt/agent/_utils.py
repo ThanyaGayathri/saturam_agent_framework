@@ -172,7 +172,29 @@ def deep_copy(agent: Agent, *, update: Optional[Dict[str, Any]] = None) -> Agent
         #
         # Correct in all three cases: a genuine pin carries over, a provider-assigned model does
         # not become one, and a pinless agent stays pinless.
-        new_agent._user_pinned_model = agent._user_pinned_model
+        #
+        # The exception is a *new* model passed via `update`: `deep_copy(update={"model": X})` is
+        # the public way to say "this copy runs X", and `__init__` has already recorded it as the
+        # pin (`fields_for_new_agent.update(update)` makes `update["model"]` the constructor's
+        # `model` argument). So the only job here is to decide whether to overwrite that with the
+        # original's pin, and there are two ways to get it wrong:
+        #
+        # * Skipping the carry-over on the mere *presence* of the key drops a real pin, because
+        #   `update={"model": None}` leaves `__init__` with nothing to record. A copy of
+        #   `Agent(model=X)` then runs unpinned and the provider substitutes its policy default --
+        #   a model no caller chose, and a regression against carrying the pin unconditionally.
+        #
+        # * Treating any non-None `update` model as a fresh pin re-opens the laundering this block
+        #   exists to prevent, one hop removed: `deep_copy(update={"model": agent.model})` -- "copy
+        #   this agent with its current model" -- would pin whatever a provider last assigned, and
+        #   every later run of the copy would bypass routing and escalation on the strength of a
+        #   pin no caller made. The identity check is what distinguishes a deliberate new model
+        #   from a round-trip of the existing one.
+        update_pins_a_new_model = (
+            update is not None and update.get("model") is not None and update["model"] is not agent.model
+        )
+        if not update_pins_a_new_model:
+            new_agent._user_pinned_model = agent._user_pinned_model
         log_debug(f"Created new {agent.__class__.__name__}")
         return new_agent
     except Exception as e:

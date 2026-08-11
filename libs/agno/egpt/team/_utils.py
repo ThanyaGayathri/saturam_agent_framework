@@ -166,7 +166,14 @@ def deep_copy(team: Team, *, update: Optional[Dict[str, Any]] = None) -> Team:
         # one from the copied `model`, which by copy time holds whatever a provider assigned. See
         # the longer note in `agent/_utils.py`; a Team copies every member the same way, so the
         # same laundering would apply per member.
-        new_team._user_pinned_model = team._user_pinned_model
+        # A *new* model passed via `update` is a fresh caller pin that `__init__` has already
+        # recorded, and wins over the original's -- but only a genuinely new one; see the fuller
+        # note in `agent/_utils.py` for why the `None` and round-trip cases must not.
+        update_pins_a_new_model = (
+            update is not None and update.get("model") is not None and update["model"] is not team.model
+        )
+        if not update_pins_a_new_model:
+            new_team._user_pinned_model = team._user_pinned_model
 
         log_debug(f"Created new {team.__class__.__name__}")
         return new_team

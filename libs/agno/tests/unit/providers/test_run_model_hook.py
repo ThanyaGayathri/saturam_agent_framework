@@ -864,6 +864,101 @@ class TestModelChangedIsNotIdentityOnly:
         assert _stamp_resolved_model(agent, None, FakeModel(id="frontier")) is True
 
 
+class TestDeepCopyUpdateIsAFreshPin:
+    """`deep_copy(update={"model": X})` is the public way to say "this copy runs X", so it is a
+    fresh caller pin and must win over the original's. Carrying the original unconditionally
+    discarded a pin the caller had just made (round-4 follow-up)."""
+
+    def test_an_update_model_becomes_the_copys_pin(self):
+        from egpt.agent.agent import Agent
+
+        agent = Agent(model=FakeModel(id="original"))
+
+        fresh = agent.deep_copy(update={"model": FakeModel(id="caller-chose-this")})
+
+        assert fresh._user_pinned_model is not None
+        assert fresh._user_pinned_model.id == "caller-chose-this"
+
+    def test_a_copy_without_an_update_still_carries_the_original_pin(self):
+        from egpt.agent.agent import Agent
+
+        agent = Agent(model=FakeModel(id="original"))
+
+        assert agent.deep_copy()._user_pinned_model.id == "original"
+
+    def test_a_team_update_model_becomes_the_copys_pin(self):
+        from egpt.team.team import Team
+
+        team = Team(members=[], model=FakeModel(id="original"))
+
+        fresh = team.deep_copy(update={"model": FakeModel(id="caller-chose-this")})
+
+        assert fresh._user_pinned_model is not None
+        assert fresh._user_pinned_model.id == "caller-chose-this"
+
+    def test_an_update_model_of_none_does_not_drop_the_original_pin(self):
+        """Keying on the mere *presence* of the key discarded a real pin.
+
+        `update={"model": None}` leaves `__init__` with nothing to record, so the copy of a
+        deliberately-pinned agent ran unpinned and the provider substituted its policy default --
+        a model no caller chose, and a regression against carrying the pin unconditionally.
+        """
+        from egpt.agent.agent import Agent
+
+        agent = Agent(model=FakeModel(id="original"))
+
+        fresh = agent.deep_copy(update={"model": None})
+
+        assert fresh._user_pinned_model is not None, "a None update must not drop the pin"
+        assert fresh._user_pinned_model.id == "original"
+
+    def test_a_team_update_model_of_none_does_not_drop_the_original_pin(self):
+        from egpt.team.team import Team
+
+        team = Team(members=[], model=FakeModel(id="original"))
+
+        fresh = team.deep_copy(update={"model": None})
+
+        assert fresh._user_pinned_model is not None, "a None update must not drop the pin"
+        assert fresh._user_pinned_model.id == "original"
+
+    def test_round_tripping_the_current_model_does_not_launder_it_into_a_pin(self):
+        """The laundering this block exists to prevent, one hop removed.
+
+        `deep_copy(update={"model": agent.model})` -- "copy this agent with its current model" --
+        must not pin whatever a provider last assigned. If it did, every later run of the copy
+        would send `requested=<pin>`, the provider would return it unchanged, and per-tenant
+        routing and escalation would be bypassed for the copy's whole lifetime on the strength of
+        a pin no caller made. Identity is what separates a deliberate new model from a round-trip.
+        """
+        from egpt.agent.agent import Agent
+
+        agent = Agent()  # no caller pin
+        agent.model = FakeModel(id="provider-assigned")  # as the seam does at resolve time
+
+        fresh = agent.deep_copy(update={"model": agent.model})
+
+        assert fresh._user_pinned_model is None, "a round-tripped provider model must not become a pin"
+
+    def test_a_team_round_trip_does_not_launder_the_model_into_a_pin(self):
+        from egpt.team.team import Team
+
+        team = Team(members=[])
+        team.model = FakeModel(id="provider-assigned")
+
+        fresh = team.deep_copy(update={"model": team.model})
+
+        assert fresh._user_pinned_model is None, "a round-tripped provider model must not become a pin"
+
+    def test_an_unrelated_update_key_leaves_the_pin_alone(self):
+        """`update` that does not mention a model is not a pin decision at all."""
+        from egpt.agent.agent import Agent
+
+        agent = Agent(model=FakeModel(id="original"))
+
+        assert agent.deep_copy(update={"name": "renamed"})._user_pinned_model.id == "original"
+
+
 class TestTenantReachesTheProvider:
     """EGPT-3.6 unit 1. Nothing populated `ModelResolveRequest.tenant_id` before this, so
     `ProviderConfig.lookup` fell through to the default policy on every request and EGPT-3.2's

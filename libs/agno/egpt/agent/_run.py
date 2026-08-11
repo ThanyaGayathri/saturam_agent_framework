@@ -263,8 +263,11 @@ def _stamp_resolved_model(agent: Any, run_response: Any, resolved: Any) -> bool:
     # (`mode_a` and `mode_b` both go through `_construct`), so a pure `is not` check reported a
     # change on essentially every run and the gate below never actually saved the work it was
     # added to save. Comparing class and id closes that, and is safe for this use: the
-    # derivations gated on it read only class-level capability flags
-    # (`supports_native_structured_outputs` / `supports_json_schema_outputs`).
+    # derivations gated on it read only `supports_native_structured_outputs` /
+    # `supports_json_schema_outputs`. Those are `Model` dataclass fields rather than class
+    # constants, so a per-instance override is expressible -- the property holds by convention
+    # (no in-tree provider varies them per instance) rather than by construction. A provider that
+    # did would need to return a distinct id, or this gate would skip a needed re-derivation.
     current = agent.model
     changed = not (
         resolved is current
