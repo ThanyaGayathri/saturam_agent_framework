@@ -1,0 +1,34 @@
+{
+  "edition": {
+    "edition": "community",
+    "versions": [
+      "5.26.28"
+    ]
+  },
+  "databases": [
+    "neo4j",
+    "system"
+  ],
+  "probes": {
+    "database_per_tenant": {
+      "allowed": false,
+      "why": "Hard isolation: one database per tenant. If denied, tenants share one graph.",
+      "error": "Unsupported administration command: CREATE DATABASE tenanta"
+    },
+    "rbac_role_creation": {
+      "allowed": false,
+      "why": "Per-tenant least privilege at the engine. If denied, authz is app-side only.",
+      "error": "Unsupported administration command: CREATE ROLE tenant_reader"
+    },
+    "rbac_show_roles": {
+      "allowed": false,
+      "why": "Any role model at all.",
+      "error": "Unsupported administration command: SHOW ROLES"
+    },
+    "property_level_security": {
+      "allowed": false,
+      "why": "Field-level protection of memory content.",
+      "error": "Unsupported administration command: DENY READ {fact} ON GRAPH neo4j NODES Entity TO tenant_reader"
+    }
+  }
+}

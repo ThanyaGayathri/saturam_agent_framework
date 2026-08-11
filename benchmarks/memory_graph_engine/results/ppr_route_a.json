@@ -1,0 +1,29 @@
+{
+  "edition": "community",
+  "gds_version": "2.13.11",
+  "gds_procedure_count": 423,
+  "ppr_seeded_from_A": {
+    "A": 0.5,
+    "E": 0.140625,
+    "B": 0.125,
+    "C": 0.0625,
+    "D": 0.03125
+  },
+  "ppr_seeded_from_E": {
+    "E": 0.5,
+    "A": 0.0,
+    "B": 0.0,
+    "C": 0.0,
+    "D": 0.0
+  },
+  "personalization_is_real": true,
+  "ppr_filtered_from_A": {
+    "A": 0.5,
+    "B": 0.25,
+    "C": 0.125,
+    "D": 0.0625,
+    "E": 0.03125
+  },
+  "filtered_rel_count": 4,
+  "unfiltered_rel_count": 5
+}

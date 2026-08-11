@@ -1,0 +1,31 @@
+{
+  "engine": "cognee 1.4.2",
+  "event_fields": [
+    "description",
+    "location",
+    "name",
+    "time_from",
+    "time_to"
+  ],
+  "has_valid_time_axis": true,
+  "has_transaction_axis": false,
+  "cogx_fact_has_valid_at": true,
+  "cogx_fact_has_expired_at": false,
+  "cogx_docstring": "A triplet fact. Subject/object refer to entity external_ids or plain names. Temporal validity (``valid_at``/``invalid_at``) is always carried, even where the loader cannot yet query it natively \u2014 it is stored as edge properties so the data is in place when bi-temporal search lands.",
+  "read_path_calls_llm": true,
+  "read_path_llm_call": "interval = await LLMGateway.acreate_structured_output(query, system_prompt, QueryInterval)",
+  "files_mentioning_pagerank": [],
+  "probes_total": 30,
+  "probes_expressible_5a": 22,
+  "probes_inexpressible_5b": 8,
+  "blocked_probes": [
+    "retract_error:t=1706745600,tt=1706745600",
+    "belief_evolution:t=1719792000,tt=1709251200",
+    "belief_evolution:t=1719792000,tt=1725148800",
+    "belief_evolution:t=1706745600,tt=1725148800",
+    "same_t_valid_tiebreak:t=1719792000,tt=1717200000",
+    "same_t_valid_tiebreak:t=1717200000,tt=1725148800",
+    "deep_recorrection:t=1709251200,tt=1717200000",
+    "deep_recorrection:t=1709251200,tt=1725148800"
+  ]
+}
