@@ -1,4 +1,12 @@
+from egpt.memory.config import (
+    MemoryProviderConfig,
+    MemoryProviderConfigError,
+    build_memory_provider,
+    register_provider,
+    registered_providers,
+)
 from egpt.memory.manager import MemoryManager, UserMemory
+from egpt.memory.provider import MemoryProvider
 from egpt.memory.strategies import (
     MemoryOptimizationStrategy,
     MemoryOptimizationStrategyFactory,
@@ -41,4 +49,11 @@ __all__ = [
     # Substrate ports (SM-C1)
     "GraphSubstrate",
     "VectorSubstrate",
+    # The seam and its construction path (SM-C1)
+    "MemoryProvider",
+    "MemoryProviderConfig",
+    "MemoryProviderConfigError",
+    "build_memory_provider",
+    "register_provider",
+    "registered_providers",
 ]
