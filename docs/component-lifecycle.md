@@ -87,6 +87,12 @@ recorded *who* changed *what*, *when*.
 | `details` | JSON — the facts that make an entry readable on its own. |
 | `created_at` | Epoch seconds. **Display only, not the sort key.** |
 
+`tenant_id` carries the same visibility rule as component rows (`db/base.py`): rows written
+before multi-tenancy was enabled have `tenant_id = NULL`, and a tenant-scoped read applies a
+strict predicate that does not match them. Enabling tenancy therefore makes the pre-tenancy
+audit history disappear from every scoped view — no error, just an empty page. It stays
+reachable through an unscoped read.
+
 `created_at` has second resolution, so an update and the publish that follows it share a
 timestamp. Ordering on it would return the two in an arbitrary order, which is why `audit_id`
 exists and why the read endpoint exposes it.
@@ -157,7 +163,12 @@ widest possible access, so it has to be refused; an actor of `None` grants nothi
 GET /components/{component_id}/audit
 ```
 
-Scope `components:read`. Newest first, paginated like `GET /components`.
+Scope `components:read` — the same scope as `GET /components` and `GET /components/*/configs/*`.
+This is deliberate reuse, not an oversight: `actor` is already exposed under read scopes
+elsewhere in this API (sessions, runs), so anyone who can already read a component's config can
+now also see who has been changing it. If a deployment needs to separate "can read config" from
+"can see who touched it," that is a dedicated scope (e.g. `components:audit`) to add later, not a
+gap in this one. Newest first, paginated like `GET /components`.
 
 | Parameter | Notes |
 |---|---|
