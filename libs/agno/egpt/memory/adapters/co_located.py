@@ -32,6 +32,7 @@ from egpt.memory.types import (
     MemoryQuery,
     MemoryRecord,
     MemorySlice,
+    PartialWriteError,
     Scope,
     Substrate,
     WriteReceipt,
@@ -40,28 +41,6 @@ from egpt.memory.types import (
 from egpt.utils.dttm import now_epoch_s
 
 __all__ = ["CoLocatedMemoryProvider", "PartialWriteError"]
-
-
-class PartialWriteError(RuntimeError):
-    """A dual-substrate write failed partway, carrying the ids that were stamped.
-
-    Two substrates with no distributed transaction cannot be atomic, so ``write`` is
-    **at-least-once**: the vector leg may have committed when the graph leg throws.
-
-    The ids matter more than the failure. ``_prepare`` mints a ``uuid4`` for any event whose ``id``
-    is ``None``, so a naive retry writes *fresh* rows for the same logical episodes -- exactly the
-    two-ids-for-one-episode failure that finding F1 and the single-id design exist to prevent,
-    arriving through the error path. Carrying the receipt lets a caller retry with
-    ``MemoryEvent.id`` set, which makes the retry idempotent.
-    """
-
-    def __init__(self, receipt: WriteReceipt) -> None:
-        super().__init__(
-            f"Write partially applied: {receipt.accepted} event(s) were stamped and may be "
-            f"persisted in one substrate but not the other. Retry with these ids set on the "
-            f"events to stay idempotent: {receipt.event_ids}."
-        )
-        self.receipt = receipt
 
 
 #: Jaccard threshold above which two episodes are treated as the same thing during consolidation.
@@ -188,6 +167,16 @@ class CoLocatedMemoryProvider(MemoryProvider):
         seen: Set[str] = set()
 
         for event in events:
+            # `MemoryEvent.scope` is a required field, and until now no adapter read it -- the
+            # write scope won silently. That is finding F5's accepted-and-ignored class applied to
+            # the one field whose mismatch is a *tenancy* question: a caller building events per
+            # tenant and batching them through one `write` got them all under the call scope.
+            if event.scope != scope:
+                raise MemoryOperationError(
+                    f"MemoryEvent.scope ({event.scope.key()}) does not match the write scope "
+                    f"({scope.key()}). One write is one scope; batch per scope.",
+                    field_name="scope",
+                )
             target = tier or event.tier
             self._require_a_substrate_for(target)
             occurred_at = event.occurred_at if event.occurred_at is not None else now
@@ -394,7 +383,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         for round_ in range(_MAX_PROBE_ROUNDS):
             yield min(wanted * (_FILTER_OVERFETCH**round_), _MAX_PROBE_LIMIT)  # x1, x3, x9, x27
 
-    def _reject_unanswerable_as_of(self, query: MemoryQuery) -> None:
+    def _require_validity_authority(self, query: MemoryQuery) -> None:
         """Refuse a *historical* point-in-time read the wired substrates cannot answer honestly.
 
         Validity lives on the graph. The vector substrate holds a projection with no bounds
@@ -410,15 +399,28 @@ class CoLocatedMemoryProvider(MemoryProvider):
         a row the vector leg returned, that row still has no bounds to check. Closing that needs a
         bounds-by-id lookup on ``GraphSubstrate``, recorded for SM-G1 (#99) in SPEC section 11.3.
         """
-        if query.as_of is None:
-            return
-        if self.graph is None or not self._requested(query, Substrate.GRAPH):
+        if self.graph is not None and self._requested(query, Substrate.GRAPH):
+            return  # the authority is participating; nothing to refuse
+
+        if query.as_of is not None:
             raise MemoryOperationError(
                 "A point-in-time read (as_of) needs the graph substrate, which is the authority "
                 "for bi-temporal validity. The vector substrate holds a projection with no bounds, "
                 "so answering from it alone would return invalidated facts as current truth. "
                 "Wire a graph substrate, or drop as_of from the query.",
                 field_name="as_of",
+            )
+        if self.graph is not None:
+            # A wired graph deliberately excluded. Refusing only when `as_of` was set guarded the
+            # query shape that exposed the bug rather than the precondition behind it, so a plain
+            # `read(substrates=[VECTOR])` still answered from the bound-free projection and
+            # returned facts the graph had recorded as false. The seed adapter refuses any
+            # non-None `substrates` for the same reason; this restores the symmetry.
+            raise MemoryOperationError(
+                "This provider has a graph substrate -- the authority for bi-temporal validity -- "
+                "but the query excludes it. Answering from the vector projection alone returns "
+                "facts the graph has recorded as false. Drop MemoryQuery.substrates.",
+                field_name="substrates",
             )
 
     def _fuse(self, legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
@@ -456,6 +458,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
     ) -> MemorySlice:
         """Fuse, apply validity, cap, and group -- the order matters and is the point of F2."""
         fused = self._fuse([vector_hits, graph_hits])
+        self._assert_tenant_isolation(scope, fused)
         visible = self._visible_at(fused, instant)
         records = visible[: query.limit] if query.limit else []
 
@@ -483,6 +486,28 @@ class CoLocatedMemoryProvider(MemoryProvider):
             diagnostics["vector_weight"] = self.config.fusion.get("vector_weight")
 
         return MemorySlice(scope=scope, query=query, records=records, by_tier=by_tier, fusion=diagnostics)
+
+    @staticmethod
+    def _assert_tenant_isolation(scope: Scope, fused: Sequence[MemoryRecord]) -> None:
+        """Defence in depth: no record may leave the seam under a tenant that did not ask for it.
+
+        Every substrate is contractually required to apply the tenant predicate, and this is the
+        provider refusing to take that on faith. A backend that drops its ``WHERE tenant_id`` --
+        through a bad migration, a cache, or a hand-written query -- otherwise leaks straight
+        through, and the projection would stamp the reader's scope on the way out, which is the
+        shape that makes such a leak invisible to every check above.
+
+        Fail-closed data-layer enforcement is SM-C4's (#92). This is the seam's own post-condition,
+        and it costs one comparison per record.
+        """
+        foreign = {r.scope.tenant_id for r in fused if r.scope.tenant_id != scope.tenant_id}
+        if foreign:
+            raise MemoryOperationError(
+                f"A substrate returned records for {sorted(foreign)} on a read scoped to "
+                f"{scope.tenant_id!r}. Refusing the whole slice: a backend dropped its tenant "
+                "predicate, and serving any of it would leak across tenants.",
+                field_name="tenant_id",
+            )
 
     def _legs(
         self, scope: Scope, probe: MemoryQuery, query: MemoryQuery
@@ -521,7 +546,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         return satisfied, exhausted
 
     def read(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
-        self._reject_unanswerable_as_of(query)
+        self._require_validity_authority(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
 
         vector_hits: List[MemoryRecord] = []
@@ -537,7 +562,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         return self._assemble(scope, query, vector_hits, graph_hits, instant, probe_limit, exhausted)
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
-        self._reject_unanswerable_as_of(query)
+        self._require_validity_authority(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
 
         vector_hits: List[MemoryRecord] = []
@@ -627,6 +652,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         episodes: Sequence[MemoryRecord],
         facts: Sequence[FactWrite],
         merged: int,
+        cursor: Optional[Tuple[Optional[int], Optional[str]]] = None,
     ) -> ConsolidationReport:
         """The pass result, including where the next pass should resume from.
 
@@ -641,7 +667,30 @@ class CoLocatedMemoryProvider(MemoryProvider):
         because fact ids are derived from their source episodes, so a repeat upserts the same row.
         """
         batch_full = len(episodes) >= _CONSOLIDATE_BATCH
-        next_since = max((record.created_at or 0) for record in episodes) if episodes else None
+        # The cursor is the *last row in scan order*, not `max(created_at)`. With a whole batch
+        # sharing one second, `max(created_at)` equals the `since` that produced the batch, so the
+        # caller was told to resume where it just started: episodes past the boundary were never
+        # consolidated and a scheduler looping on `batch_full` spun forever. One `write()` of
+        # `_CONSOLIDATE_BATCH` events triggers that deterministically, since `_prepare` stamps one
+        # `now` across the batch. `id` breaks the tie, which is why the port promises that ordering.
+        last = episodes[-1] if episodes else None
+        next_since = last.created_at if last is not None else None
+        next_after_id = last.id if last is not None else None
+
+        previous_since, previous_after_id = cursor if cursor else (None, None)
+        if batch_full and previous_since is not None:
+            advanced = (next_since or 0, next_after_id or "") > (previous_since, previous_after_id or "")
+            if not advanced:
+                # Belt and braces on top of the cursor: a backend that ignores the documented
+                # ordering could still hand back the same page forever, and a silent livelock is
+                # the worst version of this failure. Loud beats spinning.
+                raise MemoryOperationError(
+                    f"Consolidation did not advance: resumed at {(previous_since, previous_after_id)!r} "
+                    f"and the batch ends at {(next_since, next_after_id)!r}. The substrate is not "
+                    "honouring scan's ascending (created_at, id) ordering, so looping would never "
+                    "terminate.",
+                    field_name="since",
+                )
         return ConsolidationReport(
             scope=scope,
             episodic_scanned=len(episodes),
@@ -655,6 +704,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 "derived_by": "co_located.deterministic_dedup",
                 "batch_full": batch_full,
                 "next_since": next_since,
+                "next_after_id": next_after_id,
             },
         )
 
@@ -687,15 +737,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
         scope: Scope,
         tiers: Optional[Sequence[MemoryTier]] = None,
         since: Optional[int] = None,
+        after_id: Optional[str] = None,
     ) -> ConsolidationReport:
-        """Distil one bounded batch of episodes, starting at ``since``.
+        """Distil one bounded batch of episodes, resuming after ``(since, after_id)``.
 
-        ``since`` is the resumption point -- pass the previous report's ``details["next_since"]``
-        to advance. The scheduled lane (SM-L1 #122) owns looping until ``batch_full`` is false.
+        Pass the previous report's ``details["next_since"]`` **and** ``details["next_after_id"]``
+        to advance; ``since`` alone cannot get past a batch of co-second episodes. The scheduled
+        lane (SM-L1 #122) owns looping until ``batch_full`` is false.
         """
         self._check_consolidatable(tiers)
         assert self.vector is not None  # narrowed by _check_consolidatable
-        episodes = list(self.vector.scan(scope, MemoryTier.EPISODIC, since=since, limit=_CONSOLIDATE_BATCH))
+        episodes = list(
+            self.vector.scan(scope, MemoryTier.EPISODIC, since=since, after_id=after_id, limit=_CONSOLIDATE_BATCH)
+        )
         facts, merged = self._distil(scope, episodes)
 
         # One batched upsert rather than one call per fact: `upsert` takes a Sequence precisely so
@@ -705,18 +759,23 @@ class CoLocatedMemoryProvider(MemoryProvider):
         if self.graph is not None:
             for fact in facts:
                 self.graph.upsert_fact(scope, fact)
-        return self._report(scope, episodes, facts, merged)
+        return self._report(scope, episodes, facts, merged, cursor=(since, after_id))
 
     async def aconsolidate(
         self,
         scope: Scope,
         tiers: Optional[Sequence[MemoryTier]] = None,
         since: Optional[int] = None,
+        after_id: Optional[str] = None,
     ) -> ConsolidationReport:
         """Async variant of :meth:`consolidate`, with the same resumption contract."""
         self._check_consolidatable(tiers)
         assert self.vector is not None  # narrowed by _check_consolidatable
-        episodes = list(await self.vector.ascan(scope, MemoryTier.EPISODIC, since=since, limit=_CONSOLIDATE_BATCH))
+        episodes = list(
+            await self.vector.ascan(
+                scope, MemoryTier.EPISODIC, since=since, after_id=after_id, limit=_CONSOLIDATE_BATCH
+            )
+        )
         facts, merged = self._distil(scope, episodes)
 
         if facts:
@@ -724,7 +783,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         if self.graph is not None:
             for fact in facts:
                 await self.graph.aupsert_fact(scope, fact)
-        return self._report(scope, episodes, facts, merged)
+        return self._report(scope, episodes, facts, merged, cursor=(since, after_id))
 
 
 @register_provider("co_located")

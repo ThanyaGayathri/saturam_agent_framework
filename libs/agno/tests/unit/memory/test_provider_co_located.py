@@ -191,14 +191,30 @@ def test_rrf_is_selected_by_config_and_actually_used():
     assert result.records[0].score == pytest.approx(2 / 61)
 
 
-def test_a_query_can_exclude_a_substrate():
+def test_excluding_a_wired_graph_is_refused_rather_than_answered_without_it():
+    """The graph is the authority for validity, so excluding it produces a *wrong* answer.
+
+    Refusing only when `as_of` was set guarded the query shape that exposed the bug rather than the
+    precondition behind it: a plain `read(substrates=[VECTOR])` still answered from the bound-free
+    projection and returned facts the graph had recorded as false.
+    """
     p, _, graph = provider()
     p.write(ACME, [event("alpha beta")])
 
-    result = p.read(ACME, MemoryQuery(text="alpha", substrates=[Substrate.VECTOR]))
+    with pytest.raises(MemoryOperationError, match="authority for bi-temporal validity"):
+        p.read(ACME, MemoryQuery(text="alpha", substrates=[Substrate.VECTOR]))
 
-    assert result.fusion["graph_hits"] == 0
     assert "traverse" not in graph.calls
+
+
+def test_excluding_a_substrate_the_provider_does_not_have_is_fine():
+    """The refusal is about excluding an *authority*, not about naming substrates at all."""
+    vector_only = CoLocatedMemoryProvider(vector=FakeVector())
+    vector_only.write(ACME, [event("alpha beta")])
+
+    result = vector_only.read(ACME, MemoryQuery(text="alpha", substrates=[Substrate.VECTOR]))
+
+    assert len(result.records) == 1
 
 
 def test_the_limit_caps_returned_records_and_fusion_reports_what_the_probe_saw():
@@ -629,12 +645,16 @@ def test_consolidation_bounds_its_scan():
     assert vector.scan_limits == [_CONSOLIDATE_BATCH]
 
 
-def test_consolidation_advances_past_its_first_batch():
-    """Blocking 1. `scan` is ordered ascending, nothing marked episodes consumed, and `since` was
-    never passed -- so every cycle re-read the same oldest rows and later episodes were never
-    consolidated at all.
+@pytest.mark.parametrize("stamping", ["distinct", "identical"])
+def test_consolidation_advances_past_its_first_batch(stamping):
+    """Blocking (r2 + r3). Two separate dead ends, and the second was invisible to the first test.
 
-    This is the half of the batch-bound test that would have caught it.
+    r2: nothing passed `since`, so every cycle re-read the same oldest rows.
+    r3: `since` alone cannot page past a batch whose episodes share one `created_at`, because the
+    bound is inclusive and `next_since` equalled the `since` that produced the batch. The earlier
+    version of this test set `created_at = 1000 + i` under a comment explaining why -- engineering
+    around the exact input that breaks the cursor. `identical` is that input, and it is the
+    ordinary one: `_prepare` stamps a single `now` across a whole batched `write()`.
     """
     import egpt.memory.adapters.co_located as module
 
@@ -644,21 +664,50 @@ def test_consolidation_advances_past_its_first_batch():
     try:
         for i in range(9):
             p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}")])
-            # Distinct created_at, so the ordering the watermark relies on is unambiguous.
-            vector.rows["acme"][f"e{i}"].created_at = 1000 + i
+            vector.rows["acme"][f"e{i}"].created_at = 1000 + i if stamping == "distinct" else 1000
 
-        seen, since = set(), None
-        for _ in range(5):
-            report = p.consolidate(ACME, since=since)
-            seen.update(report.details.get("source_episode_ids", []))
+        seen, since, after_id = set(), None, None
+        for _ in range(10):
+            report = p.consolidate(ACME, since=since, after_id=after_id)
             for fact in vector.rows["acme"].values():
                 if fact.tier is MemoryTier.SEMANTIC:
                     seen.update(fact.provenance.get("source_episode_ids", []))
             if not report.details["batch_full"]:
                 break
             since = report.details["next_since"]
+            after_id = report.details["next_after_id"]
 
-        assert seen == {f"e{i}" for i in range(9)}, f"never consolidated: {sorted({f'e{i}' for i in range(9)} - seen)}"
+        missing = {f"e{i}" for i in range(9)} - seen
+        assert not missing, f"never consolidated ({stamping} created_at): {sorted(missing)}"
+    finally:
+        module._CONSOLIDATE_BATCH = original
+
+
+def test_consolidation_refuses_to_report_a_cursor_that_does_not_advance():
+    """Belt and braces on the cursor: a backend ignoring scan's ordering would livelock a
+    scheduler silently, and a silent livelock is the worst version of this failure."""
+    import egpt.memory.adapters.co_located as module
+
+    p, vector, _ = provider()
+
+    class StuckVector(FakeVector):
+        """Ignores the cursor entirely -- always returns the same page."""
+
+        def scan(self, scope, tier, since=None, after_id=None, limit=None):
+            return super().scan(scope, tier, None, None, limit)
+
+    stuck = StuckVector()
+    p.vector = stuck
+    original = module._CONSOLIDATE_BATCH
+    module._CONSOLIDATE_BATCH = 2
+    try:
+        for i in range(4):
+            p.write(ACME, [event(f"topic{i} unique", id=f"e{i}")])
+            stuck.rows["acme"][f"e{i}"].created_at = 1000
+
+        first = p.consolidate(ACME)
+        with pytest.raises(MemoryOperationError, match="did not advance"):
+            p.consolidate(ACME, since=first.details["next_since"], after_id=first.details["next_after_id"])
     finally:
         module._CONSOLIDATE_BATCH = original
 
@@ -678,6 +727,7 @@ def test_a_full_batch_reports_where_to_resume():
 
         assert report.details["batch_full"] is True
         assert report.details["next_since"] == 1001
+        assert report.details["next_after_id"] == "e1"
     finally:
         module._CONSOLIDATE_BATCH = original
 
@@ -910,3 +960,61 @@ def test_consolidation_does_not_restamp_created_at_on_a_stable_fact():
     fact = next(r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC)
 
     assert fact.created_at == 1000
+
+
+# ---------------------------------------------------------------------------
+# Round-3 review regressions
+# ---------------------------------------------------------------------------
+
+
+def test_a_zero_limit_does_not_over_fetch():
+    """Asserts what the substrate was *asked* for, not what came back.
+
+    A result-only assertion here is `[] == []`: `_assemble` caps at `query.limit`, so the result is
+    empty whatever the probe requested. This test was also lost entirely in a round-2 block
+    replacement and its follow-up edit silently matched nothing -- hence asserting the recorder.
+    """
+    p, vector, _ = provider()
+    p.write(ACME, [event("alpha")])
+
+    p.read(ACME, MemoryQuery(text="alpha", limit=0))
+
+    assert vector.search_limits == [0], "limit=0 must ask the substrate for nothing"
+
+
+def test_a_record_from_another_tenant_is_refused_not_returned():
+    """Defence in depth: the seam refuses to take a substrate's tenant predicate on faith.
+
+    A backend that drops its WHERE tenant_id otherwise leaks straight through, and the projection
+    stamps the reader's scope on the way out -- the shape that hides such a leak from every check
+    above it.
+    """
+    p, vector, _ = provider()
+    # A substrate that ignores its scope argument, which is what a bad migration looks like.
+    vector.rows.setdefault("acme", {})["foreign"] = MemoryRecord(
+        id="foreign", tier=MemoryTier.SEMANTIC, content="globex secret", scope=OTHER
+    )
+
+    with pytest.raises(MemoryOperationError, match="dropped its tenant predicate"):
+        p.read(ACME, MemoryQuery(text="globex secret"))
+
+
+def test_an_event_whose_scope_differs_from_the_write_scope_is_refused():
+    """MemoryEvent.scope was required and read by nothing, so the call scope silently won."""
+    p, _, _ = provider()
+    foreign = MemoryEvent(content="hello", scope=OTHER)
+
+    with pytest.raises(MemoryOperationError, match="does not match the write scope"):
+        p.write(ACME, [foreign])
+
+
+def test_a_repeat_episode_write_upserts_rather_than_duplicating():
+    """PartialWriteError tells callers to retry with the stamped ids; that only works if the graph
+    upserts by id, which the port now states and the doubles now honour."""
+    p, vector, graph = provider()
+
+    p.write(ACME, [event("first version", id="dup")])
+    p.write(ACME, [event("second version", id="dup")])
+
+    assert [r.content for r in graph.rows["acme"]] == ["second version"]
+    assert [r.content for r in vector.rows["acme"].values()] == ["second version"]

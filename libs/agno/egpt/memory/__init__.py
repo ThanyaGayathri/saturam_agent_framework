@@ -1,7 +1,6 @@
 # Imported for its registration side effect: in-tree adapters self-register on import, so
 # `build_memory_provider` can resolve "co_located" without the caller knowing the module exists.
 from egpt.memory.adapters import CoLocatedMemoryProvider, ExternalMemoryProvider, SeedMemoryProvider
-from egpt.memory.adapters.co_located import PartialWriteError
 from egpt.memory.config import (
     MemoryProviderConfig,
     MemoryProviderConfigError,
@@ -29,9 +28,11 @@ from egpt.memory.types import (
     MemoryQuery,
     MemoryRecord,
     MemorySlice,
+    PartialWriteError,
     Scope,
     Substrate,
     WriteReceipt,
+    fusion_diagnostics,
 )
 
 __all__ = [

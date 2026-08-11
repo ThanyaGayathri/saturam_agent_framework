@@ -65,6 +65,7 @@ class FakeVector:
         self.search_limits: List[Optional[int]] = []
         self.scan_limits: List[Optional[int]] = []
         self.scan_sinces: List[Optional[int]] = []
+        self.scan_after_ids: List[Optional[str]] = []
 
     def _bucket(self, scope: Scope) -> Dict[str, MemoryRecord]:
         return self.rows.setdefault(scope.tenant_id, {})
@@ -100,14 +101,22 @@ class FakeVector:
         scope: Scope,
         tier: MemoryTier,
         since: Optional[int] = None,
+        after_id: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[MemoryRecord]:
         self.calls.append("scan")
         self.scan_limits.append(limit)
         self.scan_sinces.append(since)
+        self.scan_after_ids.append(after_id)
         rows = [r for r in self._bucket(scope).values() if r.tier is tier]
         if since is not None:
-            rows = [r for r in rows if (r.created_at or 0) >= since]  # inclusive, per the port
+            # The port's composite cursor: strictly after (since, after_id) when after_id is
+            # given, inclusive on `since` alone. A time-only cursor cannot page past a batch of
+            # co-second rows, which one write() of a full batch produces.
+            if after_id is None:
+                rows = [r for r in rows if (r.created_at or 0) >= since]
+            else:
+                rows = [r for r in rows if ((r.created_at or 0), r.id) > (since, after_id)]
         rows.sort(key=lambda r: ((r.created_at or 0), r.id))
         # `limit=0` means zero rows, not "unlimited". Every real backend distinguishes `LIMIT 0`
         # from an omitted limit, and conflating them here would hide a provider that fetches
@@ -119,10 +128,11 @@ class FakeVector:
         scope: Scope,
         tier: MemoryTier,
         since: Optional[int] = None,
+        after_id: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[MemoryRecord]:
         self.calls.append("ascan")
-        return self.scan(scope, tier, since, limit)
+        return self.scan(scope, tier, since, after_id, limit)
 
 
 class FakeGraph:
@@ -142,19 +152,24 @@ class FakeGraph:
         return self.rows.setdefault(scope.tenant_id, [])
 
     def upsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
+        """Upsert by id, as the port requires. Appending let a repeat write look idempotent."""
         self.calls.append("upsert_episode")
-        self._bucket(scope).append(
-            MemoryRecord(
-                id=event.id or "",
-                tier=event.tier,
-                content=event.content,
-                scope=scope,
-                substrate=Substrate.GRAPH,
-                topics=event.topics,
-                t_valid=event.occurred_at,
-                created_at=event.occurred_at,
-            )
+        row = MemoryRecord(
+            id=event.id or "",
+            tier=event.tier,
+            content=event.content,
+            scope=scope,
+            substrate=Substrate.GRAPH,
+            topics=list(event.topics) if event.topics is not None else None,
+            t_valid=event.occurred_at,
+            created_at=event.occurred_at,
         )
+        bucket = self._bucket(scope)
+        for index, existing in enumerate(bucket):
+            if existing.id == row.id and existing.is_current_belief():
+                bucket[index] = row
+                return
+        bucket.append(row)
 
     async def aupsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
         self.calls.append("aupsert_episode")

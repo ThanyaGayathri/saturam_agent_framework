@@ -20,6 +20,7 @@ Ratified by ``docs/adr/0003-symbiotic-memory.md``.
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -36,6 +37,7 @@ __all__ = [
     "MemoryQuery",
     "MemoryRecord",
     "MemorySlice",
+    "PartialWriteError",
     "Scope",
     "Substrate",
     "WriteReceipt",
@@ -57,6 +59,31 @@ class MemoryOperationError(ValueError):
     def __init__(self, message: str, *, field_name: Optional[str] = None) -> None:
         super().__init__(message)
         self.field_name = field_name
+
+
+class PartialWriteError(RuntimeError):
+    """A multi-target write failed partway, carrying the ids that were stamped.
+
+    Lives here rather than in one adapter because **both** adapters need it and the seam's swap
+    property requires them to fail the same way. Mode A writes to two substrates; the seed bridge
+    fans out across tiers and calls ``add_user_memory`` per event. Neither is atomic -- there is no
+    distributed transaction -- so both are **at-least-once**, and a caller that gets different
+    failure semantics from two providers behind one interface has no portable retry.
+
+    The ids matter more than the failure. A provider mints an id for any event lacking one, so a
+    naive retry writes *fresh* rows for the same logical memories -- the two-ids-for-one-episode
+    failure that finding F1 exists to prevent, arriving through the error path. Carrying the
+    receipt lets a caller retry with ``MemoryEvent.id`` set, which makes the retry idempotent
+    provided the substrate upserts by id (see ``GraphSubstrate.upsert_episode``).
+    """
+
+    def __init__(self, receipt: "WriteReceipt") -> None:
+        super().__init__(
+            f"Write partially applied: {receipt.accepted} event(s) were stamped and may be "
+            f"persisted in some targets but not others. Retry with these ids set on the events "
+            f"to stay idempotent: {receipt.event_ids}."
+        )
+        self.receipt = receipt
 
 
 class Substrate(str, Enum):
@@ -85,6 +112,17 @@ def _epoch_or_none(value: Any) -> Optional[int]:
         return None
     if isinstance(value, bool):
         raise TypeError(f"Timestamp must be epoch seconds, a datetime, or an ISO string; got {value!r}.")
+    if isinstance(value, datetime) and value.tzinfo is None:
+        # `to_epoch_s` reads a naive datetime as UTC, so `datetime.now()` in any zone ahead of UTC
+        # lands in the *future* -- 5h30m in IST, this repo's own. Valid time is now evaluated on
+        # every read, so such a record is written, receipted as accepted, and then invisible until
+        # the clock catches up. No error anywhere. Refused for the same reason `bool` is: a
+        # silently wrong timestamp is worse than a loud rejection.
+        raise TypeError(
+            "Timestamp must be timezone-aware. A naive datetime is interpreted as UTC, so a local "
+            f"datetime.now() lands in the future and the record fails the valid-time predicate. "
+            f"Use datetime.now(timezone.utc) or epoch seconds. Got {value!r}."
+        )
     return to_epoch_s(value)
 
 
@@ -366,18 +404,25 @@ class MemorySlice:
         Parallels ``LearningStore.build_context`` (``learn/stores/protocol.py:78``) so a slice
         drops into the same place in an agent prompt that the seed's learn context does.
 
-        Newlines inside a record's content are indented rather than emitted raw. The ``[tier]``
+        Line breaks inside a record's content are indented rather than emitted raw. The ``[tier]``
         prefix is line-oriented, so stored content containing ``"\\n[semantic] ..."`` would
         otherwise render as an additional, forged memory line -- and memory content is attacker-
         influenced by construction, since it is whatever a user said to the agent. Continuation
         lines are visibly indented, so one memory always reads as one entry.
+
+        Splitting uses ``str.splitlines()`` rather than ``split("\\n")`` because that is what the
+        *consumer* does. An earlier version normalized ``\\r\\n`` / ``\\r`` and split on ``\\n``,
+        which left eight other separators through -- ``\\x0b``, ``\\x0c``, ``\\x1c``, ``\\x1d``,
+        ``\\x1e``, ``\\x85``, ``U+2028``, ``U+2029`` -- every one of which an LLM-facing renderer
+        treats as a line break, and each of which forged a ``[tier]`` line straight through.
+        Matching the consumer's escape set is the only version that closes the class rather than
+        the instance.
         """
         if not self.records:
             return ""
         lines = []
         for record in self.records:
-            body = record.content.replace("\r\n", "\n").replace("\r", "\n")
-            head, *rest = body.split("\n")
+            head, *rest = record.content.splitlines() or [""]
             lines.append("[{tier}] {head}".format(tier=record.tier.value, head=head))
             lines.extend("    " + line for line in rest)
         return "\n".join(lines)

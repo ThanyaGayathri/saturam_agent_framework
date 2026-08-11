@@ -79,6 +79,7 @@ class VectorSubstrate(Protocol):
         scope: Scope,
         tier: MemoryTier,
         since: Optional[int] = None,
+        after_id: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[MemoryRecord]:
         """Enumerate records in insertion order -- no relevance ranking.
@@ -102,10 +103,14 @@ class VectorSubstrate(Protocol):
         and terminate believing it was caught up. Silent episode loss, unbounded at production
         write rates.
 
-        The cost of inclusive is that the boundary second is re-returned, so **a resuming caller
-        must dedup by ``id``**. That is a visible, bounded cost; the exclusive version's cost was
-        invisible data loss. The ``created_at``-then-``id`` ordering above is what makes the
-        dedup cheap.
+        ``after_id`` completes the cursor, and without it ``since`` alone is not enough. Inclusive
+        ``since`` re-returns the whole boundary second, so when a single second holds ``limit`` or
+        more rows -- which one batched ``write()`` produces, since every event in it is stamped
+        with the same ``now`` -- the next page is byte-identical to the last and the walk never
+        advances. Together the two form a strict cursor: **return rows ordered after
+        ``(since, after_id)``**, i.e. ``created_at > since``, or ``created_at == since`` and
+        ``id > after_id``. Passing ``since`` without ``after_id`` keeps the inclusive-boundary
+        behaviour, which is what a first page wants.
 
         Only the vector substrate carries this. Nothing in SM-C1 enumerates the graph, and
         enumeration over a temporal graph is not obviously one operation (current belief? every
@@ -119,6 +124,7 @@ class VectorSubstrate(Protocol):
         scope: Scope,
         tier: MemoryTier,
         since: Optional[int] = None,
+        after_id: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[MemoryRecord]:
         """Async variant of :meth:`scan`."""
@@ -149,11 +155,19 @@ class GraphSubstrate(Protocol):
     """
 
     def upsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
-        """Record a raw episode.
+        """Insert or replace an episode **by id**, within ``scope``.
 
         The provider stamps ``event.id`` before calling this and passes the same id to the vector
         substrate: one logical episode has one id across both, because that id is the dedup key
         during fusion. Two ids surface as two fused records for one write (finding F1).
+
+        **By id, like ``VectorSubstrate.upsert``.** The name said upsert while the contract said
+        only "record", and an appending backend broke two things at once: a
+        ``PartialWriteError`` retry -- which tells the caller to reuse the stamped ids precisely so
+        it is idempotent -- duplicated the graph row, and the two substrates ended up holding
+        different content under one id, where fusion's id dedup silently kept the vector copy and
+        made the graph row unreachable. The provider's own batch-level duplicate check cannot help:
+        it spans one call, and this is about repeats across calls.
         """
         ...
 

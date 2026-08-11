@@ -33,6 +33,7 @@ from egpt.memory.types import (
     MemoryQuery,
     MemoryRecord,
     MemorySlice,
+    PartialWriteError,
     Scope,
     Substrate,
     WriteReceipt,
@@ -137,16 +138,33 @@ class SeedMemoryProvider(MemoryProvider):
         self.stores: Dict[MemoryTier, "LearningStore"] = dict(stores or {})
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
         self._require_single_tenant_acknowledgement()
-        # Declared in config, so the pin is a deployment fact rather than whatever tenant happened
-        # to call first. `None` means "not declared" -- see `_guard_tenant`.
+        self._tenant: str = self._require_declared_tenant()
+        self._validate_retrieval_method()
+
+    def _require_declared_tenant(self) -> str:
+        """The one tenant this instance may ever serve. **Mandatory.**
+
+        Making the *acknowledgement* mandatory and the *pin* optional was a regression: with no pin
+        the guard's ``None`` branch admitted every scope, so an unpinned provider served one
+        tenant's memory to another -- relabelled with the reader's tenant, which is the invisible
+        half. That was weaker in its default configuration than the lazy pin it replaced, even
+        though the lazy pin was correctly rejected as racy and per-instance.
+
+        So the pin is the thing required. There is no configuration of this provider that accepts
+        two tenants, and none that has to discover its tenant at runtime.
+        """
         declared = self.config.options.get("tenant_id")
-        if declared is not None and (not isinstance(declared, str) or not declared.strip()):
+        if not isinstance(declared, str) or not declared.strip():
             raise MemoryProviderConfigError(
-                f"options['tenant_id'] must be a non-empty string when set, got {declared!r}.",
+                "SeedMemoryProvider requires options['tenant_id']. UserMemory has no tenant column "
+                "and MemoryManager partitions by user_id alone, so pinning this instance to one "
+                "declared tenant is the only isolation available -- and an undeclared pin means no "
+                "isolation at all, with the leaked row stamped as the reader's own.\n\n"
+                '    MemoryProviderConfig(provider="seed", options={"single_tenant": True, '
+                '"tenant_id": "acme"})',
                 field_name="options.tenant_id",
             )
-        self._tenant: Optional[str] = declared.strip() if isinstance(declared, str) else None
-        self._validate_retrieval_method()
+        return declared.strip()
 
     def _validate_retrieval_method(self) -> None:
         """Refuse a retrieval method that would put a model call on the read path.
@@ -227,11 +245,9 @@ class SeedMemoryProvider(MemoryProvider):
         under thread interleaving. A value declared in config is per-deployment and auditable,
         which a first-request side effect is neither.
 
-        Declaring the tenant is optional. Without it the provider still refuses to *mix* tenants
-        within one instance -- weaker, and it says so at construction.
+        The pin is mandatory (see :meth:`_require_declared_tenant`), so there is no branch here
+        that admits an unpinned instance -- that branch was the leak.
         """
-        if self._tenant is None:
-            return
         if self._tenant != scope.tenant_id:
             raise MemoryOperationError(
                 f"This SeedMemoryProvider is configured single_tenant for {self._tenant!r}; "
@@ -457,6 +473,22 @@ class SeedMemoryProvider(MemoryProvider):
 
     # -- write ----------------------------------------------------------------
 
+    @staticmethod
+    def _reject_foreign_scopes(scope: Scope, events: Sequence[MemoryEvent]) -> None:
+        """Refuse an event carrying a different scope than the write.
+
+        ``MemoryEvent.scope`` is a required field that was read by nothing, so a caller building
+        events per tenant and batching them through one ``write`` silently got them all under the
+        call scope -- accepted-and-ignored on the one field whose mismatch is a tenancy question.
+        """
+        for event in events:
+            if event.scope != scope:
+                raise MemoryOperationError(
+                    f"MemoryEvent.scope ({event.scope.key()}) does not match the write scope "
+                    f"({scope.key()}). One write is one scope; batch per scope.",
+                    field_name="scope",
+                )
+
     def _reject_unserved(self, tier: MemoryTier) -> None:
         """Refuse a tier nothing here can store, naming the ticket that will build it."""
         if tier is MemoryTier.EPISODIC and MemoryTier.EPISODIC not in self.stores:
@@ -494,6 +526,7 @@ class SeedMemoryProvider(MemoryProvider):
 
     def write_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
         self._guard_tenant(scope)
+        self._reject_foreign_scopes(scope, events)
         self._reject_unserved(tier)
         store = self._store_for(tier)
         if store is not None:
@@ -503,6 +536,7 @@ class SeedMemoryProvider(MemoryProvider):
 
     async def awrite_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
         self._guard_tenant(scope)
+        self._reject_foreign_scopes(scope, events)
         self._reject_unserved(tier)
         store = self._store_for(tier)
         if store is not None:
@@ -574,18 +608,47 @@ class SeedMemoryProvider(MemoryProvider):
         order. ``_reject_unserved`` depends only on the tier and this provider's wiring, so
         hoisting it costs nothing.
         """
-        groups = _group_by_tier(events)
-        for tier, _ in groups:
-            self._reject_unserved(tier)
-        return self._merge_receipts(self.write_tier(scope, tier, group) for tier, group in groups)
+        groups = self._validated_groups(scope, events)
+        receipts: List[WriteReceipt] = []
+        try:
+            for tier, group in groups:
+                receipts.append(self.write_tier(scope, tier, group))
+        except Exception as exc:
+            # A *runtime* failure mid-fan-out, distinct from the validation-driven partial commit
+            # hoisting fixed: `add_user_memory` is called once per event, so group n+1 runs after
+            # group n has committed. Mode A raises PartialWriteError with the stamped ids for
+            # exactly this, and two providers behind one seam must fail the same way or a caller
+            # has no portable retry.
+            raise PartialWriteError(self._merge_receipts(receipts)) from exc
+        return self._merge_receipts(receipts)
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         """Async variant of :meth:`write`, with the same per-tier routing."""
+        groups = self._validated_groups(scope, events)
+        receipts: List[WriteReceipt] = []
+        try:
+            for tier, group in groups:
+                receipts.append(await self.awrite_tier(scope, tier, group))
+        except Exception as exc:
+            raise PartialWriteError(self._merge_receipts(receipts)) from exc
+        return self._merge_receipts(receipts)
+
+    def _validated_groups(
+        self, scope: Scope, events: Sequence[MemoryEvent]
+    ) -> List[Tuple[MemoryTier, List[MemoryEvent]]]:
+        """Group by tier and validate everything **before** any group writes.
+
+        The tenant guard runs here rather than only inside ``write_tier`` because an empty batch
+        produces no groups, so every per-group guard was skipped and a scope this provider would
+        otherwise refuse got an empty receipt instead of an error. A guard whose coverage depends
+        on the batch being non-empty is not covering "every public entry point".
+        """
+        self._guard_tenant(scope)
+        self._reject_foreign_scopes(scope, events)
         groups = _group_by_tier(events)
         for tier, _ in groups:
             self._reject_unserved(tier)
-        receipts = [await self.awrite_tier(scope, tier, group) for tier, group in groups]
-        return self._merge_receipts(receipts)
+        return groups
 
     @staticmethod
     def _merge_receipts(receipts: Iterable[WriteReceipt]) -> WriteReceipt:
@@ -606,6 +669,7 @@ class SeedMemoryProvider(MemoryProvider):
         scope: Scope,
         tiers: Optional[Sequence[MemoryTier]] = None,
         since: Optional[int] = None,
+        after_id: Optional[str] = None,
     ) -> ConsolidationReport:
         """Run the seed's curation as the dedup lane. There is no episodic-to-semantic pass here.
 
@@ -659,9 +723,10 @@ class SeedMemoryProvider(MemoryProvider):
         scope: Scope,
         tiers: Optional[Sequence[MemoryTier]] = None,
         since: Optional[int] = None,
+        after_id: Optional[str] = None,
     ) -> ConsolidationReport:
         """Async variant. ``Curator.deduplicate`` is sync-only, so this hops a thread."""
-        return await asyncio.to_thread(self.consolidate, scope, tiers, since)
+        return await asyncio.to_thread(self.consolidate, scope, tiers, since, after_id)
 
 
 @register_provider("seed")

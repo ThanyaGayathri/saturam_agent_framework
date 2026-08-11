@@ -104,8 +104,14 @@ def seed_config() -> MemoryProviderConfig:
     return MemoryProviderConfig(
         provider="seed",
         mode=ProviderMode.LOCAL,
-        # The seed cannot separate tenants, so it refuses to build without this claim.
-        options={"memory_manager": FakeManager(), "learning_machine": FakeMachine(), "single_tenant": True},
+        # The seed cannot separate tenants, so it refuses to build without both the claim and the
+        # pin -- an acknowledgement with no pin is an unprotected provider.
+        options={
+            "memory_manager": FakeManager(),
+            "learning_machine": FakeMachine(),
+            "single_tenant": True,
+            "tenant_id": ACME.tenant_id,
+        },
     )
 
 

@@ -386,7 +386,7 @@ the code. All are fixed; the ones that changed a **contract** rather than an imp
 
 | Finding | Change |
 |---|---|
-| Seed bridge crossed tenants and relabelled the leaked row with the reader's tenant | `SeedMemoryProvider` now **refuses to build** without `options={"single_tenant": True}`, and pins the first tenant it serves. `UserMemory` has no tenant column, so it cannot separate two tenants and now says so. Namespacing the manager key was rejected: it silently orphans rows an existing deployment already wrote. |
+| Seed bridge crossed tenants and relabelled the leaked row with the reader's tenant | `SeedMemoryProvider` **refuses to build** without both `options["single_tenant"]` and `options["tenant_id"]`. (Round 2 made only the acknowledgement mandatory and the pin optional, which left the guard a no-op in its default configuration — a regression corrected in round 3.) `UserMemory` has no tenant column, so it cannot separate two tenants and now says so. Namespacing the manager key was rejected: it silently orphans rows an existing deployment already wrote. |
 | `write()` redirected episodic events into the semantic tier | `write` groups the batch by `event.tier` and routes each group through `write_tier`, so an episodic write is refused as documented rather than rewritten. |
 | Current-belief filter ran after substrates applied `limit`, returning zero records when valid ones existed | The read path over-fetches (`_FILTER_OVERFETCH`). Documented as a mitigation, not a fix — the complete answer is pushing the predicate into the substrates, which needs a port change and belongs with the first real backend. |
 | `scan`'s `since` was exclusive on integer-second `created_at` | Now **inclusive**, with the caller deduping the boundary ids. Exclusive silently skipped every co-second episode on a resuming pass — unbounded, invisible episode loss. |
@@ -444,6 +444,27 @@ batch-bound test asserted only that `scan` was called (now asserts the limit rea
 plus that a second pass advances), and the two aliasing tests mutated only top-level keys. The
 doubles gained request recording for exactly this reason: asserting on a *response* cannot detect a
 wrong *request*.
+
+### 11.2d Round-3 review (2 critical, 7 major)
+
+A third review found that three fixes recorded above as complete had a narrower door left open, and
+that one of them was a **regression** rather than a survival. The pattern it named is worth keeping:
+each was written against the repro that exposed the bug rather than the invariant behind it. The
+fixes below assert the invariant.
+
+| Finding | Change |
+|---|---|
+| **Regression** — the tenant pin was optional, so an unpinned seed provider admitted every scope | `options["tenant_id"]` is **mandatory**; the `None` branch that admitted everything is gone. The shared test helper built the unpinned config, so the unsafe shape was what the suite exercised. |
+| `consolidate` could not page past a batch of co-second episodes — one 500-event `write()` triggers it, since `_prepare` stamps one `now` across the batch | The cursor is composite `(created_at, id)`, matching the ordering `scan` already promised. `_report` additionally **raises** if a full batch does not advance, so a backend ignoring that ordering cannot livelock a scheduler silently. |
+| `read(substrates=[VECTOR])` returned facts the graph had recorded as false | The precondition is "a validity authority is participating", not "an `as_of` was passed". A wired-but-excluded graph is refused, matching what the seed adapter already did for any non-`None` `substrates`. |
+| `MemoryEvent.scope` required and read by nothing | Refused when it differs from the write scope — accepted-and-ignored on the one field whose mismatch is a tenancy question. |
+| `upsert_episode` had no id semantics, so `PartialWriteError`'s idempotent-retry promise did not hold | The port states upsert-by-id, matching `VectorSubstrate.upsert`; both doubles and the cookbook's reference substrate were appending. |
+| A naive local `datetime` on `occurred_at` made a record unreadable for hours, receipted as accepted | Refused at the envelope. Newly reachable because round 2 made valid time apply to every read. |
+| Seed `write()` committed part of a batch on a *runtime* failure with no receipt | `PartialWriteError` moved to `types.py` and raised by both adapters, so the seam has one failure semantic. An empty batch now runs the guards too. |
+| `fusion_diagnostics` in `__all__` but never imported — `from egpt.memory import *` raised | Imported, plus a test asserting every `__all__` name resolves (ruff exempts `__init__.py` from F822). |
+
+Also added: a **tenant post-condition** in `_assemble` — the provider refuses a slice containing
+another tenant's records rather than trusting every substrate to have applied its predicate.
 
 ### 11.3 Carried forward with named owners
 

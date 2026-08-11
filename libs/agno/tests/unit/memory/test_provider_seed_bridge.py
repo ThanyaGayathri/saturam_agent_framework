@@ -20,14 +20,17 @@ GLOBEX = Scope(tenant_id="globex", user_id="u1", agent_id="a1")
 
 
 def seed_config(**options) -> MemoryProviderConfig:
-    """The seed refuses to build without an explicit single-tenant claim.
+    """A **safe** seed configuration: single-tenant acknowledged *and* the tenant pinned.
 
-    That refusal is the fix for the cross-tenant leak: UserMemory has no tenant column, so the
-    bridge cannot separate two tenants and now says so at construction rather than silently
-    serving one tenant's rows to another -- relabelled with the reader's tenant, which hid the
-    leak from every check above it.
+    Both keys are here deliberately. An earlier version of this helper supplied only
+    `single_tenant`, which meant the unpinned -- and unprotected -- configuration was the one the
+    whole suite exercised, while the pinned path had a single test. A shared helper that builds the
+    unsafe shape is how a tenancy regression stays green: the tests document the safe path and
+    run the unsafe one.
     """
-    return MemoryProviderConfig(provider="seed", options={"single_tenant": True, **options})
+    return MemoryProviderConfig(
+        provider="seed", options={"single_tenant": True, "tenant_id": ACME.tenant_id, **options}
+    )
 
 
 class FakeManager:
@@ -707,3 +710,70 @@ def test_consolidate_refuses_the_episodic_tier_the_seed_cannot_serve():
 
     with pytest.raises(MemoryOperationError, match="episodic"):
         bridge.consolidate(ACME, tiers=[MemoryTier.EPISODIC])
+
+
+# ---------------------------------------------------------------------------
+# Round-3 review regressions
+# ---------------------------------------------------------------------------
+
+
+def test_the_bridge_refuses_to_build_without_a_declared_tenant():
+    """Critical (r3). Making the acknowledgement mandatory and the pin optional was a regression.
+
+    With no pin the guard's None branch admitted every scope, so an unpinned provider was weaker
+    in its default configuration than the lazy pin round 2 replaced.
+    """
+    unpinned = MemoryProviderConfig(provider="seed", options={"single_tenant": True})
+
+    with pytest.raises(MemoryProviderConfigError, match="requires options\\['tenant_id'\\]"):
+        SeedMemoryProvider(manager=FakeManager(), config=unpinned)
+
+
+def test_an_unpinned_bridge_cannot_be_built_through_the_registry_either():
+    from egpt.memory.config import build_memory_provider
+
+    with pytest.raises(MemoryProviderConfigError, match="tenant_id"):
+        build_memory_provider(
+            MemoryProviderConfig(provider="seed", options={"single_tenant": True, "memory_manager": FakeManager()})
+        )
+
+
+def test_an_empty_batch_still_runs_the_tenant_guard():
+    """No groups meant no per-group guards, so a refused scope got an empty receipt instead."""
+    bridge = SeedMemoryProvider(manager=FakeManager(), config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="single_tenant"):
+        bridge.write(GLOBEX, [])
+
+
+def test_an_event_whose_scope_differs_from_the_write_scope_is_refused():
+    bridge = SeedMemoryProvider(manager=FakeManager(), config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="does not match the write scope"):
+        bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=GLOBEX, tier=MemoryTier.SEMANTIC)])
+
+
+def test_a_runtime_failure_mid_batch_raises_with_the_partial_receipt():
+    """Both adapters must fail the same way, or a caller behind the seam has no portable retry."""
+    from egpt.memory.types import PartialWriteError
+
+    manager = FakeManager()
+    store = FakeStore("decision_log")
+    bridge = SeedMemoryProvider(manager=manager, stores={MemoryTier.PROCEDURAL: store}, config=seed_config())
+
+    def explode(messages, **kwargs):
+        raise RuntimeError("store down")
+
+    store.process = explode  # type: ignore[method-assign]
+
+    with pytest.raises(PartialWriteError) as exc:
+        bridge.write(
+            ACME,
+            [
+                MemoryEvent(content="a preference", scope=ACME, tier=MemoryTier.SEMANTIC),
+                MemoryEvent(content="a rule", scope=ACME, tier=MemoryTier.PROCEDURAL),
+            ],
+        )
+
+    # The semantic group committed; the receipt says which ids, so a retry can be idempotent.
+    assert exc.value.receipt.event_ids == [m.memory_id for m in manager.added]

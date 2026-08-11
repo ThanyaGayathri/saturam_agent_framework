@@ -93,6 +93,7 @@ class InMemoryVector:
         scope: Scope,
         tier: MemoryTier,
         since: Optional[int] = None,
+        after_id: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[MemoryRecord]:
         # The port's contract, not a shortcut: ascending created_at then id, `since` inclusive,
@@ -101,7 +102,13 @@ class InMemoryVector:
             record for record in self._bucket(scope).values() if record.tier is tier
         ]
         if since is not None:
-            rows = [record for record in rows if (record.created_at or 0) >= since]
+            # Composite cursor: strictly after (since, after_id), inclusive on `since` alone.
+            if after_id is None:
+                rows = [record for record in rows if (record.created_at or 0) >= since]
+            else:
+                rows = [
+                    r for r in rows if ((r.created_at or 0), r.id) > (since, after_id)
+                ]
         rows.sort(key=lambda record: ((record.created_at or 0), record.id))
         return rows if limit is None else rows[:limit]
 
@@ -110,9 +117,10 @@ class InMemoryVector:
         scope: Scope,
         tier: MemoryTier,
         since: Optional[int] = None,
+        after_id: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[MemoryRecord]:
-        return self.scan(scope, tier, since, limit)
+        return self.scan(scope, tier, since, after_id, limit)
 
 
 class InMemoryGraph:
@@ -125,7 +133,11 @@ class InMemoryGraph:
         return self.rows.setdefault(scope.tenant_id, [])
 
     def upsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
-        self._bucket(scope).append(
+        # Upsert by id, which the port requires. Appending would make a repeat write duplicate the
+        # row, and PartialWriteError tells callers to retry with the same ids precisely because
+        # that retry is meant to be idempotent.
+        self._upsert(
+            scope,
             MemoryRecord(
                 id=event.id or "",
                 tier=event.tier,
@@ -133,14 +145,22 @@ class InMemoryGraph:
                 scope=scope,
                 substrate=Substrate.GRAPH,
                 t_valid=event.occurred_at,
-            )
+            ),
         )
+
+    def _upsert(self, scope: Scope, row: MemoryRecord) -> None:
+        bucket = self._bucket(scope)
+        for index, existing in enumerate(bucket):
+            if existing.id == row.id and existing.is_current_belief():
+                bucket[index] = row
+                return
+        bucket.append(row)
 
     async def aupsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
         self.upsert_episode(scope, event)
 
     def upsert_fact(self, scope: Scope, fact: FactWrite) -> None:
-        self._bucket(scope).append(replace(fact.record, substrate=Substrate.GRAPH))
+        self._upsert(scope, replace(fact.record, substrate=Substrate.GRAPH))
 
     async def aupsert_fact(self, scope: Scope, fact: FactWrite) -> None:
         self.upsert_fact(scope, fact)
