@@ -10,5 +10,6 @@ integrations, injected or resolved by registry key.
 """
 
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
+from egpt.memory.adapters.seed import SeedMemoryProvider
 
-__all__ = ["CoLocatedMemoryProvider"]
+__all__ = ["CoLocatedMemoryProvider", "SeedMemoryProvider"]
