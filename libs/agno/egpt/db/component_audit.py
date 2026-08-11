@@ -29,12 +29,19 @@ a publish shares a timestamp and could come back in either order; the read endpo
 return the two in the order they happened.
 
 It is deliberately *not* a per-component ``max(seq) + 1`` counter. That is the technique
-``upsert_config`` already uses for config version numbers, but borrowing it here would put a
-read-modify-write race into ``upsert_component``, ``delete_component`` and
-``set_current_version``, which have none today: two concurrent changes to one component would
-compute the same counter and one would fail on the primary key. Since the audit write is
-fail-closed, that failure would take a legitimate mutation down with it. A sequence has no
-such contention.
+``upsert_config`` already uses for config version numbers, but borrowing it here would put an
+unguarded read-modify-write race into ``upsert_component`` and ``delete_component``, which have
+none today: two concurrent changes to one component would compute the same counter and one
+would fail on the primary key. Since the audit write is fail-closed, that failure would take a
+legitimate mutation down with it. A sequence has no such contention.
+
+``set_current_version`` already has a read-modify-write of its own -- it reads
+``current_version`` to report what a rollback moved away from -- so a ``max(seq)+1`` counter
+would have piled a second, unrelated race onto the same read rather than adding a first one.
+That existing race is guarded with a compare-and-swap on the pointer update: the write only
+lands if ``current_version`` still matches what was just read, and a losing attempt re-reads and
+retries instead of recording a ``from_version`` that was never actually current. A sequence key
+needs no equivalent guard, because nothing reads it before writing to it.
 
 The column is ``Integer`` on both backends, and that is load-bearing rather than stylistic:
 Postgres turns an ``Integer`` primary key into ``SERIAL`` and SQLite only aliases its implicit

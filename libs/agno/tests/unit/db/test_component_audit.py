@@ -22,6 +22,7 @@ The three properties that carry the ticket, and the tests that pin each:
 
 import os
 import tempfile
+import threading
 
 import pytest
 from sqlalchemy import text
@@ -494,3 +495,174 @@ def test_a_component_with_no_history_reads_empty(sqlite_db):
 def test_the_action_vocabulary_matches_the_enum(sqlite_db):  # noqa: ARG001
     """The router validates a caller's filter against this set, so it must not drift."""
     assert COMPONENT_AUDIT_ACTIONS == {a.value for a in ComponentAuditAction}
+
+
+# ============================================================================
+# TENANT ATTRIBUTION FOLLOWS THE COMPONENT, NOT THE CALLER
+# ============================================================================
+
+
+class TestTenantAttributionFollowsTheComponent:
+    """An unattributed write (``tenant_id=None``, e.g. ``Agent.save()``) to a tenanted
+    component must record that component's real tenant, not ``NULL``.
+
+    Before this fix, the audit row was stamped with the caller's filter argument rather than
+    the tenant already stored on the row being mutated. A ``NULL``-tenant row is invisible to
+    the owning tenant's own scoped reads -- and ``total_count`` agrees with the truncated page,
+    so nothing signals the gap (EGPT-2.6 review). Each test here reads back scoped to the real
+    tenant: under the bug, that read would have missed the row just written.
+    """
+
+    def test_reactivating_with_no_tenant_filter_keeps_the_components_tenant(self, sqlite_db):
+        _create_component(sqlite_db, "agent-1", TENANT_A)
+        sqlite_db.delete_component("agent-1", tenant_id=TENANT_A)
+
+        sqlite_db.upsert_component("agent-1", component_type=ComponentType.AGENT)
+
+        rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
+        assert rows[0]["action"] == ComponentAuditAction.COMPONENT_REACTIVATE.value
+
+    def test_updating_with_no_tenant_filter_keeps_the_components_tenant(self, sqlite_db):
+        _create_component(sqlite_db, "agent-1", TENANT_A)
+
+        sqlite_db.upsert_component("agent-1", name="Renamed")
+
+        rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
+        assert rows[0]["action"] == ComponentAuditAction.COMPONENT_UPDATE.value
+
+    def test_a_new_config_version_with_no_tenant_filter_keeps_the_components_tenant(self, sqlite_db):
+        _create_component(sqlite_db, "agent-1", TENANT_A)
+
+        sqlite_db.upsert_config("agent-1", config={"model": "v2"})
+
+        rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
+        assert rows[0]["action"] == ComponentAuditAction.CONFIG_CREATE.value
+        assert rows[0]["version"] == 2
+
+    def test_deleting_a_config_with_no_tenant_filter_keeps_the_components_tenant(self, sqlite_db):
+        _create_component(sqlite_db, "agent-1", TENANT_A, stage="published")
+        sqlite_db.upsert_config("agent-1", config={"model": "v2"}, tenant_id=TENANT_A)
+
+        sqlite_db.delete_config("agent-1", version=2)
+
+        rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
+        assert rows[0]["action"] == ComponentAuditAction.CONFIG_DELETE.value
+
+    def test_soft_deleting_with_no_tenant_filter_keeps_the_components_tenant(self, sqlite_db):
+        _create_component(sqlite_db, "agent-1", TENANT_A)
+
+        assert sqlite_db.delete_component("agent-1") is True
+
+        rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
+        assert rows[0]["action"] == ComponentAuditAction.COMPONENT_DELETE.value
+
+    def test_rolling_back_with_no_tenant_filter_keeps_the_components_tenant(self, sqlite_db):
+        _create_component(sqlite_db, "agent-1", TENANT_A, stage="published")
+        sqlite_db.upsert_config("agent-1", config={"model": "v2"}, tenant_id=TENANT_A)
+        sqlite_db.upsert_config("agent-1", version=2, stage="published", tenant_id=TENANT_A)
+
+        assert sqlite_db.set_current_version("agent-1", version=1) is True
+
+        rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
+        assert rows[0]["action"] == ComponentAuditAction.CONFIG_ROLLBACK.value
+
+
+# ============================================================================
+# A REPEATED SOFT DELETE IS A NO-OP, NOT A SECOND DELETE
+# ============================================================================
+
+
+class TestRepeatedSoftDeleteIsANoOp:
+    """Without a ``deleted_at IS NULL`` guard on the soft-delete UPDATE, a repeat call matched
+    the already-deleted row again: it returned ``True`` a second time, overwrote the original
+    ``deleted_at`` (state loss -- *when* the component was deleted becomes unrecoverable), and
+    wrote a second, phantom ``component.delete`` audit row for a delete that never happened
+    (EGPT-2.6 review).
+    """
+
+    def test_the_second_call_reports_no_match(self, sqlite_db):
+        _create_component(sqlite_db, "agent-1", TENANT_A)
+
+        assert sqlite_db.delete_component("agent-1", tenant_id=TENANT_A) is True
+        assert sqlite_db.delete_component("agent-1", tenant_id=TENANT_A) is False
+
+    def test_the_second_call_writes_no_audit_row(self, sqlite_db):
+        _create_component(sqlite_db, "agent-1", TENANT_A)
+        sqlite_db.delete_component("agent-1", tenant_id=TENANT_A)
+        before = _raw_count(sqlite_db, "agent-1")
+
+        sqlite_db.delete_component("agent-1", tenant_id=TENANT_A)
+
+        assert _raw_count(sqlite_db, "agent-1") == before
+
+    def test_the_second_call_does_not_move_deleted_at(self, sqlite_db):
+        _create_component(sqlite_db, "agent-1", TENANT_A)
+
+        sqlite_db.delete_component("agent-1", tenant_id=TENANT_A)
+        with sqlite_db.Session() as sess:
+            first_deleted_at = sess.execute(
+                text("SELECT deleted_at FROM egpt_components WHERE component_id = :cid"), {"cid": "agent-1"}
+            ).scalar()
+
+        sqlite_db.delete_component("agent-1", tenant_id=TENANT_A)
+        with sqlite_db.Session() as sess:
+            second_deleted_at = sess.execute(
+                text("SELECT deleted_at FROM egpt_components WHERE component_id = :cid"), {"cid": "agent-1"}
+            ).scalar()
+
+        assert second_deleted_at == first_deleted_at
+
+
+# ============================================================================
+# CONCURRENT ROLLBACK DOES NOT FABRICATE TRANSITIONS
+# ============================================================================
+
+
+def test_concurrent_rollbacks_never_record_a_transition_that_did_not_happen(sqlite_db):
+    """The critical finding from the EGPT-2.6 review: an unlocked read of ``current_version``,
+    used later to fill in ``details.from_version``, let a concurrent writer's commit land in
+    between -- producing entries like ``(3, 3)``, a self-rollback that cannot really happen, and
+    a chain that did not reconnect. Reproduced with 8 threads against a real (temp-file) SQLite
+    database, not a mock, since the race is between real connections.
+
+    The fix is a compare-and-swap on the pointer update: a losing attempt re-reads and retries
+    rather than writing the stale value. This test asserts the resulting chain of
+    ``(from_version, to_version)`` pairs reconnects with no gaps -- the property that was false
+    before the fix.
+    """
+    _create_component(sqlite_db, "agent-1", TENANT_A, stage="published")
+    for v in range(2, 6):
+        sqlite_db.upsert_config("agent-1", config={"model": f"v{v}"}, stage="published", tenant_id=TENANT_A)
+    # Every one of the four publishes above also moved current_version, so it is 5, not 1,
+    # by the time the threads below start.
+
+    errors = []
+
+    def worker(target_version):
+        try:
+            sqlite_db.set_current_version("agent-1", version=target_version, tenant_id=TENANT_A)
+        except Exception as e:  # pragma: no cover - asserted via `errors`, not raised in-thread
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=((i % 5) + 1,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+
+    rows, _ = sqlite_db.list_component_audit(
+        "agent-1", tenant_id=TENANT_A, action=ComponentAuditAction.CONFIG_ROLLBACK.value, limit=100
+    )
+    rows = list(reversed(rows))  # oldest first
+    assert len(rows) == 8
+    assert rows[0]["details"]["from_version"] == 5
+
+    for earlier, later in zip(rows, rows[1:]):
+        assert earlier["details"]["to_version"] == later["details"]["from_version"], (
+            f"broken link: {earlier['details']} -> {later['details']}"
+        )
+
+    final = sqlite_db.get_component("agent-1", tenant_id=TENANT_A)
+    assert final["current_version"] == rows[-1]["details"]["to_version"]

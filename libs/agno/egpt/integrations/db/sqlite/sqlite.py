@@ -3468,7 +3468,10 @@ class SqliteDb(BaseDb):
                         audit_table,
                         component_id,
                         ComponentAuditAction.COMPONENT_REACTIVATE,
-                        tenant_id=tenant_id,
+                        # The row's own tenant, not the (possibly unscoped) filter argument --
+                        # otherwise an unattributed reactivate would stamp NULL onto a component
+                        # a tenant actually owns, hiding the row from that tenant's own reads.
+                        tenant_id=existing.tenant_id,
                         actor=actor,
                         note=audit_note,
                         details={"component_type": getattr(component_type, "value", component_type)},
@@ -3509,7 +3512,9 @@ class SqliteDb(BaseDb):
                         audit_table,
                         component_id,
                         ComponentAuditAction.COMPONENT_UPDATE,
-                        tenant_id=tenant_id,
+                        # The row's own tenant, not the (possibly unscoped) filter argument --
+                        # see the reactivate branch above for why.
+                        tenant_id=existing.tenant_id,
                         actor=actor,
                         note=audit_note,
                         details=details,
@@ -3573,36 +3578,48 @@ class SqliteDb(BaseDb):
                         if tenant_id is not None:
                             configs_stmt = configs_stmt.where(configs_table.c.tenant_id == tenant_id)
                         sess.execute(configs_stmt)
-                    # Delete component
+                    # Delete component. RETURNING carries back the row's own tenant_id, so the
+                    # audit record can use it instead of the (possibly unscoped) filter argument.
                     delete_stmt = components_table.delete().where(components_table.c.component_id == component_id)
                     if tenant_id is not None:
                         delete_stmt = delete_stmt.where(components_table.c.tenant_id == tenant_id)
-                    result = sess.execute(delete_stmt)
+                    result = sess.execute(delete_stmt.returning(components_table.c.tenant_id))
                 else:
-                    # Soft delete
+                    # Soft delete. Guarded on deleted_at IS NULL, matching the Postgres twin's
+                    # existence precheck -- without it, a repeat delete on an already-deleted
+                    # component matches its own row again, overwriting the original deleted_at
+                    # (state loss) and writing a phantom component.delete entry for a delete
+                    # that never actually happened (EGPT-2.6 review).
                     now = int(time.time())
-                    soft_delete_stmt = components_table.update().where(components_table.c.component_id == component_id)
+                    soft_delete_stmt = components_table.update().where(
+                        components_table.c.component_id == component_id,
+                        components_table.c.deleted_at.is_(None),
+                    )
                     if tenant_id is not None:
                         soft_delete_stmt = soft_delete_stmt.where(components_table.c.tenant_id == tenant_id)
-                    result = sess.execute(soft_delete_stmt.values(deleted_at=now))
+                    result = sess.execute(
+                        soft_delete_stmt.values(deleted_at=now).returning(components_table.c.tenant_id)
+                    )
 
-                # Guarded on rowcount, unlike the Postgres twin. This backend has no
-                # tenant-scoped existence precheck and reports success from the statement's
-                # own rowcount, so writing unconditionally would record deletes that never
-                # happened -- including a cross-tenant attempt that matched nothing.
-                if result.rowcount > 0:
+                deleted_row = result.fetchone()
+
+                # Guarded on the returned row rather than rowcount alone: this backend has no
+                # separate tenant-scoped existence precheck, so writing unconditionally would
+                # record deletes that never happened -- including a cross-tenant attempt, or
+                # now a repeat delete, that matched nothing.
+                if deleted_row is not None:
                     write_audit_row(
                         sess,
                         audit_table,
                         component_id,
                         ComponentAuditAction.COMPONENT_DELETE,
-                        tenant_id=tenant_id,
+                        tenant_id=deleted_row.tenant_id,
                         actor=actor,
                         note=audit_note,
                         details={"hard": hard_delete},
                     )
 
-            return result.rowcount > 0
+            return deleted_row is not None
 
         except Exception as e:
             log_error(f"Error deleting component: {str(e)}")
@@ -3975,11 +3992,13 @@ class SqliteDb(BaseDb):
             audit_table = self._require_component_audit_table()
 
             with self.Session() as sess, sess.begin():
-                # Verify component exists and is not deleted. current_version comes along so a
-                # publish can record what it replaced without a second round trip.
+                # Verify component exists and is not deleted. current_version and tenant_id come
+                # along so a publish can record what it replaced, and the audit row can carry
+                # the component's actual tenant, without a second round trip.
                 component_stmt = select(
                     components_table.c.component_id,
                     components_table.c.current_version,
+                    components_table.c.tenant_id,
                 ).where(
                     components_table.c.component_id == component_id,
                     components_table.c.deleted_at.is_(None),
@@ -4128,7 +4147,10 @@ class SqliteDb(BaseDb):
                     final_stage=final_stage,
                     label=label,
                     previous_current_version=previous_current_version,
-                    tenant_id=tenant_id,
+                    # The component's own tenant, not the (possibly unscoped) filter argument --
+                    # otherwise an unattributed write (e.g. Agent.save()) to a tenanted component
+                    # stamps NULL and hides the row from that tenant's own scoped reads.
+                    tenant_id=component.tenant_id,
                     actor=actor,
                     note=resolve_audit_note(audit_note, notes),
                 )
@@ -4178,8 +4200,10 @@ class SqliteDb(BaseDb):
             audit_table = self._require_component_audit_table()
 
             with self.Session() as sess, sess.begin():
-                # Get config stage and check if it's current
-                config_stmt = select(configs_table.c.stage).where(
+                # Get config stage and tenant_id, and check if it's current. tenant_id comes
+                # along so the audit row can carry the config's actual tenant rather than the
+                # (possibly unscoped) filter argument.
+                config_stmt = select(configs_table.c.stage, configs_table.c.tenant_id).where(
                     configs_table.c.component_id == component_id,
                     configs_table.c.version == version,
                 )
@@ -4239,7 +4263,7 @@ class SqliteDb(BaseDb):
                     audit_table,
                     component_id,
                     ComponentAuditAction.CONFIG_DELETE,
-                    tenant_id=tenant_id,
+                    tenant_id=config_row.tenant_id,
                     version=version,
                     actor=actor,
                     note=audit_note,
@@ -4351,25 +4375,8 @@ class SqliteDb(BaseDb):
             audit_table = self._require_component_audit_table()
 
             with self.Session() as sess, sess.begin():
-                # Verify component exists and is not deleted. current_version comes along so
-                # the audit record can say which version the rollback moved away from.
-                component_stmt = select(
-                    components_table.c.component_id,
-                    components_table.c.current_version,
-                ).where(
-                    components_table.c.component_id == component_id,
-                    components_table.c.deleted_at.is_(None),
-                )
-                if tenant_id is not None:
-                    component_stmt = component_stmt.where(components_table.c.tenant_id == tenant_id)
-
-                component_row = sess.execute(component_stmt).fetchone()
-
-                if component_row is None:
-                    return False
-                previous_current_version = component_row.current_version
-
-                # Verify version exists and get stage
+                # Verify version exists and get stage. Stage does not change out from under us
+                # mid-transaction, so this is checked once, ahead of the retry loop below.
                 stage_stmt = select(configs_table.c.stage).where(
                     configs_table.c.component_id == component_id,
                     configs_table.c.version == version,
@@ -4389,18 +4396,56 @@ class SqliteDb(BaseDb):
                         "Only published configs can be current."
                     )
 
-                # Update pointer
-                update_stmt = components_table.update().where(components_table.c.component_id == component_id)
-                if tenant_id is not None:
-                    update_stmt = update_stmt.where(components_table.c.tenant_id == tenant_id)
-                sess.execute(update_stmt.values(current_version=version, updated_at=int(time.time())))
+                # Move the pointer as a compare-and-swap: the update only lands if
+                # current_version still matches what was just read. Without this, a concurrent
+                # rollback landing between the read and the write leaves `details` claiming a
+                # `from_version` that was never actually current -- reproduced with 8 concurrent
+                # writers, some producing impossible self-rollbacks like (3, 3). A losing
+                # attempt re-reads and retries rather than recording that fabricated transition
+                # (EGPT-2.6 review). tenant_id also comes along on the read so the audit row can
+                # carry the component's actual tenant rather than the filter argument.
+                max_attempts = 5
+                for attempt in range(max_attempts):
+                    component_stmt = select(
+                        components_table.c.component_id,
+                        components_table.c.current_version,
+                        components_table.c.tenant_id,
+                    ).where(
+                        components_table.c.component_id == component_id,
+                        components_table.c.deleted_at.is_(None),
+                    )
+                    if tenant_id is not None:
+                        component_stmt = component_stmt.where(components_table.c.tenant_id == tenant_id)
+
+                    component_row = sess.execute(component_stmt).fetchone()
+
+                    if component_row is None:
+                        return False
+                    previous_current_version = component_row.current_version
+                    component_tenant_id = component_row.tenant_id
+
+                    update_stmt = components_table.update().where(
+                        components_table.c.component_id == component_id,
+                        components_table.c.current_version == previous_current_version,
+                    )
+                    if tenant_id is not None:
+                        update_stmt = update_stmt.where(components_table.c.tenant_id == tenant_id)
+                    result = sess.execute(update_stmt.values(current_version=version, updated_at=int(time.time())))
+
+                    if result.rowcount > 0:
+                        break
+                else:
+                    raise ValueError(
+                        f"Could not set {component_id} to v{version}: current_version kept "
+                        f"changing under concurrent writers after {max_attempts} attempts"
+                    )
 
                 write_audit_row(
                     sess,
                     audit_table,
                     component_id,
                     ComponentAuditAction.CONFIG_ROLLBACK,
-                    tenant_id=tenant_id,
+                    tenant_id=component_tenant_id,
                     version=version,
                     actor=actor,
                     note=audit_note,
