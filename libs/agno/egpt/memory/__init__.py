@@ -1,6 +1,7 @@
 # Imported for its registration side effect: in-tree adapters self-register on import, so
 # `build_memory_provider` can resolve "co_located" without the caller knowing the module exists.
-from egpt.memory.adapters import CoLocatedMemoryProvider, SeedMemoryProvider
+from egpt.memory.adapters import CoLocatedMemoryProvider, ExternalMemoryProvider, SeedMemoryProvider
+from egpt.memory.adapters.co_located import PartialWriteError
 from egpt.memory.config import (
     MemoryProviderConfig,
     MemoryProviderConfigError,
@@ -19,9 +20,11 @@ from egpt.memory.strategies import (
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
 from egpt.memory.types import (
+    FUSION_KEYS,
     ConsolidationReport,
     FactWrite,
     MemoryEvent,
+    MemoryOperationError,
     MemoryQuery,
     MemoryRecord,
     MemorySlice,
@@ -42,6 +45,7 @@ __all__ = [
     "ConsolidationReport",
     "FactWrite",
     "MemoryEvent",
+    "MemoryOperationError",
     "MemoryQuery",
     "MemoryRecord",
     "MemorySlice",
@@ -54,7 +58,10 @@ __all__ = [
     "VectorSubstrate",
     # The seam and its construction path (SM-C1)
     "CoLocatedMemoryProvider",
+    "ExternalMemoryProvider",
+    "FUSION_KEYS",
     "MemoryProvider",
+    "PartialWriteError",
     "MemoryProviderConfig",
     "MemoryProviderConfigError",
     "SeedMemoryProvider",

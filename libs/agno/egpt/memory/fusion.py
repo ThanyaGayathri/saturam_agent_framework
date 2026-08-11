@@ -15,9 +15,9 @@ is a mechanism-based transfer, not a measured result for this exact combination 
 owns measuring it once real backends exist. Keep it config-selectable; do not harden it.
 """
 
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Sequence
 
-from egpt.memory.types import MemoryRecord, Substrate
+from egpt.memory.types import MemoryRecord
 
 __all__ = ["fuse_rrf", "fuse_weighted", "merge_tightest_bounds"]
 
@@ -28,9 +28,17 @@ def _positional_scores(records: Sequence[MemoryRecord]) -> List[float]:
     A backend that ranks but does not score is legitimate -- graph traversal often has an order and
     no meaningful magnitude. Treating a missing score as 0.0 would silently sink that whole leg, so
     rank position stands in: first place scores 1.0, last approaches 0.
+
+    The fallback is **all-or-nothing per leg**. Mixing real magnitudes with rank proxies inside one
+    leg puts them on incomparable scales: with ``[0.95, None, 0.10]`` the rank proxy for the middle
+    record is 0.67, so an *unscored* record outranks one the backend scored 0.10. A leg that scores
+    some records and not others is malformed, and the ranking it supplied is the only signal that
+    survives normalization -- so use that for the whole leg rather than interleaving two scales.
     """
     total = len(records)
-    return [record.score if record.score is not None else 1.0 - (i / total) for i, record in enumerate(records)]
+    if any(record.score is None for record in records):
+        return [1.0 - (i / total) for i in range(total)]
+    return [record.score for record in records if record.score is not None]
 
 
 def _minmax(values: Sequence[float]) -> List[float]:
@@ -45,6 +53,26 @@ def _minmax(values: Sequence[float]) -> List[float]:
         return [1.0 for _ in values]
     span = high - low
     return [(value - low) / span for value in values]
+
+
+def _detached(record: MemoryRecord, score: float) -> MemoryRecord:
+    """A copy of ``record`` that shares no mutable state with the substrate's stored row.
+
+    ``MemoryRecord(**vars(record))`` copies *references*, so ``provenance``, ``metadata``, and
+    ``topics`` would stay the same objects the backend is holding. A consumer annotating a returned
+    record (``slice_.records[0].metadata["seen_by"] = ...``) would then be writing into the store,
+    and two consumers handed the same slice would see each other's edits. For an in-process backend
+    that is silent cross-contamination in both directions.
+    """
+    return MemoryRecord(
+        **{
+            **vars(record),
+            "score": score,
+            "provenance": dict(record.provenance),
+            "metadata": dict(record.metadata),
+            "topics": list(record.topics) if record.topics is not None else None,
+        }
+    )
 
 
 def merge_tightest_bounds(kept: MemoryRecord, incoming: MemoryRecord) -> None:
@@ -86,7 +114,7 @@ def _fold(
     """
     existing = fused.get(record.id)
     if existing is None:
-        fused[record.id] = MemoryRecord(**{**vars(record), "score": score})
+        fused[record.id] = _detached(record, score)
         order[record.id] = len(order)
         return
     existing.score = (existing.score or 0.0) + score
@@ -142,9 +170,3 @@ def fuse_rrf(legs: Sequence[Sequence[MemoryRecord]], k: int = 60) -> List[Memory
         for rank, record in enumerate(records, start=1):
             _fold(fused, order, record, 1.0 / (k + rank))
     return _ranked(fused, order)
-
-
-def substrate_of(records: Sequence[MemoryRecord]) -> Optional[Substrate]:
-    """The single substrate a leg came from, or ``None`` if it is empty or mixed."""
-    origins = {record.substrate for record in records if record.substrate is not None}
-    return origins.pop() if len(origins) == 1 else None

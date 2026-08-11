@@ -76,10 +76,19 @@ slice back as prompt context. Then runs the same consumer function against a sec
 (provider `external`, mode `frontier`) to show the swap is configuration only, followed by a
 bi-temporal point-in-time read across an invalidation and a cross-tenant isolation check.
 
-**Result:** Success. Mode A and Mode B produce identical output from the same consumer function.
+**Result:** Success (re-run after the PR #60 review fixes). Mode A and Mode B produce identical
+output from the same consumer function.
 Consolidation merged 2 episodes into 2 facts (the two statements are distinct, so nothing
 deduped). The point-in-time read returns the fact `as_of=200` and not `as_of=400`, confirming
 invalidation is expire-and-reinsert rather than a delete. A read scoped to tenant `globex`
 returns 0 of tenant `acme`'s records. Requires no database, no model, and no API key.
+
+Two defects in this file's reference substrates were found by review and fixed: `upsert` stored the
+caller's object rather than a copy, so the "two independent substrates" shared one row and
+`graph.invalidate()` also stamped `expired_at` on the vector copy -- the bi-temporal demo worked
+partly for the wrong reason. And `invalidate` overwrote `t_invalid` instead of taking the tightest
+bound, which is the in-place clobber its own comment cites SM-R10 for avoiding. Verified after the
+fix: `vector row IS graph row -> False`, and two invalidations leave one current belief with
+`t_invalid=250`.
 
 ---

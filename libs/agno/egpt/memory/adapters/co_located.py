@@ -17,27 +17,52 @@ real bug in the SM-R11 prototype and each is invisible until it is wrong:
 
 from dataclasses import replace
 from typing import Dict, List, Optional, Sequence, Set, Tuple
-from uuid import uuid4
+from uuid import NAMESPACE_OID, uuid4, uuid5
 
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, register_provider
 from egpt.memory.fusion import fuse_rrf, fuse_weighted
 from egpt.memory.provider import MemoryProvider
-from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
+from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
 from egpt.memory.tiers import MemoryTier, substrates_for_tier
 from egpt.memory.types import (
     ConsolidationReport,
     FactWrite,
     MemoryEvent,
+    MemoryOperationError,
     MemoryQuery,
     MemoryRecord,
     MemorySlice,
     Scope,
     Substrate,
     WriteReceipt,
+    fusion_diagnostics,
 )
 from egpt.utils.dttm import now_epoch_s
 
-__all__ = ["CoLocatedMemoryProvider"]
+__all__ = ["CoLocatedMemoryProvider", "PartialWriteError"]
+
+
+class PartialWriteError(RuntimeError):
+    """A dual-substrate write failed partway, carrying the ids that were stamped.
+
+    Two substrates with no distributed transaction cannot be atomic, so ``write`` is
+    **at-least-once**: the vector leg may have committed when the graph leg throws.
+
+    The ids matter more than the failure. ``_prepare`` mints a ``uuid4`` for any event whose ``id``
+    is ``None``, so a naive retry writes *fresh* rows for the same logical episodes -- exactly the
+    two-ids-for-one-episode failure that finding F1 and the single-id design exist to prevent,
+    arriving through the error path. Carrying the receipt lets a caller retry with
+    ``MemoryEvent.id`` set, which makes the retry idempotent.
+    """
+
+    def __init__(self, receipt: WriteReceipt) -> None:
+        super().__init__(
+            f"Write partially applied: {receipt.accepted} event(s) were stamped and may be "
+            f"persisted in one substrate but not the other. Retry with these ids set on the "
+            f"events to stay idempotent: {receipt.event_ids}."
+        )
+        self.receipt = receipt
+
 
 #: Jaccard threshold above which two episodes are treated as the same thing during consolidation.
 #:
@@ -46,6 +71,27 @@ __all__ = ["CoLocatedMemoryProvider"]
 #: so ``consolidate`` is a working, testable pass rather than a stub, not because token overlap is
 #: the right similarity measure.
 _DUPLICATE_THRESHOLD = 0.8
+
+#: How many times ``query.limit`` to fetch from each substrate, so the post-fusion validity filter
+#: has spare records to discard. See ``CoLocatedMemoryProvider._probe`` for why a fixed multiplier
+#: is a mitigation rather than a fix.
+_FILTER_OVERFETCH = 3
+
+#: Namespace for deriving a stable semantic-fact id from its source episodes, so re-running
+#: ``consolidate`` upserts the same row instead of minting a new one each pass.
+_FACT_NAMESPACE = uuid5(NAMESPACE_OID, "egpt.memory.consolidate.fact")
+
+#: How many episodes one consolidation pass scans.
+#:
+#: Bounded because ``_distil`` is O(n^2) in the batch -- every episode is compared against every
+#: group head -- and an unbounded scan materialises a tenant's entire episodic history into a list
+#: first. ``scan`` grew ``since`` and ``limit`` for exactly this (deviation D4), and the only caller
+#: was passing neither.
+#:
+#: A pass that fills its batch has more work waiting; the scheduled lane picks it up next cycle.
+#: Resuming from a watermark instead needs the inclusive-``since`` dedup described on
+#: ``VectorSubstrate.scan``, and is worth doing once SM-L1 (#122) owns the runner.
+_CONSOLIDATE_BATCH = 500
 
 
 def _tokens(text: str) -> Set[str]:
@@ -132,12 +178,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         for event in events:
             target = tier or event.tier
-            if not substrates_for_tier(target):
-                raise MemoryProviderConfigError(
-                    f"Tier {target.value!r} has no persistent substrate, so it cannot be written through "
-                    "the memory seam. The working buffer is SM-C6's (#94).",
-                    field_name="tier",
-                )
+            self._require_a_substrate_for(target)
             occurred_at = event.occurred_at if event.occurred_at is not None else now
             prepared = replace(event, id=event.id or str(uuid4()), tier=target, occurred_at=occurred_at)
             stamped.append(prepared)
@@ -147,13 +188,48 @@ class CoLocatedMemoryProvider(MemoryProvider):
                     tier=target,
                     content=prepared.content,
                     scope=scope,
-                    topics=prepared.topics,
+                    # Both copied: a caller mutating its own list after write() must not change the
+                    # stored record. metadata was already defensive; topics was not, and that
+                    # asymmetry was an oversight rather than a decision.
+                    topics=list(prepared.topics) if prepared.topics is not None else None,
                     t_valid=occurred_at,
                     created_at=now,
                     metadata=dict(prepared.metadata),
                 )
             )
         return stamped, records
+
+    def _require_a_substrate_for(self, tier: MemoryTier) -> None:
+        """Refuse a write no *wired* substrate would actually store.
+
+        Two distinct failures, and both used to return a success receipt for a write that vanished:
+
+        * The tier routes nowhere at all -- ``WORKING`` is in-context state, owned by SM-C6 (#94).
+        * The tier routes only to a substrate this provider does not have. A graph-only provider
+          asked for a ``PROCEDURAL`` write skipped the vector branch (no vector) and the graph
+          branch (procedural does not route there), then reported ``accepted=1``.
+
+        Checking the intersection of *routed* and *wired* covers both, and covers whatever
+        SM-C2 (#90) does to the routing table later without this needing to change.
+        """
+        routed = substrates_for_tier(tier)
+        if not routed:
+            raise MemoryOperationError(
+                f"Tier {tier.value!r} has no persistent substrate, so it cannot be written through "
+                "the memory seam. The working buffer is SM-C6's (#94).",
+                field_name="tier",
+            )
+        wired = {
+            name
+            for name, present in (("vector", self.vector is not None), ("graph", self.graph is not None))
+            if present
+        }
+        if not (routed & wired):
+            raise MemoryOperationError(
+                f"No wired substrate serves the {tier.value!r} tier: it routes to "
+                f"{sorted(routed)} and this provider has {sorted(wired) or 'none'}.",
+                field_name="tier",
+            )
 
     @staticmethod
     def _receipt(stamped: Sequence[MemoryEvent]) -> WriteReceipt:
@@ -169,22 +245,28 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
     def write(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         stamped, records = self._prepare(scope, events, tier=None)
-        if self.vector is not None and records:
-            self.vector.upsert(scope, records)
-        if self.graph is not None:
-            for event in stamped:
-                if "graph" in substrates_for_tier(event.tier):
-                    self.graph.upsert_episode(scope, event)
+        try:
+            if self.vector is not None and records:
+                self.vector.upsert(scope, records)
+            if self.graph is not None:
+                for event in stamped:
+                    if "graph" in substrates_for_tier(event.tier):
+                        self.graph.upsert_episode(scope, event)
+        except Exception as exc:
+            raise PartialWriteError(self._receipt(stamped)) from exc
         return self._receipt(stamped)
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         stamped, records = self._prepare(scope, events, tier=None)
-        if self.vector is not None and records:
-            await self.vector.aupsert(scope, records)
-        if self.graph is not None:
-            for event in stamped:
-                if "graph" in substrates_for_tier(event.tier):
-                    await self.graph.aupsert_episode(scope, event)
+        try:
+            if self.vector is not None and records:
+                await self.vector.aupsert(scope, records)
+            if self.graph is not None:
+                for event in stamped:
+                    if "graph" in substrates_for_tier(event.tier):
+                        await self.graph.aupsert_episode(scope, event)
+        except Exception as exc:
+            raise PartialWriteError(self._receipt(stamped)) from exc
         return self._receipt(stamped)
 
     def write_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
@@ -196,14 +278,59 @@ class CoLocatedMemoryProvider(MemoryProvider):
     # -- read -----------------------------------------------------------------
 
     @staticmethod
-    def _without_as_of(query: MemoryQuery) -> MemoryQuery:
-        """Strip point-in-time before it reaches a substrate.
+    def _probe(query: MemoryQuery) -> MemoryQuery:
+        """The query the substrates actually see: no ``as_of``, and an over-fetched ``limit``.
 
-        The ports say a backend must not apply ``as_of``, but stripping it is cheap insurance: a
-        backend that filtered anyway would produce a subtly narrow result the fused filter could
-        never widen back, and the symptom would look like a ranking problem.
+        **No ``as_of``.** The ports say a backend must not apply it, but stripping it is cheap
+        insurance: a backend that filtered anyway would produce a subtly narrow result the fused
+        filter could never widen back, and the symptom would look like a ranking problem.
+
+        **Over-fetched ``limit``.** The current-belief and point-in-time predicates run after
+        fusion, so records the substrates already counted against ``limit`` can be removed
+        afterwards. Passing ``limit`` through unchanged meant a page of expired rows ranking above
+        live ones returned *nothing* -- ten rows, five expired ranking first, ``limit=5`` produced
+        zero records while the diagnostics reported five vector hits. Nothing about that requires
+        ``as_of``; the current-belief filter alone is enough.
+
+        This is a **probability reduction, not a guarantee**: an adversarial run of expired rows
+        still exhausts any fixed multiplier, and it costs ``_FILTER_OVERFETCH`` times the rows on
+        every read. The complete fix is to push the current-belief predicate into the substrates,
+        which can apply it *before* ranking, and keep the fused pass for ``as_of`` only -- that
+        needs a port change and belongs with the first real backend (SM-V1 #95, SM-G1 #99).
+
+        ``limit=0`` stays 0: asking for nothing should not fetch anything.
         """
-        return query if query.as_of is None else replace(query, as_of=None)
+        return replace(
+            query,
+            as_of=None,
+            limit=query.limit * _FILTER_OVERFETCH if query.limit else query.limit,
+        )
+
+    def _reject_unanswerable_as_of(self, query: MemoryQuery) -> None:
+        """Refuse a point-in-time read the wired substrates cannot answer honestly.
+
+        Validity lives on the graph. The vector substrate holds a projection with no bounds
+        (``substrates.py``), so when the graph leg is absent or excluded, the stale projection
+        passes both predicates and is returned as current truth:
+
+            substrates=[VECTOR], as_of=400 -> ['ada works at acme']   # invalidated at 300
+
+        Refusing beats answering wrongly, because a point-in-time read is precisely the query whose
+        answer someone will rely on. It does not close the whole hole -- if the graph is wired but
+        its top-``limit`` misses a row the vector leg returned, that row still has no bounds to
+        check. Closing that needs a bounds-by-id lookup on ``GraphSubstrate``; recorded for SM-G1
+        (#99) in SPEC section 11.3 rather than left implied by three docstrings.
+        """
+        if query.as_of is None:
+            return
+        if self.graph is None or not self._requested(query, Substrate.GRAPH):
+            raise MemoryOperationError(
+                "A point-in-time read (as_of) needs the graph substrate, which is the authority "
+                "for bi-temporal validity. The vector substrate holds a projection with no bounds, "
+                "so answering from it alone would return invalidated facts as current truth. "
+                "Wire a graph substrate, or drop as_of from the query.",
+                field_name="as_of",
+            )
 
     def _fuse(self, legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
         fusion = self.config.fusion
@@ -240,18 +367,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
             query=query,
             records=records,
             by_tier=by_tier,
-            fusion={
-                "method": self.config.fusion.get("method"),
-                "vector_weight": self.config.fusion.get("vector_weight"),
-                "vector_hits": len(vector_hits),
-                "graph_hits": len(graph_hits),
-                "fused": len(fused),
-                "returned": len(records),
-            },
+            fusion=fusion_diagnostics(
+                method=self.config.fusion.get("method"),
+                vector_hits=len(vector_hits),
+                graph_hits=len(graph_hits),
+                fused=len(fused),
+                returned=len(records),
+                vector_weight=self.config.fusion.get("vector_weight"),
+            ),
         )
 
     def read(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
-        probe = self._without_as_of(query)
+        self._reject_unanswerable_as_of(query)
+        probe = self._probe(query)
         vector_hits: List[MemoryRecord] = []
         graph_hits: List[MemoryRecord] = []
 
@@ -262,7 +390,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         return self._assemble(scope, query, vector_hits, graph_hits)
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
-        probe = self._without_as_of(query)
+        self._reject_unanswerable_as_of(query)
+        probe = self._probe(query)
         vector_hits: List[MemoryRecord] = []
         graph_hits: List[MemoryRecord] = []
 
@@ -273,9 +402,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
         return self._assemble(scope, query, vector_hits, graph_hits)
 
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
+        self._require_a_substrate_for(tier)
         return self.read(scope, replace(query, tiers=[tier])).records
 
     async def aread_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
+        self._require_a_substrate_for(tier)
         slice_ = await self.aread(scope, replace(query, tiers=[tier]))
         return slice_.records
 
@@ -305,15 +436,26 @@ class CoLocatedMemoryProvider(MemoryProvider):
         for group in groups:
             merged += len(group) - 1
             head = group[0]
-            source_ids = [member.id for member in group]
+            source_ids = sorted(member.id for member in group)
             facts.append(
                 FactWrite(
                     record=MemoryRecord(
-                        id=str(uuid4()),
+                        # Derived from the source episodes, not minted fresh, so a second pass over
+                        # the same episodes upserts the same row. With uuid4 here, consolidate --
+                        # documented as the *scheduled* sleep-time lane -- produced one more copy
+                        # of every fact per cycle, and fusion's id-dedup could not collapse them
+                        # because each copy had a different id. Prompt context degraded linearly
+                        # with uptime.
+                        #
+                        # Idempotent only while group membership is stable: a sixth episode joining
+                        # a five-episode group yields a new id and orphans the previous fact rather
+                        # than superseding it. Pairing this with an explicit supersede is SM-L3's
+                        # (#124), noted in SPEC section 11.3.
+                        id=str(uuid5(_FACT_NAMESPACE, "|".join(source_ids))),
                         tier=MemoryTier.SEMANTIC,
                         content=head.content,
                         scope=scope,
-                        topics=head.topics,
+                        topics=list(head.topics) if head.topics is not None else None,
                         provenance={"source_episode_ids": source_ids},
                         t_valid=head.t_valid,
                         created_at=now,
@@ -337,22 +479,46 @@ class CoLocatedMemoryProvider(MemoryProvider):
             details={"derived_by": "co_located.deterministic_dedup"},
         )
 
+    def _check_consolidatable(self, tiers: Optional[Sequence[MemoryTier]]) -> None:
+        """Refuse a consolidation request this pass would not actually perform.
+
+        ``tiers`` was accepted and then never read, so ``consolidate(tiers=[PROCEDURAL])`` ran the
+        episodic pass and returned a report saying so, with no mismatch signalled. That is finding
+        F5's failure class -- a setting accepted and ignored -- which ``config.py`` rejects at the
+        boundary for fusion knobs. Same rigour, one module over.
+
+        Only episodic-to-semantic exists today. Per-tier consolidation policy is SM-C2's (#90).
+        """
+        if self.vector is None:
+            raise MemoryOperationError(
+                "consolidate needs the vector substrate to enumerate episodes; none is wired.",
+                field_name="provider",
+            )
+        if tiers is not None and set(tiers) != {MemoryTier.EPISODIC}:
+            requested = sorted(tier.value for tier in tiers)
+            raise MemoryOperationError(
+                f"consolidate only runs the episodic-to-semantic pass, but was asked for "
+                f"{requested}. Pass None or [MemoryTier.EPISODIC]; per-tier consolidation policy "
+                "is SM-C2's (#90).",
+                field_name="tiers",
+            )
+
     def consolidate(
         self,
         scope: Scope,
         tiers: Optional[Sequence[MemoryTier]] = None,
     ) -> ConsolidationReport:
-        if self.vector is None:
-            raise MemoryProviderConfigError(
-                "consolidate needs the vector substrate to enumerate episodes; none is wired.",
-                field_name="provider",
-            )
-        episodes = list(self.vector.scan(scope, MemoryTier.EPISODIC))
+        self._check_consolidatable(tiers)
+        assert self.vector is not None  # narrowed by _check_consolidatable
+        episodes = list(self.vector.scan(scope, MemoryTier.EPISODIC, limit=_CONSOLIDATE_BATCH))
         facts, merged = self._distil(scope, episodes)
 
-        for fact in facts:
-            self.vector.upsert(scope, [fact.record])
-            if self.graph is not None:
+        # One batched upsert rather than one call per fact: `upsert` takes a Sequence precisely so
+        # a backend can round-trip once instead of N times.
+        if facts:
+            self.vector.upsert(scope, [fact.record for fact in facts])
+        if self.graph is not None:
+            for fact in facts:
                 self.graph.upsert_fact(scope, fact)
         return self._report(scope, len(episodes), facts, merged)
 
@@ -361,17 +527,15 @@ class CoLocatedMemoryProvider(MemoryProvider):
         scope: Scope,
         tiers: Optional[Sequence[MemoryTier]] = None,
     ) -> ConsolidationReport:
-        if self.vector is None:
-            raise MemoryProviderConfigError(
-                "consolidate needs the vector substrate to enumerate episodes; none is wired.",
-                field_name="provider",
-            )
-        episodes = list(await self.vector.ascan(scope, MemoryTier.EPISODIC))
+        self._check_consolidatable(tiers)
+        assert self.vector is not None  # narrowed by _check_consolidatable
+        episodes = list(await self.vector.ascan(scope, MemoryTier.EPISODIC, limit=_CONSOLIDATE_BATCH))
         facts, merged = self._distil(scope, episodes)
 
-        for fact in facts:
-            await self.vector.aupsert(scope, [fact.record])
-            if self.graph is not None:
+        if facts:
+            await self.vector.aupsert(scope, [fact.record for fact in facts])
+        if self.graph is not None:
+            for fact in facts:
                 await self.graph.aupsert_fact(scope, fact)
         return self._report(scope, len(episodes), facts, merged)
 
@@ -387,7 +551,7 @@ def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
     resolve through ``egpt.registry.discovery.construct`` and this stays the only call site.
     """
     return CoLocatedMemoryProvider(
-        vector=config.options.get("vector_substrate"),
-        graph=config.options.get("graph_substrate"),
+        vector=checked_vector(config.options.get("vector_substrate")),
+        graph=checked_graph(config.options.get("graph_substrate")),
         config=config,
     )

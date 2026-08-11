@@ -184,3 +184,40 @@ def test_provenance_merges_without_losing_what_was_already_there():
     merge_tightest_bounds(kept, rec("s", provenance={"edge_id": "x1"}))
 
     assert kept.provenance == {"source_episode_ids": ["e1"], "edge_id": "x1"}
+
+
+# ---------------------------------------------------------------------------
+# Regressions from the PR #60 review
+# ---------------------------------------------------------------------------
+
+
+def test_a_leg_that_scores_some_records_falls_back_to_rank_for_all_of_them():
+    """Mixing raw magnitudes with rank proxies inside one leg puts them on incomparable scales.
+
+    With [0.95, None, 0.10] the rank proxy for the middle record is 0.67, so an *unscored* record
+    outranked one the backend scored 0.10. A leg that scores some records and not others is
+    malformed; its ranking is the only signal that survives, so use that for the whole leg.
+    """
+    leg = [rec("a", score=0.95), rec("b"), rec("c", score=0.10)]
+
+    ranked = fuse_weighted([leg, []], weights=[1.0, 0.0])
+
+    assert [r.id for r in ranked] == ["a", "b", "c"]
+    assert ranked[1].score > ranked[2].score  # rank order preserved, not magnitude-vs-proxy
+
+
+def test_fusion_does_not_alias_the_substrates_mutable_state():
+    """Major 10. MemoryRecord(**vars(record)) copies references, not values."""
+    original = rec("a", score=0.5)
+    original.metadata["from"] = "store"
+    original.provenance["source_episode_ids"] = ["e1"]
+    original.topics = ["billing"]
+
+    fused = fuse_weighted([[original], []], weights=[1.0, 0.0])[0]
+    fused.metadata["seen_by"] = "agent-1"
+    fused.provenance["touched"] = True
+    fused.topics.append("mutated")
+
+    assert original.metadata == {"from": "store"}
+    assert original.provenance == {"source_episode_ids": ["e1"]}
+    assert original.topics == ["billing"]

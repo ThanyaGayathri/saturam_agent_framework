@@ -20,7 +20,7 @@ stores, SM-L4 #125 for curation).
 """
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from egpt.db.schemas import UserMemory
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, register_provider
@@ -29,12 +29,14 @@ from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     ConsolidationReport,
     MemoryEvent,
+    MemoryOperationError,
     MemoryQuery,
     MemoryRecord,
     MemorySlice,
     Scope,
     Substrate,
     WriteReceipt,
+    fusion_diagnostics,
 )
 
 if TYPE_CHECKING:
@@ -43,6 +45,33 @@ if TYPE_CHECKING:
     from egpt.memory.manager import MemoryManager
 
 __all__ = ["SeedMemoryProvider"]
+
+
+def _group_by_tier(events: Sequence[MemoryEvent]) -> List[Tuple[MemoryTier, List[MemoryEvent]]]:
+    """Split a batch by ``event.tier``, preserving first-seen tier order.
+
+    A mixed batch still produces one receipt, and each group is routed and validated separately --
+    so an episodic event in an otherwise-semantic batch is refused rather than silently rewritten.
+    """
+    grouped: Dict[MemoryTier, List[MemoryEvent]] = {}
+    for event in events:
+        grouped.setdefault(event.tier, []).append(event)
+    return list(grouped.items())
+
+
+def _provenance_note(event: MemoryEvent) -> Optional[str]:
+    """Fold an event's role and metadata into the one free-text field ``UserMemory`` offers.
+
+    Lossy, and preferable to dropping them: the seed schema has nowhere structured to put either
+    (SM-C3 #91 adds real columns), and a write that reports ``accepted`` while discarding the
+    caller's metadata is the kind of gap nobody notices until they need it.
+    """
+    parts = []
+    if event.role:
+        parts.append(f"role={event.role}")
+    if event.metadata:
+        parts.append(f"metadata={event.metadata}")
+    return "; ".join(parts) or None
 
 
 def _record_from_user_memory(memory: UserMemory, scope: Scope, score: Optional[float] = None) -> MemoryRecord:
@@ -99,6 +128,66 @@ class SeedMemoryProvider(MemoryProvider):
         self.machine = machine
         self.stores: Dict[MemoryTier, "LearningStore"] = dict(stores or {})
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
+        self._require_single_tenant_acknowledgement()
+
+    def _require_single_tenant_acknowledgement(self) -> None:
+        """Refuse to build unless the deployment states it is single-tenant.
+
+        **The seed cannot honour ``Scope.tenant_id``, and the failure was worse than doing
+        nothing.** ``UserMemory`` has no tenant column, and ``MemoryManager.search_user_memories``
+        / ``add_user_memory`` partition on ``user_id`` alone -- so the tenant was accepted on every
+        call and used on none:
+
+            write(Scope(tenant_id='acme',   user_id='ada')) -> "acme Q4 revenue is 12M"
+            read (Scope(tenant_id='globex', user_id='ada')) -> ["acme Q4 revenue is 12M"]
+
+        What made it critical rather than merely absent is the relabel: the projection stamped the
+        *reader's* scope onto the row, so the leaked memory came back looking correctly tenanted.
+        Every defence above this layer -- audit logs, ``record.scope.tenant_id`` assertions, a
+        post-fusion tenant filter -- would have seen a well-formed ``globex`` record. A leak that is
+        invisible to the layer above it is worse than one that returns nothing.
+
+        So this fails closed. Namespacing the manager key (``f"{tenant}/{user}"``) is the tempting
+        alternative and is worse here: it silently orphans every row an existing seed deployment
+        already wrote -- reads return nothing, writes go elsewhere, no error anywhere. That
+        migration belongs with the schema that gains a real ``tenant_id`` column (SM-C3 #91).
+
+        Opting in is one config key, and it is a claim the operator is in a position to make:
+
+            MemoryProviderConfig(provider="seed", options={"single_tenant": True})
+        """
+        if not self.config.options.get("single_tenant"):
+            raise MemoryProviderConfigError(
+                "SeedMemoryProvider cannot enforce tenant isolation: UserMemory has no tenant "
+                "column and MemoryManager partitions by user_id alone, so Scope.tenant_id is "
+                "accepted and never applied. Two tenants sharing a user_id would read each "
+                "other's memories, and the projection would stamp the reader's tenant onto the "
+                "result, hiding the leak from every check above this layer.\n\n"
+                "If this deployment serves exactly one tenant, say so explicitly:\n"
+                '    MemoryProviderConfig(provider="seed", options={"single_tenant": True})\n\n'
+                "For real multi-tenant memory use the co_located provider, or wait for the "
+                "tenant-scoped schema in SM-C3 (#91).",
+                field_name="options.single_tenant",
+            )
+
+    def _guard_tenant(self, scope: Scope) -> None:
+        """Refuse a scope from a different tenant than the one this provider was built for.
+
+        ``single_tenant: True`` is a claim about the deployment, not a blanket exemption. Pinning
+        the first tenant seen and rejecting the rest turns a mistaken claim into a loud error on
+        the second tenant rather than a silent cross-read.
+        """
+        pinned = getattr(self, "_tenant", None)
+        if pinned is None:
+            self._tenant: Optional[str] = scope.tenant_id
+            return
+        if pinned != scope.tenant_id:
+            raise MemoryOperationError(
+                f"This SeedMemoryProvider was declared single_tenant and has already served "
+                f"tenant {pinned!r}; refusing a call scoped to {scope.tenant_id!r}. The seed's "
+                "storage cannot separate them.",
+                field_name="tenant_id",
+            )
 
     # -- introspection --------------------------------------------------------
 
@@ -157,7 +246,25 @@ class SeedMemoryProvider(MemoryProvider):
 
     # -- read -----------------------------------------------------------------
 
+    def _reject_as_of(self, query: MemoryQuery) -> None:
+        """Refuse a point-in-time read the seed cannot answer.
+
+        ``UserMemory`` has no bi-temporal columns (SM-C3 #91 adds them) and ``LearningStore`` has
+        no notion of validity at all, so ``as_of`` was accepted and silently ignored -- the caller
+        got present-day memory labelled as a historical answer. Refusing is the only honest option
+        for a query whose whole point is that the answer is time-qualified.
+        """
+        if query.as_of is not None:
+            raise MemoryOperationError(
+                "The seed provider cannot answer a point-in-time read: UserMemory and the learn "
+                "stores carry no valid-time columns, so as_of would be ignored and present-day "
+                "memory returned as a historical answer. Bi-temporal storage is SM-C3's (#91).",
+                field_name="as_of",
+            )
+
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
+        self._guard_tenant(scope)
+        self._reject_as_of(query)
         store = self._store_for(tier)
         if store is not None:
             return self._store_records(store, tier, scope, store.recall(**self._recall_kwargs(scope, query)))
@@ -166,6 +273,8 @@ class SeedMemoryProvider(MemoryProvider):
         return []
 
     async def aread_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
+        self._guard_tenant(scope)
+        self._reject_as_of(query)
         store = self._store_for(tier)
         if store is not None:
             recalled = await store.arecall(**self._recall_kwargs(scope, query))
@@ -184,7 +293,8 @@ class SeedMemoryProvider(MemoryProvider):
         to ``last_n`` -- recency, which is a defensible default and an honest one. Real similarity
         search over memory arrives with SM-V1 (#95) as a vector substrate.
         """
-        assert self.manager is not None  # guarded by the caller
+        if self.manager is None:  # unreachable via read_tier; explicit beats `assert`, which -O strips
+            return []
         method = self.config.options.get("retrieval_method", "last_n")
         memories = self.manager.search_user_memories(
             query=query.text,
@@ -204,73 +314,143 @@ class SeedMemoryProvider(MemoryProvider):
             query=query,
             records=capped,
             by_tier=by_tier,
-            # No fusion happens: there is one leg, because there are no substrates to combine.
-            # Saying so explicitly beats reporting a method that never ran.
-            fusion={"method": None, "reason": "seed provider has no substrates to fuse"},
+            # Every FUSION_KEYS entry is present even though nothing is fused, so a consumer
+            # written against one provider does not KeyError on another -- the swap property this
+            # seam exists to provide. `method=None` and zero hits are the honest values: there are
+            # no legs here, not an unknown number of them.
+            fusion=fusion_diagnostics(
+                method=None,
+                fused=len(records),
+                returned=len(capped),
+                reason="seed provider has no substrates to fuse",
+            ),
         )
 
+    def _wanted_tiers(self, query: MemoryQuery) -> List[MemoryTier]:
+        served = self._served_tiers()
+        return [tier for tier in query.resolved_tiers() if tier in served]
+
+    @staticmethod
+    def _interleave(per_tier: List[List[MemoryRecord]]) -> List[MemoryRecord]:
+        """Round-robin across tiers so the cap does not silently drop the later ones.
+
+        Each tier is asked for up to ``limit`` records and the slice then caps at ``limit``, so
+        concatenating in declaration order let the first tier consume the whole budget -- a
+        two-tier read returned semantic memory only, and the procedural tier never appeared.
+
+        Round-robin is the honest merge here because **the seed produces no scores**: there is no
+        embedder and ``LearningStore.recall`` returns rendered context, so there is nothing to rank
+        by and any ordering claim would be invented. Giving every tier a turn is a fair share of a
+        fixed budget rather than a relevance ordering, and ``MemorySlice.records`` for this provider
+        should be read that way.
+        """
+        merged: List[MemoryRecord] = []
+        for column in range(max((len(records) for records in per_tier), default=0)):
+            for records in per_tier:
+                if column < len(records):
+                    merged.append(records[column])
+        return merged
+
     def read(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
-        wanted = [tier for tier in query.resolved_tiers() if tier in self._served_tiers()]
-        records: List[MemoryRecord] = []
-        for tier in wanted:
-            records.extend(self.read_tier(scope, tier, query))
-        return self._slice(scope, query, records)
+        per_tier = [self.read_tier(scope, tier, query) for tier in self._wanted_tiers(query)]
+        return self._slice(scope, query, self._interleave(per_tier))
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
-        wanted = [tier for tier in query.resolved_tiers() if tier in self._served_tiers()]
-        records: List[MemoryRecord] = []
-        for tier in wanted:
-            records.extend(await self.aread_tier(scope, tier, query))
-        return self._slice(scope, query, records)
+        per_tier = [await self.aread_tier(scope, tier, query) for tier in self._wanted_tiers(query)]
+        return self._slice(scope, query, self._interleave(per_tier))
 
     # -- write ----------------------------------------------------------------
 
     def _reject_unserved(self, tier: MemoryTier) -> None:
+        """Refuse a tier nothing here can store, naming the ticket that will build it."""
         if tier is MemoryTier.EPISODIC and MemoryTier.EPISODIC not in self.stores:
-            raise MemoryProviderConfigError(
+            raise MemoryOperationError(
                 "The seed has no episodic store, so an episode cannot be written through this provider. "
                 "Redirecting it into the semantic tier would destroy the raw, non-lossy record "
                 "consolidation depends on. The episodic tier is SM-E1's (#108).",
                 field_name="tier",
             )
-        if tier not in self._served_tiers() and tier not in self.stores:
-            raise MemoryProviderConfigError(
+        # `_served_tiers()` already includes every bound store, so the second clause the earlier
+        # version carried (`and tier not in self.stores`) could never be reached.
+        if tier not in self._served_tiers():
+            raise MemoryOperationError(
                 f"No seed component is bound to the {tier.value!r} tier.",
                 field_name="tier",
             )
 
-    def _as_messages(self, events: Sequence[MemoryEvent]) -> List[Dict[str, str]]:
-        """Events in the message shape ``LearningStore.process`` consumes."""
-        return [{"role": event.role or "user", "content": event.content} for event in events]
+    def _as_messages(self, events: Sequence[MemoryEvent]) -> List[Dict[str, Any]]:
+        """Events in the message shape ``LearningStore.process`` consumes.
+
+        ``metadata`` and ``occurred_at`` ride along rather than being dropped: a store that ignores
+        the extra keys is unaffected, and one that reads them no longer has to be told twice. The
+        earlier version passed only role and content while reporting the event accepted, so a
+        caller's metadata vanished with no signal.
+        """
+        messages: List[Dict[str, Any]] = []
+        for event in events:
+            message: Dict[str, Any] = {"role": event.role or "user", "content": event.content}
+            if event.occurred_at is not None:
+                message["occurred_at"] = event.occurred_at
+            if event.metadata:
+                message["metadata"] = dict(event.metadata)
+            messages.append(message)
+        return messages
 
     def write_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
+        self._guard_tenant(scope)
         self._reject_unserved(tier)
         store = self._store_for(tier)
         if store is not None:
             store.process(self._as_messages(events), **self._recall_kwargs(scope, MemoryQuery(text="")))
-            return WriteReceipt(accepted=len(events), tiers_written=[tier])
+            return self._store_receipt(store, tier, events)
         return self._manager_write(scope, tier, events)
 
     async def awrite_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
+        self._guard_tenant(scope)
         self._reject_unserved(tier)
         store = self._store_for(tier)
         if store is not None:
             await store.aprocess(self._as_messages(events), **self._recall_kwargs(scope, MemoryQuery(text="")))
-            return WriteReceipt(accepted=len(events), tiers_written=[tier])
+            return self._store_receipt(store, tier, events)
         # add_user_memory has no async variant either.
         return await asyncio.to_thread(self._manager_write, scope, tier, events)
 
+    @staticmethod
+    def _store_receipt(store: "LearningStore", tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
+        """What a ``LearningStore.process`` write can honestly claim.
+
+        ``process`` returns ``None`` and mints no per-event id -- it folds a batch of messages into
+        whatever shape the store keeps. So there are no ``event_ids`` to report, and ``accepted``
+        reflects what the store said about itself via ``was_updated`` rather than assuming every
+        event landed. Reporting ``accepted=len(events)`` unconditionally claimed knowledge this
+        path does not have.
+        """
+        updated = bool(getattr(store, "was_updated", True))
+        return WriteReceipt(
+            accepted=len(events) if updated else 0,
+            event_ids=[],  # process() mints none; see docstring
+            tiers_written=[tier] if updated else [],
+        )
+
     def _manager_write(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
-        assert self.manager is not None  # guarded by _reject_unserved
+        if self.manager is None:  # unreachable via write_tier; explicit beats `assert`, which -O strips
+            raise MemoryOperationError(
+                f"No seed component is bound to the {tier.value!r} tier.",
+                field_name="tier",
+            )
         ids: List[str] = []
         for event in events:
             memory_id = self.manager.add_user_memory(
                 memory=UserMemory(
                     memory=event.content,
                     memory_id=event.id,
-                    topics=event.topics,
+                    topics=list(event.topics) if event.topics is not None else None,
                     agent_id=scope.agent_id,
                     team_id=scope.team_id,
+                    # `input` is the seed's field for the utterance a memory came from, which is
+                    # the closest home UserMemory has for an event's role/metadata. Without this
+                    # the write silently discarded both while reporting success.
+                    input=_provenance_note(event),
                 ),
                 user_id=scope.user_id,
             )
@@ -279,10 +459,36 @@ class SeedMemoryProvider(MemoryProvider):
         return WriteReceipt(accepted=len(ids), event_ids=ids, tiers_written=[tier] if ids else [])
 
     def write(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
-        return self.write_tier(scope, MemoryTier.SEMANTIC, events)
+        """Route each event to **its own tier**, rather than forcing the batch into SEMANTIC.
+
+        The earlier version hardcoded ``SEMANTIC``, so a default ``MemoryEvent`` -- whose tier is
+        ``EPISODIC`` (``types.py``), and which ``MemoryProvider.write`` documents as landing there
+        -- was silently redirected into the semantic tier. That is exactly the behaviour this
+        module's own docstring and SPEC section 11.2 said it refuses, and the test named for the
+        refusal only exercised the explicit ``write_tier`` path.
+
+        Now the batch is grouped by tier and each group goes through ``write_tier``, so
+        ``_reject_unserved`` gets to do its job and an episodic write is refused rather than
+        rewritten.
+        """
+        return self._merge_receipts(self.write_tier(scope, tier, group) for tier, group in _group_by_tier(events))
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
-        return await self.awrite_tier(scope, MemoryTier.SEMANTIC, events)
+        """Async variant of :meth:`write`, with the same per-tier routing."""
+        receipts = [await self.awrite_tier(scope, tier, group) for tier, group in _group_by_tier(events)]
+        return self._merge_receipts(receipts)
+
+    @staticmethod
+    def _merge_receipts(receipts: Iterable[WriteReceipt]) -> WriteReceipt:
+        """One receipt for a batch that fanned out across tiers."""
+        merged = WriteReceipt()
+        for receipt in receipts:
+            merged.accepted += receipt.accepted
+            merged.event_ids.extend(receipt.event_ids)
+            for tier in receipt.tiers_written:
+                if tier not in merged.tiers_written:
+                    merged.tiers_written.append(tier)
+        return merged
 
     # -- consolidate ----------------------------------------------------------
 
@@ -303,9 +509,18 @@ class SeedMemoryProvider(MemoryProvider):
         episodic tier to read from and a graph to write to, and the seed has neither. It belongs to
         SM-L1 (#122) onward.
         """
-        merged = 0
-        if self.machine is not None and scope.user_id:
-            merged = self.machine.curator.deduplicate(user_id=scope.user_id)
+        self._guard_tenant(scope)
+        if tiers is not None and set(tiers) != {MemoryTier.EPISODIC}:
+            requested = sorted(tier.value for tier in tiers)
+            raise MemoryOperationError(
+                f"The seed provider runs only the curator's dedup lane, but was asked to "
+                f"consolidate {requested}. Pass None; per-tier consolidation policy is SM-C2's "
+                "(#90) and the real loop is SM-L1's (#122).",
+                field_name="tiers",
+            )
+
+        can_curate = self.machine is not None and scope.user_id is not None
+        merged = self.machine.curator.deduplicate(user_id=scope.user_id) if can_curate else 0  # type: ignore[union-attr, arg-type]
         return ConsolidationReport(
             scope=scope,
             episodic_scanned=0,  # no episodic store exists to scan
@@ -313,6 +528,13 @@ class SeedMemoryProvider(MemoryProvider):
             duplicates_merged=merged,
             contradictions_resolved=0,
             details={
+                # `ran` separates "the curator ran and found nothing" from "the curator never ran"
+                # -- both reported duplicates_merged=0, so a caller could not tell a clean pass
+                # from a no-op caused by a missing machine or an unscoped user.
+                "ran": can_curate,
+                "skipped_because": None
+                if can_curate
+                else ("no LearningMachine wired" if self.machine is None else "scope has no user_id"),
                 "curator": "user_profile only",
                 "note": "seed has no episodic tier or graph; the consolidation loop is SM-L1+",
             },

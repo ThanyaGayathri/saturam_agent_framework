@@ -27,9 +27,12 @@ from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
 from egpt.utils.dttm import to_epoch_s
 
 __all__ = [
+    "FUSION_KEYS",
     "ConsolidationReport",
     "FactWrite",
+    "fusion_diagnostics",
     "MemoryEvent",
+    "MemoryOperationError",
     "MemoryQuery",
     "MemoryRecord",
     "MemorySlice",
@@ -37,6 +40,23 @@ __all__ = [
     "Substrate",
     "WriteReceipt",
 ]
+
+
+class MemoryOperationError(ValueError):
+    """A memory call cannot be served as asked.
+
+    Distinct from ``MemoryProviderConfigError``, which is scoped to construction time: this is a
+    **per-request** refusal by a correctly configured provider -- writing a tier nothing is bound
+    to, or asking for a point-in-time read the wired substrates cannot answer safely. Raising the
+    config error for these made a routine bad request look like a deployment fault in every log
+    and every ``except`` clause.
+
+    ``ValueError`` for the same reason its sibling is one: callers already assert against it.
+    """
+
+    def __init__(self, message: str, *, field_name: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.field_name = field_name
 
 
 class Substrate(str, Enum):
@@ -56,8 +76,16 @@ def _epoch_or_none(value: Any) -> Optional[int]:
     Accepting a ``datetime`` or ISO string here rather than only an int mirrors
     ``UserMemory.__post_init__`` (``db/schemas/memory.py``), and means a caller cannot
     accidentally store a float or a naive datetime where every consumer expects epoch seconds.
+
+    ``bool`` is refused even though it is an ``int`` subclass, matching how
+    ``MemoryProviderConfig`` rejects a boolean ``vector_weight``: ``t_valid=True`` would silently
+    become epoch second 1, a timestamp in 1970 that no later filter would flag as wrong.
     """
-    return None if value is None else to_epoch_s(value)
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise TypeError(f"Timestamp must be epoch seconds, a datetime, or an ISO string; got {value!r}.")
+    return to_epoch_s(value)
 
 
 @dataclass(frozen=True)
@@ -86,6 +114,11 @@ class Scope:
                 "Scope.tenant_id is required and must be a non-empty string. "
                 "An unscoped memory call reads and writes every tenant's rows."
             )
+        # Store what was validated. Validating `.strip()` and then keeping the raw value would
+        # give "  acme  " and "acme" different partition keys, so the same tenant would read and
+        # write two disjoint sets of rows depending on incidental whitespace upstream.
+        # `object.__setattr__` because the dataclass is frozen.
+        object.__setattr__(self, "tenant_id", self.tenant_id.strip())
 
     def key(self) -> str:
         """Stable string key for storage partitioning and logging.
@@ -233,6 +266,13 @@ class MemoryQuery:
 
     def __post_init__(self) -> None:
         self.as_of = _epoch_or_none(self.as_of)
+        # A negative limit is not a smaller result set -- as a bare slice it truncates from the
+        # *end*, so `limit=-1` returns everything except the best-ranked record. A caller computing
+        # `limit = budget - used` and going negative would get a nearly-full slice with the top hit
+        # silently missing. Rejected here for the same reason `config.py` rejects an out-of-range
+        # `vector_weight` rather than letting it skew a ranking.
+        if not isinstance(self.limit, int) or isinstance(self.limit, bool) or self.limit < 0:
+            raise ValueError(f"MemoryQuery.limit must be an integer >= 0, got {self.limit!r}.")
 
     def resolved_tiers(self) -> Sequence[MemoryTier]:
         """The tier set to search: the requested one, or every persistent tier.
@@ -240,8 +280,49 @@ class MemoryQuery:
         Every substrate must resolve the tier set **identically**. When one leg honored the filter
         and the other did not, cross-tier leakage appeared only after fusion and was hard to trace
         back to its source (finding F3) -- so the resolution lives here, once.
+
+        ``None`` means "unspecified, use the default"; an **empty sequence means empty**. Those are
+        different requests, and conflating them widens rather than narrows -- the direction that
+        matters, and the same reasoning ``Scope.tenant_id`` rests on. ``_requested`` in the
+        co-located adapter tests ``substrates is None`` for exactly this reason; these two adjacent
+        optional-sequence filters now agree.
         """
-        return tuple(self.tiers) if self.tiers else PERSISTENT_TIERS
+        return PERSISTENT_TIERS if self.tiers is None else tuple(self.tiers)
+
+
+#: Keys every provider must put in ``MemorySlice.fusion``, whatever it does internally.
+#:
+#: Without a contract the adapters diverged: the co-located one reported hit counts while the seed
+#: bridge reported only ``method`` and ``reason``, so a consumer written against one raised
+#: ``KeyError`` on the other -- including the cookbook's deliberately provider-agnostic consumer,
+#: which is the swap property this seam exists to provide. A provider with nothing to fuse reports
+#: zeros, which is honest: it has no legs, not an unknown number of them.
+FUSION_KEYS = ("method", "vector_hits", "graph_hits", "fused", "returned")
+
+
+def fusion_diagnostics(
+    method: Optional[str],
+    vector_hits: int = 0,
+    graph_hits: int = 0,
+    fused: int = 0,
+    returned: int = 0,
+    **extra: Any,
+) -> Dict[str, Any]:
+    """Build a ``MemorySlice.fusion`` payload carrying every key in :data:`FUSION_KEYS`.
+
+    ``method`` is ``None`` for a provider that does not fuse. Extra keys are free -- the contract is
+    a floor, not a ceiling, so an adapter can add ``reason`` or ``deployment`` without breaking a
+    consumer that reads only the common set.
+    """
+    diagnostics: Dict[str, Any] = {
+        "method": method,
+        "vector_hits": vector_hits,
+        "graph_hits": graph_hits,
+        "fused": fused,
+        "returned": returned,
+    }
+    diagnostics.update(extra)
+    return diagnostics
 
 
 @dataclass
@@ -264,10 +345,22 @@ class MemorySlice:
 
         Parallels ``LearningStore.build_context`` (``learn/stores/protocol.py:78``) so a slice
         drops into the same place in an agent prompt that the seed's learn context does.
+
+        Newlines inside a record's content are indented rather than emitted raw. The ``[tier]``
+        prefix is line-oriented, so stored content containing ``"\\n[semantic] ..."`` would
+        otherwise render as an additional, forged memory line -- and memory content is attacker-
+        influenced by construction, since it is whatever a user said to the agent. Continuation
+        lines are visibly indented, so one memory always reads as one entry.
         """
         if not self.records:
             return ""
-        return "\n".join("[{tier}] {content}".format(tier=r.tier.value, content=r.content) for r in self.records)
+        lines = []
+        for record in self.records:
+            body = record.content.replace("\r\n", "\n").replace("\r", "\n")
+            head, *rest = body.split("\n")
+            lines.append("[{tier}] {head}".format(tier=record.tier.value, head=head))
+            lines.extend("    " + line for line in rest)
+        return "\n".join(lines)
 
 
 @dataclass

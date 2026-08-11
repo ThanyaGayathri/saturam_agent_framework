@@ -19,12 +19,12 @@ or anywhere under it. pgvector (SM-V1 #95) and the graph engine (SM-G1 #99) are 
 resolved by registry key.
 """
 
-from typing import List, Optional, Protocol, Sequence, runtime_checkable
+from typing import Any, List, Optional, Protocol, Sequence, runtime_checkable
 
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import FactWrite, MemoryEvent, MemoryQuery, MemoryRecord, Scope
 
-__all__ = ["GraphSubstrate", "VectorSubstrate"]
+__all__ = ["GraphSubstrate", "VectorSubstrate", "checked_graph", "checked_vector"]
 
 
 @runtime_checkable
@@ -89,9 +89,23 @@ class VectorSubstrate(Protocol):
         no way to bound the walk. This is that replacement.
 
         Ordering is **ascending ``created_at``, then ``id``** as a tiebreak, so a consolidation
-        pass processes oldest-first and can resume from a watermark. ``since`` is an **exclusive**
-        lower bound on ``created_at`` -- transaction time, not valid time, because the question a
-        resuming pass asks is "what have I not seen yet", not "what became true recently".
+        pass processes oldest-first and can resume from a watermark.
+
+        ``since`` is an **inclusive** lower bound on ``created_at`` -- transaction time, not valid
+        time, because the question a resuming pass asks is "what have I not seen yet", not "what
+        became true recently".
+
+        Inclusive is deliberate and the exclusive version was a **bug**. ``created_at`` is stamped
+        by ``now_epoch_s()`` in whole seconds, so many episodes routinely share one value. A pass
+        that resumed from ``since = max(created_at)`` with an exclusive bound would skip *every*
+        remaining episode written in that same second -- including ones a ``limit`` had cut off --
+        and terminate believing it was caught up. Silent episode loss, unbounded at production
+        write rates.
+
+        The cost of inclusive is that the boundary second is re-returned, so **a resuming caller
+        must dedup by ``id``**. That is a visible, bounded cost; the exclusive version's cost was
+        invisible data loss. The ``created_at``-then-``id`` ordering above is what makes the
+        dedup cheap.
 
         Only the vector substrate carries this. Nothing in SM-C1 enumerates the graph, and
         enumeration over a temporal graph is not obviously one operation (current belief? every
@@ -118,6 +132,15 @@ class GraphSubstrate(Protocol):
     **This substrate is the authority for validity.** A contradiction is recorded here and nowhere
     else; a vector copy of a derived semantic fact is a projection that is never decided locally
     and never propagated back (ADR 0003 section B.6).
+
+    That authority is a **precondition**, not a free-standing guarantee. The provider's
+    point-in-time filter runs on the fused set, so it can only see bounds some leg supplied -- if
+    this substrate is absent, excluded by ``query.substrates``, or simply did not return a row the
+    vector leg did, the stale projection carries no bounds and passes the filter. The co-located
+    provider therefore refuses an ``as_of`` read when the graph leg is not participating rather
+    than answering from the projection alone. Closing the remaining case -- graph wired, but the
+    row outside its top-``limit`` -- needs a bounds-by-id lookup on this port; that is SM-G1 #99's
+    and is recorded in SPEC section 11.3.
 
     **Bi-temporal writes are expire-and-reinsert (SCD-2), never in-place mutation.** SM-R10
     section 6 proved in-place wrong: a later fact clobbers an already-set bound, and belief
@@ -204,3 +227,33 @@ class GraphSubstrate(Protocol):
     async def ainvalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None:
         """Async variant of :meth:`invalidate`."""
         ...
+
+
+def _check(candidate: Any, port: Any, option: str) -> Any:
+    """Verify an injected substrate satisfies its port, at construction rather than at first call.
+
+    Both ports are ``runtime_checkable``, so this costs one structural check and turns "the graph
+    leg mysteriously returns nothing", or an ``AttributeError`` three layers into a read, into a
+    build-time error naming the option and the missing methods. ``None`` passes through -- a
+    provider with only one substrate is a supported configuration (a vector-only tenant, SM-C5 #93).
+    """
+    if candidate is None:
+        return None
+    if not isinstance(candidate, port):
+        expected = sorted(name for name in vars(port) if not name.startswith("_"))
+        missing = [name for name in expected if not callable(getattr(candidate, name, None))]
+        raise TypeError(
+            f"config.options[{option!r}] is a {type(candidate).__name__}, which does not satisfy "
+            f"{port.__name__}. Missing or non-callable: {missing or expected}."
+        )
+    return candidate
+
+
+def checked_vector(candidate: Any, option: str = "vector_substrate") -> Optional[VectorSubstrate]:
+    """``candidate`` if it satisfies :class:`VectorSubstrate`, ``None`` if unset, else ``TypeError``."""
+    return _check(candidate, VectorSubstrate, option)
+
+
+def checked_graph(candidate: Any, option: str = "graph_substrate") -> Optional[GraphSubstrate]:
+    """``candidate`` if it satisfies :class:`GraphSubstrate`, ``None`` if unset, else ``TypeError``."""
+    return _check(candidate, GraphSubstrate, option)

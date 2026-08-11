@@ -21,6 +21,7 @@ with SM-V1 and SM-G1; they satisfy these same two ports, which is exactly why
 this file needs no model, no API key, and no network.
 """
 
+from dataclasses import replace
 from typing import Dict, List, Optional, Sequence
 
 from egpt.memory import (
@@ -55,8 +56,11 @@ class InMemoryVector:
         return self.rows.setdefault(scope.tenant_id, {})
 
     def upsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        # A copy, not the caller's object. Storing the reference made this substrate and the graph
+        # below share one row, so graph.invalidate() also stamped expired_at on the "vector" copy
+        # and the bi-temporal demo worked partly for the wrong reason.
         for record in records:
-            self._bucket(scope)[record.id] = record
+            self._bucket(scope)[record.id] = replace(record, substrate=Substrate.VECTOR)
 
     async def aupsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
         self.upsert(scope, records)
@@ -73,7 +77,9 @@ class InMemoryVector:
             overlap = len(terms & set(record.content.lower().split()))
             if overlap:
                 hits.append(MemoryRecord(**{**vars(record), "score": float(overlap)}))
-        return sorted(hits, key=lambda r: -(r.score or 0.0))
+        # Honour limit: a double that ignores it cannot surface a filter-after-limit bug.
+        ranked = sorted(hits, key=lambda r: -(r.score or 0.0))
+        return ranked[: query.limit] if query.limit else ranked
 
     async def asearch(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
@@ -87,9 +93,15 @@ class InMemoryVector:
         since: Optional[int] = None,
         limit: Optional[int] = None,
     ) -> List[MemoryRecord]:
-        return [
+        # The port's contract, not a shortcut: ascending created_at then id, `since` inclusive,
+        # `limit` respected. Reference code gets copied, so it should model the contract it teaches.
+        rows = [
             record for record in self._bucket(scope).values() if record.tier is tier
         ]
+        if since is not None:
+            rows = [record for record in rows if (record.created_at or 0) >= since]
+        rows.sort(key=lambda record: ((record.created_at or 0), record.id))
+        return rows[:limit] if limit else rows
 
     async def ascan(
         self,
@@ -126,7 +138,7 @@ class InMemoryGraph:
         self.upsert_episode(scope, event)
 
     def upsert_fact(self, scope: Scope, fact: FactWrite) -> None:
-        self._bucket(scope).append(fact.record)
+        self._bucket(scope).append(replace(fact.record, substrate=Substrate.GRAPH))
 
     async def aupsert_fact(self, scope: Scope, fact: FactWrite) -> None:
         self.upsert_fact(scope, fact)
@@ -155,9 +167,18 @@ class InMemoryGraph:
         recorded_at = at if at is not None else t_invalid
         for row in list(self._bucket(scope)):
             if row.id == edge_id and row.is_current_belief():
+                # Transaction time out. The valid-time bound on this row is never edited.
                 row.expired_at = recorded_at
+                # The tightest bound wins. Overwriting t_invalid outright is the in-place clobber
+                # SM-R10 section 6 proved wrong: a later, looser invalidation would widen a bound
+                # that had already been narrowed, and belief evolution stops reconstructing.
+                tightest = (
+                    t_invalid
+                    if row.t_invalid is None
+                    else min(row.t_invalid, t_invalid)
+                )
                 bounded = MemoryRecord(
-                    **{**vars(row), "t_invalid": t_invalid, "expired_at": None}
+                    **{**vars(row), "t_invalid": tightest, "expired_at": None}
                 )
                 self._bucket(scope).append(bounded)
 
@@ -170,18 +191,30 @@ class InMemoryGraph:
 # ---------------------------------------------------------------------------
 # Configuration: this is the only place a backend or a mode is named
 # ---------------------------------------------------------------------------
-mode_a_config = MemoryProviderConfig(
-    provider="co_located",
-    mode=ProviderMode.LOCAL,
-    options={"vector_substrate": InMemoryVector(), "graph_substrate": InMemoryGraph()},
-)
+# Built per call rather than at import: a config holds *live* substrate objects, so a
+# module-level one would carry state between runs and quietly share it between examples.
+def mode_a_config() -> MemoryProviderConfig:
+    """Mode A: co-located substrates, both in-VPC."""
+    return MemoryProviderConfig(
+        provider="co_located",
+        mode=ProviderMode.LOCAL,
+        options={
+            "vector_substrate": InMemoryVector(),
+            "graph_substrate": InMemoryGraph(),
+        },
+    )
 
-# Same contract, different adapter and mode. Nothing below this line changes.
-mode_b_config = MemoryProviderConfig(
-    provider="external",
-    mode=ProviderMode.FRONTIER,
-    options={"vector_substrate": InMemoryVector(), "graph_substrate": InMemoryGraph()},
-)
+
+def mode_b_config() -> MemoryProviderConfig:
+    """Mode B: same contract, external services. Nothing below this line changes."""
+    return MemoryProviderConfig(
+        provider="external",
+        mode=ProviderMode.FRONTIER,
+        options={
+            "vector_substrate": InMemoryVector(),
+            "graph_substrate": InMemoryGraph(),
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -239,20 +272,20 @@ if __name__ == "__main__":
     scope = Scope(tenant_id="acme", user_id="ada@example.com", agent_id="support-agent")
 
     print("Mode A (co-located substrates):")
-    remember_and_recall(build_memory_provider(mode_a_config), scope)
+    remember_and_recall(build_memory_provider(mode_a_config()), scope)
 
     print("")
     print(
         "Mode B (external services) -- same consumer function, only the config changed:"
     )
-    remember_and_recall(build_memory_provider(mode_b_config), scope)
+    remember_and_recall(build_memory_provider(mode_b_config()), scope)
 
     # ---------------------------------------------------------------------
     # Point-in-time reads: the graph is the authority for what was true when
     # ---------------------------------------------------------------------
     print("")
     print("Bi-temporal read:")
-    provider = build_memory_provider(mode_a_config)
+    provider = build_memory_provider(mode_a_config())
     provider.write_tier(
         scope,
         MemoryTier.SEMANTIC,

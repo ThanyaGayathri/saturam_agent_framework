@@ -16,7 +16,15 @@ from egpt.memory.config import (
     registered_providers,
 )
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryEvent, MemoryQuery, MemoryRecord, Scope, Substrate
+from egpt.memory.types import (
+    FUSION_KEYS,
+    MemoryEvent,
+    MemoryOperationError,
+    MemoryQuery,
+    MemoryRecord,
+    Scope,
+    Substrate,
+)
 from tests.unit.memory._fakes import FakeGraph, FakeVector, assert_ports_satisfied
 
 ACME = Scope(tenant_id="acme", user_id="u1")
@@ -132,7 +140,7 @@ def test_writing_the_working_tier_is_refused():
     """WORKING has no persistent substrate; the buffer is SM-C6's, not this seam's."""
     p, _, _ = provider()
 
-    with pytest.raises(MemoryProviderConfigError, match="no persistent substrate"):
+    with pytest.raises(MemoryOperationError, match="no persistent substrate"):
         p.write_tier(ACME, MemoryTier.WORKING, [event("scratchpad note")])
 
 
@@ -235,13 +243,21 @@ def test_read_tier_narrows_without_cross_tier_fusion():
     assert [r.tier for r in records] == [MemoryTier.EPISODIC]
 
 
-def test_ranking_is_reproducible_across_runs():
-    """Ties break on id, so the same corpus and query cannot reorder between calls."""
-    p, _, _ = provider()
-    p.write(ACME, [event(f"alpha beta gamma {i}", id=f"e{i}") for i in range(4)])
-    query = MemoryQuery(text="alpha beta")
+def test_equal_scoring_records_keep_the_substrates_order_not_uuid_order():
+    """Ties break on **first-seen order** (deviation D8), which is what makes a ranking stable.
 
-    assert [r.id for r in p.read(ACME, query).records] == [r.id for r in p.read(ACME, query).records]
+    The earlier version of this test compared two reads of one provider and its docstring claimed
+    ties broke on id -- both wrong: it could not fail (the same provider returns the same order
+    whatever the rule) and id-ordering is the bug D8 fixed, since ids are UUIDs. This writes in a
+    known order and asserts that order survives, so sorting by id would fail it.
+    """
+    p, _, _ = provider()
+    for identifier in ("zzz", "aaa", "mmm"):
+        p.write(ACME, [event("alpha beta gamma", id=identifier)])
+
+    ranked = [r.id for r in p.read(ACME, MemoryQuery(text="alpha beta gamma")).records]
+
+    assert ranked == ["zzz", "aaa", "mmm"], "equal scores must keep write order, not sort by id"
 
 
 # ---------------------------------------------------------------------------
@@ -419,7 +435,7 @@ def test_contradictions_resolved_stays_zero_and_says_why():
 def test_consolidation_without_a_vector_substrate_fails_loudly():
     graph_only = CoLocatedMemoryProvider(graph=FakeGraph())
 
-    with pytest.raises(MemoryProviderConfigError, match="enumerate episodes"):
+    with pytest.raises(MemoryOperationError, match="enumerate episodes"):
         graph_only.consolidate(ACME)
 
 
@@ -461,3 +477,200 @@ async def test_sync_and_async_consolidation_agree():
 
     assert sync_report.episodic_scanned == async_report.episodic_scanned
     assert sync_report.duplicates_merged == async_report.duplicates_merged
+
+
+# ---------------------------------------------------------------------------
+# Regressions from the PR #60 review
+# ---------------------------------------------------------------------------
+
+
+def test_a_read_returns_limit_records_when_limit_valid_records_exist():
+    """Critical 3. The current-belief filter ran after the substrates had applied `limit`.
+
+    Ten rows, five expired ranking above five live ones, `limit=5`: the substrates returned their
+    top five (all expired), the post-fusion filter removed them all, and `read` returned zero while
+    the diagnostics reported five vector hits. No `as_of` needed to trigger it.
+
+    Invisible to the old suite only because both doubles ignored `limit`; they now honour it.
+    """
+    p, vector, _ = provider()
+    # Expired rows score higher (more query terms), so they sort above the live ones.
+    vector.upsert(
+        ACME,
+        [
+            MemoryRecord(
+                id=f"expired-{i}",
+                tier=MemoryTier.SEMANTIC,
+                content="alpha beta gamma expired",
+                scope=ACME,
+                expired_at=100,
+            )
+            for i in range(5)
+        ]
+        + [
+            MemoryRecord(id=f"live-{i}", tier=MemoryTier.SEMANTIC, content="alpha beta gamma", scope=ACME)
+            for i in range(5)
+        ],
+    )
+
+    result = p.read(ACME, MemoryQuery(text="alpha beta gamma", limit=5))
+
+    assert len(result.records) == 5
+    assert all(r.id.startswith("live-") for r in result.records)
+
+
+def test_a_zero_limit_does_not_over_fetch():
+    p, vector, _ = provider()
+    p.write(ACME, [event("alpha")])
+
+    assert p.read(ACME, MemoryQuery(text="alpha", limit=0)).records == []
+
+
+def test_consolidating_twice_does_not_duplicate_the_semantic_tier():
+    """Major 4. Each pass minted a fresh uuid4, so N scheduled cycles produced N copies."""
+    p, vector, graph = provider()
+    p.write(ACME, [event("the deploy failed on friday")])
+
+    first = p.consolidate(ACME)
+    second = p.consolidate(ACME)
+    third = p.consolidate(ACME)
+
+    semantic = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC]
+    assert first.semantic_written == second.semantic_written == third.semantic_written == 1
+    assert len(semantic) == 1, "three passes over one episode must upsert one row, not three"
+    assert len({fact.record.id for fact in graph.facts}) == 1
+
+
+def test_consolidation_bounds_its_scan():
+    """Major 4, second half: _distil is O(n^2) and the only caller passed neither since nor limit."""
+    p, vector, _ = provider()
+    p.write(ACME, [event(f"episode number {i}") for i in range(3)])
+
+    p.consolidate(ACME)
+
+    # `scan` is called with an explicit batch cap rather than materialising the whole tier.
+    assert "scan" in vector.calls
+
+
+@pytest.mark.parametrize("requested", [[MemoryTier.PROCEDURAL], [MemoryTier.SEMANTIC], []])
+def test_consolidate_refuses_a_tier_set_it_would_ignore(requested):
+    """Major 6. Accepted and never read, so a caller got episodic work and a report saying so."""
+    p, _, _ = provider()
+
+    with pytest.raises(MemoryOperationError, match="episodic-to-semantic"):
+        p.consolidate(ACME, tiers=requested)
+
+
+def test_consolidate_still_accepts_the_tier_set_it_does_run():
+    p, _, _ = provider()
+    p.write(ACME, [event("an episode")])
+
+    assert p.consolidate(ACME, tiers=[MemoryTier.EPISODIC]).semantic_written == 1
+
+
+def test_a_point_in_time_read_without_the_graph_is_refused_not_answered():
+    """Major 7. The vector projection has no bounds, so it would return invalidated facts as true."""
+    vector_only = CoLocatedMemoryProvider(vector=FakeVector())
+
+    with pytest.raises(MemoryOperationError, match="point-in-time"):
+        vector_only.read(ACME, MemoryQuery(text="anything", as_of=400))
+
+
+def test_excluding_the_graph_from_a_point_in_time_read_is_refused():
+    """The repro from the review: substrates=[VECTOR] returned an invalidated fact as current."""
+    p, _, _ = provider()
+    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme", id="f1")])
+
+    with pytest.raises(MemoryOperationError, match="point-in-time"):
+        p.read(ACME, MemoryQuery(text="ada acme", as_of=400, substrates=[Substrate.VECTOR]))
+
+
+def test_a_graph_only_provider_refuses_a_procedural_write_instead_of_discarding_it():
+    """Major 8. The write vanished -- vector branch skipped, graph branch not routed -- and the
+    receipt said accepted=1."""
+    graph_only = CoLocatedMemoryProvider(graph=FakeGraph())
+
+    with pytest.raises(MemoryOperationError, match="No wired substrate serves"):
+        graph_only.write_tier(ACME, MemoryTier.PROCEDURAL, [event("always confirm")])
+
+
+def test_a_graph_only_provider_still_accepts_an_episodic_write():
+    """The control: the refusal above is tier-specific, not a blanket graph-only failure."""
+    graph_only = CoLocatedMemoryProvider(graph=FakeGraph())
+
+    assert graph_only.write(ACME, [event("something happened")]).accepted == 1
+
+
+def test_a_partial_write_raises_with_the_stamped_ids_so_a_retry_stays_idempotent():
+    """Major 9. The exception propagated with no receipt, so a retry minted fresh ids (breaking F1)."""
+    from egpt.memory.adapters.co_located import PartialWriteError
+
+    p, vector, graph = provider()
+
+    def explode(scope, event_):
+        raise RuntimeError("graph down")
+
+    graph.upsert_episode = explode  # type: ignore[method-assign]
+
+    with pytest.raises(PartialWriteError) as exc:
+        p.write(ACME, [event("w1"), event("w2")])
+
+    ids = exc.value.receipt.event_ids
+    assert len(ids) == 2
+    # Retrying with those ids reuses the rows the vector leg already committed.
+    graph.upsert_episode = FakeGraph.upsert_episode.__get__(graph)  # type: ignore[method-assign]
+    p.write(ACME, [event("w1", id=ids[0]), event("w2", id=ids[1])])
+    assert set(vector.rows["acme"]) == set(ids)
+
+
+def test_a_returned_record_does_not_alias_the_substrates_stored_row():
+    """Major 10. A consumer annotating a result was writing into the backend."""
+    p, vector, _ = provider()
+    receipt = p.write(ACME, [event("alpha beta")])
+
+    returned = p.read(ACME, MemoryQuery(text="alpha")).records[0]
+    returned.metadata["seen_by"] = "agent-1"
+    returned.provenance["touched"] = True
+
+    stored = vector.rows["acme"][receipt.event_ids[0]]
+    assert stored.metadata == {}
+    assert stored.provenance == {}
+
+
+def test_a_callers_topics_list_is_copied_on_write():
+    """The same aliasing on the write path: metadata was defensive, topics was not."""
+    p, vector, _ = provider()
+    topics = ["billing"]
+
+    receipt = p.write(ACME, [event("alpha", topics=topics)])
+    topics.append("mutated-after-write")
+
+    assert vector.rows["acme"][receipt.event_ids[0]].topics == ["billing"]
+
+
+def test_the_fusion_payload_carries_every_contract_key():
+    """Major 13. Adapters disagreed on keys, so a provider-agnostic consumer KeyError'd."""
+    p, _, _ = provider()
+    p.write(ACME, [event("alpha")])
+
+    assert set(FUSION_KEYS) <= set(p.read(ACME, MemoryQuery(text="alpha")).fusion)
+
+
+def test_reading_the_working_tier_is_refused_like_writing_it():
+    """The two used to disagree: read returned [] while write raised."""
+    p, _, _ = provider()
+
+    with pytest.raises(MemoryOperationError, match="no persistent substrate"):
+        p.read_tier(ACME, MemoryTier.WORKING, MemoryQuery(text="q"))
+
+
+def test_an_injected_substrate_that_misses_the_port_fails_at_build():
+    """Both ports are runtime_checkable; the check costs one isinstance and names what is missing."""
+
+    class NotASubstrate:
+        def upsert(self, scope, records): ...
+
+    with pytest.raises(TypeError, match="does not satisfy VectorSubstrate"):
+        build_memory_provider(
+            MemoryProviderConfig(provider="co_located", options={"vector_substrate": NotASubstrate()})
+        )

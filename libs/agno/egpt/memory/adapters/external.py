@@ -19,12 +19,12 @@ re-proof is not possible yet, because no external substrate exists to point at (
 here should be read as evidence that a real external deployment is config-only.
 """
 
-from typing import List, Optional
+from typing import List
 
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig, register_provider
 from egpt.memory.provider import MemoryProvider
-from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
+from egpt.memory.substrates import checked_graph, checked_vector
 from egpt.memory.types import MemoryQuery, MemoryRecord, MemorySlice, Scope
 
 __all__ = ["ExternalMemoryProvider"]
@@ -70,6 +70,6 @@ def _build_external(config: MemoryProviderConfig) -> MemoryProvider:
     exists, ``config.vector``/``config.graph`` carry its connection settings and it resolves
     through ``egpt.registry.discovery.construct``.
     """
-    vector: Optional[VectorSubstrate] = config.options.get("vector_substrate")
-    graph: Optional[GraphSubstrate] = config.options.get("graph_substrate")
+    vector = checked_vector(config.options.get("vector_substrate"))
+    graph = checked_graph(config.options.get("graph_substrate"))
     return ExternalMemoryProvider(vector=vector, graph=graph, config=config)

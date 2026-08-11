@@ -28,15 +28,27 @@ def overlap(query: str, content: str) -> float:
     return 0.0 if not q or not c else len(q & c) / len(q | c)
 
 
-def _ranked(hits: List[MemoryRecord]) -> List[MemoryRecord]:
-    """Drop non-matches and sort by score, keeping insertion order for ties.
+def _ranked(hits: List[MemoryRecord], limit: Optional[int] = None) -> List[MemoryRecord]:
+    """Drop non-matches, sort by score, and honour ``limit`` -- as a real backend does.
 
-    The tie-break matters even in a double. Python's sort is stable, so equal scores come back in
-    write order -- which is what a real backend's own ranking would supply. Breaking ties on ``id``
-    instead would order by UUID, making the double's output differ between runs and turning the
-    swap proof's determinism check into a coin flip.
+    Three details that a lazier double got wrong, each of which hid a provider bug:
+
+    * **``limit`` is applied here.** Both in-repo doubles ignored it, which is the structural
+      reason the post-fusion filter could return zero records while five valid ones existed and no
+      test could observe it. A double more permissive than every real backend cannot catch a bug
+      that only appears when the backend is strict.
+    * **Non-matches are dropped on ``> 0``, explicitly.** Zero overlap means no match, which is
+      what a search excludes -- but the old ``if hit.score`` also discarded a *deliberate* 0.0 and
+      read as an accident. The related concern, a leg mixing real magnitudes with unscored
+      records, is a fusion property and is tested there (``test_fusion.py``) rather than being
+      simulated through a double that has no way to produce it.
+    * **Ties keep insertion order.** Python's sort is stable, so equal scores come back in write
+      order, which is what a real ranking supplies. Breaking ties on ``id`` would order by UUID and
+      make the double's output differ run to run.
     """
-    return sorted([hit for hit in hits if hit.score], key=lambda r: -(r.score or 0.0))
+    matches = [hit for hit in hits if hit.score is not None and hit.score > 0.0]
+    ranked = sorted(matches, key=lambda r: -(r.score or 0.0))
+    return ranked[:limit] if limit else ranked
 
 
 class FakeVector:
@@ -68,7 +80,7 @@ class FakeVector:
             for record in self._bucket(scope).values()
             if record.tier in tiers
         ]
-        return _ranked(hits)
+        return _ranked(hits, query.limit)
 
     async def asearch(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
         self.calls.append("asearch")
@@ -84,7 +96,7 @@ class FakeVector:
         self.calls.append("scan")
         rows = [r for r in self._bucket(scope).values() if r.tier is tier]
         if since is not None:
-            rows = [r for r in rows if (r.created_at or 0) > since]
+            rows = [r for r in rows if (r.created_at or 0) >= since]  # inclusive, per the port
         rows.sort(key=lambda r: ((r.created_at or 0), r.id))
         return rows[:limit] if limit else rows
 
@@ -151,7 +163,7 @@ class FakeGraph:
             for row in self._bucket(scope)
             if row.tier in tiers and row.is_current_belief()  # current belief only, SM-R10 §7 5a
         ]
-        return _ranked(hits)
+        return _ranked(hits, query.limit)
 
     async def atraverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None

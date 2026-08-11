@@ -53,6 +53,10 @@ def consumer_workload(provider: MemoryProvider, scope: Scope) -> Dict[str, Any]:
         ],
     )
     report = provider.consolidate(scope)
+    # `episodic_scanned` is 0 for every provider here and that is correct, not inert: the seed has
+    # no episodic store at all, and the workload writes SEMANTIC because that is the only tier all
+    # three serve. The episodic consolidation path is covered directly in
+    # test_provider_co_located.py, where episodes actually exist.
     slice_ = provider.read(scope, MemoryQuery(text="the customer", tiers=[MemoryTier.SEMANTIC]))
 
     return {
@@ -100,7 +104,8 @@ def seed_config() -> MemoryProviderConfig:
     return MemoryProviderConfig(
         provider="seed",
         mode=ProviderMode.LOCAL,
-        options={"memory_manager": FakeManager(), "learning_machine": FakeMachine()},
+        # The seed cannot separate tenants, so it refuses to build without this claim.
+        options={"memory_manager": FakeManager(), "learning_machine": FakeMachine(), "single_tenant": True},
     )
 
 

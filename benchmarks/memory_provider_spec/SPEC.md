@@ -377,6 +377,35 @@ stays as the design artifact and its evidence; **the shipped code is authoritati
   provider key, and a factory returning a non-provider are all rejected at the boundary. Finding
   F5 was a fusion setting that was accepted and then silently ignored.
 
+### 11.2b Fixed in review (PR #60)
+
+A multi-agent review of PR #60 found 3 critical and 10 major defects, each reproduced by executing
+the code. All are fixed; the ones that changed a **contract** rather than an implementation:
+
+| Finding | Change |
+|---|---|
+| Seed bridge crossed tenants and relabelled the leaked row with the reader's tenant | `SeedMemoryProvider` now **refuses to build** without `options={"single_tenant": True}`, and pins the first tenant it serves. `UserMemory` has no tenant column, so it cannot separate two tenants and now says so. Namespacing the manager key was rejected: it silently orphans rows an existing deployment already wrote. |
+| `write()` redirected episodic events into the semantic tier | `write` groups the batch by `event.tier` and routes each group through `write_tier`, so an episodic write is refused as documented rather than rewritten. |
+| Current-belief filter ran after substrates applied `limit`, returning zero records when valid ones existed | The read path over-fetches (`_FILTER_OVERFETCH`). Documented as a mitigation, not a fix — the complete answer is pushing the predicate into the substrates, which needs a port change and belongs with the first real backend. |
+| `scan`'s `since` was exclusive on integer-second `created_at` | Now **inclusive**, with the caller deduping the boundary ids. Exclusive silently skipped every co-second episode on a resuming pass — unbounded, invisible episode loss. |
+| `consolidate` was non-idempotent | Fact ids derive from the sorted `source_episode_ids` via `uuid5`, so a re-run upserts the same row. Idempotent only while group membership is stable; explicit supersede is SM-L3's (#124). |
+| `consolidate(tiers=...)` accepted and ignored | Rejected unless `None` or `[EPISODIC]`, naming SM-C2 (#90). |
+| Point-in-time held only when the graph leg participated | An `as_of` read is **refused** when the graph is absent or excluded. The residual case (graph wired, row outside its top-`limit`) needs a bounds-by-id lookup — see §11.3. |
+| Graph-only provider silently discarded procedural writes | Writes are refused unless a *wired* substrate serves the tier. |
+| Partial dual-write raised with no receipt, so retries minted new ids | `PartialWriteError` carries the stamped ids; at-least-once semantics documented. |
+| Fused records aliased substrate-owned `provenance` / `metadata` / `topics` | Deep-copied on fold, and `topics` copied on write. |
+| `tiers=[]` widened to every tier | `is None` check, matching `substrates=[]` fifteen lines away. |
+| Negative `limit` truncated from the end | Rejected in `__post_init__`. |
+| `MemorySlice.fusion` keys diverged across adapters | `FUSION_KEYS` + `fusion_diagnostics()`; every adapter reports the full set. |
+
+Also fixed: `as_context()` no longer lets stored content forge a `[tier]` line into the prompt;
+`Scope` stores the `tenant_id` it validated; a distinct `MemoryOperationError` separates per-call
+refusals from construction faults; injected substrates are `isinstance`-checked at build; a leg
+mixing scored and unscored records falls back to rank for the whole leg; consolidation batches its
+upserts and bounds its scan. The test doubles and the cookbook's reference substrates were also
+wrong in ways that hid these — both now honour `limit`, and the cookbook's two substrates no longer
+share one row object.
+
 ### 11.3 Carried forward with named owners
 
 | Item | Owner |
@@ -387,3 +416,7 @@ stays as the design artifact and its evidence; **the shipped code is authoritati
 | `Curator` is narrower than ADR §2.1 implies (`user_profile` store only, no async) | SM-L4 #125 |
 | `MemoryManager.search_user_memories` / `add_user_memory` have no async variant; the bridge hops a thread | SM-C2 #90 |
 | Graph enumeration semantics for a `scan` on `GraphSubstrate` | SM-G9 #107 |
+| Bounds-by-id lookup on `GraphSubstrate`, to close point-in-time when the graph's top-`limit` misses a row the vector leg returned | SM-G1 #99 |
+| Push the current-belief predicate into the substrates so the read path stops over-fetching | SM-V1 #95 / SM-G1 #99 |
+| Explicit supersede when a consolidation group gains a member, so the previous fact is not orphaned | SM-L3 #124 |
+| Real tenant isolation for the seed bridge (a `tenant_id` column and its migration) | SM-C3 #91 |
