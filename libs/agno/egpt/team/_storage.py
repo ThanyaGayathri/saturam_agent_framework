@@ -1142,7 +1142,7 @@ def _hydrate_from_graph(
     This avoids re-querying the DB for nested teams whose graphs are already available.
     """
     from egpt.agent.agent import Agent
-    from egpt.registry.hydrate import require_published
+    from egpt.registry.hydrate import HydrationError, require_published
     from egpt.registry.policy import enforce_policy_or_raise
 
     config = graph["config"].get("config")
@@ -1164,7 +1164,13 @@ def _hydrate_from_graph(
         component_id=graph["component"]["component_id"],
     )
 
-    team = cls.from_dict(config, db=db, registry=registry, tenant_id=tenant_id)
+    # Build the shell only: strip members so from_dict does not re-hydrate them one
+    # get_*_by_id call at a time -- the graph load already resolved every child, and on an
+    # A -> B -> A team cycle from_dict's recursion would never consult the graph's cycle
+    # stub. Members are rebuilt below from graph children.
+    team = cls.from_dict(
+        {k: v for k, v in config.items() if k != "members"}, db=db, registry=registry, tenant_id=tenant_id
+    )
     team.id = graph["component"]["component_id"]
     # Only fall back to the caller-provided db if the config didn't
     # reconstruct one. Otherwise we'd clobber any custom table names
@@ -1173,17 +1179,34 @@ def _hydrate_from_graph(
         team.db = db
 
     # Hydrate members from graph children
+    team_id = graph["component"]["component_id"]
     team.members = []
     for child in graph.get("children", []):
+        link = child.get("link", {})
+        child_id = link.get("child_component_id")
         child_graph = child.get("graph")
+        # A stored member link whose child the graph could not resolve -- deleted, foreign
+        # tenant under the scoped read, or an unresolvable version -- must not degrade into
+        # a runnable team quietly missing that member: refuse the whole hydration instead.
         if child_graph is None:
-            continue
+            raise HydrationError(
+                f"Team '{team_id}' has a member '{child_id}' that could not be resolved "
+                "(missing, not visible to this tenant, or no resolvable version); "
+                "refusing to hydrate a partial team.",
+                component_id=team_id,
+                component_type="team",
+            )
 
         child_config = child_graph["config"].get("config")
         if child_config is None:
-            continue
+            raise HydrationError(
+                f"Team '{team_id}' member '{child_id}' resolved to a config row without a config; "
+                "refusing to hydrate a partial team.",
+                component_id=team_id,
+                component_type="team",
+            )
 
-        link_meta = child["link"].get("meta", {})
+        link_meta = link.get("meta", {})
         member_type = link_meta.get("type")
 
         if member_type == "agent":
@@ -1207,8 +1230,14 @@ def _hydrate_from_graph(
         elif member_type == "team":
             # Recursively hydrate nested teams from the already-loaded child graph
             nested_team = _hydrate_from_graph(cls, child_graph, db=db, registry=registry, tenant_id=tenant_id)
-            if nested_team:
-                team.members.append(nested_team)
+            if nested_team is None:
+                raise HydrationError(
+                    f"Team '{team_id}' nested team member '{child_id}' could not be hydrated; "
+                    "refusing to hydrate a partial team.",
+                    component_id=team_id,
+                    component_type="team",
+                )
+            team.members.append(nested_team)
 
     return team
 

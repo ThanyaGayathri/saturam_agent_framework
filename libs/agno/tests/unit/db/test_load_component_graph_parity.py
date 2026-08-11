@@ -42,10 +42,10 @@ def _link(child_component_id, child_version=1, position=0):
     }
 
 
-def _create(db, component_id, *, stage="draft", links=None, label=None, config=None):
+def _create(db, component_id, *, stage="draft", links=None, label=None, config=None, component_type=None):
     return db.create_component_with_config(
         component_id=component_id,
-        component_type=ComponentType.AGENT,
+        component_type=component_type or ComponentType.AGENT,
         name=component_id,
         config=config or {"model": "gpt-5.5"},
         stage=stage,
@@ -116,3 +116,60 @@ class TestCycleHandling:
         a_again = b_graph["children"][0]["graph"]
         assert a_again["cycle_detected"] is True
         assert a_again["children"] == []
+
+    def test_a_diamond_is_not_a_cycle(self, sqlite_db):
+        """PR #57 review: _visited must track the active recursion path, not every node ever
+        seen -- a shared child reached through two siblings is a valid graph, and the second
+        branch used to come back as a cycle stub."""
+        _create(sqlite_db, "leaf", stage="published")
+        _create(sqlite_db, "left", stage="published", links=[_link("leaf")])
+        _create(sqlite_db, "right", stage="published", links=[_link("leaf")])
+        _create(sqlite_db, "root", stage="published", links=[_link("left", position=0), _link("right", position=1)])
+
+        graph = sqlite_db.load_component_graph("root", tenant_id=TENANT_A)
+        assert graph is not None
+
+        for branch in graph["children"]:
+            leaf_graph = branch["graph"]["children"][0]["graph"]
+            assert leaf_graph["component"]["component_id"] == "leaf"
+            assert leaf_graph.get("cycle_detected") is not True
+            assert leaf_graph["config"] is not None
+
+
+class TestTeamLoadCycle:
+    def test_team_load_survives_a_team_cycle(self, sqlite_db):
+        """PR #57 review: Team.load hydrates members from the loaded graph. Before that fix it
+        rebuilt them through from_dict's per-member get_team_by_id recursion, which never
+        consults the graph's cycle stub -- an A -> B -> A team cycle recursed until failure."""
+        from egpt.team.team import Team
+
+        def _member_link(child_id):
+            return {**_link(child_id), "meta": {"type": "team"}}
+
+        _create(
+            sqlite_db,
+            "team-a",
+            component_type=ComponentType.TEAM,
+            config={"name": "Team A", "members": [{"type": "team", "team_id": "team-b"}]},
+        )
+        _create(
+            sqlite_db,
+            "team-b",
+            component_type=ComponentType.TEAM,
+            stage="published",
+            links=[_member_link("team-a")],
+            config={"name": "Team B", "members": [{"type": "team", "team_id": "team-a"}]},
+        )
+        # Close the loop and publish team-a.
+        sqlite_db.upsert_config(
+            "team-a", version=1, links=[_member_link("team-b")], stage="published", tenant_id=TENANT_A
+        )
+
+        team = Team.load("team-a", db=sqlite_db, tenant_id=TENANT_A)
+
+        assert team is not None and team.id == "team-a"
+        assert [m.id for m in team.members] == ["team-b"]
+        nested = team.members[0]
+        assert [m.id for m in nested.members] == ["team-a"]
+        # The cycle stub terminates the recursion as a member-less shell.
+        assert nested.members[0].members in (None, [])

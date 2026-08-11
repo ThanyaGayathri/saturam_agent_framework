@@ -650,13 +650,15 @@ def build_mcp_server(
         # discoverable -- and therefore runnable -- over MCP, matching the REST list routes.
         if os.db is not None and isinstance(os.db, BaseDb):
             from egpt.agent.agent import get_agents
-            from egpt.os.tenancy import current_tenant_id
+            from egpt.os.utils import tenant_for_direct_read
             from egpt.team.team import get_teams
             from egpt.workflow.workflow import get_workflows
 
             registry = os.registry
             # Scope the DB listings to the caller's tenant (EGPT-2.5), matching GET /agents etc.
-            tenant_id = current_tenant_id(request)
+            # Fails closed (403) when tenancy is enabled but the principal carries no tenant --
+            # tenant_id=None at the DB layer would list every tenant's components.
+            tenant_id = tenant_for_direct_read(request, db=os.db)
             agent_exclude = (registry.get_agent_ids() if registry else None) or None
             for a in _accessible(
                 get_agents(db=os.db, registry=registry, exclude_component_ids=agent_exclude, tenant_id=tenant_id),

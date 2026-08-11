@@ -304,3 +304,62 @@ class TestTeamOfDbMembersHydrates:
 
         foreign = client.get("/teams/db-team", headers=auth(tenant=TENANT_B))
         assert foreign.status_code == 404
+
+
+class TestValidTokenWithoutTenantClaimFailsClosed:
+    """PR #57 review: the middleware deliberately resolves no tenant for a valid JWT that
+    omits the configured claim; the DB-backed reads must refuse it, not run unscoped."""
+
+    def test_listing_agents_is_a_403_not_an_all_tenant_listing(self, client):
+        assert create_agent_component(client, "db-agent", TENANT_A).status_code == 201
+
+        response = client.get("/agents", headers=auth(tenant=None))
+        assert response.status_code == 403, response.text
+
+    def test_a_direct_lookup_is_a_403_too(self, client):
+        assert create_agent_component(client, "db-agent", TENANT_A).status_code == 201
+
+        response = client.get("/agents/db-agent", headers=auth(tenant=None))
+        assert response.status_code == 403, response.text
+
+
+class TestPostgresGraphDiamond:
+    def test_a_shared_child_is_not_a_cycle(self, hydration_db):
+        """PR #57 review: the Postgres load_component_graph shares the recursion-path fix with
+        SQLite -- a leaf reached through two sibling branches must resolve on both, not come
+        back as a cycle stub on the second."""
+        from egpt.db.base import ComponentType  # noqa: PLC0415
+
+        def _member_link(child_id, position=0):
+            return {
+                "link_kind": "member",
+                "link_key": child_id,
+                "child_component_id": child_id,
+                "child_version": 1,
+                "position": position,
+            }
+
+        def _create(component_id, links=None):
+            hydration_db.create_component_with_config(
+                component_id=component_id,
+                component_type=ComponentType.AGENT,
+                name=component_id,
+                config={"model": dict(MOCK_MODEL)},
+                stage="published",
+                links=links,
+                tenant_id=TENANT_A,
+            )
+
+        _create("leaf")
+        _create("left", links=[_member_link("leaf")])
+        _create("right", links=[_member_link("leaf")])
+        _create("root", links=[_member_link("left", 0), _member_link("right", 1)])
+
+        graph = hydration_db.load_component_graph("root", tenant_id=TENANT_A)
+        assert graph is not None
+
+        for branch in graph["children"]:
+            leaf_graph = branch["graph"]["children"][0]["graph"]
+            assert leaf_graph["component"]["component_id"] == "leaf"
+            assert leaf_graph.get("cycle_detected") is not True
+            assert leaf_graph["config"] is not None

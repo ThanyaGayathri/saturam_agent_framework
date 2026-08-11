@@ -1851,6 +1851,29 @@ def get_team_by_id(
         # Ensure team.id is set to the component_id
         team.id = id
 
+        # from_dict degrades an unresolvable member to a warning so write-time dry runs can
+        # validate drafts whose members are authored later; at runtime a missing member --
+        # deleted, foreign tenant under the scoped read, or unresolvable -- must refuse the
+        # whole team rather than run it half-built (same doctrine as _hydrate_from_graph).
+        expected_member_ids = {
+            m.get("agent_id") or m.get("team_id")
+            for m in cfg.get("members") or []
+            if m.get("type") in ("agent", "team")
+        }
+        # members can also be a factory callable; from_dict only ever builds a list, but the
+        # narrowing keeps the contract explicit (and mypy honest).
+        hydrated_members = team.members if isinstance(team.members, list) else []
+        hydrated_member_ids = {getattr(m, "id", None) for m in hydrated_members}
+        missing = sorted(str(m) for m in expected_member_ids - hydrated_member_ids if m is not None)
+        if missing:
+            raise HydrationError(
+                f"Team '{id}' has members that could not be resolved: {', '.join(missing)} "
+                "(missing, not visible to this tenant, or no resolvable version); "
+                "refusing to hydrate a partial team.",
+                component_id=id,
+                component_type="team",
+            )
+
         return team
 
     except (PolicyViolationError, HydrationError):

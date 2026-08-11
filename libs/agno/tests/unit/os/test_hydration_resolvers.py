@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from egpt.agent.agent import Agent
 from egpt.db.base import BaseDb
 from egpt.os.tenancy import TENANCY_REQUIRED_DETAIL
-from egpt.os.utils import get_agent_by_id_async, resolve_agent
+from egpt.os.utils import get_agent_by_id_async, resolve_agent, tenant_for_direct_read
 from egpt.registry import Registry
 from egpt.registry.hydrate import ComponentConfigCache
 
@@ -150,3 +150,49 @@ class TestAsyncGetterOffloadsTheDbRead:
         await get_agent_by_id_async("db-agent", [], db=db, registry=registry, tenant_id="acme")
         await get_agent_by_id_async("db-agent", [], db=db, registry=registry, tenant_id="acme")
         assert db.get_config.call_count == 1
+
+
+class TestTenantForDirectRead:
+    """The fail-closed helper for router/MCP paths that bypass resolve_* (PR #57 review).
+
+    The auth middleware deliberately yields no tenant for a valid principal whose token omits
+    the configured tenant claim; passing that None straight to a DB read would be an unscoped
+    read across every tenant.
+    """
+
+    def test_tenancy_on_and_no_tenant_is_a_403(self):
+        with pytest.raises(HTTPException) as excinfo:
+            tenant_for_direct_read(_request(tenancy_on=True), db=_mock_db())
+        assert excinfo.value.status_code == 403
+        assert excinfo.value.detail == TENANCY_REQUIRED_DETAIL
+
+    def test_an_in_memory_component_is_exempt(self):
+        code_agent = Agent(id="code-agent", name="Code Agent")
+        tenant = tenant_for_direct_read(
+            _request(tenancy_on=True), db=_mock_db(), components=[code_agent], component_id="code-agent"
+        )
+        assert tenant is None
+
+    def test_a_db_only_id_is_not_exempt(self):
+        code_agent = Agent(id="code-agent", name="Code Agent")
+        with pytest.raises(HTTPException) as excinfo:
+            tenant_for_direct_read(
+                _request(tenancy_on=True), db=_mock_db(), components=[code_agent], component_id="db-agent"
+            )
+        assert excinfo.value.status_code == 403
+
+    def test_a_listing_never_takes_the_exemption(self):
+        """No component_id -> the read is a listing and must fail closed."""
+        code_agent = Agent(id="code-agent", name="Code Agent")
+        with pytest.raises(HTTPException):
+            tenant_for_direct_read(_request(tenancy_on=True), db=_mock_db(), components=[code_agent])
+
+    def test_tenancy_off_keeps_todays_unscoped_behavior(self):
+        assert tenant_for_direct_read(_request(tenancy_on=False), db=_mock_db()) is None
+
+    def test_the_request_tenant_is_returned(self):
+        assert tenant_for_direct_read(_request(tenant_id="acme", tenancy_on=True), db=_mock_db()) == "acme"
+
+    def test_no_db_means_no_gate(self):
+        """A path that cannot reach the DB has nothing to scope."""
+        assert tenant_for_direct_read(_request(tenancy_on=True), db=None) is None

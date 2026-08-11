@@ -198,7 +198,15 @@ caller's tenant end to end:
   (`egpt.os.tenancy`), and **fail closed**: when `tenant_id_claim` is configured and the
   principal resolves to no tenant, a lookup that would fall through to the DB is refused with
   the same 403 as `/components`. The in-memory list of code-defined agents is exempt — those
-  are deployment-owned, not tenant rows.
+  are deployment-owned, not tenant rows. Router and MCP paths that reach the getters without
+  `resolve_*` — the direct lookups and the listings — go through the same gate
+  (`egpt.os.utils.tenant_for_direct_read`): a valid JWT that omits the configured tenant claim
+  gets a 403, never an unscoped read.
+- **A team member that cannot be resolved refuses the whole team.** Under a scoped read a
+  stored member link can point at a child that is deleted, foreign, or has no resolvable
+  version; both hydration paths (`get_team_by_id` and the `Team.load` graph path) raise
+  `HydrationError` naming the parent and child rather than silently running a partial team.
+  The write-validation dry run stays lenient so drafts can reference members authored later.
 - **The capability policy is re-checked as the caller.** The hydration-side
   `enforce_policy_or_raise` now selects the policy by the caller's tenant (falling back to the
   row's tenant only for unscoped reads, which is exactly the pre-2.5 behaviour).

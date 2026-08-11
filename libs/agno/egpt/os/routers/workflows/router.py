@@ -46,7 +46,6 @@ from egpt.os.schema import (
     WorkflowSummaryResponse,
 )
 from egpt.os.settings import EgptServingSettings
-from egpt.os.tenancy import current_tenant_id
 from egpt.os.utils import (
     find_factory_by_id,
     format_sse_event,
@@ -55,6 +54,7 @@ from egpt.os.utils import (
     get_workflow_by_id_async,
     resolve_tenant_id,
     resolve_workflow,
+    tenant_for_direct_read,
 )
 from egpt.registry.policy import PolicyViolationError
 from egpt.run.base import RunStatus
@@ -235,6 +235,10 @@ class WebSocketAuthContext:
     # by the user-scoped-DB work stay dormant — RBAC still applies but the
     # handler treats reconnect as session-id-optional.
     user_isolation_enabled: bool = False
+    # Claims-derived tenant (EGPT-2.5): a websocket carries no Request, so the
+    # middleware-written request.state.tenant_id does not exist here. The dispatcher
+    # resolves it from the verified JWT payload, same as the start-workflow path.
+    tenant_id: Optional[str] = None
 
 
 async def handle_workflow_subscription(
@@ -325,6 +329,9 @@ async def handle_workflow_subscription(
                         db=os.db,
                         registry=os.registry,
                         create_fresh=True,
+                        # Claims-derived tenant from the dispatcher (EGPT-2.5); scopes the
+                        # DB hydration the same way the start-workflow path does.
+                        tenant_id=ctx.tenant_id,
                     )
                 except FactoryContextRequired:
                     workflow = None
@@ -513,7 +520,14 @@ async def handle_workflow_continue_via_websocket(
                 return
 
         workflow = get_workflow_by_id(
-            workflow_id=workflow_id, workflows=os.workflows, db=os.db, registry=os.registry, create_fresh=True
+            workflow_id=workflow_id,
+            workflows=os.workflows,
+            db=os.db,
+            registry=os.registry,
+            create_fresh=True,
+            # Claims-derived tenant from the dispatcher (EGPT-2.5); scopes the DB
+            # hydration the same way the start-workflow path does.
+            tenant_id=ws_auth.tenant_id if ws_auth else None,
         )
         if not workflow:
             await websocket.send_text(json.dumps({"event": "error", "error": f"Workflow {workflow_id} not found"}))
@@ -1072,7 +1086,9 @@ def get_workflow_router(
         if os.db and isinstance(os.db, BaseDb):
             from egpt.workflow.workflow import get_workflows
 
-            for db_workflow in get_workflows(db=os.db, registry=os.registry, tenant_id=current_tenant_id(request)):
+            for db_workflow in get_workflows(
+                db=os.db, registry=os.registry, tenant_id=tenant_for_direct_read(request, db=os.db)
+            ):
                 try:
                     workflows.append(WorkflowSummaryResponse.from_workflow(workflow=db_workflow, is_component=True))
                 except Exception:
@@ -1126,11 +1142,14 @@ def get_workflow_router(
                 registry=os.registry,
                 create_fresh=True,
                 version=version,
+                tenant_id=tenant_for_direct_read(request, db=os.db, components=os.workflows, component_id=workflow_id),
             )  # type: ignore[assignment]
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant
             # is just not permitted the capabilities it names (EGPT-2.3).
             raise HTTPException(status_code=403, detail=str(e))
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error resolving workflow '{workflow_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving workflow: {e}")
@@ -1536,12 +1555,19 @@ def get_workflow_router(
 
         try:
             workflow = get_workflow_by_id(
-                workflow_id=workflow_id, workflows=os.workflows, db=os.db, registry=os.registry, create_fresh=True
+                workflow_id=workflow_id,
+                workflows=os.workflows,
+                db=os.db,
+                registry=os.registry,
+                create_fresh=True,
+                tenant_id=tenant_for_direct_read(request, db=os.db, components=os.workflows, component_id=workflow_id),
             )  # type: ignore[assignment]
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant
             # is just not permitted the capabilities it names (EGPT-2.3).
             raise HTTPException(status_code=403, detail=str(e))
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error resolving workflow '{workflow_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving workflow: {e}")
@@ -1627,7 +1653,12 @@ def get_workflow_router(
             )
 
         workflow = get_workflow_by_id(
-            workflow_id=workflow_id, workflows=os.workflows, db=os.db, registry=os.registry, create_fresh=True
+            workflow_id=workflow_id,
+            workflows=os.workflows,
+            db=os.db,
+            registry=os.registry,
+            create_fresh=True,
+            tenant_id=tenant_for_direct_read(request, db=os.db, components=os.workflows, component_id=workflow_id),
         )
         if workflow is None:
             raise HTTPException(status_code=404, detail="Workflow not found")
@@ -1696,12 +1727,21 @@ def get_workflow_router(
         else:
             try:
                 workflow = get_workflow_by_id(
-                    workflow_id=workflow_id, workflows=os.workflows, db=os.db, registry=os.registry, create_fresh=True
+                    workflow_id=workflow_id,
+                    workflows=os.workflows,
+                    db=os.db,
+                    registry=os.registry,
+                    create_fresh=True,
+                    tenant_id=tenant_for_direct_read(
+                        request, db=os.db, components=os.workflows, component_id=workflow_id
+                    ),
                 )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant
                 # is just not permitted the capabilities it names (EGPT-2.3).
                 raise HTTPException(status_code=403, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error resolving workflow '{workflow_id}': {e}")
                 raise HTTPException(status_code=500, detail=f"Error resolving workflow: {e}")

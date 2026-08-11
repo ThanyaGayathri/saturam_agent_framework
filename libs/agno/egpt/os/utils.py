@@ -2053,6 +2053,32 @@ def _tenant_for_hydration(
     return tenant
 
 
+def tenant_for_direct_read(
+    request: Optional[Request],
+    *,
+    db: Optional[Union[BaseDb, AsyncBaseDb]],
+    components: Optional[Sequence[Any]] = None,
+    component_id: Optional[str] = None,
+) -> Optional[str]:
+    """Tenant for a router/MCP path that reaches the component getters without resolve_*.
+
+    Same fail-closed contract as the resolvers (EGPT-2.5): the auth middleware deliberately
+    yields no tenant for an otherwise-valid principal whose token omits the configured tenant
+    claim, and `tenant_id=None` at the DB layer means *no predicate* -- so when the deployment
+    has opted into tenancy, a read that would fall through to the DB unscoped is refused with
+    the components-router 403 instead of returning every tenant's rows. A lookup whose id is
+    served from the in-memory `components` list is exempt (code-defined components are
+    deployment-owned, not tenant rows); listings pass no component_id and always take the
+    fail-closed arm.
+    """
+    in_memory = (
+        component_id is not None
+        and components is not None
+        and any(getattr(c, "id", None) == component_id for c in components)
+    )
+    return _tenant_for_hydration(request, None, in_memory=in_memory, db=db)
+
+
 async def resolve_agent(
     agent_id: str,
     agents: Optional[Sequence[Union[Agent, RemoteAgent, AgentProtocol, AgentFactory]]],

@@ -4510,6 +4510,11 @@ class PostgresDb(BaseDb):
 
                 children.append({"link": link, "graph": child_graph})
 
+            # _visited tracks the active recursion path, not every node ever seen: with this
+            # branch fully walked, the node must be reachable again through a sibling -- a
+            # shared child (diamond) is not a cycle.
+            _visited.discard(node_key)
+
             return {
                 "component": component,
                 "config": config,

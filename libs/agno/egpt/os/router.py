@@ -55,7 +55,7 @@ from egpt.os.scopes import (
 from egpt.os.service_accounts import TOKEN_PREFIX as SERVICE_ACCOUNT_TOKEN_PREFIX
 from egpt.os.service_accounts import VerificationStatus
 from egpt.os.settings import EgptServingSettings
-from egpt.os.utils import resolve_ws_jwt_config
+from egpt.os.utils import resolve_tenant_id, resolve_ws_jwt_config
 from egpt.team.factory import TeamFactory
 from egpt.utils.log import logger
 
@@ -588,6 +588,11 @@ def get_websocket_router(
                         jwt_enabled=scope_enforcement_active(),
                         is_admin=is_admin,
                         user_isolation_enabled=ws_user_isolation_enabled,
+                        tenant_id=resolve_tenant_id(
+                            websocket_user_context.get("payload", {}),
+                            message.get("user_id"),
+                            verified_user_id=websocket_user_context.get("user_id"),
+                        ),
                     )
                     await handle_workflow_subscription(websocket, message, os, ws_auth=ws_auth)
 
@@ -626,6 +631,11 @@ def get_websocket_router(
                         jwt_enabled=scope_enforcement_active(),
                         is_admin=is_admin,
                         user_isolation_enabled=ws_user_isolation_enabled,
+                        tenant_id=resolve_tenant_id(
+                            websocket_user_context.get("payload", {}),
+                            message.get("user_id"),
+                            verified_user_id=websocket_user_context.get("user_id"),
+                        ),
                     )
                     await handle_workflow_continue_via_websocket(websocket, message, os, ws_auth=ws_auth)
 
