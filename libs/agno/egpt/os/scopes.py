@@ -578,6 +578,7 @@ def get_default_scope_mappings() -> Dict[str, List[str]]:
         "PATCH /components/*/configs/*": ["components:write"],
         "DELETE /components/*/configs/*": ["components:delete"],
         "POST /components/*/configs/*/set-current": ["components:write"],
+        "GET /components/*/audit": ["components:read"],
     }
     # A2A interface routes under the default prefix. App startup additionally merges
     # entries for any A2A interface mounted under a custom prefix (see

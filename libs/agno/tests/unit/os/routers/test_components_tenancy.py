@@ -38,6 +38,17 @@ COMPONENT_ROW = {
     "updated_at": 1700000000,
 }
 CONFIG_ROW = {"component_id": "agent-1", "version": 1, "config": {}, "stage": "draft", "created_at": 1700000000}
+AUDIT_ROW = {
+    "audit_id": 1,
+    "component_id": "agent-1",
+    "tenant_id": OWNER,
+    "version": 1,
+    "action": "config.create",
+    "actor": "alice",
+    "note": None,
+    "details": None,
+    "created_at": 1700000000,
+}
 
 # Routes that address a specific component, with a body where the model needs one. Every entry
 # must answer 404 for a caller outside the owning tenant.
@@ -53,6 +64,7 @@ SCOPED_ROUTES = [
     ("POST", "/components/agent-1/configs", {"config": {}}),
     ("PATCH", "/components/agent-1/configs/1", {"label": "stable"}),
     ("POST", "/components/agent-1/configs", {"label": "stable", "config": {}}),
+    ("GET", "/components/agent-1/audit", None),
 ]
 
 
@@ -91,6 +103,7 @@ def mock_db():
     db.list_configs = MagicMock(return_value=[])
     db.list_components = MagicMock(return_value=([], 0))
     db.set_current_version = MagicMock(side_effect=scoped(True, False))
+    db.list_component_audit = MagicMock(side_effect=scoped(([AUDIT_ROW], 1), ([], 0)))
     return db
 
 

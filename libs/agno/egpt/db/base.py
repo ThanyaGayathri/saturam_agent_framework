@@ -60,6 +60,7 @@ class BaseDb(ABC):
         components_table: Optional[str] = None,
         component_configs_table: Optional[str] = None,
         component_links_table: Optional[str] = None,
+        component_audit_table: Optional[str] = None,
         learnings_table: Optional[str] = None,
         schedules_table: Optional[str] = None,
         schedule_runs_table: Optional[str] = None,
@@ -83,6 +84,7 @@ class BaseDb(ABC):
         self.components_table_name = components_table or f"{self.table_prefix}components"
         self.component_configs_table_name = component_configs_table or f"{self.table_prefix}component_configs"
         self.component_links_table_name = component_links_table or f"{self.table_prefix}component_links"
+        self.component_audit_table_name = component_audit_table or f"{self.table_prefix}component_audit"
         self.learnings_table_name = learnings_table or f"{self.table_prefix}learnings"
         self.schedules_table_name = schedules_table or f"{self.table_prefix}schedules"
         self.schedule_runs_table_name = schedule_runs_table or f"{self.table_prefix}schedule_runs"
@@ -127,6 +129,7 @@ class BaseDb(ABC):
             components_table=data.get("components_table"),
             component_configs_table=data.get("component_configs_table"),
             component_links_table=data.get("component_links_table"),
+            component_audit_table=data.get("component_audit_table"),
             learnings_table=data.get("learnings_table"),
             schedules_table=data.get("schedules_table"),
             schedule_runs_table=data.get("schedule_runs_table"),
@@ -651,6 +654,18 @@ class BaseDb(ABC):
     #     (rows from every tenant are visible) and a value restricts the statement to that
     #     tenant. Rows written before multi-tenancy carry a NULL ``tenant_id`` and are only
     #     reachable with ``tenant_id=None``.
+    #
+    # Audit trail (EGPT-2.6): every mutating method takes an optional ``actor`` and
+    # ``audit_note`` and appends a row to the append-only component audit table, inside the
+    # mutation's own transaction. A refused mutation writes no audit row and a successful one
+    # cannot commit without one.
+    #   - ``actor`` is the authenticated principal that made the change. ``None`` means an
+    #     unattributed programmatic write (``Agent.save``, the studio toolkit, a script) --
+    #     the change is still recorded, ``None`` is simply the honest answer for a writer that
+    #     never carried a principal.
+    #   - ``audit_note`` is the reason for the change. Where a method already takes ``notes``
+    #     that value is reused when no ``audit_note`` is given, since it is already the field
+    #     callers write a reason into.
     def get_component(
         self,
         component_id: str,
@@ -678,6 +693,8 @@ class BaseDb(ABC):
         current_version: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
         tenant_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        audit_note: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create or update a component.
 
@@ -689,6 +706,8 @@ class BaseDb(ABC):
             current_version: Optional current version.
             metadata: Optional metadata dict.
             tenant_id: Optional tenant. Stored on create; scopes the lookup on update.
+            actor: Optional principal to attribute the audit record to.
+            audit_note: Optional reason recorded on the audit record.
 
         Returns:
             Created/updated component dictionary.
@@ -703,13 +722,20 @@ class BaseDb(ABC):
         component_id: str,
         hard_delete: bool = False,
         tenant_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        audit_note: Optional[str] = None,
     ) -> bool:
         """Delete a component and all its configs/links.
+
+        The audit trail survives either kind of delete: it carries no foreign key to the
+        component precisely so a hard delete cannot take the history with it.
 
         Args:
             component_id: The component ID.
             hard_delete: If True, permanently delete. Otherwise soft-delete.
             tenant_id: Optional tenant to scope the delete to. None means no tenant filter.
+            actor: Optional principal to attribute the audit record to.
+            audit_note: Optional reason recorded on the audit record.
 
         Returns:
             True if deleted, False if not found or already deleted.
@@ -753,6 +779,8 @@ class BaseDb(ABC):
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
         tenant_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        audit_note: Optional[str] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Create a component with its initial config atomically.
 
@@ -768,6 +796,8 @@ class BaseDb(ABC):
             notes: Optional notes.
             links: Optional list of links. Each must have child_version set.
             tenant_id: Optional tenant. Stored on the component, config and link rows.
+            actor: Optional principal to attribute the audit records to.
+            audit_note: Optional reason recorded on the audit records. Defaults to ``notes``.
 
         Returns:
             Tuple of (component dict, config dict).
@@ -808,6 +838,8 @@ class BaseDb(ABC):
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
         tenant_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        audit_note: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create or update a config version for a component.
 
@@ -825,6 +857,8 @@ class BaseDb(ABC):
             notes: Optional notes.
             links: Optional list of links. Each link must have child_version set.
             tenant_id: Optional tenant. Stored on new config and link rows; scopes every lookup.
+            actor: Optional principal to attribute the audit record to.
+            audit_note: Optional reason recorded on the audit record. Defaults to ``notes``.
 
         Returns:
             Created/updated config dictionary.
@@ -840,6 +874,8 @@ class BaseDb(ABC):
         component_id: str,
         version: int,
         tenant_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        audit_note: Optional[str] = None,
     ) -> bool:
         """Delete a specific config version.
 
@@ -850,6 +886,8 @@ class BaseDb(ABC):
             component_id: The component ID.
             version: The version to delete.
             tenant_id: Optional tenant to scope the delete to. None means no tenant filter.
+            actor: Optional principal to attribute the audit record to.
+            audit_note: Optional reason recorded on the audit record.
 
         Returns:
             True if deleted, False if not found.
@@ -883,6 +921,8 @@ class BaseDb(ABC):
         component_id: str,
         version: int,
         tenant_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        audit_note: Optional[str] = None,
     ) -> bool:
         """Set a specific published version as current.
 
@@ -894,12 +934,42 @@ class BaseDb(ABC):
             component_id: The component ID.
             version: The version to set as current (must be published).
             tenant_id: Optional tenant to scope the update to. None means no tenant filter.
+            actor: Optional principal to attribute the audit record to.
+            audit_note: Optional reason recorded on the audit record.
 
         Returns:
             True if successful, False if component or version not found.
 
         Raises:
             ValueError: If attempting to set a draft config as current.
+        """
+        raise NotImplementedError
+
+    # --- Component Audit (Optional) ---
+    def list_component_audit(
+        self,
+        component_id: str,
+        version: Optional[int] = None,
+        action: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+        tenant_id: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """List a component's lifecycle audit history, newest first.
+
+        Read-only by design. The audit table has no update or delete anywhere in this API --
+        that absence is what makes the trail append-only, so do not add one.
+
+        Args:
+            component_id: The component ID.
+            version: Optional filter by config version.
+            action: Optional filter by action (see ``ComponentAuditAction``).
+            limit: Maximum number of items to return.
+            offset: Number of items to skip.
+            tenant_id: Optional tenant to scope the listing to. None means no tenant filter.
+
+        Returns:
+            Tuple of (list of audit record dicts, total count).
         """
         raise NotImplementedError
 

@@ -875,6 +875,25 @@ class ComponentConfigResponse(BaseModel):
     updated_at: Optional[int] = None
 
 
+class ComponentAuditResponse(BaseModel):
+    """One entry in a component's lifecycle history (EGPT-2.6).
+
+    No ``tenant_id``: like every other component response model, this never echoes the
+    caller's own tenancy back at them. ``audit_id`` is exposed because it, not ``created_at``,
+    is what orders the history -- a client paging through it needs the same key the server
+    sorts by.
+    """
+
+    audit_id: int
+    component_id: str
+    version: Optional[int] = None
+    action: str
+    actor: Optional[str] = None
+    note: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
+    created_at: int
+
+
 class ComponentUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None

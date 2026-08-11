@@ -33,6 +33,7 @@ TABLE_SUFFIXES: Dict[str, str] = {
     "components_table": "components",
     "component_configs_table": "component_configs",
     "component_links_table": "component_links",
+    "component_audit_table": "component_audit",
     "learnings_table": "learnings",
     "schedules_table": "schedules",
     "schedule_runs_table": "schedule_runs",

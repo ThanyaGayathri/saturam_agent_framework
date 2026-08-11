@@ -91,6 +91,64 @@ As of EGPT-2.4 the components router additionally **refuses** a caller who resol
 once that claim is configured, rather than serving them every tenant's rows, and service accounts
 carry a tenant of their own. See [docs/tenancy.md](../../../../docs/tenancy.md).
 
+## Component lifecycle audit trail (EGPT-2.6)
+
+`egpt_component_audit` is an append-only record of every change to a component definition. Each
+mutating `BaseDb` component method (`upsert_component`, `delete_component`,
+`create_component_with_config`, `upsert_config`, `delete_config`, `set_current_version`) takes an
+optional `actor` and `audit_note` and appends a row **inside the mutation's own transaction**, so
+a change and its record commit or roll back together. Read it back with
+`db.list_component_audit(component_id, tenant_id=...)`.
+
+Because the write lives here rather than in the router, every writer is covered — including
+`Agent.save()`, `Team.save()`, `Workflow.save()` and the studio toolkit, which record
+`actor = NULL` for want of a principal.
+
+**Append-only is enforced by absence**: there is no update or delete for this table anywhere in
+the DB API. Do not add one.
+
+**No foreign key to `components`**, deliberately: `delete_component(hard_delete=True)` removes the
+component row and its configs, and a trail that vanished with the thing it describes would be no
+trail at all.
+
+**`audit_id` is the ordering key, not `created_at`.** Timestamps have second resolution, so an
+update and the publish that follows it share one. The column is `Integer` on both backends and
+must stay that way: Postgres renders it as `SERIAL`, and SQLite only autoincrements a column
+declared exactly `INTEGER` — a `BigInteger` primary key fails every insert there.
+
+No migration ships with this: the table is created on demand by `_get_table` and eagerly by
+`_create_all_tables`. Since `_create_all_tables` failures are logged and swallowed at startup, a
+database role lacking `CREATE` will boot and then fail on the first component mutation. Deployments
+that manage schema externally should create it up front:
+
+```sql
+CREATE TABLE egpt_component_audit (
+    audit_id     SERIAL PRIMARY KEY,
+    component_id VARCHAR NOT NULL,
+    tenant_id    VARCHAR,
+    version      INTEGER,
+    action       VARCHAR NOT NULL,
+    actor        VARCHAR,
+    note         TEXT,
+    details      JSONB,
+    created_at   BIGINT NOT NULL
+);
+CREATE INDEX idx_egpt_component_audit_tenant_id_component_id
+    ON egpt_component_audit (tenant_id, component_id);
+CREATE INDEX idx_egpt_component_audit_component_id_audit_id
+    ON egpt_component_audit (component_id, audit_id);
+```
+
+Every component write appends a row, including each `Agent.save()`, and there is no retention
+policy. Prune by age if the table grows — never by rewriting rows:
+
+```sql
+DELETE FROM egpt_component_audit WHERE created_at < :cutoff_epoch_seconds;
+```
+
+The action vocabulary, the actor semantics and the HTTP endpoint are documented in
+[docs/component-lifecycle.md](../../../../docs/component-lifecycle.md).
+
 ## Service account tenancy (EGPT-2.4)
 
 `egpt_service_accounts` gained a nullable `tenant_id` column and an index on it, via migration

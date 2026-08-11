@@ -228,6 +228,34 @@ COMPONENT_LINKS_TABLE_SCHEMA = {
         {"name": "tenant_id_child_component_id", "columns": ["tenant_id", "child_component_id"]},
     ],
 }
+# Append-only change history for component definitions (EGPT-2.6). Deliberately carries NO
+# foreign key to ``components``: a hard delete removes the component and its configs, and an
+# audit trail that vanished with the thing it describes would be no trail at all.
+#
+# ``audit_id`` is the ordering key, not ``created_at``: an update and the publish that follows
+# it land in the same second, and the history has to come back in the order it happened. An
+# ``Integer`` primary key becomes ``SERIAL`` here, so the value is server-assigned and the
+# insert omits the column.
+#
+# Only two indexes, and no single-column ones: this table takes a write on every component
+# mutation including ``Agent.save()``, and every read is already filtered to one component, so
+# the composites below serve them while a third index would be pure write cost.
+COMPONENT_AUDIT_TABLE_SCHEMA = {
+    "audit_id": {"type": Integer, "primary_key": True},
+    "component_id": {"type": String, "nullable": False},
+    "tenant_id": {"type": String, "nullable": True},
+    "version": {"type": Integer, "nullable": True},  # NULL for component-level actions
+    "action": {"type": String, "nullable": False},  # component.*|config.*
+    "actor": {"type": String, "nullable": True},  # NULL for an unattributed programmatic write
+    "note": {"type": Text, "nullable": True},
+    "details": {"type": JSONB, "nullable": True},
+    "created_at": {"type": BigInteger, "nullable": False},
+    "__composite_indexes__": [
+        {"name": "tenant_id_component_id", "columns": ["tenant_id", "component_id"]},
+        {"name": "component_id_audit_id", "columns": ["component_id", "audit_id"]},
+    ],
+}
+
 LEARNINGS_TABLE_SCHEMA = {
     "learning_id": {"type": String, "primary_key": True, "nullable": False},
     "learning_type": {"type": String, "nullable": False, "index": True},
@@ -404,6 +432,7 @@ def get_table_schema_definition(
         "components": COMPONENT_TABLE_SCHEMA,
         "component_configs": COMPONENT_CONFIGS_TABLE_SCHEMA,
         "component_links": COMPONENT_LINKS_TABLE_SCHEMA,
+        "component_audit": COMPONENT_AUDIT_TABLE_SCHEMA,
         "learnings": LEARNINGS_TABLE_SCHEMA,
         "schedules": SCHEDULE_TABLE_SCHEMA,
         "approvals": APPROVAL_TABLE_SCHEMA,

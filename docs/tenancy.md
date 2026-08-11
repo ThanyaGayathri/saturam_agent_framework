@@ -215,7 +215,10 @@ caller's tenant end to end:
   The components router evicts a component's entries on every successful mutation; other
   workers — and writers that bypass the API, like `Agent.save` or the studio toolkit —
   converge within `COMPONENT_CONFIG_CACHE_TTL_SECONDS` (default 30; `0` disables the cache).
-  `ComponentConfigCache.invalidate` is the seam the EGPT-2.6 lifecycle events will call.
+  `ComponentConfigCache.invalidate` remains the seam an event-driven invalidation would call.
+  EGPT-2.6 shipped the lifecycle *audit trail* (see
+  [component-lifecycle.md](component-lifecycle.md)) and explicitly left cache mechanics alone,
+  so router-side eviction plus the TTL is still how a mutation propagates.
 - **`HYDRATE_PUBLISHED_ONLY=true`** makes hydration refuse any config whose stage is not
   `published` (including explicit-version reads) with a 409 — production should not run
   drafts. Default off.
@@ -242,4 +245,7 @@ caller's tenant end to end:
   workflow websocket path, which has no `Request`). Each hydration path threads the value it
   already has; reconciling them is follow-up work.
 - **Cache staleness across workers is bounded by the TTL**, not eliminated: only the worker
-  that processes a mutation evicts immediately. Event-driven invalidation is **EGPT-2.6**.
+  that processes a mutation evicts immediately. Event-driven invalidation is still unbuilt —
+  EGPT-2.6 delivered the audit trail, not this.
+- **A hard-deleted component's audit history is unreachable over HTTP**, though the rows
+  survive in the table. See [component-lifecycle.md](component-lifecycle.md) §3.

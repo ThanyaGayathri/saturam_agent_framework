@@ -99,3 +99,29 @@ hydration and tenancy behavior under test all passed.
 **Note:** Run against `.venv/bin/python` in this workspace, which has no `.venvs/demo`.
 
 ---
+
+### lifecycle_audit.py
+
+**Status:** PASS
+
+**Description:** Exercises the append-only lifecycle audit trail (EGPT-2.6) against a real
+Postgres (`./cookbook/scripts/run_pgvector.sh`). Walks one agent through create draft -> edit
+draft -> publish -> second version -> publish -> rollback, attempts two changes that must be
+refused, then reads the history back with and without an action filter.
+
+**Result:** All seven mutations produced exactly one audit row each, in order, with the right
+actor and version: `component.create`, `config.create`, `config.update`, `config.publish`,
+`config.create`, `config.publish`, `config.rollback`. The publish rows carried
+`previous_current_version` (None then 1) and the rollback carried `from_version=2, to_version=1`.
+Both refusals raised and left the row count unchanged -- editing a published version, and
+deleting the published-but-not-current v2 (the delete that this ticket started refusing). A
+second tenant read 0 records for the same component id. After `hard_delete=True` the component
+was gone but 8 audit rows remained, confirming the trail outlives what it describes.
+
+**Note:** Run against `.venv/bin/python` in this workspace, which has no `.venvs/demo`. No model
+call is made, so no API key is needed. The example clears its own component's audit rows on
+startup so repeat runs print the same seven-row narrative — without that the trail would keep
+growing, precisely because it survives the hard delete at the end. `audit_id` still advances
+across runs, which is the sequence behaving correctly.
+
+---

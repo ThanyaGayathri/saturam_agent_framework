@@ -1,7 +1,8 @@
 """Component mutations evict the hydration config cache (EGPT-2.5).
 
-The components router is the invalidation seam until EGPT-2.6 lifecycle events land: the
-worker that processes a mutation drops the component's cached rows immediately; other
+The components router is still the invalidation seam -- EGPT-2.6 shipped the lifecycle audit
+trail and left cache mechanics alone. The worker that processes a mutation drops the
+component's cached rows immediately; other
 workers (and writers that bypass this router) converge within the cache TTL. Every mutating
 route is pinned here, and reads are pinned NOT to evict.
 """
