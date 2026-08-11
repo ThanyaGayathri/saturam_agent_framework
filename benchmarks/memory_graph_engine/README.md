@@ -7,7 +7,14 @@ Graphiti-over-Neo4j as the *preferred* option; this spike measures it and **does
 **Read [SPIKE.md](SPIKE.md) first** — it is the recommendation. This README is how to run the
 comparison.
 
-**Recommendation: raw Neo4j (Community) + SM-R10's custom bi-temporal layer. Route A.**
+**Recommendation: raw Neo4j + SM-R10's custom bi-temporal layer.**
+
+Two conditions attach: **production tier = Enterprise** for multi-tenant (Community is dev/CI/
+single-tenant only — it denies database-per-tenant and all RBAC, measured in
+[`run_tier_limits.py`](run_tier_limits.py)), and **Route A is provisional pending a GDS licence
+ruling** (a negative ruling degrades Route A -> Route B *within Neo4j*; it does not overturn the
+engine). Evidence is **capability-proven, not performance-proven** — no latency or scale
+benchmark was run.
 
 | Candidate | Bi-temporal (SM-R10's 30 probes) | Personalized PPR |
 |---|---|---|
@@ -38,6 +45,7 @@ This is a **decision task**, so it deliberately builds as little as possible:
 | [forensics.py](forensics.py) | Row-level dump showing *why* Graphiti loses the past (3 rows stored where SCD-2 stores 5). |
 | [run_cognee.py](run_cognee.py) | Structural probe of cognee's temporal model + read path. Re-checks every claim at runtime. |
 | [run_ppr_route.py](run_ppr_route.py) | Route A test: real `gds.pageRank(sourceNodes)` on Neo4j **Community**, incl. over an SM-R10 5a-filtered projection. |
+| [run_tier_limits.py](run_tier_limits.py) | Probes which production capabilities Neo4j **Community** denies (database-per-tenant, RBAC, property-level security). Drives the tier decision. |
 | [results/](results) | Committed run output (JSON, per-probe detail). |
 
 ## Run
@@ -60,6 +68,7 @@ PYTHONPATH=. .venvs/graphengine/bin/python benchmarks/memory_graph_engine/run_gr
 PYTHONPATH=. .venvs/graphengine/bin/python benchmarks/memory_graph_engine/forensics.py
 PYTHONPATH=. .venvs/graphengine/bin/python benchmarks/memory_graph_engine/run_cognee.py
 PYTHONPATH=. .venvs/graphengine/bin/python benchmarks/memory_graph_engine/run_ppr_route.py
+PYTHONPATH=. .venvs/graphengine/bin/python benchmarks/memory_graph_engine/run_tier_limits.py
 ```
 
 Teardown: `docker rm -f smr2-gds smr2-falkor` (SM-R10's container is shared — leave it, or use
@@ -86,6 +95,8 @@ mistaken for validated work.
 | PPR *ranking quality* over a bi-temporal projection | **NOT measured** — SM-H4's ([#134](https://github.com/Saturam-Inc/aicoe-tracker/issues/134)). Filtering a projection is not the same as ranking well over it |
 | FalkorDB / Kuzu lack personalized PPR | **measured** — full procedure list / rejected parameters |
 | Latency / throughput at scale | **NOT measured** — the PPR graphs here are 3–5 nodes; they establish capability, not performance |
+| Neo4j Community denies database-per-tenant, RBAC, property-level security | **measured** — every probe returns *"Unsupported administration command"* |
+| Graph tenant isolation at the 50-tenant / 50M-edge envelope | **NOT measured** — the graph-side analogue of the experiment SM-R3 ran on the vector side. Recommended owner: SM-G1 |
 | GDS license terms | **NOT resolved** — the shipped jar's LICENSE.txt and NOTICE.txt contradict each other; flagged for legal |
 
 ## Core untouched

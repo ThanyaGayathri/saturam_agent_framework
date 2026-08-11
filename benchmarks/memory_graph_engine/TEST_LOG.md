@@ -82,6 +82,31 @@ ranking compose mechanically on temporal data** — which SM-R9 had established 
 
 ---
 
+### run_tier_limits.py
+
+**Status:** PASS — **production tier decision now rests on measurement**
+
+**Description:** Review finding #1 asked for the production tier and the graph multi-tenancy
+isolation model to be explicit decisions rather than implicit. Community's limits are usually
+cited from marketing pages; this probes them against the running 5.26.28 instance and records the
+verbatim server error for each.
+
+**Result:** `databases: ['neo4j', 'system']` — and all four probes **DENIED**, each with
+*"Unsupported administration command"*:
+
+| Probe | Result |
+|---|---|
+| `CREATE DATABASE tenanta` | DENIED → no database-per-tenant; tenants share one graph |
+| `CREATE ROLE tenant_reader` | DENIED → no engine-level RBAC |
+| `SHOW ROLES` | DENIED → no role model at all |
+| `DENY READ {fact} …` | DENIED → no property-level security |
+
+**Consequence:** on Community, graph tenant isolation is **necessarily property-filter-only**
+(`{user_id: $user}` — what SM-R10 already implements). Drives SPIKE §5.4's two decisions:
+Enterprise for production multi-tenant, Community for dev/CI/single-tenant/pilot.
+
+---
+
 ### Capability probes (inline, not scripted)
 
 **Status:** PASS
@@ -114,6 +139,15 @@ assumption that GDS gives incremental PPR. Flagged for SM-H4.
 
 ### Lint
 
-`ruff format` + `ruff check` on `benchmarks/memory_graph_engine/` — **All checks passed.**
-Repo `./scripts/format.sh` / `./scripts/validate.sh` were **not** run: they require `.venv`, which
-does not exist in this checkout. The folder contains no core code and lints clean under `ruff`.
+Repo `./scripts/format.sh` and `./scripts/validate.sh` — **both pass clean** on a `.venv` built
+with `./scripts/dev_setup.sh`: `ruff check` + `mypy` clean on `egpt` (1597 files) and `egptctl`
+(21); cookbook ruff / pattern / import checks 0 violations; `brand audit passed: 1425 known
+reference(s), 0 findings`.
+
+`validate.sh` scopes to `libs/` + `cookbook` and does **not** lint `benchmarks/`, so this folder
+was additionally checked under the repo's own ruff config: `All checks passed!`, all files
+formatted.
+
+**Noted while running:** `format.sh` rewrites **95 `cookbook/**` files** (import-sort only) on an
+otherwise-clean tree off `origin/main` — pre-existing drift, unrelated to this task. Reverted and
+excluded rather than swept into this diff.

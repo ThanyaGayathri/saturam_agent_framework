@@ -1,6 +1,17 @@
 # SM-R2 — Spike: temporal-graph engine prototype
 
-- **Status:** Proposed — **GO: raw Neo4j (Community) + SM-R10's custom bi-temporal layer, Route A.**
+- **Status:** Proposed — **GO: raw Neo4j + SM-R10's custom bi-temporal layer.** Two conditions
+  attach, and neither is cosmetic:
+  1. **Production tier = Enterprise** (or equivalent licensed tier) for multi-tenant; Community is
+     ratified for dev/CI/single-tenant/pilot only (§5.4, measured). Licence cost **escalated to
+     SM-R1 / budget owner**.
+  2. **Route A (GDS PageRank) is provisional pending a GDS licence ruling** (§5.3). A negative
+     ruling degrades Route A → Route B *within Neo4j*; it does **not** overturn the engine.
+- **Evidence class: capability-proven, NOT performance-proven.** Correctness is measured at 30
+  probes; **no latency or scale benchmark was run** — the PPR graphs are 3–5 nodes, and nothing
+  was exercised at the 50-tenant envelope. Projection-build cost, re-projection cadence, and PPR
+  ranking quality at real per-tenant scale are **unmeasured** (SM-H4 / SM-G1). Read every
+  recommendation here as "this works", not "this is fast enough".
 - **Issue:** [Saturam-Inc/aicoe-tracker#77](https://github.com/Saturam-Inc/aicoe-tracker/issues/77)
 - **Depends on:** SM-R1 (#76, ADR — [PR #54](https://github.com/Saturam-Inc/saturam-agent-framework/pull/54)
   is **OPEN / not merged**, therefore **not ratified**). Every place this doc leans on an SM-R1
@@ -47,7 +58,7 @@ The gap is not tuning — it is three structural defects in its write path (§2.
 | Question | Answer |
 |---|---|
 | Graphiti library directly (over Neo4j) vs the framework's `lightrag` vs Cognee vs raw Neo4j + our own bi-temporal layer? | **Raw Neo4j + our own bi-temporal layer** (SM-R10's, already built). Measured: Graphiti **19/30**, our layer **30/30**, Cognee **8/30 inexpressible**, `lightrag` has no temporal surface at all. §2. |
-| Self-host footprint + license fit: Neo4j Community vs alternatives (FalkorDB, Kuzu)? | **Neo4j Community (GPLv3), self-hosted as a separate Bolt server.** Kuzu (MIT, embedded) is lighter and FalkorDB is mid-weight, but **neither has personalized PPR**, which is a hard requirement from SM-R9. ⚠️ The GDS plugin's own license text is contradictory and needs legal review. §5.3. |
+| Self-host footprint + license fit: Neo4j Community vs alternatives (FalkorDB, Kuzu)? | **Neo4j, self-hosted as a separate Bolt server — but the tier is the real answer: Community (GPLv3) for dev/CI/single-tenant, Enterprise for production multi-tenant.** Measured: Community *denies* `CREATE DATABASE`, all RBAC, and property-level security, so tenants necessarily share one graph with property-filter isolation (§5.4). Kuzu (MIT, embedded) is lighter and FalkorDB mid-weight, but **neither has personalized PPR** — a hard requirement from SM-R9. ⚠️ The GDS jar's licence text is contradictory and needs legal review (§5.3). |
 | Can we get bi-temporal edges, **incremental** updates (no batch recompute), and a **no-query-time-LLM** read path? | **Yes, yes (with one qualification), yes.** Bi-temporal: 30/30. Incremental: the store is; **GDS projections are static snapshots**, so the PPR layer needs a re-projection cadence — measured, §Part 3. Read path: rule-based extraction at write time, pure-Cypher predicates at read time. |
 | How much of Graphiti's pipeline (entity/edge/temporal extraction) can we reuse vs must wrap? | **None of Graphiti's pipeline is reused.** Its temporal extraction/invalidation is the part measured unfit (§2.1). We reuse **Neo4j** (storage, Cypher, GDS PageRank) and wrap every temporal semantic ourselves. §Reused vs wrapped. |
 
@@ -491,10 +502,86 @@ plain global PageRank is useless for HippoRAG, which is defined by query-seeded 
   protocol; we do not link or redistribute it. That is the ordinary self-host posture and is why
   GPLv3 is workable here. ⚠️ **This is an engineering observation, not legal advice — legal
   should confirm**, especially if Neo4j is ever embedded or redistributed in a customer artifact.
-- **Community edition limits** that matter operationally: single database, no clustering/HA, no
-  hot backups, no RBAC beyond basics. For the v1 envelope (**provisional pending SM-R1**;
-  note SM-R1 §A.1 surfaces an unreconciled 50M-vs-10M scale arithmetic) this is acceptable, but
-  **HA/backup requirements are the thing that would force Enterprise**, not the query features.
+- **Community edition limits** — measured, not cited (§5.4). An earlier revision of this section
+  said Community was "acceptable for the v1 envelope"; **that was wrong for production
+  multi-tenant and is corrected in §5.4.**
+
+### 5.4 Production tier and graph multi-tenancy — two explicit decisions
+
+The earlier draft named "Neo4j Community" and left the tier and the tenant-isolation model
+implicit. Both are decided here, because they change cost and the security posture.
+
+**What Community actually denies** ([`run_tier_limits.py`](run_tier_limits.py), probed against the
+running 5.26.28 Community instance — every one returns *"Unsupported administration command"*):
+
+| Capability | Community | Consequence for a multi-tenant memory tier |
+|---|---|---|
+| `CREATE DATABASE <tenant>` | **DENIED** | No database-per-tenant. All tenants share one graph. `SHOW DATABASES` → `['neo4j','system']` only. |
+| `CREATE ROLE` / `SHOW ROLES` | **DENIED** | No engine-level RBAC. Authorization is **app-side only**. |
+| `DENY READ {fact} …` | **DENIED** | No property-level security on memory content. |
+| Clustering / HA, hot backup | not available | No online per-tenant backup or restore. |
+
+**Decision 1 — production tier: Neo4j *Enterprise* (or an equivalent licensed tier) is required
+for production multi-tenant. Community is ratified only for dev, CI, single-tenant, and pilot.**
+The forcing functions are HA + online backup + database-per-tenant, not query features — every
+query capability this spike relies on (bi-temporal Cypher, GDS personalized PageRank) ran on
+**Community**. So the tier is an *operations and isolation* decision, not a functionality one.
+
+> **Applying the same standard I used to reject Zep.** Zep was rejected partly as a commercial
+> hosted dependency, so it would be special pleading not to name that Enterprise is *also* a
+> commercial dependency. The distinction is real and worth stating rather than assuming:
+> Enterprise is **self-hostable and offline-capable**, so Mode A (on-prem, air-gapped) still
+> works; Zep Cloud is neither. What Enterprise adds is **licence cost**, including *per customer
+> deployment* under Mode A — a materially different commercial story from "free Community", and
+> **the one genuinely new cost this recommendation introduces.** Sizing/procurement is not this
+> spike's call: **escalated to SM-R1 / whoever owns budget.** If Enterprise is refused, see the
+> fallback below — the engine choice survives, the isolation posture degrades.
+
+**Decision 2 — graph tenant isolation is *property-filter* (`user_id` on the edge), and on
+Community that is not a choice but the only option available.** This is what SM-R10 already
+implements — `MATCH (s)-[e:REL {user_id:$user, predicate:$p}]->(o)` — and it is what its
+`tenant_isolation` scenario scores. On Enterprise it becomes a *choice* between property-filter
+and database-per-tenant.
+
+**The reviewer's SM-R3 analogy — where it holds and where it does not.** SM-R3 measured
+shared-table `tenant_id` filtering and **rejected it**: recall **0.80 → 0.56 → 0.22** as tenants
+go 1 → 10 → 50. Fifty tenants is our stated envelope, so this is directly on-point. But the
+mechanism must not be transplanted carelessly:
+
+- **Does *not* transfer:** SM-R3's collapse is an **ANN artifact** — a shared HNSW whose
+  approximate traversal rarely lands enough in-tenant neighbours. A Cypher `e.user_id = $u`
+  predicate is **exact**; it does not silently lose rows. So "graph filtering will lose recall
+  like pgvector did" would be a **false** inference, and this doc does not make it.
+- **Does transfer:** the *structural* objection. One shared store with no engine-enforced
+  boundary means (a) a single omitted `user_id` predicate is a **cross-tenant data leak** with no
+  second line of defence — and there are now three hand-written Cypher call sites where that
+  predicate must never be forgotten; (b) no per-tenant backup, restore, or migration; (c) no
+  per-tenant blast-radius containment. SM-R3's conclusion "shared-table filtering is not viable"
+  therefore lands on the graph for **isolation** reasons even though its *recall* reasoning does
+  not apply.
+- **Unmeasured, and named as such:** traversal/index performance for a property-filtered graph at
+  the real envelope. SM-R1 §A.1 (provisional) surfaces **50 tenants × 1M = 50M**, five times the
+  ratified 10M. Nothing here was run at that scale (§Part 3 graphs are 3–5 nodes). **This is the
+  graph-side analogue of exactly the experiment SM-R3 ran on the vector side, and it has not been
+  run.** Recommended owner: SM-G1, before the tier is procured.
+
+**A collision this surfaces, which neither sibling had connected.** Right-to-erasure is currently
+**unowned** (SM-R10 §11 puts it out of scope and flags it to SM-R1; SM-R1 §B.3 confirms it "needs
+its own path, out of scope for v1, named as unowned"). On **Community**, erasing a tenant means
+surgical `DELETE`s across a *shared* graph — which runs directly into SM-R10 §6.1's
+**append-only** rule and the invalidate-not-delete model. On **Enterprise**, database-per-tenant
+makes erasure a `DROP DATABASE` and the conflict disappears. **So the tier choice and the
+unowned-erasure item are the same decision**, and cheaping out on the tier pushes a GDPR-shaped
+problem into a model explicitly designed never to delete. Flagged for SM-R1.
+
+**Fallback if Enterprise is refused (stated so the decision is actionable either way):** stay on
+Community, keep property-filter isolation, and compensate in the application — route every graph
+read/write through a single tenant-scoped repository seam so the `user_id` predicate cannot be
+omitted by hand, plus a scheduled cross-tenant leakage assertion (the graph analogue of SM-R3's
+leakage check, which it ran and which this spike did not). That is **strictly weaker** than
+engine-enforced isolation — detection rather than prevention, the same asymmetry SM-R10 §6.1
+records for the Neo4j append-only gap — and it leaves per-tenant backup/restore and erasure
+unsolved. Recorded as a viable-but-degraded posture, not an equivalent one.
 
 **⚠️ GDS licensing — flagged, needs legal confirmation before production.** The plugin
 auto-installed by `NEO4J_PLUGINS='["graph-data-science"]'` (from `graphdatascience.ninja`) ships
@@ -511,6 +598,26 @@ tier. **But the bundled license text does not say so**, and this is unresolved b
 **Action: legal to confirm which terms govern the GDS jar before production**, and pin a specific
 GDS version rather than letting the Docker plugin mechanism fetch "latest". This is a genuine
 finding — no sibling has looked at GDS licensing.
+
+> **⚠️ Route A is PROVISIONAL pending that ruling — but the engine choice is not.** This
+> distinction is load-bearing and was not drawn clearly enough in the earlier draft, so state it
+> explicitly:
+>
+> - **The bi-temporal store uses no GDS at all.** SM-R10's four-timestamp model, the R1/R1-TIE/R2
+>   rules and the 5a/5b predicates are plain Cypher. The 30/30 result was measured on a Neo4j
+>   with **zero `gds.*` procedures installed**. So a negative legal ruling **cannot** overturn
+>   "Neo4j + SM-R10's layer".
+> - **Only the PPR layer depends on GDS.** If legal disallows the GDS jar, the consequence is
+>   precise: **Route A degrades to Route B *within Neo4j*** — SM-R9's hand-rolled sparse
+>   power-iteration over an exported adjacency, which its §Integration route sizes as *"moderate
+>   — unbudgeted; adds a component SM-H4 does not currently plan for."* The engine stays; the
+>   PPR integration cost reappears.
+> - **It does not make FalkorDB or Kuzu competitive either**, since neither has personalized PPR
+>   at all (§5.2) — under a negative ruling *every* candidate is Route B, and Neo4j still wins on
+>   the bi-temporal layer that is the reason to pay for a graph at all.
+>
+> **So: GO on the engine is unconditional; GO on Route A is conditional on the GDS ruling.**
+> Owner: legal, before SM-H4 begins PPR integration.
 
 **Alternatives, for completeness:**
 
@@ -610,7 +717,16 @@ No latency target is claimed or ratified here; **targets are SM-R1's** (provisio
   mechanism composes; it does not measure ranking quality.
 - **KG construction / temporal graph build** → SM-G*. **Bi-temporal schema** → SM-R10 (unchanged).
 - **Append-only enforcement mechanism on Neo4j** → SM-G4 (options in SM-R10 §6.1).
-- **GDS license terms** → legal. Flagged, not resolved.
+- **GDS license terms** → legal. Flagged, not resolved. **Route A is provisional on this ruling**
+  (§5.3); the engine choice is not.
+- **Neo4j Enterprise licence cost / procurement** → **escalated to SM-R1 / budget owner** (§5.4).
+  This spike decides the *tier requirement* from measured capability gaps; it does not price it,
+  and Mode A means a per-customer-deployment licence question this spike cannot answer.
+- **Graph tenant isolation at the real envelope** (50 tenants / ~50M edges) → **SM-G1**, before
+  the tier is procured. This is the graph-side analogue of the experiment SM-R3 ran on the vector
+  side, and it has not been run (§5.4).
+- **Right-to-erasure** → still unowned (SM-R10 §11, SM-R1 §B.3). This spike newly shows it is
+  **coupled to the tier decision** (§5.4), so it should be settled alongside it, not separately.
 - **Scale / latency targets** → SM-R1 (**provisional, not ratified** — PR #54 open).
 - **Core code** → untouched. `git diff origin/main -- libs/` is empty.
 
