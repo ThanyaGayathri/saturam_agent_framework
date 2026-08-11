@@ -5,6 +5,17 @@ from egpt.memory.strategies import (
     MemoryOptimizationStrategyType,
     SummarizeStrategy,
 )
+from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
+from egpt.memory.types import (
+    ConsolidationReport,
+    MemoryEvent,
+    MemoryQuery,
+    MemoryRecord,
+    MemorySlice,
+    Scope,
+    Substrate,
+    WriteReceipt,
+)
 
 __all__ = [
     "MemoryManager",
@@ -13,4 +24,15 @@ __all__ = [
     "MemoryOptimizationStrategyType",
     "MemoryOptimizationStrategyFactory",
     "SummarizeStrategy",
+    # Symbiotic Memory seam envelope (SM-C1)
+    "PERSISTENT_TIERS",
+    "ConsolidationReport",
+    "MemoryEvent",
+    "MemoryQuery",
+    "MemoryRecord",
+    "MemorySlice",
+    "MemoryTier",
+    "Scope",
+    "Substrate",
+    "WriteReceipt",
 ]
