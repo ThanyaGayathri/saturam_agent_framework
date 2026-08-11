@@ -172,6 +172,12 @@ def _run_model_request(
         # that could never fire while they were left at their defaults.
         requires_vision=bool(images),
         estimated_input_tokens=estimated_input_tokens,
+        # The tenant this run belongs to (EGPT-3.6). Until this was threaded, every
+        # `ModelResolveRequest` carried `tenant_id=None`, so `ProviderConfig.lookup` fell through
+        # to the default policy on every request and EGPT-3.2's per-tenant resolution -- its
+        # headline capability -- was inert. Read off `RunContext` rather than a ContextVar for the
+        # executor-handoff reason recorded on the field itself.
+        tenant_id=getattr(run_context, "tenant_id", None),
         # The run's own metadata, which is what makes `explicit_policy_flag` reachable: a caller
         # sets `metadata={"escalate": True}` to force the frontier tier for one request, and with
         # this left empty that documented escape hatch could not fire from `run()` at all.
@@ -182,6 +188,64 @@ def _run_model_request(
         # directly than by asking for a more capable model.
         metadata=run_context.metadata or {},
     )
+
+
+def estimate_request_input_tokens(agent: Any, run_input: Any) -> Optional[int]:
+    """A pre-prompt token estimate for routing, or None when nothing can be estimated.
+
+    Feeds ``ModelResolveRequest.estimated_input_tokens``, which gates
+    ``input_exceeds_context_window`` -- a rule that could not fire from ``run()`` at all while
+    nothing computed this (EGPT-3.5 threaded the parameter; EGPT-3.6 supplies it).
+
+    **Deliberately counts the caller's input, not the assembled prompt.** The routing decision has
+    to be made before ``get_run_messages`` builds the message list -- resolution must precede tool
+    binding, which the EGPT-3.5 review established -- so the full prompt does not exist yet. That
+    makes this an *under*-estimate: history, system message and tool schemas are not included. The
+    safe direction for this rule, since under-estimating can only fail to escalate a borderline
+    request, never escalate one that fits. Budget reservation (EGPT-3.6 unit 6) reconciles against
+    real usage precisely because this cannot be exact.
+
+    Calls ``utils.tokens.count_text_tokens`` directly rather than ``Model.count_tokens``: the
+    anthropic, gemini and bedrock overrides of the latter make a network call, and a per-request
+    routing gate must not add a round-trip. Falls back to ``len/4`` when no tokenizer matches the
+    model id, which is that module's documented behaviour.
+    """
+    content = getattr(run_input, "input_content", None)
+    if content is None:
+        return None
+
+    # A non-string input (list/dict/BaseModel -- the common API shape) is measured from its
+    # serialized form rather than declining. Returning None here was a real hole once budgets
+    # landed: `estimated_input_tokens` is what the seam *reserves*, so None reserved zero, and N
+    # concurrent structured-input requests from one tenant each passed a check none of them should
+    # have. Reconciliation corrects the total afterwards, but the pre-call gate is the point.
+    #
+    # `str()` rather than the full `get_run_messages` serialization: this is an estimate the
+    # chokepoint reconciles, and duplicating message assembly on the hot path to refine a number
+    # that is about to be replaced is not worth the cost.
+    if not isinstance(content, str):
+        try:
+            content = str(content)
+        except Exception:
+            return None
+
+    from egpt.utils.tokens import count_text_tokens
+
+    # `model.id` is only trusted when it is genuinely a string. A test double (`AsyncMock`) or a
+    # partially-constructed model yields a non-string -- a coroutine, in the AsyncMock case -- and
+    # `count_text_tokens` calls `.lower()`/`.startswith()` on whatever it is given, so passing it
+    # through crashed the run rather than degrading the estimate. A routing estimate must never be
+    # able to fail a call it is only advising on.
+    raw_id = getattr(getattr(agent, "model", None), "id", None)
+    model_id = raw_id if isinstance(raw_id, str) and raw_id else "gpt-4o"
+
+    try:
+        return count_text_tokens(content, model_id=model_id)
+    except Exception as e:
+        # Same reasoning one level out: an unexpected tokenizer failure returns "unknown" rather
+        # than propagating. The rule that reads this already treats None as "do not route on it".
+        log_debug(f"Input token estimate unavailable; not routing on it: {e}")
+        return None
 
 
 def _stamp_resolved_model(agent: Any, run_response: Any, resolved: Any) -> bool:
@@ -788,6 +852,7 @@ def _run(
                     response_format,
                     run_response=run_response,
                     images=run_input.images,
+                    estimated_input_tokens=estimate_request_input_tokens(agent, run_input),
                 )
                 # `response_format` was derived from the pre-resolution model; re-derive it only
                 # if the model actually moved.
@@ -1228,6 +1293,7 @@ def _run_stream(
                     response_format,
                     run_response=run_response,
                     images=run_input.images,
+                    estimated_input_tokens=estimate_request_input_tokens(agent, run_input),
                 )
                 # `response_format` was derived from the pre-resolution model; re-derive it only
                 # if the model actually moved.
@@ -1769,6 +1835,8 @@ def run_dispatch(
         dependencies_provided=dependencies is not None,
         knowledge_filters_provided=knowledge_filters is not None,
         metadata_provided=metadata is not None,
+        run_id=run_id,
+        session_state=session_state,
     )
 
     # Prepare arguments for the model (must be after run_context is fully initialized)
@@ -1970,6 +2038,7 @@ async def _arun(
                     response_format,
                     run_response=run_response,
                     images=run_input.images,
+                    estimated_input_tokens=estimate_request_input_tokens(agent, run_input),
                 )
                 # `response_format` was derived from the pre-resolution model; re-derive it only
                 # if the model actually moved.
@@ -2669,6 +2738,7 @@ async def _arun_stream(
                     response_format,
                     run_response=run_response,
                     images=run_input.images,
+                    estimated_input_tokens=estimate_request_input_tokens(agent, run_input),
                 )
                 # `response_format` was derived from the pre-resolution model; re-derive it only
                 # if the model actually moved.
@@ -3254,6 +3324,8 @@ def arun_dispatch(  # type: ignore
         dependencies_provided=dependencies is not None,
         knowledge_filters_provided=knowledge_filters is not None,
         metadata_provided=metadata is not None,
+        run_id=run_id,
+        session_state=session_state,
     )
 
     # Prepare arguments for the model (must be after run_context is fully initialized)
@@ -3754,6 +3826,8 @@ def continue_run_dispatch(
         dependencies_provided=dependencies is not None,
         knowledge_filters_provided=knowledge_filters is not None,
         metadata_provided=metadata is not None,
+        run_id=run_id,
+        session_state=session_state,
     )
 
     # Resolve dependencies
@@ -4634,6 +4708,8 @@ def acontinue_run_dispatch(  # type: ignore
         dependencies_provided=dependencies is not None,
         knowledge_filters_provided=knowledge_filters is not None,
         metadata_provided=metadata is not None,
+        run_id=run_id,
+        session_state=_session_state,
     )
 
     response_format = get_response_format(agent, run_context=run_context) if agent.parser_model is None else None

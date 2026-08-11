@@ -29,6 +29,7 @@ from egpt.registry.hydrate import HydrationError, NoPublishedVersionError
 from egpt.registry.policy import PolicyViolationError
 from egpt.remote.base import RemoteDb, RemoteKnowledge
 from egpt.run.agent import RunOutputEvent
+from egpt.run.base import RunContext
 from egpt.run.team import TeamRunOutputEvent
 from egpt.run.workflow import WorkflowRunOutputEvent
 from egpt.settings import jwt_is_configured
@@ -799,6 +800,52 @@ def build_request_context(
         input=parsed_input,
         trusted=trusted,
         tenant_id=resolve_tenant_id(claims, user_id, verified_user_id=getattr(request.state, "user_id", None)),
+    )
+
+
+def build_run_context_for_request(
+    request: Optional[Any],
+    *,
+    session_id: str,
+    run_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> RunContext:
+    """A ``RunContext`` carrying the *verified* tenant for this HTTP request (EGPT-3.6).
+
+    The seam reads ``RunContext.tenant_id`` to select a ``ModelPolicy`` and, once EGPT-3.6's
+    enforcement lands, a spend budget. So the value must come from ``resolve_tenant_id`` and
+    nowhere else: that function requires either a verified JWT claim or a ``user_id`` that matches
+    the middleware-stamped identity, and returns ``None`` otherwise.
+
+    Deliberately does **not** accept a ``tenant_id`` argument. A caller-supplied tenant on this
+    path would be client-nameable -- the request body and query string are attacker-controlled --
+    and naming your own tenant selects another tenant's backend, adapter and ``config`` blob,
+    which may carry a base_url or credentials. That is the spoofability class PR #46 closed inside
+    ``resolve_tenant_id``; re-opening it one layer up would undo the fix.
+
+    ``request=None`` (a programmatic caller, or a route with no request in scope) yields
+    ``tenant_id=None``, which selects the default policy and no budget.
+    """
+    tenant_id: Optional[str] = None
+    if request is not None:
+        state = getattr(request, "state", None)
+        claims = getattr(state, "claims", None) or {}
+        tenant_id = resolve_tenant_id(
+            claims,
+            user_id,
+            verified_user_id=getattr(state, "user_id", None),
+        )
+
+    # `run_id` defaults to a placeholder the run replaces: RunContext requires one positionally,
+    # but the *authoritative* id is minted inside the run. A router passing its own forked it into
+    # two values, so callers on the run path deliberately omit it.
+    return RunContext(
+        run_id=run_id or "",
+        session_id=session_id,
+        user_id=user_id,
+        tenant_id=tenant_id,
+        metadata=metadata,
     )
 
 

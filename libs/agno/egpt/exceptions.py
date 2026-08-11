@@ -287,3 +287,74 @@ class RunNotContinuableError(ValueError):
     Subclasses ``ValueError`` so existing SDK callers that catch ``ValueError``
     keep working; the OS layer maps it to HTTP 409.
     """
+
+
+class BudgetExceededError(AgnoError):
+    """Raised when a tenant's configured token budget is exhausted (EGPT-3.6).
+
+    **Deliberately not a ``ModelProviderError``**, and that is load-bearing in two places:
+
+    * ``Model._is_retryable_error`` classifies 429 as retryable, so a denial raised as a provider
+      error would be re-attempted by the retry loop -- repeatedly, for a condition that cannot
+      succeed until the window rolls over.
+    * ``models/fallback.py`` catches ``ModelProviderError`` and tries the next model in the
+      fallback list. For a budget denial that means answering "you are out of budget" by calling a
+      *different, probably costlier* model, which is the opposite of enforcement.
+
+    Subclasses ``AgnoError`` so the OS layer's existing error mapping picks up ``status_code`` and
+    ``error_id`` without new plumbing. 429 rather than 402/403: the caller may succeed later
+    without changing anything about the request, which is precisely what 429 means. ``retry_after``
+    is surfaced so the OS layer can emit a ``Retry-After`` header when the window is known.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        tenant_id: Optional[str] = None,
+        limit: Optional[int] = None,
+        used: Optional[int] = None,
+        window: Optional[str] = None,
+        retry_after: Optional[int] = None,
+    ):
+        super().__init__(message, status_code=429)
+        self.tenant_id = tenant_id
+        self.limit = limit
+        self.used = used
+        self.window = window
+        self.retry_after = retry_after
+
+        self.type = "budget_exceeded_error"
+        self.error_id = "budget_exceeded_error"
+
+
+class RateLimitExceededError(AgnoError):
+    """Raised when a tenant exceeds its configured request rate (EGPT-3.6).
+
+    Separate from :class:`BudgetExceededError` because the two answer different questions -- "too
+    many requests, too fast" versus "no spend left in this window" -- and a caller may want to
+    handle them differently: the first is a back-off, the second usually needs a plan change.
+    Both carry the same not-a-``ModelProviderError`` rationale; see that class.
+
+    Distinct from ``ModelRateLimitError``, which reports a *provider's* 429 and is deliberately a
+    ``ModelProviderError`` so fallback can route around it. This one is the platform's own limit,
+    where routing around it would defeat it.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        tenant_id: Optional[str] = None,
+        limit: Optional[int] = None,
+        window: Optional[str] = None,
+        retry_after: Optional[int] = None,
+    ):
+        super().__init__(message, status_code=429)
+        self.tenant_id = tenant_id
+        self.limit = limit
+        self.window = window
+        self.retry_after = retry_after
+
+        self.type = "rate_limit_exceeded_error"
+        self.error_id = "rate_limit_exceeded_error"

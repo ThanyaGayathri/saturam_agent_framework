@@ -42,9 +42,19 @@ class ResolvedRunOptions:
         dependencies_provided: bool = False,
         knowledge_filters_provided: bool = False,
         metadata_provided: bool = False,
+        run_id: Optional[str] = None,
+        session_state: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Apply resolved options to run_context with precedence:
-        explicit args > existing run_context > resolved defaults."""
+        explicit args > existing run_context > resolved defaults.
+
+        ``run_id`` and ``session_state`` are reconciled here because a *caller-supplied*
+        ``run_context`` skips the constructor that would otherwise set them, and until EGPT-3.6 no
+        caller passed one on the HTTP path. Once the routers began passing a context to carry the
+        tenant, both fields silently fell into the dead branch: caller-supplied ``session_state``
+        stopped reaching the run, and the run minted a second ``run_id`` -- so
+        ``run_response.run_id`` and ``run_context.run_id`` diverged, leaking a ``_cancelled_runs``
+        entry per run and writing a ``current_run_id`` that matched no run."""
         if dependencies_provided:
             run_context.dependencies = self.dependencies
         elif run_context.dependencies is None:
@@ -59,6 +69,15 @@ class ResolvedRunOptions:
             run_context.metadata = self.metadata
         elif run_context.metadata is None:
             run_context.metadata = self.metadata
+
+        # The run owns the run_id: a context arriving without one (a router carrying only the
+        # tenant) must adopt the run's, never keep a placeholder or fork a second value.
+        if run_id is not None and not run_context.run_id:
+            run_context.run_id = run_id
+
+        # Caller-supplied session_state wins; otherwise the context keeps whatever it had.
+        if session_state is not None and run_context.session_state is None:
+            run_context.session_state = session_state
 
         # Always set output_schema from resolved options.
         # Unlike other fields, output_schema must always be updated because the same run_context

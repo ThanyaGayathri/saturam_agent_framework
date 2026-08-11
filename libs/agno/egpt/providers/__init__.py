@@ -18,6 +18,8 @@ is what makes EGPT-3.1's seam a no-op on every agent nobody configured: the chec
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
+    from egpt.providers.budget import BudgetEnforcer, BudgetLimits
+    from egpt.providers.budget_provider import BudgetAwareModelProvider
     from egpt.providers.config import ModelPolicy, PolicyKey, ProviderConfig
     from egpt.providers.config_provider import ConfigDrivenModelProvider
     from egpt.providers.escalation import EscalatingModelProvider, EscalationRule
@@ -44,6 +46,9 @@ if TYPE_CHECKING:
 __all__ = [
     "AsyncModelProvider",
     "BaseModelProvider",
+    "BudgetAwareModelProvider",
+    "BudgetEnforcer",
+    "BudgetLimits",
     "ConfigDrivenModelProvider",
     "DetailedModelProvider",
     "EscalatingModelProvider",
@@ -163,6 +168,9 @@ _LAZY_FROM_CONFIG_PROVIDER = ("ConfigDrivenModelProvider",)
 # Submodule-backed lazy exports, as name -> submodule. Same rule as above: the import happens
 # on first attribute access, never at package-import time.
 _LAZY_SUBMODULE = {
+    "BudgetAwareModelProvider": "egpt.providers.budget_provider",  # EGPT-3.6
+    "BudgetEnforcer": "egpt.providers.budget",
+    "BudgetLimits": "egpt.providers.budget",
     "FrontierModelProvider": "egpt.providers.mode_b",  # EGPT-3.4
     "GatewayRoute": "egpt.providers.gateways",
     "LocalModelProvider": "egpt.providers.mode_a",  # EGPT-3.3

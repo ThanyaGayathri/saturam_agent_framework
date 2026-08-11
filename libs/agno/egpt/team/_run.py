@@ -2074,6 +2074,8 @@ def run_dispatch(
             dependencies_provided=dependencies_provided,
             knowledge_filters_provided=knowledge_filters_provided,
             metadata_provided=metadata_provided,
+            run_id=run_id,
+            session_state=session_state,
         )
 
         # Resolve callable dependencies once before retry loop
@@ -4356,6 +4358,8 @@ def arun_dispatch(  # type: ignore
         dependencies_provided=dependencies_provided,
         knowledge_filters_provided=knowledge_filters_provided,
         metadata_provided=metadata_provided,
+        run_id=run_id,
+        session_state=session_state,
     )
 
     # Configure the model for runs
@@ -6599,6 +6603,14 @@ def continue_run_dispatch(
         run_context.metadata = opts.metadata
     elif run_context.metadata is None:
         run_context.metadata = opts.metadata
+    # The two fields the hand-rolled block above omitted. The Agent continue twins go through
+    # `apply_to_context`, which reconciles them; these paths inline the logic and skipped both, so a
+    # caller-supplied run_context would keep an empty run_id and lose its session_state. Latent
+    # while the routers pass no context on the continue paths, but the asymmetry is the bug.
+    if run_id is not None and not run_context.run_id:
+        run_context.run_id = run_id
+    if session_state is not None and run_context.session_state is None:
+        run_context.session_state = session_state
 
     # Resolve dependencies
     if run_context.dependencies is not None:
@@ -8013,6 +8025,13 @@ def acontinue_run_dispatch(  # type: ignore
         run_context.metadata = opts.metadata
     elif run_context.metadata is None:
         run_context.metadata = opts.metadata
+    # The two fields the hand-rolled block above omitted. The Agent continue twins go through
+    # `apply_to_context`, which reconciles them; these paths inline the logic and skipped both, so a
+    # caller-supplied run_context would keep an empty run_id and lose its session_state. Latent
+    # while the routers pass no context on the continue paths, but the asymmetry is the bug.
+    if run_id is not None and not run_context.run_id:
+        run_context.run_id = run_id
+    # (the async continue path builds its own session_state inline, so there is nothing to sync)
 
     response_format = get_response_format(team, run_context=run_context) if team.parser_model is None else None
 

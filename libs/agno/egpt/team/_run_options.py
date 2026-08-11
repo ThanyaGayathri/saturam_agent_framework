@@ -42,9 +42,16 @@ class ResolvedRunOptions:
         dependencies_provided: bool = False,
         knowledge_filters_provided: bool = False,
         metadata_provided: bool = False,
+        run_id: Optional[str] = None,
+        session_state: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Apply resolved options to run_context with precedence:
-        explicit args > existing run_context > resolved defaults."""
+        explicit args > existing run_context > resolved defaults.
+
+        ``run_id`` and ``session_state`` are reconciled here for the reason recorded on the Agent
+        twin (``agent/_run_options.py``): a *caller-supplied* run_context skips the constructor that
+        would otherwise set them, so once the HTTP routers began passing one to carry the tenant,
+        both fields silently fell into a dead branch."""
         if dependencies_provided:
             run_context.dependencies = self.dependencies
         elif run_context.dependencies is None:
@@ -63,6 +70,13 @@ class ResolvedRunOptions:
         # Always set output_schema from resolved options.
         # Unlike other fields, output_schema must always be updated because the same run_context
         # may be reused across workflow steps with different teams, each with their own output_schema.
+        # The run owns the run_id; a context arriving without one adopts it rather than keeping a
+        # placeholder or letting the run mint a second value.
+        if run_id is not None and not run_context.run_id:
+            run_context.run_id = run_id
+        if session_state is not None and run_context.session_state is None:
+            run_context.session_state = session_state
+
         run_context.output_schema = self.output_schema
 
 

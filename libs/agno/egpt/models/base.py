@@ -1247,6 +1247,60 @@ class Model(ABC):
                 model_response.tool_executions = []
             model_response.tool_executions.extend(provider_response.tool_executions)
 
+    def _finalize_call_accounting(self, metrics: Any) -> None:
+        """Cost and budget settlement for one completed call.
+
+        **One helper called from both response paths**, because they diverged: the first cut wired
+        cost (#163) and reconciliation (EGPT-3.6) only into `_populate_assistant_message`, and
+        streaming responses go through `_populate_assistant_message_from_stream_data` instead. With
+        the agents router defaulting `stream=True`, that left the *dominant* HTTP path with neither
+        a populated `MessageMetrics.cost` nor any budget reconciliation. A single entry point is the
+        fix for the class of bug, not just this instance.
+
+        Called after the token counts are final. Accounting must never fail a call that otherwise
+        succeeded, which is why the reconciliation half is guarded.
+        """
+        self._apply_cost_to_metrics(metrics)
+        try:
+            from egpt.providers.budget_runtime import reconcile_reservation
+
+            reconcile_reservation(metrics, model=self)
+        except Exception as e:
+            log_debug(f"Budget reconciliation unavailable: {e}")
+
+    def _apply_cost_to_metrics(self, metrics: Any) -> None:
+        """Populate ``metrics.cost`` from token counts when the provider did not report one.
+
+        Hooked here rather than in each provider: every provider funnels through
+        ``_populate_assistant_message``, so this is one edit instead of 46, and a new provider gets
+        costing without doing anything.
+
+        **A provider-reported cost is never overwritten.** OpenRouter, Portkey and LiteLLM inject
+        the amount they actually charged into the usage payload; that is authoritative in a way a
+        computed estimate is not, so computation only fills the gap (aicoe-tracker#163).
+
+        An unpriced model leaves ``cost`` as ``None`` -- a reporting gap, rather than a confidently
+        wrong invoice.
+        """
+        if metrics is None or getattr(metrics, "cost", None) is not None:
+            return
+        try:
+            from egpt.models.pricing import compute_cost
+            from egpt.providers.model_provider import BaseModelProvider
+
+            metrics.cost = compute_cost(
+                provider_key=BaseModelProvider._registry_key_for(self),
+                model_id=getattr(self, "id", None),
+                input_tokens=getattr(metrics, "input_tokens", 0) or 0,
+                output_tokens=getattr(metrics, "output_tokens", 0) or 0,
+                cache_read_tokens=getattr(metrics, "cache_read_tokens", 0) or 0,
+                reasoning_tokens=getattr(metrics, "reasoning_tokens", 0) or 0,
+            )
+        except Exception as e:
+            # Costing is reporting, not serving: it must never be able to fail a call that
+            # otherwise succeeded. Same principle as the input-token estimate in agent/_run.py.
+            log_debug(f"Cost computation unavailable for this call: {e}")
+
     def _populate_assistant_message(
         self,
         assistant_message: Message,
@@ -1328,6 +1382,15 @@ class Model(ABC):
             # Set time_to_first_token if we have content and it's not already set
             if provider_response.content is not None and assistant_message.metrics.time_to_first_token is None:
                 assistant_message.metrics.set_time_to_first_token()
+
+        # Accounting runs for every completed call, NOT only for calls the vendor reported usage
+        # for. Every provider sets `response_usage` under an `if response.usage is not None` guard,
+        # so a turn whose usage the vendor omits (or whose parse dropped it) used to skip this block
+        # entirely -- and with it, budget settlement for that turn. The reservation then stood at
+        # its estimate, under-counting exactly the turns whose cost is least visible. Settling zero
+        # tokens for a genuinely usage-less turn is correct; skipping the settle is not.
+        if assistant_message.metrics is not None:
+            self._finalize_call_accounting(assistant_message.metrics)
 
         return assistant_message
 
@@ -1900,6 +1963,12 @@ class Model(ABC):
             assistant_message.role = stream_data.response_role
         if stream_data.response_metrics is not None:
             assistant_message.metrics = stream_data.response_metrics
+        # Same accounting as the non-streaming path -- see `_finalize_call_accounting`. Streaming is
+        # the default on the HTTP routers, so omitting it here meant most real traffic got neither a
+        # cost nor a settled reservation. Outside the `response_metrics` guard for the same reason as
+        # the non-streaming path: a stream that carried no usage chunk must still settle its turn.
+        if assistant_message.metrics is not None:
+            self._finalize_call_accounting(assistant_message.metrics)
         if stream_data.response_content:
             assistant_message.content = stream_data.response_content
         if stream_data.response_reasoning_content:

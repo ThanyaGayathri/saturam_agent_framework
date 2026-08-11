@@ -34,7 +34,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import Any, Dict, Iterable, Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, Mapping, Optional, Tuple
+
+if TYPE_CHECKING:
+    from egpt.providers.budget import BudgetLimits
 
 from egpt.providers.model_provider import ModelProviderConfigError, ProviderMode
 
@@ -99,6 +102,12 @@ class ModelPolicy:
     config: Mapping[str, Any] = field(default_factory=dict)
     # Human-readable note carried onto ``ModelResolveResult.reason``.
     reason: Optional[str] = None
+    # Per-tenant spend and rate ceiling (EGPT-3.6). None means "no budget", which is the
+    # pre-EGPT-3.6 behaviour and costs nothing on the hot path: the enforcer returns before any
+    # counter read. Carried on the policy rather than in a separate document because a budget is
+    # a property of *what this identity gets*, exactly like the mode and the backend -- keeping
+    # it here means one lookup answers both "which model" and "how much of it".
+    budget: Optional["BudgetLimits"] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", _parse_mode(self.mode, field_name="mode"))
@@ -159,7 +168,7 @@ class ModelPolicy:
                 f"A model policy must be a mapping, got {type(data).__name__}.",
                 field_name="policy",
             )
-        known = {"mode", "model_id", "provider_key", "adapter", "config", "reason"}
+        known = {"mode", "model_id", "provider_key", "adapter", "config", "reason", "budget"}
         unknown = sorted(set(data) - known)
         if unknown:
             raise ModelProviderConfigError(
@@ -178,7 +187,52 @@ class ModelPolicy:
             adapter=data.get("adapter"),
             config=data.get("config") or {},
             reason=data.get("reason"),
+            budget=_parse_budget(data.get("budget")),
         )
+
+
+def _parse_budget(value: Any) -> Optional["BudgetLimits"]:
+    """Build ``BudgetLimits`` from a policy document's ``budget`` block, or ``None``.
+
+    Wraps ``BudgetLimits``'s own ``ValueError`` into a ``ModelProviderConfigError`` carrying the
+    offending field name. Without that, a typo'd window in a JSON policy file surfaced as a bare
+    builtin error with no attribution -- invisible to every ``except ModelProviderConfigError``
+    handler, which is the same gap the ``config`` mapping check above exists to close.
+
+    Imported inside the function: ``providers/budget.py`` is pure mechanism and importing it at
+    module scope would make every ``import egpt.providers.config`` pay for it, including the
+    deployments that never configure a budget.
+    """
+    if value is None:
+        return None
+
+    from egpt.providers.budget import BudgetLimits
+
+    if not isinstance(value, Mapping):
+        raise ModelProviderConfigError(
+            f"budget must be a mapping of limits, got {type(value).__name__}.",
+            field_name="budget",
+        )
+
+    known = {"max_tokens", "max_requests", "window"}
+    unknown = sorted(set(value) - known)
+    if unknown:
+        # Same posture as the policy-level check: an unrecognised key is a typo that would
+        # otherwise be silently dropped, leaving an operator believing a limit is in force.
+        raise ModelProviderConfigError(
+            f"Unknown budget field(s): {', '.join(unknown)}. Known fields: {', '.join(sorted(known))}.",
+            field_name=unknown[0],
+        )
+
+    try:
+        return BudgetLimits(
+            max_tokens=value.get("max_tokens"),
+            max_requests=value.get("max_requests"),
+            window=value.get("window", "hour"),
+        )
+    except ValueError as e:
+        field = "window" if "window" in str(e) else ("max_tokens" if "max_tokens" in str(e) else "max_requests")
+        raise ModelProviderConfigError(str(e), field_name=field) from None
 
 
 # (tenant_id, agent_id, role). ``None`` in a slot means "any". Kept as a plain tuple rather

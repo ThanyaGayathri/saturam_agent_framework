@@ -20,9 +20,14 @@ This module is the contract four other tickets code against, so it is deliberate
   convenience base for the providers this repository ships; satisfying the Protocol directly
   is equally valid.
 
-FROZEN as of EGPT-3.1. EGPT-3.2 (#64), 3.3 (#65), 3.4 (#66) and 3.5 (#67) are built in
+FROZEN as of EGPT-3.1. EGPT-3.2 (#64), 3.3 (#65), 3.4 (#66) and 3.5 (#67) were built in
 parallel against this file. Additive changes only: new fields carry defaults, and no field is
 removed or retyped without re-cutting all four branches.
+
+EGPT-3.6 (#68) adds `budget_remaining_tokens` / `max_tokens_this_run` under that rule -- both
+default to None, both join `__hash__`, and neither touches the reserved `budget_remaining_usd` /
+`max_cost_usd` pair, which #163 now gives a real source and which a future USD budget will want
+for their literal meaning.
 """
 
 from __future__ import annotations
@@ -125,6 +130,18 @@ class ModelResolveRequest:
     budget_remaining_usd: Optional[float] = None
     max_cost_usd: Optional[float] = None
 
+    # -- token budget (EGPT-3.6) -------------------------------------------
+    # Deliberately a *separate* pair from the reserved `_usd` fields above rather than a
+    # reinterpretation of them: #163 now populates `MessageMetrics.cost`, so a USD budget has a
+    # real source and will want those fields for their literal meaning. Conflating the two would
+    # make a dollar budget indistinguishable from a token budget at every reader.
+    #
+    # `budget_remaining_tokens` is what the tenant has left in the current window; a provider
+    # reads it to decide whether it can afford the tier it would otherwise pick.
+    # `max_tokens_this_run` is the per-run ceiling, which a downgrade sets when headroom is thin.
+    budget_remaining_tokens: Optional[int] = None
+    max_tokens_this_run: Optional[int] = None
+
     # -- escape hatch -------------------------------------------------------
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
@@ -178,6 +195,11 @@ class ModelResolveRequest:
                 self.adapter,
                 self.escalation_level,
                 self.max_escalations,
+                # EGPT-3.6. Both join the hash for the reason the comment above gives: a field
+                # that participates in `==` (every dataclass field does) must participate here, or
+                # two unequal requests collide and a cache serves one tenant's answer to another.
+                self.budget_remaining_tokens,
+                self.max_tokens_this_run,
             )
         )
 
@@ -310,6 +332,13 @@ class ModelProvider(Protocol):
     is not request-specific; anything that varies per request (a LoRA adapter, a per-tenant
     base_url) must return a fresh instance, because ``Model`` is a mutable dataclass and
     orchestration assigns to ``model.model_type``.
+
+    **A resolve must return a per-request ``Model`` instance.** EGPT-3.6 keys a budget reservation
+    on the returned model to settle it against real usage after the call, so a provider that returns
+    a cached or singleton model would have two concurrent requests share one reservation and
+    mis-settle both, silently. Every in-tree provider satisfies this by construction --
+    ``discovery.construct`` caches nothing -- but this Protocol exists for third-party
+    implementations, so the requirement is stated rather than assumed.
     """
 
     #: Stable identifier, for logs and registry keying. e.g. "mode-a", "mode-b".

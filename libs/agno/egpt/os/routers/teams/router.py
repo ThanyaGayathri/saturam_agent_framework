@@ -46,6 +46,7 @@ from egpt.os.schema import (
 )
 from egpt.os.settings import EgptServingSettings
 from egpt.os.utils import (
+    build_run_context_for_request,
     classify_upload_file,
     find_factory_by_id,
     format_sse_event,
@@ -83,6 +84,7 @@ async def team_response_streamer(
     files: Optional[List[FileMedia]] = None,
     background_tasks: Optional[BackgroundTasks] = None,
     auth_token: Optional[str] = None,
+    run_context: Optional[Any] = None,
     **kwargs: Any,
 ) -> AsyncGenerator:
     """Run the given team asynchronously and yield its response"""
@@ -104,6 +106,7 @@ async def team_response_streamer(
             input=message,
             session_id=session_id,
             user_id=user_id,
+            run_context=run_context,
             images=images,
             audio=audio,
             videos=videos,
@@ -149,6 +152,7 @@ async def team_resumable_response_streamer(
     files: Optional[List[FileMedia]] = None,
     background_tasks: Optional[BackgroundTasks] = None,
     auth_token: Optional[str] = None,
+    run_context: Optional[Any] = None,
     **kwargs: Any,
 ) -> AsyncGenerator:
     """Resumable SSE generator for background=True, stream=True.
@@ -176,6 +180,7 @@ async def team_resumable_response_streamer(
             input=message,
             session_id=session_id,
             user_id=user_id,
+            run_context=run_context,
             images=images,
             audio=audio,
             videos=videos,
@@ -675,6 +680,21 @@ def get_team_router(
         # Extract auth token for remote teams
         auth_token = get_auth_token_from_request(request)
 
+        # The run's tenant, resolved from the *verified* request (EGPT-3.6). See the note in the
+        # agents router: built here because `resolve_tenant_id` needs the request's claims and the
+        # middleware-stamped identity, and a RunContext keeps the tenant unnameable by the client.
+        # NOTE: no run_id and no session_state here. `_arun` mints the run_id and
+        # `ResolvedRunOptions.apply_to_context` reconciles neither field onto a caller-supplied
+        # context, so minting one here forked it into two values -- `run_response.run_id` !=
+        # `run_context.run_id` -- leaking a `_cancelled_runs` entry per run and writing a
+        # `current_run_id` matching no run. Passing session_state here would likewise have been
+        # dropped. Both are threaded as ordinary kwargs instead, which the run already honours.
+        _run_ctx = build_run_context_for_request(
+            request,
+            session_id=session_id,
+            user_id=user_id,
+        )
+
         # Background execution
         if background:
             if isinstance(team, RemoteTeam):
@@ -696,6 +716,7 @@ def get_team_router(
                         files=document_files if document_files else None,
                         background_tasks=background_tasks,
                         auth_token=auth_token,
+                        run_context=_run_ctx,
                         **kwargs,
                     ),
                     media_type="text/event-stream",
@@ -711,6 +732,7 @@ def get_team_router(
                 input=message,
                 session_id=session_id,
                 user_id=user_id,
+                run_context=_run_ctx,
                 images=base64_images if base64_images else None,
                 audio=base64_audios if base64_audios else None,
                 videos=base64_videos if base64_videos else None,
@@ -755,6 +777,7 @@ def get_team_router(
                     input=message,
                     session_id=session_id,
                     user_id=user_id,
+                    run_context=_run_ctx,
                     images=base64_images if base64_images else None,
                     audio=base64_audios if base64_audios else None,
                     videos=base64_videos if base64_videos else None,

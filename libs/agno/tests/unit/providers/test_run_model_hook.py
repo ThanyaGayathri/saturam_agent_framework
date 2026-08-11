@@ -862,3 +862,89 @@ class TestModelChangedIsNotIdentityOnly:
         agent = StubAgent(model=FakeModel(id="small"))
 
         assert _stamp_resolved_model(agent, None, FakeModel(id="frontier")) is True
+
+
+class TestTenantReachesTheProvider:
+    """EGPT-3.6 unit 1. Nothing populated `ModelResolveRequest.tenant_id` before this, so
+    `ProviderConfig.lookup` fell through to the default policy on every request and EGPT-3.2's
+    per-tenant resolution -- its headline capability -- was inert."""
+
+    def test_the_run_contexts_tenant_is_passed_to_the_provider(self, primary, frontier):
+        agent = StubAgent(
+            model=FakeModel(id="small"),
+            model_provider=EscalatingModelProvider(primary=primary, escalation_target=frontier),
+        )
+
+        apply_run_model(agent, RunContext(run_id="r", session_id="s", tenant_id="acme"), tools=None)
+
+        assert primary.calls[0].tenant_id == "acme"
+
+    def test_an_untenanted_run_passes_none(self, primary, frontier):
+        """None selects the default policy -- the behaviour of every deployment that has not
+        configured tenancy."""
+        agent = StubAgent(
+            model=FakeModel(id="small"),
+            model_provider=EscalatingModelProvider(primary=primary, escalation_target=frontier),
+        )
+
+        apply_run_model(agent, RunContext(run_id="r", session_id="s"), tools=None)
+
+        assert primary.calls[0].tenant_id is None
+
+
+class TestTokenEstimate:
+    """EGPT-3.6 unit 1. EGPT-3.5 threaded `estimated_input_tokens` but nothing computed it, so
+    `input_exceeds_context_window` could not fire from run() at all."""
+
+    def test_a_string_input_is_estimated(self):
+        from egpt.agent._run import estimate_request_input_tokens
+
+        class RunInput:
+            input_content = "x" * 400
+
+        estimate = estimate_request_input_tokens(StubAgent(model=FakeModel(id="gpt-4o")), RunInput())
+
+        assert estimate is not None and estimate > 0
+
+    def test_a_non_string_input_is_measured_from_its_serialized_form(self):
+        """Originally this returned None on the reasoning that declining beats guessing. That was
+        right for routing and wrong once budgets landed: `estimated_input_tokens` is what the seam
+        *reserves*, so None reserved zero and N concurrent structured-input requests from one
+        tenant each passed a check none of them should have. An approximate charge that
+        reconciliation corrects beats a zero charge that nothing corrects."""
+        from egpt.agent._run import estimate_request_input_tokens
+
+        class ListInput:
+            input_content = ["a", "b"]
+
+        estimate = estimate_request_input_tokens(StubAgent(model=FakeModel(id="gpt-4o")), ListInput())
+
+        assert estimate is not None and estimate > 0
+
+    def test_absent_input_is_unknown(self):
+        from egpt.agent._run import estimate_request_input_tokens
+
+        class NoInput:
+            input_content = None
+
+        assert estimate_request_input_tokens(StubAgent(model=FakeModel(id="gpt-4o")), NoInput()) is None
+
+    def test_a_non_string_model_id_does_not_crash_the_run(self):
+        """A routing estimate must never fail a call it is only advising on.
+
+        `AsyncMock().id` is a *coroutine*, and `count_text_tokens` calls `.lower()`/`.startswith()`
+        on whatever model id it is handed -- so passing it through raised
+        `'coroutine' object has no attribute 'startswith'` from inside the run. Caught in CI by
+        `tests/unit/telemetry/`, which builds its agent with an AsyncMock model; it passed locally
+        because that suite was not in the set I ran before pushing.
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        from egpt.agent._run import estimate_request_input_tokens
+
+        class RunInput:
+            input_content = "a test run"
+
+        for label, model in (("AsyncMock", AsyncMock()), ("MagicMock", MagicMock()), ("None", None)):
+            estimate = estimate_request_input_tokens(StubAgent(model=model), RunInput())
+            assert estimate is None or estimate >= 0, f"{label} model should degrade, not raise"

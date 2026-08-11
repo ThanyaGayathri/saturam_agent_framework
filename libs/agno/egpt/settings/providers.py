@@ -18,12 +18,15 @@ placeholder reference to silence it is worse than three branches touching one im
 
 from __future__ import annotations
 
-from typing import Any, List, Optional, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Union
 
 from pydantic import Field
 
 from egpt.settings.sources import BrandedSettings, bare_env_name, vendor_env
 from egpt.utils.env import get_branded_env_with_bare_fallback
+
+if TYPE_CHECKING:
+    from egpt.providers.budget import BudgetLimits
 
 
 class ProviderSettings(BrandedSettings):
@@ -146,7 +149,43 @@ class ProviderSettings(BrandedSettings):
     mode_b_gateway_base_url: Optional[str] = None
     mode_b_gateway_virtual_key: Optional[str] = Field(default=None, json_schema_extra=vendor_env("PORTKEY_VIRTUAL_KEY"))
 
+    # -- per-tenant budget (EGPT-3.6) --------------------------------------
+    # A deployment-wide default budget, applied to any tenant whose policy names none. The
+    # per-tenant value on `ModelPolicy.budget` always wins -- this is the floor for deployments
+    # that want a blanket ceiling without writing a policy row per tenant.
+    #
+    # All three unset means no budget anywhere, which is the pre-EGPT-3.6 behaviour and costs
+    # nothing: the enforcer returns before touching a counter.
+    budget_max_tokens: Optional[int] = None
+    budget_max_requests: Optional[int] = None
+    budget_window: str = "hour"
+
+    # Where counters live. Unset means the in-memory store, which counts per worker process --
+    # `BudgetEnforcer` warns about that at construction because with N workers the effective
+    # limit is N times the configured value. Set a redis:// URL for accurate multi-worker
+    # enforcement (EGPT-3.6 unit 7).
+    budget_redis_url: Optional[str] = None
+
     # -- derived views -----------------------------------------------------
+
+    @property
+    def default_budget(self) -> Optional["BudgetLimits"]:
+        """The deployment-wide default budget, or ``None`` when nothing is configured.
+
+        Returns ``None`` rather than a disabled ``BudgetLimits`` so the caller's ``is None`` check
+        is the whole hot-path guard -- constructing an object that constrains nothing would make
+        every no-budget deployment pay for the allocation on every resolve.
+        """
+        if self.budget_max_tokens is None and self.budget_max_requests is None:
+            return None
+
+        from egpt.providers.budget import BudgetLimits
+
+        return BudgetLimits(
+            max_tokens=self.budget_max_tokens,
+            max_requests=self.budget_max_requests,
+            window=self.budget_window,
+        )
 
     @property
     def mode_a_allowed_hosts_list(self) -> List[str]:

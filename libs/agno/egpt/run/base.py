@@ -18,6 +18,21 @@ class RunContext:
     session_id: str
     user_id: Optional[str] = None
 
+    # Which tenant this run belongs to (EGPT-3.6). Read by the model-provider seam for
+    # per-tenant policy lookup (EGPT-3.2) and per-tenant budget enforcement.
+    #
+    # Carried here, explicitly, rather than in a ContextVar. `factory/utils.py` rejects that
+    # mechanism on exactly this field and gives the reason: Agent dispatches tool calls onto a
+    # ThreadPoolExecutor, and an ambient value on a tenancy boundary that survives an executor
+    # handoff is a cross-tenant leak. `RunContext` is already threaded to every consumer that
+    # needs it, so the explicit field costs nothing that the ambient one would have saved.
+    #
+    # `RequestContext.tenant_id` is the HTTP-boundary counterpart; it does not survive into
+    # `run()`, which is why this exists separately rather than being read off that object.
+    # None means "no tenant", which selects the default policy and no budget -- the pre-EGPT-3.6
+    # behaviour for every deployment that has not configured tenancy.
+    tenant_id: Optional[str] = None
+
     workflow_id: Optional[str] = None
     workflow_name: Optional[str] = None
 

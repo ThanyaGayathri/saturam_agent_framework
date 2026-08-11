@@ -82,6 +82,28 @@ falling back to the static name table.
 ---
 
 
+### tenant_budget.py
+
+**Status:** PASS
+
+**Description:** Per-tenant token budget and rate limiting (EGPT-3.6). Exercises all six ACs
+without a server, database or model call: a tenant with headroom resolving, per-agent attribution
+within a tenant, tenant isolation, an exhausted tenant refused *before* the inner resolver is
+consulted (asserted as 0 calls), and a rate cap raising the distinct `RateLimitExceededError`.
+Closes with the installation snippet an operator needs, since enforcement is inert until the
+provider is installed.
+
+Also demonstrates multi-turn settlement through the real chokepoint
+(`_populate_assistant_message`), because that is the part of this feature that broke three times in
+review: the seam resolves one model per run, but the tool loop invokes it once per turn and each
+turn reports only its own usage. Two successive fixes assumed a cumulative total and left a
+tool-using agent counted at roughly 1/N.
+
+**Result:** Runs clean. Refusal shows `1500/1000 per hour` with `retry_after=3600` and
+`inner resolver consulted: 0 times`, which is the AC1 "before the model call" property. The
+multi-turn section prints `100 -> 700 -> 1400 -> 2100` for three 700-token turns against a
+100-token estimate, so each turn charges its own actual and the estimate nets out exactly once.
+
 ### tenant_scoped_hydration.py
 
 **Status:** PASS
