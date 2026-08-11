@@ -5,9 +5,11 @@ from egpt.memory.strategies import (
     MemoryOptimizationStrategyType,
     SummarizeStrategy,
 )
+from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
 from egpt.memory.types import (
     ConsolidationReport,
+    FactWrite,
     MemoryEvent,
     MemoryQuery,
     MemoryRecord,
@@ -27,6 +29,7 @@ __all__ = [
     # Symbiotic Memory seam envelope (SM-C1)
     "PERSISTENT_TIERS",
     "ConsolidationReport",
+    "FactWrite",
     "MemoryEvent",
     "MemoryQuery",
     "MemoryRecord",
@@ -35,4 +38,7 @@ __all__ = [
     "Scope",
     "Substrate",
     "WriteReceipt",
+    # Substrate ports (SM-C1)
+    "GraphSubstrate",
+    "VectorSubstrate",
 ]

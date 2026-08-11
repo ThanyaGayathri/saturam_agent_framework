@@ -28,6 +28,7 @@ from egpt.utils.dttm import to_epoch_s
 
 __all__ = [
     "ConsolidationReport",
+    "FactWrite",
     "MemoryEvent",
     "MemoryQuery",
     "MemoryRecord",
@@ -175,6 +176,41 @@ class MemoryEvent:
 
     def __post_init__(self) -> None:
         self.occurred_at = _epoch_or_none(self.occurred_at)
+
+
+@dataclass
+class FactWrite:
+    """The argument shape for writing a distilled semantic fact to the graph substrate.
+
+    Not a stored schema -- it composes :class:`MemoryRecord` (which carries content, id, scope,
+    and the bi-temporal envelope) with the subject/predicate/object structure a graph write needs
+    but an episode write does not.
+
+    This exists because the port previously exposed only ``upsert_episode``, which forced
+    consolidation to write a distilled fact as a flat, provenance-carrying pseudo-episode rather
+    than the entity/relation shape SM-R7 intends (finding F9, assigned to SM-C1).
+
+    Field names mirror SM-R12's ``SemanticFact`` (``subject`` / ``predicate`` / ``object`` /
+    ``confidence`` / ``source_episode_ids`` / ``derived_by``) so SM-C3 maps this onto the persisted
+    row 1:1. SPO is optional structure over the free-text statement in ``record.content``, exactly
+    as it is there -- a fact that resists triple extraction is still storable.
+    """
+
+    record: MemoryRecord
+    subject: Optional[str] = None
+    predicate: Optional[str] = None
+    object: Optional[str] = None
+    confidence: float = 1.0
+    #: Provenance: which episodes this fact was distilled from. First-class rather than a
+    #: ``record.provenance`` key because SM-R7 section 7 makes it load-bearing -- it is populated at
+    #: extraction and unioned forward on UPDATE/NOOP, so a consolidation pass that drops it
+    #: silently breaks the fact -> episode audit trail.
+    source_episode_ids: List[str] = field(default_factory=list)
+    derived_by: Optional[str] = None  # the strategy/pass that produced it
+
+    def is_triple(self) -> bool:
+        """Whether this fact carries the full SPO structure a graph edge requires."""
+        return bool(self.subject and self.predicate and self.object)
 
 
 @dataclass
