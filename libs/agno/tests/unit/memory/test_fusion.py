@@ -132,7 +132,19 @@ def test_a_smaller_k_sharpens_the_top_of_the_ranking():
 # ---------------------------------------------------------------------------
 
 
-def test_ties_break_on_id_so_rankings_are_reproducible():
+def test_ties_keep_the_substrates_own_order_rather_than_sorting_by_id():
+    """A flat leg ties on score, so the tie-break is a real ranking decision.
+
+    The leg returned these in an order it considered meaningful and fusion has no better
+    information when scores agree. Sorting by id would give aaa/mmm/zzz -- and since real ids are
+    UUIDs, it would reorder equal-scoring records for every fresh set of writes.
+    """
+    flat = [rec("zzz", score=0.5), rec("aaa", score=0.5), rec("mmm", score=0.5)]
+
+    assert [r.id for r in fuse_weighted([flat, []], weights=[1.0, 0.0])] == ["zzz", "aaa", "mmm"]
+
+
+def test_a_ranking_is_reproducible_across_calls():
     legs = [[rec("b", score=0.5), rec("a", score=0.5), rec("c", score=0.5)]]
 
     assert [r.id for r in fuse_rrf(legs)] == [r.id for r in fuse_rrf(legs)]

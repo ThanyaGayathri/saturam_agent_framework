@@ -28,6 +28,17 @@ def overlap(query: str, content: str) -> float:
     return 0.0 if not q or not c else len(q & c) / len(q | c)
 
 
+def _ranked(hits: List[MemoryRecord]) -> List[MemoryRecord]:
+    """Drop non-matches and sort by score, keeping insertion order for ties.
+
+    The tie-break matters even in a double. Python's sort is stable, so equal scores come back in
+    write order -- which is what a real backend's own ranking would supply. Breaking ties on ``id``
+    instead would order by UUID, making the double's output differ between runs and turning the
+    swap proof's determinism check into a coin flip.
+    """
+    return sorted([hit for hit in hits if hit.score], key=lambda r: -(r.score or 0.0))
+
+
 class FakeVector:
     """An in-memory VectorSubstrate keyed by tenant."""
 
@@ -57,7 +68,7 @@ class FakeVector:
             for record in self._bucket(scope).values()
             if record.tier in tiers
         ]
-        return sorted([h for h in hits if h.score], key=lambda r: (-(r.score or 0.0), r.id))
+        return _ranked(hits)
 
     async def asearch(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
         self.calls.append("asearch")
@@ -140,7 +151,7 @@ class FakeGraph:
             for row in self._bucket(scope)
             if row.tier in tiers and row.is_current_belief()  # current belief only, SM-R10 §7 5a
         ]
-        return sorted([h for h in hits if h.score], key=lambda r: (-(r.score or 0.0), r.id))
+        return _ranked(hits)
 
     async def atraverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None

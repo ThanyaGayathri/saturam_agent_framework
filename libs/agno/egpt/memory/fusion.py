@@ -70,26 +70,43 @@ def merge_tightest_bounds(kept: MemoryRecord, incoming: MemoryRecord) -> None:
         kept.provenance = merged
 
 
-def _fold(fused: Dict[str, MemoryRecord], record: MemoryRecord, score: float) -> None:
+def _fold(
+    fused: Dict[str, MemoryRecord],
+    order: Dict[str, int],
+    record: MemoryRecord,
+    score: float,
+) -> None:
     """Accumulate one leg's hit into the fused set, adding scores for records seen twice.
 
     Dedup is by ``id``, which is why one logical episode must carry one id across both substrates
     (finding F1). A record found by both legs is *more* relevant, so the scores sum -- and its
     ``substrate`` is cleared, because the fused record no longer comes from one place.
+
+    ``order`` remembers when each id was first seen, which is what breaks ties below.
     """
     existing = fused.get(record.id)
     if existing is None:
-        copy = MemoryRecord(**{**vars(record), "score": score})
-        fused[record.id] = copy
+        fused[record.id] = MemoryRecord(**{**vars(record), "score": score})
+        order[record.id] = len(order)
         return
     existing.score = (existing.score or 0.0) + score
     existing.substrate = None
     merge_tightest_bounds(existing, record)
 
 
-def _ranked(fused: Dict[str, MemoryRecord]) -> List[MemoryRecord]:
-    """Highest score first, ties broken by id so a ranking is reproducible run to run."""
-    return sorted(fused.values(), key=lambda r: (-(r.score or 0.0), r.id))
+def _ranked(fused: Dict[str, MemoryRecord], order: Dict[str, int]) -> List[MemoryRecord]:
+    """Highest score first; ties break on **first-seen order**, not on id.
+
+    Ties are common -- two equally good hits, or a flat leg where every score normalizes to 1.0 --
+    so what breaks them is a real ranking decision rather than a detail.
+
+    First-seen order means the substrates' own ranking survives: the leg returned them in an order
+    it considered meaningful, and fusion has no better information when the scores agree. Sorting
+    by ``id`` instead looks stable but is not: ids are UUIDs, so equal-scoring records would come
+    back in a different order for every fresh set of writes, and two deployments holding identical
+    content would rank it differently.
+    """
+    return sorted(fused.values(), key=lambda r: (-(r.score or 0.0), order[r.id]))
 
 
 def fuse_weighted(
@@ -106,10 +123,11 @@ def fuse_weighted(
         raise ValueError(f"fuse_weighted got {len(legs)} legs and {len(weights)} weights; they must match.")
 
     fused: Dict[str, MemoryRecord] = {}
+    order: Dict[str, int] = {}
     for records, weight in zip(legs, weights):
         for record, norm in zip(records, _minmax(_positional_scores(records))):
-            _fold(fused, record, weight * norm)
-    return _ranked(fused)
+            _fold(fused, order, record, weight * norm)
+    return _ranked(fused, order)
 
 
 def fuse_rrf(legs: Sequence[Sequence[MemoryRecord]], k: int = 60) -> List[MemoryRecord]:
@@ -119,10 +137,11 @@ def fuse_rrf(legs: Sequence[Sequence[MemoryRecord]], k: int = 60) -> List[Memory
     comparably scaled, and its weakness when they are. Reserved for the SM-G9 graph-join case.
     """
     fused: Dict[str, MemoryRecord] = {}
+    order: Dict[str, int] = {}
     for records in legs:
         for rank, record in enumerate(records, start=1):
-            _fold(fused, record, 1.0 / (k + rank))
-    return _ranked(fused)
+            _fold(fused, order, record, 1.0 / (k + rank))
+    return _ranked(fused, order)
 
 
 def substrate_of(records: Sequence[MemoryRecord]) -> Optional[Substrate]:

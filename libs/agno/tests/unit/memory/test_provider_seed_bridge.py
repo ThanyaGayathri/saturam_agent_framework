@@ -36,6 +36,9 @@ class FakeManager:
         memory.memory_id = memory.memory_id or f"m{len(self.added)}"
         memory.user_id = user_id
         self.added.append(memory)
+        # Also readable: the real manager persists, so a double where a write is invisible to the
+        # next read would let a round-trip bug pass.
+        self.memories.append(memory)
         return memory.memory_id
 
 
