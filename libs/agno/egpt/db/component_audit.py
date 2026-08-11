@@ -28,12 +28,16 @@ orders the history. ``created_at`` has second resolution, so an update followed 
 a publish shares a timestamp and could come back in either order; the read endpoint has to
 return the two in the order they happened.
 
-It is deliberately *not* a per-component ``max(seq) + 1`` counter. That is the technique
-``upsert_config`` already uses for config version numbers, but borrowing it here would put an
-unguarded read-modify-write race into ``upsert_component`` and ``delete_component``, which have
-none today: two concurrent changes to one component would compute the same counter and one
-would fail on the primary key. Since the audit write is fail-closed, that failure would take a
-legitimate mutation down with it. A sequence has no such contention.
+It is deliberately *not* a per-component ``max(seq) + 1`` counter. ``upsert_config`` already
+uses that technique for config version numbers -- but only as a name for the pattern being
+avoided, not as an endorsement: that counter has the identical unlocked read-modify-write, and
+is only saved from corrupting data by the primary key turning a lost race into an
+``IntegrityError`` instead. It is not safe prior art to copy from, and this module does not
+copy it. Borrowing it here would put an unguarded read-modify-write race into
+``upsert_component`` and ``delete_component``, which have none today: two concurrent changes to
+one component would compute the same counter and one would fail on the primary key. Since the
+audit write is fail-closed, that failure would take a legitimate mutation down with it. A
+sequence has no such contention.
 
 ``set_current_version`` already has a read-modify-write of its own -- it reads
 ``current_version`` to report what a rollback moved away from -- so a ``max(seq)+1`` counter
