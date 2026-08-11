@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Sequence
 
 import pytest
 
+from egpt.memory import config as config_module
 from egpt.memory.config import (
     DEFAULT_FUSION,
     MemoryProviderConfig,
@@ -79,10 +80,18 @@ class StubProvider(MemoryProvider):
 
 @pytest.fixture(autouse=True)
 def clean_registry():
-    """Registration is global and duplicate registration is an error -- isolate every test."""
+    """Isolate the global registry, then put back exactly what was there.
+
+    Restoring rather than clearing matters: in-tree adapters self-register at import time, and a
+    module body runs once per process. A fixture that cleared on teardown would leave every later
+    test in the session facing an empty registry with no way to re-trigger registration -- the
+    failure mode ``discovery._ensure_ready`` has a comment warning about.
+    """
+    saved = dict(config_module._REGISTRY)
     _reset_registry_for_tests()
     yield
     _reset_registry_for_tests()
+    config_module._REGISTRY.update(saved)
 
 
 # ---------------------------------------------------------------------------

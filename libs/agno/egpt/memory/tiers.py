@@ -25,9 +25,9 @@ procedural   yes     --     Rules / prompt fragments. Retrieved by similarity.
 """
 
 from enum import Enum
-from typing import Tuple
+from typing import Dict, FrozenSet, Tuple
 
-__all__ = ["PERSISTENT_TIERS", "MemoryTier"]
+__all__ = ["PERSISTENT_TIERS", "SUBSTRATES_BY_TIER", "MemoryTier", "substrates_for_tier"]
 
 
 class MemoryTier(str, Enum):
@@ -54,3 +54,32 @@ PERSISTENT_TIERS: Tuple[MemoryTier, ...] = (
     MemoryTier.SEMANTIC,
     MemoryTier.PROCEDURAL,
 )
+
+
+#: Which substrates a tier is written to, from the ratified mapping in ADR 0003 section 1.
+#:
+#: Substrate names are strings here rather than the ``Substrate`` enum, because that enum lives in
+#: ``types``, which imports this module. The provider translates.
+#:
+#: Two rows carry qualifications the ADR states explicitly:
+#:
+#: * ``episodic`` -> graph is **intended, not yet realised**. SM-R12's schema defines no episode
+#:   node; ``graph_node_id`` is an untyped pointer with no referent. SM-G1 (#99) defines the node
+#:   type, or rules that episodes reach the graph only through their entities.
+#: * ``procedural`` -> vector only. SM-R11's map said "rules/prompt, no substrate"; SM-R12 shipped
+#:   ``ProceduralRecord`` as ``Embeddable``. The ADR ratified the shipped schema: procedural rules
+#:   are retrieved by similarity, and the field exists.
+#:
+#: **SM-C2 (#90) turns this into full per-tier read/write policy.** This is the write-routing
+#: subset the seam needs to not guess, encoded once instead of inline in an adapter.
+SUBSTRATES_BY_TIER: Dict[MemoryTier, FrozenSet[str]] = {
+    MemoryTier.WORKING: frozenset(),  # in-context only; nothing persists
+    MemoryTier.EPISODIC: frozenset({"vector", "graph"}),
+    MemoryTier.SEMANTIC: frozenset({"vector", "graph"}),
+    MemoryTier.PROCEDURAL: frozenset({"vector"}),
+}
+
+
+def substrates_for_tier(tier: MemoryTier) -> FrozenSet[str]:
+    """The substrate names a write to ``tier`` should reach. Empty for ``WORKING``."""
+    return SUBSTRATES_BY_TIER[tier]
