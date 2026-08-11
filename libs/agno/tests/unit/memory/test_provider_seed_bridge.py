@@ -215,13 +215,25 @@ def test_retrieval_defaults_to_last_n_and_is_configurable():
     """The manager has no embedder, so this is recency -- not similarity. Say which one ran."""
     manager = FakeManager([UserMemory(memory="x", memory_id="m1")])
     default = SeedMemoryProvider(manager=manager, config=seed_config())
-    agentic = SeedMemoryProvider(manager=manager, config=seed_config(retrieval_method="agentic"))
+    first_n = SeedMemoryProvider(manager=manager, config=seed_config(retrieval_method="first_n"))
 
     default.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
-    agentic.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
+    first_n.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
 
     assert manager.search_calls[0]["retrieval_method"] == "last_n"
-    assert manager.search_calls[1]["retrieval_method"] == "agentic"
+    assert manager.search_calls[1]["retrieval_method"] == "first_n"
+
+
+def test_the_agentic_retrieval_method_is_refused_because_it_runs_a_model():
+    """MemoryProvider.read promises no query-time LLM; `agentic` calls model.response()."""
+    with pytest.raises(MemoryProviderConfigError, match="no query-time LLM"):
+        SeedMemoryProvider(manager=FakeManager(), config=seed_config(retrieval_method="agentic"))
+
+
+def test_a_misspelled_retrieval_method_is_refused_rather_than_degrading_to_last_n():
+    """MemoryManager's dispatch falls through to last_n for anything unrecognised."""
+    with pytest.raises(MemoryProviderConfigError, match="Unknown retrieval_method"):
+        SeedMemoryProvider(manager=FakeManager(), config=seed_config(retrieval_method="lastn"))
 
 
 def test_the_scope_user_reaches_the_manager():
@@ -458,7 +470,7 @@ def test_the_seed_bridge_never_crosses_tenants():
     Same user_id, two tenants. Previously tenant B read tenant A's memory back, stamped with
     tenant B's scope.
     """
-    bridge = SeedMemoryProvider(manager=FakeManager(), config=seed_config())
+    bridge = SeedMemoryProvider(manager=FakeManager(), config=seed_config(tenant_id="acme"))
     bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="acme Q4 revenue is 12M", scope=ACME)])
 
     with pytest.raises(MemoryOperationError, match="single_tenant"):
@@ -587,3 +599,111 @@ def test_consolidate_refuses_a_tier_set_it_would_ignore():
 
     with pytest.raises(MemoryOperationError, match="consolidate"):
         bridge.consolidate(ACME, tiers=[MemoryTier.PROCEDURAL])
+
+
+# ---------------------------------------------------------------------------
+# Round-2 review regressions
+# ---------------------------------------------------------------------------
+
+
+def test_the_tenant_pin_comes_from_config_not_from_whoever_calls_first():
+    """A per-instance lazy pin let two workers each pin their own tenant and serve it happily.
+
+    `build_memory_provider` runs per process, so that is the ordinary deployment shape rather than
+    a corner. Declaring the tenant makes the pin a deployment fact, identical in every worker.
+    """
+    first = SeedMemoryProvider(manager=FakeManager(), config=seed_config(tenant_id="acme"))
+    second = SeedMemoryProvider(manager=FakeManager(), config=seed_config(tenant_id="acme"))
+
+    for worker in (first, second):
+        with pytest.raises(MemoryOperationError, match="single_tenant"):
+            worker.read_tier(GLOBEX, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
+
+
+def test_a_declared_tenant_must_be_a_non_empty_string():
+    with pytest.raises(MemoryProviderConfigError, match="tenant_id"):
+        SeedMemoryProvider(manager=FakeManager(), config=seed_config(tenant_id="  "))
+
+
+def test_a_mixed_batch_commits_nothing_when_any_group_is_unservable():
+    """Blocking 4. write_tier validated its own group *after* earlier groups had committed.
+
+    So a batch's atomicity depended on the caller's list order, and the committed row's id was
+    never returned.
+    """
+    manager = FakeManager()
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+    batch = [
+        MemoryEvent(content="a preference", scope=ACME, tier=MemoryTier.SEMANTIC),
+        MemoryEvent(content="something happened", scope=ACME),  # EPISODIC, unservable
+    ]
+
+    with pytest.raises(MemoryOperationError, match="no episodic store"):
+        bridge.write(ACME, batch)
+
+    assert manager.added == [], "the semantic half must not have committed"
+
+
+def test_the_reversed_batch_behaves_identically():
+    """Order-dependent atomicity was the sharpest form of the bug."""
+    manager = FakeManager()
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+    batch = [
+        MemoryEvent(content="something happened", scope=ACME),
+        MemoryEvent(content="a preference", scope=ACME, tier=MemoryTier.SEMANTIC),
+    ]
+
+    with pytest.raises(MemoryOperationError):
+        bridge.write(ACME, batch)
+
+    assert manager.added == []
+
+
+async def test_the_async_mixed_batch_also_commits_nothing():
+    manager = FakeManager()
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    with pytest.raises(MemoryOperationError):
+        await bridge.awrite(
+            ACME,
+            [
+                MemoryEvent(content="a preference", scope=ACME, tier=MemoryTier.SEMANTIC),
+                MemoryEvent(content="something happened", scope=ACME),
+            ],
+        )
+
+    assert manager.added == []
+
+
+@pytest.mark.parametrize("substrates", [[Substrate.GRAPH], [Substrate.VECTOR], []])
+def test_naming_a_substrate_the_seed_does_not_have_is_refused(substrates):
+    """Major 6. Ignoring `substrates` made the same query mean two things on two providers."""
+    bridge = SeedMemoryProvider(manager=FakeManager(), config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="no substrates"):
+        bridge.read(ACME, MemoryQuery(text="q", substrates=substrates))
+
+
+def test_read_tier_honours_limit_including_zero():
+    """Major 7. MemoryManager truncates only when limit > 0, so limit=0 returned the whole table."""
+    manager = FakeManager([UserMemory(memory=f"m{i}", memory_id=f"m{i}") for i in range(25)])
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    assert bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q", limit=0)) == []
+    assert len(bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q", limit=3))) == 3
+
+
+def test_a_read_of_an_unserved_tier_still_runs_the_guards():
+    """The guards lived only in read_tier, so a read naming no served tier skipped them."""
+    bridge = SeedMemoryProvider(manager=FakeManager(), config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="point-in-time"):
+        bridge.read(ACME, MemoryQuery(text="q", tiers=[MemoryTier.PROCEDURAL], as_of=999))
+
+
+def test_consolidate_refuses_the_episodic_tier_the_seed_cannot_serve():
+    """The guard was copy-adapted from co-located, where the polarity is the opposite."""
+    bridge = SeedMemoryProvider(manager=FakeManager(), machine=FakeMachine(), config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="episodic"):
+        bridge.consolidate(ACME, tiers=[MemoryTier.EPISODIC])

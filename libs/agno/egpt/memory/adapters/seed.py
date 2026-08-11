@@ -46,6 +46,12 @@ if TYPE_CHECKING:
 
 __all__ = ["SeedMemoryProvider"]
 
+#: Retrieval strategies this bridge will drive on ``MemoryManager``.
+#:
+#: ``agentic`` is deliberately absent -- see ``_validate_retrieval_method``. Real similarity search
+#: over memory arrives with SM-V1 (#95) as a vector substrate, not by putting a model on this path.
+_RETRIEVAL_METHODS = ("last_n", "first_n")
+
 
 def _group_by_tier(events: Sequence[MemoryEvent]) -> List[Tuple[MemoryTier, List[MemoryEvent]]]:
     """Split a batch by ``event.tier``, preserving first-seen tier order.
@@ -82,7 +88,9 @@ def _record_from_user_memory(memory: UserMemory, scope: Scope, score: Optional[f
     reads correctly as "valid since forever, never invalidated, current belief".
     """
     return MemoryRecord(
-        id=memory.memory_id or "",
+        # A UserMemory with no id cannot be projected: `MemoryRecord.id` is the fusion dedup key,
+        # and `or ""` would collapse every such row into one fused result.
+        id=memory.memory_id or f"usermemory:{scope.key()}:{abs(hash(memory.memory))}",
         tier=MemoryTier.SEMANTIC,
         content=memory.memory,
         scope=scope,
@@ -129,6 +137,42 @@ class SeedMemoryProvider(MemoryProvider):
         self.stores: Dict[MemoryTier, "LearningStore"] = dict(stores or {})
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
         self._require_single_tenant_acknowledgement()
+        # Declared in config, so the pin is a deployment fact rather than whatever tenant happened
+        # to call first. `None` means "not declared" -- see `_guard_tenant`.
+        declared = self.config.options.get("tenant_id")
+        if declared is not None and (not isinstance(declared, str) or not declared.strip()):
+            raise MemoryProviderConfigError(
+                f"options['tenant_id'] must be a non-empty string when set, got {declared!r}.",
+                field_name="options.tenant_id",
+            )
+        self._tenant: Optional[str] = declared.strip() if isinstance(declared, str) else None
+        self._validate_retrieval_method()
+
+    def _validate_retrieval_method(self) -> None:
+        """Refuse a retrieval method that would put a model call on the read path.
+
+        ``MemoryManager.search_user_memories(retrieval_method="agentic")`` runs an LLM round trip
+        (`manager.py` -> ``_search_user_memories_agentic`` -> ``model.response``), and
+        ``MemoryProvider.read`` states in bold that there is **no query-time LLM on the hot path**.
+        On the async side it would hold a pooled thread for the duration of that call. Both claims
+        cannot stand, and the contract is the one worth keeping.
+
+        A typo is refused too. The manager's own dispatch falls through to ``last_n`` for anything
+        it does not recognise, so ``"lastn"`` silently degraded to a different retrieval strategy.
+        """
+        method = self.config.options.get("retrieval_method", "last_n")
+        if method not in _RETRIEVAL_METHODS:
+            known = ", ".join(repr(m) for m in _RETRIEVAL_METHODS)
+            extra = (
+                " 'agentic' is excluded deliberately: it runs an LLM call, and MemoryProvider.read "
+                "promises no query-time LLM on the hot path."
+                if method == "agentic"
+                else ""
+            )
+            raise MemoryProviderConfigError(
+                f"Unknown retrieval_method {method!r}. Expected one of: {known}.{extra}",
+                field_name="options.retrieval_method",
+            )
 
     def _require_single_tenant_acknowledgement(self) -> None:
         """Refuse to build unless the deployment states it is single-tenant.
@@ -171,21 +215,28 @@ class SeedMemoryProvider(MemoryProvider):
             )
 
     def _guard_tenant(self, scope: Scope) -> None:
-        """Refuse a scope from a different tenant than the one this provider was built for.
+        """Refuse a scope from a different tenant than the one this provider is configured for.
 
-        ``single_tenant: True`` is a claim about the deployment, not a blanket exemption. Pinning
-        the first tenant seen and rejecting the rest turns a mistaken claim into a loud error on
-        the second tenant rather than a silent cross-read.
+        ``single_tenant: True`` is a claim about the deployment, not a blanket exemption.
+
+        The pin comes from ``options["tenant_id"]`` -- **config, not a first-request side effect.**
+        Pinning lazily on the first call was two bugs at once: the state is per-instance, so two
+        workers each pinned their own tenant and each served it happily (and
+        ``build_memory_provider`` is called per process, which is the ordinary deployment shape);
+        and the check-then-set was an unsynchronised read-modify-write that could admit two tenants
+        under thread interleaving. A value declared in config is per-deployment and auditable,
+        which a first-request side effect is neither.
+
+        Declaring the tenant is optional. Without it the provider still refuses to *mix* tenants
+        within one instance -- weaker, and it says so at construction.
         """
-        pinned = getattr(self, "_tenant", None)
-        if pinned is None:
-            self._tenant: Optional[str] = scope.tenant_id
+        if self._tenant is None:
             return
-        if pinned != scope.tenant_id:
+        if self._tenant != scope.tenant_id:
             raise MemoryOperationError(
-                f"This SeedMemoryProvider was declared single_tenant and has already served "
-                f"tenant {pinned!r}; refusing a call scoped to {scope.tenant_id!r}. The seed's "
-                "storage cannot separate them.",
+                f"This SeedMemoryProvider is configured single_tenant for {self._tenant!r}; "
+                f"refusing a call scoped to {scope.tenant_id!r}. The seed's storage cannot "
+                "separate them, so serving this would be a cross-tenant read.",
                 field_name="tenant_id",
             )
 
@@ -246,6 +297,27 @@ class SeedMemoryProvider(MemoryProvider):
 
     # -- read -----------------------------------------------------------------
 
+    def _reject_unservable_substrates(self, query: MemoryQuery) -> None:
+        """Refuse a read that names a substrate this provider does not have.
+
+        ``substrates`` was ignored entirely here while the co-located adapter honours it, so the
+        same query meant two different things on two registered providers --
+        ``read(substrates=[GRAPH])`` returned rows from a provider whose own ``substrates()`` says
+        it has no graph. That breaks the config-only swap property the seam exists to provide, and
+        it is the very asymmetry ``MemoryQuery.resolved_tiers`` was fixed to close one module over.
+
+        Refusing rather than returning empty, because naming a substrate this provider cannot have
+        is a mistaken assumption about the deployment, not a query that legitimately matches nothing.
+        """
+        if query.substrates is None:
+            return
+        raise MemoryOperationError(
+            f"This provider has no substrates (it wraps the seed's own memory), so it cannot serve "
+            f"a read restricted to {sorted(s.value for s in query.substrates)}. Drop "
+            "MemoryQuery.substrates, or use a provider that wires the substrate you need.",
+            field_name="substrates",
+        )
+
     def _reject_as_of(self, query: MemoryQuery) -> None:
         """Refuse a point-in-time read the seed cannot answer.
 
@@ -265,25 +337,35 @@ class SeedMemoryProvider(MemoryProvider):
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
         self._guard_tenant(scope)
         self._reject_as_of(query)
+        self._reject_unservable_substrates(query)
         store = self._store_for(tier)
         if store is not None:
-            return self._store_records(store, tier, scope, store.recall(**self._recall_kwargs(scope, query)))
-        if tier is MemoryTier.SEMANTIC and self.manager is not None:
-            return self._manager_records(scope, query)
-        return []
+            records = self._store_records(store, tier, scope, store.recall(**self._recall_kwargs(scope, query)))
+        elif tier is MemoryTier.SEMANTIC and self.manager is not None:
+            records = self._manager_records(scope, query)
+        else:
+            return []
+        # Cap here as well as in `_slice`. MemoryManager truncates only when `limit > 0`
+        # (`manager.py`), so `read_tier(limit=0)` returned the tenant's whole table while the
+        # co-located provider returned nothing for the same call -- through the seam whose promise
+        # is that a consumer behaves the same on either.
+        return records[: query.limit] if query.limit else []
 
     async def aread_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
         self._guard_tenant(scope)
         self._reject_as_of(query)
+        self._reject_unservable_substrates(query)
         store = self._store_for(tier)
         if store is not None:
             recalled = await store.arecall(**self._recall_kwargs(scope, query))
-            return self._store_records(store, tier, scope, recalled)
-        if tier is MemoryTier.SEMANTIC and self.manager is not None:
+            records = self._store_records(store, tier, scope, recalled)
+        elif tier is MemoryTier.SEMANTIC and self.manager is not None:
             # search_user_memories has no async variant; a thread hop is honest, a bare `async
             # def` around the sync call would block the loop while looking correct.
-            return await asyncio.to_thread(self._manager_records, scope, query)
-        return []
+            records = await asyncio.to_thread(self._manager_records, scope, query)
+        else:
+            return []
+        return records[: query.limit] if query.limit else []
 
     def _manager_records(self, scope: Scope, query: MemoryQuery) -> List[MemoryRecord]:
         """Retrieve through ``MemoryManager``. **This is not vector search.**
@@ -351,11 +433,25 @@ class SeedMemoryProvider(MemoryProvider):
                     merged.append(records[column])
         return merged
 
+    def _guard_read(self, scope: Scope, query: MemoryQuery) -> None:
+        """Run every read guard up front, so they apply even when no tier is served.
+
+        Previously the guards lived only inside ``read_tier``, so a read naming an unserved tier
+        skipped them entirely -- ``read(tiers=[PROCEDURAL], as_of=999)`` returned ``[]`` with no
+        error, which is exactly the "present-day memory read as a historical answer" misreading
+        ``_reject_as_of`` exists to prevent, just with an empty answer.
+        """
+        self._guard_tenant(scope)
+        self._reject_as_of(query)
+        self._reject_unservable_substrates(query)
+
     def read(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
+        self._guard_read(scope, query)
         per_tier = [self.read_tier(scope, tier, query) for tier in self._wanted_tiers(query)]
         return self._slice(scope, query, self._interleave(per_tier))
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
+        self._guard_read(scope, query)
         per_tier = [await self.aread_tier(scope, tier, query) for tier in self._wanted_tiers(query)]
         return self._slice(scope, query, self._interleave(per_tier))
 
@@ -470,12 +566,25 @@ class SeedMemoryProvider(MemoryProvider):
         Now the batch is grouped by tier and each group goes through ``write_tier``, so
         ``_reject_unserved`` gets to do its job and an episodic write is refused rather than
         rewritten.
+
+        Every group is validated **before any of them writes**. Validating inside ``write_tier``
+        meant a later group's refusal arrived after earlier groups had already committed, so a
+        mixed batch -- the ordinary case, since ``MemoryEvent`` defaults to ``EPISODIC`` -- half
+        landed and then raised, and whether the write was atomic depended on the caller's list
+        order. ``_reject_unserved`` depends only on the tier and this provider's wiring, so
+        hoisting it costs nothing.
         """
-        return self._merge_receipts(self.write_tier(scope, tier, group) for tier, group in _group_by_tier(events))
+        groups = _group_by_tier(events)
+        for tier, _ in groups:
+            self._reject_unserved(tier)
+        return self._merge_receipts(self.write_tier(scope, tier, group) for tier, group in groups)
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         """Async variant of :meth:`write`, with the same per-tier routing."""
-        receipts = [await self.awrite_tier(scope, tier, group) for tier, group in _group_by_tier(events)]
+        groups = _group_by_tier(events)
+        for tier, _ in groups:
+            self._reject_unserved(tier)
+        receipts = [await self.awrite_tier(scope, tier, group) for tier, group in groups]
         return self._merge_receipts(receipts)
 
     @staticmethod
@@ -496,6 +605,7 @@ class SeedMemoryProvider(MemoryProvider):
         self,
         scope: Scope,
         tiers: Optional[Sequence[MemoryTier]] = None,
+        since: Optional[int] = None,
     ) -> ConsolidationReport:
         """Run the seed's curation as the dedup lane. There is no episodic-to-semantic pass here.
 
@@ -510,12 +620,16 @@ class SeedMemoryProvider(MemoryProvider):
         SM-L1 (#122) onward.
         """
         self._guard_tenant(scope)
-        if tiers is not None and set(tiers) != {MemoryTier.EPISODIC}:
+        # Polarity is the *opposite* of the co-located adapter's, and the guard was copy-adapted
+        # from it without flipping: this provider accepts only `tiers=None`. `[EPISODIC]` -- the
+        # one set co-located accepts -- is the single tier the seed refuses everywhere else,
+        # because it has no episodic store at all.
+        if tiers is not None:
             requested = sorted(tier.value for tier in tiers)
             raise MemoryOperationError(
-                f"The seed provider runs only the curator's dedup lane, but was asked to "
-                f"consolidate {requested}. Pass None; per-tier consolidation policy is SM-C2's "
-                "(#90) and the real loop is SM-L1's (#122).",
+                f"The seed provider runs only the curator's dedup lane -- it has no episodic tier "
+                f"to consolidate from -- but was asked to consolidate {requested}. Pass None. "
+                "Per-tier consolidation policy is SM-C2's (#90) and the real loop is SM-L1's (#122).",
                 field_name="tiers",
             )
 
@@ -544,9 +658,10 @@ class SeedMemoryProvider(MemoryProvider):
         self,
         scope: Scope,
         tiers: Optional[Sequence[MemoryTier]] = None,
+        since: Optional[int] = None,
     ) -> ConsolidationReport:
         """Async variant. ``Curator.deduplicate`` is sync-only, so this hops a thread."""
-        return await asyncio.to_thread(self.consolidate, scope, tiers)
+        return await asyncio.to_thread(self.consolidate, scope, tiers, since)
 
 
 @register_provider("seed")

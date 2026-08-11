@@ -102,8 +102,14 @@ class MemoryProvider(ABC):
         self,
         scope: Scope,
         tiers: Optional[Sequence[MemoryTier]] = None,
+        since: Optional[int] = None,
     ) -> ConsolidationReport:
         """Sleep-time pass: extract -> dedup -> contradiction-resolve, writing to both substrates.
+
+        One **bounded batch** per call. ``since`` resumes from a previous pass -- an implementation
+        that bounds its scan reports where to continue in ``ConsolidationReport.details``
+        (``next_since``, ``batch_full``), and a caller that ignores it re-reads the same oldest
+        rows forever. Looping until the tier is drained belongs to the scheduler (SM-L1 #122).
 
         This is the write-side loop the whole design is built around, and the least-solved problem
         in the field -- no production system has a reliable episodic-to-semantic consolidation
@@ -120,6 +126,7 @@ class MemoryProvider(ABC):
         self,
         scope: Scope,
         tiers: Optional[Sequence[MemoryTier]] = None,
+        since: Optional[int] = None,
     ) -> ConsolidationReport:
         """Async variant of :meth:`consolidate`, and the primary entry point."""
         raise NotImplementedError

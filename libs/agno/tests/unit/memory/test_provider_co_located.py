@@ -25,6 +25,7 @@ from egpt.memory.types import (
     Scope,
     Substrate,
 )
+from egpt.utils.dttm import now_epoch_s
 from tests.unit.memory._fakes import FakeGraph, FakeVector, assert_ports_satisfied
 
 ACME = Scope(tenant_id="acme", user_id="u1")
@@ -200,15 +201,23 @@ def test_a_query_can_exclude_a_substrate():
     assert "traverse" not in graph.calls
 
 
-def test_the_limit_caps_returned_records_but_fusion_reports_the_full_set():
+def test_the_limit_caps_returned_records_and_fusion_reports_what_the_probe_saw():
+    """`fused` counts what the substrates returned for the probe, which `probe_limit` explains.
+
+    It is not "the full corpus" -- a limit-honouring backend never shows the provider the full
+    corpus. Reporting the probe limit alongside is what makes the hit counts interpretable, since
+    they move with the retry loop rather than with the caller's limit.
+    """
     p, _, _ = provider()
     p.write(ACME, [event(f"alpha item {i}") for i in range(5)])
 
     result = p.read(ACME, MemoryQuery(text="alpha", limit=2))
 
     assert len(result.records) == 2
-    assert result.fusion["fused"] == 5
     assert result.fusion["returned"] == 2
+    assert result.fusion["probe_limit"] == 2  # first round asks for exactly what was wanted
+    assert result.fusion["fused"] == 2
+    assert result.fusion["truncated"] is False
 
 
 def test_records_are_grouped_by_tier():
@@ -484,46 +493,109 @@ async def test_sync_and_async_consolidation_agree():
 # ---------------------------------------------------------------------------
 
 
-def test_a_read_returns_limit_records_when_limit_valid_records_exist():
-    """Critical 3. The current-belief filter ran after the substrates had applied `limit`.
+@pytest.mark.parametrize("expired,live", [(5, 5), (20, 5), (50, 10)])
+def test_a_read_returns_limit_records_when_limit_valid_records_exist(expired, live):
+    """Critical 3. The cap is applied after the validity filters, so a page of invalidated rows
+    ranking above the live ones returned nothing.
 
-    Ten rows, five expired ranking above five live ones, `limit=5`: the substrates returned their
-    top five (all expired), the post-fusion filter removed them all, and `read` returned zero while
-    the diagnostics reported five vector hits. No `as_of` needed to trigger it.
+    Two things the earlier version of this test got wrong, both of which made it vacuous:
 
-    Invisible to the old suite only because both doubles ignored `limit`; they now honour it.
+    * The "expired" rows scored *below* the live ones (0.75 vs 1.00 on its own fixture), so the
+      filter never had to discard anything. Here the invalidated rows carry the query text verbatim
+      and the live rows a weaker match, so they genuinely outrank.
+    * One ratio cannot test a defect defined by a ratio. Parametrised, including 50:10 -- which the
+      old fixed x3 over-fetch could not satisfy at any limit.
     """
     p, vector, _ = provider()
-    # Expired rows score higher (more query terms), so they sort above the live ones.
     vector.upsert(
         ACME,
         [
             MemoryRecord(
                 id=f"expired-{i}",
                 tier=MemoryTier.SEMANTIC,
-                content="alpha beta gamma expired",
+                content="alpha beta gamma",  # exact query match -> ranks first
                 scope=ACME,
                 expired_at=100,
             )
-            for i in range(5)
+            for i in range(expired)
         ]
         + [
-            MemoryRecord(id=f"live-{i}", tier=MemoryTier.SEMANTIC, content="alpha beta gamma", scope=ACME)
-            for i in range(5)
+            MemoryRecord(
+                id=f"live-{i}",
+                tier=MemoryTier.SEMANTIC,
+                content="alpha beta gamma delta epsilon",  # weaker match -> ranks below
+                scope=ACME,
+            )
+            for i in range(live)
         ],
     )
 
-    result = p.read(ACME, MemoryQuery(text="alpha beta gamma", limit=5))
+    result = p.read(ACME, MemoryQuery(text="alpha beta gamma", limit=live))
 
-    assert len(result.records) == 5
+    assert len(result.records) == live
     assert all(r.id.startswith("live-") for r in result.records)
+    assert result.fusion["truncated"] is False
 
 
-def test_a_zero_limit_does_not_over_fetch():
+def test_a_read_reports_truncation_when_it_exhausts_the_probe_ceiling():
+    """A caller must be able to tell "the corpus is empty" from "I hit the fetch ceiling"."""
     p, vector, _ = provider()
-    p.write(ACME, [event("alpha")])
+    vector.upsert(
+        ACME,
+        [
+            MemoryRecord(
+                id=f"expired-{i}",
+                tier=MemoryTier.SEMANTIC,
+                content="alpha",
+                scope=ACME,
+                expired_at=100,
+            )
+            for i in range(5000)
+        ],
+    )
 
-    assert p.read(ACME, MemoryQuery(text="alpha", limit=0)).records == []
+    result = p.read(ACME, MemoryQuery(text="alpha", limit=1))
+
+    assert result.records == []
+    assert result.fusion["truncated"] is True, "an exhausted ceiling must not look like an empty corpus"
+
+
+def test_a_default_read_hides_a_fact_the_graph_recorded_as_false():
+    """Blocking 2. is_current_belief() is transaction-time only, so the SCD-2 successor row --
+    past t_invalid, expired_at None -- passed it and rendered straight into a prompt.
+
+    The sharpest form: read() and read(as_of=now) disagreed at the same instant.
+    """
+    p, _, graph = provider()
+    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme", id="f1")])
+    graph.invalidate(ACME, "f1", t_invalid=100, at=110)
+
+    plain = p.read(ACME, MemoryQuery(text="ada acme"))
+    explicit = p.read(ACME, MemoryQuery(text="ada acme", as_of=now_epoch_s()))
+
+    assert plain.records == [], "a fact invalidated in the past must not render into a prompt"
+    assert [r.id for r in plain.records] == [r.id for r in explicit.records]
+
+
+def test_a_vector_only_tenant_has_a_query_that_is_both_accepted_and_correct():
+    """The default read must stay usable without a graph: unbounded records pass unchanged."""
+    vector_only = CoLocatedMemoryProvider(vector=FakeVector())
+    vector_only.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme")])
+
+    assert len(vector_only.read(ACME, MemoryQuery(text="ada acme")).records) == 1
+
+
+def test_as_of_selects_the_instant_rather_than_enabling_the_predicate():
+    """A record valid only in the past is hidden now and visible then."""
+    p, vector, graph = provider()
+    record = MemoryRecord(
+        id="f1", tier=MemoryTier.SEMANTIC, content="ada works at acme", scope=ACME, t_valid=100, t_invalid=200
+    )
+    vector.upsert(ACME, [record])
+    graph.rows.setdefault("acme", []).append(record)
+
+    assert p.read(ACME, MemoryQuery(text="ada acme")).records == []  # not true now
+    assert len(p.read(ACME, MemoryQuery(text="ada acme", as_of=150)).records) == 1  # was true then
 
 
 def test_consolidating_twice_does_not_duplicate_the_semantic_tier():
@@ -542,14 +614,72 @@ def test_consolidating_twice_does_not_duplicate_the_semantic_tier():
 
 
 def test_consolidation_bounds_its_scan():
-    """Major 4, second half: _distil is O(n^2) and the only caller passed neither since nor limit."""
+    """Asserts the batch cap reached the substrate.
+
+    The earlier version asserted ``"scan" in vector.calls``, which holds whether or not the scan is
+    bounded -- removing ``limit=_CONSOLIDATE_BATCH`` entirely left the suite green.
+    """
+    from egpt.memory.adapters.co_located import _CONSOLIDATE_BATCH
+
     p, vector, _ = provider()
     p.write(ACME, [event(f"episode number {i}") for i in range(3)])
 
     p.consolidate(ACME)
 
-    # `scan` is called with an explicit batch cap rather than materialising the whole tier.
-    assert "scan" in vector.calls
+    assert vector.scan_limits == [_CONSOLIDATE_BATCH]
+
+
+def test_consolidation_advances_past_its_first_batch():
+    """Blocking 1. `scan` is ordered ascending, nothing marked episodes consumed, and `since` was
+    never passed -- so every cycle re-read the same oldest rows and later episodes were never
+    consolidated at all.
+
+    This is the half of the batch-bound test that would have caught it.
+    """
+    import egpt.memory.adapters.co_located as module
+
+    p, vector, _ = provider()
+    original = module._CONSOLIDATE_BATCH
+    module._CONSOLIDATE_BATCH = 3
+    try:
+        for i in range(9):
+            p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}")])
+            # Distinct created_at, so the ordering the watermark relies on is unambiguous.
+            vector.rows["acme"][f"e{i}"].created_at = 1000 + i
+
+        seen, since = set(), None
+        for _ in range(5):
+            report = p.consolidate(ACME, since=since)
+            seen.update(report.details.get("source_episode_ids", []))
+            for fact in vector.rows["acme"].values():
+                if fact.tier is MemoryTier.SEMANTIC:
+                    seen.update(fact.provenance.get("source_episode_ids", []))
+            if not report.details["batch_full"]:
+                break
+            since = report.details["next_since"]
+
+        assert seen == {f"e{i}" for i in range(9)}, f"never consolidated: {sorted({f'e{i}' for i in range(9)} - seen)}"
+    finally:
+        module._CONSOLIDATE_BATCH = original
+
+
+def test_a_full_batch_reports_where_to_resume():
+    import egpt.memory.adapters.co_located as module
+
+    p, vector, _ = provider()
+    original = module._CONSOLIDATE_BATCH
+    module._CONSOLIDATE_BATCH = 2
+    try:
+        for i in range(3):
+            p.write(ACME, [event(f"topic{i} unique", id=f"e{i}")])
+            vector.rows["acme"][f"e{i}"].created_at = 1000 + i
+
+        report = p.consolidate(ACME)
+
+        assert report.details["batch_full"] is True
+        assert report.details["next_since"] == 1001
+    finally:
+        module._CONSOLIDATE_BATCH = original
 
 
 @pytest.mark.parametrize("requested", [[MemoryTier.PROCEDURAL], [MemoryTier.SEMANTIC], []])
@@ -637,6 +767,36 @@ def test_a_returned_record_does_not_alias_the_substrates_stored_row():
     assert stored.provenance == {}
 
 
+def test_a_returned_record_does_not_alias_the_stores_nested_values():
+    """One level of copying is not enough -- `dict()` left nested values shared.
+
+    The realistic instance is a consumer appending to `provenance["source_episode_ids"]`, the
+    exact shape consolidation writes and the one FactWrite documents as load-bearing.
+    """
+    p, vector, _ = provider()
+    vector.upsert(
+        ACME,
+        [
+            MemoryRecord(
+                id="r1",
+                tier=MemoryTier.SEMANTIC,
+                content="alpha",
+                scope=ACME,
+                provenance={"source_episode_ids": ["e1"]},
+                metadata={"tags": ["a"]},
+            )
+        ],
+    )
+
+    returned = p.read(ACME, MemoryQuery(text="alpha")).records[0]
+    returned.provenance["source_episode_ids"].append("INJECTED")
+    returned.metadata["tags"].append("INJECTED")
+
+    stored = vector.rows["acme"]["r1"]
+    assert stored.provenance == {"source_episode_ids": ["e1"]}
+    assert stored.metadata == {"tags": ["a"]}
+
+
 def test_a_callers_topics_list_is_copied_on_write():
     """The same aliasing on the write path: metadata was defensive, topics was not."""
     p, vector, _ = provider()
@@ -674,3 +834,79 @@ def test_an_injected_substrate_that_misses_the_port_fails_at_build():
         build_memory_provider(
             MemoryProviderConfig(provider="co_located", options={"vector_substrate": NotASubstrate()})
         )
+
+
+def test_duplicate_ids_in_one_batch_are_refused_before_anything_is_written():
+    """Major 13. The vector leg upserts by id (last wins) and the graph leg appends, so the two
+    substrates ended up holding different content under one id -- which then collides in fusion's
+    dedup -- and the receipt still said accepted=2.
+    """
+    p, vector, graph = provider()
+
+    with pytest.raises(MemoryOperationError, match="Duplicate event id"):
+        p.write(ACME, [event("first", id="dup"), event("second", id="dup")])
+
+    assert vector.rows.get("acme", {}) == {}
+    assert graph.rows.get("acme", []) == []
+
+
+def test_the_graph_leg_does_not_alias_the_callers_lists():
+    """`replace()` copies references, so the event handed to the graph still aliased the caller."""
+    p, _, graph = provider()
+    topics = ["billing"]
+
+    p.write(ACME, [event("alpha", topics=topics)])
+    topics.append("MUTATED-AFTER-WRITE")
+
+    assert graph.rows["acme"][0].topics == ["billing"]
+
+
+def test_a_semantic_write_reaches_the_graph_through_the_fact_door():
+    """Major 5. F9's failure class on the write path: a fact stored as a flat pseudo-episode.
+
+    Deviation D3 added `upsert_fact` for exactly this and only wired it inside `consolidate`.
+    """
+    p, _, graph = provider()
+
+    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme")])
+
+    assert "upsert_fact" in graph.calls
+    assert "upsert_episode" not in graph.calls
+    assert graph.facts[0].derived_by == "co_located.direct_write"
+
+
+def test_an_episodic_write_still_uses_the_episode_door():
+    p, _, graph = provider()
+
+    p.write(ACME, [event("something happened")])
+
+    assert graph.calls == ["upsert_episode"]
+
+
+def test_the_vector_leg_honours_tier_routing_like_the_graph_leg_does():
+    """Latent until SM-C2 adds a graph-only tier, at which point it becomes a silent extra write."""
+    import egpt.memory.adapters.co_located as module
+    from egpt.memory import tiers as tiers_module
+
+    p, vector, graph = provider()
+    original = dict(tiers_module.SUBSTRATES_BY_TIER)
+    tiers_module.SUBSTRATES_BY_TIER[MemoryTier.SEMANTIC] = frozenset({"graph"})
+    try:
+        p.write_tier(ACME, MemoryTier.SEMANTIC, [event("graph only fact")])
+        assert vector.rows.get("acme", {}) == {}, "a graph-only tier must not reach the vector leg"
+    finally:
+        tiers_module.SUBSTRATES_BY_TIER.clear()
+        tiers_module.SUBSTRATES_BY_TIER.update(original)
+        assert module is not None  # keep the import meaningful for readers
+
+
+def test_consolidation_does_not_restamp_created_at_on_a_stable_fact():
+    """created_at is "when the system recorded it" and is the key scan's watermark sorts on."""
+    p, vector, _ = provider()
+    receipt = p.write(ACME, [event("the deploy failed")])
+    vector.rows["acme"][receipt.event_ids[0]].created_at = 1000
+
+    p.consolidate(ACME)
+    fact = next(r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC)
+
+    assert fact.created_at == 1000

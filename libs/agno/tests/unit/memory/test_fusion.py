@@ -221,3 +221,34 @@ def test_fusion_does_not_alias_the_substrates_mutable_state():
     assert original.metadata == {"from": "store"}
     assert original.provenance == {"source_episode_ids": ["e1"]}
     assert original.topics == ["billing"]
+
+
+# ---------------------------------------------------------------------------
+# Round-2 review regressions
+# ---------------------------------------------------------------------------
+
+
+def test_the_both_legs_path_does_not_alias_the_stores_nested_values():
+    """`merge_tightest_bounds` is the *second* aliasing path, and it had no coverage at all.
+
+    It shallow-copies from ``incoming`` -- the raw substrate record -- on the record-seen-by-both-
+    legs path, which is the one fusion exists for. Mutating that line left the whole suite green.
+    """
+    vector_row = rec("shared", score=1.0, provenance={"vector_note": ["v"]})
+    graph_row = rec("shared", score=1.0, provenance={"source_episode_ids": ["e1"]})
+
+    fused = fuse_weighted([[vector_row], [graph_row]], weights=[0.5, 0.5])[0]
+    fused.provenance["source_episode_ids"].append("INJECTED")
+
+    assert graph_row.provenance == {"source_episode_ids": ["e1"]}, "the graph leg's stored row was mutated"
+
+
+def test_merge_tightest_bounds_deep_copies_incoming_provenance():
+    """The unit-level version of the above, so the path is covered directly as well."""
+    kept = rec("s")
+    incoming = rec("s", provenance={"source_episode_ids": ["e1"]})
+
+    merge_tightest_bounds(kept, incoming)
+    kept.provenance["source_episode_ids"].append("INJECTED")
+
+    assert incoming.provenance == {"source_episode_ids": ["e1"]}

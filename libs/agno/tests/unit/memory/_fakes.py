@@ -48,7 +48,8 @@ def _ranked(hits: List[MemoryRecord], limit: Optional[int] = None) -> List[Memor
     """
     matches = [hit for hit in hits if hit.score is not None and hit.score > 0.0]
     ranked = sorted(matches, key=lambda r: -(r.score or 0.0))
-    return ranked[:limit] if limit else ranked
+    # `limit=0` returns nothing; only `None` means unlimited. See the note in `FakeVector.scan`.
+    return ranked if limit is None else ranked[:limit]
 
 
 class FakeVector:
@@ -57,6 +58,13 @@ class FakeVector:
     def __init__(self) -> None:
         self.rows: Dict[str, Dict[str, MemoryRecord]] = {}
         self.calls: List[str] = []
+        #: Every ``limit`` this substrate was *asked* for, in order. Asserting on the request
+        #: rather than the response is what makes an over-fetch or a batch bound testable at all:
+        #: with `limit=0` the result is empty whatever was requested, so a result-only assertion
+        #: is vacuous.
+        self.search_limits: List[Optional[int]] = []
+        self.scan_limits: List[Optional[int]] = []
+        self.scan_sinces: List[Optional[int]] = []
 
     def _bucket(self, scope: Scope) -> Dict[str, MemoryRecord]:
         return self.rows.setdefault(scope.tenant_id, {})
@@ -73,6 +81,7 @@ class FakeVector:
 
     def search(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
         self.calls.append("search")
+        self.search_limits.append(query.limit)
         assert query.as_of is None, "the provider must strip as_of before it reaches a substrate"
         tiers = {tier} if tier else set(query.resolved_tiers())
         hits = [
@@ -94,11 +103,16 @@ class FakeVector:
         limit: Optional[int] = None,
     ) -> List[MemoryRecord]:
         self.calls.append("scan")
+        self.scan_limits.append(limit)
+        self.scan_sinces.append(since)
         rows = [r for r in self._bucket(scope).values() if r.tier is tier]
         if since is not None:
             rows = [r for r in rows if (r.created_at or 0) >= since]  # inclusive, per the port
         rows.sort(key=lambda r: ((r.created_at or 0), r.id))
-        return rows[:limit] if limit else rows
+        # `limit=0` means zero rows, not "unlimited". Every real backend distinguishes `LIMIT 0`
+        # from an omitted limit, and conflating them here would hide a provider that fetches
+        # everything when it asked for nothing.
+        return rows if limit is None else rows[:limit]
 
     async def ascan(
         self,
@@ -122,6 +136,7 @@ class FakeGraph:
         self.rows: Dict[str, List[MemoryRecord]] = {}
         self.facts: List[FactWrite] = []
         self.calls: List[str] = []
+        self.traverse_limits: List[Optional[int]] = []
 
     def _bucket(self, scope: Scope) -> List[MemoryRecord]:
         return self.rows.setdefault(scope.tenant_id, [])
@@ -146,9 +161,16 @@ class FakeGraph:
         self.upsert_episode(scope, event)
 
     def upsert_fact(self, scope: Scope, fact: FactWrite) -> None:
+        """Upsert by id, as the port name says -- appending would let a re-run look idempotent."""
         self.calls.append("upsert_fact")
         self.facts.append(fact)
-        self._bucket(scope).append(replace(fact.record, substrate=Substrate.GRAPH))
+        bucket = self._bucket(scope)
+        row = replace(fact.record, substrate=Substrate.GRAPH)
+        for index, existing in enumerate(bucket):
+            if existing.id == row.id and existing.is_current_belief():
+                bucket[index] = row
+                return
+        bucket.append(row)
 
     async def aupsert_fact(self, scope: Scope, fact: FactWrite) -> None:
         self.calls.append("aupsert_fact")
@@ -156,6 +178,7 @@ class FakeGraph:
 
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
         self.calls.append("traverse")
+        self.traverse_limits.append(query.limit)
         assert query.as_of is None, "the provider must strip as_of before it reaches a substrate"
         tiers = {tier} if tier else set(query.resolved_tiers())
         hits = [

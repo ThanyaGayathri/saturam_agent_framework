@@ -28,7 +28,7 @@ import pytest
 from egpt.memory.config import MemoryProviderConfig, build_memory_provider
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryEvent, MemoryQuery, Scope
+from egpt.memory.types import FUSION_KEYS, MemoryEvent, MemoryOperationError, MemoryQuery, Scope, Substrate
 from egpt.providers.model_provider import ProviderMode
 from tests.unit.memory._fakes import FakeGraph, FakeVector
 from tests.unit.memory.test_provider_seed_bridge import FakeMachine, FakeManager
@@ -202,3 +202,51 @@ def test_every_in_tree_adapter_is_reachable_by_config():
     from egpt.memory.config import registered_providers
 
     assert {"co_located", "external", "seed"} <= set(registered_providers())
+
+
+# ---------------------------------------------------------------------------
+# Cross-adapter conformance (round-2 review)
+# ---------------------------------------------------------------------------
+#
+# The swap property is only real if the adapters agree on the *edges*, not just the happy path.
+# Two of them diverged silently: `substrates` was honoured by one and ignored by the other, and
+# `read_tier(limit=0)` returned nothing on one and the tenant's whole table on the other.
+
+
+@pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
+@pytest.mark.parametrize("limit", [0, 1, 3])
+def test_no_provider_ever_returns_more_records_than_the_limit(name, limit):
+    provider = build_memory_provider(ALL_CONFIGS[name]())
+    provider.write_tier(
+        ACME,
+        MemoryTier.SEMANTIC,
+        [MemoryEvent(content=f"the customer note {i}", scope=ACME) for i in range(5)],
+    )
+    query = MemoryQuery(text="the customer", tiers=[MemoryTier.SEMANTIC], limit=limit)
+
+    assert len(provider.read(ACME, query).records) <= limit
+    assert len(provider.read_tier(ACME, MemoryTier.SEMANTIC, query)) <= limit
+
+
+@pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
+def test_every_provider_treats_an_unavailable_substrate_the_same_way(name):
+    """Either serve it or refuse it -- what a provider must not do is quietly ignore the filter."""
+    provider = build_memory_provider(ALL_CONFIGS[name]())
+    provider.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="the customer", scope=ACME)])
+    wired = provider.substrates()
+    query = MemoryQuery(text="the customer", substrates=[Substrate.GRAPH])
+
+    if wired[Substrate.GRAPH]:
+        provider.read(ACME, query)  # serving it is fine
+    else:
+        with pytest.raises(MemoryOperationError):
+            provider.read(ACME, query)
+
+
+@pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
+def test_every_provider_reports_the_full_fusion_key_contract(name):
+    provider = build_memory_provider(ALL_CONFIGS[name]())
+
+    fusion = provider.read(ACME, MemoryQuery(text="anything")).fusion
+
+    assert set(FUSION_KEYS) <= set(fusion)

@@ -167,6 +167,13 @@ class MemoryRecord:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        # `id` is the cross-substrate dedup key in fusion, so an empty one silently collapses every
+        # unidentified record into a single fused result. Cheap to reject, and the seed bridge's
+        # `memory_id or ""` was one keystroke from producing exactly that.
+        if not isinstance(self.id, str) or not self.id:
+            raise ValueError(
+                f"MemoryRecord.id must be a non-empty string; it is the fusion dedup key. Got {self.id!r}."
+            )
         self.t_valid = _epoch_or_none(self.t_valid)
         self.t_invalid = _epoch_or_none(self.t_invalid)
         self.created_at = _epoch_or_none(self.created_at)
@@ -262,6 +269,7 @@ class MemoryQuery:
     substrates: Optional[Sequence[Substrate]] = None
     limit: int = 10
     as_of: Optional[int] = None  # point-in-time read (epoch s, SM-R10)
+    #: Reserved. See ``__post_init__`` -- a non-empty value is refused rather than ignored.
     filters: Optional[Dict[str, Any]] = None
 
     def __post_init__(self) -> None:
@@ -273,6 +281,18 @@ class MemoryQuery:
         # `vector_weight` rather than letting it skew a ranking.
         if not isinstance(self.limit, int) or isinstance(self.limit, bool) or self.limit < 0:
             raise ValueError(f"MemoryQuery.limit must be an integer >= 0, got {self.limit!r}.")
+
+        # `filters` is declared but nothing reads it: no substrate port states a contract for it,
+        # so even a future backend has nothing to conform to. In a seam whose threat model is
+        # over-broad reads, a filter that silently does not apply returns an unfiltered slice that
+        # *looks* filtered -- the failure class this package rejects at the boundary everywhere
+        # else. Refused until SM-V1 (#95) defines the predicate semantics on the ports.
+        if self.filters:
+            raise ValueError(
+                "MemoryQuery.filters is reserved and not yet applied by any substrate, so passing "
+                "it would return an unfiltered result that looks filtered. Metadata filtering is "
+                f"SM-V1's (#95). Got {self.filters!r}."
+            )
 
     def resolved_tiers(self) -> Sequence[MemoryTier]:
         """The tier set to search: the requested one, or every persistent tier.

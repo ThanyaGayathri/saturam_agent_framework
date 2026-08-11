@@ -330,7 +330,9 @@ loop. These are the additive build surface `MemoryProvider` exposes — WRAP the
 - Reproduce: `python -m benchmarks.memory_provider_spec.interface` prints the seam summary;
   `python -m benchmarks.memory_provider_spec.swap_test` runs the swap proof (exit 0, writes
   `results/swap_results.json`, byte-identical across runs).
-- Core untouched: `git diff origin/main -- libs/` is empty for this work (verified at finalize).
+- Core untouched **by SM-R11**: `git diff origin/main -- libs/` was empty for the design task.
+  That claim is scoped to this prototype and no longer describes the tree — SM-C1 shipped the seam
+  into `libs/agno/egpt/memory/`, which §11 records.
 
 ---
 
@@ -358,7 +360,7 @@ stays as the design artifact and its evidence; **the shipped code is authoritati
 | D1 | `ProviderMode.LOCAL/FRONTIER` replaces `DeploymentMode.CO_LOCATED/EXTERNAL` | `providers/model_provider.py:52` already means Mode A/B for models. ADR 0003 §B.5 rules against two vocabularies for one concept. Lets SM-C5 reuse the `PolicyKey` → `ProviderConfig.lookup` per-tenant pattern. |
 | D2 | `MemoryTier` lives in `tiers.py`; config in `config.py` | Those are the files SM-C2 (#90) and SM-C5 (#93) are chartered to create. Placing them elsewhere would force a duplicate enum and a split config module. |
 | D3 | `GraphSubstrate.upsert_fact` + `FactWrite` added | Finding F9: the port exposed only `upsert_episode`, forcing consolidation to write a fact as a flat pseudo-episode. Field names mirror SM-R12's `SemanticFact` so SM-C3 maps 1:1. |
-| D4 | Explicit `VectorSubstrate.scan` replaces "empty `query.text` = scan all" | The convention hid the operation behind a magic value and could not be bounded. `scan` orders ascending `created_at`, then `id`, with an exclusive `since` watermark so a consolidation pass resumes. Graph enumeration is deliberately absent — no consumer in SM-C1, and what it means over a temporal graph is SM-G9's to define. |
+| D4 | Explicit `VectorSubstrate.scan` replaces "empty `query.text` = scan all" | The convention hid the operation behind a magic value and could not be bounded. `scan` orders ascending `created_at`, then `id`, with an **inclusive** `since` watermark so a consolidation pass resumes (inclusive because `created_at` is whole seconds — an exclusive bound silently skips co-second episodes; the caller dedups the boundary ids). `consolidate` passes it and reports `next_since` / `batch_full`. Graph enumeration is deliberately absent — no consumer in SM-C1, and what it means over a temporal graph is SM-G9's to define. |
 | D5 | Provider registry is local to `egpt/memory/`, not a `discovery` KIND | Discovery declarations live in **core**; a provider adapter is **services**, so declaring it there would have core naming a services module. ADR 0001's "config-swappable backends use the same constructor registry" refers to the *backends* a provider composes — those stay `discovery.construct` under SM-V1/SM-G1. |
 | D6 | Real-external-backend swap re-proof carried to SM-X2 (#138) | ADR 0003 §5 asks SM-C1 for it, but no external substrate exists to point at yet (SM-V1 #95, SM-G1 #99). Recorded in `adapters/external.py` and `test_provider_swap.py`, not dropped. |
 | D7 | Unknown provider key raises `MemoryProviderConfigError` (a `ValueError`), not `KeyError` | Matches `discovery.resolve`, which raises `ValueError` for an unknown name, and `ModelProviderConfigError` for a bad config. |
@@ -405,6 +407,43 @@ mixing scored and unscored records falls back to rank for the whole leg; consoli
 upserts and bounds its scan. The test doubles and the cookbook's reference substrates were also
 wrong in ways that hid these — both now honour `limit`, and the cookbook's two substrates no longer
 share one row object.
+
+### 11.2c Round-2 review (0 critical, 18 major, minors and nits)
+
+A second five-pass review of the fix commit found that four prior fixes had a residual or a new
+defect, and that four regression tests passed with their defect reintroduced. Everything below is
+fixed and **mutation-verified** — each defect was put back and the suite confirmed to fail.
+
+**Blocking**
+
+| Finding | Change |
+|---|---|
+| `consolidate` could never reach past its first batch — the bound was a dead end, and the comment justifying it said the opposite | `since` is threaded through `consolidate`/`aconsolidate`, and the report carries `next_since` / `batch_full`. The scheduler (SM-L1 #122) loops on them. |
+| A default `read()` returned facts the graph had recorded as **false** — `read()` and `read(as_of=now)` disagreed at the same instant | Valid time is evaluated on **every** read; `as_of` now selects the *instant* rather than enabling the predicate. Unbounded records pass unchanged, so vector-only behaviour is unmoved. |
+| `read()` still returned zero valid records when invalidated rows outranked live ones | Replaced the fixed ×3 over-fetch with a bounded **fetch-until-satisfied** loop (×1, ×3, ×9, ×27, ceiling 10k) that stops on satisfaction or exhaustion, and reports `truncated` when it stops short. The first round asks for exactly the caller's limit, so the common case costs nothing. |
+| Seed `write()` committed part of a batch then raised with no receipt; atomicity depended on caller list order | Every group is validated before any group writes. |
+
+**Major** — a `SEMANTIC` write reached the graph through `upsert_episode` (F9's failure class on the
+write path; now routed to `upsert_fact`) · the seed ignored `MemoryQuery.substrates` entirely,
+breaking the swap property (now refused) · `read_tier(limit=0)` returned 25 records on the seed and
+0 on co-located (both cap now) · `_detached` and `merge_tightest_bounds` were both **shallow**, so
+nested `provenance` still aliased the store (both deep-copy) · `retrieval_method="agentic"` put an
+LLM call on the path `MemoryProvider.read` declares LLM-free (refused, and a typo no longer degrades
+silently to `last_n`) · `MemoryQuery.filters` was accepted and read by nothing (refused, naming
+SM-V1 #95) · `fusion.k` was unvalidated (`k=-1` → `ZeroDivisionError` at read time) and
+`rerank`/`ppr` were accepted-and-ignored, which is finding F5 itself (all three validated) ·
+duplicate ids in one batch destroyed vector content, duplicated graph rows, and returned
+`accepted=2` (refused before any write) · the tenant pin was a per-instance, racy first-request side
+effect (now declared in `options["tenant_id"]`).
+
+**Test quality.** Four regression tests were vacuous: the over-fetch test passed with the fix fully
+reverted (its "expired" rows scored *below* the live ones, so nothing was ever discarded — now
+parametrised over 5:5, 20:5 and 50:10 with the invalidated rows genuinely outranking), the
+`limit=0` test asserted `[] == []` (now asserts what the substrate was *asked* for), the
+batch-bound test asserted only that `scan` was called (now asserts the limit reached the substrate,
+plus that a second pass advances), and the two aliasing tests mutated only top-level keys. The
+doubles gained request recording for exactly this reason: asserting on a *response* cannot detect a
+wrong *request*.
 
 ### 11.3 Carried forward with named owners
 

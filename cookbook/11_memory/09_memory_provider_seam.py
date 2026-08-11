@@ -77,9 +77,11 @@ class InMemoryVector:
             overlap = len(terms & set(record.content.lower().split()))
             if overlap:
                 hits.append(MemoryRecord(**{**vars(record), "score": float(overlap)}))
-        # Honour limit: a double that ignores it cannot surface a filter-after-limit bug.
+        # Honour limit, and treat 0 as zero rows rather than "unlimited" -- every real backend
+        # distinguishes LIMIT 0 from an omitted limit, and a permissive double hides a provider
+        # that fetches everything when it asked for nothing.
         ranked = sorted(hits, key=lambda r: -(r.score or 0.0))
-        return ranked[: query.limit] if query.limit else ranked
+        return ranked[: query.limit] if query.limit else []
 
     async def asearch(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
@@ -101,7 +103,7 @@ class InMemoryVector:
         if since is not None:
             rows = [record for record in rows if (record.created_at or 0) >= since]
         rows.sort(key=lambda record: ((record.created_at or 0), record.id))
-        return rows[:limit] if limit else rows
+        return rows if limit is None else rows[:limit]
 
     async def ascan(
         self,
@@ -148,13 +150,16 @@ class InMemoryGraph:
     ) -> List[MemoryRecord]:
         wanted = {tier} if tier else set(query.resolved_tiers())
         terms = set(query.text.lower().split())
-        return [
+        hits = [
             row
             for row in self._bucket(scope)
             if row.tier in wanted
             and row.is_current_belief()
             and terms & set(row.content.lower().split())
         ]
+        # This double honours limit too. The one that does not is precisely the one that would
+        # hide a filter-after-limit bug in the provider above it.
+        return hits[: query.limit] if query.limit else []
 
     async def atraverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None

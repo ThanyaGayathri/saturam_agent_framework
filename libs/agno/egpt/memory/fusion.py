@@ -15,6 +15,7 @@ is a mechanism-based transfer, not a measured result for this exact combination 
 owns measuring it once real backends exist. Keep it config-selectable; do not harden it.
 """
 
+from copy import deepcopy
 from typing import Dict, List, Sequence
 
 from egpt.memory.types import MemoryRecord
@@ -63,13 +64,19 @@ def _detached(record: MemoryRecord, score: float) -> MemoryRecord:
     record (``slice_.records[0].metadata["seen_by"] = ...``) would then be writing into the store,
     and two consumers handed the same slice would see each other's edits. For an in-process backend
     that is silent cross-contamination in both directions.
+
+    ``provenance`` and ``metadata`` are **deep**-copied, not one level. ``dict()`` left nested
+    values aliased, and the most likely real instance is a consumer appending to
+    ``provenance["source_episode_ids"]`` -- the exact shape consolidation writes, and the one
+    ``FactWrite`` documents as load-bearing for the fact-to-episode audit trail. ``topics`` is
+    ``List[str]`` by type, so a shallow ``list()`` is complete there.
     """
     return MemoryRecord(
         **{
             **vars(record),
             "score": score,
-            "provenance": dict(record.provenance),
-            "metadata": dict(record.metadata),
+            "provenance": deepcopy(record.provenance),
+            "metadata": deepcopy(record.metadata),
             "topics": list(record.topics) if record.topics is not None else None,
         }
     )
@@ -93,8 +100,12 @@ def merge_tightest_bounds(kept: MemoryRecord, incoming: MemoryRecord) -> None:
     if incoming.superseded_by is not None and kept.superseded_by is None:
         kept.superseded_by = incoming.superseded_by
     if incoming.provenance:
-        merged = dict(incoming.provenance)
-        merged.update(kept.provenance)
+        # Deep-copied for the same reason as `_detached`, and this is the *other* aliasing path:
+        # `incoming` is the raw substrate record, and this runs on the seen-by-both-legs path --
+        # the one fusion exists for. Copying only the outer dict left the graph leg's stored
+        # provenance reachable through the returned record.
+        merged = deepcopy(incoming.provenance)
+        merged.update(deepcopy(kept.provenance))
         kept.provenance = merged
 
 

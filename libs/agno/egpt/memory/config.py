@@ -142,6 +142,26 @@ class MemoryProviderConfig:
                 field_name="fusion.vector_weight",
             )
 
+        # `k` divides at read time (`1 / (k + rank)`), so a bad value here becomes a
+        # ZeroDivisionError or a TypeError on the hot path, far from the config that caused it.
+        k = self.fusion.get("k")
+        if not isinstance(k, int) or isinstance(k, bool) or k <= 0:
+            raise MemoryProviderConfigError(
+                f"fusion.k must be a positive integer (RRF divides by k + rank), got {k!r}.",
+                field_name="fusion.k",
+            )
+
+        # `rerank` and `ppr` are finding F5 exactly -- fusion settings accepted at the boundary and
+        # then read by nothing. Rejecting a truthy value is the same treatment `vector_weight` gets:
+        # better a loud refusal than a knob that looks enabled and does nothing.
+        for flag, owner in (("rerank", "SM-R8 (cross-encoder rerank)"), ("ppr", "SM-R9 (personalized PageRank)")):
+            if self.fusion.get(flag):
+                raise MemoryProviderConfigError(
+                    f"fusion.{flag} is not implemented yet, so enabling it would silently do "
+                    f"nothing. It is owned by {owner}; leave it False until that lands.",
+                    field_name=f"fusion.{flag}",
+                )
+
 
 #: An adapter factory: takes a config, returns a ready provider.
 ProviderFactory = Callable[[MemoryProviderConfig], MemoryProvider]

@@ -17,8 +17,9 @@ from egpt.memory.strategies import (
     MemoryOptimizationStrategyType,
     SummarizeStrategy,
 )
-from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
-from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
+from egpt.memory.fusion import fuse_rrf, fuse_weighted, merge_tightest_bounds
+from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
+from egpt.memory.tiers import PERSISTENT_TIERS, SUBSTRATES_BY_TIER, MemoryTier, substrates_for_tier
 from egpt.memory.types import (
     FUSION_KEYS,
     ConsolidationReport,
@@ -53,9 +54,17 @@ __all__ = [
     "Scope",
     "Substrate",
     "WriteReceipt",
-    # Substrate ports (SM-C1)
+    # Substrate ports and the helpers a third-party adapter needs (SM-C1)
     "GraphSubstrate",
     "VectorSubstrate",
+    "SUBSTRATES_BY_TIER",
+    "checked_graph",
+    "checked_vector",
+    "fuse_rrf",
+    "fuse_weighted",
+    "fusion_diagnostics",
+    "merge_tightest_bounds",
+    "substrates_for_tier",
     # The seam and its construction path (SM-C1)
     "CoLocatedMemoryProvider",
     "ExternalMemoryProvider",
