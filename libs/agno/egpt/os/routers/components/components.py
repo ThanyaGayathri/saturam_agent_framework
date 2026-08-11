@@ -171,6 +171,21 @@ def attach_routes(
     # re-reading it on every write would put a file read in the request path.
     policy = resolve_policy(capability_policy, registry)
 
+    def _evict_from_hydration_cache(component_id: str) -> None:
+        """Drop the component's cached config rows after a successful mutation (EGPT-2.5).
+
+        This is the invalidation seam the EGPT-2.6 lifecycle events will replace: the worker
+        that processes the mutation evicts immediately; other workers -- and writers that
+        bypass this router (Agent.save, the studio toolkit) -- converge within the cache TTL.
+        All tenants/versions/db handles for the id are dropped: mutations are rare, and a
+        too-wide eviction only costs one re-read.
+        """
+        from egpt.registry.hydrate import ComponentConfigCache
+
+        cache = getattr(registry, "component_config_cache", None)
+        if isinstance(cache, ComponentConfigCache):
+            cache.invalidate(component_id)
+
     def _require_component(component_id: str, tenant_id: Optional[str] = None) -> Dict[str, Any]:
         """The stored component, or a 404 -- the single tenant-scoped existence check.
 
@@ -370,6 +385,8 @@ def attach_routes(
                 update_kwargs["component_type"] = DbComponentType(body.component_type)
 
             component = db.upsert_component(**update_kwargs)
+            # current_version may have moved, which changes what a version=None hydration resolves.
+            _evict_from_hydration_cache(component_id)
             return ComponentResponse(**component)
         except HTTPException:
             raise
@@ -394,6 +411,7 @@ def attach_routes(
             deleted = db.delete_component(component_id, tenant_id=tenant_id)
             if not deleted:
                 raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
+            _evict_from_hydration_cache(component_id)
         except HTTPException:
             raise
         except Exception as e:
@@ -471,6 +489,9 @@ def attach_routes(
                 links=body.links,
                 tenant_id=tenant_id,
             )
+            # Publishing a new version moves current_version, which a cached version=None
+            # (or labeled) hydration would otherwise keep serving until the TTL.
+            _evict_from_hydration_cache(component_id)
             return ComponentConfigResponse(**config)
         except HTTPException:
             raise
@@ -530,6 +551,9 @@ def attach_routes(
                 links=body.links,
                 tenant_id=tenant_id,
             )
+            # Draft edits change the row an explicit-version hydration reads; a draft->published
+            # transition also moves current_version.
+            _evict_from_hydration_cache(component_id)
             return ComponentConfigResponse(**config)
         except HTTPException:
             raise
@@ -613,6 +637,7 @@ def attach_routes(
             deleted = db.delete_config(component_id, version=version, tenant_id=tenant_id)
             if not deleted:
                 raise HTTPException(status_code=404, detail=f"Config {component_id} v{version} not found")
+            _evict_from_hydration_cache(component_id)
         except HTTPException:
             raise
         except ValueError as e:
@@ -644,6 +669,8 @@ def attach_routes(
                 raise HTTPException(
                     status_code=404, detail=f"Component {component_id} or config version {version} not found"
                 )
+            # Rollback repoints current_version -- exactly the row a version=None hydration caches.
+            _evict_from_hydration_cache(component_id)
 
             # Fetch and return updated component
             component = db.get_component(component_id, tenant_id=tenant_id)

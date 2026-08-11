@@ -56,6 +56,7 @@ from egpt.os.utils import (
     process_image,
     process_video,
     resolve_team,
+    tenant_for_direct_read,
 )
 from egpt.registry import Registry
 from egpt.registry.policy import PolicyViolationError
@@ -818,11 +819,20 @@ def get_team_router(
             return JSONResponse(content={}, status_code=200)
 
         try:
-            team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True)  # type: ignore[assignment]
+            team = get_team_by_id(
+                team_id=team_id,
+                teams=os.teams,
+                db=os.db,
+                registry=registry,
+                create_fresh=True,
+                tenant_id=tenant_for_direct_read(request, db=os.db, components=os.teams, component_id=team_id),
+            )  # type: ignore[assignment]
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant
             # is just not permitted the capabilities it names (EGPT-2.3).
             raise HTTPException(status_code=403, detail=str(e))
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error resolving team '{team_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving team: {e}")
@@ -907,7 +917,14 @@ def get_team_router(
                 detail="Stream resumption is not supported for factory teams",
             )
 
-        team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True)
+        team = get_team_by_id(
+            team_id=team_id,
+            teams=os.teams,
+            db=os.db,
+            registry=registry,
+            create_fresh=True,
+            tenant_id=tenant_for_direct_read(request, db=os.db, components=os.teams, component_id=team_id),
+        )
         if team is None:
             raise HTTPException(status_code=404, detail="Team not found")
         if isinstance(team, RemoteTeam):
@@ -1025,11 +1042,20 @@ def get_team_router(
             )
         else:
             try:
-                team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True)  # type: ignore[assignment]
+                team = get_team_by_id(
+                    team_id=team_id,
+                    teams=os.teams,
+                    db=os.db,
+                    registry=registry,
+                    create_fresh=True,
+                    tenant_id=tenant_for_direct_read(request, db=os.db, components=os.teams, component_id=team_id),
+                )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant
                 # is just not permitted the capabilities it names (EGPT-2.3).
                 raise HTTPException(status_code=403, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error resolving team '{team_id}': {e}")
                 raise HTTPException(status_code=500, detail=f"Error resolving team: {e}")
@@ -1191,11 +1217,20 @@ def get_team_router(
             user_id = request.state.user_id
 
         try:
-            team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True)
+            team = get_team_by_id(
+                team_id=team_id,
+                teams=os.teams,
+                db=os.db,
+                registry=registry,
+                create_fresh=True,
+                tenant_id=tenant_for_direct_read(request, db=os.db, components=os.teams, component_id=team_id),
+            )
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant
             # is just not permitted the capabilities it names (EGPT-2.3).
             raise HTTPException(status_code=403, detail=str(e))
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error resolving team '{team_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving team: {e}")
@@ -1336,7 +1371,12 @@ def get_team_router(
 
             # Exclude teams whose IDs are owned by the registry
             exclude_ids = registry.get_team_ids() if registry else None
-            db_teams = get_teams(db=os.db, registry=registry, exclude_component_ids=exclude_ids or None)
+            db_teams = get_teams(
+                db=os.db,
+                registry=registry,
+                exclude_component_ids=exclude_ids or None,
+                tenant_id=tenant_for_direct_read(request, db=os.db),
+            )
             for db_team in db_teams:
                 team_response = await TeamResponse.from_team(team=db_team, is_component=True)
                 teams.append(team_response)
@@ -1435,11 +1475,20 @@ def get_team_router(
             return TeamResponse.from_factory(factory)
 
         try:
-            team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True)  # type: ignore[assignment]
+            team = get_team_by_id(
+                team_id=team_id,
+                teams=os.teams,
+                db=os.db,
+                registry=registry,
+                create_fresh=True,
+                tenant_id=tenant_for_direct_read(request, db=os.db, components=os.teams, component_id=team_id),
+            )  # type: ignore[assignment]
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant
             # is just not permitted the capabilities it names (EGPT-2.3).
             raise HTTPException(status_code=403, detail=str(e))
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Error resolving team '{team_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving team: {e}")
@@ -1483,11 +1532,20 @@ def get_team_router(
             )
         else:
             try:
-                team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True)  # type: ignore[assignment]
+                team = get_team_by_id(
+                    team_id=team_id,
+                    teams=os.teams,
+                    db=os.db,
+                    registry=registry,
+                    create_fresh=True,
+                    tenant_id=tenant_for_direct_read(request, db=os.db, components=os.teams, component_id=team_id),
+                )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant
                 # is just not permitted the capabilities it names (EGPT-2.3).
                 raise HTTPException(status_code=403, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error resolving team '{team_id}': {e}")
                 raise HTTPException(status_code=500, detail=f"Error resolving team: {e}")
@@ -1550,11 +1608,20 @@ def get_team_router(
             )
         else:
             try:
-                team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True)  # type: ignore[assignment]
+                team = get_team_by_id(
+                    team_id=team_id,
+                    teams=os.teams,
+                    db=os.db,
+                    registry=registry,
+                    create_fresh=True,
+                    tenant_id=tenant_for_direct_read(request, db=os.db, components=os.teams, component_id=team_id),
+                )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant
                 # is just not permitted the capabilities it names (EGPT-2.3).
                 raise HTTPException(status_code=403, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error resolving team '{team_id}': {e}")
                 raise HTTPException(status_code=500, detail=f"Error resolving team: {e}")
@@ -1613,11 +1680,20 @@ def get_team_router(
             )
         else:
             try:
-                team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True)  # type: ignore[assignment]
+                team = get_team_by_id(
+                    team_id=team_id,
+                    teams=os.teams,
+                    db=os.db,
+                    registry=registry,
+                    create_fresh=True,
+                    tenant_id=tenant_for_direct_read(request, db=os.db, components=os.teams, component_id=team_id),
+                )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant
                 # is just not permitted the capabilities it names (EGPT-2.3).
                 raise HTTPException(status_code=403, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error resolving team '{team_id}': {e}")
                 raise HTTPException(status_code=500, detail=f"Error resolving team: {e}")
@@ -1676,11 +1752,20 @@ def get_team_router(
             )
         else:
             try:
-                team = get_team_by_id(team_id=team_id, teams=os.teams, db=os.db, registry=registry, create_fresh=True)  # type: ignore[assignment]
+                team = get_team_by_id(
+                    team_id=team_id,
+                    teams=os.teams,
+                    db=os.db,
+                    registry=registry,
+                    create_fresh=True,
+                    tenant_id=tenant_for_direct_read(request, db=os.db, components=os.teams, component_id=team_id),
+                )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant
                 # is just not permitted the capabilities it names (EGPT-2.3).
                 raise HTTPException(status_code=403, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Error resolving team '{team_id}': {e}")
                 raise HTTPException(status_code=500, detail=f"Error resolving team: {e}")

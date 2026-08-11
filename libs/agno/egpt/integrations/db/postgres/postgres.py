@@ -4428,7 +4428,7 @@ class PostgresDb(BaseDb):
         Args:
             component_id: The component ID.
             version: Specific version or None for current.
-            label: Optional label of the component.
+            label: Optional label of the component. Ignored if version is provided.
             tenant_id: Optional tenant. Applied to the root component and every child
                 resolved through the graph. None means no tenant filter.
             _visited: Internal cycle tracking (do not pass).
@@ -4445,6 +4445,12 @@ class PostgresDb(BaseDb):
             component = self.get_component(component_id, tenant_id=tenant_id)
             if component is None:
                 return None
+
+            if version is None and label is not None:
+                labeled = self.get_config(component_id, label=label, tenant_id=tenant_id)
+                if labeled is None:
+                    return None
+                version = labeled.get("version")
 
             resolved_version = self._resolve_version(component_id, version, tenant_id=tenant_id)
             if resolved_version is None:
@@ -4503,6 +4509,11 @@ class PostgresDb(BaseDb):
                     resolved_versions.update(child_graph.get("resolved_versions", {}))
 
                 children.append({"link": link, "graph": child_graph})
+
+            # _visited tracks the active recursion path, not every node ever seen: with this
+            # branch fully walked, the node must be reachable again through a sibling -- a
+            # shared child (diamond) is not a cycle.
+            _visited.discard(node_key)
 
             return {
                 "component": component,

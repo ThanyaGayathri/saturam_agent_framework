@@ -34,14 +34,20 @@ def component_spec_for(
     registry: Optional[Registry] = None,
     db: Optional[BaseDb] = None,
     links: Optional[List[Dict[str, Any]]] = None,
+    tenant_id: Optional[str] = None,
 ) -> ComponentSpec:
-    """The `ComponentSpec` for a component type, built by the class that owns the contract."""
+    """The `ComponentSpec` for a component type, built by the class that owns the contract.
+
+    tenant_id (EGPT-2.5) scopes the member/step hydration inside the dry run for teams and
+    workflows, so a write-time validation cannot probe another tenant's component ids. Agents
+    take no tenant: their spec strips `db`, so their dry run cannot reach the database.
+    """
     if component_type == "agent":
         return Agent.component_spec(registry=registry)
     if component_type == "team":
-        return Team.component_spec(registry=registry, db=db)
+        return Team.component_spec(registry=registry, db=db, tenant_id=tenant_id)
     if component_type == "workflow":
-        return Workflow.component_spec(registry=registry, db=db, links=links)
+        return Workflow.component_spec(registry=registry, db=db, links=links, tenant_id=tenant_id)
     raise ValueError(f"Unknown component type '{component_type}'.")
 
 
@@ -69,7 +75,7 @@ def validate_component_config(
             it subclasses `ValueError`, so a handler in the wrong order flattens the field-level
             errors into a plain 400 string.
     """
-    spec = component_spec_for(component_type, registry=registry, db=db, links=links)
+    spec = component_spec_for(component_type, registry=registry, db=db, links=links, tenant_id=tenant_id)
     return validate_config(
         config,
         component_type,

@@ -569,7 +569,9 @@ class TestAgentLoad:
 
         Agent.load(id="versioned-agent", db=mock_db, version=2)
 
-        mock_db.get_config.assert_called_once_with(component_id="versioned-agent", label=None, version=2)
+        mock_db.get_config.assert_called_once_with(
+            component_id="versioned-agent", label=None, version=2, tenant_id=None
+        )
 
     def test_load_with_label(self, mock_db):
         """Test load retrieves labeled version."""
@@ -577,7 +579,9 @@ class TestAgentLoad:
 
         Agent.load(id="labeled-agent", db=mock_db, label="production")
 
-        mock_db.get_config.assert_called_once_with(component_id="labeled-agent", label="production", version=None)
+        mock_db.get_config.assert_called_once_with(
+            component_id="labeled-agent", label="production", version=None, tenant_id=None
+        )
 
     def test_load_with_registry(self, mock_db):
         """Test load passes registry to from_dict."""
@@ -716,7 +720,7 @@ class TestGetAgentById:
 
         get_agent_by_id(db=mock_db, id="versioned", version=3)
 
-        mock_db.get_config.assert_called_once_with(component_id="versioned", label=None, version=3)
+        mock_db.get_config.assert_called_once_with(component_id="versioned", label=None, version=3, tenant_id=None)
 
     def test_get_agent_by_id_with_label(self, mock_db):
         """Test get_agent_by_id retrieves labeled version."""
@@ -724,7 +728,9 @@ class TestGetAgentById:
 
         get_agent_by_id(db=mock_db, id="labeled", label="staging")
 
-        mock_db.get_config.assert_called_once_with(component_id="labeled", label="staging", version=None)
+        mock_db.get_config.assert_called_once_with(
+            component_id="labeled", label="staging", version=None, tenant_id=None
+        )
 
     def test_get_agent_by_id_with_registry(self, mock_db):
         """Test get_agent_by_id passes registry."""
@@ -765,13 +771,18 @@ class TestGetAgentById:
         assert agent is not None
         assert agent.db == mock_db
 
-    def test_get_agent_by_id_handles_error(self, mock_db):
-        """Test get_agent_by_id returns None on error."""
+    def test_get_agent_by_id_raises_hydration_error(self, mock_db):
+        """A failure on an existing row surfaces as HydrationError, not None (EGPT-2.5).
+
+        None is reserved for "no such component"; collapsing errors into it rendered
+        broken configs as 404s.
+        """
+        from egpt.registry.hydrate import HydrationError
+
         mock_db.get_config.side_effect = Exception("DB error")
 
-        agent = get_agent_by_id(db=mock_db, id="error-agent")
-
-        assert agent is None
+        with pytest.raises(HydrationError, match="error-agent"):
+            get_agent_by_id(db=mock_db, id="error-agent")
 
 
 # =============================================================================
@@ -808,7 +819,9 @@ class TestGetAgents:
 
         get_agents(db=mock_db)
 
-        mock_db.list_components.assert_called_once_with(component_type=ComponentType.AGENT, exclude_component_ids=None)
+        mock_db.list_components.assert_called_once_with(
+            component_type=ComponentType.AGENT, exclude_component_ids=None, tenant_id=None
+        )
 
     def test_get_agents_with_registry(self, mock_db):
         """Test get_agents passes registry to from_dict."""

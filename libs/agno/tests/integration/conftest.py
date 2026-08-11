@@ -65,6 +65,8 @@ _PATH_ENV_REQUIREMENTS: tuple[tuple[str, str], ...] = (
     # db/ because it exercises the HTTP surface, so it needs its own fragment -- os/ as a whole
     # is ungated and runs on SQLite.
     ("os/tenancy_postgres", "EGPT_INTEGRATION_POSTGRES"),
+    # Tenant-scoped runtime hydration of DB-defined components (EGPT-2.5), same rationale.
+    ("os/hydration_postgres", "EGPT_INTEGRATION_POSTGRES"),
     ("db/postgres", "EGPT_INTEGRATION_POSTGRES"),
     ("db/async_postgres", "EGPT_INTEGRATION_POSTGRES"),
     ("db/async_mongo", "EGPT_INTEGRATION_MONGO"),

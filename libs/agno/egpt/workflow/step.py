@@ -306,6 +306,7 @@ class Step:
         registry: Optional[Registry] = None,
         db: Optional["BaseDb"] = None,
         links: Optional[List[Dict[str, Any]]] = None,
+        tenant_id: Optional[str] = None,
     ) -> "Step":
         """
         Create a Step from a dictionary.
@@ -315,6 +316,7 @@ class Step:
             registry: Optional registry for rehydrating non-serializable objects
             db: Optional database for loading agents/teams in steps
             links: Optional links for this step version
+            tenant_id: Optional caller tenant (EGPT-2.5), applied to the DB fallbacks below
 
         Returns:
             Step: Reconstructed step instance
@@ -348,7 +350,7 @@ class Step:
             if agent is None and db is not None and agent_id is not None:
                 from egpt.agent.agent import get_agent_by_id
 
-                agent = get_agent_by_id(db=db, id=agent_id, registry=registry)
+                agent = get_agent_by_id(db=db, id=agent_id, registry=registry, tenant_id=tenant_id)
 
             if agent is None and agent_id:
                 log_warning(
@@ -377,7 +379,7 @@ class Step:
             if team is None and db is not None and team_id is not None:
                 from egpt.team.team import get_team_by_id
 
-                team = get_team_by_id(db=db, id=team_id, registry=registry)
+                team = get_team_by_id(db=db, id=team_id, registry=registry, tenant_id=tenant_id)
 
             if team is None and team_id:
                 log_warning(

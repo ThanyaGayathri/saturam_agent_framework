@@ -650,25 +650,34 @@ def build_mcp_server(
         # discoverable -- and therefore runnable -- over MCP, matching the REST list routes.
         if os.db is not None and isinstance(os.db, BaseDb):
             from egpt.agent.agent import get_agents
+            from egpt.os.utils import tenant_for_direct_read
             from egpt.team.team import get_teams
             from egpt.workflow.workflow import get_workflows
 
             registry = os.registry
+            # Scope the DB listings to the caller's tenant (EGPT-2.5), matching GET /agents etc.
+            # Fails closed (403) when tenancy is enabled but the principal carries no tenant --
+            # tenant_id=None at the DB layer would list every tenant's components.
+            tenant_id = tenant_for_direct_read(request, db=os.db)
             agent_exclude = (registry.get_agent_ids() if registry else None) or None
             for a in _accessible(
-                get_agents(db=os.db, registry=registry, exclude_component_ids=agent_exclude), "agents"
+                get_agents(db=os.db, registry=registry, exclude_component_ids=agent_exclude, tenant_id=tenant_id),
+                "agents",
             ):
                 try:
                     agents_out.append(AgentSummaryResponse.from_agent(a).model_dump())
                 except Exception:
                     logger.exception("Error summarizing DB agent for get_agentos_config")
             team_exclude = (registry.get_team_ids() if registry else None) or None
-            for t in _accessible(get_teams(db=os.db, registry=registry, exclude_component_ids=team_exclude), "teams"):
+            for t in _accessible(
+                get_teams(db=os.db, registry=registry, exclude_component_ids=team_exclude, tenant_id=tenant_id),
+                "teams",
+            ):
                 try:
                     teams_out.append(TeamSummaryResponse.from_team(t).model_dump())
                 except Exception:
                     logger.exception("Error summarizing DB team for get_agentos_config")
-            for w in _accessible(get_workflows(db=os.db, registry=registry), "workflows"):
+            for w in _accessible(get_workflows(db=os.db, registry=registry, tenant_id=tenant_id), "workflows"):
                 try:
                     workflows_out.append(WorkflowSummaryResponse.from_workflow(w, is_component=True).model_dump())
                 except Exception:

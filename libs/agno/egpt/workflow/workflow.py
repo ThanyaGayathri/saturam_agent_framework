@@ -330,6 +330,7 @@ def _step_from_dict(
     registry: Optional["Registry"] = None,
     db: Optional["BaseDb"] = None,
     links: Optional[List[Dict[str, Any]]] = None,
+    tenant_id: Optional[str] = None,
 ) -> Union[Step, Steps, Loop, Parallel, Condition, Router]:
     """
     Deserialize a step from a dictionary based on its type.
@@ -339,6 +340,7 @@ def _step_from_dict(
         registry: Optional registry for rehydrating non-serializable objects
         db: Optional database for loading agents/teams in steps
         links: Optional links for this step version
+        tenant_id: Optional caller tenant (EGPT-2.5), applied to the DB fallbacks in steps
 
     Returns:
         The appropriate step type instance (Step, Steps, Loop, Parallel, Condition, or Router)
@@ -346,17 +348,17 @@ def _step_from_dict(
     step_type = data.get("type", "Step")
 
     if step_type == "Loop":
-        return Loop.from_dict(data, registry=registry, db=db, links=links)
+        return Loop.from_dict(data, registry=registry, db=db, links=links, tenant_id=tenant_id)
     elif step_type == "Parallel":
-        return Parallel.from_dict(data, registry=registry, db=db, links=links)
+        return Parallel.from_dict(data, registry=registry, db=db, links=links, tenant_id=tenant_id)
     elif step_type == "Steps":
-        return Steps.from_dict(data, registry=registry, db=db, links=links)
+        return Steps.from_dict(data, registry=registry, db=db, links=links, tenant_id=tenant_id)
     elif step_type == "Condition":
-        return Condition.from_dict(data, registry=registry, db=db, links=links)
+        return Condition.from_dict(data, registry=registry, db=db, links=links, tenant_id=tenant_id)
     elif step_type == "Router":
-        return Router.from_dict(data, registry=registry, db=db, links=links)
+        return Router.from_dict(data, registry=registry, db=db, links=links, tenant_id=tenant_id)
     elif step_type == "Step":
-        return Step.from_dict(data, registry=registry, db=db, links=links)
+        return Step.from_dict(data, registry=registry, db=db, links=links, tenant_id=tenant_id)
     else:
         raise ValueError(f"Unknown step type: {step_type}")
 
@@ -944,6 +946,7 @@ class Workflow:
         db: Optional["BaseDb"] = None,
         links: Optional[List[Dict[str, Any]]] = None,
         registry: Optional[Registry] = None,
+        tenant_id: Optional[str] = None,
     ) -> "Workflow":
         """
         Create a Workflow from a dictionary.
@@ -953,6 +956,8 @@ class Workflow:
             db: Optional database for loading agents/teams in steps
             links: Optional links for this workflow version
             registry: Optional registry for rehydrating executors
+            tenant_id: Optional caller tenant (EGPT-2.5), forwarded into step hydration --
+                without it a tenant-scoped workflow could still pull cross-tenant executors.
 
         Returns:
             Workflow: Reconstructed workflow instance
@@ -979,7 +984,10 @@ class Workflow:
         # --- Handle steps reconstruction ---
         steps: Optional[WorkflowSteps] = None
         if "steps" in config and config["steps"]:
-            steps = [_step_from_dict(step_data, db=db, links=links, registry=registry) for step_data in config["steps"]]
+            steps = [
+                _step_from_dict(step_data, db=db, links=links, registry=registry, tenant_id=tenant_id)
+                for step_data in config["steps"]
+            ]
             del config["steps"]
 
         return cls(
@@ -1025,12 +1033,13 @@ class Workflow:
         registry: Optional["Registry"] = None,
         db: Optional["BaseDb"] = None,
         links: Optional[List[Dict[str, Any]]] = None,
+        tenant_id: Optional[str] = None,
     ) -> "ComponentSpec":
         """The contract `egpt.registry.schema` validates workflow configs against.
 
         Sync-only by design: it builds and returns a descriptor with nothing to await.
         """
-        return component_spec(registry=registry, db=db, links=links)
+        return component_spec(registry=registry, db=db, links=links, tenant_id=tenant_id)
 
     def save(
         self,
@@ -1143,6 +1152,7 @@ class Workflow:
         registry: Optional["Registry"] = None,
         label: Optional[str] = None,
         version: Optional[int] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional["Workflow"]:
         """
         Load a workflow by id.
@@ -1151,17 +1161,25 @@ class Workflow:
             id: The id of the workflow to load.
             db: The database to load the workflow from.
             label: The label of the workflow to load.
+            version: The version of the workflow to load.
+            tenant_id: Optional caller tenant (EGPT-2.5). Scopes the read and the step
+                hydration; a foreign tenant's workflow loads as None.
 
         Returns:
             The workflow loaded from the database or None if not found.
 
         Raises:
             PolicyViolationError: the stored config names a capability its tenant may not use.
+            NoPublishedVersionError: published-only hydration is configured and the selected
+                config is not published.
         """
+        from egpt.registry.hydrate import fetch_config_row
         from egpt.registry.policy import enforce_policy_or_raise
 
         # TODO: Use db.load_component_graph instead of get_config
-        data: Optional[Dict[str, Any]] = db.get_config(component_id=id, label=label, version=version)
+        data: Optional[Dict[str, Any]] = fetch_config_row(
+            db, id, "workflow", version=version, label=label, tenant_id=tenant_id, registry=registry
+        )
         if data is None:
             return None
 
@@ -1172,15 +1190,16 @@ class Workflow:
         # `load` is the natural entry point for anything programmatic -- a migration script, a
         # CLI, a test fixture -- and those are exactly the callers with no policy in mind, so
         # leaving it ungated would make the control opt-in at the point it matters most.
+        # The caller's tenant wins over the row's (EGPT-2.5).
         enforce_policy_or_raise(
             config,
             "workflow",
-            tenant_id=data.get("tenant_id"),
+            tenant_id=tenant_id if tenant_id is not None else data.get("tenant_id"),
             registry=registry,
             component_id=id,
         )
 
-        workflow = cls.from_dict(config, db=db, registry=registry)
+        workflow = cls.from_dict(config, db=db, registry=registry, tenant_id=tenant_id)
 
         workflow.id = id
         # Only fall back to the caller-provided db if the config didn't
@@ -10793,12 +10812,17 @@ def component_spec(
     registry: Optional["Registry"] = None,
     db: Optional["BaseDb"] = None,
     links: Optional[List[Dict[str, Any]]] = None,
+    tenant_id: Optional[str] = None,
 ) -> ComponentSpec:
-    """The workflow's side of the config-validation contract (see `egpt.registry.schema`)."""
+    """The workflow's side of the config-validation contract (see `egpt.registry.schema`).
+
+    tenant_id (EGPT-2.5) scopes the step hydration inside the validator's dry run, closing
+    the foreign-id existence oracle -- see Team's component_spec.
+    """
     return ComponentSpec(
         component_type="workflow",
         known_keys=_workflow_config_keys(),
-        hydrate=lambda config: Workflow.from_dict(config, db=db, links=links, registry=registry),
+        hydrate=lambda config: Workflow.from_dict(config, db=db, links=links, registry=registry, tenant_id=tenant_id),
     )
 
 
@@ -10808,6 +10832,7 @@ def get_workflow_by_id(
     version: Optional[int] = None,
     label: Optional[str] = None,
     registry: Optional["Registry"] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional["Workflow"]:
     """
     Get a Workflow by id from the database (new entities/configs schema).
@@ -10823,17 +10848,21 @@ def get_workflow_by_id(
         version: Optional integer config version.
         label: Optional version_label.
         registry: Optional Registry for reconstructing unserializable components.
+        tenant_id: Optional caller tenant (EGPT-2.5). Scopes the config and link reads --
+            and the step hydration below them -- and selects the capability policy.
 
     Returns:
         Workflow instance or None.
 
     Raises:
         PolicyViolationError: the stored config names a capability its tenant may not use.
+        HydrationError: the config row exists but could not be built into a Workflow.
     """
+    from egpt.registry.hydrate import HydrationError, fetch_config_row
     from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise
 
     try:
-        row = db.get_config(component_id=id, version=version, label=label)
+        row = fetch_config_row(db, id, "workflow", version=version, label=label, tenant_id=tenant_id, registry=registry)
         if row is None:
             return None
 
@@ -10844,10 +10873,11 @@ def get_workflow_by_id(
         # Read-side capability gate (EGPT-2.3); see get_agent_by_id for why it is not swallowed.
         # A workflow's *steps* reference agents by id, and those are re-checked in turn when
         # `get_agent_by_id` hydrates them -- this call covers the workflow's own envelope.
+        # The caller's tenant wins over the row's (EGPT-2.5).
         enforce_policy_or_raise(
             cfg,
             "workflow",
-            tenant_id=row.get("tenant_id"),
+            tenant_id=tenant_id if tenant_id is not None else row.get("tenant_id"),
             registry=registry,
             component_id=id,
         )
@@ -10855,34 +10885,40 @@ def get_workflow_by_id(
         resolved_version = row.get("version")
 
         # Get links for this workflow version
-        links = db.get_links(component_id=id, version=resolved_version) if resolved_version else []
+        links = db.get_links(component_id=id, version=resolved_version, tenant_id=tenant_id) if resolved_version else []
 
-        workflow = Workflow.from_dict(cfg, db=db, links=links, registry=registry)
+        workflow = Workflow.from_dict(cfg, db=db, links=links, registry=registry, tenant_id=tenant_id)
 
         # Ensure workflow.id is set to the component_id
         workflow.id = id
 
         return workflow
 
-    except PolicyViolationError:
+    except (PolicyViolationError, HydrationError):
         raise
     except Exception as e:
         log_error(f"Error loading Workflow {id} from database: {str(e)}")
-        return None
+        raise HydrationError(
+            f"Component '{id}' failed to hydrate: {e}", component_id=id, component_type="workflow"
+        ) from e
 
 
 def get_workflows(
     db: "BaseDb",
     registry: Optional["Registry"] = None,
+    tenant_id: Optional[str] = None,
 ) -> List["Workflow"]:
     """
     Get all workflows from the database.
 
     Sets _version and _stage on each workflow from the component metadata.
 
-    A workflow whose stored config violates the capability policy is omitted with a warning
-    rather than failing the whole listing.
+    A workflow whose stored config violates the capability policy -- or fails to hydrate -- is
+    omitted with a warning rather than failing the whole listing.
+
+    tenant_id (EGPT-2.5) scopes the listing and every per-row config read; None means unscoped.
     """
+    from egpt.registry.hydrate import HydrationError, fetch_config_row
     from egpt.registry.policy import PolicyViolationError, enforce_policy_or_raise, resolve_policy
     from egpt.utils.log import log_warning
 
@@ -10891,10 +10927,12 @@ def get_workflows(
 
     workflows: List[Workflow] = []
     try:
-        components, _ = db.list_components(component_type=ComponentType.WORKFLOW)
+        components, _ = db.list_components(component_type=ComponentType.WORKFLOW, tenant_id=tenant_id)
         for component in components:
             try:
-                config = db.get_config(component_id=component["component_id"])
+                config = fetch_config_row(
+                    db, component["component_id"], "workflow", tenant_id=tenant_id, registry=registry
+                )
                 if config is not None:
                     workflow_config = config.get("config")
                     if workflow_config is not None:
@@ -10904,17 +10942,17 @@ def get_workflows(
                         enforce_policy_or_raise(
                             workflow_config,
                             "workflow",
-                            tenant_id=config.get("tenant_id"),
+                            tenant_id=tenant_id if tenant_id is not None else config.get("tenant_id"),
                             registry=registry,
                             policy=policy,
                             component_id=component_id,
                         )
-                        workflow = Workflow.from_dict(workflow_config, db=db, registry=registry)
+                        workflow = Workflow.from_dict(workflow_config, db=db, registry=registry, tenant_id=tenant_id)
                         workflow.id = component_id
                         workflow._version = component.get("current_version")
                         workflow._stage = config.get("stage")
                         workflows.append(workflow)
-            except PolicyViolationError as e:
+            except (PolicyViolationError, HydrationError) as e:
                 log_warning(f"Omitting workflow from listing: {e}")
                 continue
             except Exception as e:

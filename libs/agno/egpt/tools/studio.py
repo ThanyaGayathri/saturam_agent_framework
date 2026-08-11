@@ -18,13 +18,12 @@ Typical use:
     )
 
 .. warning::
-    **StudioTools runs unscoped and is not tenant-aware.** Every component read and write here
-    calls the db with no ``tenant_id``, so in a multi-tenant deployment it reaches every
-    tenant's components -- unlike the ``/components`` HTTP API, which enforces the caller's
-    tenant (EGPT-2.4, see ``docs/tenancy.md``). There is no HTTP principal at this layer to
-    derive a tenant from; threading one through belongs with the rest of the runtime-hydration
-    scoping in EGPT-2.5. Until then, do not expose ``StudioTools`` to a tenant-facing agent.
-    The EGPT-2.3 capability policy still applies to what a stored config may reference.
+    **Pass ``tenant_id`` in multi-tenant deployments.** Every component read and write here is
+    scoped to the ``tenant_id`` given at construction (EGPT-2.5). There is no HTTP principal at
+    this layer to derive one from, so the operator embedding the toolkit must supply it; with
+    the default ``tenant_id=None`` the toolkit runs unscoped and reaches every tenant's
+    components -- acceptable only for single-tenant or operator-facing agents. The EGPT-2.3
+    capability policy applies to what a stored config may reference either way.
 
 Semantics:
     * create_* persists a new component with a single published config.
@@ -97,6 +96,8 @@ class StudioTools(Toolkit):
             publish_component, set_current_version, delete_version). Defaults
             to False; without versioning, edits publish immediately instead of
             producing drafts.
+        tenant_id: Tenant every component read and write is scoped to (EGPT-2.5).
+            Defaults to None (unscoped) -- see the module docstring warning.
     """
 
     def __init__(
@@ -111,6 +112,7 @@ class StudioTools(Toolkit):
         teams: Optional[bool] = None,
         workflows: Optional[bool] = None,
         versions: bool = False,
+        tenant_id: Optional[str] = None,
         **kwargs: Any,
     ):
         self.registry = registry
@@ -119,6 +121,11 @@ class StudioTools(Toolkit):
         self.teams_list = teams_list
         self.workflows_list = workflows_list
         self.default_model_id = default_model_id
+        # EGPT-2.5: the tenant every component read and write here is scoped to. There is no
+        # HTTP principal at this layer, so the operator embedding the toolkit supplies it at
+        # construction. None keeps the pre-2.5 unscoped behavior -- acceptable only for
+        # single-tenant / operator-facing deployments (see the module docstring warning).
+        self.tenant_id = tenant_id
 
         self.enable_agents, self.enable_teams, self.enable_workflows = _resolve_flags(
             agents=agents,
@@ -450,15 +457,16 @@ class StudioTools(Toolkit):
     def _latest_draft_version(self, component_id: str) -> Optional[int]:
         if self.db is None:
             return None
-        configs = self.db.list_configs(component_id, include_config=False)
+        configs = self.db.list_configs(component_id, include_config=False, tenant_id=self.tenant_id)
         drafts: List[int] = [
             c["version"] for c in configs if c.get("stage") == "draft" and isinstance(c.get("version"), int)
         ]
         return max(drafts) if drafts else None
 
     def _load_agent_from_db(self, agent_id: str, version: Optional[int] = None) -> Optional["Agent"]:
-        """Load an agent from DB via config + from_dict. Bypasses Agent.load() to
-        avoid EGPT's load_component_graph signature mismatch."""
+        """Load an agent from DB via config + from_dict. Bypasses Agent.load() -- originally to
+        avoid a load_component_graph signature mismatch (fixed in EGPT-2.5); kept because the
+        flat config read is all studio needs."""
         from egpt.db.base import ComponentType
 
         config = self._load_config_from_db(agent_id, version=version, component_type=ComponentType.AGENT)
@@ -484,7 +492,7 @@ class StudioTools(Toolkit):
         from egpt.team.team import Team
 
         try:
-            team = Team.from_dict(config, db=self.db, registry=self.registry)
+            team = Team.from_dict(config, db=self.db, registry=self.registry, tenant_id=self.tenant_id)
             team.id = team_id
             team.db = self.db
             return team
@@ -501,7 +509,7 @@ class StudioTools(Toolkit):
         from egpt.workflow.workflow import Workflow
 
         try:
-            wf = Workflow.from_dict(config, db=self.db, registry=self.registry)
+            wf = Workflow.from_dict(config, db=self.db, registry=self.registry, tenant_id=self.tenant_id)
             wf.id = workflow_id
             wf.db = self.db
             return wf
@@ -535,19 +543,24 @@ class StudioTools(Toolkit):
 
         if self.db is None:
             return None
-        if component_type is not None and self.db.get_component(component_id, component_type=component_type) is None:
+        if (
+            component_type is not None
+            and self.db.get_component(component_id, component_type=component_type, tenant_id=self.tenant_id) is None
+        ):
             return None
-        row = self.db.get_config(component_id=component_id, version=version)
+        row = self.db.get_config(component_id=component_id, version=version, tenant_id=self.tenant_id)
         if row is None:
             return None
         config = row.get("config") if isinstance(row, dict) else None
         if not isinstance(config, dict):
             return None
         if component_type is not None:
+            # The caller's tenant wins over the row's (EGPT-2.5); with self.tenant_id set the
+            # scoped read above guarantees they match anyway.
             enforce_policy_or_raise(
                 config,
                 component_type.value,
-                tenant_id=row.get("tenant_id"),
+                tenant_id=self.tenant_id if self.tenant_id is not None else row.get("tenant_id"),
                 registry=self.registry,
                 component_id=component_id,
             )
@@ -745,7 +758,7 @@ class StudioTools(Toolkit):
             return []
         from egpt.db.base import ComponentType
 
-        rows, _ = self.db.list_components(component_type=ComponentType(component_type))
+        rows, _ = self.db.list_components(component_type=ComponentType(component_type), tenant_id=self.tenant_id)
         return [
             {
                 "id": r.get("component_id"),
@@ -892,7 +905,7 @@ class StudioTools(Toolkit):
                 description=description,
             )
 
-            version = _persist_only(agent, db)
+            version = _persist_only(agent, db, tenant_id=self.tenant_id)
             log_debug(f"StudioTools created agent id={agent_id} version={version}")
             return json.dumps(
                 {
@@ -958,7 +971,7 @@ class StudioTools(Toolkit):
                 description=description,
             )
 
-            version = _persist_only(team, db)
+            version = _persist_only(team, db, tenant_id=self.tenant_id)
             log_debug(f"StudioTools created team id={team_id} members={member_ids} version={version}")
             return json.dumps(
                 {
@@ -1013,7 +1026,7 @@ class StudioTools(Toolkit):
                 db=db,
             )
 
-            version = _persist_only(workflow, db)
+            version = _persist_only(workflow, db, tenant_id=self.tenant_id)
             log_debug(f"StudioTools created workflow id={workflow_id} steps={len(steps)} version={version}")
             return json.dumps(
                 {
@@ -1214,9 +1227,9 @@ class StudioTools(Toolkit):
         if self.db is None:
             return json.dumps({"error": "StudioTools has no db configured."})
         try:
-            component = self.db.get_component(component_id) or {}
+            component = self.db.get_component(component_id, tenant_id=self.tenant_id) or {}
             current_version = component.get("current_version")
-            configs = self.db.list_configs(component_id, include_config=False)
+            configs = self.db.list_configs(component_id, include_config=False, tenant_id=self.tenant_id)
             versions = [
                 {
                     "version": c.get("version"),
@@ -1242,7 +1255,7 @@ class StudioTools(Toolkit):
         if self.db is None:
             return json.dumps({"error": "StudioTools has no db configured."})
         try:
-            config = self.db.get_config(component_id=component_id, version=version)
+            config = self.db.get_config(component_id=component_id, version=version, tenant_id=self.tenant_id)
             if config is None:
                 return json.dumps({"error": f"Version not found: component_id={component_id} version={version}"})
             return json.dumps(config, default=str)
@@ -1262,7 +1275,7 @@ class StudioTools(Toolkit):
         if self.db is None:
             return json.dumps({"error": "StudioTools has no db configured."})
         try:
-            configs = self.db.list_configs(component_id, include_config=False)
+            configs = self.db.list_configs(component_id, include_config=False, tenant_id=self.tenant_id)
             target = version
             if target is None:
                 drafts = [c for c in configs if c.get("stage") == "draft"]
@@ -1278,7 +1291,9 @@ class StudioTools(Toolkit):
                     self._sync_component_row(component_id, target)
                     return json.dumps({"status": "already_published", "id": component_id, "version": target})
 
-            result = self.db.upsert_config(component_id=component_id, version=target, stage="published")
+            result = self.db.upsert_config(
+                component_id=component_id, version=target, stage="published", tenant_id=self.tenant_id
+            )
             published_version = result.get("version", target)
             self._sync_component_row(component_id, published_version)
             return json.dumps(
@@ -1302,7 +1317,7 @@ class StudioTools(Toolkit):
         if self.db is None:
             return json.dumps({"error": "StudioTools has no db configured."})
         try:
-            ok = self.db.set_current_version(component_id, version=version)
+            ok = self.db.set_current_version(component_id, version=version, tenant_id=self.tenant_id)
             if not ok:
                 return json.dumps({"error": f"Component or version not found: {component_id} v{version}"})
             return json.dumps({"status": "set_current", "id": component_id, "version": version})
@@ -1320,7 +1335,7 @@ class StudioTools(Toolkit):
         if self.db is None:
             return json.dumps({"error": "StudioTools has no db configured."})
         try:
-            deleted = self.db.delete_config(component_id, version=version)
+            deleted = self.db.delete_config(component_id, version=version, tenant_id=self.tenant_id)
             if not deleted:
                 return json.dumps({"error": f"Version not found: {component_id} v{version}"})
             return json.dumps({"status": "deleted", "id": component_id, "version": version})
@@ -1343,10 +1358,10 @@ class StudioTools(Toolkit):
         try:
             from egpt.db.base import ComponentType
 
-            component = self.db.get_component(agent_id, component_type=ComponentType.AGENT)
+            component = self.db.get_component(agent_id, component_type=ComponentType.AGENT, tenant_id=self.tenant_id)
             if component is None:
                 return json.dumps({"error": f"Agent not found: {agent_id}"})
-            deleted = self.db.delete_component(agent_id, hard_delete=True)
+            deleted = self.db.delete_component(agent_id, hard_delete=True, tenant_id=self.tenant_id)
             if not deleted:
                 return json.dumps({"error": f"Agent not found: {agent_id}"})
             return json.dumps({"status": "deleted", "id": agent_id})
@@ -1365,10 +1380,10 @@ class StudioTools(Toolkit):
         try:
             from egpt.db.base import ComponentType
 
-            component = self.db.get_component(team_id, component_type=ComponentType.TEAM)
+            component = self.db.get_component(team_id, component_type=ComponentType.TEAM, tenant_id=self.tenant_id)
             if component is None:
                 return json.dumps({"error": f"Team not found: {team_id}"})
-            deleted = self.db.delete_component(team_id, hard_delete=True)
+            deleted = self.db.delete_component(team_id, hard_delete=True, tenant_id=self.tenant_id)
             if not deleted:
                 return json.dumps({"error": f"Team not found: {team_id}"})
             return json.dumps({"status": "deleted", "id": team_id})
@@ -1387,10 +1402,12 @@ class StudioTools(Toolkit):
         try:
             from egpt.db.base import ComponentType
 
-            component = self.db.get_component(workflow_id, component_type=ComponentType.WORKFLOW)
+            component = self.db.get_component(
+                workflow_id, component_type=ComponentType.WORKFLOW, tenant_id=self.tenant_id
+            )
             if component is None:
                 return json.dumps({"error": f"Workflow not found: {workflow_id}"})
-            deleted = self.db.delete_component(workflow_id, hard_delete=True)
+            deleted = self.db.delete_component(workflow_id, hard_delete=True, tenant_id=self.tenant_id)
             if not deleted:
                 return json.dumps({"error": f"Workflow not found: {workflow_id}"})
             return json.dumps({"status": "deleted", "id": workflow_id})
@@ -1770,7 +1787,7 @@ class StudioTools(Toolkit):
         if self.enable_versions:
             version = self._upsert_draft(component)
             return {"draft_version": version, "stage": "draft"}
-        version = _persist_only(component, self.db)
+        version = _persist_only(component, self.db, tenant_id=self.tenant_id)
         return {"version": version, "stage": "published"}
 
     def _upsert_draft(self, component: Component) -> Optional[int]:
@@ -1787,13 +1804,14 @@ class StudioTools(Toolkit):
         if component_id is None:
             raise ValueError("Component has no id")
 
-        if self.db.get_component(component_id) is None:
+        if self.db.get_component(component_id, tenant_id=self.tenant_id) is None:
             self.db.upsert_component(
                 component_id=component_id,
                 component_type=_component_type(component),
                 name=getattr(component, "name", component_id),
                 description=getattr(component, "description", None),
                 metadata=getattr(component, "metadata", None),
+                tenant_id=self.tenant_id,
             )
 
         # Reuse an existing draft if there is one; otherwise create a new draft version.
@@ -1802,6 +1820,7 @@ class StudioTools(Toolkit):
             version=self._latest_draft_version(component_id),
             config=_component_to_dict(component),
             stage="draft",
+            tenant_id=self.tenant_id,
         )
         return result.get("version")
 
@@ -1812,8 +1831,8 @@ class StudioTools(Toolkit):
             return
         from egpt.db.base import ComponentType
 
-        component = self.db.get_component(component_id)
-        row = self.db.get_config(component_id=component_id, version=version)
+        component = self.db.get_component(component_id, tenant_id=self.tenant_id)
+        row = self.db.get_config(component_id=component_id, version=version, tenant_id=self.tenant_id)
         config = row.get("config") if isinstance(row, dict) else None
         if component is None or not isinstance(config, dict):
             return
@@ -1823,6 +1842,7 @@ class StudioTools(Toolkit):
             name=config.get("name") or component.get("name"),
             description=config.get("description"),
             metadata=config.get("metadata"),
+            tenant_id=self.tenant_id,
         )
 
 
@@ -1852,7 +1872,12 @@ def _summarize_tools(tools: Any) -> List[str]:
     return names
 
 
-def _persist_only(component: Component, db: Optional["BaseDb"], stage: str = "published") -> Optional[int]:
+def _persist_only(
+    component: Component,
+    db: Optional["BaseDb"],
+    stage: str = "published",
+    tenant_id: Optional[str] = None,
+) -> Optional[int]:
     """Save a component WITHOUT cascading to members or step agents.
 
     EGPT's built-in ``component.save()`` recursively persists every member of
@@ -1877,11 +1902,13 @@ def _persist_only(component: Component, db: Optional["BaseDb"], stage: str = "pu
         name=getattr(component, "name", component_id),
         description=getattr(component, "description", None),
         metadata=getattr(component, "metadata", None),
+        tenant_id=tenant_id,
     )
     result = db.upsert_config(
         component_id=component_id,
         config=_component_to_dict(component),
         stage=stage,
+        tenant_id=tenant_id,
     )
     return result.get("version")
 

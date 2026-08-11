@@ -241,6 +241,7 @@ class Condition:
         registry: Optional["Registry"] = None,
         db: Optional[Any] = None,
         links: Optional[List[Dict[str, Any]]] = None,
+        tenant_id: Optional[str] = None,
     ) -> "Condition":
         from egpt.workflow.loop import Loop
         from egpt.workflow.parallel import Parallel
@@ -250,17 +251,17 @@ class Condition:
         def deserialize_step(step_data: Dict[str, Any]) -> Any:
             step_type = step_data.get("type", "Step")
             if step_type == "Loop":
-                return Loop.from_dict(step_data, registry=registry, db=db, links=links)
+                return Loop.from_dict(step_data, registry=registry, db=db, links=links, tenant_id=tenant_id)
             elif step_type == "Parallel":
-                return Parallel.from_dict(step_data, registry=registry, db=db, links=links)
+                return Parallel.from_dict(step_data, registry=registry, db=db, links=links, tenant_id=tenant_id)
             elif step_type == "Steps":
-                return Steps.from_dict(step_data, registry=registry, db=db, links=links)
+                return Steps.from_dict(step_data, registry=registry, db=db, links=links, tenant_id=tenant_id)
             elif step_type == "Condition":
-                return cls.from_dict(step_data, registry=registry, db=db, links=links)
+                return cls.from_dict(step_data, registry=registry, db=db, links=links, tenant_id=tenant_id)
             elif step_type == "Router":
-                return Router.from_dict(step_data, registry=registry, db=db, links=links)
+                return Router.from_dict(step_data, registry=registry, db=db, links=links, tenant_id=tenant_id)
             else:
-                return Step.from_dict(step_data, registry=registry, db=db, links=links)
+                return Step.from_dict(step_data, registry=registry, db=db, links=links, tenant_id=tenant_id)
 
         evaluator_data = data.get("evaluator", True)
         evaluator_type = data.get("evaluator_type")

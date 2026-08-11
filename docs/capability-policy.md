@@ -325,13 +325,20 @@ component DB call it makes.
 The scheduler principal stays `None` deliberately — it is a platform identity, not a tenant's,
 and `INTERNAL_SERVICE_SCOPES` grants it no `components:*` scope in any case.
 
-### Deferred to EGPT-2.5 / 2.7
+### Delivered by EGPT-2.5
 
-- Tenant scoping of every router other than components (**2.7**).
-- Tenant-aware RBAC scopes and cross-tenant read enforcement on run/session data (**2.7**).
-- Tenant scoping of runtime hydration — `get_agent_by_id`, `Agent.load` and the team/workflow
-  equivalents still read a stored config with no tenant predicate (**2.5**).
-- `tools/studio.py`, the in-process toolkit over the same tables, runs unscoped (**2.5**).
+- **Runtime hydration is tenant-scoped.** `get_agent_by_id`, `Agent.load`, the team/workflow
+  equivalents and the studio toolkit read stored configs with the caller's tenant predicate,
+  and the hydration-side policy check selects the policy by the **caller's** tenant rather
+  than the row's self-attested one (the row's tenant remains the fallback for unscoped
+  reads). See [tenancy.md](tenancy.md) section 5.
+- The write-validation dry run threads the tenant into member/step hydration, so validation
+  is no longer an existence oracle for foreign component ids.
+
+### Deferred to EGPT-2.7
+
+- Tenant scoping of every router other than components.
+- Tenant-aware RBAC scopes and cross-tenant read enforcement on run/session data.
 - Any tenants table, tenant CRUD, or a policy stored in the database.
 - Backfill tooling for rows carrying a NULL `tenant_id`.
 

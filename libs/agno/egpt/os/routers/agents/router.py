@@ -60,6 +60,7 @@ from egpt.os.utils import (
     process_image,
     process_video,
     resolve_agent,
+    tenant_for_direct_read,
 )
 from egpt.registry import Registry
 from egpt.registry.policy import PolicyViolationError
@@ -853,12 +854,19 @@ def get_agent_router(
 
         try:
             agent = get_agent_by_id(
-                agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                agent_id=agent_id,
+                agents=os.agents,
+                db=os.db,
+                registry=os.registry,
+                create_fresh=True,
+                tenant_id=tenant_for_direct_read(request, db=os.db, components=os.agents, component_id=agent_id),
             )  # type: ignore[assignment]
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
             # just not permitted the capabilities it names (EGPT-2.3).
             raise HTTPException(status_code=403, detail=str(e))
+        except HTTPException:
+            raise
         except Exception as e:
             log_error(f"Error resolving agent '{agent_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving agent: {e}")
@@ -1025,12 +1033,19 @@ def get_agent_router(
         else:
             try:
                 agent = get_agent_by_id(
-                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                    agent_id=agent_id,
+                    agents=os.agents,
+                    db=os.db,
+                    registry=os.registry,
+                    create_fresh=True,
+                    tenant_id=tenant_for_direct_read(request, db=os.db, components=os.agents, component_id=agent_id),
                 )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
                 # just not permitted the capabilities it names (EGPT-2.3).
                 raise HTTPException(status_code=403, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 log_error(f"Error resolving agent '{agent_id}': {e}")
                 raise HTTPException(status_code=500, detail=f"Error resolving agent: {e}")
@@ -1198,12 +1213,19 @@ def get_agent_router(
 
         try:
             agent = get_agent_by_id(
-                agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                agent_id=agent_id,
+                agents=os.agents,
+                db=os.db,
+                registry=os.registry,
+                create_fresh=True,
+                tenant_id=tenant_for_direct_read(request, db=os.db, components=os.agents, component_id=agent_id),
             )
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
             # just not permitted the capabilities it names (EGPT-2.3).
             raise HTTPException(status_code=403, detail=str(e))
+        except HTTPException:
+            raise
         except Exception as e:
             log_error(f"Error resolving agent '{agent_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving agent: {e}")
@@ -1319,7 +1341,12 @@ def get_agent_router(
 
             # Exclude agents whose IDs are owned by the registry
             exclude_ids = registry.get_agent_ids() if registry else None
-            db_agents = get_agents(db=os.db, registry=registry, exclude_component_ids=exclude_ids or None)
+            db_agents = get_agents(
+                db=os.db,
+                registry=registry,
+                exclude_component_ids=exclude_ids or None,
+                tenant_id=tenant_for_direct_read(request, db=os.db),
+            )
             if db_agents:
                 # Apply the same RBAC filtering to DB-loaded agents
                 if getattr(request.state, "authorization_enabled", False):
@@ -1377,12 +1404,19 @@ def get_agent_router(
 
         try:
             agent = get_agent_by_id(
-                agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                agent_id=agent_id,
+                agents=os.agents,
+                db=os.db,
+                registry=os.registry,
+                create_fresh=True,
+                tenant_id=tenant_for_direct_read(request, db=os.db, components=os.agents, component_id=agent_id),
             )  # type: ignore[assignment]
         except PolicyViolationError as e:
             # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
             # just not permitted the capabilities it names (EGPT-2.3).
             raise HTTPException(status_code=403, detail=str(e))
+        except HTTPException:
+            raise
         except Exception as e:
             log_error(f"Error resolving agent '{agent_id}': {e}")
             raise HTTPException(status_code=500, detail=f"Error resolving agent: {e}")
@@ -1435,12 +1469,19 @@ def get_agent_router(
         else:
             try:
                 agent = get_agent_by_id(
-                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                    agent_id=agent_id,
+                    agents=os.agents,
+                    db=os.db,
+                    registry=os.registry,
+                    create_fresh=True,
+                    tenant_id=tenant_for_direct_read(request, db=os.db, components=os.agents, component_id=agent_id),
                 )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
                 # just not permitted the capabilities it names (EGPT-2.3).
                 raise HTTPException(status_code=403, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 log_error(f"Error resolving agent '{agent_id}': {e}")
                 raise HTTPException(status_code=500, detail=f"Error resolving agent: {e}")
@@ -1507,12 +1548,19 @@ def get_agent_router(
         else:
             try:
                 agent = get_agent_by_id(
-                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                    agent_id=agent_id,
+                    agents=os.agents,
+                    db=os.db,
+                    registry=os.registry,
+                    create_fresh=True,
+                    tenant_id=tenant_for_direct_read(request, db=os.db, components=os.agents, component_id=agent_id),
                 )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
                 # just not permitted the capabilities it names (EGPT-2.3).
                 raise HTTPException(status_code=403, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 log_error(f"Error resolving agent '{agent_id}': {e}")
                 raise HTTPException(status_code=500, detail=f"Error resolving agent: {e}")
@@ -1572,12 +1620,19 @@ def get_agent_router(
         else:
             try:
                 agent = get_agent_by_id(
-                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                    agent_id=agent_id,
+                    agents=os.agents,
+                    db=os.db,
+                    registry=os.registry,
+                    create_fresh=True,
+                    tenant_id=tenant_for_direct_read(request, db=os.db, components=os.agents, component_id=agent_id),
                 )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
                 # just not permitted the capabilities it names (EGPT-2.3).
                 raise HTTPException(status_code=403, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 log_error(f"Error resolving agent '{agent_id}': {e}")
                 raise HTTPException(status_code=500, detail=f"Error resolving agent: {e}")
@@ -1669,7 +1724,14 @@ def get_agent_router(
                 detail="Stream resumption is not supported for factory agents",
             )
 
-        agent = get_agent_by_id(agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True)
+        agent = get_agent_by_id(
+            agent_id=agent_id,
+            agents=os.agents,
+            db=os.db,
+            registry=os.registry,
+            create_fresh=True,
+            tenant_id=tenant_for_direct_read(request, db=os.db, components=os.agents, component_id=agent_id),
+        )
         if agent is None:
             raise HTTPException(status_code=404, detail="Agent not found")
         if isinstance(agent, RemoteAgent):
@@ -1726,12 +1788,19 @@ def get_agent_router(
         else:
             try:
                 agent = get_agent_by_id(
-                    agent_id=agent_id, agents=os.agents, db=os.db, registry=os.registry, create_fresh=True
+                    agent_id=agent_id,
+                    agents=os.agents,
+                    db=os.db,
+                    registry=os.registry,
+                    create_fresh=True,
+                    tenant_id=tenant_for_direct_read(request, db=os.db, components=os.agents, component_id=agent_id),
                 )  # type: ignore[assignment]
             except PolicyViolationError as e:
                 # 403, not 500: the component exists and hydrates fine -- the caller's tenant is
                 # just not permitted the capabilities it names (EGPT-2.3).
                 raise HTTPException(status_code=403, detail=str(e))
+            except HTTPException:
+                raise
             except Exception as e:
                 log_error(f"Error resolving agent '{agent_id}': {e}")
                 raise HTTPException(status_code=500, detail=f"Error resolving agent: {e}")

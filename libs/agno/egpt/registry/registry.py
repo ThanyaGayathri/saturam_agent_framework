@@ -63,6 +63,15 @@ class Registry:
     # `resolve_policy`'s getattr does not already provide.
     capability_policy: Optional[Any] = None
 
+    # Hydration support (EGPT-2.5), parked here for the same reason as capability_policy:
+    # the hydration path is handed a Registry and never the EgptOS that configured it.
+    # component_config_cache is a registry.hydrate.ComponentConfigCache (typed `Any` to keep
+    # the import graph acyclic), or None when caching is not configured (bare programmatic
+    # callers). hydrate_published_only, when True, makes the component getters refuse any
+    # stored config whose stage is not "published".
+    component_config_cache: Optional[Any] = None
+    hydrate_published_only: bool = False
+
     @cached_property
     def _entrypoint_lookup(self) -> Dict[str, Any]:
         # Maps function name -> source: the Function that owns the entrypoint
