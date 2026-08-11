@@ -28,12 +28,21 @@ import pytest
 from egpt.memory.config import MemoryProviderConfig, build_memory_provider
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import FUSION_KEYS, MemoryEvent, MemoryOperationError, MemoryQuery, Scope, Substrate
+from egpt.memory.types import (
+    CONSOLIDATION_KEYS,
+    FUSION_KEYS,
+    MemoryEvent,
+    MemoryOperationError,
+    MemoryQuery,
+    Scope,
+    Substrate,
+)
 from egpt.providers.model_provider import ProviderMode
 from tests.unit.memory._fakes import FakeGraph, FakeVector
 from tests.unit.memory.test_provider_seed_bridge import FakeMachine, FakeManager
 
 ACME = Scope(tenant_id="acme", user_id="u1")
+GLOBEX = Scope(tenant_id="globex", user_id="u1")
 
 
 def consumer_workload(provider: MemoryProvider, scope: Scope) -> Dict[str, Any]:
@@ -115,7 +124,38 @@ def seed_config() -> MemoryProviderConfig:
     )
 
 
-ALL_CONFIGS = {"mode_a": mode_a_config, "mode_b": mode_b_config, "seed": seed_config}
+def vector_only_config() -> MemoryProviderConfig:
+    """A single-substrate co-located provider.
+
+    `ALL_CONFIGS` had none, which is why `test_every_provider_treats_an_unavailable_substrate_the
+    _same_way` stated the rule correctly and still missed a violation: with both substrates wired
+    there is no unwired substrate to name. Five of one round's twelve majors were an invariant
+    fixed on one path and not the adjacent one, and a configuration matrix with a hole in it is
+    how that class survives review.
+    """
+    return MemoryProviderConfig(
+        provider="co_located", mode=ProviderMode.LOCAL, options={"vector_substrate": FakeVector()}
+    )
+
+
+def graph_only_config() -> MemoryProviderConfig:
+    return MemoryProviderConfig(
+        provider="co_located", mode=ProviderMode.LOCAL, options={"graph_substrate": FakeGraph()}
+    )
+
+
+ALL_CONFIGS = {
+    "mode_a": mode_a_config,
+    "mode_b": mode_b_config,
+    "seed": seed_config,
+    "vector_only": vector_only_config,
+    "graph_only": graph_only_config,
+}
+
+#: Providers that can serve the SEMANTIC tier, which is what the shared workload writes.
+#: `graph_only` cannot: SUBSTRATES_BY_TIER routes procedural to vector, and consolidate needs a
+#: vector leg to enumerate episodes. It still participates in every *refusal* property below.
+WRITABLE_CONFIGS = {k: v for k, v in ALL_CONFIGS.items() if k != "graph_only"}
 
 
 # ---------------------------------------------------------------------------
@@ -123,10 +163,10 @@ ALL_CONFIGS = {"mode_a": mode_a_config, "mode_b": mode_b_config, "seed": seed_co
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
 def test_one_consumer_function_drives_every_provider_unchanged(name):
     """The structural claim: no call-site edit, whatever the config says."""
-    result = consumer_workload(build_memory_provider(ALL_CONFIGS[name]()), ACME)
+    result = consumer_workload(build_memory_provider(WRITABLE_CONFIGS[name]()), ACME)
 
     assert result["accepted"] == 2
     assert result["tiers_written"] == ["semantic"]
@@ -134,9 +174,9 @@ def test_one_consumer_function_drives_every_provider_unchanged(name):
     assert result["consolidated"] == "acme"
 
 
-@pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
 async def test_the_async_contract_is_swappable_too(name):
-    result = await aconsumer_workload(build_memory_provider(ALL_CONFIGS[name]()), ACME)
+    result = await aconsumer_workload(build_memory_provider(WRITABLE_CONFIGS[name]()), ACME)
 
     assert result["accepted"] == 1
     assert "the customer" in result["context"]
@@ -196,9 +236,11 @@ def test_mode_b_inherits_every_seam_property_rather_than_reimplementing_them():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
 def test_the_workload_is_deterministic(name):
-    runs: List[Dict[str, Any]] = [consumer_workload(build_memory_provider(ALL_CONFIGS[name]()), ACME) for _ in range(3)]
+    runs: List[Dict[str, Any]] = [
+        consumer_workload(build_memory_provider(WRITABLE_CONFIGS[name]()), ACME) for _ in range(3)
+    ]
 
     assert runs[0] == runs[1] == runs[2]
 
@@ -211,22 +253,25 @@ def test_every_in_tree_adapter_is_reachable_by_config():
 
 
 # ---------------------------------------------------------------------------
-# Cross-adapter conformance (round-2 review)
+# Cross-adapter conformance matrix
 # ---------------------------------------------------------------------------
 #
-# The swap property is only real if the adapters agree on the *edges*, not just the happy path.
-# Two of them diverged silently: `substrates` was honoured by one and ignored by the other, and
-# `read_tier(limit=0)` returned nothing on one and the tenant's whole table on the other.
+# One property per test, every registered provider, every wiring. This exists because hand-review
+# kept finding the same defect shape: an invariant fixed in one adapter and not the adjacent one --
+# five of twelve majors in a single round. A matrix closes that class by construction, where
+# noticing it does not scale.
+#
+# Adding a provider or a wiring to ALL_CONFIGS automatically subjects it to every property here.
 
 
-@pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
 @pytest.mark.parametrize("limit", [0, 1, 3])
-def test_no_provider_ever_returns_more_records_than_the_limit(name, limit):
-    provider = build_memory_provider(ALL_CONFIGS[name]())
+def test_no_provider_returns_more_records_than_the_limit(name, limit):
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
     provider.write_tier(
         ACME,
         MemoryTier.SEMANTIC,
-        [MemoryEvent(content=f"the customer note {i}", scope=ACME) for i in range(5)],
+        [MemoryEvent(content=f"the customer note {i}", scope=ACME, tier=MemoryTier.SEMANTIC) for i in range(5)],
     )
     query = MemoryQuery(text="the customer", tiers=[MemoryTier.SEMANTIC], limit=limit)
 
@@ -235,24 +280,116 @@ def test_no_provider_ever_returns_more_records_than_the_limit(name, limit):
 
 
 @pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
-def test_every_provider_treats_an_unavailable_substrate_the_same_way(name):
-    """Either serve it or refuse it -- what a provider must not do is quietly ignore the filter."""
-    provider = build_memory_provider(ALL_CONFIGS[name]())
-    provider.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="the customer", scope=ACME)])
-    wired = provider.substrates()
-    query = MemoryQuery(text="the customer", substrates=[Substrate.GRAPH])
+@pytest.mark.parametrize("substrate", [Substrate.VECTOR, Substrate.GRAPH])
+def test_every_provider_serves_or_refuses_a_named_substrate_never_silently_empties(name, substrate):
+    """Either serve the query or refuse it. Quietly ignoring the filter is the ruled-out option.
 
-    if wired[Substrate.GRAPH]:
-        provider.read(ACME, query)  # serving it is fine
-    else:
+    Three behaviours used to exist for one situation: a vector-only co-located provider returned
+    an empty slice for `substrates=[GRAPH]`, the seed refused it, and a graph-wired-but-excluded
+    read also refused. The hole was in the fixtures -- `ALL_CONFIGS` had no single-substrate
+    provider, so there was no unwired substrate to name.
+
+    Writing this property out also forced the rule to be stated precisely, which it had not been.
+    A *wired* substrate can still be refused: excluding the graph when a graph exists is refused
+    because the graph is the authority for validity, so answering without it would be wrong rather
+    than merely narrow.
+    """
+    provider = build_memory_provider(ALL_CONFIGS[name]())
+    wired = provider.substrates()
+    query = MemoryQuery(text="anything", substrates=[substrate])
+
+    names_an_unwired_substrate = not wired[substrate]
+    excludes_a_wired_authority = wired[Substrate.GRAPH] and substrate is not Substrate.GRAPH
+
+    if names_an_unwired_substrate or excludes_a_wired_authority:
         with pytest.raises(MemoryOperationError):
             provider.read(ACME, query)
+    else:
+        provider.read(ACME, query)  # serving it is fine
 
 
 @pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
 def test_every_provider_reports_the_full_fusion_key_contract(name):
     provider = build_memory_provider(ALL_CONFIGS[name]())
 
-    fusion = provider.read(ACME, MemoryQuery(text="anything")).fusion
+    assert set(FUSION_KEYS) <= set(provider.read(ACME, MemoryQuery(text="anything")).fusion)
 
-    assert set(FUSION_KEYS) <= set(fusion)
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+def test_every_provider_reports_the_full_consolidation_key_contract(name):
+    """SM-L1's scheduler reads these; disjoint key sets meant a KeyError on the first iteration."""
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+
+    assert set(CONSOLIDATION_KEYS) <= set(provider.consolidate(ACME).details)
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+def test_every_provider_refuses_duplicate_ids_in_one_batch(name):
+    """A duplicate destroys the first event's content behind a receipt claiming both landed."""
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+
+    with pytest.raises(MemoryOperationError, match="[Dd]uplicate"):
+        provider.write_tier(
+            ACME,
+            MemoryTier.SEMANTIC,
+            [
+                MemoryEvent(content="first", scope=ACME, id="dup", tier=MemoryTier.SEMANTIC),
+                MemoryEvent(content="second", scope=ACME, id="dup", tier=MemoryTier.SEMANTIC),
+            ],
+        )
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+def test_every_provider_refuses_an_event_scoped_to_another_tenant(name):
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+
+    with pytest.raises(MemoryOperationError, match="does not match the write scope"):
+        provider.write_tier(
+            ACME,
+            MemoryTier.SEMANTIC,
+            [MemoryEvent(content="x", scope=GLOBEX, tier=MemoryTier.SEMANTIC)],
+        )
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+def test_every_provider_refuses_a_tier_set_consolidate_would_ignore(name):
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+
+    with pytest.raises(MemoryOperationError):
+        provider.consolidate(ACME, tiers=[MemoryTier.PROCEDURAL])
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+def test_every_provider_refuses_a_reserved_query_filter(name):
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+
+    with pytest.raises(ValueError, match="filters"):
+        provider.read(ACME, MemoryQuery(text="q", filters={"topic": "billing"}))
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+def test_every_provider_returns_records_scoped_to_the_caller(name):
+    """The post-condition every adapter must hold, whatever its storage does underneath."""
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+    provider.write_tier(
+        ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="a customer note", scope=ACME, tier=MemoryTier.SEMANTIC)]
+    )
+
+    records = provider.read(ACME, MemoryQuery(text="a customer note")).records
+
+    assert all(r.scope.tenant_id == ACME.tenant_id for r in records)
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+async def test_every_provider_agrees_between_its_sync_and_async_halves(name):
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+    provider.write_tier(
+        ACME,
+        MemoryTier.SEMANTIC,
+        [MemoryEvent(content=f"note {i}", scope=ACME, tier=MemoryTier.SEMANTIC) for i in range(3)],
+    )
+    query = MemoryQuery(text="note")
+
+    assert [r.id for r in provider.read(ACME, query).records] == [
+        r.id for r in (await provider.aread(ACME, query)).records
+    ]

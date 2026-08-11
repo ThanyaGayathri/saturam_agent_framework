@@ -31,9 +31,19 @@ __all__ = ["GraphSubstrate", "VectorSubstrate", "checked_graph", "checked_vector
 class VectorSubstrate(Protocol):
     """The neural substrate: embedding similarity and full-text, per tenant and tier.
 
-    Scoping is not advisory. Every method takes a :class:`~egpt.memory.types.Scope` and must apply
-    its tenant predicate; a backend that treats it as a hint is a cross-tenant leak (SM-C4 #92
-    makes this fail-closed at the data layer, SM-X6 #142 attacks it).
+    **Scoping is not advisory, and it is not only ``tenant_id``.** Every method takes a
+    :class:`~egpt.memory.types.Scope`, and a backend must apply **every slot the scope sets** as a
+    conjunctive predicate: ``tenant_id`` always, plus ``user_id`` / ``agent_id`` / ``team_id`` /
+    ``session_id`` whenever they are not ``None``. A ``None`` slot means "any".
+
+    Saying only "tenant predicate" left the other four unspecified, and two backend authors would
+    have made opposite choices from that text -- while ``user_id`` is documented as "the identity
+    namespace that survives sessions" and every consumer reads a user-scoped call as user-scoped.
+    A backend that honours the tenant and ignores the user serves one user's memory to another
+    inside the same tenant.
+
+    SM-C4 (#92) makes this fail-closed at the data layer and SM-X6 (#142) attacks it; the provider
+    re-checks the tenant slot as a post-condition because that one leaks across a trust boundary.
 
     A backend must resolve the tier set exactly as ``MemoryQuery.resolved_tiers`` does -- when one
     leg honored the tier filter and the other did not, the leakage surfaced only after fusion and
@@ -59,9 +69,23 @@ class VectorSubstrate(Protocol):
         ``tier`` narrows to a single tier; when it is ``None`` the backend uses
         ``query.resolved_tiers()``.
 
-        Do **not** apply ``query.as_of`` here. Point-in-time validity is enforced once, on the
-        fused result set, because this substrate has no notion of validity -- filtering it here
-        lets an invalidated fact leak back in through the graph leg (finding F2).
+        **Return current belief only** (``expired_at IS NULL``), filtered *before* ranking. That
+        is a transaction-time property every row carries locally, so both substrates can apply it
+        in the same ``WHERE`` clause as the tenant predicate -- and applying ``limit`` before it
+        would let a page of superseded rows consume the whole limit.
+
+        **Do not apply ``query.as_of``.** Valid time is enforced once, on the fused set, because it
+        is the one predicate that needs *both* legs: under SCD-2 the graph holds a current-belief
+        successor row carrying ``t_invalid``, and merging that bound onto the vector leg's stale
+        projection of the same id is how an invalidated fact is caught (finding F2). A substrate
+        that filtered ``as_of`` itself would withhold exactly the row that carries the evidence.
+
+        Residual, stated rather than mitigated: a page dominated by rows the *graph* has bounded
+        can still come back short, because the provider drops them after the substrates applied
+        ``limit``. An earlier version grew an over-fetch ladder for this; no fixed multiplier makes
+        it correct and it taxed every read. The real fix is for the vector projection not to be
+        stale -- re-sync on invalidation, or carry the bounds -- which is SM-V1 (#95) / SM-G1
+        (#99) work, recorded in SPEC section 11.3.
         """
         ...
 
@@ -230,6 +254,13 @@ class GraphSubstrate(Protocol):
         inserts a bounded copy carrying ``t_invalid``. Nothing is deleted and no bound is mutated,
         so two successive invalidations accumulate rows, leave exactly one current belief, and
         keep the original reconstructible.
+
+        **The bounded copy keeps ``edge_id``.** Textbook SCD-2 gives the successor a fresh
+        surrogate key, and ``MemoryRecord.superseded_by`` ("id of the replacement row") positively
+        implies one -- but the only thing that carries this bound onto the vector leg's stale
+        projection is fusion's dedup **by id**. A new id means the two never meet, and the
+        invalidated fact comes back as current on an ordinary read. If a backend's storage needs a
+        surrogate key internally, it must still project ``id`` as the logical edge id.
 
         Scope note (ADR 0003 section B.6): this governs **semantic contradiction on graph edges**.
         Episodic **row** lifecycle -- SM-R6 re-segmentation supersede and SM-R5 decay archival --

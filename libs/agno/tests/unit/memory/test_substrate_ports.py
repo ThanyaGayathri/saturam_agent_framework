@@ -165,3 +165,50 @@ def test_fact_defaults_to_full_confidence_and_no_derivation():
 
     assert fact.confidence == 1.0
     assert fact.derived_by is None
+
+
+# ---------------------------------------------------------------------------
+# Port contract conformance (round-4 review)
+# ---------------------------------------------------------------------------
+
+
+def test_a_repeated_upsert_episode_leaves_one_row():
+    """`upsert_episode` is upsert **by id**, which PartialWriteError's retry advice depends on."""
+    from tests.unit.memory._fakes import FakeGraph
+
+    graph = FakeGraph()
+    event = MemoryEvent(content="first", scope=SCOPE, id="dup")
+
+    graph.upsert_episode(SCOPE, event)
+    graph.upsert_episode(SCOPE, MemoryEvent(content="second", scope=SCOPE, id="dup"))
+
+    assert [r.content for r in graph.rows[SCOPE.tenant_id]] == ["second"]
+
+
+def test_invalidate_keeps_the_edge_id_on_the_bounded_copy():
+    """A surrogate key on the successor would break fusion's dedup-by-id.
+
+    That dedup is the only thing carrying the graph's bound onto the vector leg's projection, so a
+    fresh id means the invalidated fact returns as current on an ordinary read.
+    """
+    from tests.unit.memory._fakes import FakeGraph
+
+    graph = FakeGraph()
+    graph.upsert_episode(SCOPE, MemoryEvent(content="ada works at acme", scope=SCOPE, id="f1"))
+
+    graph.invalidate(SCOPE, "f1", t_invalid=300, at=310)
+
+    assert {r.id for r in graph.rows[SCOPE.tenant_id]} == {"f1"}
+
+
+def test_a_substrate_must_scope_on_every_slot_not_only_the_tenant():
+    """`user_id` is "the identity namespace that survives sessions"; ignoring it leaks per-user."""
+    from tests.unit.memory._fakes import FakeVector
+
+    alice = Scope(tenant_id="acme", user_id="alice")
+    bob = Scope(tenant_id="acme", user_id="bob")
+    vector = FakeVector()
+    vector.upsert(alice, [MemoryRecord(id="a1", tier=MemoryTier.SEMANTIC, content="alice salary", scope=alice)])
+
+    assert vector.search(bob, MemoryQuery(text="alice salary")) == []
+    assert len(vector.search(alice, MemoryQuery(text="alice salary"))) == 1

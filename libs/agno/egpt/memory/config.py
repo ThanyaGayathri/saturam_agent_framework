@@ -121,6 +121,14 @@ class MemoryProviderConfig:
 
         # Fill unset fusion keys from the defaults rather than letting a partial override leave a
         # hole -- `fusion={"vector_weight": 0.3}` must still have a method.
+        unknown = sorted(set(self.fusion or {}) - set(DEFAULT_FUSION))
+        if unknown:
+            # A misspelled knob is finding F5 with a worse diagnostic: the operator believes they
+            # tuned fusion, measures no difference, and has nothing pointing at the typo.
+            raise MemoryProviderConfigError(
+                f"Unknown fusion key(s) {unknown}. Known keys: {sorted(DEFAULT_FUSION)}.",
+                field_name="fusion",
+            )
         merged = dict(DEFAULT_FUSION)
         merged.update(self.fusion or {})
         self.fusion = merged
@@ -142,8 +150,10 @@ class MemoryProviderConfig:
                 field_name="fusion.vector_weight",
             )
 
-        # `k` divides at read time (`1 / (k + rank)`), so a bad value here becomes a
-        # ZeroDivisionError or a TypeError on the hot path, far from the config that caused it.
+        # `k` is read at query time inside `1 / (k + rank)` with rank 1-based, so only k <= -1
+        # actually divides by zero -- an earlier comment here overstated that. It is still worth
+        # rejecting a non-positive or non-integer k at the boundary: a TypeError on the hot path is
+        # far from the config that caused it, and a negative k silently inverts the ranking.
         k = self.fusion.get("k")
         if not isinstance(k, int) or isinstance(k, bool) or k <= 0:
             raise MemoryProviderConfigError(

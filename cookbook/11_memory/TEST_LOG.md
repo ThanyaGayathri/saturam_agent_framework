@@ -76,8 +76,11 @@ slice back as prompt context. Then runs the same consumer function against a sec
 (provider `external`, mode `frontier`) to show the swap is configuration only, followed by a
 bi-temporal point-in-time read across an invalidation and a cross-tenant isolation check.
 
-**Result:** Success (re-run after the PR #60 review fixes). Mode A and Mode B produce identical
-output from the same consumer function.
+**Result:** Success (re-run after the PR #60 round-4 fixes). Mode A and Mode B produce identical
+output from the same consumer function, and the whole run is **byte-identical across 10 executions**
+-- verified, because an earlier version of this claim was false: consolidation grouped episodes in
+UUID-driven scan order, so four distinct outputs appeared across eight runs and the two mode blocks
+sometimes disagreed within a single process.
 Consolidation merged 2 episodes into 2 facts (the two statements are distinct, so nothing
 deduped). The point-in-time read returns the fact `as_of=200` and not `as_of=400`, confirming
 invalidation is expire-and-reinsert rather than a delete. A read scoped to tenant `globex`

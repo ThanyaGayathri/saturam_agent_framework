@@ -72,7 +72,9 @@ class InMemoryVector:
         terms = set(query.text.lower().split())
         hits = []
         for record in self._bucket(scope).values():
-            if record.tier not in wanted:
+            # Current belief only, filtered before ranking -- the port requires it, and applying
+            # limit first would let superseded rows consume the whole page.
+            if record.tier not in wanted or record.expired_at is not None:
                 continue
             overlap = len(terms & set(record.content.lower().split()))
             if overlap:
@@ -171,7 +173,15 @@ class InMemoryGraph:
         wanted = {tier} if tier else set(query.resolved_tiers())
         terms = set(query.text.lower().split())
         hits = [
-            row
+            # Scored, like the vector leg. An unscored leg makes fusion fall back to rank
+            # position, which imports whatever order this store happens to hold -- a real graph
+            # backend ranks its traversal, and a double that does not hides that in the provider.
+            MemoryRecord(
+                **{
+                    **vars(row),
+                    "score": float(len(terms & set(row.content.lower().split()))),
+                }
+            )
             for row in self._bucket(scope)
             if row.tier in wanted
             and row.is_current_belief()

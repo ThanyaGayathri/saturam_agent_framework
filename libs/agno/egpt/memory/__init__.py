@@ -8,6 +8,7 @@ from egpt.memory.config import (
     register_provider,
     registered_providers,
 )
+from egpt.memory.fusion import fuse_rrf, fuse_weighted, merge_tightest_bounds
 from egpt.memory.manager import MemoryManager, UserMemory
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.strategies import (
@@ -16,7 +17,6 @@ from egpt.memory.strategies import (
     MemoryOptimizationStrategyType,
     SummarizeStrategy,
 )
-from egpt.memory.fusion import fuse_rrf, fuse_weighted, merge_tightest_bounds
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
 from egpt.memory.tiers import PERSISTENT_TIERS, SUBSTRATES_BY_TIER, MemoryTier, substrates_for_tier
 from egpt.memory.types import (

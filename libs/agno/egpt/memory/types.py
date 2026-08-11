@@ -28,7 +28,9 @@ from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
 from egpt.utils.dttm import to_epoch_s
 
 __all__ = [
+    "CONSOLIDATION_KEYS",
     "FUSION_KEYS",
+    "consolidation_details",
     "ConsolidationReport",
     "FactWrite",
     "fusion_diagnostics",
@@ -381,6 +383,28 @@ def fusion_diagnostics(
     }
     diagnostics.update(extra)
     return diagnostics
+
+
+#: Keys every provider must put in ``ConsolidationReport.details``.
+#:
+#: The same contract ``FUSION_KEYS`` provides for ``MemorySlice.fusion``, and for the same reason:
+#: the two adapters' key sets were fully disjoint, so a scheduler written against one raised
+#: ``KeyError`` on the other. A provider with nothing to report says so with zeros and ``True``
+#: rather than omitting the key.
+CONSOLIDATION_KEYS = ("derived_by", "batches", "complete")
+
+
+def consolidation_details(
+    derived_by: Optional[str], batches: int = 0, complete: bool = True, **extra: Any
+) -> Dict[str, Any]:
+    """Build a ``ConsolidationReport.details`` payload carrying every :data:`CONSOLIDATION_KEYS`.
+
+    ``complete`` is what a scheduler actually needs: whether the tier was drained. Extra keys are
+    free -- the contract is a floor, not a ceiling.
+    """
+    details: Dict[str, Any] = {"derived_by": derived_by, "batches": batches, "complete": complete}
+    details.update(extra)
+    return details
 
 
 @dataclass

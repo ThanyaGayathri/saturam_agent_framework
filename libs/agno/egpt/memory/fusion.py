@@ -16,7 +16,7 @@ owns measuring it once real backends exist. Keep it config-selectable; do not ha
 """
 
 from copy import deepcopy
-from typing import Dict, List, Sequence
+from typing import Dict, List, Sequence, Set
 
 from egpt.memory.types import MemoryRecord
 
@@ -134,18 +134,32 @@ def _fold(
 
 
 def _ranked(fused: Dict[str, MemoryRecord], order: Dict[str, int]) -> List[MemoryRecord]:
-    """Highest score first; ties break on **first-seen order**, not on id.
+    """Highest score first; ties break on **content**, then id.
 
     Ties are common -- two equally good hits, or a flat leg where every score normalizes to 1.0 --
     so what breaks them is a real ranking decision rather than a detail.
 
-    First-seen order means the substrates' own ranking survives: the leg returned them in an order
-    it considered meaningful, and fusion has no better information when the scores agree. Sorting
-    by ``id`` instead looks stable but is not: ids are UUIDs, so equal-scoring records would come
-    back in a different order for every fresh set of writes, and two deployments holding identical
-    content would rank it differently.
+    **Content, because it is the only stable key.** Deviation D8 originally broke ties on first-seen
+    order, reasoning that the substrate's own ordering carries information the fuser lacks. That is
+    true in principle and was unusable in practice: first-seen order is only as stable as what
+    produced it, and what produced it was UUID ids feeding ``scan``'s ``(created_at, id)`` ordering.
+    The observable effect was the cookbook printing three different orderings across eight runs,
+    and Mode A and Mode B disagreeing inside a single process.
+
+    The trade is explicit: for exactly-equal scores a backend's own ordering is discarded in favour
+    of one that is reproducible across runs, workers, and deployments. A backend returning real
+    score magnitudes rarely reaches this tie-break at all.
+
+    ``tier`` comes next, and it is not decorative: consolidation stores a distilled fact with the
+    head episode's content verbatim, so the episodic and semantic copies tie on *both* score and
+    content and would fall through to ``id`` -- which is where the UUID instability came back. Tier
+    is a stable enum, so those two order the same way everywhere.
+
+    ``id`` is the last resort, for records identical in score, content and tier -- at which point
+    the order genuinely is arbitrary. ``order`` is kept in the signature because ``_fold``
+    maintains it and a future scorer may want it; it no longer participates in the sort.
     """
-    return sorted(fused.values(), key=lambda r: (-(r.score or 0.0), order[r.id]))
+    return sorted(fused.values(), key=lambda r: (-(r.score or 0.0), r.content, r.tier.value, r.id))
 
 
 def fuse_weighted(
@@ -164,7 +178,14 @@ def fuse_weighted(
     fused: Dict[str, MemoryRecord] = {}
     order: Dict[str, int] = {}
     for records, weight in zip(legs, weights):
+        seen: Set[str] = set()
         for record, norm in zip(records, _minmax(_positional_scores(records))):
+            # One leg contributes one score per id. Folding twice would accumulate, so a substrate
+            # returning a duplicate would outrank a record found by both legs -- inverting the
+            # signal fusion is built on.
+            if record.id in seen:
+                continue
+            seen.add(record.id)
             _fold(fused, order, record, weight * norm)
     return _ranked(fused, order)
 
@@ -178,6 +199,10 @@ def fuse_rrf(legs: Sequence[Sequence[MemoryRecord]], k: int = 60) -> List[Memory
     fused: Dict[str, MemoryRecord] = {}
     order: Dict[str, int] = {}
     for records in legs:
+        seen: Set[str] = set()
         for rank, record in enumerate(records, start=1):
+            if record.id in seen:
+                continue
+            seen.add(record.id)
             _fold(fused, order, record, 1.0 / (k + rank))
     return _ranked(fused, order)

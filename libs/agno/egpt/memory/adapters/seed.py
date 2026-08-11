@@ -21,6 +21,7 @@ stores, SM-L4 #125 for curation).
 
 import asyncio
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from uuid import NAMESPACE_OID, uuid5
 
 from egpt.db.schemas import UserMemory
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, register_provider
@@ -37,8 +38,10 @@ from egpt.memory.types import (
     Scope,
     Substrate,
     WriteReceipt,
+    consolidation_details,
     fusion_diagnostics,
 )
+from egpt.memory.validation import reject_duplicate_ids
 
 if TYPE_CHECKING:
     from egpt.learn.machine import LearningMachine
@@ -52,6 +55,10 @@ __all__ = ["SeedMemoryProvider"]
 #: ``agentic`` is deliberately absent -- see ``_validate_retrieval_method``. Real similarity search
 #: over memory arrives with SM-V1 (#95) as a vector substrate, not by putting a model on this path.
 _RETRIEVAL_METHODS = ("last_n", "first_n")
+
+#: Namespace for projecting an id-less ``UserMemory``, so the same row projects to the same id in
+#: every worker process and across restarts.
+_PROJECTION_NAMESPACE = uuid5(NAMESPACE_OID, "egpt.memory.seed.projection")
 
 
 def _group_by_tier(events: Sequence[MemoryEvent]) -> List[Tuple[MemoryTier, List[MemoryEvent]]]:
@@ -89,9 +96,10 @@ def _record_from_user_memory(memory: UserMemory, scope: Scope, score: Optional[f
     reads correctly as "valid since forever, never invalidated, current belief".
     """
     return MemoryRecord(
-        # A UserMemory with no id cannot be projected: `MemoryRecord.id` is the fusion dedup key,
-        # and `or ""` would collapse every such row into one fused result.
-        id=memory.memory_id or f"usermemory:{scope.key()}:{abs(hash(memory.memory))}",
+        # A UserMemory with no id still needs a stable one: `MemoryRecord.id` is the fusion dedup
+        # key. `hash()` is salted per process, so the same row projected to a different id in every
+        # worker and across restarts -- and `abs()` folded two hash values onto one id.
+        id=memory.memory_id or str(uuid5(_PROJECTION_NAMESPACE, f"{scope.key()}|{memory.memory}")),
         tier=MemoryTier.SEMANTIC,
         content=memory.memory,
         scope=scope,
@@ -527,6 +535,7 @@ class SeedMemoryProvider(MemoryProvider):
     def write_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
         self._guard_tenant(scope)
         self._reject_foreign_scopes(scope, events)
+        reject_duplicate_ids(events)
         self._reject_unserved(tier)
         store = self._store_for(tier)
         if store is not None:
@@ -537,6 +546,7 @@ class SeedMemoryProvider(MemoryProvider):
     async def awrite_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
         self._guard_tenant(scope)
         self._reject_foreign_scopes(scope, events)
+        reject_duplicate_ids(events)
         self._reject_unserved(tier)
         store = self._store_for(tier)
         if store is not None:
@@ -645,6 +655,7 @@ class SeedMemoryProvider(MemoryProvider):
         """
         self._guard_tenant(scope)
         self._reject_foreign_scopes(scope, events)
+        reject_duplicate_ids(events)
         groups = _group_by_tier(events)
         for tier, _ in groups:
             self._reject_unserved(tier)
@@ -668,8 +679,6 @@ class SeedMemoryProvider(MemoryProvider):
         self,
         scope: Scope,
         tiers: Optional[Sequence[MemoryTier]] = None,
-        since: Optional[int] = None,
-        after_id: Optional[str] = None,
     ) -> ConsolidationReport:
         """Run the seed's curation as the dedup lane. There is no episodic-to-semantic pass here.
 
@@ -705,28 +714,29 @@ class SeedMemoryProvider(MemoryProvider):
             semantic_written=0,  # no distillation without extraction
             duplicates_merged=merged,
             contradictions_resolved=0,
-            details={
-                # `ran` separates "the curator ran and found nothing" from "the curator never ran"
-                # -- both reported duplicates_merged=0, so a caller could not tell a clean pass
-                # from a no-op caused by a missing machine or an unscoped user.
-                "ran": can_curate,
-                "skipped_because": None
+            # Every CONSOLIDATION_KEYS entry is present even though this provider distils nothing,
+            # so a scheduler written against one adapter does not KeyError on another. `ran` and
+            # `curator` ride along as extras.
+            details=consolidation_details(
+                derived_by="seed.curator_dedup" if can_curate else None,
+                batches=1 if can_curate else 0,
+                complete=True,
+                ran=can_curate,
+                skipped_because=None
                 if can_curate
                 else ("no LearningMachine wired" if self.machine is None else "scope has no user_id"),
-                "curator": "user_profile only",
-                "note": "seed has no episodic tier or graph; the consolidation loop is SM-L1+",
-            },
+                curator="user_profile only",
+                note="seed has no episodic tier or graph; the consolidation loop is SM-L1+",
+            ),
         )
 
     async def aconsolidate(
         self,
         scope: Scope,
         tiers: Optional[Sequence[MemoryTier]] = None,
-        since: Optional[int] = None,
-        after_id: Optional[str] = None,
     ) -> ConsolidationReport:
         """Async variant. ``Curator.deduplicate`` is sync-only, so this hops a thread."""
-        return await asyncio.to_thread(self.consolidate, scope, tiers, since, after_id)
+        return await asyncio.to_thread(self.consolidate, scope, tiers)
 
 
 @register_provider("seed")

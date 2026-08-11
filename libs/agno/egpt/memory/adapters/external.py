@@ -51,17 +51,13 @@ class ExternalMemoryProvider(CoLocatedMemoryProvider):
         vector_hits: List[MemoryRecord],
         graph_hits: List[MemoryRecord],
         instant: int,
-        probe_limit: int,
-        exhausted: bool,
     ) -> MemorySlice:
         """Fuse as Mode A does, then record that the legs came over the network.
 
         Latency and failure look completely different across a network boundary, and a trace that
-        cannot distinguish the two deployments cannot explain a slow read. Note the probe loop this
-        inherits can issue several round trips per read, which matters more here than in-VPC --
-        ``fusion["probe_limit"]`` is what makes that visible.
+        cannot distinguish the two deployments cannot explain a slow read.
         """
-        slice_ = super()._assemble(scope, query, vector_hits, graph_hits, instant, probe_limit, exhausted)
+        slice_ = super()._assemble(scope, query, vector_hits, graph_hits, instant)
         slice_.fusion["deployment"] = "external"
         return slice_
 

@@ -59,7 +59,11 @@ def test_a_record_found_by_both_legs_reports_no_single_origin():
 
 
 def test_an_unscored_leg_ranks_by_position_instead_of_sinking():
-    """Graph traversal often has an order and no magnitude; scoring it 0.0 would drop the leg."""
+    """Graph traversal often has an order and no magnitude; scoring it 0.0 would drop the leg.
+
+    Rank position becomes a real score here, so these do not tie and the content tie-break is not
+    reached -- the leg's ordering survives, which is what matters for an unscored backend.
+    """
     graph = [rec("first"), rec("second"), rec("third")]
 
     fused = fuse_weighted([[], graph], weights=[0.5, 0.5])
@@ -132,16 +136,23 @@ def test_a_smaller_k_sharpens_the_top_of_the_ranking():
 # ---------------------------------------------------------------------------
 
 
-def test_ties_keep_the_substrates_own_order_rather_than_sorting_by_id():
+def test_ties_break_on_content_so_the_ranking_is_reproducible_anywhere():
     """A flat leg ties on score, so the tie-break is a real ranking decision.
 
-    The leg returned these in an order it considered meaningful and fusion has no better
-    information when scores agree. Sorting by id would give aaa/mmm/zzz -- and since real ids are
-    UUIDs, it would reorder equal-scoring records for every fresh set of writes.
+    It breaks on content because that is the only key stable across runs, workers and deployments.
+    Breaking on insertion order looked like it preserved the substrate's own ranking, but insertion
+    order was itself UUID-driven -- the cookbook printed three different orderings across eight
+    runs, and two providers disagreed inside one process.
     """
     flat = [rec("zzz", score=0.5), rec("aaa", score=0.5), rec("mmm", score=0.5)]
+    shuffled = [rec("mmm", score=0.5), rec("zzz", score=0.5), rec("aaa", score=0.5)]
 
-    assert [r.id for r in fuse_weighted([flat, []], weights=[1.0, 0.0])] == ["zzz", "aaa", "mmm"]
+    ranked = [r.id for r in fuse_weighted([flat, []], weights=[1.0, 0.0])]
+
+    # `rec` builds content as "content {id}", so content order is aaa < mmm < zzz.
+    assert ranked == ["aaa", "mmm", "zzz"]
+    # And the input order does not change it -- which is the property that was missing.
+    assert ranked == [r.id for r in fuse_weighted([shuffled, []], weights=[1.0, 0.0])]
 
 
 def test_a_ranking_is_reproducible_across_calls():

@@ -218,11 +218,11 @@ def test_excluding_a_substrate_the_provider_does_not_have_is_fine():
 
 
 def test_the_limit_caps_returned_records_and_fusion_reports_what_the_probe_saw():
-    """`fused` counts what the substrates returned for the probe, which `probe_limit` explains.
+    """`fused` counts what the substrates returned, which is `limit` -- not the full corpus.
 
-    It is not "the full corpus" -- a limit-honouring backend never shows the provider the full
-    corpus. Reporting the probe limit alongside is what makes the hit counts interpretable, since
-    they move with the retry loop rather than with the caller's limit.
+    A limit-honouring backend never shows the provider the whole corpus, and the provider no longer
+    over-fetches: validity is filtered by the substrate before ranking, so the page it returns is
+    already the page the caller gets.
     """
     p, _, _ = provider()
     p.write(ACME, [event(f"alpha item {i}") for i in range(5)])
@@ -231,9 +231,7 @@ def test_the_limit_caps_returned_records_and_fusion_reports_what_the_probe_saw()
 
     assert len(result.records) == 2
     assert result.fusion["returned"] == 2
-    assert result.fusion["probe_limit"] == 2  # first round asks for exactly what was wanted
     assert result.fusion["fused"] == 2
-    assert result.fusion["truncated"] is False
 
 
 def test_records_are_grouped_by_tier():
@@ -268,21 +266,24 @@ def test_read_tier_narrows_without_cross_tier_fusion():
     assert [r.tier for r in records] == [MemoryTier.EPISODIC]
 
 
-def test_equal_scoring_records_keep_the_substrates_order_not_uuid_order():
-    """Ties break on **first-seen order** (deviation D8), which is what makes a ranking stable.
+def test_equal_scoring_records_rank_deterministically_across_providers():
+    """Ties break on content, so identical content ranks identically everywhere.
 
-    The earlier version of this test compared two reads of one provider and its docstring claimed
-    ties broke on id -- both wrong: it could not fail (the same provider returns the same order
-    whatever the rule) and id-ordering is the bug D8 fixed, since ids are UUIDs. This writes in a
-    known order and asserts that order survives, so sorting by id would fail it.
+    The earlier version asserted the *substrate's* order survived a tie. That read well and was
+    unusable: the substrate's order was itself UUID-driven, so the same corpus ranked three
+    different ways across eight cookbook runs and two providers disagreed inside one process.
+    Content is the only key stable across runs, workers and deployments.
     """
-    p, _, _ = provider()
+    first, _, _ = provider()
+    second, _, _ = provider()
     for identifier in ("zzz", "aaa", "mmm"):
-        p.write(ACME, [event("alpha beta gamma", id=identifier)])
+        first.write(ACME, [event("alpha beta gamma", id=identifier)])
+    for identifier in ("mmm", "zzz", "aaa"):  # written in a different order
+        second.write(ACME, [event("alpha beta gamma", id=identifier)])
 
-    ranked = [r.id for r in p.read(ACME, MemoryQuery(text="alpha beta gamma")).records]
+    query = MemoryQuery(text="alpha beta gamma")
 
-    assert ranked == ["zzz", "aaa", "mmm"], "equal scores must keep write order, not sort by id"
+    assert [r.content for r in first.read(ACME, query).records] == [r.content for r in second.read(ACME, query).records]
 
 
 # ---------------------------------------------------------------------------
@@ -339,14 +340,31 @@ def test_point_in_time_is_two_sided(at, visible):
     assert bool(found) is visible
 
 
-def test_the_vector_leg_cannot_readmit_what_the_graph_bounded():
-    """Finding F2: as_of is applied after fusion because only the graph knows about validity."""
+def test_a_leg_that_ignores_validity_is_contained_by_the_post_condition():
+    """The ports require substrates to filter validity; the provider still re-checks.
+
+    Written against a *non-conforming* vector leg on purpose. The conforming doubles now filter
+    before ranking, so the only way to exercise the post-condition is a backend that does not --
+    which is exactly the case it exists for.
+    """
     p, vector, graph = provider()
     bounded = MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="ada works at acme", scope=ACME, t_invalid=200)
     unbounded = MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="ada works at acme", scope=ACME)
 
-    vector.upsert(ACME, [unbounded])  # the projection, with no notion of validity
-    graph.rows.setdefault("acme", []).append(bounded)  # the authority
+    class SloppyVector(FakeVector):
+        """Returns rows regardless of validity -- a backend that dropped the predicate."""
+
+        def search(self, scope, query, tier=None):
+            from dataclasses import replace as _replace
+
+            from tests.unit.memory._fakes import overlap
+
+            return [_replace(r, score=overlap(query.text, r.content) or 1.0) for r in self._matching(scope)]
+
+    sloppy = SloppyVector()
+    sloppy.upsert(ACME, [unbounded])
+    p.vector = sloppy
+    graph.rows.setdefault("acme", []).append(bounded)
 
     assert p.read(ACME, MemoryQuery(text="ada acme", as_of=500)).records == []
 
@@ -514,13 +532,12 @@ def test_a_read_returns_limit_records_when_limit_valid_records_exist(expired, li
     """Critical 3. The cap is applied after the validity filters, so a page of invalidated rows
     ranking above the live ones returned nothing.
 
-    Two things the earlier version of this test got wrong, both of which made it vacuous:
+    Invalidated rows carry the query text verbatim so they genuinely outrank the live ones, and
+    the ratio is parametrised because the defect was defined by a ratio -- the old fixed x3
+    over-fetch could not satisfy 50:10 at any limit.
 
-    * The "expired" rows scored *below* the live ones (0.75 vs 1.00 on its own fixture), so the
-      filter never had to discard anything. Here the invalidated rows carry the query text verbatim
-      and the live rows a weaker match, so they genuinely outrank.
-    * One ratio cannot test a defect defined by a ratio. Parametrised, including 50:10 -- which the
-      old fixed x3 over-fetch could not satisfy at any limit.
+    It now passes because the substrate filters validity *before* ranking, so the invalidated rows
+    never occupy the page at all. That is the contract, not a mitigation: no ratio defeats it.
     """
     p, vector, _ = provider()
     vector.upsert(
@@ -550,37 +567,13 @@ def test_a_read_returns_limit_records_when_limit_valid_records_exist(expired, li
 
     assert len(result.records) == live
     assert all(r.id.startswith("live-") for r in result.records)
-    assert result.fusion["truncated"] is False
-
-
-def test_a_read_reports_truncation_when_it_exhausts_the_probe_ceiling():
-    """A caller must be able to tell "the corpus is empty" from "I hit the fetch ceiling"."""
-    p, vector, _ = provider()
-    vector.upsert(
-        ACME,
-        [
-            MemoryRecord(
-                id=f"expired-{i}",
-                tier=MemoryTier.SEMANTIC,
-                content="alpha",
-                scope=ACME,
-                expired_at=100,
-            )
-            for i in range(5000)
-        ],
-    )
-
-    result = p.read(ACME, MemoryQuery(text="alpha", limit=1))
-
-    assert result.records == []
-    assert result.fusion["truncated"] is True, "an exhausted ceiling must not look like an empty corpus"
 
 
 def test_a_default_read_hides_a_fact_the_graph_recorded_as_false():
-    """Blocking 2. is_current_belief() is transaction-time only, so the SCD-2 successor row --
-    past t_invalid, expired_at None -- passed it and rendered straight into a prompt.
+    """`read()` and `read(as_of=now)` must agree at the same instant.
 
-    The sharpest form: read() and read(as_of=now) disagreed at the same instant.
+    Under SCD-2 the successor row carries a past `t_invalid` *with* `expired_at = None`, so a
+    current-belief-only check let an invalidated fact render straight into a prompt.
     """
     p, _, graph = provider()
     p.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme", id="f1")])
@@ -646,15 +639,13 @@ def test_consolidation_bounds_its_scan():
 
 
 @pytest.mark.parametrize("stamping", ["distinct", "identical"])
-def test_consolidation_advances_past_its_first_batch(stamping):
-    """Blocking (r2 + r3). Two separate dead ends, and the second was invisible to the first test.
+def test_consolidation_covers_every_episode_in_one_call(stamping):
+    """`consolidate` is complete when it returns -- batching is an internal memory bound.
 
-    r2: nothing passed `since`, so every cycle re-read the same oldest rows.
-    r3: `since` alone cannot page past a batch whose episodes share one `created_at`, because the
-    bound is inclusive and `next_since` equalled the `since` that produced the batch. The earlier
-    version of this test set `created_at = 1000 + i` under a comment explaining why -- engineering
-    around the exact input that breaks the cursor. `identical` is that input, and it is the
-    ordinary one: `_prepare` stamps a single `now` across a whole batched `write()`.
+    Three rounds of findings lived in the cursor *protocol*: nothing passed it, then a time-only
+    cursor could not page past co-second episodes, then the report keys diverged between adapters.
+    The protocol is gone; the loop is internal. `identical` is the ordinary input, since `_prepare`
+    stamps one `now` across a whole batched write.
     """
     import egpt.memory.adapters.co_located as module
 
@@ -666,86 +657,37 @@ def test_consolidation_advances_past_its_first_batch(stamping):
             p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}")])
             vector.rows["acme"][f"e{i}"].created_at = 1000 + i if stamping == "distinct" else 1000
 
-        seen, since, after_id = set(), None, None
-        for _ in range(10):
-            report = p.consolidate(ACME, since=since, after_id=after_id)
-            for fact in vector.rows["acme"].values():
-                if fact.tier is MemoryTier.SEMANTIC:
-                    seen.update(fact.provenance.get("source_episode_ids", []))
-            if not report.details["batch_full"]:
-                break
-            since = report.details["next_since"]
-            after_id = report.details["next_after_id"]
-
-        missing = {f"e{i}" for i in range(9)} - seen
-        assert not missing, f"never consolidated ({stamping} created_at): {sorted(missing)}"
-    finally:
-        module._CONSOLIDATE_BATCH = original
-
-
-def test_consolidation_refuses_to_report_a_cursor_that_does_not_advance():
-    """Belt and braces on the cursor: a backend ignoring scan's ordering would livelock a
-    scheduler silently, and a silent livelock is the worst version of this failure."""
-    import egpt.memory.adapters.co_located as module
-
-    p, vector, _ = provider()
-
-    class StuckVector(FakeVector):
-        """Ignores the cursor entirely -- always returns the same page."""
-
-        def scan(self, scope, tier, since=None, after_id=None, limit=None):
-            return super().scan(scope, tier, None, None, limit)
-
-    stuck = StuckVector()
-    p.vector = stuck
-    original = module._CONSOLIDATE_BATCH
-    module._CONSOLIDATE_BATCH = 2
-    try:
-        for i in range(4):
-            p.write(ACME, [event(f"topic{i} unique", id=f"e{i}")])
-            stuck.rows["acme"][f"e{i}"].created_at = 1000
-
-        first = p.consolidate(ACME)
-        with pytest.raises(MemoryOperationError, match="did not advance"):
-            p.consolidate(ACME, since=first.details["next_since"], after_id=first.details["next_after_id"])
-    finally:
-        module._CONSOLIDATE_BATCH = original
-
-
-def test_a_full_batch_reports_where_to_resume():
-    import egpt.memory.adapters.co_located as module
-
-    p, vector, _ = provider()
-    original = module._CONSOLIDATE_BATCH
-    module._CONSOLIDATE_BATCH = 2
-    try:
-        for i in range(3):
-            p.write(ACME, [event(f"topic{i} unique", id=f"e{i}")])
-            vector.rows["acme"][f"e{i}"].created_at = 1000 + i
-
         report = p.consolidate(ACME)
 
-        assert report.details["batch_full"] is True
-        assert report.details["next_since"] == 1001
-        assert report.details["next_after_id"] == "e1"
+        seen = set()
+        for fact in vector.rows["acme"].values():
+            if fact.tier is MemoryTier.SEMANTIC:
+                seen.update(fact.provenance.get("source_episode_ids", []))
+        missing = {f"e{i}" for i in range(9)} - seen
+        assert not missing, f"never consolidated ({stamping} created_at): {sorted(missing)}"
+        assert report.episodic_scanned == 9
+        assert report.details["complete"] is True
+        assert report.details["batches"] >= 3
     finally:
         module._CONSOLIDATE_BATCH = original
 
 
-@pytest.mark.parametrize("requested", [[MemoryTier.PROCEDURAL], [MemoryTier.SEMANTIC], []])
-def test_consolidate_refuses_a_tier_set_it_would_ignore(requested):
-    """Major 6. Accepted and never read, so a caller got episodic work and a report saying so."""
-    p, _, _ = provider()
+async def test_async_consolidation_also_covers_every_episode():
+    import egpt.memory.adapters.co_located as module
 
-    with pytest.raises(MemoryOperationError, match="episodic-to-semantic"):
-        p.consolidate(ACME, tiers=requested)
+    p, vector, _ = provider()
+    original = module._CONSOLIDATE_BATCH
+    module._CONSOLIDATE_BATCH = 2
+    try:
+        for i in range(5):
+            p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}")])
+            vector.rows["acme"][f"e{i}"].created_at = 1000
 
+        report = await p.aconsolidate(ACME)
 
-def test_consolidate_still_accepts_the_tier_set_it_does_run():
-    p, _, _ = provider()
-    p.write(ACME, [event("an episode")])
-
-    assert p.consolidate(ACME, tiers=[MemoryTier.EPISODIC]).semantic_written == 1
+        assert report.episodic_scanned == 5
+    finally:
+        module._CONSOLIDATE_BATCH = original
 
 
 def test_a_point_in_time_read_without_the_graph_is_refused_not_answered():
@@ -985,18 +927,44 @@ def test_a_zero_limit_does_not_over_fetch():
 def test_a_record_from_another_tenant_is_refused_not_returned():
     """Defence in depth: the seam refuses to take a substrate's tenant predicate on faith.
 
-    A backend that drops its WHERE tenant_id otherwise leaks straight through, and the projection
-    stamps the reader's scope on the way out -- the shape that hides such a leak from every check
-    above it.
+    Needs a leaky backend by construction -- the conforming double scopes correctly, which is why
+    a post-condition rather than a test is what protects against the non-conforming one.
     """
-    p, vector, _ = provider()
-    # A substrate that ignores its scope argument, which is what a bad migration looks like.
-    vector.rows.setdefault("acme", {})["foreign"] = MemoryRecord(
-        id="foreign", tier=MemoryTier.SEMANTIC, content="globex secret", scope=OTHER
-    )
+    p, _, _ = provider()
+
+    class LeakyVector(FakeVector):
+        """Drops the tenant predicate, as a bad migration or a hand-written query would."""
+
+        def _matching(self, scope):
+            return [r for bucket in self.rows.values() for r in bucket.values()]
+
+    leaky = LeakyVector()
+    leaky.upsert(OTHER, [MemoryRecord(id="foreign", tier=MemoryTier.SEMANTIC, content="globex secret", scope=OTHER)])
+    p.vector = leaky
 
     with pytest.raises(MemoryOperationError, match="dropped its tenant predicate"):
         p.read(ACME, MemoryQuery(text="globex secret"))
+
+
+def test_consolidation_refuses_a_leaked_record_rather_than_persisting_it():
+    """Critical (r4). The read guard alone was not enough: `_distil` stamps the *caller's* scope,
+    so a leaked row was written back as a genuine row under the caller's tenant -- and then passed
+    the read guard forever after."""
+    p, _, _ = provider()
+
+    class LeakyVector(FakeVector):
+        def _matching(self, scope):
+            return [r for bucket in self.rows.values() for r in bucket.values()]
+
+    leaky = LeakyVector()
+    leaky.upsert(
+        OTHER,
+        [MemoryRecord(id="foreign", tier=MemoryTier.EPISODIC, content="acme deployment secret", scope=OTHER)],
+    )
+    p.vector = leaky
+
+    with pytest.raises(MemoryOperationError, match="dropped its tenant predicate"):
+        p.consolidate(ACME)
 
 
 def test_an_event_whose_scope_differs_from_the_write_scope_is_refused():

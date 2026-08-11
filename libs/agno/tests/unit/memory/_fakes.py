@@ -22,6 +22,30 @@ from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import FactWrite, MemoryEvent, MemoryQuery, MemoryRecord, Scope, Substrate
 
 
+def scoped(record_scope: Scope, call_scope: Scope) -> bool:
+    """Every slot the call scope sets must match -- not only ``tenant_id``.
+
+    A double that partitions on tenant alone cannot observe a per-user leak, so no test could see
+    one. Modelling the full conjunctive predicate is what makes the port's scoping contract
+    testable at all.
+    """
+    for slot in ("tenant_id", "user_id", "agent_id", "team_id", "session_id"):
+        wanted = getattr(call_scope, slot)
+        if wanted is not None and getattr(record_scope, slot) != wanted:
+            return False
+    return True
+
+
+def current_belief(record: MemoryRecord) -> bool:
+    """Transaction time only, per the port: ``expired_at IS NULL``, filtered before ranking.
+
+    Deliberately *not* valid time. A substrate that filtered ``as_of`` would withhold the SCD-2
+    successor row carrying ``t_invalid`` -- which is the evidence the provider merges onto the
+    vector leg's stale projection to catch an invalidated fact (finding F2).
+    """
+    return record.expired_at is None
+
+
 def overlap(query: str, content: str) -> float:
     """Crude lexical similarity, standing in for embeddings. Deterministic by design."""
     q, c = set(query.lower().split()), set(content.lower().split())
@@ -70,6 +94,10 @@ class FakeVector:
     def _bucket(self, scope: Scope) -> Dict[str, MemoryRecord]:
         return self.rows.setdefault(scope.tenant_id, {})
 
+    def _matching(self, scope: Scope) -> List[MemoryRecord]:
+        """Rows this scope may see -- every set slot, not just the tenant."""
+        return [r for r in self._bucket(scope).values() if scoped(r.scope, scope)]
+
     def upsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
         self.calls.append("upsert")
         bucket = self._bucket(scope)
@@ -83,12 +111,13 @@ class FakeVector:
     def search(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
         self.calls.append("search")
         self.search_limits.append(query.limit)
-        assert query.as_of is None, "the provider must strip as_of before it reaches a substrate"
         tiers = {tier} if tier else set(query.resolved_tiers())
         hits = [
             replace(record, score=overlap(query.text, record.content))
-            for record in self._bucket(scope).values()
-            if record.tier in tiers
+            for record in self._matching(scope)
+            # Validity filtered BEFORE ranking, as the port requires: applying `limit` first and
+            # validity second lets a page of invalidated rows consume the whole limit.
+            if record.tier in tiers and current_belief(record)
         ]
         return _ranked(hits, query.limit)
 
@@ -108,7 +137,7 @@ class FakeVector:
         self.scan_limits.append(limit)
         self.scan_sinces.append(since)
         self.scan_after_ids.append(after_id)
-        rows = [r for r in self._bucket(scope).values() if r.tier is tier]
+        rows = [r for r in self._matching(scope) if r.tier is tier]
         if since is not None:
             # The port's composite cursor: strictly after (since, after_id) when after_id is
             # given, inclusive on `since` alone. A time-only cursor cannot page past a batch of
@@ -150,6 +179,9 @@ class FakeGraph:
 
     def _bucket(self, scope: Scope) -> List[MemoryRecord]:
         return self.rows.setdefault(scope.tenant_id, [])
+
+    def _matching(self, scope: Scope) -> List[MemoryRecord]:
+        return [r for r in self._bucket(scope) if scoped(r.scope, scope)]
 
     def upsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
         """Upsert by id, as the port requires. Appending let a repeat write look idempotent."""
@@ -194,12 +226,11 @@ class FakeGraph:
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
         self.calls.append("traverse")
         self.traverse_limits.append(query.limit)
-        assert query.as_of is None, "the provider must strip as_of before it reaches a substrate"
         tiers = {tier} if tier else set(query.resolved_tiers())
         hits = [
             replace(row, score=overlap(query.text, row.content))
-            for row in self._bucket(scope)
-            if row.tier in tiers and row.is_current_belief()  # current belief only, SM-R10 §7 5a
+            for row in self._matching(scope)
+            if row.tier in tiers and current_belief(row)  # transaction time, before ranking
         ]
         return _ranked(hits, query.limit)
 
