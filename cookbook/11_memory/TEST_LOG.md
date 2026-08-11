@@ -65,3 +65,21 @@
 **Description:** Tests MemoryTools and WebSearchTools integration with user memory.
 
 ---
+
+### 09_memory_provider_seam.py
+
+**Status:** PASS
+
+**Description:** Exercises the SM-C1 MemoryProvider seam end to end with two in-file substrate
+stand-ins: write to both substrates, consolidate episodes into semantic facts, and read a fused
+slice back as prompt context. Then runs the same consumer function against a second config
+(provider `external`, mode `frontier`) to show the swap is configuration only, followed by a
+bi-temporal point-in-time read across an invalidation and a cross-tenant isolation check.
+
+**Result:** Success. Mode A and Mode B produce identical output from the same consumer function.
+Consolidation merged 2 episodes into 2 facts (the two statements are distinct, so nothing
+deduped). The point-in-time read returns the fact `as_of=200` and not `as_of=400`, confirming
+invalidation is expire-and-reinsert rather than a delete. A read scoped to tenant `globex`
+returns 0 of tenant `acme`'s records. Requires no database, no model, and no API key.
+
+---

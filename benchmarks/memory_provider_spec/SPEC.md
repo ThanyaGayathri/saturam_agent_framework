@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Proposed (provisional — pending SM-R1 #76 ADR ratification) |
+| **Status** | **Implemented** by SM-C1 ([#89](https://github.com/Saturam-Inc/aicoe-tracker/issues/89)) — see §11 for what changed in implementation. Ratified by SM-R1 #76 (ADR 0003). |
 | **Issue** | [Saturam-Inc/aicoe-tracker#86](https://github.com/Saturam-Inc/aicoe-tracker/issues/86) |
 | **Depends on** | SM-R1 #76 (ADR, open) — the only formal dependency per #86 |
 | **Siblings** | SM-R12 #87 (data model, [PR #18](https://github.com/Saturam-Inc/saturam-agent-framework/pull/18) open) — complementary layer, reconciled (see §5.2, §7, §9); SM-R8 (fusion), SM-R10 (bi-temporal) |
@@ -16,9 +16,12 @@ records the decisions behind it. Two adapters and a config-only swap test
 ([`adapters.py`](adapters.py), [`swap_test.py`](swap_test.py)) prove the seam is
 plug-and-play (Phases 3–4).
 
-> **Phase status:** Phases 1–4 complete — `interface.py` (contract), §6.1 reuse dispositions,
-> `adapters.py` (two adapters), and `swap_test.py` (10/10 checks, deterministic). Remaining:
-> the finalize gate (lint/type/core-isolation) recorded in `TEST_LOG.md`.
+> **Phase status:** design complete and **implemented in core by SM-C1** — see §11 for the
+> artifact map, the eight deviations, and what was carried forward. The prototype here remains the
+> design record; `libs/agno/egpt/memory/` is the authoritative code.
+>
+> (The prose above once read "10/10 checks"; the artifact had grown to 12. ADR 0003 §5 flagged the
+> drift. The shipped suite supersedes both — see `tests/unit/memory/`.)
 
 ---
 
@@ -328,3 +331,59 @@ loop. These are the additive build surface `MemoryProvider` exposes — WRAP the
   `python -m benchmarks.memory_provider_spec.swap_test` runs the swap proof (exit 0, writes
   `results/swap_results.json`, byte-identical across runs).
 - Core untouched: `git diff origin/main -- libs/` is empty for this work (verified at finalize).
+
+---
+
+## 11. Implementation record — SM-C1 (#89)
+
+This spec is now implemented in core under `libs/agno/egpt/memory/`. The prototype in this folder
+stays as the design artifact and its evidence; **the shipped code is authoritative**.
+
+| Spec artifact | Shipped as |
+|---|---|
+| `interface.py` envelope types | `egpt/memory/types.py` + `egpt/memory/tiers.py` |
+| `VectorSubstrate` / `GraphSubstrate` | `egpt/memory/substrates.py` |
+| `MemoryProvider` ABC | `egpt/memory/provider.py` |
+| `MemoryProviderConfig` + registry | `egpt/memory/config.py` |
+| `_weighted` / `_rrf` | `egpt/memory/fusion.py` |
+| `CoLocatedMemoryProvider` | `egpt/memory/adapters/co_located.py` |
+| `ExternalStubMemoryProvider` | `egpt/memory/adapters/external.py` |
+| *(new)* seed WRAP adapter | `egpt/memory/adapters/seed.py` |
+| `swap_test.py` | `tests/unit/memory/test_provider_swap.py` |
+
+### 11.1 Deviations from this spec, and why
+
+| # | Deviation | Reason |
+|---|---|---|
+| D1 | `ProviderMode.LOCAL/FRONTIER` replaces `DeploymentMode.CO_LOCATED/EXTERNAL` | `providers/model_provider.py:52` already means Mode A/B for models. ADR 0003 §B.5 rules against two vocabularies for one concept. Lets SM-C5 reuse the `PolicyKey` → `ProviderConfig.lookup` per-tenant pattern. |
+| D2 | `MemoryTier` lives in `tiers.py`; config in `config.py` | Those are the files SM-C2 (#90) and SM-C5 (#93) are chartered to create. Placing them elsewhere would force a duplicate enum and a split config module. |
+| D3 | `GraphSubstrate.upsert_fact` + `FactWrite` added | Finding F9: the port exposed only `upsert_episode`, forcing consolidation to write a fact as a flat pseudo-episode. Field names mirror SM-R12's `SemanticFact` so SM-C3 maps 1:1. |
+| D4 | Explicit `VectorSubstrate.scan` replaces "empty `query.text` = scan all" | The convention hid the operation behind a magic value and could not be bounded. `scan` orders ascending `created_at`, then `id`, with an exclusive `since` watermark so a consolidation pass resumes. Graph enumeration is deliberately absent — no consumer in SM-C1, and what it means over a temporal graph is SM-G9's to define. |
+| D5 | Provider registry is local to `egpt/memory/`, not a `discovery` KIND | Discovery declarations live in **core**; a provider adapter is **services**, so declaring it there would have core naming a services module. ADR 0001's "config-swappable backends use the same constructor registry" refers to the *backends* a provider composes — those stay `discovery.construct` under SM-V1/SM-G1. |
+| D6 | Real-external-backend swap re-proof carried to SM-X2 (#138) | ADR 0003 §5 asks SM-C1 for it, but no external substrate exists to point at yet (SM-V1 #95, SM-G1 #99). Recorded in `adapters/external.py` and `test_provider_swap.py`, not dropped. |
+| D7 | Unknown provider key raises `MemoryProviderConfigError` (a `ValueError`), not `KeyError` | Matches `discovery.resolve`, which raises `ValueError` for an unknown name, and `ModelProviderConfigError` for a bad config. |
+| D8 | Fused ties break on **first-seen order**, not on record id | Found by the swap proof's determinism check. Ids are UUIDs, so an id tie-break reorders equal-scoring records for every fresh set of writes, and two deployments holding identical content would rank it differently. First-seen order preserves the substrates' own ranking. |
+
+### 11.2 Additions the spec did not cover
+
+- **`SeedMemoryProvider`** (`adapters/seed.py`) — the WRAP half of ADR 0003 §2, giving a deployment
+  the seam over `MemoryManager` and the `learn` stores with no new infrastructure. It reports
+  **both substrates absent**, refuses episodic writes rather than redirecting them into the
+  semantic tier, and reports `episodic_scanned=0` from `consolidate` — the seed has no episodic
+  store, and claiming otherwise would be false.
+- **`SUBSTRATES_BY_TIER`** (`tiers.py`) — ADR 0003 §1's ratified write routing as data, so the
+  adapter does not guess. SM-C2 extends it into full per-tier policy.
+- **Config validation** — unknown fusion method, out-of-range `vector_weight`, unknown mode, blank
+  provider key, and a factory returning a non-provider are all rejected at the boundary. Finding
+  F5 was a fusion setting that was accepted and then silently ignored.
+
+### 11.3 Carried forward with named owners
+
+| Item | Owner |
+|---|---|
+| Re-prove config-only swap against a **real** external backend (ADR §5) | SM-X2 #138 |
+| Reject `HuggingfaceCustomEmbedder` for `mode=LOCAL` (ADR §A.3c) | SM-V2 #96 |
+| Measure weighted-vs-RRF on the **vector+graph** pairing — SM-R8 never did | SM-R13 #19 |
+| `Curator` is narrower than ADR §2.1 implies (`user_profile` store only, no async) | SM-L4 #125 |
+| `MemoryManager.search_user_memories` / `add_user_memory` have no async variant; the bridge hops a thread | SM-C2 #90 |
+| Graph enumeration semantics for a `scan` on `GraphSubstrate` | SM-G9 #107 |
