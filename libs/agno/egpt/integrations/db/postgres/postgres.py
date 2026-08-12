@@ -95,6 +95,7 @@ class PostgresDb(BaseDb):
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
         create_schema: bool = True,
+        require_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a PostgreSQL database.
@@ -128,6 +129,12 @@ class PostgresDb(BaseDb):
             id (Optional[str]): ID of the database.
             create_schema (bool): Whether to automatically create the database schema if it doesn't exist.
                 Set to False if schema is managed externally (e.g., via migrations). Defaults to True.
+            require_tenant_id (bool): Refuse unscoped component access (EGPT-2.7). With this set,
+                a component method called with ``tenant_id=None`` raises
+                ``TenantScopeRequiredError`` instead of applying no tenant predicate -- which also
+                makes the NULL-tenant rows written before multi-tenancy unreachable. ``EgptOS``
+                sets it automatically when ``AuthorizationConfig(tenant_id_claim=...)`` is
+                configured, and ``EGPT_REQUIRE_TENANT_ID`` sets it for dbs built outside EgptOS.
 
         Raises:
             ValueError: If neither db_url nor db_engine is provided.
@@ -156,6 +163,7 @@ class PostgresDb(BaseDb):
         super().__init__(
             id=id,
             table_prefix=table_prefix,
+            require_tenant_id=require_tenant_id,
             session_table=session_table,
             memory_table=memory_table,
             metrics_table=metrics_table,
@@ -3427,8 +3435,11 @@ class PostgresDb(BaseDb):
         self,
         component_id: str,
         component_type: Optional[ComponentType] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
+        tenant_id = self._require_tenant_scope(tenant_id, "get_component")
+
         try:
             table = self._get_table(table_type="components")
             if table is None:
@@ -3460,7 +3471,8 @@ class PostgresDb(BaseDb):
         description: Optional[str] = None,
         current_version: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -3484,6 +3496,8 @@ class PostgresDb(BaseDb):
         Raises:
             ValueError: If creating and component_type is not provided.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "upsert_component")
+
         try:
             table = self._get_table(table_type="components", create_table_if_not_found=True)
             if table is None:
@@ -3615,7 +3629,8 @@ class PostgresDb(BaseDb):
         self,
         component_id: str,
         hard_delete: bool = False,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> bool:
@@ -3635,6 +3650,8 @@ class PostgresDb(BaseDb):
         Returns:
             True if deleted, False if not found or already deleted.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "delete_component")
+
         try:
             components_table = self._get_table(table_type="components")
             configs_table = self._get_table(table_type="component_configs")
@@ -3716,7 +3733,8 @@ class PostgresDb(BaseDb):
         limit: int = 20,
         offset: int = 0,
         exclude_component_ids: Optional[Set[str]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Tuple[List[Dict[str, Any]], int]:
         """List components with pagination.
 
@@ -3731,6 +3749,8 @@ class PostgresDb(BaseDb):
         Returns:
             Tuple of (list of component dicts, total count).
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "list_components")
+
         try:
             table = self._get_table(table_type="components")
             if table is None:
@@ -3783,7 +3803,8 @@ class PostgresDb(BaseDb):
         stage: str = "draft",
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -3810,6 +3831,8 @@ class PostgresDb(BaseDb):
         Raises:
             ValueError: If component already exists, invalid stage, or link missing child_version.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "create_component_with_config")
+
         if stage not in {"draft", "published"}:
             raise ValueError(f"Invalid stage: {stage}")
 
@@ -3951,7 +3974,8 @@ class PostgresDb(BaseDb):
         component_id: str,
         version: Optional[int] = None,
         label: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
         """Get a config by component ID and version or label.
 
@@ -3964,6 +3988,8 @@ class PostgresDb(BaseDb):
         Returns:
             Config dictionary or None if not found.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "get_config")
+
         try:
             configs_table = self._get_table(table_type="component_configs")
             components_table = self._get_table(table_type="components")
@@ -4031,7 +4057,8 @@ class PostgresDb(BaseDb):
         stage: Optional[str] = None,
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -4061,6 +4088,8 @@ class PostgresDb(BaseDb):
             ValueError: If component doesn't exist, version not found, label conflict,
                         or attempting to update a published config.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "upsert_config")
+
         if stage is not None and stage not in {"draft", "published"}:
             raise ValueError(f"Invalid stage: {stage}")
 
@@ -4286,7 +4315,8 @@ class PostgresDb(BaseDb):
         self,
         component_id: str,
         version: int,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> bool:
@@ -4308,6 +4338,8 @@ class PostgresDb(BaseDb):
         Raises:
             ValueError: If attempting to delete a published or current config.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "delete_config")
+
         try:
             configs_table = self._get_table(table_type="component_configs")
             links_table = self._get_table(table_type="component_links")
@@ -4406,7 +4438,8 @@ class PostgresDb(BaseDb):
         self,
         component_id: str,
         include_config: bool = False,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> List[Dict[str, Any]]:
         """List all config versions for a component.
 
@@ -4419,6 +4452,8 @@ class PostgresDb(BaseDb):
             List of config dictionaries, newest first.
             Returns empty list if component not found or deleted.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "list_configs")
+
         try:
             configs_table = self._get_table(table_type="component_configs")
             components_table = self._get_table(table_type="components")
@@ -4469,7 +4504,8 @@ class PostgresDb(BaseDb):
         self,
         component_id: str,
         version: int,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> bool:
@@ -4493,6 +4529,8 @@ class PostgresDb(BaseDb):
         Raises:
             ValueError: If attempting to set a draft config as current.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "set_current_version")
+
         try:
             configs_table = self._get_table(table_type="component_configs")
             components_table = self._get_table(table_type="components")
@@ -4602,7 +4640,8 @@ class PostgresDb(BaseDb):
         action: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Tuple[List[Dict[str, Any]], int]:
         """List a component's lifecycle audit history, newest first.
 
@@ -4621,6 +4660,8 @@ class PostgresDb(BaseDb):
         Returns:
             Tuple of (list of audit record dicts, total count).
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "list_component_audit")
+
         try:
             table = self._get_table(table_type="component_audit")
             if table is None:
@@ -4660,7 +4701,8 @@ class PostgresDb(BaseDb):
         component_id: str,
         version: int,
         link_kind: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> List[Dict[str, Any]]:
         """Get links for a config version.
 
@@ -4673,6 +4715,8 @@ class PostgresDb(BaseDb):
         Returns:
             List of link dictionaries, ordered by position.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "get_links")
+
         try:
             table = self._get_table(table_type="component_links")
             if table is None:
@@ -4703,7 +4747,8 @@ class PostgresDb(BaseDb):
         self,
         component_id: str,
         version: Optional[int] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> List[Dict[str, Any]]:
         """Find all components that reference this component.
 
@@ -4715,6 +4760,8 @@ class PostgresDb(BaseDb):
         Returns:
             List of link dictionaries showing what depends on this component.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "get_dependents")
+
         try:
             table = self._get_table(table_type="component_links")
             if table is None:
@@ -4776,8 +4823,8 @@ class PostgresDb(BaseDb):
         component_id: str,
         version: Optional[int] = None,
         label: Optional[str] = None,
-        tenant_id: Optional[str] = None,
         *,
+        tenant_id: Optional[str],
         _visited: Optional[Set[Tuple[str, int]]] = None,
         _max_depth: int = 50,
     ) -> Optional[Dict[str, Any]]:
@@ -4799,6 +4846,8 @@ class PostgresDb(BaseDb):
             Dictionary with component, config, children, and resolved_versions.
             Returns None if component not found or depth exceeded.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "load_component_graph")
+
         try:
             if _max_depth <= 0:
                 return None

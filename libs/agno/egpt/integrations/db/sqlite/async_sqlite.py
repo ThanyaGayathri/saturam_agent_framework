@@ -3533,7 +3533,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         self,
         component_id: str,
         component_type: Optional[ComponentType] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
         raise NotImplementedError("Component methods not yet supported for async databases")
 
@@ -3543,8 +3544,10 @@ class AsyncSqliteDb(AsyncBaseDb):
         component_type: Optional[ComponentType] = None,
         name: Optional[str] = None,
         description: Optional[str] = None,
+        current_version: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -3554,7 +3557,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         self,
         component_id: str,
         hard_delete: bool = False,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> bool:
@@ -3567,7 +3571,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         limit: int = 20,
         offset: int = 0,
         exclude_component_ids: Optional[Set[str]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Tuple[List[Dict[str, Any]], int]:
         raise NotImplementedError("Component methods not yet supported for async databases")
 
@@ -3583,7 +3588,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         stage: str = "draft",
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -3594,7 +3600,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         component_id: str,
         version: Optional[int] = None,
         label: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
         raise NotImplementedError("Component methods not yet supported for async databases")
 
@@ -3607,7 +3614,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         stage: Optional[str] = None,
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -3617,7 +3625,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         self,
         component_id: str,
         version: int,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> bool:
@@ -3627,7 +3636,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         self,
         component_id: str,
         include_config: bool = False,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> List[Dict[str, Any]]:
         raise NotImplementedError("Component methods not yet supported for async databases")
 
@@ -3635,7 +3645,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         self,
         component_id: str,
         version: int,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> bool:
@@ -3648,7 +3659,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         action: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Tuple[List[Dict[str, Any]], int]:
         raise NotImplementedError("Component methods not yet supported for async databases")
 
@@ -3657,7 +3669,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         component_id: str,
         version: int,
         link_kind: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> List[Dict[str, Any]]:
         raise NotImplementedError("Component methods not yet supported for async databases")
 
@@ -3665,7 +3678,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         self,
         component_id: str,
         version: Optional[int] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> List[Dict[str, Any]]:
         raise NotImplementedError("Component methods not yet supported for async databases")
 
@@ -3674,7 +3688,8 @@ class AsyncSqliteDb(AsyncBaseDb):
         component_id: str,
         version: Optional[int] = None,
         label: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
         raise NotImplementedError("Component methods not yet supported for async databases")
 

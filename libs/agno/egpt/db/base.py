@@ -7,6 +7,7 @@ from uuid import uuid4
 if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
+from egpt.db.component_scope import resolve_tenant_scope
 from egpt.db.schemas import UserMemory
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
@@ -20,6 +21,7 @@ from egpt.db.table_names import (
 )
 from egpt.run.base import RunStatus
 from egpt.session import Session
+from egpt.utils.env import get_branded_env_bool
 
 
 class SessionType(str, Enum):
@@ -41,6 +43,12 @@ class BaseDb(ABC):
     ``egpt.db.table_names.DEFAULT_TABLE_PREFIX``, currently ``egpt_``). Pass
     explicit ``session_table``, ``memory_table``, etc. to override individual
     tables; pass ``table_prefix=""`` for unprefixed table names.
+
+    ``require_tenant_id`` makes component access fail closed (EGPT-2.7): a component method
+    called with ``tenant_id=None`` raises ``TenantScopeRequiredError`` rather than applying no
+    tenant predicate. Off by default; ``EgptOS`` turns it on for every registered db when the
+    deployment configures a tenant claim, and ``EGPT_REQUIRE_TENANT_ID`` turns it on for dbs
+    built outside ``EgptOS``. See ``egpt/db/component_scope.py``.
     """
 
     # We assume the database to be up to date with the 2.0.0 release
@@ -69,8 +77,19 @@ class BaseDb(ABC):
         service_accounts_table: Optional[str] = None,
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
+        require_tenant_id: bool = False,
     ):
         self.id = id or str(uuid4())
+        # Refuse unscoped component access (EGPT-2.7). Off by default so a single-tenant
+        # deployment keeps working; ``EgptOS`` turns it on for every registered db when an
+        # operator configures ``AuthorizationConfig(tenant_id_claim=...)``, and
+        # ``EGPT_REQUIRE_TENANT_ID`` sets it for callers that never build a db through EgptOS.
+        # Only ever turned *on* here: an explicit ``False`` must not override the environment
+        # into being less strict, because that is the direction that loses data isolation.
+        # ``strict=False`` accepts ``1`` and ``yes`` as well as ``true``: silently ignoring
+        # ``EGPT_REQUIRE_TENANT_ID=1`` would leave an operator who believes they enabled a
+        # security control with it switched off.
+        self.require_tenant_id = require_tenant_id or get_branded_env_bool("REQUIRE_TENANT_ID", strict=False)
         self.table_prefix = validate_table_prefix(table_prefix)
         self.session_table_name = session_table or f"{self.table_prefix}sessions"
         self.culture_table_name = culture_table or f"{self.table_prefix}culture"
@@ -644,16 +663,35 @@ class BaseDb(ABC):
     def upsert_cultural_knowledge(self, cultural_knowledge: CulturalKnowledge) -> Optional[CulturalKnowledge]:
         raise NotImplementedError
 
+    def _require_tenant_scope(self, tenant_id: Optional[str], method: str) -> Optional[str]:
+        """Validate one component call's tenant scope against this db's policy.
+
+        A method on ``BaseDb`` rather than a bare call to
+        :func:`egpt.db.component_scope.resolve_tenant_scope` so each backend's fourteen call
+        sites read as one line and none of them has to reach for ``self.require_tenant_id``
+        itself -- a backend that read the flag directly could get the check subtly wrong.
+        """
+        return resolve_tenant_scope(tenant_id, require=self.require_tenant_id, method=method)
+
     # --- Components (Optional) ---
     # These methods are optional. Override in subclasses to enable component persistence.
     #
-    # Tenant scoping: every component method takes an optional ``tenant_id``.
-    #   - On writes it is stored on the rows created by the call. It is never changed by an
-    #     update: a component does not move between tenants via an upsert.
-    #   - On reads and on the lookups behind a mutation, ``None`` applies no tenant predicate
-    #     (rows from every tenant are visible) and a value restricts the statement to that
-    #     tenant. Rows written before multi-tenancy carry a NULL ``tenant_id`` and are only
-    #     reachable with ``tenant_id=None``.
+    # Tenant scoping (EGPT-2.7): every component method takes a keyword-only ``tenant_id`` with
+    # no default, so there are three states rather than two and each fails differently:
+    #   - *Omitted* -- a ``TypeError`` at the call site, and a mypy ``call-arg`` error before
+    #     that. Reaching a component row is always a deliberate tenancy decision; a forgotten
+    #     scope used to be the silent, successful, cross-tenant one.
+    #   - *Explicitly ``None``* -- unscoped: no tenant predicate is applied and rows from every
+    #     tenant are visible. This is the only way to reach the NULL-``tenant_id`` rows written
+    #     before multi-tenancy, and it is what single-tenant deployments pass. A db built with
+    #     ``require_tenant_id=True`` refuses it with ``TenantScopeRequiredError`` -- which also
+    #     makes those NULL rows unreachable, deliberately, since an unscoped row in a tenanted
+    #     deployment is visible to every tenant. ``docs/tenancy.md`` carries the backfill SQL.
+    #   - *A value* -- restricts the statement to that tenant.
+    # On writes the tenant is stored on the rows the call creates. It is never changed by an
+    # update: a component does not move between tenants via an upsert.
+    # See ``egpt/db/component_scope.py`` for why this is a required parameter rather than a
+    # sentinel default, and why the guard sits at the method entry rather than in the predicates.
     #
     # Audit trail (EGPT-2.6): every mutating method takes an optional ``actor`` and
     # ``audit_note`` and appends a row to the append-only component audit table, inside the
@@ -670,14 +708,16 @@ class BaseDb(ABC):
         self,
         component_id: str,
         component_type: Optional[ComponentType] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
         """Get a component by ID.
 
         Args:
             component_id: The component ID.
             component_type: Optional filter by type (agent|team|workflow).
-            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
+            tenant_id: Tenant to scope the lookup to. Required; ``None`` is explicitly
+                unscoped and is refused when the db was built with ``require_tenant_id``.
 
         Returns:
             Component dictionary or None if not found.
@@ -692,7 +732,8 @@ class BaseDb(ABC):
         description: Optional[str] = None,
         current_version: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -705,7 +746,8 @@ class BaseDb(ABC):
             description: Optional description.
             current_version: Optional current version.
             metadata: Optional metadata dict.
-            tenant_id: Optional tenant. Stored on create; scopes the lookup on update.
+            tenant_id: Tenant. Stored on create; scopes the lookup on update. Required;
+                ``None`` is explicitly unscoped and is refused under ``require_tenant_id``.
             actor: Optional principal to attribute the audit record to.
             audit_note: Optional reason recorded on the audit record.
 
@@ -721,7 +763,8 @@ class BaseDb(ABC):
         self,
         component_id: str,
         hard_delete: bool = False,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> bool:
@@ -733,7 +776,8 @@ class BaseDb(ABC):
         Args:
             component_id: The component ID.
             hard_delete: If True, permanently delete. Otherwise soft-delete.
-            tenant_id: Optional tenant to scope the delete to. None means no tenant filter.
+            tenant_id: Tenant to scope the delete to. Required; ``None`` is explicitly
+                unscoped and is refused when the db was built with ``require_tenant_id``.
             actor: Optional principal to attribute the audit record to.
             audit_note: Optional reason recorded on the audit record.
 
@@ -749,7 +793,8 @@ class BaseDb(ABC):
         limit: int = 20,
         offset: int = 0,
         exclude_component_ids: Optional[Set[str]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Tuple[List[Dict[str, Any]], int]:
         """List components with pagination.
 
@@ -759,7 +804,8 @@ class BaseDb(ABC):
             limit: Maximum number of items to return.
             offset: Number of items to skip.
             exclude_component_ids: Component IDs to exclude from results.
-            tenant_id: Optional tenant to scope the listing to. None means no tenant filter.
+            tenant_id: Tenant to scope the listing to. Required; ``None`` is explicitly
+                unscoped and is refused when the db was built with ``require_tenant_id``.
 
         Returns:
             Tuple of (list of component dicts, total count).
@@ -778,7 +824,8 @@ class BaseDb(ABC):
         stage: str = "draft",
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -795,7 +842,8 @@ class BaseDb(ABC):
             stage: "draft" or "published".
             notes: Optional notes.
             links: Optional list of links. Each must have child_version set.
-            tenant_id: Optional tenant. Stored on the component, config and link rows.
+            tenant_id: Tenant, stored on the component, config and link rows. Required;
+                ``None`` is explicitly unscoped and is refused under ``require_tenant_id``.
             actor: Optional principal to attribute the audit records to.
             audit_note: Optional reason recorded on the audit records. Defaults to ``notes``.
 
@@ -813,7 +861,8 @@ class BaseDb(ABC):
         component_id: str,
         version: Optional[int] = None,
         label: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
         """Get a config by component ID and version or label.
 
@@ -821,7 +870,8 @@ class BaseDb(ABC):
             component_id: The component ID.
             version: Specific version number. If None, uses current.
             label: Config label to lookup. Ignored if version is provided.
-            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
+            tenant_id: Tenant to scope the lookup to. Required; ``None`` is explicitly
+                unscoped and is refused when the db was built with ``require_tenant_id``.
 
         Returns:
             Config dictionary or None if not found.
@@ -837,7 +887,8 @@ class BaseDb(ABC):
         stage: Optional[str] = None,
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -856,7 +907,9 @@ class BaseDb(ABC):
             stage: "draft" or "published". Defaults to "draft" for new configs.
             notes: Optional notes.
             links: Optional list of links. Each link must have child_version set.
-            tenant_id: Optional tenant. Stored on new config and link rows; scopes every lookup.
+            tenant_id: Tenant, stored on new config and link rows; scopes every lookup.
+                Required; ``None`` is explicitly unscoped and is refused under
+                ``require_tenant_id``.
             actor: Optional principal to attribute the audit record to.
             audit_note: Optional reason recorded on the audit record. Defaults to ``notes``.
 
@@ -873,7 +926,8 @@ class BaseDb(ABC):
         self,
         component_id: str,
         version: int,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> bool:
@@ -885,7 +939,8 @@ class BaseDb(ABC):
         Args:
             component_id: The component ID.
             version: The version to delete.
-            tenant_id: Optional tenant to scope the delete to. None means no tenant filter.
+            tenant_id: Tenant to scope the delete to. Required; ``None`` is explicitly
+                unscoped and is refused when the db was built with ``require_tenant_id``.
             actor: Optional principal to attribute the audit record to.
             audit_note: Optional reason recorded on the audit record.
 
@@ -901,14 +956,16 @@ class BaseDb(ABC):
         self,
         component_id: str,
         include_config: bool = False,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> List[Dict[str, Any]]:
         """List all config versions for a component.
 
         Args:
             component_id: The component ID.
             include_config: If True, include full config blob. Otherwise just metadata.
-            tenant_id: Optional tenant to scope the listing to. None means no tenant filter.
+            tenant_id: Tenant to scope the listing to. Required; ``None`` is explicitly
+                unscoped and is refused when the db was built with ``require_tenant_id``.
 
         Returns:
             List of config dictionaries, newest first.
@@ -920,7 +977,8 @@ class BaseDb(ABC):
         self,
         component_id: str,
         version: int,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> bool:
@@ -933,7 +991,8 @@ class BaseDb(ABC):
         Args:
             component_id: The component ID.
             version: The version to set as current (must be published).
-            tenant_id: Optional tenant to scope the update to. None means no tenant filter.
+            tenant_id: Tenant to scope the update to. Required; ``None`` is explicitly
+                unscoped and is refused when the db was built with ``require_tenant_id``.
             actor: Optional principal to attribute the audit record to.
             audit_note: Optional reason recorded on the audit record.
 
@@ -953,7 +1012,8 @@ class BaseDb(ABC):
         action: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Tuple[List[Dict[str, Any]], int]:
         """List a component's lifecycle audit history, newest first.
 
@@ -966,7 +1026,8 @@ class BaseDb(ABC):
             action: Optional filter by action (see ``ComponentAuditAction``).
             limit: Maximum number of items to return.
             offset: Number of items to skip.
-            tenant_id: Optional tenant to scope the listing to. None means no tenant filter.
+            tenant_id: Tenant to scope the listing to. Required; ``None`` is explicitly
+                unscoped and is refused when the db was built with ``require_tenant_id``.
 
         Returns:
             Tuple of (list of audit record dicts, total count).
@@ -979,7 +1040,8 @@ class BaseDb(ABC):
         component_id: str,
         version: int,
         link_kind: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> List[Dict[str, Any]]:
         """Get links for a config version.
 
@@ -987,7 +1049,8 @@ class BaseDb(ABC):
             component_id: The component ID.
             version: The config version.
             link_kind: Optional filter by link kind (member|step).
-            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
+            tenant_id: Tenant to scope the lookup to. Required; ``None`` is explicitly
+                unscoped and is refused when the db was built with ``require_tenant_id``.
 
         Returns:
             List of link dictionaries, ordered by position.
@@ -998,14 +1061,16 @@ class BaseDb(ABC):
         self,
         component_id: str,
         version: Optional[int] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> List[Dict[str, Any]]:
         """Find all components that reference this component.
 
         Args:
             component_id: The component ID to find dependents of.
             version: Optional specific version. If None, finds links to any version.
-            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
+            tenant_id: Tenant to scope the lookup to. Required; ``None`` is explicitly
+                unscoped and is refused when the db was built with ``require_tenant_id``.
 
         Returns:
             List of link dictionaries showing what depends on this component.
@@ -1017,7 +1082,8 @@ class BaseDb(ABC):
         component_id: str,
         version: Optional[int] = None,
         label: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
         """Load a component with its full resolved graph.
 
@@ -1027,8 +1093,9 @@ class BaseDb(ABC):
             component_id: The component ID.
             version: Specific version or None for current.
             label: Optional label of the component.
-            tenant_id: Optional tenant. Applied to the root component and every child
-                resolved through the graph. None means no tenant filter.
+            tenant_id: Tenant, applied to the root component and every child resolved
+                through the graph. Required; ``None`` is explicitly unscoped and is refused
+                when the db was built with ``require_tenant_id``.
 
         Returns:
             Dictionary with component, config, children, and resolved_versions.
