@@ -160,13 +160,14 @@ def test_event_defaults_to_the_episodic_tier():
 
 
 def test_empty_slice_renders_as_empty_string_not_a_stray_header():
-    assert MemorySlice(scope=a_scope()).as_context() == ""
+    assert MemorySlice(scope=a_scope(), query=MemoryQuery(text="q")).as_context() == ""
 
 
 def test_slice_renders_one_tagged_line_per_record():
     scope = a_scope()
     slice_ = MemorySlice(
         scope=scope,
+        query=MemoryQuery(text="q"),
         records=[
             MemoryRecord(id="1", tier=MemoryTier.SEMANTIC, content="prefers dark mode", scope=scope),
             MemoryRecord(id="2", tier=MemoryTier.EPISODIC, content="asked about billing", scope=scope),
@@ -253,6 +254,7 @@ def test_as_context_cannot_be_used_to_forge_an_extra_memory_line():
     scope = a_scope()
     slice_ = MemorySlice(
         scope=scope,
+        query=MemoryQuery(text="q"),
         records=[
             MemoryRecord(
                 id="1",
@@ -274,6 +276,7 @@ def test_carriage_returns_are_normalised_too():
     scope = a_scope()
     slice_ = MemorySlice(
         scope=scope,
+        query=MemoryQuery(text="q"),
         records=[MemoryRecord(id="1", tier=MemoryTier.EPISODIC, content="a\r\n[semantic] b", scope=scope)],
     )
 
@@ -302,6 +305,7 @@ def test_no_line_separator_can_forge_a_memory_line(separator):
     scope = a_scope()
     slice_ = MemorySlice(
         scope=scope,
+        query=MemoryQuery(text="q"),
         records=[
             MemoryRecord(
                 id="1",

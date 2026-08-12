@@ -34,6 +34,7 @@ from egpt.memory.types import (
     MemoryEvent,
     MemoryOperationError,
     MemoryQuery,
+    PartialWriteError,
     Scope,
     Substrate,
 )
@@ -363,6 +364,41 @@ def test_every_provider_returns_records_scoped_to_the_caller(name):
     records = provider.read(ACME, MemoryQuery(text="a customer note")).records
 
     assert all(r.scope.tenant_id == ACME.tenant_id for r in records)
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+def test_every_provider_raises_partial_write_error_when_a_backend_fails_mid_write_tier(name):
+    """`write_tier` is the one verb the matrix never drove to failure, which is why it diverged.
+
+    `seed.write_tier` let the backend's raw exception through while `co_located.write_tier` wrapped
+    it, so the same failure reached a caller as two different types depending on the verb.
+    """
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("backend down")
+
+    for target, attribute in (("vector", "upsert"), ("graph", "upsert_fact"), ("manager", "add_user_memory")):
+        backend = getattr(provider, target, None)
+        if backend is not None:
+            setattr(backend, attribute, explode)
+
+    with pytest.raises(PartialWriteError):
+        provider.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
+
+
+@pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
+@pytest.mark.parametrize("tier", list(MemoryTier))
+def test_reads_of_an_unserved_tier_are_empty_on_every_provider(name, tier):
+    """One rule, both entry points: reads report absence, only writes refuse it.
+
+    The same logical request used to get three answers depending on provider and entry point, so
+    no caller could write one handler.
+    """
+    provider = build_memory_provider(ALL_CONFIGS[name]())
+
+    assert isinstance(provider.read_tier(ACME, tier, MemoryQuery(text="q")), list)
+    assert isinstance(provider.read(ACME, MemoryQuery(text="q", tiers=[tier])).records, list)
 
 
 @pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))

@@ -18,10 +18,10 @@ or anywhere under it. pgvector (SM-V1 #95) and the graph engine (SM-G1 #99) are 
 resolved by registry key.
 """
 
-from typing import Any, List, Optional, Protocol, Sequence, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, Sequence, runtime_checkable
 
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import FactWrite, MemoryEvent, MemoryQuery, MemoryRecord, Scope
+from egpt.memory.types import FactWrite, MemoryEvent, MemoryQuery, MemoryRecord, Scope, TemporalBounds
 
 __all__ = ["GraphSubstrate", "VectorSubstrate", "checked_graph", "checked_vector"]
 
@@ -73,6 +73,15 @@ class VectorSubstrate(Protocol):
         ``tier`` narrows to a single tier; when it is ``None`` the backend uses
         ``query.resolved_tiers()``.
 
+        **``score`` must be a similarity in ``[0.0, 1.0]``, higher is better.** The provider adds
+        the two legs' scores, so an undeclared scale is not a cosmetic gap: pgvector's ``<#>``
+        returns a *negative inner product* and ``<=>`` a cosine **distance** where lower is better,
+        while a graph traversal returns a path or PPR score on an unrelated range. Mixed unchecked,
+        whichever leg has the larger magnitude decides the ranking and a distance-valued leg
+        inverts it. **A backend whose native metric is a distance or an unbounded score is
+        responsible for converting.** Stated here because these ports have no implementors yet, so
+        it costs a docstring today and a breaking Protocol change once SM-V1 (#95) ships one.
+
         **Return current belief only** (``expired_at IS NULL``), filtered *before* ranking. That
         is a transaction-time property every row carries locally, so both substrates can apply it
         in the same ``WHERE`` clause as the tenant predicate -- and applying ``limit`` before it
@@ -84,12 +93,17 @@ class VectorSubstrate(Protocol):
         projection of the same id is how an invalidated fact is caught (finding F2). A substrate
         that filtered ``as_of`` itself would withhold exactly the row that carries the evidence.
 
-        Residual, stated rather than mitigated: a page dominated by rows the *graph* has bounded
-        can come back short, because the provider drops them after the substrates applied
-        ``limit``. Over-fetching by a fixed multiplier does not fix that -- no multiplier is
-        correct, and it taxes every read. The fix is for the vector projection not to be stale
-        (re-sync on invalidation, or carry the bounds), which is SM-V1 (#95) / SM-G1 (#99) work.
-        Recorded in SPEC section 11.3.
+        The provider does not rely on this leg's bounds being fresh. It reconciles every merged id
+        against :meth:`GraphSubstrate.bounds_for_ids` before filtering, because ranking cannot be
+        trusted to surface a bound -- see that method for why.
+
+        Residual, stated rather than mitigated: a page dominated by rows the graph has bounded
+        comes back **short**, because the substrates applied ``limit`` before the provider dropped
+        them. That is a recall shortfall, not a precision one -- nothing false is returned, and
+        ``MemorySlice.fusion["dropped_by_validity"]`` reports how many went. Over-fetching by a
+        fixed multiplier does not fix it: no multiplier is correct, and it taxes every read. The
+        fix is for the vector projection not to be stale (re-sync on invalidation, or carry the
+        bounds), which is SM-V1 (#95) / SM-G1 (#99) work. Recorded in SPEC section 11.3.
         """
         ...
 
@@ -202,7 +216,9 @@ class GraphSubstrate(Protocol):
         (``query.as_of``) is not applied here -- it belongs to the merged read path (finding F2),
         for the same reason as :meth:`VectorSubstrate.search`.
 
-        Tier resolution matches ``MemoryQuery.resolved_tiers`` exactly (finding F3).
+        Tier resolution matches ``MemoryQuery.resolved_tiers`` exactly (finding F3), and ``score``
+        obeys the same similarity contract as :meth:`VectorSubstrate.search` -- a similarity in
+        ``[0.0, 1.0]``, higher is better, converted by the backend if its native metric is not.
         """
         ...
 
@@ -213,6 +229,31 @@ class GraphSubstrate(Protocol):
         tier: Optional[MemoryTier] = None,
     ) -> List[MemoryRecord]:
         """Async variant of :meth:`traverse`."""
+        ...
+
+    def bounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]:
+        """The graph's bi-temporal bounds for the given record ids -- **not** a ranked query.
+
+        This exists because ranking cannot be relied on to surface a bound. Under SCD-2 the
+        successor row carrying ``t_invalid`` holds the *same content* as the live row, so it scores
+        identically and falls off the top-``limit`` page whenever the corpus is larger than the
+        page. The provider then merges a vector projection that carries no bounds, finds nothing to
+        tighten against, and serves a fact the graph has recorded as **false** -- labelled current
+        belief, straight into a prompt. That is a precision failure, not the recall shortfall
+        :meth:`VectorSubstrate.search` describes, and no amount of over-fetching closes it.
+
+        So: a direct lookup by id, unranked and unlimited, returning one entry per id the graph
+        knows about. Ids it has never seen are simply absent from the result. Implementations
+        should answer from the same rows :meth:`traverse` reads, including expired ones -- the
+        whole point is to see the bound that ranking hid.
+
+        Batched rather than per-id because the provider calls it once per read with the full merged
+        id set, and a per-id port would make that N round trips in Mode B.
+        """
+        ...
+
+    async def abounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]:
+        """Async variant of :meth:`bounds_for_ids`."""
         ...
 
     def invalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None:
@@ -248,11 +289,13 @@ class GraphSubstrate(Protocol):
 
 
 def _check(candidate: Any, port: Any, option: str) -> Any:
-    """Verify an injected substrate satisfies its port, at construction rather than at first call.
+    """Verify an injected substrate carries every method its port names, at construction time.
 
-    Both ports are ``runtime_checkable``, so this costs one structural check and turns "the graph
-    leg mysteriously returns nothing", or an ``AttributeError`` three layers into a read, into a
-    build-time error naming the option and the missing methods. ``None`` passes through -- a
+    **Method presence only.** ``isinstance`` against a ``runtime_checkable`` Protocol never checks
+    signatures, arity, or types, so a backend with the right names and the wrong parameters passes
+    here and fails at call time. What this does buy is turning "the graph leg mysteriously returns
+    nothing", or an ``AttributeError`` three layers into a read, into a build-time error naming the
+    option and the missing methods. ``None`` passes through -- a
     provider with only one substrate is a supported configuration (a vector-only tenant, SM-C5 #93).
     """
     if candidate is None:

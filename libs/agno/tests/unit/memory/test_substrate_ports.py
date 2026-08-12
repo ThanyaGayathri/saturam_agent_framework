@@ -6,13 +6,13 @@ implementing the sync half and forgetting the async twin, which is the exact sha
 sync+async rule exists to prevent.
 """
 
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 import pytest
 
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import FactWrite, MemoryEvent, MemoryQuery, MemoryRecord, Scope
+from egpt.memory.types import FactWrite, MemoryEvent, MemoryQuery, MemoryRecord, Scope, TemporalBounds
 
 SCOPE = Scope(tenant_id="acme", user_id="u1")
 
@@ -56,6 +56,10 @@ class CompleteGraph:
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> List[MemoryRecord]: ...
 
+    def bounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]: ...
+
+    async def abounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]: ...
+
     def invalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None: ...
 
     async def ainvalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None: ...
@@ -97,6 +101,8 @@ def test_a_vector_backend_missing_any_method_fails_the_port(missing):
         "aupsert_fact",
         "traverse",
         "atraverse",
+        "bounds_for_ids",
+        "abounds_for_ids",
         "invalidate",
         "ainvalidate",
     ],
@@ -168,11 +174,17 @@ def test_fact_defaults_to_full_confidence_and_no_derivation():
 
 
 # ---------------------------------------------------------------------------
-# Port contract conformance (round-4 review)
+# Double conformance -- these exercise `_fakes.py`, not the provider
 # ---------------------------------------------------------------------------
+#
+# The port methods below are Protocol declarations with `...` bodies, so there is no production
+# code under test here: deleting the provider entirely leaves these green. They are named for what
+# they are. Their value is that the doubles every *provider* test depends on genuinely model the
+# port -- a permissive double cannot catch a provider bug. The provider-level assertions for the
+# same invariants live in test_provider_co_located.py.
 
 
-def test_a_repeated_upsert_episode_leaves_one_row():
+def test_the_double_honours_upsert_episode_by_id():
     """`upsert_episode` is upsert **by id**, which PartialWriteError's retry advice depends on."""
     from tests.unit.memory._fakes import FakeGraph
 
@@ -185,7 +197,7 @@ def test_a_repeated_upsert_episode_leaves_one_row():
     assert [r.content for r in graph.rows[SCOPE.tenant_id]] == ["second"]
 
 
-def test_invalidate_keeps_the_edge_id_on_the_bounded_copy():
+def test_the_double_keeps_the_edge_id_on_the_bounded_copy():
     """A surrogate key on the successor would break fusion's dedup-by-id.
 
     That dedup is the only thing carrying the graph's bound onto the vector leg's projection, so a
@@ -201,7 +213,7 @@ def test_invalidate_keeps_the_edge_id_on_the_bounded_copy():
     assert {r.id for r in graph.rows[SCOPE.tenant_id]} == {"f1"}
 
 
-def test_a_substrate_must_scope_on_every_slot_not_only_the_tenant():
+def test_the_double_scopes_on_every_slot_not_only_the_tenant():
     """`user_id` is "the identity namespace that survives sessions"; ignoring it leaks per-user."""
     from tests.unit.memory._fakes import FakeVector
 

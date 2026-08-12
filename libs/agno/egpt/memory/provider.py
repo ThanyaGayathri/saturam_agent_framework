@@ -9,6 +9,13 @@ a :class:`~egpt.memory.types.Scope`, and every method has a sync and an ``a``-pr
 interfaces separately and letting callers compose them -- was rejected as the public seam because
 it pushes leg-merging, dual-write, and the Mode A/B choice into every call site (SPEC section 3).
 
+**Manual invalidation is not on this seam.** Recording that a fact became false is
+``GraphSubstrate.invalidate``, a substrate port, and consolidation is the only thing in SM-C1 that
+drives it. Adding ``invalidate`` / ``ainvalidate`` here would expand the verb set ADR 0003 section
+3 ratifies, so a caller that needs it today reaches the concrete adapter deliberately -- as the
+cookbook does, with a comment saying so. Promoting it is SM-L5's (#126), which owns contradiction
+resolution.
+
 **Consumers never instantiate an adapter.** They call
 :func:`~egpt.memory.config.build_memory_provider`, so which backend and which mode are running is
 a configuration fact, not a code fact. That is what makes SM-C5 (#93) per-tenant memory possible
@@ -139,6 +146,11 @@ class MemoryProvider(ABC):
 
         The seam-level counterpart of ``LearningStore.recall`` (``learn/stores/protocol.py:48``),
         which is what a wrapped seed store maps onto.
+
+        **A tier this provider does not serve reads empty; it is not refused.** One rule, so a
+        caller can write one handler: reads report absence, and only **writes** refuse an unserved
+        tier -- writing where nothing will store it loses data, reading there simply finds nothing.
+        ``substrates()`` and the tier map are how a caller learns what is served.
         """
         raise NotImplementedError
 

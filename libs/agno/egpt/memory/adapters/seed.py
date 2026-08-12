@@ -318,6 +318,9 @@ class SeedMemoryProvider(MemoryProvider):
         One record per store, not one per underlying item: ``recall`` returns whatever shape the
         store likes and only ``build_context`` renders it, so the rendered context *is* the
         projection. Parsing a store's internal shape would couple the seam to six implementations.
+
+        The id carries the tier as well as the store, because two tiers may be bound to stores
+        reporting the same ``learning_type`` and this path has no dedup to collapse the collision.
         """
         if data is None:
             return []
@@ -326,7 +329,7 @@ class SeedMemoryProvider(MemoryProvider):
             return []
         return [
             MemoryRecord(
-                id=f"{store.learning_type}:{scope.key()}",
+                id=f"{store.learning_type}:{tier.value}:{scope.key()}",
                 tier=tier,
                 content=context,
                 scope=scope,
@@ -425,7 +428,11 @@ class SeedMemoryProvider(MemoryProvider):
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         self._guard_read(scope, query)
-        per_tier = [await self.aread_tier(scope, tier, query) for tier in self._wanted_tiers(query)]
+        # Gathered: the tiers are independent, and each SEMANTIC hop pays its own
+        # `asyncio.to_thread` because `search_user_memories` has no async variant.
+        per_tier = list(
+            await asyncio.gather(*(self.aread_tier(scope, tier, query) for tier in self._wanted_tiers(query)))
+        )
         return self._slice(scope, query, self._interleave(per_tier))
 
     # -- write ----------------------------------------------------------------
@@ -447,15 +454,17 @@ class SeedMemoryProvider(MemoryProvider):
         return messages
 
     @staticmethod
-    def _store_receipt(store: "LearningStore", tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
+    def _store_receipt(updated: bool, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
         """What a ``LearningStore.process`` write can honestly claim.
 
         ``process`` returns ``None`` and mints no per-event id -- it folds a batch of messages into
         whatever shape the store keeps. So there are no ``event_ids``, and ``accepted`` reflects
-        what the store said about itself via ``was_updated`` rather than assuming every event
-        landed.
+        what the store said about itself via ``was_updated``.
+
+        ``updated`` is captured by the caller *before* any suspension point and defaults to
+        ``False`` for a store that does not expose the flag. Defaulting to ``True`` assumed success
+        from a field whose entire purpose is not assuming it.
         """
-        updated = bool(getattr(store, "was_updated", True))
         return WriteReceipt(
             accepted=len(events) if updated else 0,
             event_ids=[],  # process() mints none
@@ -465,40 +474,99 @@ class SeedMemoryProvider(MemoryProvider):
     def _manager_write(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
         if self.manager is None:  # unreachable via write_tier; explicit beats `assert`, which -O strips
             raise MemoryOperationError(f"No seed component is bound to the {tier.value!r} tier.", field_name="tier")
+        self._reject_unstorable_scope(scope)
         ids: List[str] = []
         for event in events:
-            memory_id = self.manager.add_user_memory(
-                memory=UserMemory(
-                    memory=event.content,
-                    memory_id=event.id,
-                    topics=list(event.topics) if event.topics is not None else None,
-                    agent_id=scope.agent_id,
-                    team_id=scope.team_id,
-                    input=_provenance_note(event),
-                ),
-                user_id=scope.user_id,
-            )
+            try:
+                memory_id = self.manager.add_user_memory(
+                    memory=UserMemory(
+                        memory=event.content,
+                        memory_id=event.id,
+                        topics=list(event.topics) if event.topics is not None else None,
+                        agent_id=scope.agent_id,
+                        team_id=scope.team_id,
+                        input=_provenance_note(event),
+                    ),
+                    user_id=scope.user_id,
+                )
+            except Exception as exc:
+                # `add_user_memory` is called once per event, so a failure partway leaves earlier
+                # events committed. Without this the ids were lost in a local and the receipt
+                # reported `accepted=0, event_ids=[]` for rows that are in the database -- and a
+                # caller following `PartialWriteError`'s documented retry advice re-sends them
+                # with no id, which mints fresh uuid4 rows and duplicates every one.
+                raise PartialWriteError(self._committed(tier, ids)) from exc
             if memory_id:
                 ids.append(memory_id)
-        return WriteReceipt(accepted=len(ids), event_ids=ids, tiers_written=[tier] if ids else [])
+        return self._committed(tier, ids)
+
+    @staticmethod
+    def _committed(tier: MemoryTier, ids: Sequence[str]) -> WriteReceipt:
+        """A receipt for rows actually persisted -- `accepted` means committed, never attempted."""
+        return WriteReceipt(accepted=len(ids), event_ids=list(ids), tiers_written=[tier] if ids else [])
 
     def write_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
+        """A backend failure here raises ``PartialWriteError``, exactly as ``write`` does.
+
+        ``write_tier`` used to let the backend's own exception through while ``write`` wrapped it,
+        so the same failure reached a caller as two different types depending on which verb they
+        used -- and `PartialWriteError`'s docstring is explicit that both adapters must fail the
+        same way or there is no portable retry.
+        """
         self._validate_write(scope, events)
         self._reject_unserved(tier)
         store = self._store_for(tier)
-        if store is not None:
-            store.process(self._as_messages(events), **self._recall_kwargs(scope, MemoryQuery(text="")))
-            return self._store_receipt(store, tier, events)
-        return self._manager_write(scope, tier, events)
+        if store is None:
+            return self._manager_write(scope, tier, events)
+        updated = self._process_and_flag(store, scope, events)
+        return self._store_receipt(updated, tier, events)
 
     async def awrite_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
+        """Async variant of :meth:`write_tier`, with the same failure type."""
         self._validate_write(scope, events)
         self._reject_unserved(tier)
         store = self._store_for(tier)
-        if store is not None:
+        if store is None:
+            return await asyncio.to_thread(self._manager_write, scope, tier, events)
+        try:
             await store.aprocess(self._as_messages(events), **self._recall_kwargs(scope, MemoryQuery(text="")))
-            return self._store_receipt(store, tier, events)
-        return await asyncio.to_thread(self._manager_write, scope, tier, events)
+        except MemoryOperationError:
+            raise
+        except Exception as exc:
+            raise PartialWriteError(WriteReceipt()) from exc
+        # Read synchronously, immediately after the await returns: `was_updated` is shared mutable
+        # state on a store bound once at construction, so two concurrent writers interleaving here
+        # read each other's flag.
+        return self._store_receipt(bool(getattr(store, "was_updated", False)), tier, events)
+
+    def _process_and_flag(self, store: "LearningStore", scope: Scope, events: Sequence[MemoryEvent]) -> bool:
+        try:
+            store.process(self._as_messages(events), **self._recall_kwargs(scope, MemoryQuery(text="")))
+        except MemoryOperationError:
+            raise
+        except Exception as exc:
+            # `process` folds a batch into the store's own shape and mints no ids, so there is
+            # nothing committed to report -- but the *type* must still match the other adapter.
+            raise PartialWriteError(WriteReceipt()) from exc
+        return bool(getattr(store, "was_updated", False))
+
+    @staticmethod
+    def _reject_unstorable_scope(scope: Scope) -> None:
+        """Refuse a write scoped to a slot ``UserMemory`` has no column for.
+
+        ``UserMemory`` carries ``user_id`` / ``agent_id`` / ``team_id`` and no session column, and
+        ``_provenance_note`` does not fold one in -- so a session-scoped write was accepted, lost
+        its session identity, and could never be read back at that scope, while reads refused the
+        same scope outright. Accept-and-ignore on a scoping field, in the module whose whole
+        posture is the opposite.
+        """
+        if scope.session_id is not None:
+            raise MemoryOperationError(
+                "UserMemory has no session column, so a session-scoped write would be stored "
+                "without its session identity and could never be read back at that scope. Bind a "
+                "LearningStore for this tier, or widen the scope.",
+                field_name="session_id",
+            )
 
     def _validate_write(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
         # The tenant guard runs here rather than per group, because an empty batch produces no
@@ -545,6 +613,14 @@ class SeedMemoryProvider(MemoryProvider):
         try:
             for tier, group in groups:
                 receipts.append(self.write_tier(scope, tier, group))
+        except PartialWriteError as exc:
+            # The failing group committed some of its own rows. Merging its receipt in is what
+            # makes the ids recoverable -- otherwise they are lost in the group that raised, and
+            # the caller's documented retry duplicates every one of them.
+            receipts.append(exc.receipt)
+            raise PartialWriteError(self._merge_receipts(receipts)) from exc.__cause__
+        except MemoryOperationError:
+            raise
         except Exception as exc:
             # A *runtime* failure mid-fan-out, distinct from the validation-driven partial commit
             # hoisting fixed: `add_user_memory` is called once per event, so group n+1 runs after
@@ -561,6 +637,14 @@ class SeedMemoryProvider(MemoryProvider):
         try:
             for tier, group in groups:
                 receipts.append(await self.awrite_tier(scope, tier, group))
+        except PartialWriteError as exc:
+            # The failing group committed some of its own rows. Merging its receipt in is what
+            # makes the ids recoverable -- otherwise they are lost in the group that raised, and
+            # the caller's documented retry duplicates every one of them.
+            receipts.append(exc.receipt)
+            raise PartialWriteError(self._merge_receipts(receipts)) from exc.__cause__
+        except MemoryOperationError:
+            raise
         except Exception as exc:
             raise PartialWriteError(self._merge_receipts(receipts)) from exc
         return self._merge_receipts(receipts)
@@ -579,6 +663,10 @@ class SeedMemoryProvider(MemoryProvider):
         episodic tier to read from and a graph to write to. It is SM-L1's (#122) onward.
         """
         self._guard_tenant(scope)
+        # `deduplicate` filters on user_id alone, exactly like `search_user_memories`, so a scope
+        # narrowed below it is accepted and silently ignored -- on a *write* path, which is worse
+        # than the read-side accept-and-ignore this guard was written for.
+        self._reject_unfilterable_scope(scope)
         # Polarity is the *opposite* of the co-located adapter's: this provider accepts only
         # `tiers=None`, because `[EPISODIC]` -- the one set co-located accepts -- is the single
         # tier the seed refuses everywhere else.
@@ -615,14 +703,57 @@ class SeedMemoryProvider(MemoryProvider):
         return await asyncio.to_thread(self.consolidate, scope, tiers)
 
 
+def _checked_stores(raw: Any) -> Optional[Dict[MemoryTier, "LearningStore"]]:
+    """Verify bound stores at build time, as ``checked_vector`` / ``checked_graph`` do next door.
+
+    ``LearningStore`` is already ``runtime_checkable``, so this is the same one structural check --
+    and without it a misconfigured seed built cleanly and failed at first recall.
+    """
+    if raw is None:
+        return None
+    from egpt.learn.stores.protocol import LearningStore
+
+    if not isinstance(raw, dict):
+        raise MemoryProviderConfigError(
+            f"config.options['stores'] must be a dict of MemoryTier -> LearningStore, got {type(raw).__name__}.",
+            field_name="options.stores",
+        )
+    for tier, store in raw.items():
+        if not isinstance(tier, MemoryTier):
+            raise MemoryProviderConfigError(
+                f"config.options['stores'] key {tier!r} is not a MemoryTier.", field_name="options.stores"
+            )
+        if not isinstance(store, LearningStore):
+            raise MemoryProviderConfigError(
+                f"config.options['stores'][{tier.value!r}] is a {type(store).__name__}, which does not "
+                "carry every method LearningStore names.",
+                field_name="options.stores",
+            )
+    return dict(raw)
+
+
+def _checked(raw: Any, attributes: Sequence[str], option: str) -> Any:
+    """Duck-check a collaborator the same way, by the methods this bridge actually calls."""
+    if raw is None:
+        return None
+    missing = [name for name in attributes if not callable(getattr(raw, name, None))]
+    if missing:
+        raise MemoryProviderConfigError(
+            f"config.options[{option!r}] is a {type(raw).__name__}, missing {missing}.", field_name=f"options.{option}"
+        )
+    return raw
+
+
 @register_provider("seed")
 def _build_seed(config: MemoryProviderConfig) -> MemoryProvider:
     """Collaborators arrive through ``config.options``: a ``MemoryManager`` and a
     ``LearningMachine`` hold a db and a model, so they are user-constructed rather than
-    registry-built."""
+    registry-built. They are still checked here, so a misconfigured seed fails at build."""
     return SeedMemoryProvider(
-        manager=config.options.get("memory_manager"),
+        manager=_checked(
+            config.options.get("memory_manager"), ("search_user_memories", "add_user_memory"), "memory_manager"
+        ),
         machine=config.options.get("learning_machine"),
-        stores=config.options.get("stores"),
+        stores=_checked_stores(config.options.get("stores")),
         config=config,
     )

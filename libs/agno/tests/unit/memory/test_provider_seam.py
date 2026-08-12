@@ -158,12 +158,15 @@ def test_the_config_rejects_a_fusion_knob_rather_than_absorbing_it():
     there is nothing here that could measure it. Ranked fusion and its configuration are SM-H2's
     (#132); a `fusion=` field would be finding F5 -- accepted at the boundary, read by nothing.
 
-    Asserting the constructor *rejects* it rather than that the attribute is absent: `not
-    hasattr(...)` also passes if the field is quietly reintroduced as a dict absorbed into
-    `options`, which is the shape the regression would actually take.
+    The assertion is that no *field* named `fusion` exists and that `options` does not smuggle one
+    back. `pytest.raises(TypeError, match="fusion")` on the constructor would have been an
+    assertion about CPython -- any undefined keyword raises a TypeError naming itself, so it passes
+    against a one-field dataclass that validates nothing.
     """
-    with pytest.raises(TypeError, match="fusion"):
-        MemoryProviderConfig(provider="p", fusion={"method": "weighted"})  # type: ignore[call-arg]
+    config = MemoryProviderConfig(provider="p")
+
+    assert "fusion" not in MemoryProviderConfig.__dataclass_fields__
+    assert not any("fusion" in key or "weight" in key for key in config.options)
 
 
 def test_backend_settings_stay_opaque():

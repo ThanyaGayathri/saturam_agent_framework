@@ -380,7 +380,7 @@ def test_a_superseded_row_is_not_current_belief_even_without_as_of():
 def test_invalidation_is_expire_and_reinsert_not_an_in_place_edit():
     """Finding F10 / SM-R10 §6: an in-place bound is clobbered by the next invalidation."""
     p, _, graph = provider()
-    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme", id="f1")])
+    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme", id="f1", occurred_at=100)])
 
     graph.invalidate(ACME, "f1", t_invalid=300, at=310)
     graph.invalidate(ACME, "f1", t_invalid=250, at=320)
@@ -396,8 +396,8 @@ def test_invalidation_is_expire_and_reinsert_not_an_in_place_edit():
 
 def test_an_invalidated_fact_leaves_the_read_path():
     p, _, graph = provider()
-    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme", id="f1")])
-    assert p.read(ACME, MemoryQuery(text="ada acme")).records
+    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme", id="f1", occurred_at=100)])
+    assert p.read(ACME, MemoryQuery(text="ada acme", as_of=200)).records
 
     graph.invalidate(ACME, "f1", t_invalid=300, at=310)
 
@@ -574,7 +574,7 @@ def test_a_default_read_hides_a_fact_the_graph_recorded_as_false():
     current-belief-only check let an invalidated fact render straight into a prompt.
     """
     p, _, graph = provider()
-    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme", id="f1")])
+    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme", id="f1", occurred_at=50)])
     graph.invalidate(ACME, "f1", t_invalid=100, at=110)
 
     plain = p.read(ACME, MemoryQuery(text="ada acme"))
@@ -633,7 +633,9 @@ def test_consolidation_bounds_its_scan():
 
     p.consolidate(ACME)
 
-    assert vector.scan_limits == [_MAX_EPISODES_PER_PASS]
+    # Two scans: the episodic tier to distil, then the semantic tier to find facts this pass
+    # supersedes. Both bounded by the same cap.
+    assert vector.scan_limits == [_MAX_EPISODES_PER_PASS, _MAX_EPISODES_PER_PASS]
 
 
 def test_one_pass_consolidates_every_episode_it_scanned():
@@ -664,20 +666,17 @@ def test_a_pass_that_hits_the_cap_says_it_is_incomplete():
 
     Mutation guard: with `complete=len(episodes) < cap` replaced by `complete=True`, this fails.
     """
-    import egpt.memory.adapters.co_located as module
+    vector, graph = FakeVector(), FakeGraph()
+    p = CoLocatedMemoryProvider(vector=vector, graph=graph, max_episodes_per_pass=3)
+    p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}") for i in range(5)])
 
-    p, _, _ = provider()
-    original = module._MAX_EPISODES_PER_PASS
-    module._MAX_EPISODES_PER_PASS = 3
-    try:
-        p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}") for i in range(5)])
+    report = p.consolidate(ACME)
 
-        report = p.consolidate(ACME)
-
-        assert report.episodic_scanned == 3
-        assert report.details["complete"] is False
-    finally:
-        module._MAX_EPISODES_PER_PASS = original
+    assert report.episodic_scanned == 3
+    assert report.details["complete"] is False
+    # `complete=False` alone reads like ordinary pagination. It is not: nothing marks an episode
+    # consumed and `scan` is oldest-first, so the tail past the cap is never consolidated at all.
+    assert report.details["tail_unreachable"] is True
 
 
 async def test_async_consolidation_covers_the_same_episodes():
@@ -696,7 +695,7 @@ def test_consolidation_never_groups_two_users_episodes_into_one_fact():
 
     Before this, two users saying the same thing produced **one** fact carrying both episode ids
     and attributed to whichever user won the content tiebreak -- so the other user read their
-    colleague's episode back as their own. `_assert_tenant_isolation` cannot see it: same tenant.
+    colleague's episode back as their own. `_assert_scope_isolation` cannot see it: same tenant.
     """
     tenant = Scope(tenant_id="acme")
     alice, bob = Scope(tenant_id="acme", user_id="alice"), Scope(tenant_id="acme", user_id="bob")
@@ -858,12 +857,21 @@ def test_the_fusion_payload_carries_every_contract_key():
     assert set(FUSION_KEYS) <= set(p.read(ACME, MemoryQuery(text="alpha")).fusion)
 
 
-def test_reading_the_working_tier_is_refused_like_writing_it():
-    """The two used to disagree: read returned [] while write raised."""
+def test_reading_the_working_tier_is_empty_while_writing_it_is_refused():
+    """One rule across adapters: reads report absence, writes refuse it.
+
+    The same logical request used to get three answers -- `co_located.read_tier(WORKING)` refused,
+    `seed.read_tier(WORKING)` returned `[]`, and `co_located.read(tiers=[WORKING])` returned an
+    empty slice -- so no caller could write one handler. Writes still refuse, because writing where
+    nothing will store it loses data while reading there simply finds nothing.
+    """
     p, _, _ = provider()
 
+    assert p.read_tier(ACME, MemoryTier.WORKING, MemoryQuery(text="q")) == []
+    assert p.read(ACME, MemoryQuery(text="q", tiers=[MemoryTier.WORKING])).records == []
+
     with pytest.raises(MemoryOperationError, match="no persistent substrate"):
-        p.read_tier(ACME, MemoryTier.WORKING, MemoryQuery(text="q"))
+        p.write_tier(ACME, MemoryTier.WORKING, [event("scratchpad note")])
 
 
 def test_an_injected_substrate_that_misses_the_port_fails_at_build():
@@ -992,7 +1000,7 @@ def test_a_record_from_another_tenant_is_refused_not_returned():
     leaky.upsert(OTHER, [MemoryRecord(id="foreign", tier=MemoryTier.SEMANTIC, content="globex secret", scope=OTHER)])
     p.vector = leaky
 
-    with pytest.raises(MemoryOperationError, match="dropped its tenant predicate"):
+    with pytest.raises(MemoryOperationError, match="dropped a scope predicate"):
         p.read(ACME, MemoryQuery(text="globex secret"))
 
 
@@ -1013,7 +1021,7 @@ def test_consolidation_refuses_a_leaked_record_rather_than_persisting_it():
     )
     p.vector = leaky
 
-    with pytest.raises(MemoryOperationError, match="dropped its tenant predicate"):
+    with pytest.raises(MemoryOperationError, match="dropped a scope predicate"):
         p.consolidate(ACME)
 
 
@@ -1036,3 +1044,146 @@ def test_a_repeat_episode_write_upserts_rather_than_duplicating():
 
     assert [r.content for r in graph.rows["acme"]] == ["second version"]
     assert [r.content for r in vector.rows["acme"].values()] == ["second version"]
+
+
+# ---------------------------------------------------------------------------
+# Round-6 review: invariants the suite documented but did not test
+# ---------------------------------------------------------------------------
+#
+# Each of the first three survived mutation with all 364 tests green. They are load-bearing and
+# were carried into this module by the reset without their coverage.
+
+
+def test_grouping_is_decided_by_content_not_by_scan_order():
+    """The round-4 determinism fix: the cookbook's byte-identical hash depends on it.
+
+    `scan` orders on `(created_at, id)`, and ids are UUIDs in ordinary use, so scan order varies
+    between two stores holding the same corpus. If grouping followed it, which episode heads a
+    group -- and so the fact's content and its `uuid5` id -- would vary with it.
+
+    Driven through `_distil` directly with two orderings of one list, because going through
+    `write` cannot produce differing scan orders: the double sorts them back into id order.
+    """
+    p, _, _ = provider()
+    episodes = [
+        MemoryRecord(id=i, tier=MemoryTier.EPISODIC, content=c, scope=ACME, created_at=t)
+        for i, c, t in [
+            ("z9", "the server in rack 12 is down", 300),
+            ("a1", "the server in rack 12 is down now", 100),
+            ("m5", "billing runs on friday", 200),
+        ]
+    ]
+
+    forward, _ = p._distil(ACME, episodes)
+    backward, _ = p._distil(ACME, list(reversed(episodes)))
+
+    assert [f.record.id for f in forward] == [f.record.id for f in backward]
+    assert [f.record.content for f in forward] == [f.record.content for f in backward]
+    assert [f.source_episode_ids for f in forward] == [f.source_episode_ids for f in backward]
+
+
+def test_consolidation_skips_an_episode_the_graph_recorded_as_false():
+    """`scan` reads the vector projection, which is stale about validity.
+
+    Without the filter an invalidated episode was distilled into a brand-new semantic fact carrying
+    **no bounds at all** -- unsuppressable afterwards by any read, at any limit, with any `as_of`.
+    Strictly worse than the read-path version, which at least stops when the corpus shrinks.
+    """
+    p, _, graph = provider()
+    p.write(ACME, [event("the server is in rack 12", id="ep1", occurred_at=50)])
+    graph.invalidate(ACME, "ep1", t_invalid=100, at=110)
+
+    report = p.consolidate(ACME)
+
+    assert report.episodic_scanned == 1
+    assert report.details["episodes_skipped_as_invalid"] == 1
+    assert report.semantic_written == 0
+    assert [r for r in p.read(ACME, MemoryQuery(text="server rack 12")).records if r.tier is MemoryTier.SEMANTIC] == []
+
+
+def test_a_duplicate_id_within_one_leg_folds_rather_than_double_counting():
+    """One leg contributes one score per id, so a repeated hit cannot buy rank.
+
+    A backend returning the same id twice -- a join fan-out, a union over revisions -- otherwise
+    doubles that record's score and outranks genuinely better matches.
+    """
+    p, vector, _ = provider()
+    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("alpha beta", id="dup")])
+    single = p.read(ACME, MemoryQuery(text="alpha")).records[0].score
+
+    original = vector.search
+    vector.search = lambda scope, query, tier=None: original(scope, query, tier) * 2  # type: ignore[assignment]
+    doubled = p.read(ACME, MemoryQuery(text="alpha")).records[0].score
+
+    assert doubled == single, "a repeated id within one leg must not accumulate score"
+
+
+def test_the_read_path_asks_the_graph_for_bounds_it_could_not_have_ranked():
+    """Asserting on the *request*: a result-only assertion cannot see a missing reconciliation."""
+    p, _, graph = provider()
+    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme", id="f1", occurred_at=100)])
+
+    p.read(ACME, MemoryQuery(text="ada acme"))
+
+    assert graph.bounds_requests == [["f1"]]
+
+
+def test_a_substrate_returning_an_unrequested_tier_is_refused():
+    """The provider re-checks scope and validity and used to trust tier entirely."""
+    p, vector, _ = provider()
+    p.write(ACME, [event("alpha", id="ep")])
+
+    class TierIgnoring(FakeVector):
+        def search(self, scope, query, tier=None):
+            return [r for r in self._matching(scope)]
+
+    p.vector = TierIgnoring()
+    p.vector.rows = vector.rows
+
+    with pytest.raises(MemoryOperationError, match="did not ask for"):
+        p.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="alpha"))
+
+
+def test_consolidation_honours_tier_routing_like_the_write_path_does():
+    """`write` filters by SUBSTRATES_BY_TIER; consolidate wrote wherever a substrate was wired."""
+    import egpt.memory.tiers as tiers_module
+
+    p, vector, graph = provider()
+    p.write(ACME, [event("alpha beta gamma", id="ep")])
+    original = tiers_module.SUBSTRATES_BY_TIER[MemoryTier.SEMANTIC]
+    tiers_module.SUBSTRATES_BY_TIER[MemoryTier.SEMANTIC] = frozenset({"graph"})
+    try:
+        p.consolidate(ACME)
+        semantic_in_vector = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC]
+        assert semantic_in_vector == [], "graph-only SEMANTIC must not reach the vector substrate"
+    finally:
+        tiers_module.SUBSTRATES_BY_TIER[MemoryTier.SEMANTIC] = original
+
+
+def test_a_substrate_refusal_is_not_reported_as_a_partial_write():
+    """A per-call refusal wrapped as PartialWriteError sends the caller down a retry that cannot win."""
+
+    class RefusingGraph(FakeGraph):
+        def upsert_episode(self, scope, event):
+            raise MemoryOperationError("this backend refuses episodes", field_name="tier")
+
+    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=RefusingGraph())
+
+    with pytest.raises(MemoryOperationError, match="refuses episodes"):
+        p.write(ACME, [event("alpha")])
+
+
+def test_a_scope_narrower_than_the_tenant_is_checked_too():
+    """The guard compared one of five slots while the port requires all five."""
+    alice = Scope(tenant_id="acme", user_id="alice")
+    bob = Scope(tenant_id="acme", user_id="bob")
+
+    class UserBlindVector(FakeVector):
+        def _matching(self, scope):
+            return [r for r in self._bucket(scope).values() if r.scope.tenant_id == scope.tenant_id]
+
+    p = CoLocatedMemoryProvider(vector=UserBlindVector())
+    p.write_tier(alice, MemoryTier.SEMANTIC, [event("ada salary is 200k", scope=alice, id="a1")])
+
+    with pytest.raises(MemoryOperationError, match="dropped a scope predicate"):
+        p.read(bob, MemoryQuery(text="ada salary"))

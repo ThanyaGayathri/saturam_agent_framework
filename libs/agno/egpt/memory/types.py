@@ -25,12 +25,14 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence
 
+from egpt.memory.errors import MemoryOperationError
 from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
 from egpt.utils.dttm import to_epoch_s
 
 __all__ = [
     "CONSOLIDATION_KEYS",
     "FUSION_KEYS",
+    "MAX_LIMIT",
     "consolidation_details",
     "ConsolidationReport",
     "FactWrite",
@@ -43,22 +45,14 @@ __all__ = [
     "PartialWriteError",
     "Scope",
     "Substrate",
+    "TemporalBounds",
     "WriteReceipt",
 ]
 
 
-class MemoryOperationError(ValueError):
-    """A memory call cannot be served as asked.
-
-    A **per-request** refusal by a correctly configured provider, distinct from the construction-
-    time ``MemoryProviderConfigError``: conflating them makes a routine bad request look like a
-    deployment fault in every log and every ``except`` clause. ``ValueError`` because callers
-    already assert against it.
-    """
-
-    def __init__(self, message: str, *, field_name: Optional[str] = None) -> None:
-        super().__init__(message)
-        self.field_name = field_name
+#: Ceiling on ``MemoryQuery.limit``. Not a tuning knob -- a guard against a page request that is
+#: really a full scan. Enumerating a tier is ``VectorSubstrate.scan``'s job.
+MAX_LIMIT = 10_000
 
 
 class PartialWriteError(RuntimeError):
@@ -73,6 +67,10 @@ class PartialWriteError(RuntimeError):
     naive retry writes *fresh* rows for the same logical memories -- finding F1 arriving through the
     error path. Carrying the receipt lets a caller retry with ``MemoryEvent.id`` set, which is
     idempotent provided the substrate upserts by id (see ``GraphSubstrate.upsert_episode``).
+
+    ``receipt.accepted`` and ``receipt.event_ids`` mean **committed**, not attempted. An adapter
+    that reported every stamped id -- including events no backend ever saw -- gave the number a
+    second meaning, and a caller behind the seam cannot tell which provider produced it.
     """
 
     def __init__(self, receipt: "WriteReceipt") -> None:
@@ -120,6 +118,14 @@ def _epoch_or_none(value: Any) -> Optional[int]:
     return to_epoch_s(value)
 
 
+def _escape(value: Optional[str]) -> str:
+    """One slot of :meth:`Scope.key`, with the separator made unambiguous.
+
+    ``%`` first, or escaping ``/`` would itself be escapable into a collision.
+    """
+    return "*" if value is None else value.replace("%", "%25").replace("/", "%2F")
+
+
 @dataclass(frozen=True)
 class Scope:
     """Isolation and addressing. Present on **every** read, write, and consolidate call.
@@ -157,16 +163,36 @@ class Scope:
 
         ``*`` stands for an unset slot so the key is fixed-arity: two scopes differing only in
         which slots are set can never collide.
+
+        Slot values are percent-escaped, because fixed arity alone is not injectivity. An ordinary
+        ``/`` inside a tenant-supplied identifier merged two adjacent slots --
+        ``agent_id="b/c", user_id="d"`` and ``agent_id="b", user_id="c/d"`` produced one key -- and
+        any code that groups by this string then files one scope's data under the other.
         """
         return "/".join(
             [
-                self.tenant_id,
-                self.agent_id or "*",
-                self.user_id or "*",
-                self.team_id or "*",
-                self.session_id or "*",
+                _escape(self.tenant_id),
+                _escape(self.agent_id),
+                _escape(self.user_id),
+                _escape(self.team_id),
+                _escape(self.session_id),
             ]
         )
+
+
+@dataclass(frozen=True)
+class TemporalBounds:
+    """What the graph believes about one record's validity, independent of any ranking.
+
+    The answer shape of ``GraphSubstrate.bounds_for_ids``. Deliberately not a ``MemoryRecord``:
+    the caller already has the content and only needs the four bi-temporal fields, and returning a
+    full record would invite treating an authority lookup as a second read path.
+    """
+
+    t_valid: Optional[int] = None
+    t_invalid: Optional[int] = None
+    expired_at: Optional[int] = None
+    superseded_by: Optional[str] = None
 
 
 @dataclass
@@ -199,17 +225,32 @@ class MemoryRecord:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # `id` is the cross-substrate dedup key in fusion, so an empty one silently collapses every
-        # unidentified record into a single fused result. Cheap to reject, and the seed bridge's
+        # `id` is the cross-substrate dedup key, so an empty one silently collapses every
+        # unidentified record into a single merged result. Cheap to reject, and the seed bridge's
         # `memory_id or ""` was one keystroke from producing exactly that.
         if not isinstance(self.id, str) or not self.id:
-            raise ValueError(
-                f"MemoryRecord.id must be a non-empty string; it is the fusion dedup key. Got {self.id!r}."
-            )
+            raise ValueError(f"MemoryRecord.id must be a non-empty string; it is the dedup key. Got {self.id!r}.")
+        # `tier` and `scope` are load-bearing far from here -- `tier` in routing and the ranking
+        # key, `scope` in the isolation post-condition. A duck-typed `scope` slipped past that
+        # post-condition entirely and then died inside a sort key, three frames from the mistake.
+        if not isinstance(self.tier, MemoryTier):
+            raise TypeError(f"MemoryRecord.tier must be a MemoryTier, got {self.tier!r}.")
+        if not isinstance(self.scope, Scope):
+            raise TypeError(f"MemoryRecord.scope must be a Scope; the isolation check reads it. Got {self.scope!r}.")
         self.t_valid = _epoch_or_none(self.t_valid)
         self.t_invalid = _epoch_or_none(self.t_invalid)
         self.created_at = _epoch_or_none(self.created_at)
         self.expired_at = _epoch_or_none(self.expired_at)
+        # An inverted valid-time interval is empty at every instant, so the record is written,
+        # receipted, and then invisible forever with no error anywhere -- the same silent-loss
+        # shape `_epoch_or_none` rejects a naive datetime for.
+        if self.t_valid is not None and self.t_invalid is not None and self.t_valid > self.t_invalid:
+            raise ValueError(
+                f"MemoryRecord t_valid ({self.t_valid}) is after t_invalid ({self.t_invalid}), so the "
+                "record is valid at no instant and no read can ever return it."
+            )
+        self.provenance = dict(self.provenance or {})
+        self.metadata = dict(self.metadata or {})
 
     def is_current_belief(self) -> bool:
         """Whether this row is what the system believes *now* (``expired_at IS NULL``).
@@ -238,23 +279,18 @@ class MemoryRecord:
             metadata=deepcopy(self.metadata),
         )
 
-    def tighten_bounds(self, other: "MemoryRecord") -> None:
-        """Adopt ``other``'s bi-temporal bounds where they are narrower.
+    def apply_bounds(self, bounds: "TemporalBounds") -> None:
+        """Adopt the graph's authoritative bounds, overwriting whatever the projection carried.
 
-        Two legs return the same id with different bounds when only one of them knows the fact was
-        invalidated -- the graph records validity, the vector substrate does not. Taking the wider
-        bound would let an invalidated fact answer as current.
+        An **authority** overwrite, not a merge: ``GraphSubstrate`` is the sole authority for
+        validity (ADR 0003 D8), so where it has an answer the vector projection's stale one does
+        not get a vote. ``t_valid`` is the exception -- the graph may not carry one for a record it
+        only knows as an edge, so a missing lower bound leaves the projection's in place.
         """
-        for attribute in ("t_valid", "created_at"):  # lower bounds: later is narrower
-            mine, theirs = getattr(self, attribute), getattr(other, attribute)
-            if theirs is not None and (mine is None or theirs > mine):
-                setattr(self, attribute, theirs)
-        for attribute in ("t_invalid", "expired_at"):  # upper bounds: earlier is narrower
-            mine, theirs = getattr(self, attribute), getattr(other, attribute)
-            if theirs is not None and (mine is None or theirs < mine):
-                setattr(self, attribute, theirs)
-        if other.superseded_by is not None:
-            self.superseded_by = other.superseded_by
+        self.t_valid = bounds.t_valid if bounds.t_valid is not None else self.t_valid
+        self.t_invalid = bounds.t_invalid
+        self.expired_at = bounds.expired_at
+        self.superseded_by = bounds.superseded_by
 
 
 @dataclass
@@ -284,6 +320,11 @@ class MemoryEvent:
 
     def __post_init__(self) -> None:
         self.occurred_at = _epoch_or_none(self.occurred_at)
+        # `metadata=None` is the obvious way to say "no metadata" and used to crash inside an
+        # adapter with a raw TypeError on one provider while the other accepted it. An envelope
+        # that rejects a blank tenant, a bool timestamp and a negative limit should not leave this
+        # one to explode three frames away.
+        self.metadata = dict(self.metadata or {})
 
 
 @dataclass
@@ -349,6 +390,19 @@ class MemoryQuery:
         # `vector_weight` rather than letting it skew a ranking.
         if not isinstance(self.limit, int) or isinstance(self.limit, bool) or self.limit < 0:
             raise ValueError(f"MemoryQuery.limit must be an integer >= 0, got {self.limit!r}.")
+        # An upper bound for the same reason `tenant_id` may not be blank: the widest possible
+        # request should not be the easiest one to write by accident. `limit` is forwarded verbatim
+        # to the substrates, where a nine-digit value is an unbounded scan behind an ANN index.
+        if self.limit > MAX_LIMIT:
+            raise ValueError(
+                f"MemoryQuery.limit is {self.limit}, above the {MAX_LIMIT} ceiling. A limit this "
+                "large is a full scan behind the substrate's index, not a page. Enumerate a tier "
+                "with VectorSubstrate.scan instead."
+            )
+        # Range-checked like `limit`, and for the same reason: a negative instant is not a narrower
+        # question, it is one no record can satisfy, so the read returns empty and looks like a miss.
+        if self.as_of is not None and self.as_of < 0:
+            raise ValueError(f"MemoryQuery.as_of must be a non-negative epoch second, got {self.as_of!r}.")
 
         # `filters` is declared but nothing reads it: no substrate port states a contract for it,
         # so even a future backend has nothing to conform to. In a seam whose threat model is
@@ -386,7 +440,7 @@ class MemoryQuery:
 #: property this seam exists to provide -- raises ``KeyError`` on whichever one it was not written
 #: against. A provider with nothing to merge reports zeros, which is honest: it has no legs, not an
 #: unknown number of them.
-FUSION_KEYS = ("method", "vector_hits", "graph_hits", "fused", "returned")
+FUSION_KEYS = ("method", "vector_hits", "graph_hits", "fused", "returned", "dropped_by_validity")
 
 
 def fusion_diagnostics(
@@ -395,6 +449,7 @@ def fusion_diagnostics(
     graph_hits: int = 0,
     fused: int = 0,
     returned: int = 0,
+    dropped_by_validity: int = 0,
     **extra: Any,
 ) -> Dict[str, Any]:
     """Build a ``MemorySlice.fusion`` payload carrying every key in :data:`FUSION_KEYS`.
@@ -409,6 +464,9 @@ def fusion_diagnostics(
         "graph_hits": graph_hits,
         "fused": fused,
         "returned": returned,
+        # In the floor rather than an adapter extra: without it a short page is ambiguous between
+        # an empty corpus and one the validity filter emptied, and only one of those is a bug.
+        "dropped_by_validity": dropped_by_validity,
     }
     diagnostics.update(extra)
     return diagnostics
@@ -442,7 +500,7 @@ class MemorySlice:
     """
 
     scope: Scope
-    query: Optional[MemoryQuery] = None
+    query: MemoryQuery
     records: List[MemoryRecord] = field(default_factory=list)
     by_tier: Dict[MemoryTier, List[MemoryRecord]] = field(default_factory=dict)
     fusion: Dict[str, Any] = field(default_factory=dict)

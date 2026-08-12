@@ -34,8 +34,10 @@ from egpt.memory import (
     MemoryTier,
     Scope,
     Substrate,
+    TemporalBounds,
     build_memory_provider,
 )
+from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.providers.model_provider import ProviderMode
 
 # ---------------------------------------------------------------------------
@@ -178,6 +180,41 @@ class InMemoryGraph:
     ) -> List[MemoryRecord]:
         return self.traverse(scope, query, tier)
 
+    def bounds_for_ids(
+        self, scope: Scope, ids: Sequence[str]
+    ) -> Dict[str, TemporalBounds]:
+        # Unranked and unlimited, by id. The provider calls this on every read because ranking
+        # cannot be trusted to surface a bound: the SCD-2 successor row carries the same content
+        # as the live row, so it scores the same and falls off the page.
+        wanted = set(ids)
+        found: Dict[str, TemporalBounds] = {}
+        for row in self._bucket(scope):
+            if row.id not in wanted:
+                continue
+            seen = found.get(row.id)
+            if seen is None:
+                found[row.id] = TemporalBounds(
+                    row.t_valid, row.t_invalid, row.expired_at, row.superseded_by
+                )
+                continue
+            tightest = (
+                seen.t_invalid
+                if row.t_invalid is None
+                else min(filter(None, (seen.t_invalid, row.t_invalid)))
+            )
+            expired = (
+                None
+                if (seen.expired_at is None or row.expired_at is None)
+                else seen.expired_at
+            )
+            found[row.id] = TemporalBounds(seen.t_valid, tightest, expired, None)
+        return found
+
+    async def abounds_for_ids(
+        self, scope: Scope, ids: Sequence[str]
+    ) -> Dict[str, TemporalBounds]:
+        return self.bounds_for_ids(scope, ids)
+
     def invalidate(
         self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None
     ) -> None:
@@ -306,7 +343,11 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------------
     print("")
     print("Bi-temporal read:")
-    provider = build_memory_provider(mode_a_config())
+    # Deliberately the concrete adapter, not MemoryProvider: recording that a fact became false is
+    # GraphSubstrate.invalidate, a substrate port, and SM-C1 does not promote it onto the seam --
+    # that would expand the verb set ADR 0003 ratifies. Consolidation is the only thing in-tree
+    # that drives it; SM-L5 (#126) owns making it a first-class operation. A demo-only reach.
+    provider: CoLocatedMemoryProvider = build_memory_provider(mode_a_config())  # type: ignore[assignment]
     provider.write_tier(
         scope,
         MemoryTier.SEMANTIC,

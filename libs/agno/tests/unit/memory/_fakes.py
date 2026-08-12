@@ -19,7 +19,15 @@ from typing import Dict, List, Optional, Sequence
 
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import FactWrite, MemoryEvent, MemoryQuery, MemoryRecord, Scope, Substrate
+from egpt.memory.types import (
+    FactWrite,
+    MemoryEvent,
+    MemoryQuery,
+    MemoryRecord,
+    Scope,
+    Substrate,
+    TemporalBounds,
+)
 
 
 def scoped(record_scope: Scope, call_scope: Scope) -> bool:
@@ -168,6 +176,9 @@ class FakeGraph:
         self.facts: List[FactWrite] = []
         self.calls: List[str] = []
         self.traverse_limits: List[Optional[int]] = []
+        #: Every id set the provider asked bounds for -- asserting on the *request* is what makes a
+        #: missing reconciliation visible, since a result-only assertion cannot see one.
+        self.bounds_requests: List[List[str]] = []
 
     def _bucket(self, scope: Scope) -> List[MemoryRecord]:
         return self.rows.setdefault(scope.tenant_id, [])
@@ -232,6 +243,35 @@ class FakeGraph:
     ) -> List[MemoryRecord]:
         self.calls.append("atraverse")
         return self.traverse(scope, query, tier)
+
+    def bounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]:
+        """Unranked, unlimited lookup by id -- the whole point is to see what ranking hid.
+
+        Reads the same rows ``traverse`` does but ignores score, ``limit``, and current belief, and
+        reports the **tightest** bound across every revision of an id. Reporting only the current
+        row would miss nothing today, but a double that answered from the ranked page would make
+        the provider's reconciliation untestable, which is the failure this method exists to catch.
+        """
+        self.calls.append("bounds_for_ids")
+        self.bounds_requests.append(list(ids))
+        wanted = set(ids)
+        found: Dict[str, TemporalBounds] = {}
+        for row in self._matching(scope):
+            if row.id not in wanted:
+                continue
+            seen = found.get(row.id)
+            if seen is None:
+                found[row.id] = TemporalBounds(row.t_valid, row.t_invalid, row.expired_at, row.superseded_by)
+                continue
+            tightest = seen.t_invalid if row.t_invalid is None else min(filter(None, (seen.t_invalid, row.t_invalid)))
+            # `expired_at=None` wins: the live revision is the one that decides current belief.
+            expired = None if (seen.expired_at is None or row.expired_at is None) else seen.expired_at
+            found[row.id] = TemporalBounds(seen.t_valid, tightest, expired, seen.superseded_by or row.superseded_by)
+        return found
+
+    async def abounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]:
+        self.calls.append("abounds_for_ids")
+        return self.bounds_for_ids(scope, ids)
 
     def invalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None:
         """Expire the live row on the transaction axis, then insert a bounded copy."""

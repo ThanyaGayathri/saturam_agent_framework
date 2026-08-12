@@ -27,6 +27,8 @@ procedural   yes     --     Rules / prompt fragments. Retrieved by similarity.
 from enum import Enum
 from typing import Dict, FrozenSet, Tuple
 
+from egpt.memory.errors import MemoryOperationError
+
 __all__ = ["PERSISTENT_TIERS", "SUBSTRATES_BY_TIER", "MemoryTier", "substrates_for_tier"]
 
 
@@ -81,5 +83,18 @@ SUBSTRATES_BY_TIER: Dict[MemoryTier, FrozenSet[str]] = {
 
 
 def substrates_for_tier(tier: MemoryTier) -> FrozenSet[str]:
-    """The substrate names a write to ``tier`` should reach. Empty for ``WORKING``."""
-    return SUBSTRATES_BY_TIER[tier]
+    """The substrate names a write to ``tier`` should reach. Empty for ``WORKING``.
+
+    A tier absent from the table raises ``MemoryOperationError`` rather than the bare ``KeyError``
+    a dict lookup gives, because SM-C2 (#90) is chartered to extend this enum -- an unmapped tier
+    is a near-term reality, and it should name itself rather than surfacing as a stray ``KeyError``
+    from three frames down.
+    """
+    try:
+        return SUBSTRATES_BY_TIER[tier]
+    except KeyError:
+        raise MemoryOperationError(
+            f"Tier {tier!r} has no entry in SUBSTRATES_BY_TIER, so there is no routing for it. "
+            "A new tier must be added to that table in the same change that adds the enum member.",
+            field_name="tier",
+        ) from None

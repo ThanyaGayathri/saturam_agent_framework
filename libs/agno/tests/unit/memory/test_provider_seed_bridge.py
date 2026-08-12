@@ -815,3 +815,115 @@ def test_a_runtime_failure_mid_batch_raises_with_the_partial_receipt():
 
     # The semantic group committed; the receipt says which ids, so a retry can be idempotent.
     assert exc.value.receipt.event_ids == [m.memory_id for m in manager.added]
+
+
+# ---------------------------------------------------------------------------
+# Round-6 review
+# ---------------------------------------------------------------------------
+
+
+def test_a_manager_write_failing_midway_reports_the_rows_it_committed():
+    """Critical. `add_user_memory` runs per event, so a failure leaves earlier rows persisted.
+
+    The ids were accumulating in a local that the `return` never reached, so the receipt said
+    `accepted=0, event_ids=[]` for rows that are in the database -- and a caller following
+    `PartialWriteError`'s documented retry re-sends them with no id, minting fresh uuid4 rows and
+    duplicating every one.
+    """
+    from egpt.memory.types import PartialWriteError
+
+    manager = FakeManager()
+    original = manager.add_user_memory
+
+    def fail_on_third(memory, user_id=None):
+        if len(manager.added) >= 2:
+            raise RuntimeError("manager down")
+        return original(memory, user_id=user_id)
+
+    manager.add_user_memory = fail_on_third  # type: ignore[method-assign]
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    with pytest.raises(PartialWriteError) as exc:
+        bridge.write(
+            ACME,
+            [MemoryEvent(content=f"note {i}", scope=ACME, tier=MemoryTier.SEMANTIC) for i in range(4)],
+        )
+
+    committed = [m.memory_id for m in manager.added]
+    assert committed, "the fixture must actually commit some rows or this proves nothing"
+    assert exc.value.receipt.event_ids == committed
+    assert exc.value.receipt.accepted == len(committed)
+
+
+def test_write_tier_fails_with_the_same_type_the_other_adapter_uses():
+    """`write_tier` used to let the backend's raw exception through while `write` wrapped it."""
+    from egpt.memory.types import PartialWriteError
+
+    manager = FakeManager()
+
+    def explode(memory, user_id=None):
+        raise RuntimeError("manager down")
+
+    manager.add_user_memory = explode  # type: ignore[method-assign]
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    with pytest.raises(PartialWriteError):
+        bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
+
+
+def test_consolidate_refuses_a_scope_the_curator_cannot_filter_on():
+    """`deduplicate` filters on user_id alone, so a narrower scope was accepted and ignored.
+
+    A write-side accept-and-ignore, worse than the read-side one `_reject_unfilterable_scope` was
+    written for, in the module whose whole posture is refuse-rather-than-ignore.
+    """
+    machine = FakeMachine()
+    bridge = SeedMemoryProvider(manager=FakeManager(), machine=machine, config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="filters on user_id alone"):
+        bridge.consolidate(ACME_AGENT)
+
+    assert machine.curator.calls == [], "refused before the curator ever ran"
+
+
+def test_a_session_scoped_write_is_refused_rather_than_silently_losing_its_session():
+    """UserMemory has no session column, and reads already refuse the same scope."""
+    session = Scope(tenant_id="acme", user_id="u1", session_id="s1")
+    bridge = SeedMemoryProvider(manager=FakeManager(), config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="no session column"):
+        bridge.write_tier(session, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=session)])
+
+
+def test_a_store_write_defaults_to_not_updated_rather_than_assuming_success():
+    """`getattr(store, "was_updated", True)` assumed success from the field that reports it."""
+
+    class Flagless(FakeStore):
+        @property
+        def was_updated(self):
+            raise AttributeError("this store does not report the flag")
+
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: Flagless()}, config=seed_config())
+
+    receipt = bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="note", scope=ACME)])
+
+    assert receipt.accepted == 0
+    assert receipt.tiers_written == []
+
+
+def test_two_tiers_bound_to_the_same_learning_type_do_not_collide():
+    """The record id carried store and scope but not tier, and this path has no dedup."""
+    bridge = SeedMemoryProvider(
+        stores={MemoryTier.SEMANTIC: FakeStore("profile"), MemoryTier.PROCEDURAL: FakeStore("profile")},
+        config=seed_config(),
+    )
+
+    records = bridge.read(ACME, MemoryQuery(text="q")).records
+
+    assert len({r.id for r in records}) == len(records) == 2
+
+
+def test_the_factory_refuses_a_manager_that_is_not_one():
+    """`_build_co_located` checks its substrates; this took collaborators on faith."""
+    with pytest.raises(MemoryProviderConfigError, match="memory_manager"):
+        build_memory_provider(seed_config(memory_manager=object()))

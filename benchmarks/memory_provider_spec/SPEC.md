@@ -403,7 +403,13 @@ conformance test miss a violation.
 
 | Invariant | Enforced in |
 |---|---|
-| No record leaves the seam under a tenant that did not ask for it — on read **and** consolidate | `co_located._assert_tenant_isolation`, `seed._guard_tenant` |
+| No record leaves the seam outside the call scope — **all five slots**, on read *and* consolidate | `co_located._assert_scope_isolation`, `seed._guard_tenant` |
+| A record the graph has bounded is never served, whatever the ranking did | `co_located._reconcile_bounds` via `GraphSubstrate.bounds_for_ids` |
+| Consolidation never distils an episode the graph recorded as false | `co_located._visible_episodes` |
+| A fact whose source group grew supersedes the row it subsumes | `co_located._superseded` |
+| A substrate may not return a tier the query did not ask for | `co_located._assert_requested_tiers` |
+| Reads of an unserved tier are **empty**; only writes refuse one | both adapters, `read` and `read_tier` |
+| A backend failure raises `PartialWriteError` from **every** write verb, carrying committed ids | both adapters, `write` and `write_tier` |
 | Duplicate ids in one batch are refused before anything is written | `validation.reject_duplicate_ids` |
 | `MemoryEvent.scope` must equal the write scope | `validation.reject_foreign_scopes` |
 | A named substrate is served or refused, never silently emptied | `co_located._require_answerable`, `seed._reject_unservable_substrates` |
@@ -439,6 +445,9 @@ result-only assertion cannot detect a wrong request.
 | `MemoryManager.search_user_memories` / `add_user_memory` have no async variant; the bridge hops a thread | SM-C2 #90 |
 | Graph enumeration semantics for a `scan` on `GraphSubstrate` | SM-G9 #107 |
 | Bounds-by-id lookup on `GraphSubstrate`, to close point-in-time when the graph's top-`limit` misses a row the vector leg returned | SM-G1 #99 |
-| Push the current-belief predicate into the substrates so the read path stops needing a merged-set filter | SM-V1 #95 / SM-G1 #99 |
+| Re-sync the vector projection on invalidation, so a bounded row stops consuming a page slot. Precision is closed by `bounds_for_ids`; the residual is **recall** — a page dominated by bounded rows comes back short, reported as `fusion["dropped_by_validity"]` | SM-V1 #95 / SM-G1 #99 |
+| A consolidation cursor. Until then a tier larger than `max_episodes_per_pass` has its tail consolidated **never**, not later: nothing marks an episode consumed and `scan` is oldest-first, so every pass re-reads the same first N. Reported as `details["tail_unreachable"]`; the only remedy today is raising the cap above the tier size | SM-L1 #122 |
+| `_distil` is quadratic — 2.6s of CPU at the 5,000 cap after caching the group head's tokens (was 7.5s). Real extract-and-merge replaces it | SM-L3 #124 |
+| Batched `upsert_episodes` / `upsert_facts` on the ports, so a write is one round trip rather than `len(events)`. Adding them after implementors ship is a breaking Protocol change | SM-G1 #99 |
 | Explicit supersede when a consolidation group gains a member, so the previous fact is not orphaned | SM-L3 #124 |
 | Real tenant isolation for the seed bridge (a `tenant_id` column and its migration) | SM-C3 #91 |

@@ -80,6 +80,11 @@ def _merge(legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
 
     Ties break on content, then tier, then id -- never on arrival order, which is driven by UUID
     record ids and made identical corpora rank differently across processes.
+
+    Bounds are **not** merged between the legs here. They used to be, but
+    ``_reconcile_bounds`` runs straight after and overwrites every id the graph knows from the
+    authority itself -- and any id a graph leg contributed is by definition an id the graph knows.
+    Peer-merging was unreachable, and an unreachable invariant is one nothing can test.
     """
     merged: Dict[str, MemoryRecord] = {}
     for records in legs:
@@ -94,7 +99,6 @@ def _merge(legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
                 continue
             existing.score = (existing.score or 0.0) + (record.score or 0.0)
             existing.substrate = None  # no longer from one place
-            existing.tighten_bounds(record)
     return sorted(merged.values(), key=lambda r: (-(r.score or 0.0), r.content, r.tier.value, r.id))
 
 
@@ -112,6 +116,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         vector: Optional[VectorSubstrate] = None,
         graph: Optional[GraphSubstrate] = None,
         config: Optional[MemoryProviderConfig] = None,
+        max_episodes_per_pass: int = _MAX_EPISODES_PER_PASS,
     ) -> None:
         if vector is None and graph is None:
             raise MemoryProviderConfigError(
@@ -121,6 +126,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self.vector = vector
         self.graph = graph
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
+        #: Ceiling on one consolidation pass. Adjustable because the default is a safety bound, not
+        #: a policy: a tier larger than this has its tail consolidated *never*, not later.
+        self.max_episodes_per_pass = max_episodes_per_pass
 
     def substrates(self) -> Dict[Substrate, bool]:
         return {Substrate.VECTOR: self.vector is not None, Substrate.GRAPH: self.graph is not None}
@@ -145,12 +153,23 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 field_name="tier",
             )
 
-    def _require_readable(self, tier: MemoryTier) -> None:
-        """Asking for one tier by name is a claim it exists; a multi-tier filter is not."""
-        if not substrates_for_tier(tier):
+    @staticmethod
+    def _assert_requested_tiers(query: MemoryQuery, records: Sequence[MemoryRecord]) -> None:
+        """A substrate may not return a tier the query did not ask for.
+
+        The provider re-checks scope and validity after the legs return and used to trust tier
+        entirely, so a backend ignoring ``resolved_tiers()`` had ``read_tier(SEMANTIC)`` returning
+        episodic and procedural rows, faithfully grouped under those tiers in ``by_tier``. The
+        existing test asserts the two *legs agree with each other*, which cannot see a failure both
+        legs share.
+        """
+        wanted = set(query.resolved_tiers())
+        unwanted = sorted({r.tier.value for r in records if r.tier not in wanted})
+        if unwanted:
             raise MemoryOperationError(
-                f"Tier {tier.value!r} has no persistent substrate, so there is nothing to read.",
-                field_name="tier",
+                f"A substrate returned tiers {unwanted} that the query did not ask for "
+                f"({sorted(t.value for t in wanted)}); a backend ignored the tier filter.",
+                field_name="tiers",
             )
 
     def _require_answerable(self, query: MemoryQuery) -> None:
@@ -201,20 +220,62 @@ class CoLocatedMemoryProvider(MemoryProvider):
             )
 
     @staticmethod
-    def _assert_tenant_isolation(scope: Scope, records: Sequence[MemoryRecord]) -> None:
-        """No record may leave the seam, or be persisted, under a tenant that did not ask for it.
+    def _assert_scope_isolation(scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        """No record may leave the seam, or be persisted, under a scope that did not ask for it.
 
-        Substrates are required to apply the tenant predicate; this declines to take that on faith.
-        Applied on the consolidate path too, where a leaked row would otherwise be written back as
-        a genuine row under the caller's tenant and pass every later check.
+        **All five slots, not just the tenant.** The port requires a backend to apply every set
+        slot conjunctively, and a backend that honours the tenant and drops the ``user_id``
+        predicate -- the exact bug that docstring warns about -- served one user's row to another
+        with a tenant-only guard watching. Four more comparisons on a list already in hand.
+
+        A ``None`` slot on the call scope means "any", so it constrains nothing; a set slot must
+        match exactly. Applied on the consolidate path too, where a leaked row would otherwise be
+        distilled into a genuine fact under the caller's scope and pass every later check.
         """
-        foreign = {r.scope.tenant_id for r in records if r.scope.tenant_id != scope.tenant_id}
-        if foreign:
+        offenders: List[str] = []
+        for record in records:
+            for slot in ("tenant_id", "user_id", "agent_id", "team_id", "session_id"):
+                wanted = getattr(scope, slot)
+                got = getattr(record.scope, slot, None)
+                if wanted is not None and got != wanted:
+                    offenders.append(f"{record.id}: {slot}={got!r} (asked {wanted!r})")
+                    break
+        if offenders:
             raise MemoryOperationError(
-                f"A substrate returned records for {sorted(foreign)} on a call scoped to "
-                f"{scope.tenant_id!r}; a backend dropped its tenant predicate.",
-                field_name="tenant_id",
+                f"A substrate returned records outside the call scope {scope.key()}; it dropped a "
+                f"scope predicate. Offending: {sorted(offenders)[:5]}.",
+                field_name="scope",
             )
+
+    def _reconcile_bounds(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        """Overwrite each record's bi-temporal bounds with the graph's, in place.
+
+        Without this the read path serves facts the graph has recorded as **false**. The vector
+        projection carries no bounds; under SCD-2 the graph's bound-bearing successor row holds the
+        *same content* as the live row, so it scores identically and drops off the graph leg's
+        top-``limit`` page as soon as the corpus is larger than the page. Nothing then reaches
+        ``_merge`` to tighten against, and the stale row passes ``_valid_at`` labelled current
+        belief. Measured: at ``limit=3`` over a six-row corpus, every returned row was invalidated.
+
+        One batched call per read, not per record -- see ``GraphSubstrate.bounds_for_ids``.
+        """
+        if self.graph is None or not records:
+            return
+        bounds = self.graph.bounds_for_ids(scope, [r.id for r in records])
+        for record in records:
+            found = bounds.get(record.id)
+            if found is not None:
+                record.apply_bounds(found)
+
+    async def _areconcile_bounds(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        """Async variant of :meth:`_reconcile_bounds`."""
+        if self.graph is None or not records:
+            return
+        bounds = await self.graph.abounds_for_ids(scope, [r.id for r in records])
+        for record in records:
+            found = bounds.get(record.id)
+            if found is not None:
+                record.apply_bounds(found)
 
     # -- write ----------------------------------------------------------------
 
@@ -278,6 +339,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
             if self.graph is not None:
                 for event, record in zip(stamped, records):
                     self._graph_write(scope, event, record)
+        except MemoryOperationError:
+            raise  # a refusal is not a partial write; retrying it will refuse identically
         except Exception as exc:
             raise PartialWriteError(self._receipt(stamped)) from exc
         return self._receipt(stamped)
@@ -289,8 +352,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
             if self.vector is not None and vector_records:
                 await self.vector.aupsert(scope, vector_records)
             if self.graph is not None:
-                for event, record in zip(stamped, records):
-                    await self._agraph_write(scope, event, record)
+                # Gathered, not serial. The read path already argues that Mode B should not pay for
+                # series over a network; a batch write is the stronger case, since the serial count
+                # is len(events) rather than 2. The port wants `upsert_episodes` / `upsert_facts`
+                # eventually -- adding them after SM-G1 ships implementors is a breaking Protocol
+                # change for every graph backend, so it is noted here as cheapest now.
+                await asyncio.gather(*(self._agraph_write(scope, e, r) for e, r in zip(stamped, records)))
+        except MemoryOperationError:
+            raise  # a refusal is not a partial write; retrying it will refuse identically
         except Exception as exc:
             raise PartialWriteError(self._receipt(stamped)) from exc
         return self._receipt(stamped)
@@ -324,13 +393,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self,
         scope: Scope,
         query: MemoryQuery,
+        merged: List[MemoryRecord],
         vector_hits: List[MemoryRecord],
         graph_hits: List[MemoryRecord],
         instant: int,
     ) -> MemorySlice:
-        merged = _merge([vector_hits, graph_hits])
-        self._assert_tenant_isolation(scope, merged)
-
+        """Filter the reconciled set and package it. Bounds must already be authoritative."""
         # Both predicates, always. `is_current_belief` is transaction time only, and under SCD-2
         # the successor row carries a past `t_invalid` with `expired_at = None` -- so checking only
         # current belief let `read()` and `read(as_of=now)` disagree at the same instant.
@@ -353,12 +421,20 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 fused=len(merged),
                 returned=len(records),
                 # A short result with non-zero hits is ambiguous otherwise: an empty corpus and a
-                # page the validity filter emptied look identical. Substrates filter transaction
-                # time before ranking, so what reaches here is the valid-time discard.
+                # page the validity filter emptied look identical. Precision is handled by
+                # reconciliation, so what this counts is the recall shortfall named in
+                # `VectorSubstrate.search`.
                 dropped_by_validity=len(merged) - len(visible),
                 instant=instant,
             ),
         )
+
+    def _merged(self, scope: Scope, query: MemoryQuery, legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
+        """Merge the legs and run every post-condition that does not need a backend call."""
+        merged = _merge(legs)
+        self._assert_scope_isolation(scope, merged)
+        self._assert_requested_tiers(query, merged)
+        return merged
 
     def read(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         self._require_answerable(query)
@@ -369,7 +445,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
             vector_hits = list(self.vector.search(scope, query))
         if self.graph is not None and self._uses(query, Substrate.GRAPH):
             graph_hits = list(self.graph.traverse(scope, query))
-        return self._slice(scope, query, vector_hits, graph_hits, instant)
+        merged = self._merged(scope, query, [vector_hits, graph_hits])
+        self._reconcile_bounds(scope, merged)
+        return self._slice(scope, query, merged, vector_hits, graph_hits, instant)
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         self._require_answerable(query)
@@ -388,18 +466,27 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # Concurrent: the legs are independent by construction, and Mode B pays for series over a
         # network.
         vector_hits, graph_hits = await asyncio.gather(vector_leg(), graph_leg())
-        return self._slice(scope, query, vector_hits, graph_hits, instant)
+        merged = self._merged(scope, query, [vector_hits, graph_hits])
+        await self._areconcile_bounds(scope, merged)
+        return self._slice(scope, query, merged, vector_hits, graph_hits, instant)
 
     @staticmethod
     def _uses(query: MemoryQuery, substrate: Substrate) -> bool:
         return query.substrates is None or substrate in query.substrates
 
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
-        self._require_readable(tier)
+        """Read one tier. A tier this provider does not serve reads **empty**, it is not refused.
+
+        One rule across both adapters and both entry points. Previously the same logical request
+        got three answers -- `co_located.read_tier(WORKING)` refused, `seed.read_tier(WORKING)`
+        returned `[]`, and `co_located.read(tiers=[WORKING])` returned an empty slice -- so no
+        caller could write one handler. Reads report absence; **writes** refuse it, because writing
+        somewhere nothing will store it loses data while reading it simply finds nothing.
+        """
         return self.read(scope, replace(query, tiers=[tier])).records
 
     async def aread_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
-        self._require_readable(tier)
+        """Async variant of :meth:`read_tier`, with the same read-empty rule."""
         return (await self.aread(scope, replace(query, tiers=[tier]))).records
 
     # -- consolidate ----------------------------------------------------------
@@ -441,17 +528,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
         tiebreak, so the attribution was arbitrary as well as wrong.
         """
         now = now_epoch_s()
-        groups: List[List[MemoryRecord]] = []
+        # (scope, head tokens, members). The head's token set is cached rather than recomputed on
+        # every comparison -- re-tokenising inside the inner loop dominated the quadratic term and
+        # cost 7.5s of pure CPU at the 5,000 cap. Candidates are bucketed by scope first, so a
+        # multi-user pass compares only within a user.
+        buckets: Dict[Scope, List[Tuple[Set[str], List[MemoryRecord]]]] = {}
         for episode in sorted(episodes, key=lambda r: (r.scope.key(), r.content, r.created_at or 0, r.id)):
             tokens = _tokens(episode.content)
-            for group in groups:
-                if group[0].scope != episode.scope:
-                    continue
-                if _jaccard(_tokens(group[0].content), tokens) >= _DUPLICATE_THRESHOLD:
-                    group.append(episode)
+            for head_tokens, members in buckets.setdefault(episode.scope, []):
+                if _jaccard(head_tokens, tokens) >= _DUPLICATE_THRESHOLD:
+                    members.append(episode)
                     break
             else:
-                groups.append([episode])
+                buckets[episode.scope].append((tokens, [episode]))
+        groups: List[List[MemoryRecord]] = [
+            members for scope_key in sorted(buckets, key=lambda sc: sc.key()) for _, members in buckets[scope_key]
+        ]
 
         facts: List[FactWrite] = []
         merged = 0
@@ -470,7 +562,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
                         scope=head.scope,
                         topics=list(head.topics) if head.topics is not None else None,
                         provenance={"source_episode_ids": source_ids},
-                        t_valid=head.t_valid,
+                        # The earliest evidence, not the head's. A fact claiming to become true
+                        # later than the oldest episode it was distilled from answers a
+                        # point-in-time read wrongly for the interval in between.
+                        t_valid=min((m.t_valid for m in group if m.t_valid is not None), default=None),
                         created_at=max((m.created_at or 0) for m in group) or now,
                     ),
                     source_episode_ids=source_ids,
@@ -480,20 +575,36 @@ class CoLocatedMemoryProvider(MemoryProvider):
         return facts, merged
 
     def _report(
-        self, scope: Scope, episodes: Sequence[MemoryRecord], facts: Sequence[FactWrite], merged: int
+        self,
+        scope: Scope,
+        scanned: Sequence[MemoryRecord],
+        episodes: Sequence[MemoryRecord],
+        facts: Sequence[FactWrite],
+        merged: int,
+        superseded: int,
     ) -> ConsolidationReport:
+        hit_cap = len(scanned) >= self.max_episodes_per_pass
         return ConsolidationReport(
             scope=scope,
-            episodic_scanned=len(episodes),
+            episodic_scanned=len(scanned),
             semantic_written=len(facts),
             duplicates_merged=merged,
-            # Zero by design: knowing two facts disagree needs extraction, which is SM-L5's (#126).
+            # Zero by design: knowing two facts *disagree* needs extraction, which is SM-L5's
+            # (#126). `superseded` below is the narrower thing this pass can know -- a fact whose
+            # source group grew, so the previous row is subsumed rather than contradicted.
             contradictions_resolved=0,
             details=consolidation_details(
                 derived_by="co_located.deterministic_dedup",
-                # False when the pass hit its cap, so a caller can tell a drained tier from a
-                # truncated one. Draining the remainder is SM-L1's (#122).
-                complete=len(episodes) < _MAX_EPISODES_PER_PASS,
+                # False when the pass hit its cap. **The tail is not merely deferred: nothing marks
+                # an episode consumed and `scan` is ordered oldest-first, so every pass re-reads the
+                # same first N and episodes past the cap are never consolidated at all.** Raising
+                # `max_episodes_per_pass` above the tier size is the only remedy until SM-L1 (#122)
+                # brings a cursor. Stated here and in SPEC section 11.3 rather than left behind a
+                # flag that reads like ordinary pagination.
+                complete=not hit_cap,
+                episodes_skipped_as_invalid=len(scanned) - len(episodes),
+                facts_superseded=superseded,
+                tail_unreachable=hit_cap,
             ),
         )
 
@@ -506,45 +617,137 @@ class CoLocatedMemoryProvider(MemoryProvider):
         -- readable by every user in it. On the ``write`` path the two always agree, because
         ``_prepare`` stamps the call scope onto every record; consolidate is the only path where a
         record carries a narrower scope than the call.
+
+        Keyed on the frozen ``Scope`` itself, never on ``key()``. ``key()`` is now escaped and
+        injective, but grouping identity should not depend on a string function at all -- the
+        object is hashable, and an equality bug there is a misfiled write.
         """
-        batched: Dict[str, Tuple[Scope, List[FactWrite]]] = {}
+        batched: Dict[Scope, List[FactWrite]] = {}
         for fact in facts:
-            batched.setdefault(fact.record.scope.key(), (fact.record.scope, []))[1].append(fact)
-        return [batched[key] for key in sorted(batched)]
+            batched.setdefault(fact.record.scope, []).append(fact)
+        return [(sc, batched[sc]) for sc in sorted(batched, key=lambda s: s.key())]
+
+    def _superseded(self, scanned_semantic: Sequence[MemoryRecord], facts: Sequence[FactWrite]) -> List[str]:
+        """Ids of existing facts a newly derived fact strictly subsumes.
+
+        The fact id is ``uuid5`` over the sorted source-episode ids, which makes a re-run over an
+        *unchanged* group idempotent. The moment a near-duplicate joins the group the id changes,
+        and without this the previous row stays current belief -- so one logical fact is returned
+        twice, on the second scheduled pass over any tier still receiving writes.
+
+        Strict subset only: a fact whose sources are a superset of an older one's supersedes it. An
+        older fact with sources the new one lacks is a different fact and is left alone. Real
+        supersede semantics, including split and merge, are SM-L3's (#124).
+        """
+        incoming = [(f.record.id, set(f.source_episode_ids)) for f in facts]
+        stale: List[str] = []
+        for row in scanned_semantic:
+            sources = set(row.provenance.get("source_episode_ids") or ())
+            if not sources:
+                continue
+            for new_id, new_sources in incoming:
+                if row.id != new_id and sources < new_sources:
+                    stale.append(row.id)
+                    break
+        return stale
+
+    def _fact_targets(self, facts: Sequence[FactWrite]) -> Tuple[bool, bool]:
+        """Which substrates a semantic fact routes to, per ``SUBSTRATES_BY_TIER``.
+
+        ``write`` filters by routing and ``_graph_write`` returns early when a tier does not reach
+        the graph; consolidate did neither, so it wrote wherever a substrate happened to be wired.
+        Latent while SEMANTIC routes to both -- and silent the moment SM-C2 (#90), which owns that
+        table, changes a row.
+        """
+        routed = substrates_for_tier(MemoryTier.SEMANTIC) if facts else frozenset()
+        return "vector" in routed, "graph" in routed
+
+    def _visible_episodes(self, scope: Scope, episodes: List[MemoryRecord], instant: int) -> List[MemoryRecord]:
+        """Drop episodes the graph has recorded as false before anything is distilled.
+
+        ``scan`` reads the vector substrate, whose projection is stale with respect to validity, so
+        an invalidated episode arrived here looking live and was minted into a **brand-new
+        semantic fact with no bounds at all** -- unsuppressable afterwards by any read, at any
+        limit, with any ``as_of``. Strictly worse than the read-path version of this bug, which at
+        least stops when the corpus shrinks.
+        """
+        self._reconcile_bounds(scope, episodes)
+        return [e for e in episodes if e.is_current_belief() and _valid_at(e, instant)]
+
+    async def _avisible_episodes(self, scope: Scope, episodes: List[MemoryRecord], instant: int) -> List[MemoryRecord]:
+        """Async variant of :meth:`_visible_episodes`."""
+        await self._areconcile_bounds(scope, episodes)
+        return [e for e in episodes if e.is_current_belief() and _valid_at(e, instant)]
 
     def consolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         vector = self._check_consolidatable(tiers)
-        episodes = list(vector.scan(scope, MemoryTier.EPISODIC, limit=_MAX_EPISODES_PER_PASS))
-        self._assert_tenant_isolation(scope, episodes)
+        instant = now_epoch_s()
+        scanned = list(vector.scan(scope, MemoryTier.EPISODIC, limit=self.max_episodes_per_pass))
+        self._assert_scope_isolation(scope, scanned)
+        episodes = self._visible_episodes(scope, scanned, instant)
         facts, merged = self._distil(scope, episodes)
+
+        existing = list(vector.scan(scope, MemoryTier.SEMANTIC, limit=self.max_episodes_per_pass))
+        self._assert_scope_isolation(scope, existing)
+        stale = self._superseded(existing, facts)
+
         if facts:
-            receipt = WriteReceipt(accepted=len(facts), event_ids=[f.record.id for f in facts])
+            to_vector, to_graph = self._fact_targets(facts)
+            receipt = WriteReceipt(accepted=0, event_ids=[])
             try:
                 for fact_scope, batch in self._by_scope(facts):
-                    vector.upsert(fact_scope, [f.record for f in batch])
-                    if self.graph is not None:
+                    if to_vector:
+                        vector.upsert(fact_scope, [f.record for f in batch])
+                    if to_graph and self.graph is not None:
                         for fact in batch:
                             self.graph.upsert_fact(fact_scope, fact)
+                    receipt.accepted += len(batch)
+                    receipt.event_ids.extend(f.record.id for f in batch)
+                if self.graph is not None:
+                    for stale_id in stale:
+                        self.graph.invalidate(scope, stale_id, t_invalid=instant, at=instant)
+            except MemoryOperationError:
+                raise
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
-        return self._report(scope, episodes, facts, merged)
+        return self._report(scope, scanned, episodes, facts, merged, len(stale))
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         vector = self._check_consolidatable(tiers)
-        episodes = list(await vector.ascan(scope, MemoryTier.EPISODIC, limit=_MAX_EPISODES_PER_PASS))
-        self._assert_tenant_isolation(scope, episodes)
-        facts, merged = self._distil(scope, episodes)
+        instant = now_epoch_s()
+        scanned = list(await vector.ascan(scope, MemoryTier.EPISODIC, limit=self.max_episodes_per_pass))
+        self._assert_scope_isolation(scope, scanned)
+        episodes = await self._avisible_episodes(scope, scanned, instant)
+        # Off the loop: `_distil` is quadratic and measured 7.5s of pure CPU at the cap, during
+        # which no other coroutine in the process ran. `aconsolidate` is documented as the primary
+        # entry point, so an async half that does no awaiting is the blocked-loop failure
+        # CLAUDE.md's both-halves rule exists to prevent, arriving through a different door.
+        facts, merged = await asyncio.to_thread(self._distil, scope, episodes)
+
+        existing = list(await vector.ascan(scope, MemoryTier.SEMANTIC, limit=self.max_episodes_per_pass))
+        self._assert_scope_isolation(scope, existing)
+        stale = self._superseded(existing, facts)
+
         if facts:
-            receipt = WriteReceipt(accepted=len(facts), event_ids=[f.record.id for f in facts])
+            to_vector, to_graph = self._fact_targets(facts)
+            receipt = WriteReceipt(accepted=0, event_ids=[])
             try:
                 for fact_scope, batch in self._by_scope(facts):
-                    await vector.aupsert(fact_scope, [f.record for f in batch])
-                    if self.graph is not None:
-                        for fact in batch:
-                            await self.graph.aupsert_fact(fact_scope, fact)
+                    if to_vector:
+                        await vector.aupsert(fact_scope, [f.record for f in batch])
+                    if to_graph and self.graph is not None:
+                        await asyncio.gather(*(self.graph.aupsert_fact(fact_scope, f) for f in batch))
+                    receipt.accepted += len(batch)
+                    receipt.event_ids.extend(f.record.id for f in batch)
+                if self.graph is not None and stale:
+                    await asyncio.gather(
+                        *(self.graph.ainvalidate(scope, i, t_invalid=instant, at=instant) for i in stale)
+                    )
+            except MemoryOperationError:
+                raise
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
-        return self._report(scope, episodes, facts, merged)
+        return self._report(scope, scanned, episodes, facts, merged, len(stale))
 
 
 @register_provider("co_located")
@@ -556,4 +759,5 @@ def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
         vector=checked_vector(config.options.get("vector_substrate")),
         graph=checked_graph(config.options.get("graph_substrate")),
         config=config,
+        max_episodes_per_pass=config.options.get("max_episodes_per_pass", _MAX_EPISODES_PER_PASS),
     )
