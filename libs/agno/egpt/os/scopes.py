@@ -567,6 +567,12 @@ def get_default_scope_mappings() -> Dict[str, List[str]]:
         "GET /registry": ["registry:read"],
         # Component endpoints (Studio)
         "GET /components": ["components:read"],
+        # Portable definitions (EGPT-2.8). These sit ABOVE the wildcards on purpose: the
+        # fallback below takes the first pattern that fnmatches, in insertion order, so
+        # "GET /components/*" would otherwise swallow the export route and decide its scope by
+        # accident rather than by decision. Reordering this dict silently changes authorization.
+        "GET /components/*/export": ["components:read"],
+        "POST /components/import": ["components:write"],
         "GET /components/*": ["components:read"],
         "POST /components": ["components:write"],
         "PATCH /components/*": ["components:write"],

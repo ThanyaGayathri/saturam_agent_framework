@@ -147,3 +147,30 @@ growing, precisely because it survives the hard delete at the end. `audit_id` st
 across runs, which is the sequence behaving correctly.
 
 ---
+
+### seed_and_export.py
+
+**Status:** PASS
+
+**Description:** Exercises portable definitions (EGPT-2.8) against a real Postgres
+(`./cookbook/scripts/run_pgvector.sh`). Saves a team and its two member agents into tenant
+`acme`, exports the team as a bundle, imports that bundle into tenant `globex` under an
+`globex-` id prefix, then hydrates the copy and checks tenant isolation.
+
+**Result:** The export carried all three components children-first and redacted three
+`db_url` values -- one per component, since each was saved against the Postgres instance. The
+surviving db block was `{'id': 'os-db', 'type': 'postgres', 'db_schema': 'ai', 'table_prefix':
+'egpt_'}`, which is exactly what `resolve_db_from_config` needs to find the registered instance
+again. The import created all three prefixed components at v1. The hydrated
+`globex-support-team` reported members `['globex-faq-agent', 'globex-research-agent']` while the
+original still reported `['faq-agent', 'research-agent']`, and reading the copy from the source
+tenant returned `None`. The bundle serialized to 3610 bytes of canonical JSON.
+
+**Note:** Run against `.venv/bin/python` in this workspace, which has no `.venvs/demo`. No model
+call is made, so no API key is needed. The example hard-deletes its own components on startup so
+repeat runs print the same narrative; without that the second run would correctly report every
+component as `unchanged`, which is the right behaviour but hides what the example is showing.
+`check_cookbook_pattern.py` reports 6 violations across this folder, all pre-existing in
+`capability_policy.py`, `tenant_budget.py` and `workflows/` -- none in this file.
+
+---

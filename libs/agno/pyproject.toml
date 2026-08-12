@@ -448,7 +448,10 @@ build-backend = "setuptools.build_meta"
 include = ["egpt*"]
 
 [tool.setuptools.package-data]
-egpt = ["py.typed"]
+# The starter definition templates (EGPT-2.8) ship in the wheel: seeding a tenant is an
+# operator task, and `pip install egpt` has to be enough for it. Without this entry the
+# directory is silently absent from the built distribution and only works from a checkout.
+egpt = ["py.typed", "registry/templates/*.json"]
 include = ["LICENSE"]
 
 [tool.pytest.ini_options]

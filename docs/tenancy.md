@@ -249,3 +249,7 @@ caller's tenant end to end:
   EGPT-2.6 delivered the audit trail, not this.
 - **A hard-deleted component's audit history is unreachable over HTTP**, though the rows
   survive in the table. See [component-lifecycle.md](component-lifecycle.md) §3.
+- **Seeding and importing definitions.** Rows are stamped with the *target* tenant and a
+  component owned by another tenant is never written to. But `component_id` is the global
+  primary key, so the same corpus cannot be seeded verbatim into two tenants — it needs
+  `--id-prefix`. See [component-portability.md](component-portability.md) §3.

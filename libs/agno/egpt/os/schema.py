@@ -910,6 +910,80 @@ class ConfigUpdate(BaseModel):
     links: Optional[List[Dict[str, Any]]] = None
 
 
+class ComponentBundleEntry(BaseModel):
+    """One component inside a portable definition bundle (EGPT-2.8)."""
+
+    component_id: str
+    component_type: str
+    config: Dict[str, Any]
+    name: Optional[str] = None
+    description: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+    stage: str = "draft"
+    label: Optional[str] = None
+    notes: Optional[str] = None
+    links: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ComponentBundle(BaseModel):
+    """A portable definition bundle: a component and everything it depends on.
+
+    Carries no version history, ``current_version``, audit trail or tenant -- all four are
+    properties of the database it came from, not of the definition. ``redacted`` names every
+    connection field export removed; the export endpoint never returns secrets, so it is the
+    record of what a target will have to supply.
+    """
+
+    format: str
+    format_version: int
+    schema_version: int
+    components: List[ComponentBundleEntry]
+    exported_at: Optional[str] = None
+    source: Optional[Dict[str, Any]] = None
+    root: Optional[str] = None
+    redacted: List[str] = Field(default_factory=list)
+
+
+class ComponentImportRequest(BaseModel):
+    document: Dict[str, Any] = Field(..., description="The bundle to import")
+    on_conflict: str = Field(
+        "error",
+        description=(
+            "What to do when a component id is taken: 'error', 'skip', or 'new_version' "
+            "(append a version to a component this tenant already owns)"
+        ),
+    )
+    id_prefix: Optional[str] = Field(None, description="Prefix every component id in the bundle")
+    new_component_id: Optional[str] = Field(None, description="Rename a single-component bundle")
+    id_map: Optional[Dict[str, str]] = Field(None, description="Explicit old id to new id renames")
+    db_id: Optional[str] = Field(None, description="Point each config's db block at this database id")
+    drop_db: bool = Field(False, description="Remove the db block, so hydration attaches the server's database")
+    stage: Optional[str] = Field(None, description="Override the stage every component is written at")
+
+
+class ImportResultItem(BaseModel):
+    component_id: str
+    component_type: str
+    action: str = Field(..., description="created, new_version, unchanged, metadata_updated or skipped")
+    version: Optional[int] = None
+    reason: Optional[str] = None
+
+
+class ComponentImportResponse(BaseModel):
+    """The per-component outcome of an import.
+
+    Always a list, even when everything succeeded: writes are one transaction per component,
+    so a database-level fault partway through leaves a partial bundle, and the caller needs to
+    see which components actually landed rather than infer it from a status code.
+    """
+
+    results: List[ImportResultItem]
+    created: int = 0
+    versioned: int = 0
+    unchanged: int = 0
+    skipped: int = 0
+
+
 class RegistryResourceType(str, Enum):
     """Types of resources that can be stored in a registry."""
 

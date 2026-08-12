@@ -127,6 +127,7 @@ Packages marked **split** keep interfaces/types in **core** and move concrete im
 |--------|-------|
 | `agent/` | Primary agent runtime |
 | `agents/` | Built-in / specialized agent definitions that are orchestration, not external adapters |
+| `components/` | The seam between a stored component definition and the classes that own its contract: the `ComponentSpec` factory behind the EGPT-2.2 validator (`spec.py`) and import/seed of definition bundles (`io.py`, EGPT-2.8). Orchestration because it imports `Agent` / `Team` / `Workflow`; **not** api, because `egpt.os.__init__` imports `EgptOS` and would make FastAPI a dependency of seeding a database. |
 | `team/` | Multi-agent team runtime |
 | `workflow/` | Workflow runtime |
 | `reasoning/` | Reasoning loops / strategies |
@@ -207,13 +208,13 @@ Every current **top-level** name under `libs/agno/egpt/` is assigned a primary l
 
 | Top-level | Primary layer |
 |-----------|---------------|
-| `agent`, `agents`, `team`, `workflow`, `reasoning`, `hooks`, `context` | orchestration (context connectors → integrations when extracted) |
+| `agent`, `agents`, `components`, `team`, `workflow`, `reasoning`, `hooks`, `context` | orchestration (context connectors → integrations when extracted) |
 | `eval`, `learn`, `memory`, `culture`, `skills`, `scheduler`, `compression`, `factory`, `guardrails` | services |
 | `integrations`, plus concrete slices of `models`, `db`, `vectordb`, `tools`, `knowledge`, `tracing`, `utils` | integrations |
 | `os`, `api`, `client`, `remote`, `cloud` | api / control-plane (`cloud/` provider adapters → integrations when extracted) |
 | `run`, `session`, `approval`, `registry`, `exceptions.py`, `filters.py`, `media.py`, `metrics.py`, `brand.py`, `debug.py`, plus interface slices of split packages | core |
 
-Covered names: `agent`, `agents`, `api`, `approval`, `brand.py`, `client`, `cloud`, `compression`, `context`, `culture`, `db`, `debug.py`, `eval`, `exceptions.py`, `factory`, `filters.py`, `guardrails`, `hooks`, `integrations`, `knowledge`, `learn`, `media.py`, `memory`, `metrics.py`, `models`, `os`, `reasoning`, `registry`, `remote`, `run`, `scheduler`, `session`, `skills`, `team`, `tools`, `tracing`, `utils`, `vectordb`, `workflow`.
+Covered names: `agent`, `agents`, `api`, `approval`, `brand.py`, `client`, `cloud`, `components`, `compression`, `context`, `culture`, `db`, `debug.py`, `eval`, `exceptions.py`, `factory`, `filters.py`, `guardrails`, `hooks`, `integrations`, `knowledge`, `learn`, `media.py`, `memory`, `metrics.py`, `models`, `os`, `reasoning`, `registry`, `remote`, `run`, `scheduler`, `session`, `skills`, `team`, `tools`, `tracing`, `utils`, `vectordb`, `workflow`.
 
 ## Allowed-import matrix
 

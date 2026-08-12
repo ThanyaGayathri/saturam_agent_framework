@@ -244,3 +244,7 @@ Not in this ticket:
   — **EGPT-2.7**.
 - **Async backends.** They raise `NotImplementedError` for the whole component family, audit
   included, as they did before.
+- **Moving a definition between databases or tenants.** Export/import and template seeding are
+  **EGPT-2.8** — see [component-portability.md](component-portability.md). Note that neither
+  version history nor the audit trail travels with a definition: both describe what happened in
+  one database, and an import is a new beginning in the target.
