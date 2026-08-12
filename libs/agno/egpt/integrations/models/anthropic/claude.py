@@ -179,6 +179,10 @@ class Claude(Model):
 
     def __post_init__(self):
         """Validate model configuration after initialization"""
+        # Chained so `Model.__post_init__` snapshots the declared connection; without it
+        # `same_model` falls back to live values for this class and mis-compares once the first
+        # request fills `api_key`/`auth_token` from the environment.
+        super().__post_init__()
         # Validate thinking support immediately at model creation
         if self.thinking:
             self._validate_thinking_support()

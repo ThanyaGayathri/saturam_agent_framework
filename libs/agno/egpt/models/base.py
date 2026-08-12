@@ -193,6 +193,23 @@ class Model(ABC):
     def __post_init__(self):
         if self.provider is None and self.name is not None:
             self.provider = f"{self.name} ({self.id})"
+        self._snapshot_declared_connection()
+
+    def _snapshot_declared_connection(self) -> None:
+        """Record which connection attributes the *caller* declared, before any lazy fill.
+
+        Needed because providers resolve credentials and endpoints inside ``_get_client_params``
+        and write them back onto ``self`` (``if not self.api_key: self.api_key = getenv(...)``).
+        So a model that has served one request carries values its own reconstruction does not, and
+        a by-value comparison of the live attributes reports an identical rebuild as "different"
+        from run 2 onward -- which re-opens the pin laundering ``same_model`` exists to close.
+
+        Called from ``Model.__post_init__``. A subclass that defines ``__post_init__`` without
+        chaining to ``super()`` takes no snapshot; ``same_model`` then falls back to the live
+        values for that class, which is the pre-snapshot behaviour rather than a crash.
+        ``tests/unit/models/test_same_model.py`` asserts every constructible subclass carries one.
+        """
+        self._declared_connection = {name: getattr(self, name, None) for name in _CONNECTION_ATTRS}
 
     def _get_retry_delay(self, attempt: int) -> float:
         """Calculate the delay before the next retry attempt."""
@@ -3182,3 +3199,195 @@ class Model(ABC):
                     setattr(new_model, k, v)
 
         return new_model
+
+
+# ---------------------------------------------------------------------------
+# Model sameness, for copy/resolve decisions
+# ---------------------------------------------------------------------------
+
+# Scalar connection attributes that distinguish two models sharing a class and an id. Read with
+# `getattr(m, name, None)` so this module names no integration: every one of these lives on a
+# provider subclass (`OpenAIResponses.base_url`, `AzureOpenAI.azure_endpoint`,
+# `AwsBedrock.aws_region`, `Gemini.project_id`, `Ollama.host`), and a model that declares none
+# reads `None` on both sides and compares equal.
+#
+# The four **client handles** are deliberately absent -- `client`, `async_client`, `http_client`
+# and `client_params`. A reconstruction rebuilds those fresh every time, so comparing them would
+# report "different" on every hydration and re-open the pin laundering this exists to close.
+#
+# `session` (`aws/claude.py`) and `credentials` (`google/gemini.py`) are absent for a *different*
+# reason, recorded separately because "rebuilt fresh" is not true of them -- a caller passes them
+# explicitly, and when `session` is set `aws/claude.py` reads its frozen credentials and ignores
+# every scalar below. This is a **knowingly-accepted gap**, not a ruled-out one: `boto3.Session`
+# and `google.oauth2.Credentials` define no `__eq__`, so comparing them falls back to identity, a
+# reconstruction is always a different object, and including them would make `same_model` return
+# False on every hydration -- the laundering bug generalised to every provider. `id()` has the same
+# defect. Two tenants distinguished *solely* by `session=Session(profile_name=...)` are therefore
+# invisible here. If a discriminator is ever wanted, a derived scalar such as
+# `session.profile_name` or `session.region_name` is the only form that does not re-open it.
+#
+# Naming is per-provider and inconsistent on purpose -- this tuple mirrors what the classes
+# actually declare. `aws/bedrock.py` uses `aws_access_key_id`/`aws_secret_access_key` while
+# `aws/claude.py` uses `aws_access_key`/`aws_secret_key`; both spellings are listed, because
+# carrying only one leaves that class's entire IAM identity invisible to this comparison.
+# `tests/unit/models/test_same_model.py` walks every `Model` subclass and fails on a
+# credential/endpoint field that is neither listed here nor explicitly accounted for below, so a
+# new provider cannot add a discriminator silently -- the failure mode otherwise is cross-tenant
+# reuse, not a broken build.
+_CONNECTION_ATTRS: Tuple[str, ...] = (
+    # endpoints and routing
+    "base_url",
+    "base_host_url",  # langdb
+    "host",  # ollama
+    "endpoint",  # mistral
+    "api_base",  # litellm
+    "url",  # ibm watsonx
+    "azure_endpoint",
+    "azure_deployment",
+    "resource",  # azure claude
+    "account_id",  # cloudflare
+    "gateway_id",  # cloudflare
+    "api_version",
+    # credentials and identity
+    "api_key",
+    "auth_token",  # anthropic
+    "azure_ad_token",  # azure openai
+    "parallel_api_key",  # google gemini
+    "portkey_api_key",  # portkey
+    "virtual_key",  # portkey
+    "aws_access_key_id",  # aws bedrock
+    "aws_secret_access_key",  # aws bedrock
+    "aws_access_key",  # aws claude -- a different spelling, not a duplicate
+    "aws_secret_key",  # aws claude
+    "aws_session_token",  # aws bedrock + aws claude
+    # tenancy / project scoping
+    "organization",
+    "project_id",
+    "location",
+    "region",  # vertexai claude -- distinct from aws_region
+    "aws_region",
+    "vertexai",  # google gemini: flips the whole auth path
+)
+
+#: Object-valued connection inputs excluded from `same_model` by decision, not oversight. Named
+#: explicitly so the drift test can distinguish "accepted gap" from "forgotten". See the note above
+#: for why comparing each would be worse than the gap it leaves.
+_CONNECTION_EXCLUSIONS: Tuple[str, ...] = (
+    "client",
+    "async_client",
+    "http_client",
+    "client_params",
+    "session",  # aws claude -- no __eq__
+    "async_session",  # aws bedrock -- same, the async twin
+    "credentials",  # google gemini -- no __eq__
+    # A callable credential source (`Optional[Any]`), checked alongside `api_key` /
+    # `azure_ad_token` in `azure/openai_chat.py`. Excluded for the same reason as `session`: a
+    # function object has no value equality, so comparing it would report "different" on every
+    # reconstruction. Two tenants distinguished *solely* by their token provider are invisible
+    # here; `azure_endpoint` and `resource` usually differ too, which is what carries them.
+    "azure_ad_token_provider",
+)
+
+#: Fields whose names match the credential/endpoint vocabulary but which do **not** identify a
+#: connection -- tool and feature toggles that ride on the same request. Listed so the drift test
+#: can tell "considered and rejected" from "missed". Two models differing only in these talk to the
+#: same endpoint under the same credentials, so treating them as different models would re-open the
+#: pin laundering rather than close a gap.
+_CONNECTION_NON_DISCRIMINATORS: Tuple[str, ...] = (
+    "url_context",  # gemini: a grounding tool toggle
+    "vertexai_search",  # gemini: a grounding tool toggle
+    "vertexai_search_datastore",  # gemini: which datastore that tool searches
+)
+
+
+def _declared_connection_value(model: Any, name: str) -> Any:
+    """The value the *caller* declared for ``name``, ignoring lazy environment fill-in.
+
+    Every in-tree provider resolves credentials and endpoints inside ``_get_client_params`` and
+    writes them onto ``self``, guarded ``if not self.X:``. That guard is what makes this readable:
+
+    * ``None -> value`` after construction is **ambiguous** -- an environment fill or a caller
+      edit -- so it is treated as undeclared and reported as ``None``.
+    * ``value -> value`` is **unambiguously** a caller edit, since the guard would not have fired,
+      so the live value is honoured.
+
+    Why not the simpler "skip an attribute when either side is ``None``": that reads ``None`` as a
+    wildcard, and it is not one. A bare ``OpenAIResponses(id="gpt-5.5")`` -- or the coerced
+    ``"openai:gpt-5.5"`` -- has every connection attribute ``None`` *by construction*, so every
+    comparison would be skipped, the rule would degenerate to class-and-id, and a tenant-A-pinned
+    agent would keep tenant A's ``base_url`` and ``api_key`` through a live run. ``None`` there is
+    a positive assertion of the default public endpoint, not an absence of information. That
+    version passes the rest of this tree's suite, which is why the discriminating tests in
+    ``tests/unit/models/test_same_model.py`` matter more than this helper's line count.
+
+    Falls back to the live value when no snapshot exists, so a subclass whose ``__post_init__``
+    does not chain to ``super()`` degrades to the pre-snapshot behaviour rather than crashing.
+    """
+    snapshot = getattr(model, "_declared_connection", None)
+    if snapshot is None:
+        return getattr(model, name, None)
+    if snapshot.get(name) is None:
+        return None
+    return getattr(model, name, None)
+
+
+def same_model(candidate: Any, existing: Any) -> bool:
+    """Whether two model references denote the same model *and the same connection*.
+
+    Answers "did the caller choose a genuinely different model, or hand back the one already in
+    use?" -- the question `Agent.deep_copy` and `Team.deep_copy` both ask when deciding whether
+    an `update={"model": ...}` is a fresh user pin.
+
+    Identity alone is not enough: every in-tree provider builds a fresh `Model` per resolve
+    (`mode_a` and `mode_b` both go through `_construct`), so the model an agent is already using
+    reaches a caller as an equal-but-distinct object, and `is not` reports it as a new pin.
+
+    Class and id alone are not enough either, and that direction is worse. Two models can share
+    both while pointing at different tenants' endpoints under different credentials --
+    `OpenAIResponses(id="gpt-5.5", base_url=tenant_a)` versus the same id at `tenant_b`. Treating
+    those as the same model keeps the *previous* tenant's object as the pin, and because a
+    provider honouring pins returns `request.requested` unchanged, the copy then serves requests
+    from the previous tenant's endpoint with the previous tenant's key.
+
+    So: identical objects match; otherwise same class, same id, and every scalar connection
+    attribute equal -- compared as **declared at construction**, not as currently live. See
+    ``_declared_connection_value``: providers fill credentials and endpoints in lazily, so
+    comparing live values reported an identical reconstruction as "different" from run 2 onward
+    and re-opened both directions of this bug.
+
+    An absent side never matches -- an agent with no model cannot already be using the one being
+    offered.
+    """
+    if candidate is None or existing is None:
+        return False
+    if candidate is existing:
+        return True
+    if type(candidate) is not type(existing):
+        return False
+    if getattr(candidate, "id", None) != getattr(existing, "id", None):
+        return False
+    return all(
+        _declared_connection_value(candidate, name) == _declared_connection_value(existing, name)
+        for name in _CONNECTION_ATTRS
+    )
+
+
+def update_pins_a_new_model(update: Optional[Dict[str, Any]], new_model: Any, existing_model: Any) -> bool:
+    """Whether an `update` dict passed to `deep_copy` states a fresh user pin.
+
+    The whole predicate, shared by `Agent.deep_copy` and `Team.deep_copy` rather than just the
+    comparison inside it. The two guard clauses are load-bearing, not boilerplate: without the
+    `update.get("model") is not None` check an `update={"model": None}` would count as a fresh
+    pin, because `same_model` reports no match for a `None` candidate -- which would drop a real
+    pin. An edit to one copy of those guards that missed the other is exactly the agent/team
+    drift that sharing only the innermost comparison left open.
+
+    `new_model` is the *coerced* model off the constructed copy, not the raw `update["model"]`.
+    `Agent.__init__` accepts the `"provider:id"` string form and `get_models` coerces it, so
+    comparing the raw value would make every string-form caller fall through to "not a pin" --
+    `type("openai:gpt-5.5") is not OpenAIResponses` -- leaving both directions of the bug open
+    for them. Comparing the coerced model is `Model`-to-`Model` whichever form the caller wrote.
+    """
+    if update is None or update.get("model") is None:
+        return False
+    return not same_model(new_model, existing_model)

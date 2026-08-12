@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from egpt.agent.agent import Agent
 
 from egpt.filters import FilterExpr
+from egpt.models.base import update_pins_a_new_model
 from egpt.utils.log import log_debug, log_error, log_warning
 
 
@@ -188,12 +189,40 @@ def deep_copy(agent: Agent, *, update: Optional[Dict[str, Any]] = None) -> Agent
         #   exists to prevent, one hop removed: `deep_copy(update={"model": agent.model})` -- "copy
         #   this agent with its current model" -- would pin whatever a provider last assigned, and
         #   every later run of the copy would bypass routing and escalation on the strength of a
-        #   pin no caller made. The identity check is what distinguishes a deliberate new model
-        #   from a round-trip of the existing one.
-        update_pins_a_new_model = (
-            update is not None and update.get("model") is not None and update["model"] is not agent.model
-        )
-        if not update_pins_a_new_model:
+        #   pin no caller made.
+        #
+        # `same_model`, not `is`. A pure identity test looked sufficient and is not, because
+        # every in-tree provider builds a *fresh* `Model` per resolve (`mode_a` and `mode_b` both
+        # go through `_construct`), so a caller who passes a model reconstructed from the same
+        # configuration hands over an equal-but-distinct object.
+        #
+        # Comparing by value rather than by identity fixed this in *both* directions:
+        #
+        # * A copy of a *pinned* agent whose model a provider had swapped took the fresh-pin
+        #   branch and came back pinned to the **provider's** model, destroying the caller's
+        #   choice. That is the precise inversion this field exists to prevent.
+        # * A copy of an *unpinned* agent gained a pin nobody asked for, and it persisted into
+        #   every later copy of that object graph.
+        #
+        # `same_model` compares the connection fields, not just class and id. Two models sharing
+        # an id while pointing at different tenants' endpoints are a different model for every
+        # purpose this decision serves: keeping the earlier object as the pin would make a
+        # pin-honouring provider return it, and the copy would serve requests from the previous
+        # tenant's endpoint under the previous tenant's key. The rationale lives with the helper
+        # in `egpt/models/base.py`.
+        #
+        # `new_agent.model`, not `update["model"]`: `__init__` has already coerced the
+        # `"provider:id"` string form into a `Model`, so this compares like with like whichever
+        # form the caller wrote. Comparing the raw value would make every string-form caller fall
+        # through to "not a pin" and leave both directions of the bug open for them.
+        #
+        # Only the live model is compared against, not `agent._user_pinned_model` as well. The
+        # second check looks like it should be needed -- the pin is the caller's choice and the
+        # live model is the provider's -- but it is unreachable: when the passed model matches the
+        # pin, `__init__` records that same id, so the fresh-pin and carry-over branches agree.
+        # Verified by removing it, which changes no behaviour and fails no test. Left out
+        # deliberately: a clause nothing can reach reads as protection while providing none.
+        if not update_pins_a_new_model(update, new_agent.model, agent.model):
             new_agent._user_pinned_model = agent._user_pinned_model
         log_debug(f"Created new {agent.__class__.__name__}")
         return new_agent

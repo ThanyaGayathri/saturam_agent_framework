@@ -40,6 +40,8 @@ class Claude(AnthropicClaude):
 
     def __post_init__(self):
         """Validate model configuration after initialization"""
+        # Chained for the declared-connection snapshot -- see `Model._snapshot_declared_connection`.
+        super().__post_init__()
         if self.thinking:
             self._validate_thinking_support()
         self.supports_native_structured_outputs = False

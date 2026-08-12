@@ -958,6 +958,207 @@ class TestDeepCopyUpdateIsAFreshPin:
 
         assert agent.deep_copy(update={"name": "renamed"})._user_pinned_model.id == "original"
 
+    def test_a_reconstructed_equal_model_does_not_destroy_a_real_pin(self):
+        """The case a pure identity check got backwards, and the more damaging of the two.
+
+        A caller pins "P"; the seam then overwrites `agent.model` with what it resolved. Copying
+        with a model reconstructed from the *provider's* configuration used to take the fresh-pin
+        branch, so the copy came back pinned to the provider's choice and the caller's "P" was
+        gone -- the exact inversion `_user_pinned_model` exists to prevent.
+        """
+        from egpt.agent.agent import Agent
+
+        agent = Agent(model=FakeModel(id="P"))
+        agent.model = FakeModel(id="provider-swapped")  # the seam reassigns at resolve time
+
+        fresh = agent.deep_copy(update={"model": FakeModel(id="provider-swapped")})
+
+        assert fresh._user_pinned_model.id == "P", "a real caller pin must survive"
+
+    def test_a_team_reconstructed_equal_model_does_not_destroy_a_real_pin(self):
+        from egpt.team.team import Team
+
+        team = Team(members=[], model=FakeModel(id="P"))
+        team.model = FakeModel(id="provider-swapped")
+
+        fresh = team.deep_copy(update={"model": FakeModel(id="provider-swapped")})
+
+        assert fresh._user_pinned_model.id == "P", "a real caller pin must survive"
+
+    def test_a_reconstructed_equal_model_is_not_laundered_into_a_pin(self):
+        """The other direction. Identity alone let a caller hand back an equal-but-distinct copy
+        of a provider-assigned model and have it recorded as a deliberate pin -- after which every
+        run of that copy bypassed routing and escalation, and the spurious pin survived into every
+        later copy of the object graph."""
+        import copy as copy_module
+
+        from egpt.agent.agent import Agent
+
+        agent = Agent()  # no caller pin
+        agent.model = FakeModel(id="provider-assigned")
+
+        assert agent.deep_copy(update={"model": FakeModel(id="provider-assigned")})._user_pinned_model is None
+        assert agent.deep_copy(update={"model": copy_module.copy(agent.model)})._user_pinned_model is None
+
+    def test_re_pinning_to_the_same_id_keeps_the_copy_running_the_callers_model(self):
+        """The documented cost of comparing by value rather than by identity.
+
+        Passing a distinct object with an id the agent already uses leaves the earlier object as
+        the pin *record*. Harmless, and pinned here so the tradeoff is deliberate: the copy still
+        runs the caller's object, and the seam reads the pin for its id, which matches.
+        """
+        from egpt.agent.agent import Agent
+
+        agent = Agent(model=FakeModel(id="original"))
+        caller_object = FakeModel(id="original")
+
+        fresh = agent.deep_copy(update={"model": caller_object})
+
+        assert fresh.model is caller_object, "the copy runs the object the caller passed"
+        assert fresh._user_pinned_model.id == "original", "and the pin agrees on the id"
+
+    def test_a_same_id_model_at_a_different_endpoint_is_a_new_pin(self):
+        """Same class and id is not the same model when the connection differs.
+
+        Class-and-id alone kept the *previous* object as the pin here, and that is not a stale
+        bookkeeping record: `apply_run_model` passes the pin as `ModelResolveRequest.requested`,
+        every in-tree provider returns it unchanged, and `_stamp_resolved_model` installs it. The
+        copy then serves requests from the previous tenant's endpoint under the previous tenant's
+        key, despite the caller passing a fully configured tenant-B model.
+        """
+        from egpt.agent.agent import Agent
+        from egpt.integrations.models.openai_like import OpenAILike
+
+        agent = Agent(model=OpenAILike(id="gpt-5.5", base_url="https://tenant-a.internal/v1", api_key="key_a"))
+        tenant_b = OpenAILike(id="gpt-5.5", base_url="https://tenant-b.internal/v1", api_key="key_b")
+
+        fresh = agent.deep_copy(update={"model": tenant_b})
+
+        assert fresh._user_pinned_model.base_url == "https://tenant-b.internal/v1"
+        assert fresh._user_pinned_model.api_key == "key_b"
+
+    def test_the_endpoint_pin_survives_a_run_through_the_seam(self, run_context):
+        """The consequence the pin record exists to control, driven one step further.
+
+        Asserting on `_user_pinned_model` alone would not have caught the regression: what makes
+        it a cross-tenant leak rather than a cosmetic mismatch is that a pin-honouring provider
+        hands the pinned object back and the run uses it.
+        """
+        from egpt.agent._run import apply_run_model
+        from egpt.agent.agent import Agent
+        from egpt.integrations.models.openai_like import OpenAILike
+
+        class HonoursPin:
+            name = "honours-pin"
+
+            def resolve(self, request):
+                return request.requested if request.requested is not None else OpenAILike(id="policy-default")
+
+            def capabilities(self):
+                return ModelCapabilities()
+
+        agent = Agent(model=OpenAILike(id="gpt-5.5", base_url="https://tenant-a.internal/v1", api_key="key_a"))
+        fresh = agent.deep_copy(
+            update={"model": OpenAILike(id="gpt-5.5", base_url="https://tenant-b.internal/v1", api_key="key_b")}
+        )
+
+        set_default_model_provider(HonoursPin())
+        apply_run_model(fresh, run_context, tools=None)
+
+        assert fresh.model.base_url == "https://tenant-b.internal/v1", "the run must not reach tenant A"
+        assert fresh.model.api_key == "key_b"
+
+    def test_an_unpinned_agent_frozen_onto_a_different_endpoint_keeps_the_callers_model(self):
+        """The other direction of the same blindness: the pin was dropped entirely.
+
+        Class-and-id reported a match, so the carry-over overwrote the pin `__init__` had just
+        recorded with the original's `None` -- and the copy ran unpinned, letting the provider
+        substitute its policy pick over the object the caller explicitly passed.
+        """
+        from egpt.agent.agent import Agent
+        from egpt.integrations.models.openai_like import OpenAILike
+
+        agent = Agent()
+        agent.model = OpenAILike(id="X", base_url="https://policy.internal/v1")
+
+        fresh = agent.deep_copy(update={"model": OpenAILike(id="X", base_url="https://caller.internal/v1")})
+
+        assert fresh._user_pinned_model is not None, "the caller's model must be recorded as a pin"
+        assert fresh._user_pinned_model.base_url == "https://caller.internal/v1"
+
+    def test_the_string_form_is_not_laundered_into_a_pin(self):
+        """`Agent.__init__` accepts `"provider:id"`, and `deep_copy` passes `update` straight in.
+
+        Comparing the raw `update["model"]` made every string-form caller fall through to "not a
+        pin" -- `type("openai:gpt-5.5") is not OpenAIResponses` -- so both directions of the bug
+        stayed open for them. Comparing the *coerced* model off the copy closes it without a
+        coercion call here.
+        """
+        from egpt.agent.agent import Agent
+        from egpt.integrations.models.openai import OpenAIResponses
+
+        agent = Agent()  # no caller pin
+        agent.model = OpenAIResponses(id="gpt-5.5")
+
+        assert agent.deep_copy(update={"model": "openai:gpt-5.5"})._user_pinned_model is None
+
+    def test_the_string_form_does_not_destroy_a_real_pin(self):
+        """The damaging direction, via the string form."""
+        from egpt.agent.agent import Agent
+        from egpt.integrations.models.openai import OpenAIResponses
+
+        agent = Agent(model=OpenAIResponses(id="P"))
+        agent.model = OpenAIResponses(id="gpt-5.5")  # the seam reassigns
+
+        assert agent.deep_copy(update={"model": "openai:gpt-5.5"})._user_pinned_model.id == "P"
+
+    def test_a_team_same_id_model_at_a_different_endpoint_is_a_new_pin(self):
+        """Team shares the whole predicate, not just the comparison, so it must agree."""
+        from egpt.integrations.models.openai_like import OpenAILike
+        from egpt.team.team import Team
+
+        team = Team(members=[], model=OpenAILike(id="gpt-5.5", base_url="https://tenant-a.internal/v1"))
+        fresh = team.deep_copy(update={"model": OpenAILike(id="gpt-5.5", base_url="https://tenant-b.internal/v1")})
+
+        assert fresh._user_pinned_model.base_url == "https://tenant-b.internal/v1"
+
+    def test_an_agent_with_no_model_yet_takes_the_update_as_a_pin(self):
+        """`_same_model` must not treat "no model" as matching the offered one.
+
+        An agent constructed without a model has `model is None` until something assigns one, so
+        the comparison runs against `None`. Reporting a match there would drop the caller's
+        choice on the floor -- an agent cannot already be using a model it does not have.
+        """
+        from egpt.agent.agent import Agent
+
+        agent = Agent()
+        assert agent.model is None
+
+        fresh = agent.deep_copy(update={"model": FakeModel(id="caller-chose-this")})
+
+        assert fresh._user_pinned_model is not None, "an absent model must not match the offered one"
+        assert fresh._user_pinned_model.id == "caller-chose-this"
+
+    def test_team_members_keep_their_own_pins(self):
+        """Team member pins were entirely untested -- every Team test used `members=[]` -- even
+        though `team/_utils.py` reasons about members in its comment. Members are copied inside
+        `_deep_copy_field`, which has no `update` in scope, so a member can neither inherit the
+        team's new pin nor lose its own. Pinned so a future change to that copier cannot break it
+        silently."""
+        from egpt.agent.agent import Agent
+        from egpt.team.team import Team
+
+        pinned_member = Agent(model=FakeModel(id="member-pin"))
+        plain_member = Agent()
+        plain_member.model = FakeModel(id="provider-assigned")
+        team = Team(members=[pinned_member, plain_member], model=FakeModel(id="team-model"))
+
+        fresh = team.deep_copy(update={"model": FakeModel(id="new-team-model")})
+
+        assert fresh._user_pinned_model.id == "new-team-model", "the team takes the caller's new pin"
+        assert fresh.members[0]._user_pinned_model.id == "member-pin", "a member keeps its own pin"
+        assert fresh.members[1]._user_pinned_model is None, "and an unpinned member stays unpinned"
+
 
 class TestTenantReachesTheProvider:
     """EGPT-3.6 unit 1. Nothing populated `ModelResolveRequest.tenant_id` before this, so
@@ -1043,3 +1244,150 @@ class TestTokenEstimate:
         for label, model in (("AsyncMock", AsyncMock()), ("MagicMock", MagicMock()), ("None", None)):
             estimate = estimate_request_input_tokens(StubAgent(model=model), RunInput())
             assert estimate is None or estimate >= 0, f"{label} model should degrade, not raise"
+
+
+class TestConnectionAwarePinningThroughDeepCopy:
+    """The connection question through the real `deep_copy` API, on a real provider subclass.
+
+    The rest of this file uses `FakeModel`, which declares none of the connection attributes --
+    the right tool for the identity question and the wrong one for this. That mismatch is why two
+    review rounds shipped green with a live cross-tenant defect: nothing here could see it.
+
+    `tests/unit/models/test_same_model.py` covers the predicate directly; these drive the cases
+    that matter through `Agent.deep_copy` and, for the leak, through `apply_run_model`.
+    """
+
+    @pytest.fixture
+    def responses_cls(self):
+        openai = pytest.importorskip(
+            "egpt.integrations.models.openai", reason="the connection cases need a real provider"
+        )
+        return openai.OpenAIResponses
+
+    def _agent(self, model):
+        from egpt.agent.agent import Agent
+
+        return Agent(model=model, telemetry=False)
+
+    def test_a_model_at_another_tenants_endpoint_is_a_fresh_pin(self, responses_cls):
+        """The round-1 finding, through the public API. Same class, same id, different endpoint and
+        key: the copy must take the caller's model as its pin, not keep tenant A's."""
+        agent = self._agent(responses_cls(id="gpt-5.5", base_url="https://tenant-a.internal/v1", api_key="key_a"))
+        tenant_b = responses_cls(id="gpt-5.5", base_url="https://tenant-b.internal/v1", api_key="key_b")
+
+        fresh = agent.deep_copy(update={"model": tenant_b})
+
+        assert fresh._user_pinned_model is tenant_b
+        assert fresh._user_pinned_model.base_url == "https://tenant-b.internal/v1"
+
+    def test_a_bare_default_endpoint_model_is_a_fresh_pin(self, responses_cls):
+        """The case that separates a correct fix from the obvious one.
+
+        A bare `OpenAIResponses(id=...)` declares *no* connection attributes, so any rule treating
+        `None` as "unknown, skip it" degenerates to class-and-id here and keeps tenant A's endpoint
+        and key as the pin. `None` is a positive assertion of the default public endpoint.
+        """
+        agent = self._agent(responses_cls(id="gpt-5.5", base_url="https://tenant-a.internal/v1", api_key="key_a"))
+
+        fresh = agent.deep_copy(update={"model": responses_cls(id="gpt-5.5")})
+
+        assert fresh._user_pinned_model.base_url is None, "the caller's bare model must be the pin"
+        assert fresh._user_pinned_model.api_key is None
+
+    def test_the_string_form_is_a_fresh_pin_too(self, responses_cls):
+        """`__init__` coerces `"openai:gpt-5.5"` to a bare `OpenAIResponses`, so this reaches the
+        same null-as-wildcard hazard by the route a config-driven caller is most likely to use."""
+        agent = self._agent(responses_cls(id="gpt-5.5", base_url="https://tenant-a.internal/v1", api_key="key_a"))
+
+        fresh = agent.deep_copy(update={"model": "openai:gpt-5.5"})
+
+        assert fresh._user_pinned_model.base_url is None, "the coerced model must be the pin"
+
+    def test_the_copy_runs_against_the_callers_endpoint_not_the_previous_tenants(self, responses_cls):
+        """The consequence, end to end. A pin-honouring provider -- which is every in-tree provider
+        -- returns `request.requested` unchanged, so a wrong pin decides where traffic actually
+        goes. Asserted on the model the run resolved, not on the pin record alone."""
+        from egpt.agent._run import apply_run_model
+
+        class HonoursPin:
+            name = "honours-pin"
+
+            def resolve(self, request):
+                return request.requested
+
+            def capabilities(self):
+                return ModelCapabilities()
+
+        agent = self._agent(responses_cls(id="gpt-5.5", base_url="https://tenant-a.internal/v1", api_key="key_a"))
+        copy = agent.deep_copy(update={"model": responses_cls(id="gpt-5.5")})
+        copy.model_provider = HonoursPin()
+
+        apply_run_model(copy, RunContext(run_id="r-1", session_id="s-1"), tools=None)
+
+        assert copy.model.base_url is None, "the run must not reach tenant A's endpoint"
+        assert copy.model.api_key != "key_a", "nor use tenant A's key"
+
+    def test_an_identical_reconstruction_after_a_client_build_is_not_a_fresh_pin(self, responses_cls, monkeypatch):
+        """The round-2 critical, through the public API: the post-first-run state.
+
+        A live model that has served a request carries an environment-filled `api_key` its own
+        reconstruction does not, so comparing live values reported an identical rebuild as
+        "different" and re-opened the laundering. No test here reached this state before.
+        """
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-from-the-environment")
+        live = responses_cls(id="gpt-5.5")
+        agent = self._agent(live)
+        live.get_client()  # run 1: the lazy fill happens here
+        assert live.api_key == "sk-from-the-environment"
+
+        fresh = agent.deep_copy(update={"model": responses_cls(id="gpt-5.5")})
+
+        assert fresh._user_pinned_model is agent._user_pinned_model, (
+            "an identical reconstruction is the model already in use, so the original pin stands"
+        )
+
+
+class TestTheFormatFlagGate:
+    """`_stamp_resolved_model`'s `_FORMAT_FLAGS` clause (`agent/_run.py`).
+
+    The gate decides whether `recompute_response_format` re-derives the response format. It
+    deliberately does *not* share `same_model`: an endpoint move must not force a schema rebuild,
+    and `get_response_format` reads only these two capability flags off the model. But the case it
+    guards -- a provider returning a same-class, same-id instance with *different* flags -- shipped
+    with no coverage, so a later simplification of the gate would have had no signal.
+    """
+
+    def test_a_flag_change_alone_counts_as_a_model_change(self):
+        from egpt.agent._run import _stamp_resolved_model
+
+        current = FakeModel(id="gpt-5.5")
+        current.supports_native_structured_outputs = True
+        resolved = FakeModel(id="gpt-5.5")
+        resolved.supports_native_structured_outputs = False
+
+        assert _stamp_resolved_model(StubAgent(model=current), None, resolved) is True, (
+            "same class and id but different structured-output support is a change the format derivation must see"
+        )
+
+    def test_an_identical_instance_is_not_a_change(self):
+        """Non-vacuity: without this, the test above would pass for a gate that always said True --
+        which is the pre-fix behaviour the clause exists to improve on."""
+        from egpt.agent._run import _stamp_resolved_model
+
+        current = FakeModel(id="gpt-5.5")
+        current.supports_native_structured_outputs = True
+        resolved = FakeModel(id="gpt-5.5")
+        resolved.supports_native_structured_outputs = True
+
+        assert _stamp_resolved_model(StubAgent(model=current), None, resolved) is False
+
+    def test_an_endpoint_move_alone_is_not_a_format_change(self):
+        """Why this gate does not share `same_model`: a different endpoint is a different
+        *connection* but the same format capability, so a schema rebuild would be waste."""
+        openai = pytest.importorskip("egpt.integrations.models.openai", reason="needs a real provider")
+        from egpt.agent._run import _stamp_resolved_model
+
+        current = openai.OpenAIResponses(id="gpt-5.5", base_url="https://tenant-a.internal/v1")
+        resolved = openai.OpenAIResponses(id="gpt-5.5", base_url="https://tenant-b.internal/v1")
+
+        assert _stamp_resolved_model(StubAgent(model=current), None, resolved) is False

@@ -70,6 +70,10 @@ class Cloudflare(OpenAILike):
 
     def __post_init__(self) -> None:
         self.id = normalize_cloudflare_gateway_model_id(self.id)
+        # After the id is normalised, so the snapshot records the id this model will report.
+        # Chained for the declared-connection snapshot -- see
+        # `Model._snapshot_declared_connection`.
+        super().__post_init__()
 
     def _get_client_params(self) -> Dict[str, Any]:
         # OpenAILike defaults api_key to "not-provided"; treat as unset so we load CLOUDFLARE_API_TOKEN.

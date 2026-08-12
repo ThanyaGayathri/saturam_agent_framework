@@ -259,15 +259,28 @@ def _stamp_resolved_model(agent: Any, run_response: Any, resolved: Any) -> bool:
     the model actually moved -- a provider that returns the model already assigned is the common
     steady state, and redoing the derivations there costs a schema rebuild per run for no change.
     """
-    # Identity *or* same-class-same-id: every in-tree provider builds a fresh `Model` per resolve
+    # Deliberately *not* `models.base.same_model`, which the deep_copy paths share.
+    #
+    # That helper answers "is this the same model and the same connection?", because the question
+    # it serves is whether a caller pinned something new -- and two models sharing an id at
+    # different endpoints are different for that purpose. This gate asks something narrower:
+    # "must the response-format derivations be redone?" Those read only
+    # `supports_native_structured_outputs` / `supports_json_schema_outputs`, which no endpoint
+    # change can affect, so comparing `base_url` here would force a schema rebuild on every
+    # endpoint move for no gain.
+    #
+    # The capability flags are compared explicitly rather than assumed stable. They are `Model`
+    # dataclass fields, not class constants -- `Claude.__post_init__` already varies one per
+    # instance -- so a provider returning a same-class, same-id instance with different flags is
+    # expressible. Without them in the comparison this gate reports `changed=False` for exactly
+    # that case, and `recompute_response_format` keeps a format derived from the primary,
+    # potentially shipping a raw pydantic class to an endpoint that accepts only a `json_schema`
+    # dict.
+    #
+    # Identity first, then class-and-id: every in-tree provider builds a fresh `Model` per resolve
     # (`mode_a` and `mode_b` both go through `_construct`), so a pure `is not` check reported a
-    # change on essentially every run and the gate below never actually saved the work it was
-    # added to save. Comparing class and id closes that, and is safe for this use: the
-    # derivations gated on it read only `supports_native_structured_outputs` /
-    # `supports_json_schema_outputs`. Those are `Model` dataclass fields rather than class
-    # constants, so a per-instance override is expressible -- the property holds by convention
-    # (no in-tree provider varies them per instance) rather than by construction. A provider that
-    # did would need to return a distinct id, or this gate would skip a needed re-derivation.
+    # change on essentially every run and this gate never saved the work it was added to save.
+    _FORMAT_FLAGS = ("supports_native_structured_outputs", "supports_json_schema_outputs")
     current = agent.model
     changed = not (
         resolved is current
@@ -275,6 +288,7 @@ def _stamp_resolved_model(agent: Any, run_response: Any, resolved: Any) -> bool:
             current is not None
             and type(resolved) is type(current)
             and getattr(resolved, "id", None) == getattr(current, "id", None)
+            and all(getattr(resolved, flag, None) == getattr(current, flag, None) for flag in _FORMAT_FLAGS)
         )
     )
     agent.model = resolved

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from egpt.team.team import Team
 
 from egpt.filters import FilterExpr
+from egpt.models.base import update_pins_a_new_model
 from egpt.utils.log import log_debug, log_error, log_warning
 
 
@@ -163,16 +164,20 @@ def deep_copy(team: Team, *, update: Optional[Dict[str, Any]] = None) -> Team:
             setattr(new_team, "model_provider", provider)  # noqa: B010
 
         # `_user_pinned_model`: carry the *original's* pin rather than letting `__init__` re-derive
-        # one from the copied `model`, which by copy time holds whatever a provider assigned. See
-        # the longer note in `agent/_utils.py`; a Team copies every member the same way, so the
-        # same laundering would apply per member.
-        # A *new* model passed via `update` is a fresh caller pin that `__init__` has already
-        # recorded, and wins over the original's -- but only a genuinely new one; see the fuller
-        # note in `agent/_utils.py` for why the `None` and round-trip cases must not.
-        update_pins_a_new_model = (
-            update is not None and update.get("model") is not None and update["model"] is not team.model
-        )
-        if not update_pins_a_new_model:
+        # one from the copied `model`, which by copy time holds whatever a provider assigned. A
+        # genuinely new model passed via `update` is a fresh caller pin and wins over the
+        # original's -- but only a genuinely new one, compared by value rather than by identity
+        # since providers build a fresh model per resolve and a caller can hand back an
+        # equal-but-distinct object.
+        #
+        # `update_pins_a_new_model` is shared with the Agent path -- the whole predicate, not just
+        # the comparison inside it. The two guard clauses are load-bearing (an `update={"model":
+        # None}` must not count as a fresh pin), so sharing only the innermost test left the
+        # agent/team drift the extraction was meant to prevent. The full rationale -- the `None`
+        # case, both directions of the identity bug, why the connection fields are compared, and
+        # why the pin itself is not -- lives with the helper in `egpt/models/base.py`; a Team
+        # copies every member the same way, so the same reasoning applies per member.
+        if not update_pins_a_new_model(update, new_team.model, team.model):
             new_team._user_pinned_model = team._user_pinned_model
 
         log_debug(f"Created new {team.__class__.__name__}")
