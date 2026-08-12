@@ -58,6 +58,7 @@ class TestWorkflowCustomSessionTable:
             component_id="wf-custom",
             component_type=ComponentType.WORKFLOW,
             name="wf with custom session table",
+            tenant_id=None,
         )
         # The stored config references os_db by id so the registry-backed
         # load path is exercised — this is the branch that regressed.
@@ -72,6 +73,7 @@ class TestWorkflowCustomSessionTable:
                 "name": "wf with custom session table",
             },
             stage="published",
+            tenant_id=None,
         )
 
         workflow = get_workflow_by_id(db=os_db, id="wf-custom", registry=registry)
@@ -107,9 +109,7 @@ class TestWorkflowCustomSessionTable:
         registry = _FakeRegistry(os_db)
 
         os_db.upsert_component(
-            component_id="wf-plain",
-            component_type=ComponentType.WORKFLOW,
-            name="wf plain",
+            component_id="wf-plain", component_type=ComponentType.WORKFLOW, name="wf plain", tenant_id=None
         )
         os_db.upsert_config(
             component_id="wf-plain",
@@ -119,6 +119,7 @@ class TestWorkflowCustomSessionTable:
                 "name": "wf plain",
             },
             stage="published",
+            tenant_id=None,
         )
 
         workflow = get_workflow_by_id(db=os_db, id="wf-plain", registry=registry)

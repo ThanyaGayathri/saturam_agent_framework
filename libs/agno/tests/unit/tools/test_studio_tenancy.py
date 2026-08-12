@@ -28,14 +28,14 @@ def _mock_db(row=AGENT_ROW):
     db = type("MockDb", (BaseDb,), abstract)()
     db.id = "test-db"
 
-    def get_config(component_id=None, version=None, label=None, tenant_id=None, **_):
+    def get_config(component_id=None, version=None, label=None, *, tenant_id, **_):
         if row is None:
             return None
         if tenant_id is not None and tenant_id != row.get("tenant_id"):
             return None
         return copy.deepcopy(row)
 
-    def get_component(component_id=None, component_type=None, tenant_id=None, **_):
+    def get_component(component_id=None, component_type=None, *, tenant_id, **_):
         if row is None:
             return None
         if tenant_id is not None and tenant_id != row.get("tenant_id"):

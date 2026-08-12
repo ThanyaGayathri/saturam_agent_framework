@@ -58,7 +58,7 @@ def _mock_db(rows=None):
     db = type("MockDb", (BaseDb,), abstract)()
     db.id = "test-db"
 
-    def get_config(component_id=None, version=None, label=None, tenant_id=None, **_):
+    def get_config(component_id=None, version=None, label=None, *, tenant_id, **_):
         row = rows.get(component_id)
         if row is None:
             return None
