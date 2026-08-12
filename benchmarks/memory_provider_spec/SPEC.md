@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **Implemented** by SM-C1 ([#89](https://github.com/Saturam-Inc/aicoe-tracker/issues/89)) — see §11 for what changed in implementation. Ratified by SM-R1 #76 (ADR 0003). |
+| **Status** | **Implemented** by SM-C1 ([#89](https://github.com/Saturam-Inc/aicoe-tracker/issues/89)) — see §11 for what changed in implementation. Ratified by SM-R1 #76 (ADR 0003, currently **Proposed** — re-verify this row when the ADR merges). |
 | **Issue** | [Saturam-Inc/aicoe-tracker#86](https://github.com/Saturam-Inc/aicoe-tracker/issues/86) |
 | **Depends on** | SM-R1 #76 (ADR, open) — the only formal dependency per #86 |
 | **Siblings** | SM-R12 #87 (data model, [PR #18](https://github.com/Saturam-Inc/saturam-agent-framework/pull/18) open) — complementary layer, reconciled (see §5.2, §7, §9); SM-R8 (fusion), SM-R10 (bi-temporal) |
@@ -17,7 +17,7 @@ records the decisions behind it. Two adapters and a config-only swap test
 plug-and-play (Phases 3–4).
 
 > **Phase status:** design complete and **implemented in core by SM-C1** — see §11 for the
-> artifact map, the eight deviations, and what was carried forward. The prototype here remains the
+> artifact map, the seven deviations (D1-D7), and what was carried forward. The prototype here remains the
 > design record; `libs/agno/egpt/memory/` is the authoritative code.
 >
 > (The prose above once read "10/10 checks"; the artifact had grown to 12. ADR 0003 §5 flagged the
@@ -403,13 +403,13 @@ conformance test miss a violation.
 
 | Invariant | Enforced in |
 |---|---|
-| No record leaves the seam outside the call scope — **all five slots**, on read *and* consolidate | `co_located._assert_scope_isolation`, `seed._guard_tenant` |
+| No record leaves the seam outside the call scope — **all five slots**, on read *and* consolidate | `co_located._assert_scope_isolation`. The seed enforces this by *refusing* a scope it cannot filter (`_reject_unfilterable_scope`, `_reject_unstorable_scope`) rather than post-checking, because it has no per-slot predicate to check against |
 | A record the graph has bounded is never served, whatever the ranking did | `co_located._reconcile_bounds` via `GraphSubstrate.bounds_for_ids` |
 | Consolidation never distils an episode the graph recorded as false | `co_located._visible_episodes` |
-| A fact whose source group grew supersedes the row it subsumes | `co_located._superseded` |
+| A fact whose source group grew retires the row it subsumes, on **transaction** time, on every wiring including vector-only | `co_located._superseded`; `test_two_passes_over_a_grown_group_leave_exactly_one_current_fact` |
 | A substrate may not return a tier the query did not ask for | `co_located._assert_requested_tiers` |
 | Reads of an unserved tier are **empty**; only writes refuse one | both adapters, `read` and `read_tier` |
-| A backend failure raises `PartialWriteError` from **every** write verb, carrying committed ids | both adapters, `write` and `write_tier` |
+| A backend failure raises `PartialWriteError` from **every** write verb, carrying the ids a retry must reuse (see the class docstring — deliberately *not* "rows committed") | both adapters, `write` and `write_tier`; matrix asserts the type **and** the committed set |
 | Duplicate ids in one batch are refused before anything is written | `validation.reject_duplicate_ids` |
 | `MemoryEvent.scope` must equal the write scope | `validation.reject_foreign_scopes` |
 | A named substrate is served or refused, never silently emptied | `co_located._require_answerable`, `seed._reject_unservable_substrates` |
@@ -419,8 +419,8 @@ conformance test miss a violation.
 | A record is written under the scope it carries; a mismatch is refused | `VectorSubstrate.upsert` contract, `co_located._by_scope` |
 | `MemorySlice.fusion` carries `FUSION_KEYS`; `ConsolidationReport.details` carries `CONSOLIDATION_KEYS` | `types.fusion_diagnostics` / `types.consolidation_details` |
 | `limit` is honoured, and `limit=0` means zero rows | both adapters, both `read` and `read_tier` |
-| Sync and async halves agree | conformance matrix |
-| A partial multi-target write raises `PartialWriteError` carrying the stamped ids | `types.PartialWriteError`, raised by both adapters |
+| Sync and async halves agree — on the happy path **and** on the failure path, compared by committed state rather than exception type | conformance matrix (`read`/`aread` ids, plus the write-parity property above) |
+| Both write halves persist the **same durable state** on failure, and settle the batch before propagating | `co_located.write` / `_gather_writes`; `test_the_two_write_halves_persist_the_same_state_when_a_backend_fails` |
 | Point-in-time needs both predicates (`t_valid ≤ at < t_invalid` **and** current belief) | `co_located._valid_at` + `MemoryRecord.is_current_belief` |
 | Invalidation is expire-and-reinsert (SCD-2), never in-place | `GraphSubstrate.invalidate` contract |
 

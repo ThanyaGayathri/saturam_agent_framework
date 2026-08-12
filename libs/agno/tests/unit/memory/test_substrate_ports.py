@@ -206,11 +206,16 @@ def test_the_double_keeps_the_edge_id_on_the_bounded_copy():
     from tests.unit.memory._fakes import FakeGraph
 
     graph = FakeGraph()
-    graph.upsert_episode(SCOPE, MemoryEvent(content="ada works at acme", scope=SCOPE, id="f1"))
+    graph.upsert_episode(SCOPE, MemoryEvent(content="ada works at acme", scope=SCOPE, id="f1", occurred_at=100))
 
     graph.invalidate(SCOPE, "f1", t_invalid=300, at=310)
 
-    assert {r.id for r in graph.rows[SCOPE.tenant_id]} == {"f1"}
+    rows = graph.rows[SCOPE.tenant_id]
+    # A *set* of one id cannot tell expire-and-reinsert from a no-op, which is the whole property.
+    assert len(rows) == 2
+    assert {r.id for r in rows} == {"f1"}
+    assert sorted((r.t_invalid or 0) for r in rows) == [0, 300]
+    assert sum(1 for r in rows if r.is_current_belief()) == 1
 
 
 def test_the_double_scopes_on_every_slot_not_only_the_tenant():

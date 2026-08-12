@@ -247,8 +247,11 @@ def test_no_provider_returns_more_records_than_the_limit(name, limit):
     )
     query = MemoryQuery(text="the customer", tiers=[MemoryTier.SEMANTIC], limit=limit)
 
-    assert len(provider.read(ACME, query).records) <= limit
-    assert len(provider.read_tier(ACME, MemoryTier.SEMANTIC, query)) <= limit
+    # Both bounds. `<=` alone is satisfied by a provider that returns nothing, so it cannot detect
+    # the failure it is named for -- five matching records exist, so a non-zero limit must fill.
+    expected = min(limit, 5)
+    assert len(provider.read(ACME, query).records) == expected
+    assert len(provider.read_tier(ACME, MemoryTier.SEMANTIC, query)) == expected
 
 
 @pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
@@ -397,8 +400,94 @@ def test_reads_of_an_unserved_tier_are_empty_on_every_provider(name, tier):
     """
     provider = build_memory_provider(ALL_CONFIGS[name]())
 
-    assert isinstance(provider.read_tier(ACME, tier, MemoryQuery(text="q")), list)
-    assert isinstance(provider.read(ACME, MemoryQuery(text="q", tiers=[tier])).records, list)
+    # Emptiness, not `isinstance(..., list)` -- which cannot fail for any non-raising provider
+    # while the name promises something stronger. An unserved tier holds nothing to find.
+    served = tier in getattr(provider, "_served_tiers", lambda: [])() or provider.substrates().get(Substrate.VECTOR)
+    if not served:
+        assert provider.read_tier(ACME, tier, MemoryQuery(text="q")) == []
+        assert provider.read(ACME, MemoryQuery(text="q", tiers=[tier])).records == []
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+def test_two_passes_over_a_grown_group_leave_exactly_one_current_fact(name):
+    """The property behind the "supersedes the row it subsumes" matrix row, which was untested.
+
+    On `vector_only` the old implementation reported a supersede that never happened, because
+    retirement went through `GraphSubstrate.invalidate` and there is no graph. Retirement is now
+    transaction-time via upsert-by-id, so it works on every wiring.
+    """
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+    grow = "ada prefers async standups"
+    try:
+        provider.write_tier(ACME, MemoryTier.EPISODIC, [MemoryEvent(content=grow, scope=ACME, id="g1")])
+    except MemoryOperationError:
+        pytest.skip(f"{name} has no episodic store, so it runs no episodic-to-semantic pass")
+
+    provider.consolidate(ACME)
+    provider.write_tier(ACME, MemoryTier.EPISODIC, [MemoryEvent(content=grow, scope=ACME, id="g2")])
+    report = provider.consolidate(ACME)
+
+    live = [r for r in provider.read(ACME, MemoryQuery(text=grow)).records if r.tier is MemoryTier.SEMANTIC]
+    assert report.details["facts_superseded"] == 1, f"{name} did not retire the row it subsumed"
+    assert len(live) == 1, f"{name} returns {len(live)} current-belief rows for one logical fact"
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+async def test_the_two_write_halves_persist_the_same_state_when_a_backend_fails(name):
+    """Asserts the **committed set**, not just the exception type.
+
+    `gather` without `return_exceptions` propagates the first error without cancelling siblings, so
+    the async half committed rows the sync half never attempted -- one verb, two halves, different
+    durable state, and nothing in the receipt to tell them apart. Type-only assertions are why that
+    survived six rounds, so this compares what actually landed.
+    """
+
+    def wire(provider):
+        """Fail the *second* backend call, so both halves have something committed and something not."""
+        state = {"calls": 0}
+        for target, attribute in (("graph", "upsert_fact"), ("manager", "add_user_memory")):
+            backend = getattr(provider, target, None)
+            if backend is None:
+                continue
+            original = getattr(backend, attribute)
+
+            def failing(*args, _original=original, **kwargs):
+                state["calls"] += 1
+                if state["calls"] == 2:
+                    raise RuntimeError("backend down")
+                return _original(*args, **kwargs)
+
+            setattr(backend, attribute, failing)
+        return provider
+
+    def committed(provider):
+        vector = getattr(provider, "vector", None)
+        graph = getattr(provider, "graph", None)
+        manager = getattr(provider, "manager", None)
+        return (
+            sorted(vector.rows.get("acme", {})) if vector else None,
+            sorted(r.id for r in graph.rows.get("acme", [])) if graph else None,
+            sorted(m.memory_id for m in manager.added) if manager else None,
+        )
+
+    def batch():
+        return [MemoryEvent(content=f"note {i}", scope=ACME, id=f"n{i}") for i in range(4)]
+
+    sync_provider = wire(build_memory_provider(WRITABLE_CONFIGS[name]()))
+    async_provider = wire(build_memory_provider(WRITABLE_CONFIGS[name]()))
+
+    sync_error = async_error = None
+    try:
+        sync_provider.write_tier(ACME, MemoryTier.SEMANTIC, batch())
+    except Exception as exc:
+        sync_error = type(exc)
+    try:
+        await async_provider.awrite_tier(ACME, MemoryTier.SEMANTIC, batch())
+    except Exception as exc:
+        async_error = type(exc)
+
+    assert sync_error is async_error
+    assert committed(sync_provider) == committed(async_provider)
 
 
 @pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))

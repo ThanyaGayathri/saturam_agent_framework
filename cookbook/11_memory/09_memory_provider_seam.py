@@ -48,6 +48,20 @@ from egpt.providers.model_provider import ProviderMode
 # ports so the seam has something to compose.
 
 
+def scoped(record_scope: Scope, call_scope: Scope) -> bool:
+    """Every slot the call scope *sets* must match -- not only the tenant.
+
+    The port requires the full conjunctive predicate. A double that filters on tenant alone returns
+    other users' rows inside the same tenant, which the provider's own scope post-condition then
+    rejects -- so a tenant-only double does not even work here, let alone teach the contract.
+    """
+    for slot in ("tenant_id", "user_id", "agent_id", "team_id", "session_id"):
+        wanted = getattr(call_scope, slot)
+        if wanted is not None and getattr(record_scope, slot) != wanted:
+            return False
+    return True
+
+
 class InMemoryVector:
     """Keyword overlap standing in for embedding similarity."""
 
@@ -78,9 +92,14 @@ class InMemoryVector:
             # limit first would let superseded rows consume the whole page.
             if record.tier not in wanted or record.expired_at is not None:
                 continue
+            if not scoped(record.scope, scope):
+                continue
             overlap = len(terms & set(record.content.lower().split()))
             if overlap:
-                hits.append(MemoryRecord(**{**vars(record), "score": float(overlap)}))
+                # `replace`, not `vars()` splatting: the latter shares nested provenance /
+                # metadata / topics with the stored row. `MemoryRecord.__post_init__` copies them
+                # now, but reference code should not rely on that.
+                hits.append(replace(record, score=float(overlap)))
         # Honour limit, and treat 0 as zero rows rather than "unlimited" -- every real backend
         # distinguishes LIMIT 0 from an omitted limit, and a permissive double hides a provider
         # that fetches everything when it asked for nothing.
@@ -98,7 +117,10 @@ class InMemoryVector:
         # The port's contract, not a shortcut: ascending created_at then id, `limit` respected.
         # Reference code gets copied, so it should model the contract it teaches.
         rows = [
-            record for record in self._bucket(scope).values() if record.tier is tier
+            # A copy, like `search` returns: the provider may annotate what it scanned.
+            replace(record)
+            for record in self._bucket(scope).values()
+            if record.tier is tier and scoped(record.scope, scope)
         ]
         rows.sort(key=lambda record: ((record.created_at or 0), record.id))
         return rows if limit is None else rows[:limit]
@@ -160,19 +182,16 @@ class InMemoryGraph:
             # Scored, like the vector leg. An unscored leg makes fusion fall back to rank
             # position, which imports whatever order this store happens to hold -- a real graph
             # backend ranks its traversal, and a double that does not hides that in the provider.
-            MemoryRecord(
-                **{
-                    **vars(row),
-                    "score": float(len(terms & set(row.content.lower().split()))),
-                }
-            )
+            replace(row, score=float(len(terms & set(row.content.lower().split()))))
             for row in self._bucket(scope)
             if row.tier in wanted
             and row.is_current_belief()
+            and scoped(row.scope, scope)
             and terms & set(row.content.lower().split())
         ]
-        # This double honours limit too. The one that does not is precisely the one that would
-        # hide a filter-after-limit bug in the provider above it.
+        # Ranked *then* limited. Slicing an unranked list is exactly the permissive double this
+        # comment claims not to be -- the one that would hide a filter-after-limit bug above it.
+        hits.sort(key=lambda r: -(r.score or 0.0))
         return hits[: query.limit] if query.limit else []
 
     async def atraverse(
@@ -197,17 +216,17 @@ class InMemoryGraph:
                     row.t_valid, row.t_invalid, row.expired_at, row.superseded_by
                 )
                 continue
-            tightest = (
-                seen.t_invalid
-                if row.t_invalid is None
-                else min(filter(None, (seen.t_invalid, row.t_invalid)))
-            )
+            # `filter(None, ...)` would drop 0 as well as None, and epoch 0 is a legitimate bound.
+            candidates = [b for b in (seen.t_invalid, row.t_invalid) if b is not None]
+            tightest = min(candidates) if candidates else None
             expired = (
                 None
                 if (seen.expired_at is None or row.expired_at is None)
                 else seen.expired_at
             )
-            found[row.id] = TemporalBounds(seen.t_valid, tightest, expired, None)
+            found[row.id] = TemporalBounds(
+                seen.t_valid, tightest, expired, seen.superseded_by or row.superseded_by
+            )
         return found
 
     async def abounds_for_ids(
@@ -231,9 +250,7 @@ class InMemoryGraph:
                     if row.t_invalid is None
                     else min(row.t_invalid, t_invalid)
                 )
-                bounded = MemoryRecord(
-                    **{**vars(row), "t_invalid": tightest, "expired_at": None}
-                )
+                bounded = replace(row, t_invalid=tightest, expired_at=None)
                 self._bucket(scope).append(bounded)
 
     async def ainvalidate(
@@ -348,6 +365,9 @@ if __name__ == "__main__":
     # that would expand the verb set ADR 0003 ratifies. Consolidation is the only thing in-tree
     # that drives it; SM-L5 (#126) owns making it a first-class operation. A demo-only reach.
     provider: CoLocatedMemoryProvider = build_memory_provider(mode_a_config())  # type: ignore[assignment]
+    assert isinstance(
+        provider, CoLocatedMemoryProvider
+    )  # the reach below is adapter-specific
     provider.write_tier(
         scope,
         MemoryTier.SEMANTIC,

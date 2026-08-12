@@ -56,7 +56,7 @@ MAX_LIMIT = 10_000
 
 
 class PartialWriteError(RuntimeError):
-    """A multi-target write failed partway, carrying the ids that were stamped.
+    """A multi-target write failed partway, carrying the ids a retry must reuse.
 
     Shared by both adapters because the seam's swap property requires them to fail the same way.
     Neither is atomic -- there is no distributed transaction -- so both are **at-least-once**, and
@@ -68,16 +68,25 @@ class PartialWriteError(RuntimeError):
     error path. Carrying the receipt lets a caller retry with ``MemoryEvent.id`` set, which is
     idempotent provided the substrate upserts by id (see ``GraphSubstrate.upsert_episode``).
 
-    ``receipt.accepted`` and ``receipt.event_ids`` mean **committed**, not attempted. An adapter
-    that reported every stamped id -- including events no backend ever saw -- gave the number a
-    second meaning, and a caller behind the seam cannot tell which provider produced it.
+    **``event_ids`` are the ids a retry must reuse**, and ``accepted`` is how many of them there
+    are. That is the one reading true of both adapters and the one the retry advice needs. On
+    ``co_located`` a provider stamps every id up front, so the list is the whole batch -- some rows
+    may not have landed, and reusing their ids is exactly what makes the retry safe. On ``seed``
+    the manager mints ids as it commits, so an un-attempted event has no id to reuse and the list
+    is shorter.
+
+    It is deliberately **not** "rows committed". A caller cannot compute that from here -- a
+    partial fan-out may have written to one substrate and not the other for the same id -- and an
+    adapter that tried would have to drop ids the caller still needs. Per-substrate commit
+    accounting, if some caller needs it, is a separate field rather than a second meaning for this
+    one.
     """
 
     def __init__(self, receipt: "WriteReceipt") -> None:
         super().__init__(
-            f"Write partially applied: {receipt.accepted} event(s) were stamped and may be "
-            f"persisted in some targets but not others. Retry with these ids set on the events "
-            f"to stay idempotent: {receipt.event_ids}."
+            f"Write partially applied: {receipt.accepted} event(s) may be persisted in some "
+            f"targets but not others. Retry with these ids set on the events to stay idempotent: "
+            f"{receipt.event_ids}."
         )
         self.receipt = receipt
 
@@ -123,7 +132,12 @@ def _escape(value: Optional[str]) -> str:
 
     ``%`` first, or escaping ``/`` would itself be escapable into a collision.
     """
-    return "*" if value is None else value.replace("%", "%25").replace("/", "%2F")
+    if value is None:
+        return "*"
+    # `%` first, or escaping the others would itself be escapable into a collision. `*` is escaped
+    # because it is the unset sentinel: without it `agent_id="*"` and an unset agent_id produce the
+    # same key, which is the injectivity this function exists for.
+    return value.replace("%", "%25").replace("/", "%2F").replace("*", "%2A")
 
 
 @dataclass(frozen=True)
@@ -152,11 +166,27 @@ class Scope:
                 "Scope.tenant_id is required and must be a non-empty string. "
                 "An unscoped memory call reads and writes every tenant's rows."
             )
-        # Store what was validated. Validating `.strip()` and then keeping the raw value would
-        # give "  acme  " and "acme" different partition keys, so the same tenant would read and
-        # write two disjoint sets of rows depending on incidental whitespace upstream.
-        # `object.__setattr__` because the dataclass is frozen.
-        object.__setattr__(self, "tenant_id", self.tenant_id.strip())
+        # Every slot is normalised, not just the tenant, because every slot is a partition key.
+        # Keeping the raw value gives "  ada  " and "ada" different keys, so one user reads and
+        # writes two disjoint sets of rows on incidental whitespace upstream -- and `user_id=""`
+        # counts as *set* to the isolation guard, narrowing reads to records whose user_id is
+        # literally empty. `object.__setattr__` because the dataclass is frozen.
+        #
+        # Note this is a different argument from requiring `tenant_id`: that one is about unscoped
+        # being the *widest* tenancy. The others fail closed, so they are a partitioning bug.
+        for slot in ("tenant_id", "agent_id", "user_id", "team_id", "session_id"):
+            value = getattr(self, slot)
+            if value is None:
+                continue
+            if not isinstance(value, str):
+                raise TypeError(f"Scope.{slot} must be a string or None, got {value!r}.")
+            stripped = value.strip()
+            if not stripped:
+                raise ValueError(
+                    f"Scope.{slot} is blank. Pass None to leave it unset -- a blank string is "
+                    "treated as a set slot and narrows every read to records that also have it blank."
+                )
+            object.__setattr__(self, slot, stripped)
 
     def key(self) -> str:
         """Stable string key for storage partitioning and logging.
@@ -244,13 +274,21 @@ class MemoryRecord:
         # An inverted valid-time interval is empty at every instant, so the record is written,
         # receipted, and then invisible forever with no error anywhere -- the same silent-loss
         # shape `_epoch_or_none` rejects a naive datetime for.
-        if self.t_valid is not None and self.t_invalid is not None and self.t_valid > self.t_invalid:
+        # `>=`, not `>`: the valid-time predicate is half-open (`t_valid <= at < t_invalid`), so an
+        # interval whose ends are *equal* is empty at every instant too -- written, receipted, and
+        # then invisible forever with no error anywhere.
+        if self.t_valid is not None and self.t_invalid is not None and self.t_valid >= self.t_invalid:
             raise ValueError(
-                f"MemoryRecord t_valid ({self.t_valid}) is after t_invalid ({self.t_invalid}), so the "
-                "record is valid at no instant and no read can ever return it."
+                f"MemoryRecord t_valid ({self.t_valid}) is not before t_invalid ({self.t_invalid}), so "
+                "the record is valid at no instant and no read can ever return it. Valid time is "
+                "half-open: t_valid <= at < t_invalid."
             )
         self.provenance = dict(self.provenance or {})
         self.metadata = dict(self.metadata or {})
+        # `topics` is copied here, with the other two, so the class is closed rather than the
+        # instance: the seed read path builds records straight from stored rows and never calls
+        # `detached()`, so a consumer appending to `record.topics` wrote into the store.
+        self.topics = list(self.topics) if self.topics is not None else None
 
     def is_current_belief(self) -> bool:
         """Whether this row is what the system believes *now* (``expired_at IS NULL``).
@@ -403,6 +441,27 @@ class MemoryQuery:
         # question, it is one no record can satisfy, so the read returns empty and looks like a miss.
         if self.as_of is not None and self.as_of < 0:
             raise ValueError(f"MemoryQuery.as_of must be a non-negative epoch second, got {self.as_of!r}.")
+
+        # Element types, for the same reason `MemoryRecord` checks `tier` and `scope`: a bad member
+        # otherwise dies three frames down, and the two collections failed *differently* --
+        # `substrates=["banana"]` raised a raw KeyError inside the adapter while `tiers=["nope"]`
+        # returned a clean empty slice, which is the silently-empty class this package refuses
+        # everywhere else. Both are `str` enums, so coercing a valid value is a kindness; an
+        # invalid one is named here.
+        for field_name, raw, enum in (("tiers", self.tiers, MemoryTier), ("substrates", self.substrates, Substrate)):
+            if raw is None:
+                continue
+            coerced = []
+            for member in raw:
+                try:
+                    coerced.append(enum(member))
+                except ValueError:
+                    known = ", ".join(repr(m.value) for m in enum)
+                    raise ValueError(
+                        f"MemoryQuery.{field_name} contains {member!r}, which is not a {enum.__name__}. "
+                        f"Expected one of: {known}."
+                    ) from None
+            setattr(self, field_name, tuple(coerced))
 
         # `filters` is declared but nothing reads it: no substrate port states a contract for it,
         # so even a future backend has nothing to conform to. In a seam whose threat model is

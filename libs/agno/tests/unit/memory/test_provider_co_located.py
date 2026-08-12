@@ -22,11 +22,12 @@ from egpt.memory.types import (
     MemoryOperationError,
     MemoryQuery,
     MemoryRecord,
+    PartialWriteError,
     Scope,
     Substrate,
 )
 from egpt.utils.dttm import now_epoch_s
-from tests.unit.memory._fakes import FakeGraph, FakeVector, assert_ports_satisfied
+from tests.unit.memory._fakes import FakeGraph, FakeVector, _yield, assert_ports_satisfied
 
 ACME = Scope(tenant_id="acme", user_id="u1")
 OTHER = Scope(tenant_id="globex", user_id="u1")
@@ -265,28 +266,22 @@ def test_read_tier_narrows_without_cross_tier_fusion():
 
 
 def test_equal_scoring_records_rank_deterministically_across_providers():
-    """Ties break on content, so identical content ranks identically everywhere.
+    """Deviation D7: ties break on (content, tier, id), never on arrival order.
 
-    The earlier version asserted the *substrate's* order survived a tie. That read well and was
-    unusable: the substrate's order was itself UUID-driven, so the same corpus ranked three
-    different ways across eight cookbook runs and two providers disagreed inside one process.
-    Content is the only key stable across runs, workers and deployments.
+    Asserted on **ids**, which are what actually differ between the two stores. The previous
+    version compared contents of three records written with identical content, so both sides were
+    the same list under any ordering and a score-only sort passed the whole suite.
     """
+    query = MemoryQuery(text="alpha")
     first, _, _ = provider()
     second, _, _ = provider()
-    for identifier in ("zzz", "aaa", "mmm"):
-        first.write(ACME, [event("alpha beta gamma", id=identifier)])
-    for identifier in ("mmm", "zzz", "aaa"):  # written in a different order
-        second.write(ACME, [event("alpha beta gamma", id=identifier)])
+    for eid in ("mmm", "zzz", "aaa"):
+        first.write_tier(ACME, MemoryTier.SEMANTIC, [event("alpha", id=eid)])
+    for eid in ("zzz", "aaa", "mmm"):  # same corpus, different arrival order
+        second.write_tier(ACME, MemoryTier.SEMANTIC, [event("alpha", id=eid)])
 
-    query = MemoryQuery(text="alpha beta gamma")
-
-    assert [r.content for r in first.read(ACME, query).records] == [r.content for r in second.read(ACME, query).records]
-
-
-# ---------------------------------------------------------------------------
-# Tenant isolation
-# ---------------------------------------------------------------------------
+    assert [r.id for r in first.read(ACME, query).records] == ["aaa", "mmm", "zzz"]
+    assert [r.id for r in second.read(ACME, query).records] == ["aaa", "mmm", "zzz"]
 
 
 def test_a_read_never_crosses_tenants():
@@ -299,7 +294,7 @@ def test_a_read_never_crosses_tenants():
     assert leaked == []
 
 
-def test_consolidation_never_crosses_tenants():
+def test_consolidation_never_crosses_tenants():  # noqa: D401 - see the leaked-record test
     p, _, _ = provider()
     p.write(ACME, [event("acme only")])
 
@@ -774,8 +769,6 @@ def test_a_graph_only_provider_still_accepts_an_episodic_write():
 
 def test_a_partial_write_raises_with_the_stamped_ids_so_a_retry_stays_idempotent():
     """Major 9. The exception propagated with no receipt, so a retry minted fresh ids (breaking F1)."""
-    from egpt.memory.adapters.co_located import PartialWriteError
-
     p, vector, graph = provider()
 
     def explode(scope, event_):
@@ -935,7 +928,6 @@ def test_an_episodic_write_still_uses_the_episode_door():
 
 def test_the_vector_leg_honours_tier_routing_like_the_graph_leg_does():
     """Latent until SM-C2 adds a graph-only tier, at which point it becomes a silent extra write."""
-    import egpt.memory.adapters.co_located as module
     from egpt.memory import tiers as tiers_module
 
     p, vector, graph = provider()
@@ -947,7 +939,6 @@ def test_the_vector_leg_honours_tier_routing_like_the_graph_leg_does():
     finally:
         tiers_module.SUBSTRATES_BY_TIER.clear()
         tiers_module.SUBSTRATES_BY_TIER.update(original)
-        assert module is not None  # keep the import meaningful for readers
 
 
 def test_consolidation_does_not_restamp_created_at_on_a_stable_fact():
@@ -1074,8 +1065,8 @@ def test_grouping_is_decided_by_content_not_by_scan_order():
         ]
     ]
 
-    forward, _ = p._distil(ACME, episodes)
-    backward, _ = p._distil(ACME, list(reversed(episodes)))
+    forward, _ = p._distil(episodes)
+    backward, _ = p._distil(list(reversed(episodes)))
 
     assert [f.record.id for f in forward] == [f.record.id for f in backward]
     assert [f.record.content for f in forward] == [f.record.content for f in backward]
@@ -1187,3 +1178,97 @@ def test_a_scope_narrower_than_the_tenant_is_checked_too():
 
     with pytest.raises(MemoryOperationError, match="dropped a scope predicate"):
         p.read(bob, MemoryQuery(text="ada salary"))
+
+
+async def test_a_refusal_among_concurrent_failures_wins_over_a_transport_error():
+    """Which failure surfaces must be a decision, not a race.
+
+    A refusal means "this will never work"; a transport error means "retry me". Bare `gather`
+    propagates whichever arrived first, so the same batch could report either on different runs.
+    Settling the batch is what makes the choice deterministic.
+    """
+
+    class MixedFailures(FakeGraph):
+        async def aupsert_episode(self, scope, event):
+            await _yield()
+            if event.id == "e0":
+                raise RuntimeError("transport blip")
+            if event.id == "e1":
+                raise MemoryOperationError("this backend refuses episodes", field_name="tier")
+            return self.upsert_episode(scope, event)
+
+    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=MixedFailures())
+
+    with pytest.raises(MemoryOperationError, match="refuses episodes"):
+        await p.awrite(ACME, [event(f"note {i}", id=f"e{i}") for i in range(4)])
+
+
+def test_repeated_passes_retire_a_subsumed_fact_exactly_once():
+    """Without reconciling the semantic scan, every pass retires the same row again.
+
+    Under the SM-L1 scheduler this design anticipates, that grows the store linearly in passes,
+    forever.
+    """
+    p, vector, _ = provider()
+    grow = "ada prefers async standups"
+    p.write(ACME, [event(grow, id="g1")])
+    p.consolidate(ACME)
+    p.write(ACME, [event(grow, id="g2")])
+
+    retired = [p.consolidate(ACME).details["facts_superseded"] for _ in range(4)]
+
+    assert retired == [1, 0, 0, 0]
+    live = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC and r.is_current_belief()]
+    assert len(live) == 1
+
+
+def test_consolidate_does_not_mutate_the_rows_the_substrate_handed_it():
+    """`_reconcile_bounds` writes bounds onto whatever it is given, and `scan` may return live rows.
+
+    The read path detaches in `_merge`; the consolidate path did not, so one pass moved a stored
+    episode's `t_invalid` from None to the graph's bound, in place.
+    """
+
+    class LiveRowVector(FakeVector):
+        """Hands back the stored objects, as a backend with an identity map does.
+
+        `FakeVector.scan` returns copies, which is the *stricter* behaviour and right for every
+        other test -- but it also means it cannot observe a provider that mutates what it scanned.
+        This double is deliberately permissive on exactly that axis.
+        """
+
+        def scan(self, scope, tier, limit=None):
+            self.calls.append("scan")
+            self.scan_limits.append(limit)
+            rows = [r for r in self._matching(scope) if r.tier is tier]
+            rows.sort(key=lambda r: ((r.created_at or 0), r.id))
+            return rows if limit is None else rows[:limit]
+
+    vector, graph = LiveRowVector(), FakeGraph()
+    p = CoLocatedMemoryProvider(vector=vector, graph=graph)
+    p.write(ACME, [event("the server is in rack 12", id="ep1", occurred_at=50)])
+    graph.invalidate(ACME, "ep1", t_invalid=100, at=110)
+
+    p.consolidate(ACME)
+
+    stored = vector.rows["acme"]["ep1"]
+    assert (stored.t_invalid, stored.expired_at) == (None, None)
+
+
+@pytest.mark.parametrize("bad", [0, -1, "lots", 3.5, True])
+def test_a_bound_that_reaches_the_substrate_is_validated_at_construction(bad):
+    """`cap=0` is the one that matters: it scans nothing while reporting the tier as undrained,
+    so a scheduler retries forever and nothing is ever consolidated."""
+    with pytest.raises(MemoryProviderConfigError, match="max_episodes_per_pass"):
+        CoLocatedMemoryProvider(vector=FakeVector(), max_episodes_per_pass=bad)
+
+
+def test_the_bounds_are_reported_as_unreconciled_when_no_graph_participated():
+    """A vector-only slice carries whatever the projection had, and a caller cannot otherwise tell."""
+    vector_only = CoLocatedMemoryProvider(vector=FakeVector())
+    vector_only.write_tier(ACME, MemoryTier.SEMANTIC, [event("alpha", id="a1")])
+
+    assert vector_only.read(ACME, MemoryQuery(text="alpha")).fusion["bounds_reconciled"] is False
+    p, _, _ = provider()
+    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("alpha", id="a1")])
+    assert p.read(ACME, MemoryQuery(text="alpha")).fusion["bounds_reconciled"] is True

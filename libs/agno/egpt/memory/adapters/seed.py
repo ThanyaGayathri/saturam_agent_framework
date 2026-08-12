@@ -210,6 +210,19 @@ class SeedMemoryProvider(MemoryProvider):
 
         The store path is unaffected too -- ``LearningStore.recall`` takes all four slots.
         """
+        # `MemoryManager` substitutes `user_id = "default"` when it is None (`manager.py`), so
+        # within the pinned tenant every user-less scope shares one pool -- and the projection then
+        # stamps the *requesting* scope onto each row, so the answer looks correctly narrow. Same
+        # shape as the two leaks below, on the slot that was left unguarded.
+        # `Scope.tenant_id`'s own rationale applies one level down: unscoped is the widest, not the
+        # narrowest.
+        if scope.user_id is None:
+            raise MemoryOperationError(
+                "MemoryManager substitutes user_id='default' for an unset user, so this read would "
+                "share one pool with every other user-less scope in the tenant and come back "
+                "stamped with your scope. Set Scope.user_id, or bind a LearningStore for this tier.",
+                field_name="user_id",
+            )
         narrowed = [
             name
             for name, value in (
@@ -551,7 +564,7 @@ class SeedMemoryProvider(MemoryProvider):
         return bool(getattr(store, "was_updated", False))
 
     @staticmethod
-    def _reject_unstorable_scope(scope: Scope) -> None:
+    def _reject_unstorable_scope(scope: Scope) -> None:  # noqa: D401
         """Refuse a write scoped to a slot ``UserMemory`` has no column for.
 
         ``UserMemory`` carries ``user_id`` / ``agent_id`` / ``team_id`` and no session column, and
@@ -560,6 +573,13 @@ class SeedMemoryProvider(MemoryProvider):
         same scope outright. Accept-and-ignore on a scoping field, in the module whose whole
         posture is the opposite.
         """
+        if scope.user_id is None:
+            raise MemoryOperationError(
+                "MemoryManager substitutes user_id='default' for an unset user, so this write would "
+                "land in a pool shared with every other user-less scope in the tenant. Set "
+                "Scope.user_id, or bind a LearningStore for this tier.",
+                field_name="user_id",
+            )
         if scope.session_id is not None:
             raise MemoryOperationError(
                 "UserMemory has no session column, so a session-scoped write would be stored "
@@ -732,6 +752,24 @@ def _checked_stores(raw: Any) -> Optional[Dict[MemoryTier, "LearningStore"]]:
     return dict(raw)
 
 
+def _checked_machine(raw: Any) -> Any:
+    """The one collaborator that was taken on faith while its two siblings were checked.
+
+    A string built cleanly and then died with ``AttributeError: 'str' object has no attribute
+    'curator'`` inside ``consolidate`` -- and only on a *user-scoped* call, because the pass short-
+    circuits without a ``user_id``.
+    """
+    if raw is None:
+        return None
+    if not callable(getattr(getattr(raw, "curator", None), "deduplicate", None)):
+        raise MemoryProviderConfigError(
+            f"config.options['learning_machine'] is a {type(raw).__name__}; consolidate needs "
+            "`.curator.deduplicate(user_id=...)`.",
+            field_name="options.learning_machine",
+        )
+    return raw
+
+
 def _checked(raw: Any, attributes: Sequence[str], option: str) -> Any:
     """Duck-check a collaborator the same way, by the methods this bridge actually calls."""
     if raw is None:
@@ -753,7 +791,9 @@ def _build_seed(config: MemoryProviderConfig) -> MemoryProvider:
         manager=_checked(
             config.options.get("memory_manager"), ("search_user_memories", "add_user_memory"), "memory_manager"
         ),
-        machine=config.options.get("learning_machine"),
+        # `curator` is a property, so `_checked`'s `callable(getattr(...))` would reject a valid
+        # machine -- duck-check the method actually called instead.
+        machine=_checked_machine(config.options.get("learning_machine")),
         stores=_checked_stores(config.options.get("stores")),
         config=config,
     )

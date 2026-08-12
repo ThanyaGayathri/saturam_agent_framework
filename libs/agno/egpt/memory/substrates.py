@@ -276,6 +276,11 @@ class GraphSubstrate(Protocol):
         ordinary read. A backend needing a surrogate key internally must still project ``id`` as the
         logical edge id.
 
+        A ``t_invalid`` at or before the row's ``t_valid`` is **refused**, with ``ValueError`` from
+        the envelope: valid time is half-open, so such a bound leaves the fact valid at no instant.
+        Superseding a row is not this operation -- that is transaction time, done by upserting the
+        row back with ``expired_at`` and ``superseded_by`` set.
+
         Scope note (ADR 0003 section B.6): this governs **semantic contradiction on graph edges**.
         Episodic **row** lifecycle -- SM-R6 re-segmentation supersede and SM-R5 decay archival --
         is row-level ``expired_at`` on the record, not this primitive. Both are append-only and

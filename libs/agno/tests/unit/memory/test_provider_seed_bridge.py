@@ -40,8 +40,13 @@ def seed_config(**options) -> MemoryProviderConfig:
 class FakeManager:
     """Stands in for MemoryManager: the same surface, none of the db or model."""
 
-    def __init__(self, memories: Optional[List[UserMemory]] = None) -> None:
-        self.memories = list(memories or [])
+    def __init__(self, memories: Optional[List[UserMemory]] = None, owner: str = "u1") -> None:
+        # Seeded rows belong to `owner`. The real manager partitions on user_id, so a double whose
+        # rows belong to nobody cannot show a per-user leak -- and the "default" pool leak lived in
+        # exactly that blind spot.
+        self.memories = [m for m in (memories or [])]
+        for memory in self.memories:
+            memory.user_id = memory.user_id or owner
         self.added: List[UserMemory] = []
         self.search_calls: List[Dict[str, Any]] = []
 
@@ -49,11 +54,15 @@ class FakeManager:
         self.search_calls.append(
             {"query": query, "limit": limit, "retrieval_method": retrieval_method, "user_id": user_id}
         )
-        return self.memories[:limit] if limit else self.memories
+        # Filtered on user_id, like the real manager -- which also substitutes "default" for None.
+        # Ignoring it made the shared-"default"-pool leak unobservable by any test.
+        pool = user_id or "default"
+        matching = [m for m in self.memories if (m.user_id or "default") == pool]
+        return matching[:limit] if limit else matching
 
     def add_user_memory(self, memory: UserMemory, user_id=None):
         memory.memory_id = memory.memory_id or f"m{len(self.added)}"
-        memory.user_id = user_id
+        memory.user_id = user_id or "default"  # the real manager's substitution
         self.added.append(memory)
         # Also readable: the real manager persists, so a double where a write is invisible to the
         # next read would let a round-trip bug pass.
@@ -927,3 +936,32 @@ def test_the_factory_refuses_a_manager_that_is_not_one():
     """`_build_co_located` checks its substrates; this took collaborators on faith."""
     with pytest.raises(MemoryProviderConfigError, match="memory_manager"):
         build_memory_provider(seed_config(memory_manager=object()))
+
+
+def test_a_user_less_scope_is_refused_rather_than_sharing_the_default_pool():
+    """`MemoryManager` substitutes `user_id="default"` for an unset user.
+
+    So within the pinned tenant every user-less scope shares one pool, and the projection then
+    stamps the *requesting* scope onto each row -- the answer looks correctly narrow. Same shape as
+    the two leaks this module already refuses, on the slot that was left unguarded.
+    """
+    tenant_only = Scope(tenant_id="acme")
+    manager = FakeManager([UserMemory(memory="someone else's note", memory_id="m1")], owner="default")
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="user_id='default'"):
+        bridge.read_tier(tenant_only, MemoryTier.SEMANTIC, MemoryQuery(text="note"))
+    with pytest.raises(MemoryOperationError, match="user_id='default'"):
+        bridge.write_tier(tenant_only, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=tenant_only)])
+
+    assert manager.search_calls == [], "refused before the manager was ever asked"
+
+
+def test_the_factory_refuses_a_learning_machine_that_is_not_one():
+    """The one collaborator taken on faith while its two siblings were checked.
+
+    The regression only appears on a *user-scoped* consolidate, because the pass short-circuits
+    without a `user_id` -- a test written without one would pass vacuously.
+    """
+    with pytest.raises(MemoryProviderConfigError, match="learning_machine"):
+        build_memory_provider(seed_config(memory_manager=FakeManager(), learning_machine="not a machine"))

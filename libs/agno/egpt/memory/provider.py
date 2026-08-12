@@ -23,7 +23,7 @@ without touching a single call site.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
@@ -36,6 +36,9 @@ from egpt.memory.types import (
     Substrate,
     WriteReceipt,
 )
+
+if TYPE_CHECKING:  # `config` imports this module, so the annotation cannot be a runtime import
+    from egpt.memory.config import MemoryProviderConfig
 
 __all__ = ["MemoryProvider"]
 
@@ -50,6 +53,12 @@ class MemoryProvider(ABC):
 
     #: Registry key. Concrete adapters set this so ``config.provider`` can select them.
     provider_key: str = "abstract"
+
+    #: The config the adapter was built from. Declared on the contract rather than left to each
+    #: adapter because the seam's mode story reads it: SM-C5 (#93) resolves ``config.mode`` per
+    #: tenant *through* the seam, and both the swap tests and the cookbook reach it through a
+    #: ``MemoryProvider``-typed reference. Its absence here is what forced the cookbook's cast.
+    config: "MemoryProviderConfig"
 
     # -- read (feed-forward): query -> MemorySlice ----------------------------
 

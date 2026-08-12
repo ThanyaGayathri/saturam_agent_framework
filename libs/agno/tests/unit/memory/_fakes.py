@@ -14,6 +14,7 @@ They are deliberately faithful on the two behaviours the provider depends on:
   SM-R10 section 6 proved in-place wrong and a double that cheated would hide it.
 """
 
+import asyncio
 from dataclasses import replace
 from typing import Dict, List, Optional, Sequence
 
@@ -28,6 +29,16 @@ from egpt.memory.types import (
     Substrate,
     TemporalBounds,
 )
+
+
+async def _yield() -> None:
+    """A real suspension point in every ``a*`` double.
+
+    Without one, ``asyncio.gather`` in the provider never actually interleaves and the async paths
+    are exercised as thinly disguised sync ones -- which is a contributing reason the ``awrite``
+    failure-path divergence went unnoticed for six rounds.
+    """
+    await asyncio.sleep(0)
 
 
 def scoped(record_scope: Scope, call_scope: Scope) -> bool:
@@ -129,6 +140,7 @@ class FakeVector:
             bucket[record.id] = replace(record, substrate=Substrate.VECTOR)
 
     async def aupsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        await _yield()
         self.calls.append("aupsert")
         self.upsert(scope, records)
 
@@ -146,13 +158,16 @@ class FakeVector:
         return _ranked(hits, query.limit)
 
     async def asearch(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
+        await _yield()
         self.calls.append("asearch")
         return self.search(scope, query, tier)
 
     def scan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
         self.calls.append("scan")
         self.scan_limits.append(limit)
-        rows = [r for r in self._matching(scope) if r.tier is tier]
+        # Copies, like `search` returns. `scan` handing back live objects made a provider that
+        # mutates what it scanned unobservable -- and the consolidate path did exactly that.
+        rows = [replace(r) for r in self._matching(scope) if r.tier is tier]
         rows.sort(key=lambda r: ((r.created_at or 0), r.id))
         # `limit=0` means zero rows, not "unlimited". Every real backend distinguishes `LIMIT 0`
         # from an omitted limit, and conflating them here would hide a provider that fetches
@@ -160,6 +175,7 @@ class FakeVector:
         return rows if limit is None else rows[:limit]
 
     async def ascan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+        await _yield()
         self.calls.append("ascan")
         return self.scan(scope, tier, limit)
 
@@ -207,6 +223,7 @@ class FakeGraph:
         bucket.append(row)
 
     async def aupsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
+        await _yield()
         self.calls.append("aupsert_episode")
         self.upsert_episode(scope, event)
 
@@ -224,6 +241,7 @@ class FakeGraph:
         bucket.append(row)
 
     async def aupsert_fact(self, scope: Scope, fact: FactWrite) -> None:
+        await _yield()
         self.calls.append("aupsert_fact")
         self.upsert_fact(scope, fact)
 
@@ -241,6 +259,7 @@ class FakeGraph:
     async def atraverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> List[MemoryRecord]:
+        await _yield()
         self.calls.append("atraverse")
         return self.traverse(scope, query, tier)
 
@@ -263,13 +282,17 @@ class FakeGraph:
             if seen is None:
                 found[row.id] = TemporalBounds(row.t_valid, row.t_invalid, row.expired_at, row.superseded_by)
                 continue
-            tightest = seen.t_invalid if row.t_invalid is None else min(filter(None, (seen.t_invalid, row.t_invalid)))
+            # `filter(None, ...)` would drop 0 as well as None -- epoch 0 is a legitimate bound,
+            # and dropping the tighter one leaves a false fact current.
+            candidates = [b for b in (seen.t_invalid, row.t_invalid) if b is not None]
+            tightest = min(candidates) if candidates else None
             # `expired_at=None` wins: the live revision is the one that decides current belief.
             expired = None if (seen.expired_at is None or row.expired_at is None) else seen.expired_at
             found[row.id] = TemporalBounds(seen.t_valid, tightest, expired, seen.superseded_by or row.superseded_by)
         return found
 
     async def abounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]:
+        await _yield()
         self.calls.append("abounds_for_ids")
         return self.bounds_for_ids(scope, ids)
 
@@ -279,13 +302,15 @@ class FakeGraph:
         recorded_at = at if at is not None else t_invalid
         bucket = self._bucket(scope)
         for row in list(bucket):
-            if row.id != edge_id or not row.is_current_belief():
+            # Scope-filtered, so an invalidation issued under the wrong scope is observable.
+            if row.id != edge_id or not row.is_current_belief() or not scoped(row.scope, scope):
                 continue
             row.expired_at = recorded_at  # transaction time out -- not a valid-time edit
             tightest = t_invalid if row.t_invalid is None else min(row.t_invalid, t_invalid)
             bucket.append(replace(row, t_invalid=tightest, expired_at=None, created_at=recorded_at))
 
     async def ainvalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None:
+        await _yield()
         self.calls.append("ainvalidate")
         self.invalidate(scope, edge_id, t_invalid, at)
 

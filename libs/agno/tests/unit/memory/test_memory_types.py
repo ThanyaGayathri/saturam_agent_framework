@@ -76,6 +76,7 @@ def test_scope_is_frozen():
 
 def test_record_normalizes_every_temporal_field_to_epoch_seconds():
     dt = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    later = datetime(2026, 1, 2, tzinfo=timezone.utc)
     expected = int(dt.timestamp())
 
     record = MemoryRecord(
@@ -84,14 +85,17 @@ def test_record_normalizes_every_temporal_field_to_epoch_seconds():
         content="ships on fridays",
         scope=a_scope(),
         t_valid=dt,  # type: ignore[arg-type]
-        t_invalid=dt.isoformat(),  # type: ignore[arg-type]
+        t_invalid=later.isoformat(),  # type: ignore[arg-type]
         created_at=float(expected),  # type: ignore[arg-type]
         expired_at=expected,
     )
 
     for value in (record.t_valid, record.t_invalid, record.created_at, record.expired_at):
         assert isinstance(value, int)
-        assert value == expected
+    # `t_invalid` is a day later than the rest, because an interval whose ends are equal is empty
+    # at every instant and now refused -- see the round-7 case below.
+    assert (record.t_valid, record.created_at, record.expired_at) == (expected, expected, expected)
+    assert record.t_invalid == int(later.timestamp())
 
 
 def test_record_leaves_unset_timestamps_as_none():
@@ -345,3 +349,92 @@ def test_every_exported_name_is_importable():
     missing = [name for name in memory_package.__all__ if not hasattr(memory_package, name)]
 
     assert not missing, f"__all__ names symbols nothing imported: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# Round-7 review
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("t_valid,t_invalid", [(200, 100), (100, 100)])
+def test_a_valid_time_interval_that_is_empty_at_every_instant_is_refused(t_valid, t_invalid):
+    """Valid time is half-open (`t_valid <= at < t_invalid`), so the **equal** case is empty too.
+
+    The guard originally rejected only a strictly inverted interval, so `t_valid == t_invalid`
+    constructed cleanly and was invisible at every instant -- written, receipted, and then gone,
+    with no error anywhere. That is the failure the guard exists for, slipping through it.
+    """
+    with pytest.raises(ValueError, match="not before"):
+        MemoryRecord(
+            id="r1",
+            tier=MemoryTier.SEMANTIC,
+            content="x",
+            scope=a_scope(),
+            t_valid=t_valid,
+            t_invalid=t_invalid,
+        )
+
+
+def test_a_returned_record_does_not_alias_the_callers_topics_list():
+    """`topics` is copied alongside provenance and metadata, closing the class not the instance.
+
+    The seed read path builds records straight from stored rows and never calls `detached()`, so
+    a consumer appending to `record.topics` wrote into the store -- and with a DB-backed manager,
+    into the ORM identity map.
+    """
+    topics = ["ui"]
+    record = MemoryRecord(id="r1", tier=MemoryTier.SEMANTIC, content="x", scope=a_scope(), topics=topics)
+
+    record.topics.append("INJECTED")
+
+    assert topics == ["ui"]
+
+
+@pytest.mark.parametrize(
+    "left,right",
+    [
+        (Scope(tenant_id="t", agent_id="b/c", user_id="d"), Scope(tenant_id="t", agent_id="b", user_id="c/d")),
+        (Scope(tenant_id="t", agent_id="*"), Scope(tenant_id="t")),
+        (Scope(tenant_id="t", agent_id="a%2Fb"), Scope(tenant_id="t", agent_id="a/b")),
+    ],
+)
+def test_scope_key_is_injective_not_merely_fixed_arity(left, right):
+    """Fixed arity across *which slots are set* is not the same as an injective key.
+
+    An ordinary `/` in a tenant-supplied identifier merged two adjacent slots, and `*` -- the unset
+    sentinel itself -- was left unescaped, so a scope that set a slot to `"*"` collided with one
+    that left it unset.
+    """
+    assert left.key() != right.key()
+
+
+@pytest.mark.parametrize("slot", ["agent_id", "user_id", "team_id", "session_id"])
+def test_every_scope_slot_is_stripped_and_blank_is_refused(slot):
+    """Every slot is a partition key, so whitespace splits one identity across two partitions.
+
+    A blank string is additionally treated as *set* by the isolation guard, narrowing every read to
+    records whose slot is literally empty.
+    """
+    assert getattr(Scope(tenant_id="acme", **{slot: "  ada  "}), slot) == "ada"
+
+    with pytest.raises(ValueError, match="Pass None"):
+        Scope(tenant_id="acme", **{slot: "   "})
+
+
+@pytest.mark.parametrize(
+    "kwargs,match",
+    [({"tiers": ["nope"]}, "MemoryTier"), ({"substrates": ["banana"]}, "Substrate")],
+)
+def test_a_bad_enum_member_is_named_here_not_three_frames_down(kwargs, match):
+    """The two collections used to fail differently: one raised a raw KeyError inside the adapter,
+    the other returned a clean empty slice -- the silently-empty class this package refuses."""
+    with pytest.raises(ValueError, match=match):
+        MemoryQuery(text="x", **kwargs)
+
+
+def test_string_enum_members_are_accepted_and_coerced():
+    """Both are `str` enums, so a config-supplied string is a kindness, not a trap."""
+    query = MemoryQuery(text="x", tiers=["episodic"], substrates=["vector"])
+
+    assert tuple(query.tiers) == (MemoryTier.EPISODIC,)
+    assert tuple(query.substrates) == (Substrate.VECTOR,)
