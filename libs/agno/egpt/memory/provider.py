@@ -125,6 +125,13 @@ class MemoryProvider(ABC):
         where ignoring it silently skips episodes. Draining a tier larger than one pass, and
         scheduling passes at all, are SM-L1's (#122).
 
+        **It distils and writes; it does not retire.** A provider derives a fact id from the
+        episodes it came from, so a group whose membership changes mints a *new* id and the
+        previous row stays current belief -- one logical fact, two rows. Retiring the subsumed row
+        needs supersede semantics that cover growth, shrinkage and split/merge, which belong with
+        the extraction strategy that decides group membership: SM-L3 (#124). Until then a provider
+        must say so in ``details["supersede"]`` rather than leave a caller to discover it.
+
         ``ConsolidationReport.details`` carries at least :data:`~egpt.memory.types.CONSOLIDATION_KEYS`
         on every provider, so a scheduler reading it does not have to know which one it got.
 

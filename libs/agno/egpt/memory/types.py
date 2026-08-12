@@ -33,6 +33,7 @@ __all__ = [
     "CONSOLIDATION_KEYS",
     "FUSION_KEYS",
     "MAX_LIMIT",
+    "NO_SUPERSEDE",
     "consolidation_details",
     "ConsolidationReport",
     "FactWrite",
@@ -533,18 +534,31 @@ def fusion_diagnostics(
 
 #: Keys every provider must put in ``ConsolidationReport.details``.
 #:
+#: What a consolidation pass did, and did not do. ``supersede`` names the second in so many words:
+#: no SM-C1 provider retires the rows it subsumes, and a scheduler must not have to infer that.
+NO_SUPERSEDE = "not implemented in SM-C1 -- SM-L3 (#124)"
+
 #: The same floor ``FUSION_KEYS`` provides, for the scheduler SM-L1 (#122) will write. A provider
 #: with nothing to report says so rather than omitting the key.
-CONSOLIDATION_KEYS = ("derived_by", "complete")
+CONSOLIDATION_KEYS = ("derived_by", "complete", "supersede")
 
 
-def consolidation_details(derived_by: Optional[str], complete: bool = True, **extra: Any) -> Dict[str, Any]:
+def consolidation_details(
+    derived_by: Optional[str],
+    complete: bool = True,
+    supersede: str = NO_SUPERSEDE,
+    **extra: Any,
+) -> Dict[str, Any]:
     """Build a ``ConsolidationReport.details`` payload carrying every :data:`CONSOLIDATION_KEYS`.
 
-    ``complete`` is what a scheduler actually needs: whether the tier was drained. Extra keys are
-    free -- the contract is a floor, not a ceiling.
+    ``complete`` is what a scheduler actually needs: whether the tier was drained. ``supersede``
+    is the other thing it cannot infer -- whether the pass retires the rows it subsumes. In the
+    floor rather than an adapter extra, because one provider silently leaving duplicates while
+    another claims a retirement is exactly the divergence the floor exists to prevent.
+
+    Extra keys are free; the contract is a floor, not a ceiling.
     """
-    details: Dict[str, Any] = {"derived_by": derived_by, "complete": complete}
+    details: Dict[str, Any] = {"derived_by": derived_by, "complete": complete, "supersede": supersede}
     details.update(extra)
     return details
 

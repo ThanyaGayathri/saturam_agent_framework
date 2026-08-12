@@ -628,9 +628,9 @@ def test_consolidation_bounds_its_scan():
 
     p.consolidate(ACME)
 
-    # Two scans: the episodic tier to distil, then the semantic tier to find facts this pass
-    # supersedes. Both bounded by the same cap.
-    assert vector.scan_limits == [_MAX_EPISODES_PER_PASS, _MAX_EPISODES_PER_PASS]
+    # One scan: the episodic tier. SM-C1's pass distils and writes; it does not read the semantic
+    # tier back, because retiring what it subsumes is SM-L3's (#124).
+    assert vector.scan_limits == [_MAX_EPISODES_PER_PASS]
 
 
 def test_one_pass_consolidates_every_episode_it_scanned():
@@ -1225,25 +1225,6 @@ async def test_a_refusal_among_concurrent_failures_wins_over_a_transport_error()
     assert isinstance(cause, MemoryOperationError) and "refuses episodes" in str(cause)
 
 
-def test_repeated_passes_retire_a_subsumed_fact_exactly_once():
-    """Without reconciling the semantic scan, every pass retires the same row again.
-
-    Under the SM-L1 scheduler this design anticipates, that grows the store linearly in passes,
-    forever.
-    """
-    p, vector, _ = provider()
-    grow = "ada prefers async standups"
-    p.write(ACME, [event(grow, id="g1")])
-    p.consolidate(ACME)
-    p.write(ACME, [event(grow, id="g2")])
-
-    retired = [p.consolidate(ACME).details["facts_superseded"] for _ in range(4)]
-
-    assert retired == [1, 0, 0, 0]
-    live = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC and r.is_current_belief()]
-    assert len(live) == 1
-
-
 def test_consolidate_does_not_mutate_the_rows_the_substrate_handed_it():
     """`_reconcile_bounds` writes bounds onto whatever it is given, and `scan` may return live rows.
 
@@ -1362,39 +1343,6 @@ async def test_concurrent_fact_writes_respect_the_configured_bound():
     assert graph.peak <= 2, f"peak concurrency {graph.peak} exceeded max_concurrent_writes=2"
 
 
-def test_a_group_that_shrinks_also_retires_its_predecessor():
-    """`sources < new_sources` only caught a group that *grew*.
-
-    Reachable today: invalidate an episode, `_visible_episodes` drops it on the next pass, the
-    group shrinks, a new `uuid5` id is minted -- and both rows read back as current belief, so the
-    agent sees the same statement twice and it eats a slot in a limit-bounded budget.
-    """
-    p, vector, graph = provider()
-    grow = "ada prefers async standups"
-    p.write(ACME, [event(grow, id="ep1", occurred_at=1000), event(grow + " mostly", id="ep2", occurred_at=1000)])
-    p.consolidate(ACME)
-
-    graph.invalidate(ACME, "ep2", t_invalid=2000, at=2000)
-    report = p.consolidate(ACME)
-
-    live = [r for r in p.read(ACME, MemoryQuery(text=grow)).records if r.tier is MemoryTier.SEMANTIC]
-    assert report.details["facts_superseded"] == 1
-    assert len(live) == 1, f"{len(live)} current-belief rows for one logical fact"
-
-
-def test_the_consolidation_report_flags_a_truncated_semantic_scan():
-    """`_superseded` compares against `existing`, which has its own cap -- a truncated one means
-    facts past it are never retired while `complete` claimed the pass was whole."""
-    vector, graph = FakeVector(), FakeGraph()
-    p = CoLocatedMemoryProvider(vector=vector, graph=graph, max_episodes_per_pass=2)
-    for i in range(6):
-        p.write_tier(ACME, MemoryTier.SEMANTIC, [event(f"fact number {i}", id=f"f{i}")])
-
-    report = p.consolidate(ACME)
-
-    assert report.details["semantic_scan_truncated"] is True
-
-
 def test_bounds_are_not_requested_for_a_tier_the_graph_does_not_hold():
     """A procedural read is vector-only per SUBSTRATES_BY_TIER, so the round trip is guaranteed
     empty -- and a network hop in Mode B."""
@@ -1422,13 +1370,32 @@ def test_excluding_the_graph_is_allowed_for_a_tier_the_graph_does_not_hold():
         p.read(ACME, MemoryQuery(text="x", tiers=[MemoryTier.SEMANTIC], substrates=[Substrate.VECTOR]))
 
 
-def test_a_refusal_during_consolidation_is_also_a_partial_write():
-    """The same rule as `write`, on the path the review did not flag.
+def test_consolidation_does_not_retire_and_says_so():
+    """SM-C1's pass distils and writes. Retiring what it subsumes is SM-L3's (#124).
 
-    Found by sweeping for the sibling after fixing `write` -- by the time the graph refuses,
-    `vector.upsert` has already committed the facts, so a bare refusal denies the caller the
-    receipt exactly as it did there.
+    A fact id is `uuid5` over its sorted source-episode ids, so a group whose membership changes
+    mints a new id and the previous row stays current belief -- one logical fact, two rows. That is
+    a real limitation, so it is **pinned** rather than left for a caller to discover: the report
+    says `supersede: not implemented`, and this test fails the moment SM-L3 changes the behaviour,
+    which is when the SPEC row and this test should both be updated.
     """
+    p, vector, graph = provider()
+    grow = "ada prefers async standups"
+    p.write(ACME, [event(grow, id="g1")])
+    p.consolidate(ACME)
+    p.write(ACME, [event(grow, id="g2")])
+
+    report = p.consolidate(ACME)
+
+    assert report.details["supersede"].startswith("not implemented")
+    assert "facts_superseded" not in report.details
+    live = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC and r.is_current_belief()]
+    assert len(live) == 2, "the known limitation: SM-L3 (#124) makes this 1"
+    assert "invalidate" not in graph.calls and "upsert_fact" in graph.calls
+
+
+def test_a_refusal_during_consolidation_is_a_partial_write():
+    """The same rule as `write`: by the time the graph refuses, the facts are committed."""
 
     class RefusingGraph(FakeGraph):
         def upsert_fact(self, scope, fact):

@@ -8,7 +8,9 @@ silently and one puts another tenant's data into a prompt: tenant isolation and 
 validity.
 
 Out of scope, deliberately: rank fusion beyond a score sum (SM-H2 #132), a consolidation scheduler
-or resumption cursor (SM-L1 #122), per-tier routing policy (SM-C2 #90).
+or resumption cursor (SM-L1 #122), **retiring a fact whose source group changed** (SM-L3 #124),
+per-tier routing policy (SM-C2 #90). ``consolidate`` here is scan -> filter -> distil -> write, and
+the report names what it does not do.
 """
 
 import asyncio
@@ -704,30 +706,18 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self,
         scope: Scope,
         scanned: Sequence[MemoryRecord],
-        existing: Sequence[MemoryRecord],
         episodes: Sequence[MemoryRecord],
         facts: Sequence[FactWrite],
         merged: int,
-        superseded: int,
     ) -> ConsolidationReport:
-        # `>=`, deliberately conservative: `scan` returns at most `limit`, so a full page and a
-        # truncated one are indistinguishable from here. A tier holding *exactly* the cap is
-        # reported as truncated when it was in fact drained -- the false positive costs an operator
-        # one unnecessary cap increase, where the false negative costs silent, permanent loss of
-        # the tail.
         hit_cap = len(scanned) >= self.max_episodes_per_pass
-        # The semantic scan has its own cap, and `_superseded` compares against it -- so a
-        # truncated `existing` means facts past the cap are never retired while the report claimed
-        # the pass was whole.
-        semantic_truncated = len(existing) >= self.max_episodes_per_pass
         return ConsolidationReport(
             scope=scope,
             episodic_scanned=len(scanned),
             semantic_written=len(facts),
             duplicates_merged=merged,
             # Zero by design: knowing two facts *disagree* needs extraction, which is SM-L5's
-            # (#126). `superseded` below is the narrower thing this pass can know -- a fact whose
-            # source group grew, so the previous row is subsumed rather than contradicted.
+            # (#126).
             contradictions_resolved=0,
             details=consolidation_details(
                 derived_by="co_located.deterministic_dedup",
@@ -735,13 +725,15 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # an episode consumed and `scan` is ordered oldest-first, so every pass re-reads the
                 # same first N and episodes past the cap are never consolidated at all.** Raising
                 # `max_episodes_per_pass` above the tier size is the only remedy until SM-L1 (#122)
-                # brings a cursor. Stated here and in SPEC section 11.3 rather than left behind a
-                # flag that reads like ordinary pagination.
+                # brings a cursor.
+                #
+                # `>=`, deliberately conservative: `scan` returns at most `limit`, so a full page
+                # and a truncated one are indistinguishable from here. A tier holding exactly the
+                # cap is reported as truncated when it was drained -- the false positive costs one
+                # unnecessary cap increase, the false negative costs silent loss of the tail.
                 complete=not hit_cap,
                 episodes_skipped_as_invalid=len(scanned) - len(episodes),
-                facts_superseded=superseded,
                 tail_unreachable=hit_cap,
-                semantic_scan_truncated=semantic_truncated,
             ),
         )
 
@@ -763,59 +755,6 @@ class CoLocatedMemoryProvider(MemoryProvider):
         for fact in facts:
             batched.setdefault(fact.record.scope, []).append(fact)
         return [(sc, batched[sc]) for sc in sorted(batched, key=lambda s: s.key())]
-
-    def _superseded(
-        self, scanned_semantic: Sequence[MemoryRecord], facts: Sequence[FactWrite], at: int
-    ) -> List[MemoryRecord]:
-        """Existing facts a newly derived fact strictly subsumes, stamped as retired.
-
-        The fact id is ``uuid5`` over the sorted source-episode ids, which makes a re-run over an
-        *unchanged* group idempotent. The moment a near-duplicate joins the group the id changes,
-        and without this the previous row stays current belief -- so one logical fact is returned
-        twice, on the second scheduled pass over any tier still receiving writes.
-
-        Strict subset only: a fact whose sources are a superset of an older one's supersedes it. An
-        older fact with sources the new one lacks is a different fact and is left alone. Real
-        supersede semantics, including split and merge, are SM-L3's (#124).
-
-        **Retirement is transaction time, not valid time.** A superseded fact did not become false
-        -- a better-sourced row replaced it -- so this sets ``expired_at`` and ``superseded_by`` and
-        leaves ``t_valid``/``t_invalid`` alone. Writing a valid-time bound instead was wrong twice
-        over: it claimed the world changed when only our record did, and a fact distilled in the
-        same second it was superseded got ``t_valid == t_invalid``, which the envelope refuses.
-
-        It also means retirement needs **no graph**: the retired row goes back through the same
-        upsert-by-id both substrates already offer, so a vector-only provider retires facts exactly
-        like a dual-substrate one. The alternative -- ``GraphSubstrate.invalidate`` -- silently did
-        nothing on a vector-only wiring while the report claimed a supersede had happened.
-        """
-        incoming = [(f.record.id, set(f.source_episode_ids)) for f in facts]
-        stale: List[MemoryRecord] = []
-        for row in scanned_semantic:
-            # Already retired by an earlier pass. Without this every pass retires it again, and
-            # under a scheduler the store grows linearly in passes, forever.
-            if not row.is_current_belief():
-                continue
-            sources = set(row.provenance.get("source_episode_ids") or ())
-            if not sources:
-                continue
-            # **Any shared source, not just a strict superset.** A group that *shrinks* or *swaps*
-            # a member also mints a new `uuid5` id -- and it is reachable with a primitive this PR
-            # ships: invalidate an episode, `_visible_episodes` drops it next pass, the group
-            # shrinks, and both rows read back as current belief. The duplicate goes into a prompt
-            # and eats a slot in a `limit`-bounded budget.
-            #
-            # The winner is the new fact sharing the most evidence, tie-broken by id, so two facts
-            # overlapping one old row resolve the same way on every run. Split and merge semantics
-            # -- where one old fact legitimately becomes two -- are SM-L3's (#124); this only
-            # guarantees one current belief per lineage.
-            overlaps = sorted(
-                ((len(sources & new_sources), new_id) for new_id, new_sources in incoming if new_id != row.id),
-                reverse=True,
-            )
-            if overlaps and overlaps[0][0]:
-                stale.append(replace(row, expired_at=at, superseded_by=overlaps[0][1]))
-        return stale
 
     def _fact_targets(self, facts: Sequence[FactWrite]) -> Tuple[bool, bool]:
         """Which substrates a semantic fact routes to, per ``SUBSTRATES_BY_TIER``.
@@ -845,32 +784,16 @@ class CoLocatedMemoryProvider(MemoryProvider):
         await self._areconcile_bounds(scope, episodes)
         return [e for e in episodes if e.is_current_belief() and _valid_at(e, instant)]
 
-    @staticmethod
-    def _rows_by_scope(rows: Sequence[MemoryRecord]) -> List[Tuple[Scope, List[MemoryRecord]]]:
-        """``_by_scope`` for bare records: a retired row is written under its own scope too."""
-        batched: Dict[Scope, List[MemoryRecord]] = {}
-        for row in rows:
-            batched.setdefault(row.scope, []).append(row)
-        return [(sc, batched[sc]) for sc in sorted(batched, key=lambda s: s.key())]
-
     def consolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         vector = self._check_consolidatable(tiers)
         instant = now_epoch_s()
         # Detached before anything touches them: `scan` may hand back the rows the substrate is
         # holding (`search` returns copies, `scan` need not), and `_reconcile_bounds` writes bounds
-        # onto what it is given. The read path detaches in `_merge`; this path did not, so one pass
-        # mutated a stored episode's `t_invalid` in place.
+        # onto what it is given.
         scanned = [r.detached() for r in vector.scan(scope, MemoryTier.EPISODIC, limit=self.max_episodes_per_pass)]
         self._assert_scope_isolation(scope, scanned)
         episodes = self._visible_episodes(scope, scanned, instant)
         facts, merged = self._distil(episodes)
-
-        existing = [r.detached() for r in vector.scan(scope, MemoryTier.SEMANTIC, limit=self.max_episodes_per_pass)]
-        self._assert_scope_isolation(scope, existing)
-        # Reconciled like the episodic scan. Without it an already-bounded fact reads as live and
-        # is invalidated again on every pass.
-        self._reconcile_bounds(scope, existing)
-        stale = self._superseded(existing, facts, instant)
 
         if facts:
             to_vector, to_graph = self._fact_targets(facts)
@@ -884,22 +807,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
                             self.graph.upsert_fact(fact_scope, fact)
                     receipt.accepted += len(batch)
                     receipt.event_ids.extend(f.record.id for f in batch)
-                # Retired rows go back through upsert-by-id, under their own scope like the facts.
-                for retired_scope, batch_rows in self._rows_by_scope(stale):
-                    if to_vector:
-                        vector.upsert(retired_scope, batch_rows)
-                    if to_graph and self.graph is not None:
-                        for row in batch_rows:
-                            self.graph.upsert_fact(retired_scope, FactWrite(record=row, derived_by="co_located.retire"))
             except PartialWriteError:
-                raise  # already shaped by `_raise_write_failure`
+                raise
             except Exception as exc:
-                # Same rule as `write`, and found by sweeping for the sibling rather than by
-                # review: by the time a substrate refuses here, `vector.upsert` has committed
-                # facts, so "a refusal is not a partial write" is as false on this path as it was
-                # on that one. The refusal survives as `__cause__`.
+                # Same rule as `write`: by the time a substrate refuses, `vector.upsert` has
+                # committed facts, so a bare refusal would deny the caller the receipt.
                 raise PartialWriteError(receipt) from exc
-        return self._report(scope, scanned, existing, episodes, facts, merged, len(stale))
+        return self._report(scope, scanned, episodes, facts, merged)
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         vector = self._check_consolidatable(tiers)
@@ -909,21 +823,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
         ]
         self._assert_scope_isolation(scope, scanned)
         episodes = await self._avisible_episodes(scope, scanned, instant)
-        # Off the loop: `_distil` is quadratic and measured 7.5s of pure CPU at the cap, during
-        # which no other coroutine in the process ran. `aconsolidate` is documented as the primary
-        # entry point, so an async half that does no awaiting is the blocked-loop failure
-        # CLAUDE.md's both-halves rule exists to prevent, arriving through a different door.
+        # Off the loop: `_distil` is quadratic and measured seconds of pure CPU at the cap, during
+        # which no other coroutine in the process runs.
         facts, merged = await asyncio.to_thread(self._distil, episodes)
-
-        existing = [
-            r.detached() for r in await vector.ascan(scope, MemoryTier.SEMANTIC, limit=self.max_episodes_per_pass)
-        ]
-        self._assert_scope_isolation(scope, existing)
-        await self._areconcile_bounds(scope, existing)
-        # Offloaded for the same reason `_distil` is: O(existing x facts) subset checks is ~25M
-        # comparisons at the default cap, and the argument that justified the first `to_thread`
-        # does not stop applying because the second function is smaller.
-        stale = await asyncio.to_thread(self._superseded, existing, facts, instant)
 
         if facts:
             to_vector, to_graph = self._fact_targets(facts)
@@ -936,28 +838,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
                         await self._gather_writes([self.graph.aupsert_fact(fact_scope, f) for f in batch], receipt)
                     receipt.accepted += len(batch)
                     receipt.event_ids.extend(f.record.id for f in batch)
-                for retired_scope, batch_rows in self._rows_by_scope(stale):
-                    if to_vector:
-                        await vector.aupsert(retired_scope, batch_rows)
-                    if to_graph and self.graph is not None:
-                        await self._gather_writes(
-                            [
-                                self.graph.aupsert_fact(
-                                    retired_scope, FactWrite(record=r, derived_by="co_located.retire")
-                                )
-                                for r in batch_rows
-                            ],
-                            receipt,
-                        )
             except PartialWriteError:
-                raise  # already shaped by `_raise_write_failure`
+                raise
             except Exception as exc:
-                # Same rule as `write`, and found by sweeping for the sibling rather than by
-                # review: by the time a substrate refuses here, `vector.upsert` has committed
-                # facts, so "a refusal is not a partial write" is as false on this path as it was
-                # on that one. The refusal survives as `__cause__`.
                 raise PartialWriteError(receipt) from exc
-        return self._report(scope, scanned, existing, episodes, facts, merged, len(stale))
+        return self._report(scope, scanned, episodes, facts, merged)
 
 
 @register_provider("co_located")

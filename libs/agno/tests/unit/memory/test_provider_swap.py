@@ -416,27 +416,18 @@ def test_reads_of_an_unserved_tier_are_empty_on_every_provider(name, tier):
 
 
 @pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
-def test_two_passes_over_a_grown_group_leave_exactly_one_current_fact(name):
-    """The property behind the "supersedes the row it subsumes" matrix row, which was untested.
+def test_no_provider_claims_a_supersede_it_does_not_perform(name):
+    """SM-C1 consolidates; it does not retire. Every provider must report that identically.
 
-    On `vector_only` the old implementation reported a supersede that never happened, because
-    retirement went through `GraphSubstrate.invalidate` and there is no graph. Retirement is now
-    transaction-time via upsert-by-id, so it works on every wiring.
+    The alternative -- one adapter silently leaving duplicates while another reports a supersede
+    it never applied -- is the divergence that produced two rounds of findings. Retirement is
+    SM-L3's (#124), and when it lands this assertion is the thing that says so.
     """
     provider = build_memory_provider(WRITABLE_CONFIGS[name]())
-    grow = "ada prefers async standups"
-    try:
-        provider.write_tier(ACME, MemoryTier.EPISODIC, [MemoryEvent(content=grow, scope=ACME, id="g1")])
-    except MemoryOperationError:
-        pytest.skip(f"{name} has no episodic store, so it runs no episodic-to-semantic pass")
 
-    provider.consolidate(ACME)
-    provider.write_tier(ACME, MemoryTier.EPISODIC, [MemoryEvent(content=grow, scope=ACME, id="g2")])
-    report = provider.consolidate(ACME)
+    details = provider.consolidate(ACME).details
 
-    live = [r for r in provider.read(ACME, MemoryQuery(text=grow)).records if r.tier is MemoryTier.SEMANTIC]
-    assert report.details["facts_superseded"] == 1, f"{name} did not retire the row it subsumed"
-    assert len(live) == 1, f"{name} returns {len(live)} current-belief rows for one logical fact"
+    assert "facts_superseded" not in details, "a provider is claiming retirement SM-C1 does not do"
 
 
 @pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
