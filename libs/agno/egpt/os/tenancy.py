@@ -26,8 +26,18 @@ Failing closed (EGPT-2.4)
 Unscoped is the *widest* tenancy, so in a deployment that has opted into tenancy a principal
 resolving to ``None`` would see and edit every tenant's rows -- an escalation reached by simply
 omitting the claim. :func:`require_tenant_id` refuses that on the routes it guards. It is a
-router-level gate rather than a middleware change on purpose: making it global would lock out
-every existing untenanted caller on every other router, which EGPT-2.7 owns sequencing.
+router-level gate rather than a middleware change on purpose: making it global would lock out every
+existing untenanted caller on every other router.
+
+Two layers of one control (EGPT-2.7)
+------------------------------------
+This gate only covers HTTP. ``Agent.save``, the studio toolkit and any script hold the same
+``BaseDb`` and reach the same rows without passing through a FastAPI dependency, so the same
+refusal exists one layer down: ``egpt.db.component_scope`` makes ``tenant_id`` a required argument
+on every component method, and ``BaseDb.require_tenant_id`` refuses an explicitly unscoped call.
+``EgptOS`` turns that flag on for every registered db whenever ``tenant_id_claim`` is configured --
+the same operator opt-in that makes :func:`tenancy_enabled` true here. Treat the two as one
+control: this one decides whether a *principal* may proceed, the other whether a *query* may run.
 """
 
 from typing import Optional
