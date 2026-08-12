@@ -406,10 +406,10 @@ conformance test miss a violation.
 | No record leaves the seam outside the call scope — **all five slots**, on read *and* consolidate | `co_located._assert_scope_isolation`. The seed enforces this by *refusing* a scope it cannot filter (`_reject_unfilterable_scope`, `_reject_unstorable_scope`) rather than post-checking, because it has no per-slot predicate to check against |
 | A record the graph has bounded is never served, whatever the ranking did | `co_located._reconcile_bounds` via `GraphSubstrate.bounds_for_ids` |
 | Consolidation never distils an episode the graph recorded as false | `co_located._visible_episodes` |
-| A fact whose source group grew retires the row it subsumes, on **transaction** time, on every wiring including vector-only | `co_located._superseded`; `test_two_passes_over_a_grown_group_leave_exactly_one_current_fact` |
+| A fact whose source group **changes at all** — grows, shrinks or swaps a member — retires the row it subsumes, on **transaction** time, on every wiring including vector-only | `co_located._superseded`; grown- and shrunk-group tests |
 | A substrate may not return a tier the query did not ask for | `co_located._assert_requested_tiers` |
-| Reads of an unserved tier are **empty**; only writes refuse one | both adapters, `read` and `read_tier` |
-| A backend failure raises `PartialWriteError` from **every** write verb, carrying the ids a retry must reuse (see the class docstring — deliberately *not* "rows committed") | both adapters, `write` and `write_tier`; matrix asserts the type **and** the committed set |
+| Reads of an unserved tier are **empty**; only writes refuse one, empty batch included | both adapters, `read`/`read_tier`; matrix asserts all 16 tier x wiring cells (an earlier guard skipped the two this rule was written for) |
+| A backend failure during fan-out raises `PartialWriteError` from **every** write verb, carrying the ids a retry must reuse (deliberately *not* "rows committed"). A refusal raised *before* the fan-out propagates bare — nothing was written | both adapters, `write` and `write_tier`; matrix asserts the type **and** the committed set |
 | Duplicate ids in one batch are refused before anything is written | `validation.reject_duplicate_ids` |
 | `MemoryEvent.scope` must equal the write scope | `validation.reject_foreign_scopes` |
 | A named substrate is served or refused, never silently emptied | `co_located._require_answerable`, `seed._reject_unservable_substrates` |
@@ -420,7 +420,7 @@ conformance test miss a violation.
 | `MemorySlice.fusion` carries `FUSION_KEYS`; `ConsolidationReport.details` carries `CONSOLIDATION_KEYS` | `types.fusion_diagnostics` / `types.consolidation_details` |
 | `limit` is honoured, and `limit=0` means zero rows | both adapters, both `read` and `read_tier` |
 | Sync and async halves agree — on the happy path **and** on the failure path, compared by committed state rather than exception type | conformance matrix (`read`/`aread` ids, plus the write-parity property above) |
-| Both write halves persist the **same durable state** on failure, and settle the batch before propagating | `co_located.write` / `_gather_writes`; `test_the_two_write_halves_persist_the_same_state_when_a_backend_fails` |
+| Both write halves persist the **same durable state** on failure, for a transport error *and* a refusal, and settle the batch before propagating | `co_located._raise_write_failure`, shared by both halves; the parity test is parametrised over `RuntimeError` and `MemoryOperationError` |
 | Point-in-time needs both predicates (`t_valid ≤ at < t_invalid` **and** current belief) | `co_located._valid_at` + `MemoryRecord.is_current_belief` |
 | Invalidation is expire-and-reinsert (SCD-2), never in-place | `GraphSubstrate.invalidate` contract |
 

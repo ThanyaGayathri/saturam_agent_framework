@@ -12,6 +12,7 @@ import pytest
 
 from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
 from egpt.memory.types import (
+    MAX_LIMIT,
     ConsolidationReport,
     MemoryEvent,
     MemoryQuery,
@@ -438,3 +439,29 @@ def test_string_enum_members_are_accepted_and_coerced():
 
     assert tuple(query.tiers) == (MemoryTier.EPISODIC,)
     assert tuple(query.substrates) == (Substrate.VECTOR,)
+
+
+def test_a_reserved_filter_is_refused_by_the_envelope_not_by_a_provider():
+    """Moved here from the conformance matrix, where it never reached a provider.
+
+    `__post_init__` raises during *argument construction*, so `provider.read(MemoryQuery(...))`
+    never called the provider -- the three-way parametrisation was three identical assertions
+    about this class. Refusing at the envelope is right (every provider inherits it); asserting it
+    in a provider matrix was not.
+    """
+    with pytest.raises(ValueError, match="filters is reserved"):
+        MemoryQuery(text="q", filters={"topic": "billing"})
+
+
+@pytest.mark.parametrize("bad", [MAX_LIMIT + 1, 1_000_000_000])
+def test_a_limit_above_the_ceiling_is_refused(bad):
+    """`limit` is forwarded verbatim to the substrates, where a nine-digit value is a full scan
+    behind an ANN index rather than a page."""
+    with pytest.raises(ValueError, match="ceiling"):
+        MemoryQuery(text="q", limit=bad)
+
+
+def test_a_negative_as_of_is_refused_like_a_negative_limit():
+    """Not a narrower question -- one no record can satisfy, so the read looks like a miss."""
+    with pytest.raises(ValueError, match="non-negative"):
+        MemoryQuery(text="q", as_of=-5)

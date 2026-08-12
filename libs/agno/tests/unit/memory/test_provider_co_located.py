@@ -1151,8 +1151,23 @@ def test_consolidation_honours_tier_routing_like_the_write_path_does():
         tiers_module.SUBSTRATES_BY_TIER[MemoryTier.SEMANTIC] = original
 
 
-def test_a_substrate_refusal_is_not_reported_as_a_partial_write():
-    """A per-call refusal wrapped as PartialWriteError sends the caller down a retry that cannot win."""
+def test_a_refusal_before_the_fan_out_propagates_bare():
+    """Nothing was written, so there is nothing for a receipt to help the caller reconcile."""
+    p, vector, _ = provider()
+
+    with pytest.raises(MemoryOperationError, match="no persistent substrate"):
+        p.write_tier(ACME, MemoryTier.WORKING, [event("scratchpad note")])
+
+    assert vector.rows.get("acme", {}) == {}
+
+
+def test_a_refusal_during_the_fan_out_is_a_partial_write_carrying_the_receipt():
+    """Once the vector leg has committed, "a refusal is not a partial write" is simply false.
+
+    Raising it bare denied the caller the ids, and the documented retry then re-stamps fresh
+    `uuid4`s -- finding F1 arriving through the error path. The refusal survives as `__cause__`, so
+    a caller can still tell "this will never work" from "retry me".
+    """
 
     class RefusingGraph(FakeGraph):
         def upsert_episode(self, scope, event):
@@ -1160,8 +1175,12 @@ def test_a_substrate_refusal_is_not_reported_as_a_partial_write():
 
     p = CoLocatedMemoryProvider(vector=FakeVector(), graph=RefusingGraph())
 
-    with pytest.raises(MemoryOperationError, match="refuses episodes"):
-        p.write(ACME, [event("alpha")])
+    with pytest.raises(PartialWriteError) as exc:
+        p.write(ACME, [event("alpha", id="a1")])
+
+    assert isinstance(exc.value.__cause__, MemoryOperationError)
+    assert exc.value.receipt.event_ids == ["a1"]
+    assert p.vector.rows["acme"], "the vector leg had already committed, which is the whole point"
 
 
 def test_a_scope_narrower_than_the_tenant_is_checked_too():
@@ -1199,8 +1218,11 @@ async def test_a_refusal_among_concurrent_failures_wins_over_a_transport_error()
 
     p = CoLocatedMemoryProvider(vector=FakeVector(), graph=MixedFailures())
 
-    with pytest.raises(MemoryOperationError, match="refuses episodes"):
+    with pytest.raises(PartialWriteError) as exc:
         await p.awrite(ACME, [event(f"note {i}", id=f"e{i}") for i in range(4)])
+
+    cause = exc.value.__cause__
+    assert isinstance(cause, MemoryOperationError) and "refuses episodes" in str(cause)
 
 
 def test_repeated_passes_retire_a_subsumed_fact_exactly_once():
@@ -1272,3 +1294,151 @@ def test_the_bounds_are_reported_as_unreconciled_when_no_graph_participated():
     p, _, _ = provider()
     p.write_tier(ACME, MemoryTier.SEMANTIC, [event("alpha", id="a1")])
     assert p.read(ACME, MemoryQuery(text="alpha")).fusion["bounds_reconciled"] is True
+
+
+# ---------------------------------------------------------------------------
+# Round-8 review: the async concurrency the doubles could not observe
+# ---------------------------------------------------------------------------
+
+
+async def test_the_two_read_legs_actually_run_concurrently():
+    """Serialising `aread`'s legs left all 429 tests green -- the property had no observer.
+
+    The doubles delegate every `a*` to its sync twin, so "did the async path fall through" was
+    unexpressable. This double makes it a liveness question instead: `asearch` blocks until
+    `atraverse` sets the event, so sequential awaits deadlock and concurrent ones complete.
+    """
+    import asyncio
+
+    started = asyncio.Event()
+
+    class BlockingVector(FakeVector):
+        async def asearch(self, scope, query, tier=None):
+            await asyncio.wait_for(started.wait(), timeout=1.0)
+            return self.search(scope, query, tier)
+
+    class SignallingGraph(FakeGraph):
+        async def atraverse(self, scope, query, tier=None):
+            started.set()
+            return self.traverse(scope, query, tier)
+
+    p = CoLocatedMemoryProvider(vector=BlockingVector(), graph=SignallingGraph())
+    p.write(ACME, [event("alpha beta", id="a1")])
+
+    slice_ = await asyncio.wait_for(p.aread(ACME, MemoryQuery(text="alpha")), timeout=2.0)
+
+    assert [r.id for r in slice_.records] == ["a1"]
+
+
+async def test_concurrent_fact_writes_respect_the_configured_bound():
+    """Every fan-out must go through `_gather_writes`; the fact branch was the one that did not.
+
+    `batch` is bounded only by `max_episodes_per_pass`, so without the semaphore a real engine
+    sees thousands of simultaneous round trips -- the failure `_MAX_CONCURRENT_WRITES` names.
+    """
+    import asyncio
+
+    class CountingGraph(FakeGraph):
+        def __init__(self):
+            super().__init__()
+            self.live = 0
+            self.peak = 0
+
+        async def aupsert_fact(self, scope, fact):
+            self.live += 1
+            self.peak = max(self.peak, self.live)
+            try:
+                await asyncio.sleep(0)
+                return self.upsert_fact(scope, fact)
+            finally:
+                self.live -= 1
+
+    graph = CountingGraph()
+    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=graph, max_concurrent_writes=2)
+    p.write(ACME, [event(f"unique topic {i} here", id=f"e{i}") for i in range(40)])
+
+    await p.aconsolidate(ACME)
+
+    assert graph.peak <= 2, f"peak concurrency {graph.peak} exceeded max_concurrent_writes=2"
+
+
+def test_a_group_that_shrinks_also_retires_its_predecessor():
+    """`sources < new_sources` only caught a group that *grew*.
+
+    Reachable today: invalidate an episode, `_visible_episodes` drops it on the next pass, the
+    group shrinks, a new `uuid5` id is minted -- and both rows read back as current belief, so the
+    agent sees the same statement twice and it eats a slot in a limit-bounded budget.
+    """
+    p, vector, graph = provider()
+    grow = "ada prefers async standups"
+    p.write(ACME, [event(grow, id="ep1", occurred_at=1000), event(grow + " mostly", id="ep2", occurred_at=1000)])
+    p.consolidate(ACME)
+
+    graph.invalidate(ACME, "ep2", t_invalid=2000, at=2000)
+    report = p.consolidate(ACME)
+
+    live = [r for r in p.read(ACME, MemoryQuery(text=grow)).records if r.tier is MemoryTier.SEMANTIC]
+    assert report.details["facts_superseded"] == 1
+    assert len(live) == 1, f"{len(live)} current-belief rows for one logical fact"
+
+
+def test_the_consolidation_report_flags_a_truncated_semantic_scan():
+    """`_superseded` compares against `existing`, which has its own cap -- a truncated one means
+    facts past it are never retired while `complete` claimed the pass was whole."""
+    vector, graph = FakeVector(), FakeGraph()
+    p = CoLocatedMemoryProvider(vector=vector, graph=graph, max_episodes_per_pass=2)
+    for i in range(6):
+        p.write_tier(ACME, MemoryTier.SEMANTIC, [event(f"fact number {i}", id=f"f{i}")])
+
+    report = p.consolidate(ACME)
+
+    assert report.details["semantic_scan_truncated"] is True
+
+
+def test_bounds_are_not_requested_for_a_tier_the_graph_does_not_hold():
+    """A procedural read is vector-only per SUBSTRATES_BY_TIER, so the round trip is guaranteed
+    empty -- and a network hop in Mode B."""
+    p, _, graph = provider()
+    p.write_tier(ACME, MemoryTier.PROCEDURAL, [event("always confirm", id="pr1")])
+
+    p.read_tier(ACME, MemoryTier.PROCEDURAL, MemoryQuery(text="always confirm"))
+
+    assert graph.bounds_requests == []
+
+
+def test_excluding_the_graph_is_allowed_for_a_tier_the_graph_does_not_hold():
+    """The refusal is right for episodic and semantic; for procedural the graph has no validity
+    opinion to withhold, so it blocked the one read shape where skipping the leg is legitimate."""
+    p, _, _ = provider()
+    p.write_tier(ACME, MemoryTier.PROCEDURAL, [event("always confirm", id="pr1")])
+
+    records = p.read(
+        ACME, MemoryQuery(text="always confirm", tiers=[MemoryTier.PROCEDURAL], substrates=[Substrate.VECTOR])
+    ).records
+
+    assert [r.id for r in records] == ["pr1"]
+
+    with pytest.raises(MemoryOperationError, match="authority for bi-temporal validity"):
+        p.read(ACME, MemoryQuery(text="x", tiers=[MemoryTier.SEMANTIC], substrates=[Substrate.VECTOR]))
+
+
+def test_a_refusal_during_consolidation_is_also_a_partial_write():
+    """The same rule as `write`, on the path the review did not flag.
+
+    Found by sweeping for the sibling after fixing `write` -- by the time the graph refuses,
+    `vector.upsert` has already committed the facts, so a bare refusal denies the caller the
+    receipt exactly as it did there.
+    """
+
+    class RefusingGraph(FakeGraph):
+        def upsert_fact(self, scope, fact):
+            raise MemoryOperationError("this backend refuses facts", field_name="tier")
+
+    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=RefusingGraph())
+    p.write(ACME, [event("alpha beta gamma", id="ep1")])
+
+    with pytest.raises(PartialWriteError) as exc:
+        p.consolidate(ACME)
+
+    assert isinstance(exc.value.__cause__, MemoryOperationError)
+    assert exc.value.receipt.tiers_written == [MemoryTier.SEMANTIC]

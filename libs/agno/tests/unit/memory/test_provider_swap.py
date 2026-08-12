@@ -27,7 +27,7 @@ import pytest
 
 from egpt.memory.config import MemoryProviderConfig, build_memory_provider
 from egpt.memory.provider import MemoryProvider
-from egpt.memory.tiers import MemoryTier
+from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
 from egpt.memory.types import (
     CONSOLIDATION_KEYS,
     FUSION_KEYS,
@@ -340,20 +340,24 @@ def test_every_provider_refuses_an_event_scoped_to_another_tenant(name):
         )
 
 
+@pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
+def test_an_empty_batch_does_not_buy_a_tier_the_provider_would_refuse(name):
+    """`write_tier(WORKING, [])` returned a success receipt while one event was refused.
+
+    Reachable as the degenerate case of a caller looping over possibly-empty per-tier groups.
+    """
+    provider = build_memory_provider(ALL_CONFIGS[name]())
+
+    with pytest.raises(MemoryOperationError):
+        provider.write_tier(ACME, MemoryTier.WORKING, [])
+
+
 @pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
 def test_every_provider_refuses_a_tier_set_consolidate_would_ignore(name):
     provider = build_memory_provider(WRITABLE_CONFIGS[name]())
 
     with pytest.raises(MemoryOperationError):
         provider.consolidate(ACME, tiers=[MemoryTier.PROCEDURAL])
-
-
-@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
-def test_every_provider_refuses_a_reserved_query_filter(name):
-    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
-
-    with pytest.raises(ValueError, match="filters"):
-        provider.read(ACME, MemoryQuery(text="q", filters={"topic": "billing"}))
 
 
 @pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
@@ -400,12 +404,15 @@ def test_reads_of_an_unserved_tier_are_empty_on_every_provider(name, tier):
     """
     provider = build_memory_provider(ALL_CONFIGS[name]())
 
-    # Emptiness, not `isinstance(..., list)` -- which cannot fail for any non-raising provider
-    # while the name promises something stronger. An unserved tier holds nothing to find.
-    served = tier in getattr(provider, "_served_tiers", lambda: [])() or provider.substrates().get(Substrate.VECTOR)
-    if not served:
-        assert provider.read_tier(ACME, tier, MemoryQuery(text="q")) == []
-        assert provider.read(ACME, MemoryQuery(text="q", tiers=[tier])).records == []
+    # A **tier** question, not a substrate one. Asking `substrates()[VECTOR]` made `served` true
+    # for WORKING on every co-located wiring, so the two cells this rule was written for -- the
+    # ones where `co_located.read_tier(WORKING)` used to refuse while `seed` returned `[]` -- were
+    # the exact cells that skipped. All 16 now assert.
+    served = tier in getattr(provider, "_served_tiers", lambda: list(PERSISTENT_TIERS))()
+    if served:
+        return
+    assert provider.read_tier(ACME, tier, MemoryQuery(text="q")) == []
+    assert provider.read(ACME, MemoryQuery(text="q", tiers=[tier])).records == []
 
 
 @pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))

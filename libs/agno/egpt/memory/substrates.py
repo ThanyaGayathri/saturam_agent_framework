@@ -197,6 +197,17 @@ class GraphSubstrate(Protocol):
         A fact whose ``is_triple()`` is false is still storable -- SPO is optional structure over
         the statement text, matching SM-R12's ``SemanticFact``. What a backend does with an
         untripled fact (node-only, or defer) is its own call.
+
+        **``expired_at`` and ``superseded_by`` must be persisted and returned as written.** This
+        method is how a fact is *retired*: consolidation upserts the row back with those two fields
+        set, because superseding is a transaction-time event and not a claim that the world
+        changed (which is :meth:`invalidate`). A backend that drops them makes retirement a silent
+        no-op, and ``read`` then serves two current beliefs for one logical fact.
+
+        The reciprocal obligation is on :meth:`bounds_for_ids`: returning an all-``None``
+        ``TemporalBounds`` for an id it knows overwrites that row's ``expired_at``, because the
+        graph is the authority (ADR 0003 D8). The overwrite is deliberate; it is only safe while
+        this method round-trips the fields.
         """
         ...
 

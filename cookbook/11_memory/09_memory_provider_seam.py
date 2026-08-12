@@ -22,6 +22,7 @@ this file needs no model, no API key, and no network.
 """
 
 from dataclasses import replace
+from uuid import uuid4
 from typing import Dict, List, Optional, Sequence
 
 from egpt.memory import (
@@ -147,7 +148,9 @@ class InMemoryGraph:
         self._upsert(
             scope,
             MemoryRecord(
-                id=event.id or "",
+                # Never `event.id or ""` -- `types.py` rejects an empty id precisely because it is
+                # the dedup key, and reference code gets copied. The provider always stamps one.
+                id=event.id or str(uuid4()),
                 tier=event.tier,
                 content=event.content,
                 scope=scope,
@@ -351,14 +354,14 @@ if __name__ == "__main__":
     print("Mode A (co-located substrates):")
     remember_and_recall(build_memory_provider(mode_a_config()), scope)
 
-    print("")
+    print()
     print("Mode FRONTIER -- same consumer function, only the config changed:")
     remember_and_recall(build_memory_provider(frontier_config()), scope)
 
     # ---------------------------------------------------------------------
     # Point-in-time reads: the graph is the authority for what was true when
     # ---------------------------------------------------------------------
-    print("")
+    print()
     print("Bi-temporal read:")
     # Deliberately the concrete adapter, not MemoryProvider: recording that a fact became false is
     # GraphSubstrate.invalidate, a substrate port, and SM-C1 does not promote it onto the seam --
@@ -397,7 +400,7 @@ if __name__ == "__main__":
     # Tenant isolation is structural, not a filter a caller can forget
     # ---------------------------------------------------------------------
     other = Scope(tenant_id="globex", user_id="ada@example.com")
-    print("")
+    print()
     print("Tenant isolation:")
     print(
         "  globex sees",
@@ -408,5 +411,5 @@ if __name__ == "__main__":
     # Which providers config can select. Adapters self-register on import.
     from egpt.memory import registered_providers
 
-    print("")
+    print()
     print("Registered providers:", ", ".join(registered_providers()))

@@ -155,6 +155,12 @@ def build_memory_provider(config: MemoryProviderConfig) -> MemoryProvider:
             f"Factory for {config.provider!r} returned {type(provider).__name__}, which is not a MemoryProvider.",
             field_name="provider",
         )
+    # `MemoryProvider.config` is a bare annotation with no default, and both in-tree adapters set
+    # it themselves -- so a third-party factory that forgets builds cleanly here and raises
+    # `AttributeError` at `provider.config.mode`, which is the deep failure the check above exists
+    # to prevent. Backfilled rather than raised: the factory produced a working provider.
+    if getattr(provider, "config", None) is None:
+        provider.config = config
     return provider
 
 

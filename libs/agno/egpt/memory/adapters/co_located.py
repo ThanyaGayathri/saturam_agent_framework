@@ -13,7 +13,7 @@ or resumption cursor (SM-L1 #122), per-tier routing policy (SM-C2 #90).
 
 import asyncio
 from dataclasses import replace
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple
 from uuid import NAMESPACE_OID, uuid4, uuid5
 
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, register_provider
@@ -208,7 +208,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
         names no substrates and still cannot answer a point-in-time read.
         """
         wired = self.substrates()
-        if query.as_of is not None and not wired[Substrate.GRAPH]:
+        if (
+            query.as_of is not None
+            and not wired[Substrate.GRAPH]
+            and any("graph" in substrates_for_tier(t) for t in query.resolved_tiers())
+        ):
             raise MemoryOperationError(
                 "A point-in-time read needs the graph substrate, which is the authority for "
                 "bi-temporal validity; none is wired, and the vector projection carries no bounds "
@@ -234,7 +238,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 f"This provider does not have the {missing} substrate(s) the query names.",
                 field_name="substrates",
             )
-        if wired[Substrate.GRAPH] and Substrate.GRAPH not in query.substrates:
+        # Tier-aware: excluding the graph is only wrong for a tier the graph actually stores. A
+        # procedural read is vector-only, so the graph has no validity opinion to withhold and
+        # refusing it blocks the one read shape where skipping the leg is legitimate.
+        graph_backed_tiers = any("graph" in substrates_for_tier(t) for t in query.resolved_tiers())
+        if wired[Substrate.GRAPH] and graph_backed_tiers and Substrate.GRAPH not in query.substrates:
             reason = "point-in-time " if query.as_of is not None else ""
             raise MemoryOperationError(
                 f"The query excludes the graph from a {reason}read, and the graph is the authority "
@@ -276,6 +284,15 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 field_name="scope",
             )
 
+    @staticmethod
+    def _graph_backed(records: Sequence[MemoryRecord]) -> List[str]:
+        """Ids whose tier routes to the graph -- the only ones it can have an opinion about.
+
+        A procedural read is vector-only per ``SUBSTRATES_BY_TIER``, so asking the graph for its
+        bounds is a guaranteed-empty round trip, and a network hop in Mode B.
+        """
+        return [r.id for r in records if "graph" in substrates_for_tier(r.tier)]
+
     def _reconcile_bounds(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
         """Overwrite each record's bi-temporal bounds with the graph's, in place.
 
@@ -288,9 +305,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         One batched call per read, not per record -- see ``GraphSubstrate.bounds_for_ids``.
         """
-        if self.graph is None or not records:
+        askable = self._graph_backed(records)
+        if self.graph is None or not askable:
             return
-        bounds = self.graph.bounds_for_ids(scope, [r.id for r in records])
+        bounds = self.graph.bounds_for_ids(scope, askable)
         for record in records:
             found = bounds.get(record.id)
             if found is not None:
@@ -298,9 +316,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
     async def _areconcile_bounds(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
         """Async variant of :meth:`_reconcile_bounds`."""
-        if self.graph is None or not records:
+        askable = self._graph_backed(records)
+        if self.graph is None or not askable:
             return
-        bounds = await self.graph.abounds_for_ids(scope, [r.id for r in records])
+        bounds = await self.graph.abounds_for_ids(scope, askable)
         for record in records:
             found = bounds.get(record.id)
             if found is not None:
@@ -324,9 +343,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
             target = event.tier
             self._require_writable(target)
             occurred_at = event.occurred_at if event.occurred_at is not None else now
+            event_id = event.id or str(uuid4())
             prepared = replace(
                 event,
-                id=event.id or str(uuid4()),
+                id=event_id,
                 tier=target,
                 occurred_at=occurred_at,
                 topics=list(event.topics) if event.topics is not None else None,
@@ -335,7 +355,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             stamped.append(prepared)
             records.append(
                 MemoryRecord(
-                    id=prepared.id,  # type: ignore[arg-type]  # stamped above
+                    id=event_id,
                     tier=target,
                     content=prepared.content,
                     scope=scope,
@@ -362,35 +382,33 @@ class CoLocatedMemoryProvider(MemoryProvider):
     def write(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         stamped, records = self._prepare(scope, events)
         vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
+        receipt = self._receipt(stamped)
         try:
             if self.vector is not None and vector_records:
                 self.vector.upsert(scope, vector_records)
             if self.graph is not None:
-                # Every event is attempted, then failures are raised -- the sync half of the same
-                # settle-then-propagate rule `_gather_writes` applies. Short-circuiting here while
-                # the async half settled left the two persisting *different durable state* for one
-                # failure, which is the sharpest form of the both-halves violation: nothing in the
-                # receipt distinguishes them, so a caller compensating on the error reconciles
-                # against a set that depends on which verb they called.
+                # Every event is attempted, then failures are raised together -- the sync half of
+                # the settle-then-propagate rule `_gather_writes` applies. A refusal is collected
+                # like any other failure rather than short-circuiting: an `except
+                # MemoryOperationError: raise` arm here left the two halves three graph rows apart
+                # for one identical failure, which is the divergence this loop exists to prevent.
                 failures: List[BaseException] = []
                 for event, record in zip(stamped, records):
                     try:
                         self._graph_write(scope, event, record)
-                    except MemoryOperationError:
-                        raise
                     except Exception as exc:  # noqa: PERF203 - per-event isolation is the point
                         failures.append(exc)
-                if failures:
-                    raise PartialWriteError(self._receipt(stamped)) from failures[0]
-        except MemoryOperationError:
-            raise  # a refusal is not a partial write; retrying it will refuse identically
+                self._raise_write_failure(failures, receipt)
+        except (PartialWriteError, MemoryOperationError):
+            raise  # already shaped by `_raise_write_failure`; re-wrapping buries the cause
         except Exception as exc:
-            raise PartialWriteError(self._receipt(stamped)) from exc
-        return self._receipt(stamped)
+            raise PartialWriteError(receipt) from exc
+        return receipt
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         stamped, records = self._prepare(scope, events)
         vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
+        receipt = self._receipt(stamped)
         try:
             if self.vector is not None and vector_records:
                 await self.vector.aupsert(scope, vector_records)
@@ -409,15 +427,37 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # never-retrieved warnings.
                 await self._gather_writes(
                     [self._agraph_write(scope, e, r) for e, r in zip(stamped, records)],
-                    self._receipt(stamped),
+                    receipt,
                 )
-        except MemoryOperationError:
-            raise  # a refusal is not a partial write; retrying it will refuse identically
+        except (PartialWriteError, MemoryOperationError):
+            raise  # already shaped by `_raise_write_failure`; re-wrapping buries the cause
         except Exception as exc:
-            raise PartialWriteError(self._receipt(stamped)) from exc
-        return self._receipt(stamped)
+            raise PartialWriteError(receipt) from exc
+        return receipt
 
-    async def _gather_writes(self, coroutines: List[Any], receipt: WriteReceipt) -> None:
+    @staticmethod
+    def _raise_write_failure(failures: Sequence[BaseException], receipt: WriteReceipt) -> None:
+        """The one place either half decides what a fan-out failure becomes.
+
+        Shared rather than written twice, because the two halves drifting is precisely the defect
+        this keeps producing. Two rules:
+
+        **A refusal wins over a transport error** as the cause, so the same batch does not report
+        "retry me" on one run and "this will never work" on the next.
+
+        **It is a ``PartialWriteError`` either way.** By the time a substrate refuses, the vector
+        leg has already committed the whole batch -- so "a refusal is not a partial write" was
+        false, and raising it bare denied the caller the receipt, whose ids are the only thing
+        making the documented retry idempotent. Refusals raised *before* the fan-out, from
+        ``_prepare``, still propagate bare: nothing was written, so there is nothing to reconcile.
+        The refusal is preserved as ``__cause__``.
+        """
+        if not failures:
+            return
+        refusal = next((f for f in failures if isinstance(f, MemoryOperationError)), None)
+        raise PartialWriteError(receipt) from (refusal or failures[0])
+
+    async def _gather_writes(self, coroutines: Sequence[Awaitable[Any]], receipt: WriteReceipt) -> None:
         """Run write coroutines concurrently, **settle them all**, then propagate.
 
         Bounded by a semaphore as well: `batch` is capped only by `max_episodes_per_pass` and
@@ -426,19 +466,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """
         semaphore = asyncio.Semaphore(self.max_concurrent_writes)
 
-        async def bounded(coroutine: Any) -> Any:
+        async def bounded(coroutine: Awaitable[Any]) -> Any:
             async with semaphore:
                 return await coroutine
 
         # Settled, so which failure surfaces is a decision rather than a race.
         results = await asyncio.gather(*(bounded(c) for c in coroutines), return_exceptions=True)
-        failures = [r for r in results if isinstance(r, BaseException)]
-        if not failures:
-            return
-        refusal = next((f for f in failures if isinstance(f, MemoryOperationError)), None)
-        if refusal is not None:
-            raise refusal
-        raise PartialWriteError(receipt) from failures[0]
+        self._raise_write_failure([r for r in results if isinstance(r, BaseException)], receipt)
 
     def _graph_write(self, scope: Scope, event: MemoryEvent, record: MemoryRecord) -> None:
         """Route by tier: a semantic memory is a fact, not an episode."""
@@ -458,9 +492,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
             await self.graph.aupsert_episode(scope, event)
 
     def write_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
+        # Hoisted, because `_prepare`'s guard is inside the per-event loop: an empty batch never
+        # reached it, so `write_tier(WORKING, [])` returned a success receipt for a tier that
+        # `write_tier(WORKING, [event])` refuses. `seed.write_tier` already guards up front.
+        self._require_writable(tier)
         return self.write(scope, [replace(event, tier=tier) for event in events])
 
     async def awrite_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
+        self._require_writable(tier)
         return await self.awrite(scope, [replace(event, tier=tier) for event in events])
 
     # -- read -----------------------------------------------------------------
@@ -478,7 +517,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # Both predicates, always. `is_current_belief` is transaction time only, and under SCD-2
         # the successor row carries a past `t_invalid` with `expired_at = None` -- so checking only
         # current belief let `read()` and `read(as_of=now)` disagree at the same instant.
-        visible = [r for r in merged if r.is_current_belief() and _valid_at(r, instant)]
+        current = [r for r in merged if r.is_current_belief()]
+        visible = [r for r in current if _valid_at(r, instant)]
         records = visible[: query.limit] if query.limit else []
 
         by_tier: Dict[MemoryTier, List[MemoryRecord]] = {}
@@ -500,9 +540,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # page the validity filter emptied look identical. Precision is handled by
                 # reconciliation, so what this counts is the recall shortfall named in
                 # `VectorSubstrate.search`.
-                # Pre-limit: how many the validity filter removed from the *merged* set, not from
-                # the returned page.
-                dropped_by_validity=len(merged) - len(visible),
+                # Pre-limit, and **valid time only**. Counting the transaction-time drop here too
+                # conflated "the world moved on" with "a newer revision exists", which are
+                # different diagnoses -- and `bounds_for_ids` is explicitly allowed to report
+                # expired rows, so a conforming backend makes the difference observable.
+                dropped_by_validity=len(current) - len(visible),
+                dropped_as_superseded=len(merged) - len(current),
                 # False when no graph participated, so the bounds in this slice are whatever the
                 # vector projection carried. `read()` and `read(as_of=...)` disagree on such a
                 # provider -- the explicit instant is refused while the implicit one is served --
@@ -661,6 +704,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self,
         scope: Scope,
         scanned: Sequence[MemoryRecord],
+        existing: Sequence[MemoryRecord],
         episodes: Sequence[MemoryRecord],
         facts: Sequence[FactWrite],
         merged: int,
@@ -672,6 +716,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # one unnecessary cap increase, where the false negative costs silent, permanent loss of
         # the tail.
         hit_cap = len(scanned) >= self.max_episodes_per_pass
+        # The semantic scan has its own cap, and `_superseded` compares against it -- so a
+        # truncated `existing` means facts past the cap are never retired while the report claimed
+        # the pass was whole.
+        semantic_truncated = len(existing) >= self.max_episodes_per_pass
         return ConsolidationReport(
             scope=scope,
             episodic_scanned=len(scanned),
@@ -693,6 +741,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 episodes_skipped_as_invalid=len(scanned) - len(episodes),
                 facts_superseded=superseded,
                 tail_unreachable=hit_cap,
+                semantic_scan_truncated=semantic_truncated,
             ),
         )
 
@@ -750,10 +799,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
             sources = set(row.provenance.get("source_episode_ids") or ())
             if not sources:
                 continue
-            for new_id, new_sources in incoming:
-                if row.id != new_id and sources < new_sources:
-                    stale.append(replace(row, expired_at=at, superseded_by=new_id))
-                    break
+            # **Any shared source, not just a strict superset.** A group that *shrinks* or *swaps*
+            # a member also mints a new `uuid5` id -- and it is reachable with a primitive this PR
+            # ships: invalidate an episode, `_visible_episodes` drops it next pass, the group
+            # shrinks, and both rows read back as current belief. The duplicate goes into a prompt
+            # and eats a slot in a `limit`-bounded budget.
+            #
+            # The winner is the new fact sharing the most evidence, tie-broken by id, so two facts
+            # overlapping one old row resolve the same way on every run. Split and merge semantics
+            # -- where one old fact legitimately becomes two -- are SM-L3's (#124); this only
+            # guarantees one current belief per lineage.
+            overlaps = sorted(
+                ((len(sources & new_sources), new_id) for new_id, new_sources in incoming if new_id != row.id),
+                reverse=True,
+            )
+            if overlaps and overlaps[0][0]:
+                stale.append(replace(row, expired_at=at, superseded_by=overlaps[0][1]))
         return stale
 
     def _fact_targets(self, facts: Sequence[FactWrite]) -> Tuple[bool, bool]:
@@ -813,7 +874,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         if facts:
             to_vector, to_graph = self._fact_targets(facts)
-            receipt = WriteReceipt(accepted=0, event_ids=[])
+            receipt = WriteReceipt(accepted=0, event_ids=[], tiers_written=[MemoryTier.SEMANTIC])
             try:
                 for fact_scope, batch in self._by_scope(facts):
                     if to_vector:
@@ -830,11 +891,15 @@ class CoLocatedMemoryProvider(MemoryProvider):
                     if to_graph and self.graph is not None:
                         for row in batch_rows:
                             self.graph.upsert_fact(retired_scope, FactWrite(record=row, derived_by="co_located.retire"))
-            except MemoryOperationError:
-                raise
+            except PartialWriteError:
+                raise  # already shaped by `_raise_write_failure`
             except Exception as exc:
+                # Same rule as `write`, and found by sweeping for the sibling rather than by
+                # review: by the time a substrate refuses here, `vector.upsert` has committed
+                # facts, so "a refusal is not a partial write" is as false on this path as it was
+                # on that one. The refusal survives as `__cause__`.
                 raise PartialWriteError(receipt) from exc
-        return self._report(scope, scanned, episodes, facts, merged, len(stale))
+        return self._report(scope, scanned, existing, episodes, facts, merged, len(stale))
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         vector = self._check_consolidatable(tiers)
@@ -862,13 +927,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         if facts:
             to_vector, to_graph = self._fact_targets(facts)
-            receipt = WriteReceipt(accepted=0, event_ids=[])
+            receipt = WriteReceipt(accepted=0, event_ids=[], tiers_written=[MemoryTier.SEMANTIC])
             try:
                 for fact_scope, batch in self._by_scope(facts):
                     if to_vector:
                         await vector.aupsert(fact_scope, [f.record for f in batch])
                     if to_graph and self.graph is not None:
-                        await asyncio.gather(*(self.graph.aupsert_fact(fact_scope, f) for f in batch))
+                        await self._gather_writes([self.graph.aupsert_fact(fact_scope, f) for f in batch], receipt)
                     receipt.accepted += len(batch)
                     receipt.event_ids.extend(f.record.id for f in batch)
                 for retired_scope, batch_rows in self._rows_by_scope(stale):
@@ -884,11 +949,15 @@ class CoLocatedMemoryProvider(MemoryProvider):
                             ],
                             receipt,
                         )
-            except MemoryOperationError:
-                raise
+            except PartialWriteError:
+                raise  # already shaped by `_raise_write_failure`
             except Exception as exc:
+                # Same rule as `write`, and found by sweeping for the sibling rather than by
+                # review: by the time a substrate refuses here, `vector.upsert` has committed
+                # facts, so "a refusal is not a partial write" is as false on this path as it was
+                # on that one. The refusal survives as `__cause__`.
                 raise PartialWriteError(receipt) from exc
-        return self._report(scope, scanned, episodes, facts, merged, len(stale))
+        return self._report(scope, scanned, existing, episodes, facts, merged, len(stale))
 
 
 @register_provider("co_located")

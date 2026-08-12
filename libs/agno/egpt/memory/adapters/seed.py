@@ -368,6 +368,10 @@ class SeedMemoryProvider(MemoryProvider):
 
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
         self._guard_read(scope, query)
+        if not query.limit:
+            # Short-circuited *before* the fetch. `MemoryManager` truncates only when `limit > 0`,
+            # so asking it for zero rows materialised the user's whole table and then discarded it.
+            return []
         store = self._store_for(tier)
         if store is not None:
             records = self._store_records(store, tier, scope, store.recall(**self._recall_kwargs(scope, query)))
@@ -381,6 +385,8 @@ class SeedMemoryProvider(MemoryProvider):
 
     async def aread_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
         self._guard_read(scope, query)
+        if not query.limit:
+            return []
         store = self._store_for(tier)
         if store is not None:
             recalled = await store.arecall(**self._recall_kwargs(scope, query))
@@ -700,7 +706,10 @@ class SeedMemoryProvider(MemoryProvider):
             )
 
         can_curate = self.machine is not None and scope.user_id is not None
-        merged = self.machine.curator.deduplicate(user_id=scope.user_id) if can_curate else 0  # type: ignore[union-attr, arg-type]
+        raw_merged = self.machine.curator.deduplicate(user_id=scope.user_id) if can_curate else 0  # type: ignore[union-attr, arg-type]
+        # Coerced: `_checked_machine` verifies `deduplicate` is callable, not what it returns, and
+        # `ConsolidationReport.duplicates_merged` is a typed int a scheduler reads.
+        merged = raw_merged if isinstance(raw_merged, int) and not isinstance(raw_merged, bool) else 0
         return ConsolidationReport(
             scope=scope,
             episodic_scanned=0,  # no episodic store exists to scan

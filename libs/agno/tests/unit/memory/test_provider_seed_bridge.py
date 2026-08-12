@@ -965,3 +965,14 @@ def test_the_factory_refuses_a_learning_machine_that_is_not_one():
     """
     with pytest.raises(MemoryProviderConfigError, match="learning_machine"):
         build_memory_provider(seed_config(memory_manager=FakeManager(), learning_machine="not a machine"))
+
+
+def test_a_zero_limit_does_not_fetch_before_discarding():
+    """`MemoryManager` truncates only when `limit > 0`, so asking it for zero rows materialised
+    the user's whole table and then threw it away. Asserted on the *request*, since the result is
+    empty either way."""
+    manager = FakeManager([UserMemory(memory=f"m{i}", memory_id=f"m{i}") for i in range(25)])
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    assert bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q", limit=0)) == []
+    assert manager.search_calls == [], "the manager was asked for a page that was then discarded"
