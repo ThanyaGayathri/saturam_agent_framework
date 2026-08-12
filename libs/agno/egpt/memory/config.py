@@ -33,8 +33,6 @@ from egpt.memory.provider import MemoryProvider
 from egpt.providers.model_provider import ProviderMode
 
 __all__ = [
-    "DEFAULT_FUSION",
-    "FUSION_METHODS",
     "MemoryProviderConfig",
     "MemoryProviderConfigError",
     "ProviderFactory",
@@ -42,28 +40,6 @@ __all__ = [
     "register_provider",
     "registered_providers",
 ]
-
-
-#: Fusion strategies the read path understands.
-#:
-#: ``weighted`` is SM-R8's ratified default -- min-max normalize each leg, then sum by weight. It
-#: beat RRF on all four datasets in the 2-leg (dense + BM25) measurement. ``rrf`` is selectable but
-#: reserved for the SM-G9-gated graph-join case, and provisional even there.
-#:
-#: Honest caveat, carried from SPEC section 7: SM-R8 measured dense+BM25 and dense+BM25+graph,
-#: **never this seam's vector+graph pairing**. Defaulting to weighted here is a mechanism-based
-#: transfer, not a measured result. SM-R13 (#19) owns measuring it against real backends.
-FUSION_METHODS = ("weighted", "rrf")
-
-#: Fusion defaults. Every key is present so the read path never guesses and a partial override
-#: cannot leave a hole.
-DEFAULT_FUSION: Dict[str, Any] = {
-    "method": "weighted",  # SM-R8 ratified default
-    "vector_weight": 0.5,  # SM-R8 measured 0.4-0.5; memory-domain runs closer to 0.3
-    "k": 60,  # RRF constant; read only when method == "rrf"
-    "rerank": False,  # SM-R8 cross-encoder, latency-gated
-    "ppr": False,  # SM-R9 personalized PageRank, per-tenant
-}
 
 
 class MemoryProviderConfigError(ValueError):
@@ -89,13 +65,16 @@ class MemoryProviderConfig:
     ``vector`` and ``graph`` are opaque per-backend settings (dsn, dim, uri, index params). They
     stay untyped here on purpose: typing them would make this module name its backends, which is
     exactly the coupling the seam exists to prevent.
+
+    There are no fusion knobs. SM-R8 measured dense+BM25, never this seam's vector+graph pairing,
+    so a `method` or `vector_weight` here would be a setting nothing had measured and, with no
+    backend wired, nothing could measure. Rank fusion and its configuration are SM-H2's (#132).
     """
 
     provider: str
     mode: ProviderMode = ProviderMode.LOCAL  # Mode A. FRONTIER is Mode B.
     vector: Dict[str, Any] = field(default_factory=dict)
     graph: Dict[str, Any] = field(default_factory=dict)
-    fusion: Dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_FUSION))
     options: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -118,59 +97,6 @@ class MemoryProviderConfig:
                     f"Unknown mode {self.mode!r}. Expected one of: {known}.",
                     field_name="mode",
                 ) from None
-
-        # Fill unset fusion keys from the defaults rather than letting a partial override leave a
-        # hole -- `fusion={"vector_weight": 0.3}` must still have a method.
-        unknown = sorted(set(self.fusion or {}) - set(DEFAULT_FUSION))
-        if unknown:
-            # A misspelled knob is finding F5 with a worse diagnostic: the operator believes they
-            # tuned fusion, measures no difference, and has nothing pointing at the typo.
-            raise MemoryProviderConfigError(
-                f"Unknown fusion key(s) {unknown}. Known keys: {sorted(DEFAULT_FUSION)}.",
-                field_name="fusion",
-            )
-        merged = dict(DEFAULT_FUSION)
-        merged.update(self.fusion or {})
-        self.fusion = merged
-
-        method = self.fusion.get("method")
-        if method not in FUSION_METHODS:
-            known = ", ".join(repr(m) for m in FUSION_METHODS)
-            raise MemoryProviderConfigError(
-                f"Unknown fusion method {method!r}. Expected one of: {known}.",
-                field_name="fusion.method",
-            )
-
-        # An out-of-range weight is the silent-skew version of finding F5, where a fusion setting
-        # was accepted and then ignored. Reject it here rather than letting it distort a ranking.
-        weight = self.fusion.get("vector_weight")
-        if not isinstance(weight, (int, float)) or isinstance(weight, bool) or not 0.0 <= float(weight) <= 1.0:
-            raise MemoryProviderConfigError(
-                f"fusion.vector_weight must be a number in [0.0, 1.0], got {weight!r}.",
-                field_name="fusion.vector_weight",
-            )
-
-        # `k` is read at query time inside `1 / (k + rank)` with rank 1-based, so only k <= -1
-        # actually divides by zero -- an earlier comment here overstated that. It is still worth
-        # rejecting a non-positive or non-integer k at the boundary: a TypeError on the hot path is
-        # far from the config that caused it, and a negative k silently inverts the ranking.
-        k = self.fusion.get("k")
-        if not isinstance(k, int) or isinstance(k, bool) or k <= 0:
-            raise MemoryProviderConfigError(
-                f"fusion.k must be a positive integer (RRF divides by k + rank), got {k!r}.",
-                field_name="fusion.k",
-            )
-
-        # `rerank` and `ppr` are finding F5 exactly -- fusion settings accepted at the boundary and
-        # then read by nothing. Rejecting a truthy value is the same treatment `vector_weight` gets:
-        # better a loud refusal than a knob that looks enabled and does nothing.
-        for flag, owner in (("rerank", "SM-R8 (cross-encoder rerank)"), ("ppr", "SM-R9 (personalized PageRank)")):
-            if self.fusion.get(flag):
-                raise MemoryProviderConfigError(
-                    f"fusion.{flag} is not implemented yet, so enabling it would silently do "
-                    f"nothing. It is owned by {owner}; leave it False until that lands.",
-                    field_name=f"fusion.{flag}",
-                )
 
 
 #: An adapter factory: takes a config, returns a ready provider.

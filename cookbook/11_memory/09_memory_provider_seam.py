@@ -9,7 +9,7 @@ deployment mode are running is a configuration choice, not a code change.
 Key concepts:
 - A caller depends only on MemoryProvider, never on a backend.
 - build_memory_provider(config) is the single construction call site, so
-  swapping Mode A (co-located) for Mode B (external) edits config alone.
+  changing provider or mode edits config alone.
 - Scope carries tenant, user, and agent through every call. tenant_id is
   required, because an unscoped memory call reads every tenant's rows.
 - Writes are cheap and non-lossy; distilling episodes into semantic facts
@@ -91,38 +91,20 @@ class InMemoryVector:
         return self.search(scope, query, tier)
 
     def scan(
-        self,
-        scope: Scope,
-        tier: MemoryTier,
-        since: Optional[int] = None,
-        after_id: Optional[str] = None,
-        limit: Optional[int] = None,
+        self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None
     ) -> List[MemoryRecord]:
-        # The port's contract, not a shortcut: ascending created_at then id, `since` inclusive,
-        # `limit` respected. Reference code gets copied, so it should model the contract it teaches.
+        # The port's contract, not a shortcut: ascending created_at then id, `limit` respected.
+        # Reference code gets copied, so it should model the contract it teaches.
         rows = [
             record for record in self._bucket(scope).values() if record.tier is tier
         ]
-        if since is not None:
-            # Composite cursor: strictly after (since, after_id), inclusive on `since` alone.
-            if after_id is None:
-                rows = [record for record in rows if (record.created_at or 0) >= since]
-            else:
-                rows = [
-                    r for r in rows if ((r.created_at or 0), r.id) > (since, after_id)
-                ]
         rows.sort(key=lambda record: ((record.created_at or 0), record.id))
         return rows if limit is None else rows[:limit]
 
     async def ascan(
-        self,
-        scope: Scope,
-        tier: MemoryTier,
-        since: Optional[int] = None,
-        after_id: Optional[str] = None,
-        limit: Optional[int] = None,
+        self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None
     ) -> List[MemoryRecord]:
-        return self.scan(scope, tier, since, after_id, limit)
+        return self.scan(scope, tier, limit)
 
 
 class InMemoryGraph:
@@ -240,10 +222,16 @@ def mode_a_config() -> MemoryProviderConfig:
     )
 
 
-def mode_b_config() -> MemoryProviderConfig:
-    """Mode B: same contract, external services. Nothing below this line changes."""
+def frontier_config() -> MemoryProviderConfig:
+    """Mode B is declared here and served by the same adapter, on purpose.
+
+    There is no external adapter yet: writing one against substrates that do not exist would prove
+    only that a class can be subclassed. SM-X2 (#138) builds it against a real remote backend. What
+    this shows is the part that is real today -- the mode reaches the provider, and the consumer
+    below never sees it.
+    """
     return MemoryProviderConfig(
-        provider="external",
+        provider="co_located",
         mode=ProviderMode.FRONTIER,
         options={
             "vector_substrate": InMemoryVector(),
@@ -310,10 +298,8 @@ if __name__ == "__main__":
     remember_and_recall(build_memory_provider(mode_a_config()), scope)
 
     print("")
-    print(
-        "Mode B (external services) -- same consumer function, only the config changed:"
-    )
-    remember_and_recall(build_memory_provider(mode_b_config()), scope)
+    print("Mode FRONTIER -- same consumer function, only the config changed:")
+    remember_and_recall(build_memory_provider(frontier_config()), scope)
 
     # ---------------------------------------------------------------------
     # Point-in-time reads: the graph is the authority for what was true when

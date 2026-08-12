@@ -172,23 +172,21 @@ def test_a_hit_from_both_substrates_fuses_into_one_record():
     assert result.records[0].substrate is None  # no longer from one place
 
 
-def test_fusion_defaults_to_weighted_and_reports_it():
+def test_the_merge_is_a_score_sum_and_names_itself():
+    """Not "fusion" -- a sum of what the legs reported, and the diagnostics say so.
+
+    Weighted and RRF need weights, and picking weights needs a measurement nobody can run until a
+    real backend exists. SM-R8 measured dense+BM25, never vector+graph. Naming the method
+    `score_sum` keeps a reader from assuming a tuned ranking; SM-H2 (#132) owns the real one.
+    """
     p, _, _ = provider()
-    p.write(ACME, [event("alpha beta")])
-
-    assert p.read(ACME, MemoryQuery(text="alpha")).fusion["method"] == "weighted"
-
-
-def test_rrf_is_selected_by_config_and_actually_used():
-    """Finding F5 was a fusion setting that was accepted and then silently ignored."""
-    p, _, _ = provider(fusion={"method": "rrf"})
     p.write(ACME, [event("alpha beta")])
 
     result = p.read(ACME, MemoryQuery(text="alpha"))
 
-    assert result.fusion["method"] == "rrf"
-    # 2 legs, rank 1 each, k=60 -> 2 * 1/61
-    assert result.records[0].score == pytest.approx(2 / 61)
+    assert result.fusion["method"] == "score_sum"
+    # Each leg scores the same record 0.5 (one shared token of two), and the merge adds them.
+    assert result.records[0].score == pytest.approx(1.0)
 
 
 def test_excluding_a_wired_graph_is_refused_rather_than_answered_without_it():
@@ -623,71 +621,74 @@ def test_consolidating_twice_does_not_duplicate_the_semantic_tier():
 
 
 def test_consolidation_bounds_its_scan():
-    """Asserts the batch cap reached the substrate.
+    """The cap must reach the substrate, or one pass can pull an unbounded tier into memory.
 
-    The earlier version asserted ``"scan" in vector.calls``, which holds whether or not the scan is
-    bounded -- removing ``limit=_CONSOLIDATE_BATCH`` entirely left the suite green.
+    Asserting on the request rather than the result: `"scan" in vector.calls` holds whether or not
+    the scan is bounded, so removing `limit=` entirely left the suite green.
     """
-    from egpt.memory.adapters.co_located import _CONSOLIDATE_BATCH
+    from egpt.memory.adapters.co_located import _MAX_EPISODES_PER_PASS
 
     p, vector, _ = provider()
     p.write(ACME, [event(f"episode number {i}") for i in range(3)])
 
     p.consolidate(ACME)
 
-    assert vector.scan_limits == [_CONSOLIDATE_BATCH]
+    assert vector.scan_limits == [_MAX_EPISODES_PER_PASS]
 
 
-@pytest.mark.parametrize("stamping", ["distinct", "identical"])
-def test_consolidation_covers_every_episode_in_one_call(stamping):
-    """`consolidate` is complete when it returns -- batching is an internal memory bound.
+def test_one_pass_consolidates_every_episode_it_scanned():
+    """No cursor, no resumption protocol: one bounded pass, and it covers what it read.
 
-    Three rounds of findings lived in the cursor *protocol*: nothing passed it, then a time-only
-    cursor could not page past co-second episodes, then the report keys diverged between adapters.
-    The protocol is gone; the loop is internal. `identical` is the ordinary input, since `_prepare`
-    stamps one `now` across a whole batched write.
+    Three rounds of findings lived in the cursor *protocol* -- nothing passed it, then a time-only
+    cursor could not page past co-second episodes, then a runaway guard fired on a legitimate
+    no-progress batch. Draining a tier larger than one pass is SM-L1's (#122); this reports
+    `complete` and stops.
+    """
+    p, vector, _ = provider()
+    for i in range(9):
+        p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}")])
+
+    report = p.consolidate(ACME)
+
+    seen = set()
+    for fact in vector.rows["acme"].values():
+        if fact.tier is MemoryTier.SEMANTIC:
+            seen.update(fact.provenance.get("source_episode_ids", []))
+    assert {f"e{i}" for i in range(9)} == seen
+    assert report.episodic_scanned == 9
+    assert report.details["complete"] is True
+
+
+def test_a_pass_that_hits_the_cap_says_it_is_incomplete():
+    """`complete` is the one thing a scheduler needs, so it must not be hardcoded True.
+
+    Mutation guard: with `complete=len(episodes) < cap` replaced by `complete=True`, this fails.
     """
     import egpt.memory.adapters.co_located as module
 
-    p, vector, _ = provider()
-    original = module._CONSOLIDATE_BATCH
-    module._CONSOLIDATE_BATCH = 3
+    p, _, _ = provider()
+    original = module._MAX_EPISODES_PER_PASS
+    module._MAX_EPISODES_PER_PASS = 3
     try:
-        for i in range(9):
-            p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}")])
-            vector.rows["acme"][f"e{i}"].created_at = 1000 + i if stamping == "distinct" else 1000
+        p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}") for i in range(5)])
 
         report = p.consolidate(ACME)
 
-        seen = set()
-        for fact in vector.rows["acme"].values():
-            if fact.tier is MemoryTier.SEMANTIC:
-                seen.update(fact.provenance.get("source_episode_ids", []))
-        missing = {f"e{i}" for i in range(9)} - seen
-        assert not missing, f"never consolidated ({stamping} created_at): {sorted(missing)}"
-        assert report.episodic_scanned == 9
-        assert report.details["complete"] is True
-        assert report.details["batches"] >= 3
+        assert report.episodic_scanned == 3
+        assert report.details["complete"] is False
     finally:
-        module._CONSOLIDATE_BATCH = original
+        module._MAX_EPISODES_PER_PASS = original
 
 
-async def test_async_consolidation_also_covers_every_episode():
-    import egpt.memory.adapters.co_located as module
+async def test_async_consolidation_covers_the_same_episodes():
+    p, _, _ = provider()
+    for i in range(5):
+        p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}")])
 
-    p, vector, _ = provider()
-    original = module._CONSOLIDATE_BATCH
-    module._CONSOLIDATE_BATCH = 2
-    try:
-        for i in range(5):
-            p.write(ACME, [event(f"topic{i} unique content", id=f"e{i}")])
-            vector.rows["acme"][f"e{i}"].created_at = 1000
+    report = await p.aconsolidate(ACME)
 
-        report = await p.aconsolidate(ACME)
-
-        assert report.episodic_scanned == 5
-    finally:
-        module._CONSOLIDATE_BATCH = original
+    assert report.episodic_scanned == 5
+    assert report.details["complete"] is True
 
 
 def test_a_point_in_time_read_without_the_graph_is_refused_not_answered():

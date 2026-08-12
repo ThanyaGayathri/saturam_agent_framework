@@ -15,8 +15,12 @@ from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, 
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryEvent, MemoryOperationError, MemoryQuery, Scope, Substrate
 
-ACME = Scope(tenant_id="acme", user_id="u1", agent_id="a1")
-GLOBEX = Scope(tenant_id="globex", user_id="u1", agent_id="a1")
+ACME = Scope(tenant_id="acme", user_id="u1")
+GLOBEX = Scope(tenant_id="globex", user_id="u1")
+
+#: A scope narrowed below ``user_id``. The manager path cannot *filter* on these slots, only record
+#: them, so reads under this scope are refused while writes carry it through.
+ACME_AGENT = Scope(tenant_id="acme", user_id="u1", agent_id="a1")
 
 
 def seed_config(**options) -> MemoryProviderConfig:
@@ -214,29 +218,30 @@ def test_semantic_reads_go_through_the_manager():
     assert records[0].topics == ["ui"]
 
 
-def test_retrieval_defaults_to_last_n_and_is_configurable():
-    """The manager has no embedder, so this is recency -- not similarity. Say which one ran."""
-    manager = FakeManager([UserMemory(memory="x", memory_id="m1")])
-    default = SeedMemoryProvider(manager=manager, config=seed_config())
-    first_n = SeedMemoryProvider(manager=manager, config=seed_config(retrieval_method="first_n"))
+def test_retrieval_is_recency_and_not_configurable():
+    """`last_n` is hardcoded, and that is the point.
 
-    default.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
-    first_n.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
+    The manager has no embedder, so there is nothing to rank by and no second strategy worth
+    choosing. `agentic` -- the only other option MemoryManager offers -- runs an LLM round trip,
+    which `MemoryProvider.read` promises not to do. A knob here would be a config surface whose
+    only other setting is one the seam forbids.
+    """
+    manager = FakeManager([UserMemory(memory="x", memory_id="m1")])
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config(retrieval_method="agentic"))
+
+    bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
 
     assert manager.search_calls[0]["retrieval_method"] == "last_n"
-    assert manager.search_calls[1]["retrieval_method"] == "first_n"
 
 
-def test_the_agentic_retrieval_method_is_refused_because_it_runs_a_model():
-    """MemoryProvider.read promises no query-time LLM; `agentic` calls model.response()."""
-    with pytest.raises(MemoryProviderConfigError, match="no query-time LLM"):
-        SeedMemoryProvider(manager=FakeManager(), config=seed_config(retrieval_method="agentic"))
+def test_the_agentic_method_cannot_be_reached_even_by_configuring_it():
+    """Mutation guard: if `retrieval_method` ever becomes readable again, this fails."""
+    manager = FakeManager([UserMemory(memory="x", memory_id="m1")])
+    SeedMemoryProvider(manager=manager, config=seed_config(retrieval_method="agentic")).read(
+        ACME, MemoryQuery(text="q")
+    )
 
-
-def test_a_misspelled_retrieval_method_is_refused_rather_than_degrading_to_last_n():
-    """MemoryManager's dispatch falls through to last_n for anything unrecognised."""
-    with pytest.raises(MemoryProviderConfigError, match="Unknown retrieval_method"):
-        SeedMemoryProvider(manager=FakeManager(), config=seed_config(retrieval_method="lastn"))
+    assert all(call["retrieval_method"] == "last_n" for call in manager.search_calls)
 
 
 def test_the_scope_user_reaches_the_manager():
@@ -249,11 +254,14 @@ def test_the_scope_user_reaches_the_manager():
 
 
 def test_writes_land_as_user_memories_carrying_scope_identity():
+    """A write records every slot UserMemory has a column for, including the unfilterable ones."""
     manager = FakeManager()
     bridge = SeedMemoryProvider(manager=manager, config=seed_config())
 
     receipt = bridge.write_tier(
-        ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="likes concise answers", scope=ACME, topics=["style"])]
+        ACME_AGENT,
+        MemoryTier.SEMANTIC,
+        [MemoryEvent(content="likes concise answers", scope=ACME_AGENT, topics=["style"])],
     )
 
     assert receipt.accepted == 1
@@ -293,9 +301,10 @@ def test_a_bound_store_serves_its_tier_through_recall_and_build_context():
 
 
 def test_a_store_recall_receives_the_scope_and_the_query():
+    """A store takes all four slots, so the narrow scope the manager path refuses is fine here."""
     store = FakeStore()
     SeedMemoryProvider(stores={MemoryTier.SEMANTIC: store}, config=seed_config()).read_tier(
-        ACME, MemoryTier.SEMANTIC, MemoryQuery(text="hello")
+        ACME_AGENT, MemoryTier.SEMANTIC, MemoryQuery(text="hello")
     )
 
     kwargs = store.recall_kwargs[0]
@@ -390,7 +399,7 @@ def test_consolidation_reports_zero_for_what_the_seed_cannot_do():
     assert report.episodic_scanned == 0
     assert report.semantic_written == 0
     assert report.contradictions_resolved == 0
-    assert "user_profile only" in report.details["curator"]
+    assert report.details["derived_by"] == "seed.curator_dedup"
 
 
 def test_consolidation_without_a_machine_is_a_no_op_not_a_crash():
@@ -478,6 +487,35 @@ def test_the_seed_bridge_never_crosses_tenants():
 
     with pytest.raises(MemoryOperationError, match="single_tenant"):
         bridge.read_tier(GLOBEX, MemoryTier.SEMANTIC, MemoryQuery(text="revenue"))
+
+
+@pytest.mark.parametrize("slot", ["agent_id", "team_id", "session_id"])
+def test_a_manager_read_refuses_a_scope_it_cannot_filter_on(slot):
+    """The tenant leak's shape, one level down: `search_user_memories` takes only `user_id`.
+
+    Without this the read returns every agent's memories for the user and the projection stamps the
+    requesting agent onto each one, so the over-broad answer looks correctly narrow -- invisible to
+    every check above this layer, exactly as the cross-tenant leak was.
+    """
+    manager = FakeManager([UserMemory(memory="another agent's note", memory_id="m1")])
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+    narrow = Scope(tenant_id="acme", user_id="u1", **{slot: "x1"})
+
+    with pytest.raises(MemoryOperationError, match="filters on user_id alone") as exc:
+        bridge.read_tier(narrow, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
+
+    assert exc.value.field_name == slot
+    assert manager.search_calls == [], "refused before the manager was ever asked"
+
+
+def test_a_narrow_scope_is_still_recorded_on_write():
+    """Refusing the *read* must not silently start dropping columns on the write."""
+    manager = FakeManager()
+    SeedMemoryProvider(manager=manager, config=seed_config()).write_tier(
+        ACME_AGENT, MemoryTier.SEMANTIC, [MemoryEvent(content="note", scope=ACME_AGENT)]
+    )
+
+    assert manager.added[0].agent_id == "a1"
 
 
 def test_a_default_tier_write_is_refused_rather_than_redirected():

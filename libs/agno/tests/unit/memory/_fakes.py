@@ -62,10 +62,8 @@ def _ranked(hits: List[MemoryRecord], limit: Optional[int] = None) -> List[Memor
       test could observe it. A double more permissive than every real backend cannot catch a bug
       that only appears when the backend is strict.
     * **Non-matches are dropped on ``> 0``, explicitly.** Zero overlap means no match, which is
-      what a search excludes -- but the old ``if hit.score`` also discarded a *deliberate* 0.0 and
-      read as an accident. The related concern, a leg mixing real magnitudes with unscored
-      records, is a fusion property and is tested there (``test_fusion.py``) rather than being
-      simulated through a double that has no way to produce it.
+      what a search excludes -- but ``if hit.score`` would also discard a *deliberate* 0.0 and read
+      as an accident.
     * **Ties keep insertion order.** Python's sort is stable, so equal scores come back in write
       order, which is what a real ranking supplies. Breaking ties on ``id`` would order by UUID and
       make the double's output differ run to run.
@@ -88,8 +86,6 @@ class FakeVector:
         #: is vacuous.
         self.search_limits: List[Optional[int]] = []
         self.scan_limits: List[Optional[int]] = []
-        self.scan_sinces: List[Optional[int]] = []
-        self.scan_after_ids: List[Optional[str]] = []
 
     def _bucket(self, scope: Scope) -> Dict[str, MemoryRecord]:
         return self.rows.setdefault(scope.tenant_id, {})
@@ -125,43 +121,19 @@ class FakeVector:
         self.calls.append("asearch")
         return self.search(scope, query, tier)
 
-    def scan(
-        self,
-        scope: Scope,
-        tier: MemoryTier,
-        since: Optional[int] = None,
-        after_id: Optional[str] = None,
-        limit: Optional[int] = None,
-    ) -> List[MemoryRecord]:
+    def scan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
         self.calls.append("scan")
         self.scan_limits.append(limit)
-        self.scan_sinces.append(since)
-        self.scan_after_ids.append(after_id)
         rows = [r for r in self._matching(scope) if r.tier is tier]
-        if since is not None:
-            # The port's composite cursor: strictly after (since, after_id) when after_id is
-            # given, inclusive on `since` alone. A time-only cursor cannot page past a batch of
-            # co-second rows, which one write() of a full batch produces.
-            if after_id is None:
-                rows = [r for r in rows if (r.created_at or 0) >= since]
-            else:
-                rows = [r for r in rows if ((r.created_at or 0), r.id) > (since, after_id)]
         rows.sort(key=lambda r: ((r.created_at or 0), r.id))
         # `limit=0` means zero rows, not "unlimited". Every real backend distinguishes `LIMIT 0`
         # from an omitted limit, and conflating them here would hide a provider that fetches
         # everything when it asked for nothing.
         return rows if limit is None else rows[:limit]
 
-    async def ascan(
-        self,
-        scope: Scope,
-        tier: MemoryTier,
-        since: Optional[int] = None,
-        after_id: Optional[str] = None,
-        limit: Optional[int] = None,
-    ) -> List[MemoryRecord]:
+    async def ascan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
         self.calls.append("ascan")
-        return self.scan(scope, tier, since, after_id, limit)
+        return self.scan(scope, tier, limit)
 
 
 class FakeGraph:

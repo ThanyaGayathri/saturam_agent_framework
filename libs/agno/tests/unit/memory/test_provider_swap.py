@@ -9,16 +9,16 @@ not drive them all.
 
 The providers are deliberately not variations of one class:
 
-* ``co_located`` -- Mode A, composing both substrate ports.
-* ``external`` -- Mode B, same composition, substrates notionally over a network.
+* ``co_located`` -- composing both substrate ports, and each port alone.
 * ``seed`` -- an entirely different internal shape: no substrates at all, delegating to
   ``MemoryManager`` and the ``learn`` stores.
 
 **What this does not prove**, stated here so it is not read as more than it is: no provider here
-crosses a network, loads an SDK, or incurs real latency. ADR 0003 section 5 makes exactly this
-point about the SM-R11 stub and asks SM-C1 to re-prove config-only swap against a **real** external
-backend. No such backend exists yet (SM-V1 #95, SM-G1 #99), so that re-proof is carried to
-**SM-X2 (#138)**. This establishes seam shape, and no more.
+crosses a network, loads an SDK, or incurs real latency, and there is no Mode B adapter -- writing
+one against substrates that do not exist would prove only that a class can be subclassed. ADR 0003
+section 5 asks SM-C1 to re-prove config-only swap against a **real** external backend; no such
+backend exists yet (SM-V1 #95, SM-G1 #99), so both the adapter and that re-proof are
+**SM-X2's (#138)**. This establishes seam shape, and no more.
 """
 
 from typing import Any, Dict, List
@@ -99,15 +99,6 @@ def mode_a_config() -> MemoryProviderConfig:
     )
 
 
-def mode_b_config() -> MemoryProviderConfig:
-    """Mode B: the same contract, different substrate instances and a different adapter key."""
-    return MemoryProviderConfig(
-        provider="external",
-        mode=ProviderMode.FRONTIER,
-        options={"vector_substrate": FakeVector(), "graph_substrate": FakeGraph()},
-    )
-
-
 def seed_config() -> MemoryProviderConfig:
     """A structurally different provider: no substrates, wrapping the seed's own memory."""
     return MemoryProviderConfig(
@@ -146,7 +137,6 @@ def graph_only_config() -> MemoryProviderConfig:
 
 ALL_CONFIGS = {
     "mode_a": mode_a_config,
-    "mode_b": mode_b_config,
     "seed": seed_config,
     "vector_only": vector_only_config,
     "graph_only": graph_only_config,
@@ -182,53 +172,34 @@ async def test_the_async_contract_is_swappable_too(name):
     assert "the customer" in result["context"]
 
 
-def test_switching_mode_changes_nothing_the_consumer_can_see():
-    """Mode A and Mode B produce the same observable result for the same workload."""
-    mode_a = consumer_workload(build_memory_provider(mode_a_config()), ACME)
-    mode_b = consumer_workload(build_memory_provider(mode_b_config()), ACME)
-
-    assert mode_a["context"] == mode_b["context"]
-    assert mode_a["accepted"] == mode_b["accepted"]
-    assert mode_a["substrates"] == mode_b["substrates"]
-
-
-def test_the_two_modes_are_genuinely_different_objects():
-    """Otherwise the swap above would be proving that one class equals itself."""
-    mode_a = build_memory_provider(mode_a_config())
-    mode_b = build_memory_provider(mode_b_config())
-
-    assert type(mode_a) is not type(mode_b)
-    assert mode_a.provider_key == "co_located"
-    assert mode_b.provider_key == "external"
-
-
 def test_the_seed_provider_is_a_genuinely_different_shape():
-    """No substrates at all, yet the same consumer function drives it."""
+    """No substrates at all, yet the same consumer function drives it.
+
+    This is what keeps the swap proof from reducing to "one class equals itself": the two providers
+    share no read path, no storage, and no internal shape.
+    """
     seed = build_memory_provider(seed_config())
 
     assert not any(seed.substrates().values())
     assert all(build_memory_provider(mode_a_config()).substrates().values())
 
 
-def test_mode_b_is_traceable_as_a_remote_read():
-    """A trace that cannot tell a local scan from a network round trip cannot explain latency."""
-    mode_a = build_memory_provider(mode_a_config())
-    mode_b = build_memory_provider(mode_b_config())
-    query = MemoryQuery(text="anything")
+def test_the_mode_is_carried_but_selects_no_adapter_yet():
+    """``FRONTIER`` is accepted and reaches the adapter; nothing branches on it.
 
-    assert "deployment" not in mode_a.read(ACME, query).fusion
-    assert mode_b.read(ACME, query).fusion["deployment"] == "external"
+    Mode B is SM-X2's (#138). Recording that here keeps a reader from concluding the mode field is
+    dead: it is the seam SM-C5 (#93) resolves per tenant, wired and unused rather than absent.
+    """
+    frontier = build_memory_provider(
+        MemoryProviderConfig(
+            provider="co_located",
+            mode=ProviderMode.FRONTIER,
+            options={"vector_substrate": FakeVector(), "graph_substrate": FakeGraph()},
+        )
+    )
 
-
-def test_mode_b_inherits_every_seam_property_rather_than_reimplementing_them():
-    """Mode B must not be a second implementation that drifts from Mode A's guarantees."""
-    mode_b = build_memory_provider(mode_b_config())
-    mode_b.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="ada works at acme", scope=ACME, id="f1")])
-
-    mode_b.graph.invalidate(ACME, "f1", t_invalid=300, at=310)
-
-    # Same SCD-2 read semantics as Mode A, because it is the same code.
-    assert mode_b.read(ACME, MemoryQuery(text="ada acme", as_of=400)).records == []
+    assert frontier.config.mode is ProviderMode.FRONTIER
+    assert consumer_workload(frontier, ACME) == consumer_workload(build_memory_provider(mode_a_config()), ACME)
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +220,7 @@ def test_every_in_tree_adapter_is_reachable_by_config():
     """Registration is the swap mechanism; an unregistered adapter is unreachable from config."""
     from egpt.memory.config import registered_providers
 
-    assert {"co_located", "external", "seed"} <= set(registered_providers())
+    assert {"co_located", "seed"} <= set(registered_providers())
 
 
 # ---------------------------------------------------------------------------

@@ -11,7 +11,6 @@ import pytest
 
 from egpt.memory import config as config_module
 from egpt.memory.config import (
-    DEFAULT_FUSION,
     MemoryProviderConfig,
     MemoryProviderConfigError,
     _reset_registry_for_tests,
@@ -152,41 +151,14 @@ def test_a_missing_provider_key_is_rejected(blank):
         MemoryProviderConfig(provider=blank)  # type: ignore[arg-type]
 
 
-def test_fusion_defaults_to_weighted_per_sm_r8():
-    config = MemoryProviderConfig(provider="p")
+def test_the_config_carries_no_fusion_knobs():
+    """A knob nothing has measured is a knob that silently does nothing.
 
-    assert config.fusion["method"] == "weighted"
-    assert config.fusion["vector_weight"] == 0.5
-    assert config.fusion["rerank"] is False  # SM-R8, latency-gated
-    assert config.fusion["ppr"] is False  # SM-R9, per-tenant
-
-
-def test_a_partial_fusion_override_keeps_the_other_defaults():
-    """Overriding one knob must not leave the read path without a method."""
-    config = MemoryProviderConfig(provider="p", fusion={"vector_weight": 0.3})
-
-    assert config.fusion["method"] == "weighted"
-    assert config.fusion["vector_weight"] == 0.3
-    assert config.fusion["k"] == DEFAULT_FUSION["k"]
-
-
-def test_rrf_is_selectable():
-    """Reserved for the SM-G9 graph-join case, but genuinely config-selectable."""
-    assert MemoryProviderConfig(provider="p", fusion={"method": "rrf"}).fusion["method"] == "rrf"
-
-
-def test_an_unknown_fusion_method_is_rejected_rather_than_ignored():
-    """Finding F5 was a fusion setting that was accepted and then silently no-op'd."""
-    with pytest.raises(MemoryProviderConfigError, match="fusion method") as exc:
-        MemoryProviderConfig(provider="p", fusion={"method": "cosine"})
-    assert exc.value.field_name == "fusion.method"
-
-
-@pytest.mark.parametrize("weight", [-0.1, 1.5, "0.5", None, True])
-def test_an_out_of_range_vector_weight_is_rejected(weight):
-    """A weight outside [0,1] silently skews every ranking instead of failing."""
-    with pytest.raises(MemoryProviderConfigError, match="vector_weight"):
-        MemoryProviderConfig(provider="p", fusion={"vector_weight": weight})
+    SM-R8 measured dense+BM25, never this seam's vector+graph pairing, and with no backend wired
+    there is nothing here that could measure it. Ranked fusion and its configuration are SM-H2's
+    (#132); a `fusion=` field would be finding F5 -- accepted at the boundary, read by nothing.
+    """
+    assert not hasattr(MemoryProviderConfig(provider="p"), "fusion")
 
 
 def test_backend_settings_stay_opaque():

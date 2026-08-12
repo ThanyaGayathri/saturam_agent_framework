@@ -19,7 +19,8 @@ Spec: ``benchmarks/memory_provider_spec/SPEC.md`` section 5.2 (SM-R11 #86).
 Ratified by ``docs/adr/0003-symbiotic-memory.md``.
 """
 
-from dataclasses import dataclass, field
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence
@@ -49,13 +50,10 @@ __all__ = [
 class MemoryOperationError(ValueError):
     """A memory call cannot be served as asked.
 
-    Distinct from ``MemoryProviderConfigError``, which is scoped to construction time: this is a
-    **per-request** refusal by a correctly configured provider -- writing a tier nothing is bound
-    to, or asking for a point-in-time read the wired substrates cannot answer safely. Raising the
-    config error for these made a routine bad request look like a deployment fault in every log
-    and every ``except`` clause.
-
-    ``ValueError`` for the same reason its sibling is one: callers already assert against it.
+    A **per-request** refusal by a correctly configured provider, distinct from the construction-
+    time ``MemoryProviderConfigError``: conflating them makes a routine bad request look like a
+    deployment fault in every log and every ``except`` clause. ``ValueError`` because callers
+    already assert against it.
     """
 
     def __init__(self, message: str, *, field_name: Optional[str] = None) -> None:
@@ -66,17 +64,15 @@ class MemoryOperationError(ValueError):
 class PartialWriteError(RuntimeError):
     """A multi-target write failed partway, carrying the ids that were stamped.
 
-    Lives here rather than in one adapter because **both** adapters need it and the seam's swap
-    property requires them to fail the same way. Mode A writes to two substrates; the seed bridge
-    fans out across tiers and calls ``add_user_memory`` per event. Neither is atomic -- there is no
-    distributed transaction -- so both are **at-least-once**, and a caller that gets different
-    failure semantics from two providers behind one interface has no portable retry.
+    Shared by both adapters because the seam's swap property requires them to fail the same way.
+    Neither is atomic -- there is no distributed transaction -- so both are **at-least-once**, and
+    two providers behind one interface with different failure semantics give a caller no portable
+    retry.
 
     The ids matter more than the failure. A provider mints an id for any event lacking one, so a
-    naive retry writes *fresh* rows for the same logical memories -- the two-ids-for-one-episode
-    failure that finding F1 exists to prevent, arriving through the error path. Carrying the
-    receipt lets a caller retry with ``MemoryEvent.id`` set, which makes the retry idempotent
-    provided the substrate upserts by id (see ``GraphSubstrate.upsert_episode``).
+    naive retry writes *fresh* rows for the same logical memories -- finding F1 arriving through the
+    error path. Carrying the receipt lets a caller retry with ``MemoryEvent.id`` set, which is
+    idempotent provided the substrate upserts by id (see ``GraphSubstrate.upsert_episode``).
     """
 
     def __init__(self, receipt: "WriteReceipt") -> None:
@@ -102,13 +98,10 @@ class Substrate(str, Enum):
 def _epoch_or_none(value: Any) -> Optional[int]:
     """Normalize a timestamp to int epoch seconds, passing ``None`` through.
 
-    Accepting a ``datetime`` or ISO string here rather than only an int mirrors
-    ``UserMemory.__post_init__`` (``db/schemas/memory.py``), and means a caller cannot
-    accidentally store a float or a naive datetime where every consumer expects epoch seconds.
-
-    ``bool`` is refused even though it is an ``int`` subclass, matching how
-    ``MemoryProviderConfig`` rejects a boolean ``vector_weight``: ``t_valid=True`` would silently
-    become epoch second 1, a timestamp in 1970 that no later filter would flag as wrong.
+    Accepting a ``datetime`` or ISO string mirrors ``UserMemory.__post_init__``
+    (``db/schemas/memory.py``). Two inputs are refused rather than coerced, both because they
+    produce a *silently* wrong timestamp: ``bool`` (an ``int`` subclass, so ``t_valid=True`` becomes
+    epoch second 1) and a naive ``datetime``.
     """
     if value is None:
         return None
@@ -116,10 +109,9 @@ def _epoch_or_none(value: Any) -> Optional[int]:
         raise TypeError(f"Timestamp must be epoch seconds, a datetime, or an ISO string; got {value!r}.")
     if isinstance(value, datetime) and value.tzinfo is None:
         # `to_epoch_s` reads a naive datetime as UTC, so `datetime.now()` in any zone ahead of UTC
-        # lands in the *future* -- 5h30m in IST, this repo's own. Valid time is now evaluated on
-        # every read, so such a record is written, receipted as accepted, and then invisible until
-        # the clock catches up. No error anywhere. Refused for the same reason `bool` is: a
-        # silently wrong timestamp is worse than a loud rejection.
+        # lands in the *future* -- 5h30m in IST, this repo's own. Valid time is evaluated on every
+        # read, so such a record is written, receipted as accepted, and then invisible until the
+        # clock catches up, with no error anywhere.
         raise TypeError(
             "Timestamp must be timezone-aware. A naive datetime is interpreted as UTC, so a local "
             f"datetime.now() lands in the future and the record fails the valid-time predicate. "
@@ -132,14 +124,14 @@ def _epoch_or_none(value: Any) -> Optional[int]:
 class Scope:
     """Isolation and addressing. Present on **every** read, write, and consolidate call.
 
-    ``tenant_id`` is required and rejected when blank. That is a construction-time guard, not the
-    data-layer enforcement SM-C4 (#92) owns -- but it exists because ``None`` or ``""`` means
-    *unscoped*, and unscoped is the **widest** tenancy, not the narrowest (``docs/tenancy.md``
-    section 2). A seam where the unscoped call is the easiest one to write is a seam that leaks.
+    ``tenant_id`` is required and rejected when blank, because ``None`` or ``""`` means *unscoped*
+    and unscoped is the **widest** tenancy, not the narrowest (``docs/tenancy.md`` section 2). A
+    seam where the unscoped call is the easiest one to write is a seam that leaks. Data-layer
+    enforcement is SM-C4's (#92); this is the construction-time guard.
 
     ``user_id`` is the identity namespace that survives sessions (research doc section 3);
     ``agent_id`` / ``team_id`` / ``session_id`` narrow further. Frozen so two concurrent requests
-    can never share mutable scope, the same reason ``ModelResolveRequest`` is frozen.
+    can never share mutable scope.
     """
 
     tenant_id: str
@@ -228,6 +220,42 @@ class MemoryRecord:
         """
         return self.expired_at is None
 
+    def detached(self) -> "MemoryRecord":
+        """A copy safe to rank, annotate, and hand out.
+
+        A substrate may return the row it is holding. Mutating that -- which merging scores does --
+        would write into the store through the read path.
+
+        ``deepcopy`` rather than ``dict()``: one level leaves nested values shared, and the
+        realistic case is a consumer appending to ``provenance["source_episode_ids"]``, which is
+        the exact shape consolidation writes.
+        """
+        return replace(
+            self,
+            score=self.score or 0.0,
+            topics=list(self.topics) if self.topics is not None else None,
+            provenance=deepcopy(self.provenance),
+            metadata=deepcopy(self.metadata),
+        )
+
+    def tighten_bounds(self, other: "MemoryRecord") -> None:
+        """Adopt ``other``'s bi-temporal bounds where they are narrower.
+
+        Two legs return the same id with different bounds when only one of them knows the fact was
+        invalidated -- the graph records validity, the vector substrate does not. Taking the wider
+        bound would let an invalidated fact answer as current.
+        """
+        for attribute in ("t_valid", "created_at"):  # lower bounds: later is narrower
+            mine, theirs = getattr(self, attribute), getattr(other, attribute)
+            if theirs is not None and (mine is None or theirs > mine):
+                setattr(self, attribute, theirs)
+        for attribute in ("t_invalid", "expired_at"):  # upper bounds: earlier is narrower
+            mine, theirs = getattr(self, attribute), getattr(other, attribute)
+            if theirs is not None and (mine is None or theirs < mine):
+                setattr(self, attribute, theirs)
+        if other.superseded_by is not None:
+            self.superseded_by = other.superseded_by
+
 
 @dataclass
 class MemoryEvent:
@@ -266,9 +294,9 @@ class FactWrite:
     and the bi-temporal envelope) with the subject/predicate/object structure a graph write needs
     but an episode write does not.
 
-    This exists because the port previously exposed only ``upsert_episode``, which forced
-    consolidation to write a distilled fact as a flat, provenance-carrying pseudo-episode rather
-    than the entity/relation shape SM-R7 intends (finding F9, assigned to SM-C1).
+    It is separate from an episode write because a fact written through the episode path becomes a
+    flat, provenance-carrying pseudo-episode rather than the entity/relation shape SM-R7 intends
+    (finding F9).
 
     Field names mirror SM-R12's ``SemanticFact`` (``subject`` / ``predicate`` / ``object`` /
     ``confidence`` / ``source_episode_ids`` / ``derived_by``) so SM-C3 maps this onto the persisted
@@ -337,26 +365,23 @@ class MemoryQuery:
     def resolved_tiers(self) -> Sequence[MemoryTier]:
         """The tier set to search: the requested one, or every persistent tier.
 
-        Every substrate must resolve the tier set **identically**. When one leg honored the filter
-        and the other did not, cross-tier leakage appeared only after fusion and was hard to trace
-        back to its source (finding F3) -- so the resolution lives here, once.
+        Lives here, once, because every substrate must resolve it **identically** -- when one leg
+        honoured the filter and the other did not, cross-tier leakage appeared only in the merged
+        result and was hard to trace back (finding F3).
 
-        ``None`` means "unspecified, use the default"; an **empty sequence means empty**. Those are
-        different requests, and conflating them widens rather than narrows -- the direction that
-        matters, and the same reasoning ``Scope.tenant_id`` rests on. ``_requested`` in the
-        co-located adapter tests ``substrates is None`` for exactly this reason; these two adjacent
-        optional-sequence filters now agree.
+        ``None`` means "unspecified, use the default"; an **empty sequence means empty**. Conflating
+        them widens rather than narrows, which is the direction that matters. ``MemoryQuery
+        .substrates`` is read the same way.
         """
         return PERSISTENT_TIERS if self.tiers is None else tuple(self.tiers)
 
 
 #: Keys every provider must put in ``MemorySlice.fusion``, whatever it does internally.
 #:
-#: Without a contract the adapters diverged: the co-located one reported hit counts while the seed
-#: bridge reported only ``method`` and ``reason``, so a consumer written against one raised
-#: ``KeyError`` on the other -- including the cookbook's deliberately provider-agnostic consumer,
-#: which is the swap property this seam exists to provide. A provider with nothing to fuse reports
-#: zeros, which is honest: it has no legs, not an unknown number of them.
+#: Without a floor the adapters diverge on key names and a provider-agnostic consumer -- the swap
+#: property this seam exists to provide -- raises ``KeyError`` on whichever one it was not written
+#: against. A provider with nothing to merge reports zeros, which is honest: it has no legs, not an
+#: unknown number of them.
 FUSION_KEYS = ("method", "vector_hits", "graph_hits", "fused", "returned")
 
 
@@ -387,22 +412,18 @@ def fusion_diagnostics(
 
 #: Keys every provider must put in ``ConsolidationReport.details``.
 #:
-#: The same contract ``FUSION_KEYS`` provides for ``MemorySlice.fusion``, and for the same reason:
-#: the two adapters' key sets were fully disjoint, so a scheduler written against one raised
-#: ``KeyError`` on the other. A provider with nothing to report says so with zeros and ``True``
-#: rather than omitting the key.
-CONSOLIDATION_KEYS = ("derived_by", "batches", "complete")
+#: The same floor ``FUSION_KEYS`` provides, for the scheduler SM-L1 (#122) will write. A provider
+#: with nothing to report says so rather than omitting the key.
+CONSOLIDATION_KEYS = ("derived_by", "complete")
 
 
-def consolidation_details(
-    derived_by: Optional[str], batches: int = 0, complete: bool = True, **extra: Any
-) -> Dict[str, Any]:
+def consolidation_details(derived_by: Optional[str], complete: bool = True, **extra: Any) -> Dict[str, Any]:
     """Build a ``ConsolidationReport.details`` payload carrying every :data:`CONSOLIDATION_KEYS`.
 
     ``complete`` is what a scheduler actually needs: whether the tier was drained. Extra keys are
     free -- the contract is a floor, not a ceiling.
     """
-    details: Dict[str, Any] = {"derived_by": derived_by, "batches": batches, "complete": complete}
+    details: Dict[str, Any] = {"derived_by": derived_by, "complete": complete}
     details.update(extra)
     return details
 
@@ -411,9 +432,9 @@ def consolidation_details(
 class MemorySlice:
     """The feed-forward result of ``read`` -- the memory handed to the agent.
 
-    ``records`` is the fused, ranked list; ``by_tier`` groups the same objects for callers that
-    inject per tier; ``fusion`` carries the diagnostics (method, weights, per-leg hit counts) that
-    make a ranking explainable after the fact.
+    ``records`` is the merged, ranked list; ``by_tier`` groups the same objects for callers that
+    inject per tier; ``fusion`` carries the per-leg diagnostics (see :data:`FUSION_KEYS`) that make
+    a ranking explainable after the fact.
     """
 
     scope: Scope
@@ -435,12 +456,10 @@ class MemorySlice:
         lines are visibly indented, so one memory always reads as one entry.
 
         Splitting uses ``str.splitlines()`` rather than ``split("\\n")`` because that is what the
-        *consumer* does. An earlier version normalized ``\\r\\n`` / ``\\r`` and split on ``\\n``,
-        which left eight other separators through -- ``\\x0b``, ``\\x0c``, ``\\x1c``, ``\\x1d``,
-        ``\\x1e``, ``\\x85``, ``U+2028``, ``U+2029`` -- every one of which an LLM-facing renderer
-        treats as a line break, and each of which forged a ``[tier]`` line straight through.
-        Matching the consumer's escape set is the only version that closes the class rather than
-        the instance.
+        *consumer* treats as a line break. ``splitlines`` covers eleven separators; hand-rolling
+        the common two leaves ``\\x0b``, ``\\x0c``, ``\\x1c``-``\\x1e``, ``\\x85``, ``U+2028`` and
+        ``U+2029`` through, and each one forges a ``[tier]`` line. Matching the consumer's escape
+        set closes the class rather than the instance.
         """
         if not self.records:
             return ""
@@ -467,18 +486,17 @@ class WriteReceipt:
 
 @dataclass
 class ConsolidationReport:
-    """The outcome of one (async) consolidate pass: episodic -> semantic.
+    """The outcome of one consolidate pass: episodic -> semantic.
 
-    The write-side consolidation loop is the differentiator of this design and the least-solved
-    part of the field (research doc section 5.3): extract -> dedup -> contradiction-resolve ->
-    write to **both** substrates, on the sleep-time lane.
+    The write-side loop is the differentiator of this design and the least-solved part of the field
+    (research doc section 5.3): extract -> dedup -> contradiction-resolve -> write to **both**
+    substrates, on the sleep-time lane.
 
-    **One write model.** Any contradiction consolidation produces on the graph resolves through
-    the same SM-R10 expire-and-reinsert (SCD-2) primitive as ``GraphSubstrate.invalidate`` -- never
-    a second, in-place path. Read that against ADR 0003 section B.6's row-vs-edge boundary: SCD-2
-    governs semantic contradiction on graph **edges**, while episodic **row** lifecycle
-    (SM-R6 re-segmentation, SM-R5 decay archival) is row-level ``expired_at``. Both are
-    append-only and invalidate-not-delete; they are different objects, not one path.
+    **One write model.** Any contradiction this produces on the graph resolves through the same
+    SM-R10 expire-and-reinsert (SCD-2) primitive as ``GraphSubstrate.invalidate``, never a second
+    in-place path. Per ADR 0003 section B.6, SCD-2 governs semantic contradiction on graph
+    **edges**; episodic **row** lifecycle (SM-R6 re-segmentation, SM-R5 decay archival) is row-level
+    ``expired_at``. Both are append-only; they are different objects, not one path.
     """
 
     scope: Scope

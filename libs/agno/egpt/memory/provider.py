@@ -5,10 +5,9 @@ semantic, async-first) -- plus tier-scoped variants and an introspection call. E
 a :class:`~egpt.memory.types.Scope`, and every method has a sync and an ``a``-prefixed async twin.
 
 **One seam, two substrates.** Consumers depend on this class alone; a provider composes the
-:mod:`egpt.memory.substrates` ports underneath and owns fusion. The alternative -- exposing the
-vector and graph interfaces separately and letting callers compose them -- was rejected as the
-public seam because it pushes fusion, dual-write, and the Mode A/B choice into every call site
-(SPEC section 3).
+:mod:`egpt.memory.substrates` ports underneath. The alternative -- exposing the vector and graph
+interfaces separately and letting callers compose them -- was rejected as the public seam because
+it pushes leg-merging, dual-write, and the Mode A/B choice into every call site (SPEC section 3).
 
 **Consumers never instantiate an adapter.** They call
 :func:`~egpt.memory.config.build_memory_provider`, so which backend and which mode are running is
@@ -51,11 +50,10 @@ class MemoryProvider(ABC):
     def read(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         """Retrieve across substrates and tiers, fused into one ranked slice.
 
-        Fuses the vector and graph legs with **weighted / relative-score fusion** (SM-R8's
-        ratified default, ``vector_weight`` about 0.5). RRF (k about 60) is selectable but
-        reserved for the SM-G9-gated graph-join case. Cross-encoder rerank (SM-R8) and
-        personalized PageRank (SM-R9) are both per-tenant and off by default. **No query-time LLM
-        on the hot path.**
+        How the legs are combined is the adapter's business; ``MemorySlice.fusion`` reports it.
+        Ranked fusion strategies and their configuration are SM-H2's (#132) -- SM-R8 measured
+        dense+BM25, never this seam's vector+graph pairing, so there is nothing yet to choose
+        between. **No query-time LLM on the hot path**, whatever the strategy.
 
         ``query.as_of`` is applied to the **fused** set, not per substrate: the vector substrate
         has no notion of validity, so filtering per-leg lets an invalidated fact return through
@@ -86,7 +84,7 @@ class MemoryProvider(ABC):
         Turning episodes into facts is :meth:`consolidate`'s job, on the background lane.
 
         The provider stamps one id per event and uses it across both substrates -- that id is the
-        cross-substrate dedup key during fusion (finding F1).
+        cross-substrate dedup key on the read path (finding F1).
         """
         raise NotImplementedError
 
@@ -105,10 +103,11 @@ class MemoryProvider(ABC):
     ) -> ConsolidationReport:
         """Sleep-time pass: extract -> dedup -> contradiction-resolve, writing to both substrates.
 
-        **Complete when it returns.** An implementation may batch internally to bound memory, but
-        the caller does not drive that loop and does not resume it: exposing a cursor put the
-        termination condition in the caller's hands, where ignoring it silently skipped episodes
-        and mis-driving it span forever. Scheduling *when* to consolidate is still SM-L1's (#122).
+        **One bounded pass, and the caller does not resume it.** An implementation may cap how much
+        it reads; ``details["complete"]`` says whether the tier was drained. There is deliberately
+        no cursor in this signature -- it would put the termination condition in the caller's hands,
+        where ignoring it silently skips episodes. Draining a tier larger than one pass, and
+        scheduling passes at all, are SM-L1's (#122).
 
         ``ConsolidationReport.details`` carries at least :data:`~egpt.memory.types.CONSOLIDATION_KEYS`
         on every provider, so a scheduler reading it does not have to know which one it got.
@@ -136,7 +135,7 @@ class MemoryProvider(ABC):
 
     @abstractmethod
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
-        """Read one tier directly, with no cross-tier fusion.
+        """Read one tier directly, without merging across tiers.
 
         The seam-level counterpart of ``LearningStore.recall`` (``learn/stores/protocol.py:48``),
         which is what a wrapped seed store maps onto.

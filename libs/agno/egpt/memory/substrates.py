@@ -4,10 +4,9 @@ Decision D8 (ADR 0003) makes memory a **neuro-symbolic hybrid**: a vector substr
 associative recall and a temporal knowledge graph for precise, updatable, queryable relations.
 Both are first-class; neither is a cache of the other.
 
-Callers never see these. They depend on the one ``MemoryProvider`` seam, which composes both ports
-and owns fusion. Splitting the ports underneath is what lets a backend swap per-substrate -- the
-strength of the "two separate interfaces" option the spec rejected as the *public* seam, kept
-where it belongs.
+Callers never see these. They depend on the one ``MemoryProvider`` seam, which composes both ports.
+Splitting the ports underneath is what lets a backend swap per-substrate -- the strength of the
+"two separate interfaces" option the spec rejected as the *public* seam, kept where it belongs.
 
 Both are ``runtime_checkable`` **Protocols**, not ABCs, so an existing class can satisfy one
 structurally through a thin adapter without inheriting from anything -- notably ``VectorDb``
@@ -36,18 +35,15 @@ class VectorSubstrate(Protocol):
     conjunctive predicate: ``tenant_id`` always, plus ``user_id`` / ``agent_id`` / ``team_id`` /
     ``session_id`` whenever they are not ``None``. A ``None`` slot means "any".
 
-    Saying only "tenant predicate" left the other four unspecified, and two backend authors would
-    have made opposite choices from that text -- while ``user_id`` is documented as "the identity
-    namespace that survives sessions" and every consumer reads a user-scoped call as user-scoped.
-    A backend that honours the tenant and ignores the user serves one user's memory to another
-    inside the same tenant.
+    Every slot is spelled out because "tenant predicate" alone leaves four of them to a backend
+    author's judgement, and a backend that honours the tenant and ignores the user serves one
+    user's memory to another inside the same tenant. SM-C4 (#92) makes this fail-closed at the data
+    layer; the provider re-checks the tenant slot as a post-condition, because that one leaks
+    across a trust boundary.
 
-    SM-C4 (#92) makes this fail-closed at the data layer and SM-X6 (#142) attacks it; the provider
-    re-checks the tenant slot as a post-condition because that one leaks across a trust boundary.
-
-    A backend must resolve the tier set exactly as ``MemoryQuery.resolved_tiers`` does -- when one
-    leg honored the tier filter and the other did not, the leakage surfaced only after fusion and
-    was hard to trace back (finding F3).
+    A backend must resolve the tier set exactly as ``MemoryQuery.resolved_tiers`` does. When one
+    leg honoured the tier filter and the other did not, the leakage surfaced only in the merged
+    result and was hard to trace back (finding F3).
     """
 
     def upsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
@@ -74,18 +70,18 @@ class VectorSubstrate(Protocol):
         in the same ``WHERE`` clause as the tenant predicate -- and applying ``limit`` before it
         would let a page of superseded rows consume the whole limit.
 
-        **Do not apply ``query.as_of``.** Valid time is enforced once, on the fused set, because it
+        **Do not apply ``query.as_of``.** Valid time is enforced once, on the merged set, because it
         is the one predicate that needs *both* legs: under SCD-2 the graph holds a current-belief
         successor row carrying ``t_invalid``, and merging that bound onto the vector leg's stale
         projection of the same id is how an invalidated fact is caught (finding F2). A substrate
         that filtered ``as_of`` itself would withhold exactly the row that carries the evidence.
 
         Residual, stated rather than mitigated: a page dominated by rows the *graph* has bounded
-        can still come back short, because the provider drops them after the substrates applied
-        ``limit``. An earlier version grew an over-fetch ladder for this; no fixed multiplier makes
-        it correct and it taxed every read. The real fix is for the vector projection not to be
-        stale -- re-sync on invalidation, or carry the bounds -- which is SM-V1 (#95) / SM-G1
-        (#99) work, recorded in SPEC section 11.3.
+        can come back short, because the provider drops them after the substrates applied
+        ``limit``. Over-fetching by a fixed multiplier does not fix that -- no multiplier is
+        correct, and it taxes every read. The fix is for the vector projection not to be stale
+        (re-sync on invalidation, or carry the bounds), which is SM-V1 (#95) / SM-G1 (#99) work.
+        Recorded in SPEC section 11.3.
         """
         ...
 
@@ -98,59 +94,31 @@ class VectorSubstrate(Protocol):
         """Async variant of :meth:`search`."""
         ...
 
-    def scan(
-        self,
-        scope: Scope,
-        tier: MemoryTier,
-        since: Optional[int] = None,
-        after_id: Optional[str] = None,
-        limit: Optional[int] = None,
-    ) -> List[MemoryRecord]:
+    def scan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
         """Enumerate records in insertion order -- no relevance ranking.
 
         Consolidation needs to walk every episode in a scope, which is not a search. The spec's
         stand-ins expressed this by treating an empty ``query.text`` as "scan all", flagged there
-        as a convention for SM-C1 to replace: it hid the operation behind a magic value and gave
-        no way to bound the walk. This is that replacement.
+        as a convention for SM-C1 to replace: it hid the operation behind a magic value and gave no
+        way to bound the walk.
 
-        Ordering is **ascending ``created_at``, then ``id``** as a tiebreak, so a consolidation
-        pass processes oldest-first and can resume from a watermark.
+        Ordering is **ascending ``created_at``, then ``id``**, so a pass processes oldest-first.
 
-        ``since`` is an **inclusive** lower bound on ``created_at`` -- transaction time, not valid
-        time, because the question a resuming pass asks is "what have I not seen yet", not "what
-        became true recently".
-
-        Inclusive is deliberate and the exclusive version was a **bug**. ``created_at`` is stamped
-        by ``now_epoch_s()`` in whole seconds, so many episodes routinely share one value. A pass
-        that resumed from ``since = max(created_at)`` with an exclusive bound would skip *every*
-        remaining episode written in that same second -- including ones a ``limit`` had cut off --
-        and terminate believing it was caught up. Silent episode loss, unbounded at production
-        write rates.
-
-        ``after_id`` completes the cursor, and without it ``since`` alone is not enough. Inclusive
-        ``since`` re-returns the whole boundary second, so when a single second holds ``limit`` or
-        more rows -- which one batched ``write()`` produces, since every event in it is stamped
-        with the same ``now`` -- the next page is byte-identical to the last and the walk never
-        advances. Together the two form a strict cursor: **return rows ordered after
-        ``(since, after_id)``**, i.e. ``created_at > since``, or ``created_at == since`` and
-        ``id > after_id``. Passing ``since`` without ``after_id`` keeps the inclusive-boundary
-        behaviour, which is what a first page wants.
+        ``limit`` is a bound, not a page: ``limit=0`` returns zero rows, and ``None`` means
+        unlimited. There is no cursor here. A resumable walk needs a strict ``(created_at, id)``
+        cursor -- ``created_at`` is whole seconds, so one batched ``write()`` puts more rows in a
+        single second than a page holds and a time-only cursor never advances -- and a protocol
+        with that many failure modes should be designed alongside the scheduler that drives it,
+        which is SM-L1's (#122).
 
         Only the vector substrate carries this. Nothing in SM-C1 enumerates the graph, and
         enumeration over a temporal graph is not obviously one operation (current belief? every
-        revision? edges or nodes?) -- SM-G9 #107 should define it when there is a consumer, rather
-        than every graph backend implementing a method to satisfy a Protocol no one calls.
+        revision? edges or nodes?) -- SM-G9 (#107) should define it when there is a consumer,
+        rather than every graph backend implementing a method to satisfy a Protocol no one calls.
         """
         ...
 
-    async def ascan(
-        self,
-        scope: Scope,
-        tier: MemoryTier,
-        since: Optional[int] = None,
-        after_id: Optional[str] = None,
-        limit: Optional[int] = None,
-    ) -> List[MemoryRecord]:
+    async def ascan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
         """Async variant of :meth:`scan`."""
         ...
 
@@ -164,13 +132,11 @@ class GraphSubstrate(Protocol):
     and never propagated back (ADR 0003 section B.6).
 
     That authority is a **precondition**, not a free-standing guarantee. The provider's
-    point-in-time filter runs on the fused set, so it can only see bounds some leg supplied -- if
-    this substrate is absent, excluded by ``query.substrates``, or simply did not return a row the
-    vector leg did, the stale projection carries no bounds and passes the filter. The co-located
-    provider therefore refuses an ``as_of`` read when the graph leg is not participating rather
-    than answering from the projection alone. Closing the remaining case -- graph wired, but the
-    row outside its top-``limit`` -- needs a bounds-by-id lookup on this port; that is SM-G1 #99's
-    and is recorded in SPEC section 11.3.
+    point-in-time filter runs on the merged set, so it can only see bounds some leg supplied: with
+    this substrate absent or excluded, the stale vector projection carries no bounds and passes the
+    filter. The co-located provider therefore refuses an ``as_of`` read when the graph leg is not
+    participating. The remaining case -- graph wired, but the row outside its top-``limit`` -- needs
+    a bounds-by-id lookup on this port, which is SM-G1's (#99). SPEC section 11.3.
 
     **Bi-temporal writes are expire-and-reinsert (SCD-2), never in-place mutation.** SM-R10
     section 6 proved in-place wrong: a later fact clobbers an already-set bound, and belief
@@ -182,16 +148,15 @@ class GraphSubstrate(Protocol):
         """Insert or replace an episode **by id**, within ``scope``.
 
         The provider stamps ``event.id`` before calling this and passes the same id to the vector
-        substrate: one logical episode has one id across both, because that id is the dedup key
-        during fusion. Two ids surface as two fused records for one write (finding F1).
+        substrate: one logical episode has one id across both, because that id is the
+        cross-substrate dedup key. Two ids surface as two records for one write (finding F1).
 
-        **By id, like ``VectorSubstrate.upsert``.** The name said upsert while the contract said
-        only "record", and an appending backend broke two things at once: a
-        ``PartialWriteError`` retry -- which tells the caller to reuse the stamped ids precisely so
-        it is idempotent -- duplicated the graph row, and the two substrates ended up holding
-        different content under one id, where fusion's id dedup silently kept the vector copy and
-        made the graph row unreachable. The provider's own batch-level duplicate check cannot help:
-        it spans one call, and this is about repeats across calls.
+        **By id, like ``VectorSubstrate.upsert``**, and stated because "record" is not specific
+        enough. An appending backend breaks two things: a ``PartialWriteError`` retry -- which tells
+        the caller to reuse the stamped ids precisely so it is idempotent -- duplicates the graph
+        row, and the two substrates end up holding different content under one id, where dedup keeps
+        the vector copy and makes the graph row unreachable. The provider's batch-level duplicate
+        check cannot help; it spans one call, and this is about repeats across calls.
         """
         ...
 
@@ -226,7 +191,7 @@ class GraphSubstrate(Protocol):
         """Retrieve by graph traversal, returning **current belief only** (``expired_at IS NULL``).
 
         Current belief is a transaction-time filter and is always applied. Valid-time filtering
-        (``query.as_of``) is not applied here -- it belongs to the fused read path (finding F2),
+        (``query.as_of``) is not applied here -- it belongs to the merged read path (finding F2),
         for the same reason as :meth:`VectorSubstrate.search`.
 
         Tier resolution matches ``MemoryQuery.resolved_tiers`` exactly (finding F3).
@@ -255,12 +220,12 @@ class GraphSubstrate(Protocol):
         so two successive invalidations accumulate rows, leave exactly one current belief, and
         keep the original reconstructible.
 
-        **The bounded copy keeps ``edge_id``.** Textbook SCD-2 gives the successor a fresh
-        surrogate key, and ``MemoryRecord.superseded_by`` ("id of the replacement row") positively
-        implies one -- but the only thing that carries this bound onto the vector leg's stale
-        projection is fusion's dedup **by id**. A new id means the two never meet, and the
-        invalidated fact comes back as current on an ordinary read. If a backend's storage needs a
-        surrogate key internally, it must still project ``id`` as the logical edge id.
+        **The bounded copy keeps ``edge_id``.** Textbook SCD-2 gives the successor a fresh surrogate
+        key, and ``MemoryRecord.superseded_by`` positively implies one -- but the only thing that
+        carries this bound onto the vector leg's stale projection is the merge's dedup **by id**. A
+        new id means the two never meet, and the invalidated fact comes back as current on an
+        ordinary read. A backend needing a surrogate key internally must still project ``id`` as the
+        logical edge id.
 
         Scope note (ADR 0003 section B.6): this governs **semantic contradiction on graph edges**.
         Episodic **row** lifecycle -- SM-R6 re-segmentation supersede and SM-R5 decay archival --

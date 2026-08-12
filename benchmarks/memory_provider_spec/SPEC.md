@@ -347,136 +347,95 @@ stays as the design artifact and its evidence; **the shipped code is authoritati
 | `VectorSubstrate` / `GraphSubstrate` | `egpt/memory/substrates.py` |
 | `MemoryProvider` ABC | `egpt/memory/provider.py` |
 | `MemoryProviderConfig` + registry | `egpt/memory/config.py` |
-| `_weighted` / `_rrf` | `egpt/memory/fusion.py` |
 | `CoLocatedMemoryProvider` | `egpt/memory/adapters/co_located.py` |
-| `ExternalStubMemoryProvider` | `egpt/memory/adapters/external.py` |
 | *(new)* seed WRAP adapter | `egpt/memory/adapters/seed.py` |
+| *(new)* shared write-path guards | `egpt/memory/validation.py` |
 | `swap_test.py` | `tests/unit/memory/test_provider_swap.py` |
+| `_weighted` / `_rrf` | **not shipped** — see §11.2 |
+| `ExternalStubMemoryProvider` | **not shipped** — see §11.2 |
 
 ### 11.1 Deviations from this spec, and why
 
 | # | Deviation | Reason |
 |---|---|---|
-| D1 | `ProviderMode.LOCAL/FRONTIER` replaces `DeploymentMode.CO_LOCATED/EXTERNAL` | `providers/model_provider.py:52` already means Mode A/B for models. ADR 0003 §B.5 rules against two vocabularies for one concept. Lets SM-C5 reuse the `PolicyKey` → `ProviderConfig.lookup` per-tenant pattern. |
+| D1 | `ProviderMode.LOCAL/FRONTIER` replaces `DeploymentMode.CO_LOCATED/EXTERNAL` | `providers/model_provider.py` already means Mode A/B for models. ADR 0003 §B.5 rules against two vocabularies for one concept. Lets SM-C5 reuse the `PolicyKey` → `ProviderConfig.lookup` per-tenant pattern. |
 | D2 | `MemoryTier` lives in `tiers.py`; config in `config.py` | Those are the files SM-C2 (#90) and SM-C5 (#93) are chartered to create. Placing them elsewhere would force a duplicate enum and a split config module. |
 | D3 | `GraphSubstrate.upsert_fact` + `FactWrite` added | Finding F9: the port exposed only `upsert_episode`, forcing consolidation to write a fact as a flat pseudo-episode. Field names mirror SM-R12's `SemanticFact` so SM-C3 maps 1:1. |
-| D4 | Explicit `VectorSubstrate.scan` replaces "empty `query.text` = scan all" | The convention hid the operation behind a magic value and could not be bounded. `scan` orders ascending `created_at`, then `id`, with an **inclusive** `since` watermark so a consolidation pass resumes (inclusive because `created_at` is whole seconds — an exclusive bound silently skips co-second episodes; the caller dedups the boundary ids). `consolidate` passes it and reports `next_since` / `batch_full`. Graph enumeration is deliberately absent — no consumer in SM-C1, and what it means over a temporal graph is SM-G9's to define. |
+| D4 | Explicit `VectorSubstrate.scan` replaces "empty `query.text` = scan all" | The convention hid the operation behind a magic value and could not be bounded. `scan` orders ascending `created_at`, then `id`, and takes a `limit`. It takes **no cursor** — see §11.2. Graph enumeration is deliberately absent: no consumer in SM-C1, and what it means over a temporal graph is SM-G9's to define. |
 | D5 | Provider registry is local to `egpt/memory/`, not a `discovery` KIND | Discovery declarations live in **core**; a provider adapter is **services**, so declaring it there would have core naming a services module. ADR 0001's "config-swappable backends use the same constructor registry" refers to the *backends* a provider composes — those stay `discovery.construct` under SM-V1/SM-G1. |
-| D6 | Real-external-backend swap re-proof carried to SM-X2 (#138) | ADR 0003 §5 asks SM-C1 for it, but no external substrate exists to point at yet (SM-V1 #95, SM-G1 #99). Recorded in `adapters/external.py` and `test_provider_swap.py`, not dropped. |
-| D7 | Unknown provider key raises `MemoryProviderConfigError` (a `ValueError`), not `KeyError` | Matches `discovery.resolve`, which raises `ValueError` for an unknown name, and `ModelProviderConfigError` for a bad config. |
-| D8 | Fused ties break on **first-seen order**, not on record id | Found by the swap proof's determinism check. Ids are UUIDs, so an id tie-break reorders equal-scoring records for every fresh set of writes, and two deployments holding identical content would rank it differently. First-seen order preserves the substrates' own ranking. |
+| D6 | Unknown provider key raises `MemoryProviderConfigError` (a `ValueError`), not `KeyError` | Matches `discovery.resolve`, which raises `ValueError` for an unknown name, and `ModelProviderConfigError` for a bad config. |
+| D7 | Merged ties break on `(content, tier, id)`, never on arrival order | Found by the swap proof's determinism check. Arrival order is driven by UUID record ids, so two deployments holding identical content ranked it differently. |
 
-### 11.2 Additions the spec did not cover
+### 11.2 Deliberately not shipped
+
+SM-C1's five acceptance criteria are an **interface**. There is no pgvector (SM-V1 #95) and no graph
+engine (SM-G1 #99), so any behaviour built here can only be exercised against doubles written in the
+same change — unvalidatable by construction. Each item below was cut for that reason and has a named
+owner, not a "later".
+
+| Cut | Why | Owner |
+|---|---|---|
+| Weighted and RRF fusion, `config.fusion` and its knobs (`method`, `vector_weight`, `k`, `rerank`, `ppr`) | SM-R8 measured dense+BM25, **never this seam's vector+graph pairing**, so no default here is a measured result — and with no backend wired, nothing could measure one. The provider sums the legs' scores and reports `method="score_sum"`, which claims exactly what it does. | SM-H2 #132 |
+| The Mode B / external adapter | It would have composed the same two ports over the same in-memory doubles. That proves a class can be subclassed, not that a network seam holds. `ProviderMode.FRONTIER` is accepted and reaches the provider today; the swap test covers that. | SM-X2 #138 |
+| A consolidation cursor, watermark, or resumption protocol | Three review rounds of defects lived in the *protocol*, not the implementation: nothing passed the cursor; a time-only cursor could not page past co-second episodes; a no-progress guard fired on a legitimate batch. `consolidate` runs one bounded pass and reports `details["complete"]`. A resumable walk should be designed with the scheduler that drives it. | SM-L1 #122 |
+| Read-path over-fetching to compensate for post-merge validity filtering | No fixed multiplier is correct, and it taxes every read. The real fix is a vector projection that is not stale. Stated as a residual in `VectorSubstrate.search`. | SM-V1 #95 / SM-G1 #99 |
+| Per-tier read/write policy beyond `SUBSTRATES_BY_TIER` | `tiers.py` ships the write-routing data the seam needs to not guess; turning it into policy is a separate charter. | SM-C2 #90 |
+| `MemoryQuery.filters` semantics | No substrate port states a contract for it, so a future backend would have nothing to conform to. A filter that silently does not apply returns an unfiltered slice that looks filtered — refused at the envelope rather than accepted. | SM-V1 #95 |
+
+### 11.2a Additions the spec did not cover
 
 - **`SeedMemoryProvider`** (`adapters/seed.py`) — the WRAP half of ADR 0003 §2, giving a deployment
-  the seam over `MemoryManager` and the `learn` stores with no new infrastructure. It reports
-  **both substrates absent**, refuses episodic writes rather than redirecting them into the
-  semantic tier, and reports `episodic_scanned=0` from `consolidate` — the seed has no episodic
-  store, and claiming otherwise would be false.
-- **`SUBSTRATES_BY_TIER`** (`tiers.py`) — ADR 0003 §1's ratified write routing as data, so the
-  adapter does not guess. SM-C2 extends it into full per-tier policy.
-- **Config validation** — unknown fusion method, out-of-range `vector_weight`, unknown mode, blank
-  provider key, and a factory returning a non-provider are all rejected at the boundary. Finding
-  F5 was a fusion setting that was accepted and then silently ignored.
+  the seam over `MemoryManager` and the `learn` stores with no new infrastructure. Most of it is
+  refusals, because the seed cannot honour tenancy, valid time, substrates, or an episodic tier, and
+  an ignored parameter returns a wrong answer that looks right.
+- **`SUBSTRATES_BY_TIER`** (`tiers.py`) — ADR 0003 §1's ratified write routing as data.
+- **`validation.py`** — write-path guards shared by both adapters. Invariants implemented per
+  adapter drifted; each one here is paired with a conformance-matrix property.
+- **`FUSION_KEYS` / `CONSOLIDATION_KEYS`** — a floor on the diagnostics every provider reports, so a
+  provider-agnostic consumer does not `KeyError` on whichever adapter it was not written against.
 
-### 11.2b Fixed in review (PR #60)
+### 11.2b Invariants and where they are proved
 
-A multi-agent review of PR #60 found 3 critical and 10 major defects, each reproduced by executing
-the code. All are fixed; the ones that changed a **contract** rather than an implementation:
+Each row is one shared implementation plus one parametrised property in
+`tests/unit/memory/test_provider_swap.py`, run against **every** registered provider and wiring —
+including the single-substrate configurations, whose absence previously let a correctly-worded
+conformance test miss a violation.
 
-| Finding | Change |
+| Invariant | Enforced in |
 |---|---|
-| Seed bridge crossed tenants and relabelled the leaked row with the reader's tenant | `SeedMemoryProvider` **refuses to build** without both `options["single_tenant"]` and `options["tenant_id"]`. (Round 2 made only the acknowledgement mandatory and the pin optional, which left the guard a no-op in its default configuration — a regression corrected in round 3.) `UserMemory` has no tenant column, so it cannot separate two tenants and now says so. Namespacing the manager key was rejected: it silently orphans rows an existing deployment already wrote. |
-| `write()` redirected episodic events into the semantic tier | `write` groups the batch by `event.tier` and routes each group through `write_tier`, so an episodic write is refused as documented rather than rewritten. |
-| Current-belief filter ran after substrates applied `limit`, returning zero records when valid ones existed | The read path over-fetches (`_FILTER_OVERFETCH`). Documented as a mitigation, not a fix — the complete answer is pushing the predicate into the substrates, which needs a port change and belongs with the first real backend. |
-| `scan`'s `since` was exclusive on integer-second `created_at` | Now **inclusive**, with the caller deduping the boundary ids. Exclusive silently skipped every co-second episode on a resuming pass — unbounded, invisible episode loss. |
-| `consolidate` was non-idempotent | Fact ids derive from the sorted `source_episode_ids` via `uuid5`, so a re-run upserts the same row. Idempotent only while group membership is stable; explicit supersede is SM-L3's (#124). |
-| `consolidate(tiers=...)` accepted and ignored | Rejected unless `None` or `[EPISODIC]`, naming SM-C2 (#90). |
-| Point-in-time held only when the graph leg participated | An `as_of` read is **refused** when the graph is absent or excluded. The residual case (graph wired, row outside its top-`limit`) needs a bounds-by-id lookup — see §11.3. |
-| Graph-only provider silently discarded procedural writes | Writes are refused unless a *wired* substrate serves the tier. |
-| Partial dual-write raised with no receipt, so retries minted new ids | `PartialWriteError` carries the stamped ids; at-least-once semantics documented. |
-| Fused records aliased substrate-owned `provenance` / `metadata` / `topics` | Deep-copied on fold, and `topics` copied on write. |
-| `tiers=[]` widened to every tier | `is None` check, matching `substrates=[]` fifteen lines away. |
-| Negative `limit` truncated from the end | Rejected in `__post_init__`. |
-| `MemorySlice.fusion` keys diverged across adapters | `FUSION_KEYS` + `fusion_diagnostics()`; every adapter reports the full set. |
+| No record leaves the seam under a tenant that did not ask for it — on read **and** consolidate | `co_located._assert_tenant_isolation`, `seed._guard_tenant` |
+| Duplicate ids in one batch are refused before anything is written | `validation.reject_duplicate_ids` |
+| `MemoryEvent.scope` must equal the write scope | `validation.reject_foreign_scopes` |
+| A named substrate is served or refused, never silently emptied | `co_located._require_answerable`, `seed._reject_unservable_substrates` |
+| A scope slot the backend cannot filter on is refused, not ignored | `seed._reject_unfilterable_scope` |
+| `MemorySlice.fusion` carries `FUSION_KEYS`; `ConsolidationReport.details` carries `CONSOLIDATION_KEYS` | `types.fusion_diagnostics` / `types.consolidation_details` |
+| `limit` is honoured, and `limit=0` means zero rows | both adapters, both `read` and `read_tier` |
+| Sync and async halves agree | conformance matrix |
+| A partial multi-target write raises `PartialWriteError` carrying the stamped ids | `types.PartialWriteError`, raised by both adapters |
+| Point-in-time needs both predicates (`t_valid ≤ at < t_invalid` **and** current belief) | `co_located._valid_at` + `MemoryRecord.is_current_belief` |
+| Invalidation is expire-and-reinsert (SCD-2), never in-place | `GraphSubstrate.invalidate` contract |
 
-Also fixed: `as_context()` no longer lets stored content forge a `[tier]` line into the prompt;
-`Scope` stores the `tenant_id` it validated; a distinct `MemoryOperationError` separates per-call
-refusals from construction faults; injected substrates are `isinstance`-checked at build; a leg
-mixing scored and unscored records falls back to rank for the whole leg; consolidation batches its
-upserts and bounds its scan. The test doubles and the cookbook's reference substrates were also
-wrong in ways that hid these — both now honour `limit`, and the cookbook's two substrates no longer
-share one row object.
+Substrates filter **transaction time** before ranking; valid time is enforced once, on the merged
+set. A substrate that filtered `as_of` itself would withhold the SCD-2 successor row carrying
+`t_invalid` — which is the evidence that catches an invalidated fact (finding F2).
 
-### 11.2c Round-2 review (0 critical, 18 major, minors and nits)
-
-A second five-pass review of the fix commit found that four prior fixes had a residual or a new
-defect, and that four regression tests passed with their defect reintroduced. Everything below is
-fixed and **mutation-verified** — each defect was put back and the suite confirmed to fail.
-
-**Blocking**
-
-| Finding | Change |
-|---|---|
-| `consolidate` could never reach past its first batch — the bound was a dead end, and the comment justifying it said the opposite | `since` is threaded through `consolidate`/`aconsolidate`, and the report carries `next_since` / `batch_full`. The scheduler (SM-L1 #122) loops on them. |
-| A default `read()` returned facts the graph had recorded as **false** — `read()` and `read(as_of=now)` disagreed at the same instant | Valid time is evaluated on **every** read; `as_of` now selects the *instant* rather than enabling the predicate. Unbounded records pass unchanged, so vector-only behaviour is unmoved. |
-| `read()` still returned zero valid records when invalidated rows outranked live ones | Replaced the fixed ×3 over-fetch with a bounded **fetch-until-satisfied** loop (×1, ×3, ×9, ×27, ceiling 10k) that stops on satisfaction or exhaustion, and reports `truncated` when it stops short. The first round asks for exactly the caller's limit, so the common case costs nothing. |
-| Seed `write()` committed part of a batch then raised with no receipt; atomicity depended on caller list order | Every group is validated before any group writes. |
-
-**Major** — a `SEMANTIC` write reached the graph through `upsert_episode` (F9's failure class on the
-write path; now routed to `upsert_fact`) · the seed ignored `MemoryQuery.substrates` entirely,
-breaking the swap property (now refused) · `read_tier(limit=0)` returned 25 records on the seed and
-0 on co-located (both cap now) · `_detached` and `merge_tightest_bounds` were both **shallow**, so
-nested `provenance` still aliased the store (both deep-copy) · `retrieval_method="agentic"` put an
-LLM call on the path `MemoryProvider.read` declares LLM-free (refused, and a typo no longer degrades
-silently to `last_n`) · `MemoryQuery.filters` was accepted and read by nothing (refused, naming
-SM-V1 #95) · `fusion.k` was unvalidated (`k=-1` → `ZeroDivisionError` at read time) and
-`rerank`/`ppr` were accepted-and-ignored, which is finding F5 itself (all three validated) ·
-duplicate ids in one batch destroyed vector content, duplicated graph rows, and returned
-`accepted=2` (refused before any write) · the tenant pin was a per-instance, racy first-request side
-effect (now declared in `options["tenant_id"]`).
-
-**Test quality.** Four regression tests were vacuous: the over-fetch test passed with the fix fully
-reverted (its "expired" rows scored *below* the live ones, so nothing was ever discarded — now
-parametrised over 5:5, 20:5 and 50:10 with the invalidated rows genuinely outranking), the
-`limit=0` test asserted `[] == []` (now asserts what the substrate was *asked* for), the
-batch-bound test asserted only that `scan` was called (now asserts the limit reached the substrate,
-plus that a second pass advances), and the two aliasing tests mutated only top-level keys. The
-doubles gained request recording for exactly this reason: asserting on a *response* cannot detect a
-wrong *request*.
-
-### 11.2d Round-3 review (2 critical, 7 major)
-
-A third review found that three fixes recorded above as complete had a narrower door left open, and
-that one of them was a **regression** rather than a survival. The pattern it named is worth keeping:
-each was written against the repro that exposed the bug rather than the invariant behind it. The
-fixes below assert the invariant.
-
-| Finding | Change |
-|---|---|
-| **Regression** — the tenant pin was optional, so an unpinned seed provider admitted every scope | `options["tenant_id"]` is **mandatory**; the `None` branch that admitted everything is gone. The shared test helper built the unpinned config, so the unsafe shape was what the suite exercised. |
-| `consolidate` could not page past a batch of co-second episodes — one 500-event `write()` triggers it, since `_prepare` stamps one `now` across the batch | The cursor is composite `(created_at, id)`, matching the ordering `scan` already promised. `_report` additionally **raises** if a full batch does not advance, so a backend ignoring that ordering cannot livelock a scheduler silently. |
-| `read(substrates=[VECTOR])` returned facts the graph had recorded as false | The precondition is "a validity authority is participating", not "an `as_of` was passed". A wired-but-excluded graph is refused, matching what the seed adapter already did for any non-`None` `substrates`. |
-| `MemoryEvent.scope` required and read by nothing | Refused when it differs from the write scope — accepted-and-ignored on the one field whose mismatch is a tenancy question. |
-| `upsert_episode` had no id semantics, so `PartialWriteError`'s idempotent-retry promise did not hold | The port states upsert-by-id, matching `VectorSubstrate.upsert`; both doubles and the cookbook's reference substrate were appending. |
-| A naive local `datetime` on `occurred_at` made a record unreadable for hours, receipted as accepted | Refused at the envelope. Newly reachable because round 2 made valid time apply to every read. |
-| Seed `write()` committed part of a batch on a *runtime* failure with no receipt | `PartialWriteError` moved to `types.py` and raised by both adapters, so the seam has one failure semantic. An empty batch now runs the guards too. |
-| `fusion_diagnostics` in `__all__` but never imported — `from egpt.memory import *` raised | Imported, plus a test asserting every `__all__` name resolves (ruff exempts `__init__.py` from F822). |
-
-Also added: a **tenant post-condition** in `_assemble` — the provider refuses a slice containing
-another tenant's records rather than trusting every substrate to have applied its predicate.
+Regression tests are **mutation-verified**: each defect was reintroduced and the suite confirmed to
+fail. Assertions are on what a substrate was *asked for*, not only on what it returned, because a
+result-only assertion cannot detect a wrong request.
 
 ### 11.3 Carried forward with named owners
 
 | Item | Owner |
 |---|---|
-| Re-prove config-only swap against a **real** external backend (ADR §5) | SM-X2 #138 |
-| Reject `HuggingfaceCustomEmbedder` for `mode=LOCAL` (ADR §A.3c) | SM-V2 #96 |
+| Rank fusion (weighted / RRF), its configuration, and the measurement that justifies a default | SM-H2 #132 |
+| The Mode B adapter, and re-proving config-only swap against a **real** external backend (ADR §5) | SM-X2 #138 |
+| The consolidation scheduler, and draining a tier larger than one pass | SM-L1 #122 |
 | Measure weighted-vs-RRF on the **vector+graph** pairing — SM-R8 never did | SM-R13 #19 |
+| Reject `HuggingfaceCustomEmbedder` for `mode=LOCAL` (ADR §A.3c) | SM-V2 #96 |
 | `Curator` is narrower than ADR §2.1 implies (`user_profile` store only, no async) | SM-L4 #125 |
 | `MemoryManager.search_user_memories` / `add_user_memory` have no async variant; the bridge hops a thread | SM-C2 #90 |
 | Graph enumeration semantics for a `scan` on `GraphSubstrate` | SM-G9 #107 |
 | Bounds-by-id lookup on `GraphSubstrate`, to close point-in-time when the graph's top-`limit` misses a row the vector leg returned | SM-G1 #99 |
-| Push the current-belief predicate into the substrates so the read path stops over-fetching | SM-V1 #95 / SM-G1 #99 |
+| Push the current-belief predicate into the substrates so the read path stops needing a merged-set filter | SM-V1 #95 / SM-G1 #99 |
 | Explicit supersede when a consolidation group gains a member, so the previous fact is not orphaned | SM-L3 #124 |
 | Real tenant isolation for the seed bridge (a `tenant_id` column and its migration) | SM-C3 #91 |
