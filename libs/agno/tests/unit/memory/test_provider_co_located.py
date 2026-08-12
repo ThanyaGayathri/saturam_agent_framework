@@ -691,6 +691,55 @@ async def test_async_consolidation_covers_the_same_episodes():
     assert report.details["complete"] is True
 
 
+def test_consolidation_never_groups_two_users_episodes_into_one_fact():
+    """A tenant-wide pass legitimately scans every user, and content alone must not merge them.
+
+    Before this, two users saying the same thing produced **one** fact carrying both episode ids
+    and attributed to whichever user won the content tiebreak -- so the other user read their
+    colleague's episode back as their own. `_assert_tenant_isolation` cannot see it: same tenant.
+    """
+    tenant = Scope(tenant_id="acme")
+    alice, bob = Scope(tenant_id="acme", user_id="alice"), Scope(tenant_id="acme", user_id="bob")
+    p, vector, _ = provider()
+    p.write(alice, [event("salary review outcome is confidential", scope=alice, id="a1")])
+    p.write(bob, [event("salary review outcome is confidential", scope=bob, id="b1")])
+
+    report = p.consolidate(tenant)
+
+    facts = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC]
+    assert report.semantic_written == 2, "one fact per user, not one shared fact"
+    assert report.duplicates_merged == 0, "identical content across users is not a duplicate"
+    assert {f.scope.user_id: f.provenance["source_episode_ids"] for f in facts} == {
+        "alice": ["a1"],
+        "bob": ["b1"],
+    }
+
+
+def test_a_derived_fact_is_stored_under_its_own_scope_not_the_pass_scope():
+    """`upsert(scope, records)` stores *within* the call scope, so the pass scope would widen it.
+
+    Filing alice's distilled fact under the bare tenant makes it readable by every user in it.
+    """
+    tenant = Scope(tenant_id="acme")
+    alice, bob = Scope(tenant_id="acme", user_id="alice"), Scope(tenant_id="acme", user_id="bob")
+    p, vector, _ = provider()
+    p.write(alice, [event("alice prefers async standups", scope=alice, id="a1")])
+
+    p.consolidate(tenant)
+
+    assert vector.search(bob, MemoryQuery(text="alice prefers async standups")) == []
+    assert len(vector.search(alice, MemoryQuery(text="alice prefers async standups"))) == 2
+
+
+def test_an_empty_substrate_set_is_refused_on_every_wiring():
+    """Not "search nothing" -- a request no provider could answer, so never a silent empty."""
+    for wiring in ({"vector": FakeVector(), "graph": FakeGraph()}, {"vector": FakeVector()}, {"graph": FakeGraph()}):
+        p = CoLocatedMemoryProvider(**wiring)
+
+        with pytest.raises(MemoryOperationError, match="substrates is empty"):
+            p.read(ACME, MemoryQuery(text="x", substrates=[]))
+
+
 def test_a_point_in_time_read_without_the_graph_is_refused_not_answered():
     """Major 7. The vector projection has no bounds, so it would return invalidated facts as true."""
     vector_only = CoLocatedMemoryProvider(vector=FakeVector())

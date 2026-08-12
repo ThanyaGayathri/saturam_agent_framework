@@ -370,8 +370,12 @@ class MemoryQuery:
         result and was hard to trace back (finding F3).
 
         ``None`` means "unspecified, use the default"; an **empty sequence means empty**. Conflating
-        them widens rather than narrows, which is the direction that matters. ``MemoryQuery
-        .substrates`` is read the same way.
+        them widens rather than narrows, which is the direction that matters.
+
+        ``substrates`` is *not* read the same way, and the asymmetry is deliberate: "search no
+        tiers" is a coherent request with an empty answer, while "consult no substrates" is one
+        nothing could ever answer, so a provider refuses it rather than returning an empty slice
+        that looks like a miss.
         """
         return PERSISTENT_TIERS if self.tiers is None else tuple(self.tiers)
 

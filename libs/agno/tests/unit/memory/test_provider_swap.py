@@ -280,6 +280,20 @@ def test_every_provider_serves_or_refuses_a_named_substrate_never_silently_empti
 
 
 @pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
+def test_every_provider_refuses_an_empty_substrate_set(name):
+    """`substrates=[]` is unanswerable, so it must refuse everywhere rather than empty out.
+
+    Left to fall out of the per-substrate checks it produced three behaviours for one input:
+    refused with a graph wired, silently empty on a vector-only provider, refused on the seed. The
+    matrix above parametrises over single substrates only, which is why `[]` slipped past it.
+    """
+    provider = build_memory_provider(ALL_CONFIGS[name]())
+
+    with pytest.raises(MemoryOperationError, match="substrate"):
+        provider.read(ACME, MemoryQuery(text="anything", substrates=[]))
+
+
+@pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
 def test_every_provider_reports_the_full_fusion_key_contract(name):
     provider = build_memory_provider(ALL_CONFIGS[name]())
 

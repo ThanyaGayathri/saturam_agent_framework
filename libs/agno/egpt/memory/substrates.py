@@ -47,7 +47,15 @@ class VectorSubstrate(Protocol):
     """
 
     def upsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
-        """Insert or replace records by id, within ``scope``."""
+        """Insert or replace records by id, within ``scope``.
+
+        **Every record must carry ``scope``**, and a backend should refuse a batch where one does
+        not. A mismatch has two defensible readings -- honour the call scope, or honour the
+        record's -- and a caller cannot tell which it got. Under the first, a fact derived from one
+        user's episodes is filed tenant-wide and every user in the tenant can read it; under the
+        second, the call scope is decorative. Batch per scope rather than leaving it to the
+        backend.
+        """
         ...
 
     async def aupsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:

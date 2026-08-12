@@ -151,14 +151,19 @@ def test_a_missing_provider_key_is_rejected(blank):
         MemoryProviderConfig(provider=blank)  # type: ignore[arg-type]
 
 
-def test_the_config_carries_no_fusion_knobs():
+def test_the_config_rejects_a_fusion_knob_rather_than_absorbing_it():
     """A knob nothing has measured is a knob that silently does nothing.
 
     SM-R8 measured dense+BM25, never this seam's vector+graph pairing, and with no backend wired
     there is nothing here that could measure it. Ranked fusion and its configuration are SM-H2's
     (#132); a `fusion=` field would be finding F5 -- accepted at the boundary, read by nothing.
+
+    Asserting the constructor *rejects* it rather than that the attribute is absent: `not
+    hasattr(...)` also passes if the field is quietly reintroduced as a dict absorbed into
+    `options`, which is the shape the regression would actually take.
     """
-    assert not hasattr(MemoryProviderConfig(provider="p"), "fusion")
+    with pytest.raises(TypeError, match="fusion"):
+        MemoryProviderConfig(provider="p", fusion={"method": "weighted"})  # type: ignore[call-arg]
 
 
 def test_backend_settings_stay_opaque():

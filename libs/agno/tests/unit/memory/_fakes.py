@@ -36,6 +36,25 @@ def scoped(record_scope: Scope, call_scope: Scope) -> bool:
     return True
 
 
+def reject_scope_mismatch(call_scope: Scope, record: MemoryRecord) -> None:
+    """A write's records must carry the scope the write was made under.
+
+    The port says a record is stored *within* the call scope, so a record arriving with a different
+    one is ambiguous -- store it under the call scope and a per-user fact is filed tenant-wide;
+    store it under its own and the call scope was decorative. A real backend resolves that ambiguity
+    silently and per-implementation, so the double refuses it instead.
+
+    Not enforcing this is what made a provider bug undetectable: the double bucketed by the call
+    scope but filtered on ``record.scope``, so writing a narrow record under a broad scope round-
+    tripped correctly here and would have widened it in Postgres.
+    """
+    if record.scope != call_scope:
+        raise ValueError(
+            f"Record {record.id!r} carries scope {record.scope.key()} but is being written under "
+            f"{call_scope.key()}. Batch per scope; the two must agree."
+        )
+
+
 def current_belief(record: MemoryRecord) -> bool:
     """Transaction time only, per the port: ``expired_at IS NULL``, filtered before ranking.
 
@@ -98,6 +117,7 @@ class FakeVector:
         self.calls.append("upsert")
         bucket = self._bucket(scope)
         for record in records:
+            reject_scope_mismatch(scope, record)
             bucket[record.id] = replace(record, substrate=Substrate.VECTOR)
 
     async def aupsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
@@ -182,6 +202,7 @@ class FakeGraph:
     def upsert_fact(self, scope: Scope, fact: FactWrite) -> None:
         """Upsert by id, as the port name says -- appending would let a re-run look idempotent."""
         self.calls.append("upsert_fact")
+        reject_scope_mismatch(scope, fact.record)
         self.facts.append(fact)
         bucket = self._bucket(scope)
         row = replace(fact.record, substrate=Substrate.GRAPH)

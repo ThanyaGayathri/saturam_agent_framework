@@ -407,7 +407,10 @@ conformance test miss a violation.
 | Duplicate ids in one batch are refused before anything is written | `validation.reject_duplicate_ids` |
 | `MemoryEvent.scope` must equal the write scope | `validation.reject_foreign_scopes` |
 | A named substrate is served or refused, never silently emptied | `co_located._require_answerable`, `seed._reject_unservable_substrates` |
+| An **empty** substrate set is refused everywhere — it is unanswerable, not narrow | `co_located._require_answerable`, `seed._reject_unservable_substrates` |
 | A scope slot the backend cannot filter on is refused, not ignored | `seed._reject_unfilterable_scope` |
+| Episodes never group across scopes during consolidation, even inside one tenant | `co_located._distil` |
+| A record is written under the scope it carries; a mismatch is refused | `VectorSubstrate.upsert` contract, `co_located._by_scope` |
 | `MemorySlice.fusion` carries `FUSION_KEYS`; `ConsolidationReport.details` carries `CONSOLIDATION_KEYS` | `types.fusion_diagnostics` / `types.consolidation_details` |
 | `limit` is honoured, and `limit=0` means zero rows | both adapters, both `read` and `read_tier` |
 | Sync and async halves agree | conformance matrix |

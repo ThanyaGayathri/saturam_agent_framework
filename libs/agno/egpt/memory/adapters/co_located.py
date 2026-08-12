@@ -174,6 +174,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
             )
         if query.substrates is None:
             return
+        if not query.substrates:
+            # Unlike `tiers=[]`, which is a coherent "search no tiers", an empty substrate set is a
+            # request nothing could ever answer. Left to fall through it produced three behaviours
+            # for one input -- refused with a graph wired, silently empty on a vector-only provider,
+            # and refused on the seed -- so the same query meant different things per deployment.
+            raise MemoryOperationError(
+                "MemoryQuery.substrates is empty, so no substrate would be consulted and the read "
+                "could only ever return nothing. Pass None for every wired substrate, or name the "
+                "ones you want.",
+                field_name="substrates",
+            )
         missing = sorted(s.value for s in query.substrates if not wired[s])
         if missing:
             raise MemoryOperationError(
@@ -207,9 +218,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
     # -- write ----------------------------------------------------------------
 
-    def _prepare(
-        self, scope: Scope, events: Sequence[MemoryEvent], tier: Optional[MemoryTier]
-    ) -> Tuple[List[MemoryEvent], List[MemoryRecord]]:
+    def _prepare(self, scope: Scope, events: Sequence[MemoryEvent]) -> Tuple[List[MemoryEvent], List[MemoryRecord]]:
         """Stamp one id per event and project each into the record the vector leg stores.
 
         The id is stamped once and reused across substrates: it is the cross-substrate dedup key,
@@ -222,7 +231,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         stamped: List[MemoryEvent] = []
         records: List[MemoryRecord] = []
         for event in events:
-            target = tier or event.tier
+            target = event.tier
             self._require_writable(target)
             occurred_at = event.occurred_at if event.occurred_at is not None else now
             prepared = replace(
@@ -261,7 +270,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         )
 
     def write(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
-        stamped, records = self._prepare(scope, events, tier=None)
+        stamped, records = self._prepare(scope, events)
         vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
         try:
             if self.vector is not None and vector_records:
@@ -274,7 +283,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         return self._receipt(stamped)
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
-        stamped, records = self._prepare(scope, events, tier=None)
+        stamped, records = self._prepare(scope, events)
         vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
         try:
             if self.vector is not None and vector_records:
@@ -395,7 +404,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
     # -- consolidate ----------------------------------------------------------
 
-    def _check_consolidatable(self, tiers: Optional[Sequence[MemoryTier]]) -> None:
+    def _check_consolidatable(self, tiers: Optional[Sequence[MemoryTier]]) -> VectorSubstrate:
+        """Refuse an unrunnable pass, and hand back the substrate that will run it.
+
+        Returning it rather than re-reading ``self.vector`` is what lets the callers narrow the
+        Optional without an ``assert`` -- which ``-O`` strips, and which the seed adapter's own
+        comment rejects for exactly that reason.
+        """
         if self.vector is None:
             raise MemoryOperationError(
                 "consolidate needs the vector substrate to enumerate episodes; none is wired.",
@@ -407,6 +422,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 f"{sorted(t.value for t in tiers)}. Per-tier policy is SM-C2's (#90).",
                 field_name="tiers",
             )
+        return self.vector
 
     def _distil(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Tuple[List[FactWrite], int]:
         """Group near-duplicate episodes and emit one fact per group.
@@ -417,15 +433,20 @@ class CoLocatedMemoryProvider(MemoryProvider):
         Grouping walks content order, not scan order: scan orders on ``(created_at, id)`` with UUID
         ids, so scan order made which episode heads a group vary per process.
 
-        Groups are keyed within one scope. ``_assert_tenant_isolation`` has already rejected a
-        foreign tenant; finer slots stay on the head episode's own scope so a derived fact is never
-        broader than what it came from.
+        **Two episodes never group across scopes, even inside one tenant.** A pass scoped to a
+        tenant (``Scope(tenant_id="acme")``, no ``user_id``) legitimately scans every user's
+        episodes, and merging on content alone put one user's episode into a fact attributed to
+        another -- who then read it back as their own. ``_assert_tenant_isolation`` cannot see this:
+        both rows are the same tenant. Which user the fact landed on was decided by the content
+        tiebreak, so the attribution was arbitrary as well as wrong.
         """
         now = now_epoch_s()
         groups: List[List[MemoryRecord]] = []
-        for episode in sorted(episodes, key=lambda r: (r.content, r.created_at or 0, r.id)):
+        for episode in sorted(episodes, key=lambda r: (r.scope.key(), r.content, r.created_at or 0, r.id)):
             tokens = _tokens(episode.content)
             for group in groups:
+                if group[0].scope != episode.scope:
+                    continue
                 if _jaccard(_tokens(group[0].content), tokens) >= _DUPLICATE_THRESHOLD:
                     group.append(episode)
                     break
@@ -458,7 +479,9 @@ class CoLocatedMemoryProvider(MemoryProvider):
             )
         return facts, merged
 
-    def _report(self, scope: Scope, episodes: Sequence[MemoryRecord], facts: Sequence[FactWrite], merged: int):
+    def _report(
+        self, scope: Scope, episodes: Sequence[MemoryRecord], facts: Sequence[FactWrite], merged: int
+    ) -> ConsolidationReport:
         return ConsolidationReport(
             scope=scope,
             episodic_scanned=len(episodes),
@@ -474,36 +497,51 @@ class CoLocatedMemoryProvider(MemoryProvider):
             ),
         )
 
+    @staticmethod
+    def _by_scope(facts: Sequence[FactWrite]) -> List[Tuple[Scope, List[FactWrite]]]:
+        """Batch facts by their own scope, because that is the scope they must be written under.
+
+        ``VectorSubstrate.upsert(scope, records)`` stores *within* the call scope, so passing the
+        pass-wide scope would file a fact derived from one user's episodes under the whole tenant
+        -- readable by every user in it. On the ``write`` path the two always agree, because
+        ``_prepare`` stamps the call scope onto every record; consolidate is the only path where a
+        record carries a narrower scope than the call.
+        """
+        batched: Dict[str, Tuple[Scope, List[FactWrite]]] = {}
+        for fact in facts:
+            batched.setdefault(fact.record.scope.key(), (fact.record.scope, []))[1].append(fact)
+        return [batched[key] for key in sorted(batched)]
+
     def consolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
-        self._check_consolidatable(tiers)
-        assert self.vector is not None  # narrowed above
-        episodes = list(self.vector.scan(scope, MemoryTier.EPISODIC, limit=_MAX_EPISODES_PER_PASS))
+        vector = self._check_consolidatable(tiers)
+        episodes = list(vector.scan(scope, MemoryTier.EPISODIC, limit=_MAX_EPISODES_PER_PASS))
         self._assert_tenant_isolation(scope, episodes)
         facts, merged = self._distil(scope, episodes)
         if facts:
             receipt = WriteReceipt(accepted=len(facts), event_ids=[f.record.id for f in facts])
             try:
-                self.vector.upsert(scope, [f.record for f in facts])
-                if self.graph is not None:
-                    for fact in facts:
-                        self.graph.upsert_fact(scope, fact)
+                for fact_scope, batch in self._by_scope(facts):
+                    vector.upsert(fact_scope, [f.record for f in batch])
+                    if self.graph is not None:
+                        for fact in batch:
+                            self.graph.upsert_fact(fact_scope, fact)
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
         return self._report(scope, episodes, facts, merged)
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
-        self._check_consolidatable(tiers)
-        assert self.vector is not None  # narrowed above
-        episodes = list(await self.vector.ascan(scope, MemoryTier.EPISODIC, limit=_MAX_EPISODES_PER_PASS))
+        vector = self._check_consolidatable(tiers)
+        episodes = list(await vector.ascan(scope, MemoryTier.EPISODIC, limit=_MAX_EPISODES_PER_PASS))
         self._assert_tenant_isolation(scope, episodes)
         facts, merged = self._distil(scope, episodes)
         if facts:
             receipt = WriteReceipt(accepted=len(facts), event_ids=[f.record.id for f in facts])
             try:
-                await self.vector.aupsert(scope, [f.record for f in facts])
-                if self.graph is not None:
-                    for fact in facts:
-                        await self.graph.aupsert_fact(scope, fact)
+                for fact_scope, batch in self._by_scope(facts):
+                    await vector.aupsert(fact_scope, [f.record for f in batch])
+                    if self.graph is not None:
+                        for fact in batch:
+                            await self.graph.aupsert_fact(fact_scope, fact)
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
         return self._report(scope, episodes, facts, merged)
