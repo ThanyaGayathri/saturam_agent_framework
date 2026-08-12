@@ -976,3 +976,77 @@ def test_a_zero_limit_does_not_fetch_before_discarding():
 
     assert bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q", limit=0)) == []
     assert manager.search_calls == [], "the manager was asked for a page that was then discarded"
+
+
+def test_the_seed_caps_a_manager_that_ignores_the_limit():
+    """Defence in depth: `MemoryManager` truncates, but the provider must not depend on it.
+
+    The cap survived mutation because `FakeManager` truncates faithfully, so nothing could observe
+    a non-conforming backend -- which is exactly what the cap is for.
+    """
+
+    class OverReturningManager(FakeManager):
+        def search_user_memories(self, query=None, limit=None, retrieval_method=None, user_id=None):
+            super().search_user_memories(query, limit, retrieval_method, user_id)
+            return list(self.memories)  # ignores `limit`, as a bad query would
+
+    manager = OverReturningManager([UserMemory(memory=f"m{i}", memory_id=f"m{i}") for i in range(10)])
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    assert len(bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q", limit=3))) == 3
+
+
+# ---------------------------------------------------------------------------
+# Self-review before round 9: the sibling of the round-8 critical, in this adapter
+# ---------------------------------------------------------------------------
+
+
+def _refusing_store_bridge():
+    manager, store = FakeManager(), FakeStore("decision_log")
+
+    def refuse(messages, **kwargs):
+        raise MemoryOperationError("this store refuses", field_name="tier")
+
+    async def arefuse(messages, **kwargs):
+        raise MemoryOperationError("this store refuses", field_name="tier")
+
+    store.process = refuse  # type: ignore[method-assign]
+    store.aprocess = arefuse  # type: ignore[method-assign]
+    bridge = SeedMemoryProvider(manager=manager, stores={MemoryTier.PROCEDURAL: store}, config=seed_config())
+    batch = [
+        MemoryEvent(content="a preference", scope=ACME, tier=MemoryTier.SEMANTIC),
+        MemoryEvent(content="a rule", scope=ACME, tier=MemoryTier.PROCEDURAL),
+    ]
+    return manager, bridge, batch
+
+
+async def test_a_refusal_after_an_earlier_group_committed_is_a_partial_write():
+    """The round-8 critical's sibling, in the adapter the review did not flag.
+
+    Tier groups are written in sequence, so a refusal in group two leaves group one persisted.
+    Propagating it bare lost those ids, and the retry `PartialWriteError` documents then re-stamps
+    fresh `uuid4`s -- finding F1 through the error path, again.
+    """
+    from egpt.memory.types import PartialWriteError
+
+    for is_async in (False, True):
+        manager, bridge, batch = _refusing_store_bridge()
+
+        with pytest.raises(PartialWriteError) as exc:
+            if is_async:
+                await bridge.awrite(ACME, batch)
+            else:
+                bridge.write(ACME, batch)
+
+        committed = [m.memory_id for m in manager.added]
+        assert committed, "the fixture must commit something first, or this proves nothing"
+        assert exc.value.receipt.event_ids == committed
+        assert isinstance(exc.value.__cause__, MemoryOperationError)
+
+
+def test_a_refusal_with_nothing_committed_still_propagates_bare():
+    """The distinction the fan-out handler exists to make: no partial state, nothing to reconcile."""
+    _, bridge, _ = _refusing_store_bridge()
+
+    with pytest.raises(MemoryOperationError, match="no episodic store"):
+        bridge.write(ACME, [MemoryEvent(content="something happened", scope=ACME)])

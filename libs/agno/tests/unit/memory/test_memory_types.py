@@ -465,3 +465,48 @@ def test_a_negative_as_of_is_refused_like_a_negative_limit():
     """Not a narrower question -- one no record can satisfy, so the read looks like a miss."""
     with pytest.raises(ValueError, match="non-negative"):
         MemoryQuery(text="q", as_of=-5)
+
+
+# ---------------------------------------------------------------------------
+# Self-review before round 9: envelope guards that survived mutation untested
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_id", ["", None, 123])
+def test_a_record_without_a_usable_id_is_refused(bad_id):
+    """`id` is the cross-substrate dedup key, so an empty one collapses every unidentified
+    record into a single merged result."""
+    with pytest.raises(ValueError, match="dedup key"):
+        MemoryRecord(id=bad_id, tier=MemoryTier.SEMANTIC, content="x", scope=a_scope())
+
+
+def test_a_duck_typed_tier_is_refused_at_the_envelope():
+    """`tier` drives routing and the ranking key; a string died inside a sort, frames away."""
+    with pytest.raises(TypeError, match="MemoryTier"):
+        MemoryRecord(id="r1", tier="semantic", content="x", scope=a_scope())  # type: ignore[arg-type]
+
+
+def test_a_duck_typed_scope_is_refused_at_the_envelope():
+    """A non-`Scope` slipped past the isolation post-condition entirely before dying downstream."""
+    with pytest.raises(TypeError, match="Scope"):
+        MemoryRecord(id="r1", tier=MemoryTier.SEMANTIC, content="x", scope="acme")  # type: ignore[arg-type]
+
+
+def test_apply_bounds_takes_every_field_from_the_authority():
+    """The graph is the sole authority for validity (ADR 0003 D8), so where it has an answer the
+    vector projection's stale one does not get a vote -- `t_valid` and `superseded_by` included.
+
+    `t_valid` is the one exception: the graph may know an id only as an edge and carry no lower
+    bound, so a missing one leaves the projection's in place rather than erasing it.
+    """
+    from egpt.memory.types import TemporalBounds
+
+    record = MemoryRecord(id="r1", tier=MemoryTier.SEMANTIC, content="x", scope=a_scope(), t_valid=100, created_at=100)
+
+    record.apply_bounds(TemporalBounds(t_valid=150, t_invalid=300, expired_at=310, superseded_by="r2"))
+
+    assert (record.t_valid, record.t_invalid, record.expired_at, record.superseded_by) == (150, 300, 310, "r2")
+
+    record.apply_bounds(TemporalBounds(t_valid=None, t_invalid=400))
+    assert record.t_valid == 150, "a graph with no lower bound must not erase the projection's"
+    assert (record.t_invalid, record.expired_at, record.superseded_by) == (400, None, None)

@@ -295,7 +295,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """
         return [r.id for r in records if "graph" in substrates_for_tier(r.tier)]
 
-    def _reconcile_bounds(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+    def _reconcile_bounds(self, scope: Scope, records: Sequence[MemoryRecord]) -> bool:
         """Overwrite each record's bi-temporal bounds with the graph's, in place.
 
         Without this the read path serves facts the graph has recorded as **false**. The vector
@@ -306,26 +306,37 @@ class CoLocatedMemoryProvider(MemoryProvider):
         belief. Measured: at ``limit=3`` over a six-row corpus, every returned row was invalidated.
 
         One batched call per read, not per record -- see ``GraphSubstrate.bounds_for_ids``.
+
+        Returns whether every record that *could* carry a graph bound now does. Vacuously ``True``
+        when none of them routes to the graph -- a procedural slice is fully authoritative without
+        a graph call, and reporting it unreconciled would flag a correct answer as unreliable.
+        ``False`` means the opposite: rows the graph might have bounded went unchecked.
         """
         askable = self._graph_backed(records)
-        if self.graph is None or not askable:
-            return
+        if not askable:
+            return True  # vacuous: no returned record routes to the graph, so nothing is stale
+        if self.graph is None:
+            return False
         bounds = self.graph.bounds_for_ids(scope, askable)
         for record in records:
             found = bounds.get(record.id)
             if found is not None:
                 record.apply_bounds(found)
+        return True
 
-    async def _areconcile_bounds(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
-        """Async variant of :meth:`_reconcile_bounds`."""
+    async def _areconcile_bounds(self, scope: Scope, records: Sequence[MemoryRecord]) -> bool:
+        """Async variant of :meth:`_reconcile_bounds`, returning the same flag."""
         askable = self._graph_backed(records)
-        if self.graph is None or not askable:
-            return
+        if not askable:
+            return True
+        if self.graph is None:
+            return False
         bounds = await self.graph.abounds_for_ids(scope, askable)
         for record in records:
             found = bounds.get(record.id)
             if found is not None:
                 record.apply_bounds(found)
+        return True
 
     # -- write ----------------------------------------------------------------
 
@@ -514,6 +525,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         vector_hits: List[MemoryRecord],
         graph_hits: List[MemoryRecord],
         instant: int,
+        bounds_reconciled: bool,
     ) -> MemorySlice:
         """Filter the reconciled set and package it. Bounds must already be authoritative."""
         # Both predicates, always. `is_current_belief` is transaction time only, and under SCD-2
@@ -548,11 +560,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # expired rows, so a conforming backend makes the difference observable.
                 dropped_by_validity=len(current) - len(visible),
                 dropped_as_superseded=len(merged) - len(current),
-                # False when no graph participated, so the bounds in this slice are whatever the
-                # vector projection carried. `read()` and `read(as_of=...)` disagree on such a
-                # provider -- the explicit instant is refused while the implicit one is served --
-                # and a caller cannot otherwise tell a reconciled slice from an unreconciled one.
-                bounds_reconciled=self.graph is not None and self._uses(query, Substrate.GRAPH),
+                # Reported by the reconciliation itself, not inferred from the wiring. Inferring
+                # it claimed `True` for a procedural slice, where `_graph_backed` correctly makes
+                # no call at all -- the flag would have said a graph vouched for bounds no graph
+                # was asked about. `False` means rows the graph might have bounded went unchecked.
+                bounds_reconciled=bounds_reconciled,
                 instant=instant,
             ),
         )
@@ -574,8 +586,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         if self.graph is not None and self._uses(query, Substrate.GRAPH):
             graph_hits = list(self.graph.traverse(scope, query))
         merged = self._merged(scope, query, [vector_hits, graph_hits])
-        self._reconcile_bounds(scope, merged)
-        return self._slice(scope, query, merged, vector_hits, graph_hits, instant)
+        reconciled = self._reconcile_bounds(scope, merged)
+        return self._slice(scope, query, merged, vector_hits, graph_hits, instant, reconciled)
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         self._require_answerable(query)
@@ -595,8 +607,8 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # network.
         vector_hits, graph_hits = await asyncio.gather(vector_leg(), graph_leg())
         merged = self._merged(scope, query, [vector_hits, graph_hits])
-        await self._areconcile_bounds(scope, merged)
-        return self._slice(scope, query, merged, vector_hits, graph_hits, instant)
+        reconciled = await self._areconcile_bounds(scope, merged)
+        return self._slice(scope, query, merged, vector_hits, graph_hits, instant, reconciled)
 
     @staticmethod
     def _uses(query: MemoryQuery, substrate: Substrate) -> bool:

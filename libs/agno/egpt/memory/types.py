@@ -500,7 +500,16 @@ class MemoryQuery:
 #: property this seam exists to provide -- raises ``KeyError`` on whichever one it was not written
 #: against. A provider with nothing to merge reports zeros, which is honest: it has no legs, not an
 #: unknown number of them.
-FUSION_KEYS = ("method", "vector_hits", "graph_hits", "fused", "returned", "dropped_by_validity")
+FUSION_KEYS = (
+    "method",
+    "vector_hits",
+    "graph_hits",
+    "fused",
+    "returned",
+    "dropped_by_validity",
+    "dropped_as_superseded",
+    "bounds_reconciled",
+)
 
 
 def fusion_diagnostics(
@@ -510,6 +519,8 @@ def fusion_diagnostics(
     fused: int = 0,
     returned: int = 0,
     dropped_by_validity: int = 0,
+    dropped_as_superseded: int = 0,
+    bounds_reconciled: bool = False,
     **extra: Any,
 ) -> Dict[str, Any]:
     """Build a ``MemorySlice.fusion`` payload carrying every key in :data:`FUSION_KEYS`.
@@ -524,9 +535,15 @@ def fusion_diagnostics(
         "graph_hits": graph_hits,
         "fused": fused,
         "returned": returned,
-        # In the floor rather than an adapter extra: without it a short page is ambiguous between
-        # an empty corpus and one the validity filter emptied, and only one of those is a bug.
+        # All three in the floor rather than adapter extras. Without `dropped_by_validity` a short
+        # page is ambiguous between an empty corpus and one the filter emptied, and only one of
+        # those is a bug. Its transaction-time sibling belongs beside it, or a caller cannot tell
+        # "the world moved on" from "a newer revision exists". And `bounds_reconciled` is the one a
+        # caller would actually branch on -- a slice no graph vouched for carries whatever the
+        # vector projection had. A provider with no graph reports False and zeros, which is honest.
         "dropped_by_validity": dropped_by_validity,
+        "dropped_as_superseded": dropped_as_superseded,
+        "bounds_reconciled": bounds_reconciled,
     }
     diagnostics.update(extra)
     return diagnostics

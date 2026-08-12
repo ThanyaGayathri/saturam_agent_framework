@@ -1409,3 +1409,62 @@ def test_a_refusal_during_consolidation_is_a_partial_write():
 
     assert isinstance(exc.value.__cause__, MemoryOperationError)
     assert exc.value.receipt.tiers_written == [MemoryTier.SEMANTIC]
+
+
+def test_the_limit_is_applied_after_the_merge_not_only_by_the_substrates():
+    """Each leg honours `limit` on its own, so the provider's cap only bites when they disagree.
+
+    Every existing limit test writes one corpus both legs return, making merged == limit and the
+    post-merge cap redundant -- so removing it left the whole suite green. A graph traversal
+    surfacing rows the vector leg did not is the ordinary case, not a contrived one.
+    """
+    p, vector, graph = provider()
+    for i in range(3):
+        vector.rows.setdefault("acme", {})[f"v{i}"] = MemoryRecord(
+            id=f"v{i}", tier=MemoryTier.SEMANTIC, content=f"shared token {i}", scope=ACME
+        )
+        graph.rows.setdefault("acme", []).append(
+            MemoryRecord(id=f"g{i}", tier=MemoryTier.SEMANTIC, content=f"shared token {i}", scope=ACME)
+        )
+
+    slice_ = p.read(ACME, MemoryQuery(text="shared token", limit=2))
+
+    assert slice_.fusion["fused"] == 4, "the legs must disagree, or this proves nothing"
+    assert len(slice_.records) == 2
+
+
+def test_bounds_reconciled_reports_what_happened_not_what_was_wired():
+    """`bounds_reconciled` is in `FUSION_KEYS` because it is the one a caller branches on.
+
+    Inferring it from the wiring claimed `True` for a procedural slice, where the reconciliation
+    correctly makes no call at all -- so the flag said a graph vouched for bounds no graph was
+    asked about. It is now reported by the reconciliation itself:
+
+    * graph-backed tier, graph wired  -> True  (asked and answered)
+    * graph-backed tier, no graph     -> False (rows that could be bounded went unchecked)
+    * vector-only tier, graph wired   -> True  (vacuous: nothing routes to the graph, so the
+                                                vector row's own bounds are the whole truth)
+    """
+    both, _, _ = provider()
+    both.write_tier(ACME, MemoryTier.SEMANTIC, [event("alpha", id="a1")])
+    both.write_tier(ACME, MemoryTier.PROCEDURAL, [event("always confirm", id="pr1")])
+    vector_only = CoLocatedMemoryProvider(vector=FakeVector())
+    vector_only.write_tier(ACME, MemoryTier.SEMANTIC, [event("alpha", id="a1")])
+
+    assert both.read(ACME, MemoryQuery(text="alpha", tiers=[MemoryTier.SEMANTIC])).fusion["bounds_reconciled"] is True
+    assert vector_only.read(ACME, MemoryQuery(text="alpha")).fusion["bounds_reconciled"] is False
+
+    before = len(both.graph.bounds_requests)
+    procedural = both.read(ACME, MemoryQuery(text="always confirm", tiers=[MemoryTier.PROCEDURAL]))
+
+    assert procedural.fusion["bounds_reconciled"] is True
+    assert both.graph.bounds_requests[before:] == [], "no graph call was made, and none was needed"
+
+    # The discriminating case: graph wired, graph *excluded*, but the tier does not use it anyway.
+    # Inferring the flag from `_uses(GRAPH)` reports False here and is wrong -- nothing routes to
+    # the graph, so the vector row's bounds are complete.
+    excluded = both.read(
+        ACME,
+        MemoryQuery(text="always confirm", tiers=[MemoryTier.PROCEDURAL], substrates=[Substrate.VECTOR]),
+    )
+    assert excluded.fusion["bounds_reconciled"] is True

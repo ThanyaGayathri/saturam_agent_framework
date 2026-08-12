@@ -16,7 +16,7 @@ Three seed methods have no async variant (``MemoryManager.search_user_memories``
 """
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, NoReturn, Optional, Sequence, Tuple
 from uuid import NAMESPACE_OID, uuid5
 
 from egpt.db.schemas import UserMemory
@@ -549,24 +549,32 @@ class SeedMemoryProvider(MemoryProvider):
             return await asyncio.to_thread(self._manager_write, scope, tier, events)
         try:
             await store.aprocess(self._as_messages(events), **self._recall_kwargs(scope, MemoryQuery(text="")))
-        except MemoryOperationError:
-            raise
         except Exception as exc:
-            raise PartialWriteError(WriteReceipt()) from exc
+            self._shape_store_failure(exc)
         # Read synchronously, immediately after the await returns: `was_updated` is shared mutable
         # state on a store bound once at construction, so two concurrent writers interleaving here
         # read each other's flag.
         return self._store_receipt(bool(getattr(store, "was_updated", False)), tier, events)
 
+    @staticmethod
+    def _shape_store_failure(exc: BaseException) -> "NoReturn":
+        """What a failed ``process`` becomes, decided once for both halves.
+
+        A refusal stays bare here, unlike the fan-out: ``process`` is a single call, so a refusal
+        means this group committed nothing. Whether an *earlier* group did is `write`'s question,
+        and `_raise_fanout_failure` answers it.
+        """
+        if isinstance(exc, MemoryOperationError):
+            raise exc
+        # `process` folds a batch into the store's own shape and mints no ids, so there is nothing
+        # committed to report -- but the *type* must still match the other adapter.
+        raise PartialWriteError(WriteReceipt()) from exc
+
     def _process_and_flag(self, store: "LearningStore", scope: Scope, events: Sequence[MemoryEvent]) -> bool:
         try:
             store.process(self._as_messages(events), **self._recall_kwargs(scope, MemoryQuery(text="")))
-        except MemoryOperationError:
-            raise
         except Exception as exc:
-            # `process` folds a batch into the store's own shape and mints no ids, so there is
-            # nothing committed to report -- but the *type* must still match the other adapter.
-            raise PartialWriteError(WriteReceipt()) from exc
+            self._shape_store_failure(exc)
         return bool(getattr(store, "was_updated", False))
 
     @staticmethod
@@ -628,6 +636,30 @@ class SeedMemoryProvider(MemoryProvider):
                     merged.tiers_written.append(tier)
         return merged
 
+    def _raise_fanout_failure(self, receipts: List[WriteReceipt], exc: BaseException) -> "NoReturn":
+        """What a failure partway through the per-tier fan-out becomes. One decision, both halves.
+
+        Written inline in each half it drifted on the co-located adapter for six rounds, so it is
+        a method here even though it is short.
+
+        Three cases:
+
+        * a group that already raised ``PartialWriteError`` carries its own committed ids -- merge
+          them in, or they are lost in the group that raised and the documented retry duplicates
+          every one;
+        * a **refusal after an earlier group committed** is a partial write too. Groups are written
+          in sequence, so a refusal in group two leaves group one persisted. Propagating it bare
+          lost those ids -- the same defect the co-located adapter had, found here by sweeping for
+          the sibling rather than by review;
+        * a refusal with nothing committed propagates bare: there is nothing to reconcile.
+        """
+        if isinstance(exc, PartialWriteError):
+            receipts.append(exc.receipt)
+            raise PartialWriteError(self._merge_receipts(receipts)) from exc.__cause__
+        if isinstance(exc, MemoryOperationError) and not any(r.event_ids for r in receipts):
+            raise exc
+        raise PartialWriteError(self._merge_receipts(receipts)) from exc
+
     def write(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         """Route each event to **its own tier**, rather than forcing the batch into SEMANTIC.
 
@@ -639,21 +671,8 @@ class SeedMemoryProvider(MemoryProvider):
         try:
             for tier, group in groups:
                 receipts.append(self.write_tier(scope, tier, group))
-        except PartialWriteError as exc:
-            # The failing group committed some of its own rows. Merging its receipt in is what
-            # makes the ids recoverable -- otherwise they are lost in the group that raised, and
-            # the caller's documented retry duplicates every one of them.
-            receipts.append(exc.receipt)
-            raise PartialWriteError(self._merge_receipts(receipts)) from exc.__cause__
-        except MemoryOperationError:
-            raise
         except Exception as exc:
-            # A *runtime* failure mid-fan-out, distinct from the validation-driven partial commit
-            # hoisting fixed: `add_user_memory` is called once per event, so group n+1 runs after
-            # group n has committed. Mode A raises PartialWriteError for the same situation, and
-            # two providers behind one seam must fail the same way or a caller has no portable
-            # retry.
-            raise PartialWriteError(self._merge_receipts(receipts)) from exc
+            self._raise_fanout_failure(receipts, exc)
         return self._merge_receipts(receipts)
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
@@ -663,16 +682,8 @@ class SeedMemoryProvider(MemoryProvider):
         try:
             for tier, group in groups:
                 receipts.append(await self.awrite_tier(scope, tier, group))
-        except PartialWriteError as exc:
-            # The failing group committed some of its own rows. Merging its receipt in is what
-            # makes the ids recoverable -- otherwise they are lost in the group that raised, and
-            # the caller's documented retry duplicates every one of them.
-            receipts.append(exc.receipt)
-            raise PartialWriteError(self._merge_receipts(receipts)) from exc.__cause__
-        except MemoryOperationError:
-            raise
         except Exception as exc:
-            raise PartialWriteError(self._merge_receipts(receipts)) from exc
+            self._raise_fanout_failure(receipts, exc)
         return self._merge_receipts(receipts)
 
     # -- consolidate ----------------------------------------------------------
