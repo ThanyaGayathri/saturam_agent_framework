@@ -38,6 +38,7 @@ The Agent-as-Config feature allows you to:
 | `capability_policy.py` | Restrict which models, tools and MCP servers a tenant's definition may reference |
 | `capability_policy.json` | The policy document `capability_policy.py` loads |
 | `tenant_scoped_hydration.py` | Hydrate DB-defined agents scoped to a tenant, with the config cache |
+| `lifecycle_audit.py` | Walk a definition through draft, publish and rollback, then read its audit trail |
 
 ---
 
@@ -401,6 +402,32 @@ agent = get_agent_by_id(db=db, id="my-agent", registry=registry, tenant_id="acme
 See `tenant_scoped_hydration.py` for the full example, and `docs/tenancy.md` for the
 normative reference (including `HYDRATE_PUBLISHED_ONLY`, which makes hydration refuse
 unpublished configs).
+
+---
+
+## Lifecycle and Audit Trail
+
+A config version is either a `draft` (freely editable) or `published` (immutable, and pointed at
+by the component's `current_version`). Publishing is `upsert_config(stage="published")`;
+rollback is `set_current_version`, which repoints `current_version` at an already-published
+version without deleting anything.
+
+Every mutation appends a row to `egpt_component_audit` recording who did it, to which version,
+and what changed (EGPT-2.6). The write happens inside the mutation's own transaction, so a
+refused change leaves no trace and a successful one cannot commit without a record. Pass `actor`
+to attribute it; the HTTP API fills it from the authenticated principal automatically.
+
+```python
+db.upsert_config("my-agent", version=1, stage="published", tenant_id="acme", actor="alice")
+db.set_current_version("my-agent", version=1, tenant_id="acme", actor="carol", audit_note="regression")
+
+rows, total = db.list_component_audit("my-agent", tenant_id="acme")
+```
+
+Over HTTP: `GET /components/{id}/audit` (scope `components:read`), paginated and newest first.
+
+See `lifecycle_audit.py` for the full walk, and `docs/component-lifecycle.md` for the normative
+reference.
 
 ---
 

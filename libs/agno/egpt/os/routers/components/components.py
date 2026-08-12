@@ -7,11 +7,14 @@ from fastapi.responses import JSONResponse
 
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.db.base import ComponentType as DbComponentType
+from egpt.db.component_audit import COMPONENT_AUDIT_ACTIONS
 from egpt.db.utils import DB_CONFIG_OVERRIDE_KEYS, DB_TABLE_NAME_KEYS
+from egpt.os.actor import get_actor
 from egpt.os.auth import get_authentication_dependency, require_route_scopes
 from egpt.os.routers.components.validation import config_validation_response, validate_component_config
 from egpt.os.schema import (
     BadRequestResponse,
+    ComponentAuditResponse,
     ComponentConfigResponse,
     ComponentCreate,
     ComponentResponse,
@@ -174,9 +177,10 @@ def attach_routes(
     def _evict_from_hydration_cache(component_id: str) -> None:
         """Drop the component's cached config rows after a successful mutation (EGPT-2.5).
 
-        This is the invalidation seam the EGPT-2.6 lifecycle events will replace: the worker
-        that processes the mutation evicts immediately; other workers -- and writers that
-        bypass this router (Agent.save, the studio toolkit) -- converge within the cache TTL.
+        Still the invalidation seam: the worker that processes the mutation evicts immediately;
+        other workers -- and writers that bypass this router (Agent.save, the studio toolkit) --
+        converge within the cache TTL. EGPT-2.6 shipped the lifecycle audit trail and left cache
+        mechanics alone, so an event-driven replacement for this remains unbuilt.
         All tenants/versions/db handles for the id are dropped: mutations are rare, and a
         too-wide eviction only costs one re-read.
         """
@@ -261,6 +265,7 @@ def attach_routes(
     async def create_component(
         body: ComponentCreate,
         tenant_id: Optional[str] = Depends(get_tenant_id),
+        actor: Optional[str] = Depends(get_actor),
     ) -> Union[ComponentResponse, JSONResponse]:
         try:
             component_id = body.component_id
@@ -299,6 +304,7 @@ def attach_routes(
                 stage=body.stage or "draft",
                 notes=body.notes,
                 tenant_id=tenant_id,
+                actor=actor,
             )
 
             return ComponentResponse(**component)
@@ -364,6 +370,7 @@ def attach_routes(
         component_id: str = Path(description="Component ID"),
         body: ComponentUpdate = Body(description="Component fields to update"),
         tenant_id: Optional[str] = Depends(get_tenant_id),
+        actor: Optional[str] = Depends(get_actor),
     ) -> ComponentResponse:
         try:
             existing = db.get_component(component_id, tenant_id=tenant_id)
@@ -372,7 +379,7 @@ def attach_routes(
 
             # tenant_id scopes the lookup behind the upsert; it is never *changed* by an update,
             # per the BaseDb contract -- a component does not move between tenants.
-            update_kwargs: Dict[str, Any] = {"component_id": component_id, "tenant_id": tenant_id}
+            update_kwargs: Dict[str, Any] = {"component_id": component_id, "tenant_id": tenant_id, "actor": actor}
             if body.name is not None:
                 update_kwargs["name"] = body.name
             if body.description is not None:
@@ -406,9 +413,10 @@ def attach_routes(
     async def delete_component(
         component_id: str = Path(description="Component ID"),
         tenant_id: Optional[str] = Depends(get_tenant_id),
+        actor: Optional[str] = Depends(get_actor),
     ) -> None:
         try:
-            deleted = db.delete_component(component_id, tenant_id=tenant_id)
+            deleted = db.delete_component(component_id, tenant_id=tenant_id, actor=actor)
             if not deleted:
                 raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
             _evict_from_hydration_cache(component_id)
@@ -456,6 +464,7 @@ def attach_routes(
         component_id: str = Path(description="Component ID"),
         body: ConfigCreate = Body(description="Config data"),
         tenant_id: Optional[str] = Depends(get_tenant_id),
+        actor: Optional[str] = Depends(get_actor),
     ) -> Union[ComponentConfigResponse, JSONResponse]:
         try:
             # Unconditional, so a config-less write on another tenant's component is the same
@@ -488,6 +497,7 @@ def attach_routes(
                 notes=body.notes,
                 links=body.links,
                 tenant_id=tenant_id,
+                actor=actor,
             )
             # Publishing a new version moves current_version, which a cached version=None
             # (or labeled) hydration would otherwise keep serving until the TTL.
@@ -519,6 +529,7 @@ def attach_routes(
         version: int = Path(description="Version number"),
         body: ConfigUpdate = Body(description="Config fields to update"),
         tenant_id: Optional[str] = Depends(get_tenant_id),
+        actor: Optional[str] = Depends(get_actor),
     ) -> Union[ComponentConfigResponse, JSONResponse]:
         try:
             # Unconditional -- see create_config.
@@ -550,6 +561,7 @@ def attach_routes(
                 notes=body.notes,
                 links=body.links,
                 tenant_id=tenant_id,
+                actor=actor,
             )
             # Draft edits change the row an explicit-version hydration reads; a draft->published
             # transition also moves current_version.
@@ -627,6 +639,7 @@ def attach_routes(
         component_id: str = Path(description="Component ID"),
         version: int = Path(description="Version number"),
         tenant_id: Optional[str] = Depends(get_tenant_id),
+        actor: Optional[str] = Depends(get_actor),
     ) -> None:
         try:
             # Ahead of the mutation, so another tenant's component is a 404 rather than
@@ -634,7 +647,7 @@ def attach_routes(
             _require_component(component_id, tenant_id)
 
             # Resolve version number
-            deleted = db.delete_config(component_id, version=version, tenant_id=tenant_id)
+            deleted = db.delete_config(component_id, version=version, tenant_id=tenant_id, actor=actor)
             if not deleted:
                 raise HTTPException(status_code=404, detail=f"Config {component_id} v{version} not found")
             _evict_from_hydration_cache(component_id)
@@ -659,12 +672,13 @@ def attach_routes(
         component_id: str = Path(description="Component ID"),
         version: int = Path(description="Version number"),
         tenant_id: Optional[str] = Depends(get_tenant_id),
+        actor: Optional[str] = Depends(get_actor),
     ) -> ComponentResponse:
         try:
             # Ahead of the mutation -- see delete_config_version.
             _require_component(component_id, tenant_id)
 
-            success = db.set_current_version(component_id, version=version, tenant_id=tenant_id)
+            success = db.set_current_version(component_id, version=version, tenant_id=tenant_id, actor=actor)
             if not success:
                 raise HTTPException(
                     status_code=404, detail=f"Component {component_id} or config version {version} not found"
@@ -684,6 +698,72 @@ def attach_routes(
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             log_error(f"Error setting current config: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+    @router.get(
+        "/components/{component_id}/audit",
+        response_model=PaginatedResponse[ComponentAuditResponse],
+        response_model_exclude_none=True,
+        status_code=200,
+        operation_id="list_component_audit",
+        summary="List Component Audit History",
+        description="Retrieve the append-only lifecycle audit history for a component, newest first.",
+    )
+    async def list_component_audit(
+        component_id: str = Path(description="Component ID"),
+        action: Optional[str] = Query(None, description="Filter by action, e.g. config.publish"),
+        version: Optional[int] = Query(None, description="Filter by config version"),
+        page: int = Query(1, ge=1, description="Page number"),
+        limit: int = Query(20, ge=1, le=100, description="Items per page"),
+        tenant_id: Optional[str] = Depends(get_tenant_id),
+    ) -> PaginatedResponse[ComponentAuditResponse]:
+        try:
+            start_time_ms = time.time() * 1000
+
+            # The same tenant-scoped 404 gate as every other route here. Note the consequence,
+            # which applies to a *soft* delete as much as a hard one: _require_component 404s
+            # for both, so from the moment a component is deleted this route stops answering
+            # for it -- including the "who deleted this, and when" query -- even though the rows
+            # are still in the table (they deliberately have no FK to components). That is an
+            # accepted trade rather than an oversight: history follows the component's lifetime
+            # over HTTP, and stays reachable at the db layer via db.list_component_audit(...).
+            # Forking the existence rule for this one route would be worse than the limit;
+            # tracker #167 covers adding include_deleted to get_component instead.
+            _require_component(component_id, tenant_id)
+
+            if action is not None and action not in COMPONENT_AUDIT_ACTIONS:
+                # Rejected rather than answered with an empty page, so a typo'd filter is not
+                # mistaken for a component that nothing ever happened to.
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Unknown action {action!r}. Valid actions: {sorted(COMPONENT_AUDIT_ACTIONS)}",
+                )
+
+            records, total_count = db.list_component_audit(
+                component_id,
+                version=version,
+                action=action,
+                limit=limit,
+                offset=(page - 1) * limit,
+                tenant_id=tenant_id,
+            )
+
+            total_pages = (total_count + limit - 1) // limit if limit > 0 else 0
+
+            return PaginatedResponse(
+                data=[ComponentAuditResponse(**r) for r in records],
+                meta=PaginationInfo(
+                    page=page,
+                    limit=limit,
+                    total_pages=total_pages,
+                    total_count=total_count,
+                    search_time_ms=round(time.time() * 1000 - start_time_ms, 2),
+                ),
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            log_error(f"Error listing component audit: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error")
 
     return router

@@ -53,6 +53,11 @@ ROUTES: List[tuple] = [
     ("PATCH", "/components/agent-1/configs/1", "components:write"),
     ("DELETE", "/components/agent-1/configs/1", "components:delete"),
     ("POST", "/components/agent-1/configs/1/set-current", "components:write"),
+    # Reading a component's change history is a read of the component (EGPT-2.6). Note the
+    # mapping is required, not decorative: require_route_scopes matches on the route pattern
+    # with endswith, "/components/*" does not suffix-match "/components/*/audit", and an
+    # unmapped route under this prefix is a hard 403.
+    ("GET", "/components/agent-1/audit", "components:read"),
 ]
 
 # Bodies that satisfy each write route's request model. Deliberately config-less: a request

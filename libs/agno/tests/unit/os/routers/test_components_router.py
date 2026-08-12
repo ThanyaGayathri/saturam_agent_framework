@@ -918,3 +918,37 @@ class TestResolveDbInConfig:
         assert out["db"]["session_table"] == "custom_sessions"
         # Non-overridden tables are dropped for re-derivation from the prefix.
         assert "memory_table" not in out["db"]
+
+
+# =============================================================================
+# Repeated Delete Against a Real Backend (EGPT-2.6 review, round 2)
+# =============================================================================
+#
+# Every other DELETE test in this file mocks db.delete_component, so none of them exercise
+# what a *real* backend reports on a repeat call -- and the router maps that boolean straight
+# to 204/404 (components.py: `if not deleted: raise HTTPException(404, ...)`). Before the
+# `deleted_at IS NULL` fix, SQLite's soft delete matched its own already-deleted row again and
+# returned True a second time, so a repeat DELETE answered 204 twice instead of 204-then-404.
+
+
+class TestRepeatedDeleteAgainstARealBackend:
+    def _client(self, tmp_path):
+        from egpt.integrations.db.sqlite.sqlite import SqliteDb
+
+        os_db = SqliteDb(db_file=str(tmp_path / "os.db"))
+        app = FastAPI()
+        app.include_router(get_components_router(os_db=os_db, settings=AgnoAPISettings()))
+        return TestClient(app)
+
+    def test_the_first_delete_is_204_and_the_second_is_404(self, tmp_path):
+        client = self._client(tmp_path)
+        client.post(
+            "/components",
+            json={"component_id": "agent-1", "component_type": "agent", "name": "Agent", "config": VALID_AGENT_CONFIG},
+        )
+
+        first = client.delete("/components/agent-1")
+        second = client.delete("/components/agent-1")
+
+        assert first.status_code == 204
+        assert second.status_code == 404

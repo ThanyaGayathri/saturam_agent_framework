@@ -7,6 +7,12 @@ if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
 from egpt.db.base import BaseDb, ComponentType, SessionType
+from egpt.db.component_audit import (
+    ComponentAuditAction,
+    audit_config_upsert,
+    resolve_audit_note,
+    write_audit_row,
+)
 from egpt.db.migrations.manager import MigrationManager
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
@@ -79,6 +85,7 @@ class PostgresDb(BaseDb):
         components_table: Optional[str] = None,
         component_configs_table: Optional[str] = None,
         component_links_table: Optional[str] = None,
+        component_audit_table: Optional[str] = None,
         learnings_table: Optional[str] = None,
         schedules_table: Optional[str] = None,
         schedule_runs_table: Optional[str] = None,
@@ -113,6 +120,8 @@ class PostgresDb(BaseDb):
             components_table (Optional[str]): Name of the table to store components.
             component_configs_table (Optional[str]): Name of the table to store component configurations.
             component_links_table (Optional[str]): Name of the table to store component references.
+            component_audit_table (Optional[str]): Name of the append-only table to store the
+                component lifecycle audit trail.
             learnings_table (Optional[str]): Name of the table to store learnings.
             schedules_table (Optional[str]): Name of the table to store cron schedules.
             schedule_runs_table (Optional[str]): Name of the table to store schedule run history.
@@ -159,6 +168,7 @@ class PostgresDb(BaseDb):
             components_table=components_table,
             component_configs_table=component_configs_table,
             component_links_table=component_links_table,
+            component_audit_table=component_audit_table,
             learnings_table=learnings_table,
             schedules_table=schedules_table,
             schedule_runs_table=schedule_runs_table,
@@ -222,6 +232,7 @@ class PostgresDb(BaseDb):
             components_table=data.get("components_table"),
             component_configs_table=data.get("component_configs_table"),
             component_links_table=data.get("component_links_table"),
+            component_audit_table=data.get("component_audit_table"),
             learnings_table=data.get("learnings_table"),
             schedules_table=data.get("schedules_table"),
             schedule_runs_table=data.get("schedule_runs_table"),
@@ -265,6 +276,7 @@ class PostgresDb(BaseDb):
             (self.components_table_name, "components"),
             (self.component_configs_table_name, "component_configs"),
             (self.component_links_table_name, "component_links"),
+            (self.component_audit_table_name, "component_audit"),
             (self.learnings_table_name, "learnings"),
             (self.schedules_table_name, "schedules"),
             (self.schedule_runs_table_name, "schedule_runs"),
@@ -494,6 +506,7 @@ class PostgresDb(BaseDb):
             "components": self.components_table_name,
             "component_configs": self.component_configs_table_name,
             "component_links": self.component_links_table_name,
+            "component_audit": self.component_audit_table_name,
         }
         return table_map.get(logical_name, logical_name)
 
@@ -597,6 +610,15 @@ class PostgresDb(BaseDb):
                 create_table_if_not_found=create_table_if_not_found,
             )
             return self.component_links_table
+
+        if table_type == "component_audit":
+            self.component_audit_table = self._get_or_create_table(
+                table_name=self.component_audit_table_name,
+                table_type="component_audit",
+                create_table_if_not_found=create_table_if_not_found,
+            )
+            return self.component_audit_table
+
         if table_type == "learnings":
             self.learnings_table = self._get_or_create_table(
                 table_name=self.learnings_table_name,
@@ -3385,6 +3407,22 @@ class PostgresDb(BaseDb):
             return []
 
     # --- Components ---
+    def _require_component_audit_table(self) -> Table:
+        """The audit table, created if absent, or a raised ValueError (EGPT-2.6).
+
+        Resolved *before* the caller opens its transaction, matching how every other component
+        method resolves its tables -- ``_get_or_create_table`` issues DDL, which does not
+        belong inside the mutation's transaction.
+
+        ``create_table_if_not_found=True`` unconditionally, including for the delete paths that
+        resolve their own tables with it defaulting to False. A delete against a database whose
+        audit table had never been created would otherwise be the one unaudited mutation.
+        """
+        audit_table = self._get_table(table_type="component_audit", create_table_if_not_found=True)
+        if audit_table is None:
+            raise ValueError("Component audit table not found")
+        return audit_table
+
     def get_component(
         self,
         component_id: str,
@@ -3423,6 +3461,8 @@ class PostgresDb(BaseDb):
         current_version: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
         tenant_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        audit_note: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create or update a component.
 
@@ -3435,6 +3475,8 @@ class PostgresDb(BaseDb):
             metadata: Optional metadata dict.
             tenant_id: Optional tenant. Stored on create and on reactivation; scopes the
                 lookup and the update on an existing component. None means no tenant filter.
+            actor: Optional principal to attribute the audit record to.
+            audit_note: Optional reason recorded on the audit record.
 
         Returns:
             Created/updated component dictionary.
@@ -3446,6 +3488,7 @@ class PostgresDb(BaseDb):
             table = self._get_table(table_type="components", create_table_if_not_found=True)
             if table is None:
                 raise ValueError("Components table not found")
+            audit_table = self._require_component_audit_table()
 
             with self.Session() as sess, sess.begin():
                 stmt = select(table).where(
@@ -3472,6 +3515,16 @@ class PostgresDb(BaseDb):
                             created_at=int(time.time()),
                         )
                     )
+                    write_audit_row(
+                        sess,
+                        audit_table,
+                        component_id,
+                        ComponentAuditAction.COMPONENT_CREATE,
+                        tenant_id=tenant_id,
+                        actor=actor,
+                        note=audit_note,
+                        details={"component_type": component_type.value},
+                    )
                     log_debug(f"Created component {component_id}")
 
                 elif existing.deleted_at is not None:
@@ -3492,6 +3545,19 @@ class PostgresDb(BaseDb):
                             updated_at=int(time.time()),
                             deleted_at=None,
                         )
+                    )
+                    write_audit_row(
+                        sess,
+                        audit_table,
+                        component_id,
+                        ComponentAuditAction.COMPONENT_REACTIVATE,
+                        # The row's own tenant, not the (possibly unscoped) filter argument --
+                        # otherwise an unattributed reactivate would stamp NULL onto a component
+                        # a tenant actually owns, hiding the row from that tenant's own reads.
+                        tenant_id=existing.tenant_id,
+                        actor=actor,
+                        note=audit_note,
+                        details={"component_type": component_type.value},
                     )
                     log_debug(f"Reactivated component {component_id}")
 
@@ -3514,6 +3580,26 @@ class PostgresDb(BaseDb):
                     if tenant_id is not None:
                         update_stmt = update_stmt.where(table.c.tenant_id == tenant_id)
                     sess.execute(update_stmt.values(**updates))
+                    # Recorded as an update even when it moves current_version, and deliberately
+                    # not as a rollback: set_current_version is the only path that checks the
+                    # target is published, so labelling this one a rollback would have the trail
+                    # claim a validation that never ran. The two versions go in details instead.
+                    details: Dict[str, Any] = {"fields": sorted(k for k in updates if k != "updated_at")}
+                    if current_version is not None:
+                        details["current_version"] = current_version
+                        details["previous_current_version"] = existing.current_version
+                    write_audit_row(
+                        sess,
+                        audit_table,
+                        component_id,
+                        ComponentAuditAction.COMPONENT_UPDATE,
+                        # The row's own tenant, not the (possibly unscoped) filter argument --
+                        # see the reactivate branch above for why.
+                        tenant_id=existing.tenant_id,
+                        actor=actor,
+                        note=audit_note,
+                        details=details,
+                    )
                     log_debug(f"Updated component {component_id}")
 
             result = self.get_component(component_id, tenant_id=tenant_id)
@@ -3530,13 +3616,21 @@ class PostgresDb(BaseDb):
         component_id: str,
         hard_delete: bool = False,
         tenant_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        audit_note: Optional[str] = None,
     ) -> bool:
         """Delete a component and all its configs/links.
+
+        The audit rows written for this component are not touched by either kind of delete:
+        the audit table carries no foreign key to ``components`` precisely so a hard delete
+        cannot take the history with it.
 
         Args:
             component_id: The component ID.
             hard_delete: If True, permanently delete. Otherwise soft-delete.
             tenant_id: Optional tenant to scope the delete to. None means no tenant filter.
+            actor: Optional principal to attribute the audit record to.
+            audit_note: Optional reason recorded on the audit record.
 
         Returns:
             True if deleted, False if not found or already deleted.
@@ -3548,10 +3642,13 @@ class PostgresDb(BaseDb):
 
             if components_table is None:
                 return False
+            audit_table = self._require_component_audit_table()
 
             with self.Session() as sess, sess.begin():
-                # Verify component exists (and not already soft-deleted for soft-delete)
-                exists_stmt = select(components_table.c.component_id).where(
+                # Verify component exists (and not already soft-deleted for soft-delete).
+                # tenant_id comes along so the audit row can carry the component's actual
+                # tenant rather than the (possibly unscoped) filter argument.
+                exists_stmt = select(components_table.c.component_id, components_table.c.tenant_id).where(
                     components_table.c.component_id == component_id
                 )
                 if not hard_delete:
@@ -3559,7 +3656,7 @@ class PostgresDb(BaseDb):
                 if tenant_id is not None:
                     exists_stmt = exists_stmt.where(components_table.c.tenant_id == tenant_id)
 
-                exists = sess.execute(exists_stmt).scalar_one_or_none()
+                exists = sess.execute(exists_stmt).mappings().one_or_none()
 
                 if exists is None:
                     log_error(f"Component {component_id} not found")
@@ -3592,6 +3689,19 @@ class PostgresDb(BaseDb):
                     if tenant_id is not None:
                         soft_delete_stmt = soft_delete_stmt.where(components_table.c.tenant_id == tenant_id)
                     sess.execute(soft_delete_stmt.values(deleted_at=int(time.time())))
+
+                # Reached only past the tenant-scoped existence check above, so a cross-tenant
+                # or already-deleted component leaves no row.
+                write_audit_row(
+                    sess,
+                    audit_table,
+                    component_id,
+                    ComponentAuditAction.COMPONENT_DELETE,
+                    tenant_id=exists["tenant_id"],
+                    actor=actor,
+                    note=audit_note,
+                    details={"hard": hard_delete},
+                )
 
             return True
 
@@ -3674,6 +3784,8 @@ class PostgresDb(BaseDb):
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
         tenant_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        audit_note: Optional[str] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Create a component with its initial config atomically.
 
@@ -3689,6 +3801,8 @@ class PostgresDb(BaseDb):
             notes: Optional notes.
             links: Optional list of links. Each must have child_version set.
             tenant_id: Optional tenant. Stored on the component, config and link rows.
+            actor: Optional principal to attribute the audit records to.
+            audit_note: Optional reason recorded on the audit records. Defaults to ``notes``.
 
         Returns:
             Tuple of (component dict, config dict).
@@ -3714,6 +3828,7 @@ class PostgresDb(BaseDb):
                 raise ValueError("Components table not found")
             if configs_table is None:
                 raise ValueError("Component configs table not found")
+            audit_table = self._require_component_audit_table()
 
             with self.Session() as sess, sess.begin():
                 # Check if component already exists. Deliberately NOT tenant-scoped:
@@ -3785,6 +3900,35 @@ class PostgresDb(BaseDb):
                                 created_at=now,
                             )
                         )
+
+                # Two rows for one call: the component came into existence and so did its
+                # first config version. Keeping them separate means every action in the
+                # vocabulary means the same thing wherever it was emitted from.
+                note = resolve_audit_note(audit_note, notes)
+                write_audit_row(
+                    sess,
+                    audit_table,
+                    component_id,
+                    ComponentAuditAction.COMPONENT_CREATE,
+                    tenant_id=tenant_id,
+                    actor=actor,
+                    note=note,
+                    details={"component_type": component_type.value},
+                )
+                audit_config_upsert(
+                    sess,
+                    audit_table,
+                    component_id=component_id,
+                    version=version,
+                    is_new_version=True,
+                    prior_stage=None,
+                    final_stage=stage,
+                    label=label,
+                    previous_current_version=None,
+                    tenant_id=tenant_id,
+                    actor=actor,
+                    note=note,
+                )
 
             # Fetch and return both
             component = self.get_component(component_id, tenant_id=tenant_id)
@@ -3888,6 +4032,8 @@ class PostgresDb(BaseDb):
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
         tenant_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        audit_note: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create or update a config version for a component.
 
@@ -3905,6 +4051,8 @@ class PostgresDb(BaseDb):
             notes: Optional notes.
             links: Optional list of links. Each link must have child_version set.
             tenant_id: Optional tenant. Stored on new config and link rows; scopes every lookup.
+            actor: Optional principal to attribute the audit record to.
+            audit_note: Optional reason recorded on the audit record. Defaults to ``notes``.
 
         Returns:
             Created/updated config dictionary.
@@ -3925,20 +4073,31 @@ class PostgresDb(BaseDb):
                 raise ValueError("Components table not found")
             if configs_table is None:
                 raise ValueError("Component configs table not found")
+            audit_table = self._require_component_audit_table()
 
             with self.Session() as sess, sess.begin():
-                # Verify component exists and is not deleted
-                component_stmt = select(components_table.c.component_id).where(
+                # Verify component exists and is not deleted. tenant_id comes along so the audit
+                # row can carry the component's actual tenant without a second round trip.
+                component_stmt = select(
+                    components_table.c.component_id,
+                    components_table.c.tenant_id,
+                ).where(
                     components_table.c.component_id == component_id,
                     components_table.c.deleted_at.is_(None),
                 )
                 if tenant_id is not None:
                     component_stmt = component_stmt.where(components_table.c.tenant_id == tenant_id)
 
-                component = sess.execute(component_stmt).scalar_one_or_none()
+                component = sess.execute(component_stmt).mappings().one_or_none()
 
                 if component is None:
                     raise ValueError(f"Component {component_id} not found")
+
+                # Deliberately not read here: current_version is read inside the publish
+                # compare-and-swap below, immediately before the pointer moves. Reading it up
+                # front and recording it after all the work in between is what let two
+                # concurrent publishes both claim they replaced the same version.
+                previous_current_version: Optional[int] = None
 
                 # Label uniqueness check
                 if label is not None:
@@ -4055,10 +4214,64 @@ class PostgresDb(BaseDb):
                 final_stage = stage if stage is not None else (existing["stage"] if version is not None else "draft")
 
                 if final_stage == "published":
-                    publish_stmt = components_table.update().where(components_table.c.component_id == component_id)
-                    if tenant_id is not None:
-                        publish_stmt = publish_stmt.where(components_table.c.tenant_id == tenant_id)
-                    sess.execute(publish_stmt.values(current_version=final_version, updated_at=int(time.time())))
+                    # Move the pointer as a compare-and-swap, for the same reason
+                    # set_current_version does: previous_current_version is recorded on the
+                    # config.publish row, and a concurrent publisher landing between the read
+                    # and the write makes that claim false -- reproduced with six concurrent
+                    # publishers, two rows both claiming they replaced the same version, no
+                    # errors raised to signal it. A losing attempt re-reads and retries rather
+                    # than recording a version that was never current (EGPT-2.6 review).
+                    max_attempts = 5
+                    for _ in range(max_attempts):
+                        current_stmt = select(components_table.c.current_version).where(
+                            components_table.c.component_id == component_id,
+                            components_table.c.deleted_at.is_(None),
+                        )
+                        if tenant_id is not None:
+                            current_stmt = current_stmt.where(components_table.c.tenant_id == tenant_id)
+                        previous_current_version = sess.execute(current_stmt).scalar()
+
+                        publish_stmt = components_table.update().where(
+                            components_table.c.component_id == component_id,
+                            # None renders as IS NULL, so a never-published component swaps too.
+                            components_table.c.current_version == previous_current_version,
+                        )
+                        if tenant_id is not None:
+                            publish_stmt = publish_stmt.where(components_table.c.tenant_id == tenant_id)
+                        result = sess.execute(
+                            publish_stmt.values(current_version=final_version, updated_at=int(time.time()))
+                        )
+
+                        if result.rowcount > 0:
+                            break
+                    else:
+                        raise ValueError(
+                            f"Could not publish {component_id} v{final_version}: current_version kept "
+                            f"changing under concurrent writers after {max_attempts} attempts"
+                        )
+
+                # Publishing has no method of its own, so the action is derived from what the
+                # transaction actually did -- a stage transition into published -- rather than
+                # from what the caller asked for. Re-saving an already-published version cannot
+                # reach here: the immutability check above raises first.
+                prior_stage = existing["stage"] if version is not None else None
+                audit_config_upsert(
+                    sess,
+                    audit_table,
+                    component_id=component_id,
+                    version=final_version,
+                    is_new_version=version is None,
+                    prior_stage=prior_stage,
+                    final_stage=final_stage,
+                    label=label,
+                    previous_current_version=previous_current_version,
+                    # The component's own tenant, not the (possibly unscoped) filter argument --
+                    # otherwise an unattributed write (e.g. Agent.save()) to a tenanted component
+                    # stamps NULL and hides the row from that tenant's own scoped reads.
+                    tenant_id=component["tenant_id"],
+                    actor=actor,
+                    note=resolve_audit_note(audit_note, notes),
+                )
 
             result = self.get_config(component_id, version=final_version, tenant_id=tenant_id)
             if result is None:
@@ -4074,6 +4287,8 @@ class PostgresDb(BaseDb):
         component_id: str,
         version: int,
         tenant_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        audit_note: Optional[str] = None,
     ) -> bool:
         """Delete a specific config version.
 
@@ -4084,6 +4299,8 @@ class PostgresDb(BaseDb):
             component_id: The component ID.
             version: The version to delete.
             tenant_id: Optional tenant to scope the delete to. None means no tenant filter.
+            actor: Optional principal to attribute the audit record to.
+            audit_note: Optional reason recorded on the audit record.
 
         Returns:
             True if deleted, False if not found.
@@ -4098,32 +4315,49 @@ class PostgresDb(BaseDb):
 
             if configs_table is None or components_table is None:
                 return False
+            audit_table = self._require_component_audit_table()
 
             with self.Session() as sess, sess.begin():
-                # Get config stage and check if it's current
-                config_stmt = select(configs_table.c.stage).where(
+                # Get config stage and tenant_id. The config's own tenant is only a fallback for
+                # the audit row; the component's is preferred -- see the audit write below.
+                config_stmt = select(configs_table.c.stage, configs_table.c.tenant_id).where(
                     configs_table.c.component_id == component_id,
                     configs_table.c.version == version,
                 )
                 if tenant_id is not None:
                     config_stmt = config_stmt.where(configs_table.c.tenant_id == tenant_id)
 
-                config_row = sess.execute(config_stmt).scalar_one_or_none()
+                config_row = sess.execute(config_stmt).mappings().one_or_none()
 
                 if config_row is None:
                     return False
 
-                # Check if it's current version
-                current_stmt = select(components_table.c.current_version).where(
+                # Check if it's current version. tenant_id comes along so the audit row can carry
+                # the component's actual tenant, matching the five sibling mutations. Reading two
+                # columns is also why this is mappings().one_or_none() and not
+                # scalar_one_or_none(), which would silently hand back only the first.
+                current_stmt = select(components_table.c.current_version, components_table.c.tenant_id).where(
                     components_table.c.component_id == component_id
                 )
                 if tenant_id is not None:
                     current_stmt = current_stmt.where(components_table.c.tenant_id == tenant_id)
 
-                current = sess.execute(current_stmt).scalar_one_or_none()
+                current = sess.execute(current_stmt).mappings().one_or_none()
 
-                if current == version:
+                if current is not None and current["current_version"] == version:
                     raise ValueError(f"Cannot delete current config {component_id} v{version}")
+
+                # A published version is immutable, and deleting one is the most destructive
+                # mutation there is. The stage was already being read here and then ignored,
+                # so a published-but-not-current version was deletable despite this method's
+                # docstring, the route description and EGPT-2.6's acceptance criteria all
+                # saying otherwise (EGPT-2.6).
+                #
+                # Deliberately after the current-version check rather than before it: a version
+                # that is both published and current was already refused, and reordering would
+                # only relabel that existing refusal. This adds a refusal where there was none.
+                if config_row["stage"] == "published":
+                    raise ValueError(f"Cannot delete published config {component_id} v{version}")
 
                 # Delete associated links
                 if links_table is not None:
@@ -4143,6 +4377,24 @@ class PostgresDb(BaseDb):
                 if tenant_id is not None:
                     config_delete_stmt = config_delete_stmt.where(configs_table.c.tenant_id == tenant_id)
                 sess.execute(config_delete_stmt)
+
+                write_audit_row(
+                    sess,
+                    audit_table,
+                    component_id,
+                    ComponentAuditAction.CONFIG_DELETE,
+                    # The component's tenant, not the config row's. A config row stores whatever
+                    # tenant its writer passed, so an unscoped write (Agent.save()) leaves NULL on
+                    # a tenanted component's config -- and a config row carrying a *different*
+                    # tenant would disclose the deletion to that foreign tenant. The component is
+                    # the authority on who owns this (EGPT-2.6 review). Falls back to the config
+                    # row only if the component is already gone, which leaves no better source.
+                    tenant_id=current["tenant_id"] if current is not None else config_row["tenant_id"],
+                    version=version,
+                    actor=actor,
+                    note=audit_note,
+                    details={"stage": config_row["stage"]},
+                )
 
             return True
 
@@ -4218,6 +4470,8 @@ class PostgresDb(BaseDb):
         component_id: str,
         version: int,
         tenant_id: Optional[str] = None,
+        actor: Optional[str] = None,
+        audit_note: Optional[str] = None,
     ) -> bool:
         """Set a specific published version as current.
 
@@ -4229,9 +4483,12 @@ class PostgresDb(BaseDb):
             component_id: The component ID.
             version: The version to set as current (must be published).
             tenant_id: Optional tenant to scope the update to. None means no tenant filter.
+            actor: Optional principal to attribute the audit record to.
+            audit_note: Optional reason recorded on the audit record.
 
         Returns:
-            True if successful, False if component or version not found.
+            True if successful, False if component or version not found. Setting the version
+            that is already current is a no-op: it returns True and records nothing.
 
         Raises:
             ValueError: If attempting to set a draft config as current.
@@ -4242,22 +4499,11 @@ class PostgresDb(BaseDb):
 
             if configs_table is None or components_table is None:
                 return False
+            audit_table = self._require_component_audit_table()
 
             with self.Session() as sess, sess.begin():
-                # Verify component exists and is not deleted
-                component_stmt = select(components_table.c.component_id).where(
-                    components_table.c.component_id == component_id,
-                    components_table.c.deleted_at.is_(None),
-                )
-                if tenant_id is not None:
-                    component_stmt = component_stmt.where(components_table.c.tenant_id == tenant_id)
-
-                component_exists = sess.execute(component_stmt).scalar_one_or_none()
-
-                if component_exists is None:
-                    return False
-
-                # Verify version exists and get stage
+                # Verify version exists and get stage. Stage does not change out from under us
+                # mid-transaction, so this is checked once, ahead of the retry loop below.
                 stage_stmt = select(configs_table.c.stage).where(
                     configs_table.c.component_id == component_id,
                     configs_table.c.version == version,
@@ -4277,20 +4523,135 @@ class PostgresDb(BaseDb):
                         "Only published configs can be current."
                     )
 
-                # Update pointer
-                update_stmt = components_table.update().where(components_table.c.component_id == component_id)
-                if tenant_id is not None:
-                    update_stmt = update_stmt.where(components_table.c.tenant_id == tenant_id)
-                result = sess.execute(update_stmt.values(current_version=version, updated_at=int(time.time())))
+                # Move the pointer as a compare-and-swap: the update only lands if
+                # current_version still matches what was just read. Without this, a concurrent
+                # rollback landing between the read and the write leaves `details` claiming a
+                # `from_version` that was never actually current -- reproduced with 8 concurrent
+                # writers, some producing impossible self-rollbacks like (3, 3). A losing
+                # attempt re-reads and retries rather than recording that fabricated transition
+                # (EGPT-2.6 review). tenant_id also comes along on the read so the audit row can
+                # carry the component's actual tenant rather than the filter argument.
+                max_attempts = 5
+                for attempt in range(max_attempts):
+                    component_stmt = select(
+                        components_table.c.component_id,
+                        components_table.c.current_version,
+                        components_table.c.tenant_id,
+                    ).where(
+                        components_table.c.component_id == component_id,
+                        components_table.c.deleted_at.is_(None),
+                    )
+                    if tenant_id is not None:
+                        component_stmt = component_stmt.where(components_table.c.tenant_id == tenant_id)
 
-                if result.rowcount == 0:
-                    return False
+                    component_row = sess.execute(component_stmt).mappings().one_or_none()
+
+                    if component_row is None:
+                        return False
+                    previous_current_version = component_row["current_version"]
+                    component_tenant_id = component_row["tenant_id"]
+
+                    if previous_current_version == version:
+                        # Already current: nothing moved, so nothing is recorded. Writing here
+                        # would put {"from_version": N, "to_version": N} into an append-only
+                        # trail -- a transition that did not happen, and the exact signature
+                        # used to identify the concurrent-rollback corruption. Keeping real
+                        # self-rollbacks out of the history keeps that signal usable.
+                        return True
+
+                    update_stmt = components_table.update().where(
+                        components_table.c.component_id == component_id,
+                        components_table.c.current_version == previous_current_version,
+                    )
+                    if tenant_id is not None:
+                        update_stmt = update_stmt.where(components_table.c.tenant_id == tenant_id)
+                    result = sess.execute(update_stmt.values(current_version=version, updated_at=int(time.time())))
+
+                    if result.rowcount > 0:
+                        break
+                else:
+                    raise ValueError(
+                        f"Could not set {component_id} to v{version}: current_version kept "
+                        f"changing under concurrent writers after {max_attempts} attempts"
+                    )
+
+                write_audit_row(
+                    sess,
+                    audit_table,
+                    component_id,
+                    ComponentAuditAction.CONFIG_ROLLBACK,
+                    tenant_id=component_tenant_id,
+                    version=version,
+                    actor=actor,
+                    note=audit_note,
+                    details={"from_version": previous_current_version, "to_version": version},
+                )
 
             log_debug(f"Set {component_id} current version to {version}")
             return True
 
         except Exception as e:
             log_error(f"Error setting current version: {str(e)}")
+            raise
+
+    # --- Component Audit ---
+    def list_component_audit(
+        self,
+        component_id: str,
+        version: Optional[int] = None,
+        action: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+        tenant_id: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """List a component's lifecycle audit history, newest first.
+
+        Ordered by ``audit_id``, not ``created_at``: the latter has second resolution, so an
+        update and the publish that followed it share a timestamp and would come back in an
+        arbitrary order.
+
+        Args:
+            component_id: The component ID.
+            version: Optional filter by config version.
+            action: Optional filter by action.
+            limit: Maximum number of items to return.
+            offset: Number of items to skip.
+            tenant_id: Optional tenant to scope the listing to. None means no tenant filter.
+
+        Returns:
+            Tuple of (list of audit record dicts, total count).
+        """
+        try:
+            table = self._get_table(table_type="component_audit")
+            if table is None:
+                return [], 0
+
+            with self.Session() as sess:
+                # Built once and shared by the count and page queries so the tenant predicate
+                # cannot drift between the two.
+                where_clauses = [table.c.component_id == component_id]
+                if version is not None:
+                    where_clauses.append(table.c.version == version)
+                if action is not None:
+                    where_clauses.append(table.c.action == action)
+                if tenant_id is not None:
+                    where_clauses.append(table.c.tenant_id == tenant_id)
+
+                count_stmt = select(func.count()).select_from(table)
+                for clause in where_clauses:
+                    count_stmt = count_stmt.where(clause)
+                total_count = sess.execute(count_stmt).scalar() or 0
+
+                stmt = select(table).order_by(table.c.audit_id.desc())
+                for clause in where_clauses:
+                    stmt = stmt.where(clause)
+                stmt = stmt.limit(limit).offset(offset)
+
+                rows = sess.execute(stmt).mappings().all()
+                return [dict(r) for r in rows], total_count
+
+        except Exception as e:
+            log_error(f"Error listing component audit: {str(e)}")
             raise
 
     # --- Component Links ---

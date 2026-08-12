@@ -67,6 +67,8 @@ _PATH_ENV_REQUIREMENTS: tuple[tuple[str, str], ...] = (
     ("os/tenancy_postgres", "EGPT_INTEGRATION_POSTGRES"),
     # Tenant-scoped runtime hydration of DB-defined components (EGPT-2.5), same rationale.
     ("os/hydration_postgres", "EGPT_INTEGRATION_POSTGRES"),
+    # The component lifecycle audit trail (EGPT-2.6), same rationale.
+    ("os/audit_postgres", "EGPT_INTEGRATION_POSTGRES"),
     ("db/postgres", "EGPT_INTEGRATION_POSTGRES"),
     ("db/async_postgres", "EGPT_INTEGRATION_POSTGRES"),
     ("db/async_mongo", "EGPT_INTEGRATION_MONGO"),

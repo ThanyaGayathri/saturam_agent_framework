@@ -40,6 +40,7 @@ EXPECTED_DEFAULTS = {
     "components_table_name": "egpt_components",
     "component_configs_table_name": "egpt_component_configs",
     "component_links_table_name": "egpt_component_links",
+    "component_audit_table_name": "egpt_component_audit",
     "learnings_table_name": "egpt_learnings",
     "schedules_table_name": "egpt_schedules",
     "schedule_runs_table_name": "egpt_schedule_runs",

@@ -17,8 +17,9 @@ Invalidation doctrine (mirrors ServiceAccountVerifier's cache): the worker that
 processes a component mutation evicts its entries immediately via ``invalidate()``;
 other workers -- and writers that bypass the components API, such as ``Agent.save`` or
 the studio toolkit -- converge as entries age out within the TTL. TTL <= 0 disables
-the cache entirely. ``invalidate()`` is the seam the EGPT-2.6 lifecycle events will
-call when they land.
+the cache entirely. ``invalidate()`` remains the seam an event-driven invalidation would
+call; EGPT-2.6 shipped the lifecycle audit trail and deliberately left cache mechanics
+alone, so that replacement is still unbuilt.
 
 ``get_links`` and ``load_component_graph`` reads are not cached in EGPT-2.5 -- they are
 one call per hydration. The win here is the per-row ``get_config`` fan-out (one call

@@ -805,6 +805,9 @@ class ClickhouseDb(BaseDb):
     def list_configs(self, *args, **kwargs):  # type: ignore[override]
         return []
 
+    def list_component_audit(self, *args, **kwargs):  # type: ignore[override]
+        return [], 0
+
     def get_links(self, *args, **kwargs):  # type: ignore[override]
         return []
 
