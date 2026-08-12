@@ -1588,8 +1588,9 @@ class Team:
         stage: str = "published",
         label: Optional[str] = None,
         notes: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[int]:
-        return _storage.save(self, db=db, stage=stage, label=label, notes=notes)
+        return _storage.save(self, db=db, stage=stage, label=label, notes=notes, tenant_id=tenant_id)
 
     @classmethod
     def load(
@@ -1609,8 +1610,9 @@ class Team:
         *,
         db: Optional["BaseDb"] = None,
         hard_delete: bool = False,
+        tenant_id: Optional[str] = None,
     ) -> bool:
-        return _storage.delete(self, db=db, hard_delete=hard_delete)
+        return _storage.delete(self, db=db, hard_delete=hard_delete, tenant_id=tenant_id)
 
     # -*- Public convenience functions
     def get_run_output(
