@@ -720,11 +720,15 @@ def attach_routes(
         try:
             start_time_ms = time.time() * 1000
 
-            # The same tenant-scoped 404 gate as every other route here. Note the consequence:
-            # once a component is hard-deleted this route stops answering for it, even though
-            # the rows are still in the table (they deliberately have no FK to components). The
-            # history is reachable at the db layer; a follow-up wanting it over HTTP should add
-            # include_deleted to get_component rather than fork the existence rule here.
+            # The same tenant-scoped 404 gate as every other route here. Note the consequence,
+            # which applies to a *soft* delete as much as a hard one: _require_component 404s
+            # for both, so from the moment a component is deleted this route stops answering
+            # for it -- including the "who deleted this, and when" query -- even though the rows
+            # are still in the table (they deliberately have no FK to components). That is an
+            # accepted trade rather than an oversight: history follows the component's lifetime
+            # over HTTP, and stays reachable at the db layer via db.list_component_audit(...).
+            # Forking the existence rule for this one route would be worse than the limit;
+            # tracker #167 covers adding include_deleted to get_component instead.
             _require_component(component_id, tenant_id)
 
             if action is not None and action not in COMPONENT_AUDIT_ACTIONS:

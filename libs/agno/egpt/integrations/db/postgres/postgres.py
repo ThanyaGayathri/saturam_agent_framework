@@ -4076,12 +4076,10 @@ class PostgresDb(BaseDb):
             audit_table = self._require_component_audit_table()
 
             with self.Session() as sess, sess.begin():
-                # Verify component exists and is not deleted. current_version and tenant_id come
-                # along so a publish can record what it replaced, and the audit row can carry
-                # the component's actual tenant, without a second round trip.
+                # Verify component exists and is not deleted. tenant_id comes along so the audit
+                # row can carry the component's actual tenant without a second round trip.
                 component_stmt = select(
                     components_table.c.component_id,
-                    components_table.c.current_version,
                     components_table.c.tenant_id,
                 ).where(
                     components_table.c.component_id == component_id,
@@ -4094,7 +4092,12 @@ class PostgresDb(BaseDb):
 
                 if component is None:
                     raise ValueError(f"Component {component_id} not found")
-                previous_current_version = component["current_version"]
+
+                # Deliberately not read here: current_version is read inside the publish
+                # compare-and-swap below, immediately before the pointer moves. Reading it up
+                # front and recording it after all the work in between is what let two
+                # concurrent publishes both claim they replaced the same version.
+                previous_current_version: Optional[int] = None
 
                 # Label uniqueness check
                 if label is not None:
@@ -4211,10 +4214,41 @@ class PostgresDb(BaseDb):
                 final_stage = stage if stage is not None else (existing["stage"] if version is not None else "draft")
 
                 if final_stage == "published":
-                    publish_stmt = components_table.update().where(components_table.c.component_id == component_id)
-                    if tenant_id is not None:
-                        publish_stmt = publish_stmt.where(components_table.c.tenant_id == tenant_id)
-                    sess.execute(publish_stmt.values(current_version=final_version, updated_at=int(time.time())))
+                    # Move the pointer as a compare-and-swap, for the same reason
+                    # set_current_version does: previous_current_version is recorded on the
+                    # config.publish row, and a concurrent publisher landing between the read
+                    # and the write makes that claim false -- reproduced with six concurrent
+                    # publishers, two rows both claiming they replaced the same version, no
+                    # errors raised to signal it. A losing attempt re-reads and retries rather
+                    # than recording a version that was never current (EGPT-2.6 review).
+                    max_attempts = 5
+                    for _ in range(max_attempts):
+                        current_stmt = select(components_table.c.current_version).where(
+                            components_table.c.component_id == component_id,
+                            components_table.c.deleted_at.is_(None),
+                        )
+                        if tenant_id is not None:
+                            current_stmt = current_stmt.where(components_table.c.tenant_id == tenant_id)
+                        previous_current_version = sess.execute(current_stmt).scalar()
+
+                        publish_stmt = components_table.update().where(
+                            components_table.c.component_id == component_id,
+                            # None renders as IS NULL, so a never-published component swaps too.
+                            components_table.c.current_version == previous_current_version,
+                        )
+                        if tenant_id is not None:
+                            publish_stmt = publish_stmt.where(components_table.c.tenant_id == tenant_id)
+                        result = sess.execute(
+                            publish_stmt.values(current_version=final_version, updated_at=int(time.time()))
+                        )
+
+                        if result.rowcount > 0:
+                            break
+                    else:
+                        raise ValueError(
+                            f"Could not publish {component_id} v{final_version}: current_version kept "
+                            f"changing under concurrent writers after {max_attempts} attempts"
+                        )
 
                 # Publishing has no method of its own, so the action is derived from what the
                 # transaction actually did -- a stage transition into published -- rather than
@@ -4284,9 +4318,8 @@ class PostgresDb(BaseDb):
             audit_table = self._require_component_audit_table()
 
             with self.Session() as sess, sess.begin():
-                # Get config stage and tenant_id, and check if it's current. tenant_id comes
-                # along so the audit row can carry the config's actual tenant rather than the
-                # (possibly unscoped) filter argument.
+                # Get config stage and tenant_id. The config's own tenant is only a fallback for
+                # the audit row; the component's is preferred -- see the audit write below.
                 config_stmt = select(configs_table.c.stage, configs_table.c.tenant_id).where(
                     configs_table.c.component_id == component_id,
                     configs_table.c.version == version,
@@ -4299,16 +4332,19 @@ class PostgresDb(BaseDb):
                 if config_row is None:
                     return False
 
-                # Check if it's current version
-                current_stmt = select(components_table.c.current_version).where(
+                # Check if it's current version. tenant_id comes along so the audit row can carry
+                # the component's actual tenant, matching the five sibling mutations. Reading two
+                # columns is also why this is mappings().one_or_none() and not
+                # scalar_one_or_none(), which would silently hand back only the first.
+                current_stmt = select(components_table.c.current_version, components_table.c.tenant_id).where(
                     components_table.c.component_id == component_id
                 )
                 if tenant_id is not None:
                     current_stmt = current_stmt.where(components_table.c.tenant_id == tenant_id)
 
-                current = sess.execute(current_stmt).scalar_one_or_none()
+                current = sess.execute(current_stmt).mappings().one_or_none()
 
-                if current == version:
+                if current is not None and current["current_version"] == version:
                     raise ValueError(f"Cannot delete current config {component_id} v{version}")
 
                 # A published version is immutable, and deleting one is the most destructive
@@ -4347,7 +4383,13 @@ class PostgresDb(BaseDb):
                     audit_table,
                     component_id,
                     ComponentAuditAction.CONFIG_DELETE,
-                    tenant_id=config_row["tenant_id"],
+                    # The component's tenant, not the config row's. A config row stores whatever
+                    # tenant its writer passed, so an unscoped write (Agent.save()) leaves NULL on
+                    # a tenanted component's config -- and a config row carrying a *different*
+                    # tenant would disclose the deletion to that foreign tenant. The component is
+                    # the authority on who owns this (EGPT-2.6 review). Falls back to the config
+                    # row only if the component is already gone, which leaves no better source.
+                    tenant_id=current["tenant_id"] if current is not None else config_row["tenant_id"],
                     version=version,
                     actor=actor,
                     note=audit_note,
@@ -4445,7 +4487,8 @@ class PostgresDb(BaseDb):
             audit_note: Optional reason recorded on the audit record.
 
         Returns:
-            True if successful, False if component or version not found.
+            True if successful, False if component or version not found. Setting the version
+            that is already current is a no-op: it returns True and records nothing.
 
         Raises:
             ValueError: If attempting to set a draft config as current.
@@ -4507,6 +4550,14 @@ class PostgresDb(BaseDb):
                         return False
                     previous_current_version = component_row["current_version"]
                     component_tenant_id = component_row["tenant_id"]
+
+                    if previous_current_version == version:
+                        # Already current: nothing moved, so nothing is recorded. Writing here
+                        # would put {"from_version": N, "to_version": N} into an append-only
+                        # trail -- a transition that did not happen, and the exact signature
+                        # used to identify the concurrent-rollback corruption. Keeping real
+                        # self-rollbacks out of the history keeps that signal usable.
+                        return True
 
                     update_stmt = components_table.update().where(
                         components_table.c.component_id == component_id,

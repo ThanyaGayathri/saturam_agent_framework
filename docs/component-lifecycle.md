@@ -72,6 +72,14 @@ recorded *who* changed *what*, *when*.
 - **It outlives what it describes.** The table carries no foreign key to `components`, so
   `delete_component(hard_delete=True)` — which removes the component row and its configs —
   leaves the history intact.
+- **No entry describes something that did not happen.** Both pointer-moving paths — the publish
+  inside `upsert_config` and `set_current_version` — record which version they replaced, and both
+  establish that value with a compare-and-swap rather than an earlier read, so concurrent writers
+  cannot produce two rows claiming to have replaced the same version. A move that would be a
+  no-op (setting the version that is already current) records nothing at all.
+- **A row carries the tenant of the component it describes**, not the tenant filter its caller
+  happened to pass. An unattributed write (`Agent.save()`) to a tenanted component is therefore
+  still visible to the tenant that owns it.
 
 ### Columns
 
@@ -116,6 +124,10 @@ deviates from its `BigInteger` house style here on purpose.
 | `config.publish` | A version becomes published | `from_stage`, `previous_current_version` |
 | `config.delete` | A draft version is deleted | `stage` |
 | `config.rollback` | `set_current_version` moves the pointer | `from_version`, `to_version` |
+
+`config.rollback` is emitted only when the pointer actually moves: `set_current_version` on the
+version that is already current returns `True` and records nothing, because `from_version ==
+to_version` would describe a transition that never happened.
 
 Two of these are derived from what the transaction actually did rather than from what the caller
 asked for, because the method names do not distinguish them:
@@ -166,9 +178,13 @@ GET /components/{component_id}/audit
 Scope `components:read` — the same scope as `GET /components` and `GET /components/*/configs/*`.
 This is deliberate reuse, not an oversight: `actor` is already exposed under read scopes
 elsewhere in this API (sessions, runs), so anyone who can already read a component's config can
-now also see who has been changing it. If a deployment needs to separate "can read config" from
-"can see who touched it," that is a dedicated scope (e.g. `components:audit`) to add later, not a
-gap in this one. Newest first, paginated like `GET /components`.
+now also see who has been changing it. Newest first, paginated like `GET /components`.
+
+It is worth being explicit that this is an **accepted decision rather than a settled one**. The
+audit trail is the one surface whose purpose is attribution, and in most governance models "can
+read config" and "can see who touched it" are separable grants. The reuse holds the line with the
+rest of the API today; a deployment that needs the split wants a dedicated `components:audit`
+scope, which is tracked in aicoe-tracker #170.
 
 | Parameter | Notes |
 |---|---|
@@ -189,12 +205,16 @@ The response never includes `tenant_id`, matching every other component response
 
 ### Known limit
 
-After a **hard delete**, the rows are still in the table but this route stops answering for
-them: it runs the same tenant-scoped existence check as every sibling route, and that check
-404s for a deleted component. The history remains readable at the DB layer via
-`db.list_component_audit(...)`. Keeping the gate is deliberate — forking the existence rule for
-one route would be worse than the limit — and a follow-up wanting this over HTTP should add
-`include_deleted` to `get_component` rather than special-case it here.
+After a delete — **soft or hard** — the rows are still in the table but this route stops
+answering for them: it runs the same tenant-scoped existence check as every sibling route, and
+that check 404s for a deleted component either way. So *history follows the component's lifetime
+over HTTP*, and "who deleted this agent, and when" is not answerable through the API for the
+window in which a deletion is most likely to be investigated.
+
+This is an accepted trade, not an oversight. The history remains readable at the DB layer via
+`db.list_component_audit(...)`, and forking the existence rule for one route would be worse than
+the limit. Tracker #167 covers the fix in the shape that keeps the rule shared: add
+`include_deleted` to `get_component`.
 
 ---
 

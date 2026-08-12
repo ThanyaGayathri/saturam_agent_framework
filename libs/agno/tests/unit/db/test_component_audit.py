@@ -541,12 +541,29 @@ class TestTenantAttributionFollowsTheComponent:
 
     def test_deleting_a_config_with_no_tenant_filter_keeps_the_components_tenant(self, sqlite_db):
         _create_component(sqlite_db, "agent-1", TENANT_A, stage="published")
-        sqlite_db.upsert_config("agent-1", config={"model": "v2"}, tenant_id=TENANT_A)
+        # Unscoped, like Agent.save(): the config row itself is left with a NULL tenant, so the
+        # audit row can only come out right if it reads the *component's* tenant. Passing
+        # tenant_id here instead gave the config row a tenant and made this test unable to fail
+        # -- which is how the delete_config gap survived two review rounds (EGPT-2.6 review).
+        sqlite_db.upsert_config("agent-1", config={"model": "v2"})
 
         sqlite_db.delete_config("agent-1", version=2)
 
         rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
         assert rows[0]["action"] == ComponentAuditAction.CONFIG_DELETE.value
+
+    def test_publishing_with_no_tenant_filter_keeps_the_components_tenant(self, sqlite_db):
+        # The publish branch is the one path in this class that was previously only ever
+        # exercised *with* an explicit tenant, which is the same shape of hole that let the
+        # delete_config gap hide behind a test that could not fail.
+        _create_component(sqlite_db, "agent-1", TENANT_A, stage="published")
+        sqlite_db.upsert_config("agent-1", config={"model": "v2"})
+
+        sqlite_db.upsert_config("agent-1", version=2, stage="published")
+
+        rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
+        assert rows[0]["action"] == ComponentAuditAction.CONFIG_PUBLISH.value
+        assert rows[0]["details"]["previous_current_version"] == 1
 
     def test_soft_deleting_with_no_tenant_filter_keeps_the_components_tenant(self, sqlite_db):
         _create_component(sqlite_db, "agent-1", TENANT_A)
@@ -614,6 +631,48 @@ class TestRepeatedSoftDeleteIsANoOp:
 
 
 # ============================================================================
+# SETTING THE VERSION THAT IS ALREADY CURRENT IS NOT A TRANSITION
+# ============================================================================
+
+
+class TestSettingTheCurrentVersionToItselfIsANoOp:
+    """``set_current_version`` on the version already current used to write
+    ``{"from_version": N, "to_version": N}`` -- an event that did not happen, in a log whose
+    whole value is that it only contains events that did (EGPT-2.6 review).
+
+    ``(N, N)`` is also the signature the concurrent-rollback corruption was identified by, so
+    legitimate self-rollbacks in the trail cost a diagnostic as well as the truth.
+    """
+
+    def test_it_still_reports_success(self, sqlite_db):
+        _create_component(sqlite_db, "agent-1", TENANT_A, stage="published")
+
+        assert sqlite_db.set_current_version("agent-1", version=1, tenant_id=TENANT_A) is True
+
+    def test_it_writes_no_audit_row(self, sqlite_db):
+        _create_component(sqlite_db, "agent-1", TENANT_A, stage="published")
+        before = _raw_count(sqlite_db, "agent-1")
+
+        sqlite_db.set_current_version("agent-1", version=1, tenant_id=TENANT_A)
+
+        assert _raw_count(sqlite_db, "agent-1") == before
+        assert ComponentAuditAction.CONFIG_ROLLBACK.value not in _actions(sqlite_db, "agent-1", TENANT_A)
+
+    def test_a_real_move_is_still_recorded(self, sqlite_db):
+        """The guard must not swallow the rollback it sits next to."""
+        _create_component(sqlite_db, "agent-1", TENANT_A, stage="published")
+        sqlite_db.upsert_config("agent-1", config={"model": "v2"}, stage="published", tenant_id=TENANT_A)
+
+        assert sqlite_db.set_current_version("agent-1", version=1, tenant_id=TENANT_A) is True
+
+        rows, _ = sqlite_db.list_component_audit(
+            "agent-1", tenant_id=TENANT_A, action=ComponentAuditAction.CONFIG_ROLLBACK.value
+        )
+        assert len(rows) == 1
+        assert rows[0]["details"] == {"from_version": 2, "to_version": 1}
+
+
+# ============================================================================
 # CONCURRENT ROLLBACK DOES NOT FABRICATE TRANSITIONS
 # ============================================================================
 
@@ -629,6 +688,10 @@ def test_concurrent_rollbacks_never_record_a_transition_that_did_not_happen(sqli
     rather than writing the stale value. This test asserts the resulting chain of
     ``(from_version, to_version)`` pairs reconnects with no gaps -- the property that was false
     before the fix.
+
+    The row count is bounded rather than exact because a thread whose target is already current
+    is a no-op and records nothing (EGPT-2.6 review): with eight threads racing over five
+    versions, how many of them find their target already in place is not deterministic.
     """
     _create_component(sqlite_db, "agent-1", TENANT_A, stage="published")
     for v in range(2, 6):
@@ -656,8 +719,13 @@ def test_concurrent_rollbacks_never_record_a_transition_that_did_not_happen(sqli
         "agent-1", tenant_id=TENANT_A, action=ComponentAuditAction.CONFIG_ROLLBACK.value, limit=100
     )
     rows = list(reversed(rows))  # oldest first
-    assert len(rows) == 8
+    assert 0 < len(rows) <= 8
     assert rows[0]["details"]["from_version"] == 5
+
+    # A self-rollback is the signature the original corruption was identified by, and it is now
+    # impossible from either direction: a losing CAS retries, and a genuine no-op writes nothing.
+    for row in rows:
+        assert row["details"]["from_version"] != row["details"]["to_version"], f"self-rollback: {row['details']}"
 
     for earlier, later in zip(rows, rows[1:]):
         assert earlier["details"]["to_version"] == later["details"]["from_version"], (
@@ -666,3 +734,65 @@ def test_concurrent_rollbacks_never_record_a_transition_that_did_not_happen(sqli
 
     final = sqlite_db.get_component("agent-1", tenant_id=TENANT_A)
     assert final["current_version"] == rows[-1]["details"]["to_version"]
+
+
+# ============================================================================
+# CONCURRENT PUBLISH DOES NOT FABRICATE A previous_current_version
+# ============================================================================
+
+
+def test_concurrent_publishes_never_claim_a_previous_current_version_that_was_not_current(sqlite_db):
+    """The sibling of the concurrent-rollback finding, in the method exercised on *every*
+    publish rather than only on rollback (EGPT-2.6 review).
+
+    ``upsert_config`` read ``current_version`` at the top of the method and then moved the
+    pointer unconditionally a hundred lines later, recording that stale read as
+    ``details.previous_current_version`` on the ``config.publish`` row. Concurrent publishers
+    therefore produced rows that *all claim to have replaced the same version* -- and because
+    nothing failed, nothing signalled it. Reconstructing "what was live at time T" from the
+    trail gives the wrong answer.
+
+    The fix is the same compare-and-swap ``set_current_version`` uses. The property asserted
+    here is the one that was false before it: each publish claims a distinct predecessor, and
+    the claims chain back through the versions that really were current.
+    """
+    _create_component(sqlite_db, "agent-1", TENANT_A, stage="published")
+    for v in range(2, 8):
+        sqlite_db.upsert_config("agent-1", config={"model": f"v{v}"}, tenant_id=TENANT_A)
+    # Six drafts, v2..v7, all still drafts: the threads below each publish one of them.
+
+    errors = []
+
+    def worker(target_version):
+        try:
+            sqlite_db.upsert_config("agent-1", version=target_version, stage="published", tenant_id=TENANT_A)
+        except Exception as e:  # pragma: no cover - asserted via `errors`, not raised in-thread
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(v,)) for v in range(2, 8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []
+
+    rows, _ = sqlite_db.list_component_audit(
+        "agent-1", tenant_id=TENANT_A, action=ComponentAuditAction.CONFIG_PUBLISH.value, limit=100
+    )
+    rows = list(reversed(rows))  # oldest first
+    # Six from the threads, plus the one the component was created published with.
+    assert len(rows) == 7
+
+    claims = [row["details"]["previous_current_version"] for row in rows]
+    assert len(set(claims)) == len(claims), f"two publishes claim the same predecessor: {claims}"
+
+    # Nothing was current before v1 was published, and each publish hands off to the next.
+    assert claims[0] is None
+    for earlier, later in zip(rows, rows[1:]):
+        assert earlier["version"] == later["details"]["previous_current_version"], (
+            f"broken link: published v{earlier['version']} -> claims v{later['details']['previous_current_version']}"
+        )
+
+    final = sqlite_db.get_component("agent-1", tenant_id=TENANT_A)
+    assert final["current_version"] == rows[-1]["version"]

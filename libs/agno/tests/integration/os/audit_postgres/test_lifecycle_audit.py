@@ -14,6 +14,7 @@ Gated on ``EGPT_INTEGRATION_POSTGRES``. Bring the database up with::
     EGPT_INTEGRATION_POSTGRES=1 pytest libs/agno/tests/integration/os/audit_postgres -v
 """
 
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -22,6 +23,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from egpt.db.base import ComponentType
 from egpt.db.component_audit import ComponentAuditAction
 from egpt.os import EgptOS
 from egpt.os.config import AuthorizationConfig
@@ -407,3 +409,106 @@ class TestThePostgresSchema:
 
         assert components == 0
         assert audit_rows > 0
+
+
+class TestThePostgresBackendDoesNotDriftFromSqlite:
+    """The round-2 review found SQLite and Postgres disagreeing on a repeated soft delete, so
+    every subsequent fix has to be shown landing on *both*. These are the Postgres twins of the
+    two round-3 blockers, driven at the DB layer because that is where both defects live.
+    """
+
+    def test_deleting_a_config_records_the_components_tenant_not_the_config_rows(self, audit_db):
+        """``config.delete`` sourced its tenant from the config row, which stores whatever tenant
+        its writer passed. An unscoped write leaves NULL there, so the owning tenant could not
+        see the deletion of its own component's config -- and a config row carrying a *foreign*
+        tenant disclosed it to that tenant instead.
+        """
+        audit_db.create_component_with_config(
+            component_id="agent-t",
+            component_type=ComponentType.AGENT,
+            name="agent-t",
+            config=AGENT_CONFIG,
+            stage="published",
+            tenant_id=TENANT_A,
+        )
+        # Unscoped, the way Agent.save() writes: the config row itself gets a NULL tenant.
+        audit_db.upsert_config("agent-t", config=AGENT_CONFIG)
+
+        audit_db.delete_config("agent-t", version=2)
+
+        scoped, scoped_total = audit_db.list_component_audit("agent-t", tenant_id=TENANT_A, limit=100)
+        unscoped, unscoped_total = audit_db.list_component_audit("agent-t", limit=100)
+
+        assert scoped_total == unscoped_total, "the owning tenant cannot see its own component's history"
+        assert ComponentAuditAction.CONFIG_DELETE.value in [row["action"] for row in scoped]
+        assert [row["tenant_id"] for row in unscoped] == [TENANT_A] * len(unscoped)
+
+    def test_concurrent_publishes_never_claim_the_same_previous_current_version(self, audit_db):
+        """``upsert_config`` read ``current_version`` at the top of the method and recorded that
+        stale value as ``previous_current_version`` after moving the pointer unconditionally, so
+        concurrent publishers produced rows all claiming to have replaced the same version --
+        with no error to signal it. Fixed with the same compare-and-swap ``set_current_version``
+        uses; this pins it on the backend the race was reproduced on.
+        """
+        audit_db.create_component_with_config(
+            component_id="agent-c",
+            component_type=ComponentType.AGENT,
+            name="agent-c",
+            config=AGENT_CONFIG,
+            stage="published",
+            tenant_id=TENANT_A,
+        )
+        for _ in range(2, 8):
+            audit_db.upsert_config("agent-c", config=AGENT_CONFIG, tenant_id=TENANT_A)
+
+        errors: List[Exception] = []
+
+        def worker(target_version: int) -> None:
+            try:
+                audit_db.upsert_config("agent-c", version=target_version, stage="published", tenant_id=TENANT_A)
+            except Exception as e:  # pragma: no cover - asserted via `errors`
+                errors.append(e)
+
+        threads = [threading.Thread(target=worker, args=(v,)) for v in range(2, 8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert errors == []
+
+        rows, _ = audit_db.list_component_audit(
+            "agent-c", tenant_id=TENANT_A, action=ComponentAuditAction.CONFIG_PUBLISH.value, limit=100
+        )
+        rows = list(reversed(rows))  # oldest first
+        assert len(rows) == 7  # six from the threads, plus the publish the component was created with
+
+        claims = [row["details"]["previous_current_version"] for row in rows]
+        assert len(set(claims)) == len(claims), f"two publishes claim the same predecessor: {claims}"
+        assert claims[0] is None
+
+        for earlier, later in zip(rows, rows[1:]):
+            assert earlier["version"] == later["details"]["previous_current_version"], (
+                f"broken link: published v{earlier['version']} -> "
+                f"claims v{later['details']['previous_current_version']}"
+            )
+
+    def test_setting_the_current_version_to_itself_records_nothing(self, audit_db):
+        """A no-op wrote ``{'from_version': N, 'to_version': N}`` -- an event that did not happen,
+        and the signature the concurrent-rollback corruption was identified by.
+        """
+        audit_db.create_component_with_config(
+            component_id="agent-n",
+            component_type=ComponentType.AGENT,
+            name="agent-n",
+            config=AGENT_CONFIG,
+            stage="published",
+            tenant_id=TENANT_A,
+        )
+        _, before = audit_db.list_component_audit("agent-n", tenant_id=TENANT_A, limit=100)
+
+        assert audit_db.set_current_version("agent-n", version=1, tenant_id=TENANT_A) is True
+
+        rows, after = audit_db.list_component_audit("agent-n", tenant_id=TENANT_A, limit=100)
+        assert after == before
+        assert ComponentAuditAction.CONFIG_ROLLBACK.value not in [row["action"] for row in rows]
