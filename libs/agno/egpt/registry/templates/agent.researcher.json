@@ -1,0 +1,43 @@
+{
+  "components": [
+    {
+      "component_id": "research-agent",
+      "component_type": "agent",
+      "config": {
+        "add_history_to_context": true,
+        "add_search_knowledge_instructions": true,
+        "db": {
+          "db_schema": "ai",
+          "id": "os-db",
+          "type": "postgres"
+        },
+        "description": "Gathers background material for the support team.",
+        "id": "research-agent",
+        "instructions": [
+          "Summarize what you find and cite where each fact came from."
+        ],
+        "markdown": true,
+        "model": {
+          "id": "gpt-5.5",
+          "name": "OpenAIResponses",
+          "provider": "OpenAI"
+        },
+        "name": "Research Agent",
+        "num_history_runs": 3,
+        "schema_version": 1
+      },
+      "description": "Gathers background material for the support team.",
+      "label": null,
+      "links": [],
+      "metadata": null,
+      "name": "Research Agent",
+      "notes": null,
+      "stage": "published"
+    }
+  ],
+  "format": "egpt.component-bundle",
+  "format_version": 1,
+  "redacted": [],
+  "root": "research-agent",
+  "schema_version": 1
+}

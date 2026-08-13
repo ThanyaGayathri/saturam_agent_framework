@@ -39,6 +39,7 @@ The Agent-as-Config feature allows you to:
 | `capability_policy.json` | The policy document `capability_policy.py` loads |
 | `tenant_scoped_hydration.py` | Hydrate DB-defined agents scoped to a tenant, with the config cache |
 | `lifecycle_audit.py` | Walk a definition through draft, publish and rollback, then read its audit trail |
+| `seed_and_export.py` | Export a definition to a portable bundle and import it into another tenant |
 
 ---
 
@@ -428,6 +429,47 @@ Over HTTP: `GET /components/{id}/audit` (scope `components:read`), paginated and
 
 See `lifecycle_audit.py` for the full walk, and `docs/component-lifecycle.md` for the normative
 reference.
+
+---
+
+## Portable Definitions
+
+A definition travels as a **bundle**: one JSON document holding a component, everything it
+depends on, and the links between them (EGPT-2.8). A team whose members are missing does not
+hydrate at all, so the dependency closure travels with it.
+
+```python
+from egpt.components.io import import_component
+from egpt.registry.io import export_component
+
+document = export_component(db, "support-team", tenant_id="acme")
+import_component(db, document, tenant_id="globex", registry=registry, id_prefix="globex-")
+```
+
+**Secrets never travel.** `PostgresDb.to_dict()` emits `db_url` and `Agent.to_dict()` embeds it,
+so export strips connection fields and lists what it removed in `document["redacted"]`. What
+survives -- `id`, `type`, `db_schema`, table names -- is what lets the config resolve against a
+database registered in the target. Use `db_id=` to point it at a different one.
+
+**Ids are global.** `component_id` is the primary key, not a per-tenant one, so the same corpus
+cannot exist twice without renaming. `id_prefix` rewrites the ids, the links, and the member and
+step references that hydration reads.
+
+Seeding a tenant from templates is the same operation -- a template file *is* a bundle:
+
+```bash
+./scripts/seed_agents.py --db-url postgresql+psycopg://ai:ai@localhost:5532/ai --tenant-id acme
+```
+
+Re-running is safe. An unchanged definition writes nothing at all, a changed one appends a
+version, and a published version is never rewritten.
+
+Over HTTP: `GET /components/{id}/export` (`components:read`) and `POST /components/import`
+(`components:write`). The whole bundle is validated before anything is written, so a bundle that
+fails validation leaves no rows behind.
+
+See `seed_and_export.py` for the full round trip, and `docs/component-portability.md` for the
+normative reference.
 
 ---
 
