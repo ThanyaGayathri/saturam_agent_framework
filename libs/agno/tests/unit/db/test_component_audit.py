@@ -419,7 +419,7 @@ def test_an_unscoped_read_sees_every_tenant(sqlite_db):
     """``tenant_id=None`` means no predicate, matching the rest of the component API."""
     _create_component(sqlite_db, "agent-1", TENANT_A)
 
-    assert sqlite_db.list_component_audit("agent-1")[1] > 0
+    assert sqlite_db.list_component_audit("agent-1", tenant_id=None)[1] > 0
 
 
 def test_the_actor_is_stored_verbatim(sqlite_db):
@@ -517,7 +517,7 @@ class TestTenantAttributionFollowsTheComponent:
         _create_component(sqlite_db, "agent-1", TENANT_A)
         sqlite_db.delete_component("agent-1", tenant_id=TENANT_A)
 
-        sqlite_db.upsert_component("agent-1", component_type=ComponentType.AGENT)
+        sqlite_db.upsert_component("agent-1", component_type=ComponentType.AGENT, tenant_id=None)
 
         rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
         assert rows[0]["action"] == ComponentAuditAction.COMPONENT_REACTIVATE.value
@@ -525,7 +525,7 @@ class TestTenantAttributionFollowsTheComponent:
     def test_updating_with_no_tenant_filter_keeps_the_components_tenant(self, sqlite_db):
         _create_component(sqlite_db, "agent-1", TENANT_A)
 
-        sqlite_db.upsert_component("agent-1", name="Renamed")
+        sqlite_db.upsert_component("agent-1", name="Renamed", tenant_id=None)
 
         rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
         assert rows[0]["action"] == ComponentAuditAction.COMPONENT_UPDATE.value
@@ -533,7 +533,7 @@ class TestTenantAttributionFollowsTheComponent:
     def test_a_new_config_version_with_no_tenant_filter_keeps_the_components_tenant(self, sqlite_db):
         _create_component(sqlite_db, "agent-1", TENANT_A)
 
-        sqlite_db.upsert_config("agent-1", config={"model": "v2"})
+        sqlite_db.upsert_config("agent-1", config={"model": "v2"}, tenant_id=None)
 
         rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
         assert rows[0]["action"] == ComponentAuditAction.CONFIG_CREATE.value
@@ -545,9 +545,9 @@ class TestTenantAttributionFollowsTheComponent:
         # audit row can only come out right if it reads the *component's* tenant. Passing
         # tenant_id here instead gave the config row a tenant and made this test unable to fail
         # -- which is how the delete_config gap survived two review rounds (EGPT-2.6 review).
-        sqlite_db.upsert_config("agent-1", config={"model": "v2"})
+        sqlite_db.upsert_config("agent-1", config={"model": "v2"}, tenant_id=None)
 
-        sqlite_db.delete_config("agent-1", version=2)
+        sqlite_db.delete_config("agent-1", version=2, tenant_id=None)
 
         rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
         assert rows[0]["action"] == ComponentAuditAction.CONFIG_DELETE.value
@@ -557,9 +557,9 @@ class TestTenantAttributionFollowsTheComponent:
         # exercised *with* an explicit tenant, which is the same shape of hole that let the
         # delete_config gap hide behind a test that could not fail.
         _create_component(sqlite_db, "agent-1", TENANT_A, stage="published")
-        sqlite_db.upsert_config("agent-1", config={"model": "v2"})
+        sqlite_db.upsert_config("agent-1", config={"model": "v2"}, tenant_id=None)
 
-        sqlite_db.upsert_config("agent-1", version=2, stage="published")
+        sqlite_db.upsert_config("agent-1", version=2, stage="published", tenant_id=None)
 
         rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
         assert rows[0]["action"] == ComponentAuditAction.CONFIG_PUBLISH.value
@@ -568,7 +568,7 @@ class TestTenantAttributionFollowsTheComponent:
     def test_soft_deleting_with_no_tenant_filter_keeps_the_components_tenant(self, sqlite_db):
         _create_component(sqlite_db, "agent-1", TENANT_A)
 
-        assert sqlite_db.delete_component("agent-1") is True
+        assert sqlite_db.delete_component("agent-1", tenant_id=None) is True
 
         rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
         assert rows[0]["action"] == ComponentAuditAction.COMPONENT_DELETE.value
@@ -578,7 +578,7 @@ class TestTenantAttributionFollowsTheComponent:
         sqlite_db.upsert_config("agent-1", config={"model": "v2"}, tenant_id=TENANT_A)
         sqlite_db.upsert_config("agent-1", version=2, stage="published", tenant_id=TENANT_A)
 
-        assert sqlite_db.set_current_version("agent-1", version=1) is True
+        assert sqlite_db.set_current_version("agent-1", version=1, tenant_id=None) is True
 
         rows, _ = sqlite_db.list_component_audit("agent-1", tenant_id=TENANT_A)
         assert rows[0]["action"] == ComponentAuditAction.CONFIG_ROLLBACK.value

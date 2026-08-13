@@ -1056,6 +1056,7 @@ def save(
     stage: str = "published",
     label: Optional[str] = None,
     notes: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[int]:
     """
     Save the team component and config to the database, including member agents/teams.
@@ -1065,6 +1066,9 @@ def save(
         stage: The stage of the component. Defaults to "published".
         label: The label of the component.
         notes: The notes of the component.
+        tenant_id: Tenant to own the written rows (EGPT-2.7). Threaded into every member's own
+            ``save`` as well: a team and its members must land in the same tenant, or a tenanted
+            team would end up linked to unscoped members that any other tenant can also reach.
 
     Returns:
         Optional[int]: The version number of the saved config.
@@ -1088,7 +1092,7 @@ def save(
         members_list = team.members if isinstance(team.members, list) else []
         for position, member in enumerate(members_list):
             # Save member first - returns version
-            member_version = member.save(db=db_, stage=stage, label=label, notes=notes)
+            member_version = member.save(db=db_, stage=stage, label=label, notes=notes, tenant_id=tenant_id)
 
             # Add link
             all_links.append(
@@ -1109,6 +1113,7 @@ def save(
             name=getattr(team, "name", team.id),
             description=getattr(team, "description", None),
             metadata=getattr(team, "metadata", None),
+            tenant_id=tenant_id,
         )
 
         # Create or update config with links
@@ -1119,6 +1124,7 @@ def save(
             label=label,
             stage=stage,
             notes=notes,
+            tenant_id=tenant_id,
         )
 
         return config["version"]
@@ -1280,6 +1286,7 @@ def delete(
     *,
     db: Optional["BaseDb"] = None,
     hard_delete: bool = False,
+    tenant_id: Optional[str] = None,
 ) -> bool:
     """
     Delete the team component.
@@ -1287,6 +1294,8 @@ def delete(
     Args:
         db: The database to delete the component from.
         hard_delete: Whether to hard delete the component.
+        tenant_id: Tenant to scope the delete to (EGPT-2.7). A foreign tenant's team is not
+            deleted and ``False`` is returned, exactly as for one that does not exist.
 
     Returns:
         True if the component was deleted, False otherwise.
@@ -1299,7 +1308,7 @@ def delete(
     if team.id is None:
         raise ValueError("Cannot delete team without an id")
 
-    return db_.delete_component(component_id=team.id, hard_delete=hard_delete)
+    return db_.delete_component(component_id=team.id, hard_delete=hard_delete, tenant_id=tenant_id)
 
 
 def get_session_metrics(team: "Team", session_id: Optional[str] = None):

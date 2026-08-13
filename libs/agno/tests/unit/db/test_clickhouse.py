@@ -182,9 +182,9 @@ class TestTracesOnlyContract:
 
     def test_list_components_returns_empty(self, db: ClickhouseDb):
         # EgptOS calls this at startup; must not raise.
-        assert db.list_components() == ([], 0)
-        assert db.get_config(component_id="missing") is None
-        assert db.get_component(component_id="missing") is None
+        assert db.list_components(tenant_id=None) == ([], 0)
+        assert db.get_config(component_id="missing", tenant_id=None) is None
+        assert db.get_component(component_id="missing", tenant_id=None) is None
 
     def test_get_eval_runs_returns_empty(self, db: ClickhouseDb):
         assert db.get_eval_runs() == []

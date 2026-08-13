@@ -1352,6 +1352,9 @@ class EgptOS:
         # becomes true after the first JWT request would leave the very first request
         # unprotected, and would make the setting unassertable without issuing one.
         fastapi_app.state.tenant_id_claim = middleware_kwargs.get("tenant_id_claim")
+        # Same opt-in, one layer down (EGPT-2.7): the router gate above refuses an untenanted
+        # principal over HTTP, this refuses an unscoped component query at the DB itself.
+        self._enforce_tenant_scoping_on_dbs(fastapi_app.state.tenant_id_claim)
 
         # Only interfaces that verify the authenticity of their own inbound requests
         # (Slack HMAC, Telegram/WhatsApp webhook secrets -- see
@@ -1555,11 +1558,18 @@ class EgptOS:
         if self.auto_provision_dbs:
             self._pending_async_db_init = True
 
-    def _initialize_sync_databases(self) -> None:
-        """Initialize sync databases."""
+    def _unique_dbs(self) -> List[Union[BaseDb, AsyncBaseDb, RemoteDb]]:
+        """Every registered db, once each.
+
+        Deduplicated by ``id()`` rather than by equality: one db instance is commonly registered
+        under several agents and may appear in both ``dbs`` and ``knowledge_dbs``, and these dbs
+        are not hashable-by-value, so identity is the only correct key.
+        """
         from itertools import chain
 
-        unique_dbs = list(
+        if not hasattr(self, "dbs") or not hasattr(self, "knowledge_dbs"):
+            return []
+        return list(
             {
                 id(db): db
                 for db in chain(
@@ -1567,6 +1577,41 @@ class EgptOS:
                 )
             }.values()
         )
+
+    def _enforce_tenant_scoping_on_dbs(self, tenant_id_claim: Optional[str]) -> None:
+        """Make component access fail closed when this deployment scopes by tenant (EGPT-2.7).
+
+        Configuring a tenant claim is the operator saying "rows belong to tenants here". The
+        router gate (``require_tenant_id``) already refuses an untenanted *principal*, but it
+        only covers HTTP: ``Agent.save``, the studio toolkit and any script hold the same db and
+        reach the same rows. Turning the db-level flag on closes those paths too, so the two are
+        one control applied at two layers rather than a gate with a way around it.
+
+        Only ever turned on. A db is never relaxed here, and a db built explicitly strict stays
+        strict in a deployment with no claim configured.
+
+        Only ``BaseDb`` instances carry the flag. ``AsyncBaseDb`` declares no component methods at
+        all and its backends raise ``NotImplementedError`` for every one -- already the strictest
+        possible answer, with no query to guard -- and ``RemoteDb`` reaches components over HTTP
+        against a control plane that applies its own scoping.
+        """
+        if not tenant_id_claim:
+            return
+        enabled = 0
+        for db in self._unique_dbs():
+            if isinstance(db, BaseDb) and not db.require_tenant_id:
+                db.require_tenant_id = True
+                enabled += 1
+        if enabled:
+            log_info(
+                f"Tenant claim '{tenant_id_claim}' is configured, so unscoped component access is now "
+                f"refused on {enabled} database(s). Callers outside HTTP (Agent.save, the studio "
+                f"toolkit, scripts) must pass tenant_id; rows with a NULL tenant_id become unreachable."
+            )
+
+    def _initialize_sync_databases(self) -> None:
+        """Initialize sync databases."""
+        unique_dbs = self._unique_dbs()
 
         for db in unique_dbs:
             if isinstance(db, AsyncBaseDb):
@@ -1580,17 +1625,7 @@ class EgptOS:
 
     async def _initialize_async_databases(self) -> None:
         """Initialize async databases."""
-
-        from itertools import chain
-
-        unique_dbs = list(
-            {
-                id(db): db
-                for db in chain(
-                    chain.from_iterable(self.dbs.values()), chain.from_iterable(self.knowledge_dbs.values())
-                )
-            }.values()
-        )
+        unique_dbs = self._unique_dbs()
 
         for db in unique_dbs:
             if not isinstance(db, AsyncBaseDb):
@@ -1604,19 +1639,7 @@ class EgptOS:
 
     async def _close_databases(self) -> None:
         """Close all database connections and release connection pools."""
-        from itertools import chain
-
-        if not hasattr(self, "dbs") or not hasattr(self, "knowledge_dbs"):
-            return
-
-        unique_dbs = list(
-            {
-                id(db): db
-                for db in chain(
-                    chain.from_iterable(self.dbs.values()), chain.from_iterable(self.knowledge_dbs.values())
-                )
-            }.values()
-        )
+        unique_dbs = self._unique_dbs()
 
         for db in unique_dbs:
             try:

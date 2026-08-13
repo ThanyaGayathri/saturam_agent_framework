@@ -1,8 +1,13 @@
-# Tenant scoping (EGPT-2.4, runtime hydration EGPT-2.5)
+# Tenant scoping (EGPT-2.4, runtime hydration EGPT-2.5, row-level enforcement EGPT-2.7)
 
 Normative reference for how a request's tenant is resolved and what the component registry API
 does with it. Companion to [capability-policy.md](capability-policy.md), which covers *which
 capabilities* a tenant may reference; this document covers *which rows* a caller may reach.
+
+Scoping is enforced at two layers, and section 6 is the second one. Sections 1–5 cover the
+request-level gates: how the tenant is resolved from the credential and what the `/components` API
+and runtime hydration do with it. Section 6 covers the data layer underneath, where every component
+query requires a tenant regardless of which caller reached it.
 
 ---
 
@@ -232,18 +237,163 @@ caller's tenant end to end:
   tenant's component as a member/step no longer hydrates it, closing the foreign-id
   existence oracle.
 
-## 6. Known limits
+## 6. Row-level enforcement at the DB (EGPT-2.7)
+
+Everything above is enforced *above* the data layer. This section is the layer underneath: the
+component DB methods themselves refuse to run unscoped, so a missing or bypassed API check
+cannot leak or cross-write another tenant's components.
+
+Why both layers exist: the router gate only covers HTTP. `Agent.save()`, the studio toolkit, a
+migration script and a cookbook all hold the same `BaseDb` and reach the same rows without
+passing through a single FastAPI dependency. A gate with an unguarded path around it is not a
+gate.
+
+### The three states of `tenant_id`
+
+`tenant_id` is **keyword-only with no default** on all fourteen component methods
+(`get_component`, `upsert_component`, `delete_component`, `list_components`,
+`create_component_with_config`, `get_config`, `upsert_config`, `delete_config`, `list_configs`,
+`set_current_version`, `list_component_audit`, `get_links`, `get_dependents`,
+`load_component_graph`):
+
+| Call | Result |
+|---|---|
+| `get_component("a")` — omitted | `TypeError`, and a mypy `call-arg` error before you run it |
+| `get_component("a", tenant_id=None)` — explicitly unscoped | No tenant predicate; sees every tenant's rows. Refused with `TenantScopeRequiredError` when the db has `require_tenant_id` |
+| `get_component("a", tenant_id="acme")` | Restricted to that tenant |
+| `get_component("a", tenant_id="")` | `TenantScopeRequiredError`, always — a blank tenant is never legitimate, and on a write it would stamp rows into a tenant nobody can name again |
+
+Omission and explicit-`None` are deliberately different failures because they are different
+mistakes. A forgotten argument is a bug in any deployment, so it fails everywhere and at check
+time. An explicit `None` is *correct* for a single-tenant deployment and is the only way to reach
+pre-multi-tenancy rows, so it fails only where the operator has said tenancy applies.
+
+A required parameter rather than a sentinel default (`UNSCOPED`) was chosen so mypy reports the
+mistake statically; `disable_error_code = ["override"]` in `libs/agno/pyproject.toml` means a
+sentinel would have produced no type-checker signal at all. See
+[adr/0004-component-tenant-isolation.md](adr/0004-component-tenant-isolation.md).
+
+### Turning on strict mode
+
+```python
+db = PostgresDb(db_url=..., require_tenant_id=True)   # explicit
+# or EGPT_REQUIRE_TENANT_ID=true|1|yes for dbs not built through EgptOS
+```
+
+**`EgptOS` sets it automatically on every registered db when `tenant_id_claim` is configured** —
+opting into tenancy at the edge opts in at the bottom. The flag is only ever turned *on*: an
+explicit `require_tenant_id=False` will not switch off what the environment enabled, because that
+is the direction that loses isolation.
+
+### NULL-tenant rows become unreachable
+
+Rows written before multi-tenancy carry `tenant_id IS NULL` and are reachable only with
+`tenant_id=None` — which strict mode refuses. That is intended, not an oversight: an unscoped row
+in a tenanted deployment belongs to no tenant and is therefore visible to all of them. Assign them
+before enabling strict mode:
+
+```sql
+UPDATE egpt_components        SET tenant_id = 'acme' WHERE tenant_id IS NULL;
+UPDATE egpt_component_configs SET tenant_id = 'acme' WHERE tenant_id IS NULL;
+UPDATE egpt_component_links   SET tenant_id = 'acme' WHERE tenant_id IS NULL;
+UPDATE egpt_component_audit   SET tenant_id = 'acme' WHERE tenant_id IS NULL;
+```
+
+There is no backfill tool, because there is no tenants table to backfill against — which tenant
+inherits pre-tenancy rows is a question only the operator can answer.
+
+### `tenant_id` is a first-class column
+
+On all four component tables `tenant_id` is a declared, indexed column — not a key inside the
+config JSON, and not something the query layer interprets:
+
+| Table | Tenant-leading composite index |
+|---|---|
+| `egpt_components` | `(tenant_id, component_id)` |
+| `egpt_component_configs` | `(tenant_id, component_id)` |
+| `egpt_component_links` | `(tenant_id, parent_component_id)`, `(tenant_id, child_component_id)` |
+| `egpt_component_audit` | `(tenant_id, component_id)` |
+
+`tenant_id` **leads** each index rather than merely appearing in one: a `(component_id, tenant_id)`
+index cannot serve "everything in this tenant" and would turn a scoped list into a scan.
+
+Note there is no `allowed_columns` entry for this. `db/filter_converter.py` is trace-only —
+component queries take fixed typed parameters, not filter expressions, and the traces table has no
+`tenant_id` column, so adding one there would emit SQL against a column that does not exist. The
+DDL is the whitelist, pinned by `tests/unit/db/test_component_tenant_scoping.py`.
+
+### Upgrade note
+
+Any caller of a component DB method must now name a tenant. Passing `tenant_id=None` reproduces
+the previous behaviour exactly:
+
+```python
+db.get_component("agent-1")                     # before
+db.get_component("agent-1", tenant_id=None)     # after, unchanged behaviour
+db.get_component("agent-1", tenant_id="acme")   # after, scoped
+```
+
+`Agent.save/delete`, `Team.save/delete` and `Workflow.save/delete` gained an optional
+`tenant_id`, defaulting to `None`. On a team or workflow it is threaded into every member's and
+step's own `save`, so a tenanted parent cannot end up linked to unscoped children.
+
+### How it is enforced, and how it stays enforced
+
+The guard (`egpt.db.component_scope.resolve_tenant_scope`) runs as the first statement of each
+method, *before* the method's own `try` — inside it, a scope refusal would be logged as a database
+error. The ~90 `WHERE tenant_id = ...` predicates per backend were deliberately left alone rather
+than centralised; mutation testing had already established that the tenant-scoped *prechecks* are
+the load-bearing layer.
+
+Three tests keep it that way:
+
+- `tests/unit/db/test_component_tenant_fail_closed.py` — asserts on every backend class that
+  `tenant_id` is keyword-only with no default, and parses each backend's AST to assert the guard
+  is the first statement of all fourteen methods. A backend added later without either cannot pass
+  CI.
+- `tests/unit/db/test_component_tenant_adversarial.py` — tenant B attempts all fourteen methods
+  against tenant A's ids; tenant A's four tables are then compared row by row via raw SQL. A
+  mutation refusing in its return value while having already written is caught here, as is any
+  audit row written by a refused mutation.
+- `tests/integration/os/tenancy_postgres/test_adversarial_tenant_isolation.py` — the same sweep on
+  real Postgres, plus every component route driven with tenant B's real JWT. The route assertion
+  is *indistinguishability* from a nonexistent component rather than a fixed status code: routes
+  legitimately differ (`GET /components/{id}` 404s, `/configs` answers `200 []`), but no route may
+  let B tell a foreign component apart from a missing one.
+
+### Not covered by this layer
+
+Sessions, memories and runs. Those tables have no `tenant_id` column, so scoping them is a schema
+change with a migration rather than an enforcement change — tracked separately from EGPT-2.7.
+
+## 7. Known limits
 
 - **`component_id` is globally unique**, so two tenants cannot both own `support-agent`. The 404
-  hides who holds it; the id is still unavailable.
-- **Every router other than `/components` is unscoped** — sessions, memories, runs. Hydration
-  itself is scoped (section 5), but the surrounding run/session data is not. **EGPT-2.7.**
-- **The DB layer does not require a tenant.** `tenant_id=None` still means "no predicate" at
-  every `BaseDb` method; making it mandatory is **EGPT-2.7**.
-- **Two tenant resolvers exist**: `egpt.os.tenancy.current_tenant_id` (middleware-written
-  request state) and `egpt.os.utils.resolve_tenant_id` (factory-context claims, used by the
-  workflow websocket path, which has no `Request`). Each hydration path threads the value it
-  already has; reconciling them is follow-up work.
+  hides who holds it; the id is still unavailable. It also means `tools/studio.py`'s id-uniqueness
+  probe is scoped to its own tenant and can therefore miss a foreign holder — the insert then
+  fails on the primary key. That is the deliberate trade: an unscoped probe would answer correctly
+  but is a cross-tenant existence oracle. Narrowing it properly means a per-tenant primary key.
+- **Sessions, memories and runs are unscoped.** Hydration itself is scoped (section 5) and the
+  agents/teams/workflows routers are tenant-gated, but the surrounding run/session data is not.
+  Needs a `tenant_id` column and migration on those tables; follow-up work, not EGPT-2.7.
+- **The non-HTTP writers default to unscoped.** `Agent.save/delete`, `Team.save/delete` and
+  `Workflow.save/delete` take a `tenant_id` but default it to `None`. On a non-strict db an
+  unscoped write can update a row owned by another tenant that shares the `component_id`, and the
+  row keeps its original `tenant_id` — so the owner's correctly-scoped read then serves the foreign
+  config with nothing to detect. `require_tenant_id` refuses it, and **is** the control for these
+  three; the default is not. Requiring a tenant on `Agent.save()` was considered and rejected — see
+  [adr/0004](adr/0004-component-tenant-isolation.md). Pinned by
+  `TestNonHttpWritersInheritTheDbGuarantee`.
+- **Two tenant resolvers exist and they disagree.** `egpt.os.tenancy.current_tenant_id`
+  (middleware-written request state) and `egpt.os.utils.resolve_tenant_id` (factory-context claims,
+  used by the workflow websocket path, which has no `Request`). The second **is** on a component
+  read path — `workflows/router.py:125` feeds it into `get_workflow_by_id_async`, which reaches
+  `db.get_config`. For a verified principal carrying no tenant claim, the HTTP path resolves `None`
+  (refused under `require_tenant_id`) while the WS path resolves `tenant_id="<user_id>"`, using a
+  user id as a tenant namespace. Reads stay inside that namespace, so it is not a cross-tenant leak,
+  but it is a second isolation model reachable from one credential, and a component written there is
+  invisible to the same user over HTTP. Tracked as
+  [aicoe-tracker#174](https://github.com/Saturam-Inc/aicoe-tracker/issues/174).
 - **Cache staleness across workers is bounded by the TTL**, not eliminated: only the worker
   that processes a mutation evicts immediately. Event-driven invalidation is still unbuilt —
   EGPT-2.6 delivered the audit trail, not this.

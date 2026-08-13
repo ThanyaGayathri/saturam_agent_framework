@@ -1053,6 +1053,7 @@ def save(
     stage: str = "published",
     label: Optional[str] = None,
     notes: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[int]:
     """
     Save the agent component and config.
@@ -1063,6 +1064,10 @@ def save(
         stage: The stage of the component. Defaults to "published".
         label: The label of the component.
         notes: The notes of the component.
+        tenant_id: Tenant to own the written rows (EGPT-2.7). ``None`` writes an unscoped
+            component, which is what a single-tenant deployment wants and what this function
+            did before the parameter existed; a db built with ``require_tenant_id`` refuses it.
+            Mirrors ``load``, which already takes the caller's tenant.
 
     Returns:
         Optional[int]: The version number of the saved config.
@@ -1084,6 +1089,7 @@ def save(
             name=getattr(agent, "name", agent.id),
             description=getattr(agent, "description", None),
             metadata=getattr(agent, "metadata", None),
+            tenant_id=tenant_id,
         )
 
         # Create or update config
@@ -1093,6 +1099,7 @@ def save(
             label=label,
             stage=stage,
             notes=notes,
+            tenant_id=tenant_id,
         )
 
         return config.get("version")
@@ -1173,6 +1180,7 @@ def delete(
     *,
     db: Optional[BaseDb] = None,
     hard_delete: bool = False,
+    tenant_id: Optional[str] = None,
 ) -> bool:
     """
     Delete the agent component.
@@ -1181,6 +1189,8 @@ def delete(
         agent: The Agent instance.
         db: The database to delete the component from.
         hard_delete: Whether to hard delete the component.
+        tenant_id: Tenant to scope the delete to (EGPT-2.7). A foreign tenant's component is
+            not deleted and ``False`` is returned, exactly as for one that does not exist.
 
     Returns:
         True if the component was deleted, False otherwise.
@@ -1193,4 +1203,4 @@ def delete(
     if agent.id is None:
         raise ValueError("Cannot delete agent without an id")
 
-    return db_.delete_component(component_id=agent.id, hard_delete=hard_delete)
+    return db_.delete_component(component_id=agent.id, hard_delete=hard_delete, tenant_id=tenant_id)

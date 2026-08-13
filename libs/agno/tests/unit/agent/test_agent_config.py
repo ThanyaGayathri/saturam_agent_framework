@@ -459,6 +459,7 @@ class TestAgentSave:
             name="Test Agent",
             description="A test agent for unit testing",
             metadata=None,
+            tenant_id=None,
         )
         assert version == 1
 
@@ -659,7 +660,7 @@ class TestAgentDelete:
         basic_agent.db = mock_db
         result = basic_agent.delete()
 
-        mock_db.delete_component.assert_called_once_with(component_id="test-agent", hard_delete=False)
+        mock_db.delete_component.assert_called_once_with(component_id="test-agent", hard_delete=False, tenant_id=None)
         assert result is True
 
     def test_delete_with_hard_delete(self, basic_agent, mock_db):
@@ -669,7 +670,7 @@ class TestAgentDelete:
         basic_agent.db = mock_db
         result = basic_agent.delete(hard_delete=True)
 
-        mock_db.delete_component.assert_called_once_with(component_id="test-agent", hard_delete=True)
+        mock_db.delete_component.assert_called_once_with(component_id="test-agent", hard_delete=True, tenant_id=None)
         assert result is True
 
     def test_delete_with_explicit_db(self, basic_agent, mock_db):
