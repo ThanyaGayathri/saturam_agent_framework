@@ -1681,3 +1681,187 @@ def test_a_manager_with_no_db_refuses_the_write_rather_than_receipting_nothing()
 
     with pytest.raises(PartialWriteError):
         bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
+
+
+# ---------------------------------------------------------------------------
+# Review findings (PR #68, round 2)
+# ---------------------------------------------------------------------------
+
+
+def test_an_explicit_empty_binding_disables_a_tier_the_machine_would_have_filled():
+    """Round-2 Major 1. `stores={SEMANTIC: []}` means "serve nothing here".
+
+    It used to be discarded: an empty group was skipped rather than recorded, so the key was
+    absent when the machine's mapping was folded in, and the tier came back holding exactly the
+    stores the caller was removing -- the opposite of the request, with no error and no log.
+    """
+    machine = FakeMachine(stores={"user_profile": FakeStore("user_profile"), "decision_log": FakeStore("decision_log")})
+
+    bridge = SeedMemoryProvider(machine=machine, stores={MemoryTier.SEMANTIC: []}, config=seed_config())
+
+    assert bridge.stores[MemoryTier.SEMANTIC] == ()
+    assert [s.learning_type for s in bridge.stores[MemoryTier.PROCEDURAL]] == ["decision_log"]
+    assert bridge.tiers()[MemoryTier.SEMANTIC] is False
+
+
+def test_a_binding_that_disables_every_tier_and_wraps_nothing_is_a_misconfiguration():
+    """The construction guard reads what actually bound, not the truthiness of the argument --
+    `{tier: []}` is a non-empty dict that binds nothing."""
+    with pytest.raises(MemoryProviderConfigError, match="needs a MemoryManager"):
+        SeedMemoryProvider(stores={MemoryTier.SEMANTIC: []}, config=seed_config())
+
+
+class QuietStore(FakeStore):
+    """A store whose `process` genuinely no-ops, like one outside `LearningMode.ALWAYS`.
+
+    `FakeStore.was_updated` is `bool(self.processed)` -- true after any non-raising `process` --
+    so it structurally cannot show a store declining a write, which is what the aggregation
+    question below is about.
+    """
+
+    @property
+    def was_updated(self) -> bool:
+        return False
+
+
+def test_a_tier_reports_the_batch_taken_when_any_bound_store_took_it():
+    """Round-2 Major 2, **pinned rather than fixed**, and this is the test that makes it visible.
+
+    `accepted` on the store path means "events the tier took", never "rows written" -- `process`
+    folds a batch into the store's own shape and mints no ids, so even one store reporting
+    `was_updated` may have written a single row for three events. With several stores the OR is
+    the least-wrong reading: requiring *every* store to report updated would receipt an ordinary
+    mixed-mode tier's genuine write as `accepted=0`, since a store outside `LearningMode.ALWAYS`
+    no-ops on purpose.
+
+    What is lost is the distinction between "two of three stores took it" and "all three did".
+    Closing that needs per-store granularity in `WriteReceipt`, which is an envelope change both
+    adapters share. This test fails when such a field lands, which is the signal to use it.
+    """
+    took, declined = FakeStore("user_profile"), QuietStore("user_memory")
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: [took, declined]}, config=seed_config())
+    events = [MemoryEvent(content=f"note {i}", scope=ACME) for i in range(3)]
+
+    receipt = bridge.write_tier(ACME, MemoryTier.SEMANTIC, events)
+
+    assert declined.processed, "the quiet store was asked"
+    assert receipt.accepted == 3, "KNOWN AGGREGATION (per-store granularity is a WriteReceipt change)"
+    assert receipt.tiers_written == [MemoryTier.SEMANTIC]
+
+
+def test_a_tier_where_no_store_took_the_batch_reports_nothing_accepted():
+    """The other side of the same rule, so the OR is not vacuously true."""
+    bridge = SeedMemoryProvider(
+        stores={MemoryTier.SEMANTIC: [QuietStore("user_profile"), QuietStore("user_memory")]}, config=seed_config()
+    )
+
+    receipt = bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
+
+    assert (receipt.accepted, receipt.tiers_written) == (0, [])
+
+
+def test_a_partial_store_failure_reports_the_tier_the_sibling_committed_to():
+    """Round-2 Minor 3. The failure receipt was empty even when a sibling genuinely committed.
+
+    Ids and destinations are different questions: `process` mints no ids, so `event_ids` stays
+    empty and there is nothing for a retry to reuse -- but clearing `tiers_written` too told the
+    caller nothing landed anywhere, which was false.
+    """
+    committed, failing = FakeStore("user_profile"), FakeStore("user_memory")
+    failing.process = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("store down"))
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: [committed, failing]}, config=seed_config())
+
+    with pytest.raises(PartialWriteError) as exc:
+        bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
+
+    assert exc.value.receipt.tiers_written == [MemoryTier.SEMANTIC]
+    assert exc.value.receipt.event_ids == [], "process mints none, so a retry has nothing to reuse"
+
+
+async def test_both_read_halves_ask_the_same_stores_when_one_of_them_fails():
+    """Round-2 Minor 4. The sync half short-circuited at the first failing store while the gathered
+    async half scheduled every `arecall`, so one identical failing read cost more on the async lane.
+
+    Asserted on which stores were **asked**, because both halves raise either way and the result is
+    identical -- the difference is invisible in the return value and shows up as backend load.
+    """
+
+    def wire():
+        failing, healthy = FakeStore("user_profile"), FakeStore("user_memory")
+        failing.recall = lambda **kwargs: (_ for _ in ()).throw(RuntimeError("store down"))
+
+        async def arecall(**kwargs):
+            await asyncio.sleep(0)
+            raise RuntimeError("store down")
+
+        failing.arecall = arecall
+        return SeedMemoryProvider(stores={MemoryTier.SEMANTIC: [failing, healthy]}, config=seed_config()), healthy
+
+    sync_bridge, sync_healthy = wire()
+    async_bridge, async_healthy = wire()
+    query = MemoryQuery(text="q")
+
+    with pytest.raises(RuntimeError):
+        sync_bridge.read_tier(ACME, MemoryTier.SEMANTIC, query)
+    with pytest.raises(RuntimeError):
+        await async_bridge.aread_tier(ACME, MemoryTier.SEMANTIC, query)
+
+    assert len(sync_healthy.recall_kwargs) == len(async_healthy.recall_kwargs) == 1
+
+
+async def test_a_refusal_wins_over_a_transport_error_on_the_read_path_too():
+    """The same cause-selection rule the write path uses: a read that is unanswerable says so,
+    rather than reporting whichever backend happened to fail first."""
+
+    def wire():
+        refusing, broken = FakeStore("user_profile"), FakeStore("user_memory")
+        refusing.recall = lambda **kwargs: (_ for _ in ()).throw(MemoryOperationError("nope", field_name="scope"))
+        broken.recall = lambda **kwargs: (_ for _ in ()).throw(RuntimeError("store down"))
+
+        async def arefuse(**kwargs):
+            raise MemoryOperationError("nope", field_name="scope")
+
+        async def abreak(**kwargs):
+            raise RuntimeError("store down")
+
+        refusing.arecall, broken.arecall = arefuse, abreak
+        # Transport error first in binding order, so picking "the first failure" would pick it.
+        return SeedMemoryProvider(stores={MemoryTier.SEMANTIC: [broken, refusing]}, config=seed_config())
+
+    with pytest.raises(MemoryOperationError):
+        wire().read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
+    with pytest.raises(MemoryOperationError):
+        await wire().aread_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
+
+
+def test_a_read_failure_is_not_dressed_up_as_a_partial_write():
+    """A read commits nothing, so there is no receipt to carry."""
+    store = FakeStore("user_profile")
+    store.recall = lambda **kwargs: (_ for _ in ()).throw(RuntimeError("store down"))
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: store}, config=seed_config())
+
+    with pytest.raises(RuntimeError) as exc:
+        bridge.read(ACME, MemoryQuery(text="q"))
+
+    assert not isinstance(exc.value, PartialWriteError)
+
+
+def test_a_real_entity_memory_store_reads_empty_through_this_bridge():
+    """Round-2 Nit 8, pinned as a real trap rather than left as an observation.
+
+    `EntityMemoryStore.recall` returns `None` unless *both* `entity_id` and `entity_type` are
+    supplied, and `_recall_kwargs` supplies neither -- there is nowhere in `MemoryQuery` to put
+    them. So the tier binds, the slot guard passes, and every read is empty. Entity retrieval
+    through the seam needs a way to carry an entity key; it is not a slot-guard defect.
+    """
+    from egpt.learn.config import EntityMemoryConfig
+    from egpt.learn.stores import EntityMemoryStore
+
+    store = EntityMemoryStore(config=EntityMemoryConfig())
+    bridge = SeedMemoryProvider(
+        stores={MemoryTier.SEMANTIC: store},
+        config=seed_config(store_slots={"entity_memory": ["user_id"]}),
+    )
+
+    assert store.recall(user_id="u1") is None, "no entity key, no answer -- before the bridge is involved"
+    assert bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="acme")) == []

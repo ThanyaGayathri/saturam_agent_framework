@@ -16,7 +16,7 @@ Which store serves which tier, and which scope slots each one's ``recall`` filte
 """
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, List, NoReturn, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, List, NoReturn, Optional, Sequence, Tuple, Union, cast
 from uuid import NAMESPACE_OID, uuid5
 
 from egpt.db.schemas import UserMemory
@@ -143,7 +143,10 @@ class SeedMemoryProvider(MemoryProvider):
         stores: Optional[Dict[MemoryTier, "StoreBinding"]] = None,
         config: Optional[MemoryProviderConfig] = None,
     ) -> None:
-        if manager is None and machine is None and not stores:
+        self.stores: Dict[MemoryTier, Tuple["LearningStore", ...]] = self._bind_stores(stores, machine)
+        # Checked against what actually bound, not against the argument: `stores={tier: []}` is a
+        # dict a truthiness test calls non-empty while binding nothing.
+        if manager is None and machine is None and not any(self.stores.values()):
             raise MemoryProviderConfigError(
                 "SeedMemoryProvider needs a MemoryManager, a LearningMachine, or at least one bound store.",
                 field_name="provider",
@@ -151,7 +154,6 @@ class SeedMemoryProvider(MemoryProvider):
         self.manager = manager
         self.machine = machine
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
-        self.stores: Dict[MemoryTier, Tuple["LearningStore", ...]] = self._bind_stores(stores, machine)
         self._store_slots: Dict[str, FrozenSet[str]] = _checked_slots(self.config.options.get("store_slots"))
         self._require_single_tenant_acknowledgement()
         self._tenant: str = self._require_declared_tenant()
@@ -167,14 +169,20 @@ class SeedMemoryProvider(MemoryProvider):
         would give the caller a read they did not ask for. Duplicate ``learning_type`` within one
         tier is refused -- a store's projection id is ``learning_type:tier:scope``, so two of them
         collide into one record.
+
+        **Naming a tier is what claims it, not binding a store to it.** An empty binding
+        (``{SEMANTIC: []}``) is how a deployment says "serve nothing here", so it is recorded as an
+        empty group rather than skipped -- skipping it left the key absent, and the machine below
+        then filled the tier with exactly the stores the caller was removing.
         """
         bound: Dict[MemoryTier, Tuple["LearningStore", ...]] = {}
         for tier, value in (stores or {}).items():
             if not isinstance(tier, MemoryTier):
                 raise MemoryProviderConfigError(f"stores key {tier!r} is not a MemoryTier.", field_name="stores")
-            group = tuple(value) if isinstance(value, (list, tuple)) else (value,)
-            if group:
-                bound[tier] = group
+            # `cast` because the union's non-sequence arm is what remains after the list/tuple
+            # test, and mypy cannot narrow a Protocol out of it. `_learning_type` is the runtime
+            # check that a bound value really is a store, and it is tested.
+            bound[tier] = tuple(value) if isinstance(value, (list, tuple)) else (cast("LearningStore", value),)
         if machine is not None:
             already = [store for group in bound.values() for store in group]
             for tier, group in stores_by_tier(getattr(machine, "stores", {}) or {}, already_bound=already).items():
@@ -486,11 +494,16 @@ class SeedMemoryProvider(MemoryProvider):
         stores = self._stores_for(tier)
         if stores:
             self._guard_stores(stores, scope)
-            records = [
-                record
-                for store in stores
-                for record in self._store_records(store, tier, scope, store.recall(**self._recall_kwargs(scope, query)))
-            ]
+            recalled: List[Any] = []
+            failures: List[BaseException] = []
+            for store in stores:
+                try:
+                    recalled.append(store.recall(**self._recall_kwargs(scope, query)))
+                except Exception as exc:  # noqa: PERF203 - per-store isolation, as on the write path
+                    failures.append(exc)
+                    recalled.append(None)
+            self._raise_read_failure(failures)
+            records = self._records_from(stores, recalled, tier, scope)
         elif tier is MemoryTier.SEMANTIC and self.manager is not None:
             records = self._manager_records(scope, query)
         else:
@@ -506,17 +519,44 @@ class SeedMemoryProvider(MemoryProvider):
         stores = self._stores_for(tier)
         if stores:
             self._guard_stores(stores, scope)
-            recalled = await asyncio.gather(*(store.arecall(**self._recall_kwargs(scope, query)) for store in stores))
-            records = [
-                record
-                for store, data in zip(stores, recalled)
-                for record in self._store_records(store, tier, scope, data)
-            ]
+            # Settled on both halves, as the write path is: a bare `gather` schedules every
+            # `arecall` and does not cancel the siblings when one raises, so the async lane made
+            # more backend calls than the sync lane for the same failing read.
+            settled = await asyncio.gather(
+                *(store.arecall(**self._recall_kwargs(scope, query)) for store in stores), return_exceptions=True
+            )
+            self._raise_read_failure([r for r in settled if isinstance(r, BaseException)])
+            records = self._records_from(stores, settled, tier, scope)
         elif tier is MemoryTier.SEMANTIC and self.manager is not None:
             records = await self._amanager_records(scope, query)
         else:
             return []
         return records[: query.limit] if query.limit else []
+
+    def _records_from(
+        self,
+        stores: Sequence["LearningStore"],
+        recalled: Sequence[Any],
+        tier: MemoryTier,
+        scope: Scope,
+    ) -> List[MemoryRecord]:
+        """Project what each store recalled, in binding order. Shared, so the halves cannot differ."""
+        return [
+            record for store, data in zip(stores, recalled) for record in self._store_records(store, tier, scope, data)
+        ]
+
+    @staticmethod
+    def _raise_read_failure(failures: Sequence[BaseException]) -> None:
+        """One failure out of a settled fan-out, chosen the same way the write path chooses.
+
+        A refusal wins over a transport error, so a read that is unanswerable reports *that* rather
+        than whichever backend happened to fail first. Nothing is wrapped: a read commits nothing,
+        so there is no receipt to carry and ``PartialWriteError`` would be a lie.
+        """
+        if not failures:
+            return
+        refusal = next((f for f in failures if isinstance(f, MemoryOperationError)), None)
+        raise refusal or failures[0]
 
     @staticmethod
     def _interleave(per_tier: List[List[MemoryRecord]]) -> List[MemoryRecord]:
@@ -563,16 +603,26 @@ class SeedMemoryProvider(MemoryProvider):
 
     def read(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         self._guard_read(scope, query)
-        per_tier = [self.read_tier(scope, tier, query) for tier in self._wanted_tiers(query)]
+        per_tier: List[List[MemoryRecord]] = []
+        failures: List[BaseException] = []
+        for tier in self._wanted_tiers(query):
+            try:
+                per_tier.append(self.read_tier(scope, tier, query))
+            except Exception as exc:  # noqa: PERF203 - per-tier isolation, matching `aread`
+                failures.append(exc)
+        self._raise_read_failure(failures)
         return self._slice(scope, query, self._interleave(per_tier))
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         self._guard_read(scope, query)
         # Gathered: the tiers are independent, and a manager without an async search still pays a
-        # thread hop per tier.
-        per_tier = list(
-            await asyncio.gather(*(self.aread_tier(scope, tier, query) for tier in self._wanted_tiers(query)))
+        # thread hop per tier. Settled like the store-level fan-out inside `aread_tier`, and like
+        # the sync half above -- the asymmetry compounds if it is fixed at only one nesting level.
+        settled = await asyncio.gather(
+            *(self.aread_tier(scope, tier, query) for tier in self._wanted_tiers(query)), return_exceptions=True
         )
+        self._raise_read_failure([r for r in settled if isinstance(r, BaseException)])
+        per_tier = [r for r in settled if not isinstance(r, BaseException)]
         return self._slice(scope, query, self._interleave(per_tier))
 
     # -- write ----------------------------------------------------------------
@@ -604,6 +654,17 @@ class SeedMemoryProvider(MemoryProvider):
         ``updated`` is captured by the caller *before* any suspension point and defaults to
         ``False`` for a store that does not expose the flag. Defaulting to ``True`` assumed success
         from a field whose entire purpose is not assuming it.
+
+        **With several stores in a tier, ``updated`` is their OR, and the number it produces is
+        "events the tier took", never "rows written".** No store-path receipt could mean the
+        latter: ``process`` folds a batch into the store's own shape, so even a single store
+        reporting ``was_updated`` may have written one row for three events. A store that
+        legitimately no-ops -- ``UserProfileStore`` outside ``LearningMode.ALWAYS``, say -- is
+        therefore invisible in the count, which is a real limitation and pinned as one: telling
+        "two of three stores took it" from "all three did" needs per-store granularity the
+        envelope does not have, and adding it is a ``WriteReceipt`` change both adapters share.
+        Requiring *every* store to report updated was the alternative and is worse: the ordinary
+        mixed-mode tier would then receipt a genuine write as ``accepted=0``.
         """
         return WriteReceipt(
             accepted=len(events) if updated else 0,
@@ -704,7 +765,7 @@ class SeedMemoryProvider(MemoryProvider):
                 failures.append(exc)
                 continue
             updated.append(bool(getattr(store, "was_updated", False)))
-        self._shape_store_failures(failures, any(updated))
+        self._shape_store_failures(failures, any(updated), tier, events)
         return self._store_receipt(any(updated), tier, events)
 
     async def awrite_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
@@ -726,25 +787,36 @@ class SeedMemoryProvider(MemoryProvider):
         # or one identical failure leaves the two halves with different stores written.
         results = await asyncio.gather(*(process(store) for store in stores), return_exceptions=True)
         updated = any(r is True for r in results)
-        self._shape_store_failures([r for r in results if isinstance(r, BaseException)], updated)
+        self._shape_store_failures([r for r in results if isinstance(r, BaseException)], updated, tier, events)
         return self._store_receipt(updated, tier, events)
 
-    @staticmethod
-    def _shape_store_failures(failures: Sequence[BaseException], committed_any: bool) -> None:
+    @classmethod
+    def _shape_store_failures(
+        cls,
+        failures: Sequence[BaseException],
+        committed_any: bool,
+        tier: MemoryTier,
+        events: Sequence[MemoryEvent],
+    ) -> None:
         """What a failed ``process`` becomes, decided once for both halves.
 
         Two rules, matching ``co_located._raise_write_failure`` because a caller retrying across
         providers cannot have them differ: a **refusal wins over a transport error** as the cause,
         and a refusal with nothing committed propagates **bare** -- once a sibling store in the tier
-        has taken the write it is a partial write like any other. The receipt is empty either way:
-        ``process`` mints no ids, so there is nothing for a retry to reuse.
+        has taken the write it is a partial write like any other.
+
+        The receipt is the **same one the success path would have built**. An empty
+        ``WriteReceipt()`` was the obvious thing to raise, since ``process`` mints no ids for a
+        retry to reuse -- but it also cleared ``tiers_written``, so a caller inspecting the error
+        could not tell that a sibling store had genuinely committed. Ids and destinations are
+        different questions, and only the first is unanswerable here.
         """
         if not failures:
             return
         refusal = next((f for f in failures if isinstance(f, MemoryOperationError)), None)
         if refusal is not None and not committed_any:
             raise refusal
-        raise PartialWriteError(WriteReceipt()) from (refusal or failures[0])
+        raise PartialWriteError(cls._store_receipt(committed_any, tier, events)) from (refusal or failures[0])
 
     @staticmethod
     def _reject_unstorable_scope(scope: Scope) -> None:  # noqa: D401
@@ -912,7 +984,7 @@ class SeedMemoryProvider(MemoryProvider):
         return await asyncio.to_thread(self.consolidate, scope, tiers)
 
 
-def _checked_stores(raw: Any) -> Optional[Dict[MemoryTier, Any]]:
+def _checked_stores(raw: Any) -> Optional[Dict[MemoryTier, "StoreBinding"]]:
     """Verify bound stores at build time, as ``checked_vector`` / ``checked_graph`` do next door.
 
     ``LearningStore`` is already ``runtime_checkable``, so this is the same one structural check --

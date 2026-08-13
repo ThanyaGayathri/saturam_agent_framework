@@ -4,6 +4,10 @@ Two kinds of test here, and the split matters. The first kind pins the table aga
 section 1's ratified mapping**, so a row cannot drift from the decision that produced it. The
 second exercises the import-time validator, because the table is read as settled everywhere else --
 by the time a bad row reaches a substrate it is a write in the wrong place, three frames down.
+
+The validator raises a plain ``ValueError`` and ``policy_for_tier`` raises ``MemoryOperationError``,
+and the tests assert that difference: a malformed table is a defect in the module, a non-tier
+argument is a bad request, and the error types say which.
 """
 
 from dataclasses import replace
@@ -141,11 +145,24 @@ def test_the_real_table_passes_its_own_validator():
     _validate_policy(dict(TIER_POLICY))
 
 
+def test_a_malformed_table_is_not_reported_as_a_request_refusal():
+    """`MemoryOperationError` **is** a `ValueError`, so every `pytest.raises(ValueError)` below
+    would pass against the old type too. This is the assertion that can tell them apart: a bad
+    table literal is a defect in this module, not a caller asking for something unserveable."""
+    table = dict(TIER_POLICY)
+    del table[MemoryTier.PROCEDURAL]
+
+    with pytest.raises(ValueError) as exc:
+        _validate_policy(table)
+
+    assert not isinstance(exc.value, MemoryOperationError)
+
+
 def test_a_tier_with_no_row_is_refused():
     table = dict(TIER_POLICY)
     del table[MemoryTier.PROCEDURAL]
 
-    with pytest.raises(MemoryOperationError, match="no row for"):
+    with pytest.raises(ValueError, match="no row for"):
         _validate_policy(table)
 
 
@@ -154,29 +171,29 @@ def test_a_row_filed_under_the_wrong_tier_is_refused():
     table = dict(TIER_POLICY)
     table[MemoryTier.PROCEDURAL] = TIER_POLICY[MemoryTier.SEMANTIC]
 
-    with pytest.raises(MemoryOperationError, match="carries tier"):
+    with pytest.raises(ValueError, match="carries tier"):
         _validate_policy(table)
 
 
 def test_a_substrate_name_no_port_answers_to_is_refused():
-    with pytest.raises(MemoryOperationError, match="unknown substrate"):
+    with pytest.raises(ValueError, match="unknown substrate"):
         _validate_policy(_table(**{MemoryTier.PROCEDURAL: {"substrates": frozenset({"redis"})}}))
 
 
 def test_a_graph_routed_tier_without_a_write_shape_is_refused():
     """`_graph_write` dispatches on the shape, so a missing one writes nothing and reports success."""
-    with pytest.raises(MemoryOperationError, match="graph shape exactly when"):
+    with pytest.raises(ValueError, match="graph shape exactly when"):
         _validate_policy(_table(**{MemoryTier.SEMANTIC: {"graph_shape": None}}))
 
 
 def test_a_write_shape_on_a_tier_the_graph_does_not_store_is_refused():
     """The other direction of the same rule: a shape nobody will ever apply."""
-    with pytest.raises(MemoryOperationError, match="graph shape exactly when"):
+    with pytest.raises(ValueError, match="graph shape exactly when"):
         _validate_policy(_table(**{MemoryTier.PROCEDURAL: {"graph_shape": GraphWriteShape.FACT}}))
 
 
 def test_a_tier_that_consolidates_but_persists_nowhere_is_refused():
-    with pytest.raises(MemoryOperationError, match="persists nowhere"):
+    with pytest.raises(ValueError, match="persists nowhere"):
         _validate_policy(_table(**{MemoryTier.WORKING: {"consolidates_from": True}}))
 
 
@@ -185,7 +202,7 @@ def test_a_tier_that_consolidates_but_persists_nowhere_is_refused():
 )
 def test_two_tiers_claiming_a_role_only_one_can_hold_is_refused(flag, message):
     """`next(...)` picks the first, so a second claimant is silently ignored rather than wrong-and-loud."""
-    with pytest.raises(MemoryOperationError, match=message):
+    with pytest.raises(ValueError, match=message):
         _validate_policy(_table(**{MemoryTier.PROCEDURAL: {flag: True}}))
 
 
@@ -193,7 +210,7 @@ def test_two_tiers_claiming_a_role_only_one_can_hold_is_refused(flag, message):
     "flag,message", [("is_write_default", "default write target"), ("consolidates_from", "source")]
 )
 def test_no_tier_claiming_a_role_is_refused(flag, message):
-    with pytest.raises(MemoryOperationError, match=message):
+    with pytest.raises(ValueError, match=message):
         _validate_policy(_table(**{DEFAULT_WRITE_TIER: {flag: False}}))
 
 
@@ -203,5 +220,5 @@ def test_a_second_consolidation_source_is_refused_rather_than_silently_starved()
     Until that decision exists, `consolidate` scans a single tier, so a second source added here
     would simply never be read.
     """
-    with pytest.raises(MemoryOperationError, match="consolidation source"):
+    with pytest.raises(ValueError, match="consolidation source"):
         _validate_policy(_table(**{MemoryTier.PROCEDURAL: {"consolidates_from": True}}))

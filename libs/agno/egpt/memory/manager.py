@@ -692,7 +692,9 @@ class MemoryManager:
             if not query:
                 raise ValueError("Query is required for agentic search")
 
-            return self._search_user_memories_agentic(user_id=user_id, query=query, limit=limit)
+            return self._search_user_memories_agentic(
+                user_id=user_id, query=query, limit=limit, memories=memories.get(user_id, [])
+            )
 
         elif retrieval_method == "first_n":
             # Selected from the rows already in hand. `_get_first_n_memories` re-reads the db, so
@@ -742,13 +744,19 @@ class MemoryManager:
             if not query:
                 raise ValueError("Query is required for agentic search")
 
-            return await self._asearch_user_memories_agentic(user_id=user_id, query=query, limit=limit)
+            return await self._asearch_user_memories_agentic(
+                user_id=user_id, query=query, limit=limit, memories=memories.get(user_id, [])
+            )
 
         elif retrieval_method == "first_n":
             return self._first_n(memories.get(user_id, []), limit=limit)
 
         else:  # Default to last_n
             return self._last_n(memories.get(user_id, []), limit=limit)
+
+    def _memories_for(self, user_id: str) -> List[UserMemory]:
+        """One user's rows, read from the db. The fetch both search halves start from."""
+        return (self.read_from_db(user_id=user_id) or {}).get(user_id, [])
 
     def _get_response_format(self) -> Union[Dict[str, Any], Type[BaseModel]]:
         model = self.get_model()
@@ -766,18 +774,25 @@ class MemoryManager:
         else:
             return {"type": "json_object"}
 
-    def _search_user_memories_agentic(self, user_id: str, query: str, limit: Optional[int] = None) -> List[UserMemory]:
-        """Search through user memories using agentic search."""
-        memories = self.read_from_db(user_id=user_id)
-        if memories is None:
-            memories = {}
+    def _search_user_memories_agentic(
+        self,
+        user_id: str,
+        query: str,
+        limit: Optional[int] = None,
+        memories: Optional[List[UserMemory]] = None,
+    ) -> List[UserMemory]:
+        """Search through user memories using agentic search.
 
-        if not memories:
+        `memories` is the caller's already-fetched rows. `search_user_memories` reads them before
+        dispatching, so re-reading here made every agentic search two round trips -- the same
+        redundant fetch the `first_n` / `last_n` branches had. Left optional for a direct caller.
+        """
+        user_memories = memories if memories is not None else self._memories_for(user_id)
+        if not user_memories:
             return []
 
         model = self.get_model()
         response_format = self._get_response_format()
-        user_memories: List[UserMemory] = memories[user_id]
 
         log_debug("Searching for memories", center=True)
         response = model.response(
@@ -788,17 +803,22 @@ class MemoryManager:
         return self._agentic_results(model, response, user_memories, limit)
 
     async def _asearch_user_memories_agentic(
-        self, user_id: str, query: str, limit: Optional[int] = None
+        self,
+        user_id: str,
+        query: str,
+        limit: Optional[int] = None,
+        memories: Optional[List[UserMemory]] = None,
     ) -> List[UserMemory]:
         """Async variant of `_search_user_memories_agentic`. The prompt and the parse are the
         shared helpers below, so `aresponse` against `response` is the only difference."""
-        memories = await self.aread_from_db(user_id=user_id)
-        if not memories:
+        user_memories = (
+            memories if memories is not None else (await self.aread_from_db(user_id=user_id) or {}).get(user_id, [])
+        )
+        if not user_memories:
             return []
 
         model = self.get_model()
         response_format = self._get_response_format()
-        user_memories: List[UserMemory] = memories[user_id]
 
         log_debug("Searching for memories", center=True)
         response = await model.aresponse(

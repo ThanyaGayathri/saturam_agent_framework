@@ -133,52 +133,46 @@ TIER_POLICY: Dict[MemoryTier, TierPolicy] = {
 
 def _validate_policy(policy: Dict[MemoryTier, TierPolicy]) -> None:
     """Check the table at import: by the time a bad row reaches a substrate it is a write in the
-    wrong place, three frames down."""
+    wrong place, three frames down.
+
+    Plain ``ValueError``, deliberately. ``MemoryOperationError`` is documented as a *per-request*
+    refusal by a correctly configured provider and ``MemoryProviderConfigError`` as a deployment
+    fault; a malformed table literal is neither -- it is a defect in this module, raised before any
+    provider exists. ``policy_for_tier`` below keeps ``MemoryOperationError``, because a caller
+    passing a non-tier **is** a bad request.
+    """
     missing = [tier.value for tier in MemoryTier if tier not in policy]
     if missing:
-        raise MemoryOperationError(
+        raise ValueError(
             f"TIER_POLICY has no row for {missing}. A new tier must be added to the table in the "
-            "same change that adds the enum member.",
-            field_name="tier",
+            "same change that adds the enum member."
         )
     for tier, row in policy.items():
         if row.tier is not tier:
-            raise MemoryOperationError(f"TIER_POLICY[{tier.value!r}] carries tier {row.tier!r}.", field_name="tier")
+            raise ValueError(f"TIER_POLICY[{tier.value!r}] carries tier {row.tier!r}.")
         unknown = sorted(row.substrates - {"vector", "graph"})
         if unknown:
-            raise MemoryOperationError(
-                f"TIER_POLICY[{tier.value!r}] routes to unknown substrate(s) {unknown}.", field_name="substrates"
-            )
+            raise ValueError(f"TIER_POLICY[{tier.value!r}] routes to unknown substrate(s) {unknown}.")
         # Both directions: no shape on a graph-routed tier silently writes nothing, and a shape on
         # a tier the graph does not store is one nobody applies.
         if (row.graph_shape is not None) != ("graph" in row.substrates):
-            raise MemoryOperationError(
+            raise ValueError(
                 f"TIER_POLICY[{tier.value!r}] has graph_shape={row.graph_shape!r} but substrates "
-                f"{sorted(row.substrates)}: a tier has a graph shape exactly when it routes to the graph.",
-                field_name="graph_shape",
+                f"{sorted(row.substrates)}: a tier has a graph shape exactly when it routes to the graph."
             )
         if (row.consolidates_from or row.consolidates_into) and not row.substrates:
-            raise MemoryOperationError(
-                f"TIER_POLICY[{tier.value!r}] takes part in consolidation but persists nowhere.",
-                field_name="substrates",
-            )
+            raise ValueError(f"TIER_POLICY[{tier.value!r}] takes part in consolidation but persists nowhere.")
     defaults = [t.value for t, row in policy.items() if row.is_write_default]
     if len(defaults) != 1:
-        raise MemoryOperationError(
-            f"Exactly one tier is the default write target; the table names {defaults}.", field_name="tier"
-        )
+        raise ValueError(f"Exactly one tier is the default write target; the table names {defaults}.")
     targets = [t.value for t, row in policy.items() if row.consolidates_into]
     if len(targets) != 1:
-        raise MemoryOperationError(
-            f"Exactly one tier is the consolidation target; the table names {targets}.", field_name="tier"
-        )
+        raise ValueError(f"Exactly one tier is the consolidation target; the table names {targets}.")
     # Exactly one, not "at least one": two tiers sharing one bounded pass is the scheduler's
     # question (SM-L1 #122), and a second source added without it starves whichever came second.
     sources = [t.value for t, row in policy.items() if row.consolidates_from]
     if len(sources) != 1:
-        raise MemoryOperationError(
-            f"Exactly one tier is the consolidation source; the table names {sources}.", field_name="tier"
-        )
+        raise ValueError(f"Exactly one tier is the consolidation source; the table names {sources}.")
 
 
 _validate_policy(TIER_POLICY)

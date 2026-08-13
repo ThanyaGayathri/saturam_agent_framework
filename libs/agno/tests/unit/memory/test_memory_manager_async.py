@@ -411,14 +411,32 @@ async def test_an_agentic_search_calls_the_model_on_the_async_lane():
     assert [m.memory for m in found] == ["second"]
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("method", ["last_n", "first_n", None])
-async def test_neither_search_half_reads_the_db_twice_for_one_query(method):
-    """Review finding 4: the async conversion removed a redundant re-fetch on one lane only.
+class OneShotModel:
+    """A model that answers an agentic search without a network, on either lane."""
 
-    `search_user_memories` reads the rows, then used to call `_get_last_n_memories`, which reads
-    them again -- so the two halves cost different amounts for the same answer. Asserted on the db
-    call count, because the returned memories are identical either way.
+    supports_native_structured_outputs = False
+    supports_json_schema_outputs = False
+
+    class _Response:
+        content = '{"memory_ids": ["m1"]}'
+        parsed = None
+
+    def response(self, messages, response_format=None):
+        return self._Response()
+
+    async def aresponse(self, messages, response_format=None):
+        return self._Response()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["last_n", "first_n", "agentic", None])
+async def test_neither_search_half_reads_the_db_twice_for_one_query(method):
+    """Review findings 4 (round 1) and 5 (round 2): each retrieval branch re-read the db.
+
+    `search_user_memories` reads the rows, then dispatched to a helper that read them again -- so
+    one query cost two round trips. `agentic` is in the parametrize because it was the branch left
+    behind when the other two were fixed, and its absence is what let that stand. Asserted on the
+    db call count, since the returned memories are identical either way.
     """
     from unittest.mock import MagicMock
 
@@ -429,9 +447,10 @@ async def test_neither_search_half_reads_the_db_twice_for_one_query(method):
     async_manager = MemoryManager(db=async_db)
     await async_manager.aadd_user_memory(UserMemory(memory="a", memory_id="m1"), user_id="u")
     async_db.calls.clear()
+    sync_manager.model = async_manager.model = OneShotModel()
 
-    sync_manager.search_user_memories(retrieval_method=method, user_id="u")
-    await async_manager.asearch_user_memories(retrieval_method=method, user_id="u")
+    sync_manager.search_user_memories(query="a", retrieval_method=method, user_id="u")
+    await async_manager.asearch_user_memories(query="a", retrieval_method=method, user_id="u")
 
     assert sync_db.get_user_memories.call_count == 1
     assert len([c for c in async_db.calls if c[0] == "get_user_memories"]) == 1
