@@ -338,12 +338,26 @@ class TestDbTableNameKeys:
 
         assert set(TABLE_SUFFIXES) == set(DB_TABLE_NAME_KEYS)
 
-    def test_components_router_uses_override_keys_whitelist(self):
-        """The components router must whitelist with DB_CONFIG_OVERRIDE_KEYS
-        (which includes table_prefix), not the narrower DB_TABLE_NAME_KEYS."""
+    def test_db_reference_resolution_uses_override_keys_whitelist(self):
+        """Write-path db resolution must whitelist with DB_CONFIG_OVERRIDE_KEYS
+        (which includes table_prefix), not the narrower DB_TABLE_NAME_KEYS.
+
+        The function moved out of the components router into ``egpt.db.utils`` in EGPT-2.8, so
+        the definition importer runs the same resolution the API does; the guard follows it.
+        Now that two callers share it, narrowing the whitelist would silently drop a
+        caller-supplied ``table_prefix`` on both the HTTP write path and every seeded template.
+        """
         import inspect
 
+        from egpt.db import utils as db_utils
+
+        source = inspect.getsource(db_utils.resolve_db_reference)
+        assert "DB_CONFIG_OVERRIDE_KEYS" in source
+
+    def test_the_components_router_still_routes_through_it(self):
+        """The router keeps its private name; only the implementation moved."""
+        from egpt.db.utils import resolve_db_reference
         from egpt.os.routers.components import components as components_module
 
-        source = inspect.getsource(components_module._resolve_db_in_config)
-        assert "DB_CONFIG_OVERRIDE_KEYS" in source
+        config = {"db": None, "keep": 1}
+        assert components_module._resolve_db_in_config(config, None) == resolve_db_reference({"keep": 1})

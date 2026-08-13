@@ -19,6 +19,7 @@ import pytest
 from sqlalchemy import text
 
 from egpt.db.base import ComponentType
+from egpt.db.component_scope import TENANT_COLUMN, TENANT_SCOPED_COMPONENT_TABLES
 from egpt.db.migrations.manager import MigrationManager
 from egpt.db.migrations.versions.v2_6_0 import COMPONENT_TABLE_TYPES
 
@@ -27,6 +28,12 @@ TENANT_B = "tenant-b"
 
 COMPONENT_TABLES = ("egpt_components", "egpt_component_configs", "egpt_component_links")
 
+# Every tenant-scoped component table, derived from the single declaration in
+# ``egpt.db.component_scope`` so this list cannot fall behind it. Wider than COMPONENT_TABLES
+# above, which is the set the v2_6_0 migration touches -- ``component_audit`` was born with a
+# tenant_id column and is therefore not part of that migration but is part of the contract.
+ALL_TENANT_SCOPED_TABLES = tuple(f"egpt_{t}" for t in TENANT_SCOPED_COMPONENT_TABLES)
+
 EXPECTED_INDEXES = {
     "egpt_components": {"idx_egpt_components_tenant_id_component_id"},
     "egpt_component_configs": {"idx_egpt_component_configs_tenant_id_component_id"},
@@ -34,6 +41,7 @@ EXPECTED_INDEXES = {
         "idx_egpt_component_links_tenant_id_parent_component_id",
         "idx_egpt_component_links_tenant_id_child_component_id",
     },
+    "egpt_component_audit": {"idx_egpt_component_audit_tenant_id_component_id"},
 }
 
 
@@ -84,19 +92,47 @@ def _create_component(db, component_id, tenant_id, *, stage="draft", links=None,
 
 
 def test_component_tables_have_tenant_id_column(sqlite_db):
-    """Every component table carries a tenant_id column once created."""
+    """Every component table carries a tenant_id column once created.
+
+    This is what "tenant_id is a recognized filterable column" means for components (EGPT-2.7):
+    a real, declared column on every one of the four tables, not a key inside the config JSON
+    and not a value the query layer has to interpret. Component queries take fixed typed
+    parameters rather than filter expressions, so there is no ``allowed_columns`` whitelist in
+    the picture -- ``db/filter_converter.py`` is trace-only and the traces table has no
+    tenant_id. The DDL is the whitelist, and this test is what pins it.
+    """
     _create_component(sqlite_db, "agent-1", TENANT_A)
 
-    for table_name in COMPONENT_TABLES:
-        assert "tenant_id" in _columns(sqlite_db, table_name), f"{table_name} is missing tenant_id"
+    for table_name in ALL_TENANT_SCOPED_TABLES:
+        assert TENANT_COLUMN in _columns(sqlite_db, table_name), f"{table_name} is missing {TENANT_COLUMN}"
 
 
 def test_component_tables_have_tenant_leading_composite_indexes(sqlite_db):
     """Tenant-scoped lookups are backed by composite indexes with tenant_id leading."""
     _create_component(sqlite_db, "agent-1", TENANT_A)
 
+    assert set(EXPECTED_INDEXES) == set(ALL_TENANT_SCOPED_TABLES), (
+        "EXPECTED_INDEXES has fallen behind TENANT_SCOPED_COMPONENT_TABLES; a tenant-scoped "
+        "table with no expected index would be silently unchecked"
+    )
     for table_name, expected in EXPECTED_INDEXES.items():
         assert expected.issubset(_indexes(sqlite_db, table_name)), f"{table_name} is missing {expected}"
+
+
+def test_tenant_id_leads_every_component_composite_index(sqlite_db):
+    """tenant_id is the *first* column of each index, not merely present in one.
+
+    A ``(component_id, tenant_id)`` index is unusable for "everything in this tenant" and turns
+    a scoped list into a scan; the ordering is a correctness property of the scoping design, not
+    a tuning detail.
+    """
+    _create_component(sqlite_db, "agent-1", TENANT_A)
+
+    with sqlite_db.Session() as sess:
+        for table_name, expected in EXPECTED_INDEXES.items():
+            for index_name in expected:
+                columns = [row[2] for row in sess.execute(text(f"PRAGMA index_info({index_name})")).fetchall()]
+                assert columns[0] == TENANT_COLUMN, f"{index_name} on {table_name} leads with {columns[0]}"
 
 
 def test_tenant_id_is_nullable(sqlite_db):
@@ -149,7 +185,7 @@ def test_get_component_without_tenant_applies_no_filter(sqlite_db):
     """tenant_id=None means "no tenant predicate", which keeps existing callers working."""
     _create_component(sqlite_db, "agent-1", TENANT_A)
 
-    assert sqlite_db.get_component("agent-1") is not None
+    assert sqlite_db.get_component("agent-1", tenant_id=None) is not None
 
 
 def test_list_components_scopes_both_rows_and_total_count(sqlite_db):
@@ -166,7 +202,7 @@ def test_list_components_scopes_both_rows_and_total_count(sqlite_db):
     assert {row["component_id"] for row in rows_b} == {"b-1"}
     assert total_b == 1
 
-    rows_all, total_all = sqlite_db.list_components()
+    rows_all, total_all = sqlite_db.list_components(tenant_id=None)
     assert total_all == 3
     assert len(rows_all) == 3
 
@@ -366,15 +402,15 @@ async def test_migration_adds_tenant_id_and_preserves_existing_rows(sqlite_db):
         assert EXPECTED_INDEXES[table_name].issubset(_indexes(sqlite_db, table_name))
 
     # Existing version / stage / link data survived, with a NULL tenant.
-    component = sqlite_db.get_component("parent")
+    component = sqlite_db.get_component("parent", tenant_id=None)
     assert component is not None
     assert component["current_version"] == 1
     assert component["tenant_id"] is None
 
-    config = sqlite_db.get_config("parent", version=1)
+    config = sqlite_db.get_config("parent", version=1, tenant_id=None)
     assert config["stage"] == "published"
 
-    links = sqlite_db.get_links("parent", 1)
+    links = sqlite_db.get_links("parent", 1, tenant_id=None)
     assert len(links) == 1
     assert links[0]["child_component_id"] == "child"
 

@@ -957,8 +957,23 @@ class Agent:
         return _storage.to_dict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], registry: Optional[Registry] = None) -> "Agent":
-        return _storage.from_dict(cls, data=data, registry=registry)
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        registry: Optional[Registry] = None,
+        *,
+        require_endpoint: bool = True,
+    ) -> "Agent":
+        """Rebuild an Agent from its serialized form.
+
+        ``require_endpoint`` refuses a restore whose model is a bare OpenAI-schema proxy with no
+        endpoint, because the rebuilt client would reach public OpenAI under this process's key
+        (see ``models/utils.proxy_is_missing_its_endpoint``). Pass ``False`` for the
+        restore-then-patch pattern -- ``Agent.from_dict(cfg, require_endpoint=False)`` followed by
+        setting ``agent.model.base_url`` -- which the strict default otherwise makes impossible,
+        since the refusal fires inside ``from_dict`` before a caller can patch anything.
+        """
+        return _storage.from_dict(cls, data=data, registry=registry, require_endpoint=require_endpoint)
 
     @classmethod
     def component_spec(cls, *, registry: Optional[Registry] = None) -> "ComponentSpec":
@@ -976,8 +991,21 @@ class Agent:
         stage: str = "published",
         label: Optional[str] = None,
         notes: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[int]:
-        return _storage.save(self, db=db, stage=stage, label=label, notes=notes)
+        """Persist this agent as a DB-defined component.
+
+        ``tenant_id`` names the tenant that owns the written rows. **It defaults to ``None``,
+        which writes unscoped** -- correct for a single-tenant deployment, and what this method
+        did before the parameter existed, but on a multi-tenant database an unscoped write
+        updates a row belonging to any tenant that happens to share this id, leaving that
+        tenant's ``tenant_id`` in place so their own scoped read then serves this config.
+
+        A db built with ``require_tenant_id`` (which ``EgptOS`` sets whenever a tenant claim is
+        configured) refuses the unscoped call outright. That flag, not this default, is the
+        control -- see ``docs/tenancy.md`` section 6.
+        """
+        return _storage.save(self, db=db, stage=stage, label=label, notes=notes, tenant_id=tenant_id)
 
     @classmethod
     def load(
@@ -989,16 +1017,40 @@ class Agent:
         label: Optional[str] = None,
         version: Optional[int] = None,
         tenant_id: Optional[str] = None,
+        require_endpoint: bool = True,
     ) -> Optional["Agent"]:
-        return _storage.load(cls, id=id, db=db, registry=registry, label=label, version=version, tenant_id=tenant_id)
+        """Load an agent by id.
+
+        ``require_endpoint`` -- see ``Agent.from_dict``. Exposed here for symmetry with
+        ``Team.load`` and ``get_agent_by_id``, so the opt-out the refusal message recommends is
+        reachable from every public read path rather than only some of them.
+        """
+        return _storage.load(
+            cls,
+            id=id,
+            db=db,
+            registry=registry,
+            label=label,
+            version=version,
+            tenant_id=tenant_id,
+            require_endpoint=require_endpoint,
+        )
 
     def delete(
         self,
         *,
         db: Optional["BaseDb"] = None,
         hard_delete: bool = False,
+        tenant_id: Optional[str] = None,
     ) -> bool:
-        return _storage.delete(self, db=db, hard_delete=hard_delete)
+        """Delete this agent's component rows.
+
+        ``tenant_id`` scopes the delete. **It defaults to ``None``, which is unscoped** and will
+        therefore delete a matching row belonging to another tenant. As with ``save``, the
+        control is ``require_tenant_id`` on the db rather than this default -- see
+        ``docs/tenancy.md`` section 6.
+        """
+        return _storage.delete(self, db=db, hard_delete=hard_delete, tenant_id=tenant_id)
 
     def get_run_output(
         self, run_id: str, session_id: Optional[str] = None, user_id: Optional[str] = None
@@ -1762,6 +1814,8 @@ def get_agent_by_id(
     label: Optional[str] = None,
     registry: Optional["Registry"] = None,
     tenant_id: Optional[str] = None,
+    *,
+    require_endpoint: bool = True,
 ) -> Optional["Agent"]:
     """
     Get an Agent by id from the database (new entities/configs schema).
@@ -1814,7 +1868,7 @@ def get_agent_by_id(
             component_id=id,
         )
 
-        agent = Agent.from_dict(cfg, registry=registry)
+        agent = Agent.from_dict(cfg, registry=registry, require_endpoint=require_endpoint)
         agent.id = id
 
         return agent

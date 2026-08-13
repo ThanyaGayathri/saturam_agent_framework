@@ -2,27 +2,32 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Response
 from fastapi.responses import JSONResponse
 
+from egpt.components.io import import_component as import_bundle
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.db.base import ComponentType as DbComponentType
 from egpt.db.component_audit import COMPONENT_AUDIT_ACTIONS
-from egpt.db.utils import DB_CONFIG_OVERRIDE_KEYS, DB_TABLE_NAME_KEYS
+from egpt.db.utils import resolve_db_reference
 from egpt.os.actor import get_actor
 from egpt.os.auth import get_authentication_dependency, require_route_scopes
 from egpt.os.routers.components.validation import config_validation_response, validate_component_config
 from egpt.os.schema import (
     BadRequestResponse,
     ComponentAuditResponse,
+    ComponentBundle,
     ComponentConfigResponse,
     ComponentCreate,
+    ComponentImportRequest,
+    ComponentImportResponse,
     ComponentResponse,
     ComponentType,
     ComponentUpdate,
     ConfigCreate,
     ConfigUpdate,
     ConfigValidationErrorResponse,
+    ImportResultItem,
     InternalServerErrorResponse,
     NotFoundResponse,
     PaginatedResponse,
@@ -33,6 +38,8 @@ from egpt.os.schema import (
 from egpt.os.settings import EgptServingSettings
 from egpt.os.tenancy import get_tenant_id, require_tenant_id
 from egpt.registry import Registry
+from egpt.registry.io import ComponentIdConflictError, ComponentIOError, ComponentSoftDeletedError
+from egpt.registry.io import export_component as export_bundle
 from egpt.registry.policy import CapabilityPolicy, resolve_policy
 from egpt.registry.schema import ConfigValidationError
 from egpt.utils.log import log_error
@@ -46,72 +53,13 @@ def _resolve_db_in_config(
     os_db: BaseDb,
     registry: Optional[Registry] = None,
 ) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Resolve a config's db reference against the OS db and the registry.
+
+    The implementation moved to ``egpt.db.utils`` in EGPT-2.8 so the definition importer can
+    run the identical resolution before validating. This wrapper stays because the handlers
+    below and their tests call it by this name.
     """
-    Resolve db reference in config by looking up in registry or OS db.
-
-    If config contains a db dict with an id, this function will:
-    1. Check if the id matches the OS db
-    2. Check if the id exists in the registry
-    3. Merge the resolved db's connection details with the caller-provided
-       fields, with caller-provided fields (e.g. custom table names) taking
-       precedence. This preserves user-specified overrides like
-       ``session_table`` / ``memory_table`` while still reusing the resolved
-       db's connection configuration.
-
-    Args:
-        config: The config dict that may contain a db reference
-        os_db: The OS database instance
-        registry: Optional registry containing registered databases
-
-    Returns:
-        A ``(config, unresolved_db_id)`` pair. ``unresolved_db_id`` is the id the config
-        referenced when nothing could be resolved for it, and ``None`` otherwise. The caller
-        turns that into a field-level validation error -- this used to be logged and
-        forgotten, which let a config naming a db that does not exist be persisted and then
-        silently lose its db at hydration time.
-    """
-    unresolved_db_id: Optional[str] = None
-    component_db = config.get("db")
-    if component_db is not None and isinstance(component_db, dict):
-        component_db_id = component_db.get("id")
-        if component_db_id is not None:
-            resolved_db = None
-            # First check if it matches the OS db
-            if component_db_id == os_db.id:
-                resolved_db = os_db
-            # Then check the registry
-            elif registry is not None:
-                resolved_db = registry.get_db(component_db_id)
-
-            # Merge resolved db with caller-provided table-naming overrides.
-            # Connection-defining fields (type, db_url, db_file, db_schema,
-            # id, ...) always come from the resolved db so the caller can't
-            # redirect a referenced db to a different backend. Only the
-            # whitelisted table-naming keys (per-table names + table_prefix)
-            # are taken from the caller.
-            if resolved_db is not None:
-                resolved_dict = resolved_db.to_dict()
-                table_overrides = {key: component_db[key] for key in DB_CONFIG_OVERRIDE_KEYS if key in component_db}
-                merged = {**resolved_dict, **table_overrides}
-                # If the caller changes table_prefix, drop the resolved db's
-                # concrete per-table names that the caller did NOT explicitly
-                # override. Otherwise those inherited names would shadow the
-                # new prefix (explicit table name > prefixed default), leaving
-                # the prefix silently ineffective.
-                new_prefix = table_overrides.get("table_prefix")
-                if new_prefix is not None and new_prefix != resolved_dict.get("table_prefix"):
-                    for key in DB_TABLE_NAME_KEYS:
-                        if key not in table_overrides:
-                            merged.pop(key, None)
-                config["db"] = merged
-            else:
-                unresolved_db_id = component_db_id
-                log_error(f"Could not resolve db with id: {component_db_id}")
-    elif component_db is None and "db" in config:
-        # Explicitly set to None, remove the key
-        config.pop("db", None)
-
-    return config, unresolved_db_id
+    return resolve_db_reference(config, os_db=os_db, registry=registry)
 
 
 def get_components_router(
@@ -764,6 +712,120 @@ def attach_routes(
             raise
         except Exception as e:
             log_error(f"Error listing component audit: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+    @router.get(
+        "/components/{component_id}/export",
+        response_model=ComponentBundle,
+        response_model_exclude_none=True,
+        status_code=200,
+        operation_id="export_component",
+        summary="Export Component",
+        description=(
+            "Export a component definition as a portable JSON bundle, with the components it "
+            "depends on. Connection secrets are always removed; see the `redacted` field."
+        ),
+    )
+    async def export_component(
+        response: Response,
+        component_id: str = Path(description="Component ID"),
+        version: Optional[int] = Query(None, description="Specific version. Defaults to the current one."),
+        label: Optional[str] = Query(None, description="Labelled version. Ignored when version is given."),
+        include_dependencies: bool = Query(True, description="Carry the members/steps this component needs"),
+        tenant_id: Optional[str] = Depends(get_tenant_id),
+    ) -> ComponentBundle:
+        """Export a definition.
+
+        There is deliberately no ``include_secrets`` here, though the library and the seed CLI
+        both offer one. An operator running the CLI already holds the DSN they would be asking
+        for; an HTTP caller holding `components:read` does not, and a read scope should not be
+        a way to extract the database password out of a stored config.
+        """
+        try:
+            _require_component(component_id, tenant_id)
+            document = export_bundle(
+                db,
+                component_id,
+                version=version,
+                label=label,
+                tenant_id=tenant_id,
+                include_dependencies=include_dependencies,
+            )
+            response.headers["Content-Disposition"] = f'attachment; filename="{component_id}.egpt.json"'
+            return ComponentBundle(**document)
+        except HTTPException:
+            raise
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            log_error(f"Error exporting component {component_id}: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+    @router.post(
+        "/components/import",
+        response_model=ComponentImportResponse,
+        response_model_exclude_none=True,
+        status_code=201,
+        operation_id="import_components",
+        responses={422: {"description": "Config Validation Error", "model": ConfigValidationErrorResponse}},
+        summary="Import Components",
+        description=(
+            "Import a portable definition bundle into the caller's tenant. Every config is "
+            "validated before anything is written, so a bundle that fails validation leaves "
+            "nothing behind."
+        ),
+    )
+    async def import_components(
+        body: ComponentImportRequest,
+        tenant_id: Optional[str] = Depends(get_tenant_id),
+        actor: Optional[str] = Depends(get_actor),
+    ) -> Union[ComponentImportResponse, JSONResponse]:
+        try:
+            results = import_bundle(
+                db,
+                body.document,
+                tenant_id=tenant_id,
+                registry=registry,
+                policy=policy,
+                on_conflict=body.on_conflict,
+                id_map=body.id_map,
+                id_prefix=body.id_prefix,
+                new_component_id=body.new_component_id,
+                db_id=body.db_id,
+                drop_db=body.drop_db,
+                stage=body.stage,
+                actor=actor,
+            )
+
+            # Every id the import touched, not only the ones it wrote: publishing moves
+            # current_version, and a cached version=None row would keep serving the old config
+            # until the TTL. A too-wide eviction only costs a re-read.
+            for result in results:
+                _evict_from_hydration_cache(result.component_id)
+
+            actions = [result.action for result in results]
+            return ComponentImportResponse(
+                results=[ImportResultItem(**vars(result)) for result in results],
+                created=actions.count("created"),
+                versioned=actions.count("new_version"),
+                published=actions.count("published"),
+                unchanged=actions.count("unchanged") + actions.count("metadata_updated"),
+                skipped=actions.count("skipped"),
+            )
+        # Must precede `except ValueError`, exactly as on the write routes above:
+        # ConfigValidationError subclasses it and the field-level detail would flatten into a
+        # plain 400 string. The two ComponentIOError subclasses below must precede their own
+        # base class for the same reason -- they are the 409s.
+        except ConfigValidationError as e:
+            return config_validation_response(e)
+        except (ComponentIdConflictError, ComponentSoftDeletedError) as e:
+            raise HTTPException(status_code=409, detail=str(e))
+        except ComponentIOError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            log_error(f"Error importing components: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error")
 
     return router

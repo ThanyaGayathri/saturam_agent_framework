@@ -1,0 +1,129 @@
+{
+  "components": [
+    {
+      "component_id": "support-agent",
+      "component_type": "agent",
+      "config": {
+        "add_search_knowledge_instructions": true,
+        "description": "Answers customer questions about the product.",
+        "id": "support-agent",
+        "instructions": [
+          "Answer only from the information you are given.",
+          "If you do not know the answer, say so and offer to escalate."
+        ],
+        "markdown": true,
+        "model": {
+          "id": "gpt-5.5",
+          "name": "OpenAIResponses",
+          "provider": "OpenAI"
+        },
+        "name": "Support Agent",
+        "num_history_runs": 3,
+        "schema_version": 1
+      },
+      "description": "Answers customer questions about the product.",
+      "label": null,
+      "links": [],
+      "metadata": null,
+      "name": "Support Agent",
+      "notes": null,
+      "stage": "published"
+    },
+    {
+      "component_id": "research-agent",
+      "component_type": "agent",
+      "config": {
+        "add_history_to_context": true,
+        "add_search_knowledge_instructions": true,
+        "db": {
+          "db_schema": "ai",
+          "id": "os-db",
+          "type": "postgres"
+        },
+        "description": "Gathers background material for the support team.",
+        "id": "research-agent",
+        "instructions": [
+          "Summarize what you find and cite where each fact came from."
+        ],
+        "markdown": true,
+        "model": {
+          "id": "gpt-5.5",
+          "name": "OpenAIResponses",
+          "provider": "OpenAI"
+        },
+        "name": "Research Agent",
+        "num_history_runs": 3,
+        "schema_version": 1
+      },
+      "description": "Gathers background material for the support team.",
+      "label": null,
+      "links": [],
+      "metadata": null,
+      "name": "Research Agent",
+      "notes": null,
+      "stage": "published"
+    },
+    {
+      "component_id": "support-team",
+      "component_type": "team",
+      "config": {
+        "description": "Answers customer questions, researching first when it needs to.",
+        "id": "support-team",
+        "instructions": [
+          "Route product questions to the support agent and open questions to research."
+        ],
+        "markdown": true,
+        "members": [
+          {
+            "agent_id": "support-agent",
+            "type": "agent"
+          },
+          {
+            "agent_id": "research-agent",
+            "type": "agent"
+          }
+        ],
+        "mode": "coordinate",
+        "model": {
+          "id": "gpt-5.5",
+          "name": "OpenAIResponses",
+          "provider": "OpenAI"
+        },
+        "name": "Support Team",
+        "num_history_runs": 3,
+        "schema_version": 1
+      },
+      "description": "Answers customer questions, researching first when it needs to.",
+      "label": null,
+      "links": [
+        {
+          "child_component_id": "support-agent",
+          "link_key": "member_0",
+          "link_kind": "member",
+          "meta": {
+            "type": "agent"
+          },
+          "position": 0
+        },
+        {
+          "child_component_id": "research-agent",
+          "link_key": "member_1",
+          "link_kind": "member",
+          "meta": {
+            "type": "agent"
+          },
+          "position": 1
+        }
+      ],
+      "metadata": null,
+      "name": "Support Team",
+      "notes": null,
+      "stage": "published"
+    }
+  ],
+  "format": "egpt.component-bundle",
+  "format_version": 1,
+  "redacted": [],
+  "root": "support-team",
+  "schema_version": 1
+}

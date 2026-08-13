@@ -231,6 +231,148 @@ def test_resolve_model_without_registry_rebuilds_from_dict():
     assert rebuilt.id == "gpt-4o"
 
 
+# --- EGPT-164: a restored proxy with no endpoint must fail loudly ------------------------
+#
+# `Model.to_dict` persists only {id, name, provider}, deliberately -- it also feeds
+# `agent/_telemetry.py`, so widening it would ship internal hostnames off-box. For a proxy whose
+# class has no endpoint default, the restored client therefore falls back to the OpenAI SDK's
+# public default. That fails in the permissive direction: a restored Mode A agent would send
+# tenant prompts out of the VPC. These pin the loud failure and its boundaries.
+
+
+def test_a_restored_proxy_without_an_endpoint_is_refused():
+    pytest.importorskip("openai")
+    from egpt.integrations.models.openai_like import OpenAILike
+
+    serialized = OpenAILike(id="qwen", base_url="http://vllm.internal:8000/v1").to_dict()
+
+    with pytest.raises(ValueError, match="no endpoint"):
+        resolve_model(serialized)
+
+
+def test_the_refusal_names_the_sdk_default_it_is_preventing():
+    """The message has to say *why*, or the caller reads it as a spurious validation error."""
+    pytest.importorskip("openai")
+    from egpt.integrations.models.openai_like import OpenAILike
+
+    with pytest.raises(ValueError) as excinfo:
+        resolve_model(OpenAILike(id="qwen", base_url="http://vllm.internal:8000/v1").to_dict())
+
+    message = str(excinfo.value)
+    assert "api.openai.com" in message
+    assert "telemetry" in message
+
+
+def test_a_registered_live_instance_is_still_returned():
+    """The supported path through, and the reason this is not simply a hard failure.
+
+    A live instance keeps its connection config, so the registry branch must run *before* the
+    check and must not be affected by it.
+    """
+    pytest.importorskip("openai")
+    from egpt.integrations.models.openai_like import OpenAILike
+
+    live = OpenAILike(id="qwen", base_url="http://vllm.internal:8000/v1")
+    resolved = resolve_model(live.to_dict(), _FakeRegistry(live))
+
+    assert resolved is live
+    assert resolved.base_url == "http://vllm.internal:8000/v1"
+
+
+def test_a_hosted_proxy_with_its_own_default_still_restores():
+    """Most proxies carry a correct endpoint default, so the loss is harmless for them.
+
+    Non-vacuity for the tests above: a check that refused every proxy would break the majority
+    of working providers to fix the handful that are broken.
+    """
+    from egpt.registry.discovery import resolve as resolve_class
+
+    together = _construct_or_skip("together")
+    assert together.base_url, "precondition: this provider ships its own endpoint"
+    assert type(resolve_model(together.to_dict())) is resolve_class("model", "together")
+
+
+def test_a_non_proxy_model_is_unaffected():
+    """The check keys on `is_openai_compatible_proxy`, not on a missing `base_url`.
+
+    A hosted class reaches its vendor's own endpoint through the SDK, so a `None` base_url there
+    is normal and must not be refused.
+    """
+    pytest.importorskip("openai")
+    from egpt.integrations.models.openai import OpenAIResponses
+
+    model = OpenAIResponses(id="gpt-5.5")
+    assert getattr(model, "is_openai_compatible_proxy", False) is False
+    assert resolve_model(model.to_dict()).id == "gpt-5.5"
+
+
+def test_get_model_from_dict_still_rebuilds_an_endpointless_proxy():
+    """The check belongs on the restore-to-run path, not on the general reconstructor.
+
+    `get_model_from_dict` must keep rebuilding any provider's class from its identity triple --
+    `test_to_dict_round_trip_preserves_class` requires exactly that for every key, including the
+    endpointless proxies.
+    """
+    pytest.importorskip("openai")
+    from egpt.integrations.models.openai_like import OpenAILike
+
+    rebuilt = get_model_from_dict(OpenAILike(id="qwen", base_url="http://vllm.internal:8000/v1").to_dict())
+
+    assert type(rebuilt) is OpenAILike
+    assert rebuilt.base_url is None
+
+
+@pytest.mark.parametrize("key", ["vllm", "azure-openai", "cloudflare", "langdb"])
+def test_a_proxy_that_resolves_its_own_endpoint_is_not_refused(key):
+    """The round-2 correction, and the reason the guard is narrow.
+
+    An earlier version refused every class carrying `is_openai_compatible_proxy` with no
+    construction-time endpoint -- which is all four of these, since they inherit the flag from
+    `OpenAILike`. But each overrides `_get_client_params` and resolves its endpoint lazily from
+    environment or derived config, so the attributes visible here are `None` on a perfectly
+    configured private deployment. Refusing them made every stored Azure/vLLM/LangDB/Cloudflare
+    agent unloadable after upgrade, for deployments with no public egress at all.
+
+    Nor do they leak when nothing is configured: each raises its own `ModelAuthenticationError`
+    naming the variable to set. Loud and safe, which is the opposite of the failure this guard
+    exists to catch.
+    """
+    model = _construct_or_skip(key)
+    assert not (getattr(model, "base_url", None) or getattr(model, "azure_endpoint", None)), (
+        f"precondition: {key} restores with no construction-time endpoint"
+    )
+
+    rebuilt = resolve_model(model.to_dict())
+
+    assert type(rebuilt) is type(model), f"{key} must restore as its own class, not be refused"
+
+
+def test_a_bare_openai_like_proxy_is_refused_in_both_spellings():
+    """The one provider that genuinely leaks, asserted through both config spellings.
+
+    Bare `OpenAILike` overrides no client params, so it inherits the OpenAI SDK default, and its
+    sibling logic clears the `"not-provided"` api_key -- the rebuilt client reaches
+    `https://api.openai.com/v1` under the process `OPENAI_API_KEY` with nothing raised.
+
+    Both spellings, because they diverged: the string form bypassed the guard entirely while the
+    dict form was refused, leaving the leak open through the sibling branch of the same function.
+    """
+    model = _construct_or_skip("openai-like")
+
+    with pytest.raises(ValueError, match="cannot be restored"):
+        resolve_model(model.to_dict())
+
+    with pytest.raises(ValueError, match="cannot be restored"):
+        resolve_model("openai-like:qwen")
+
+
+def test_require_endpoint_false_allows_the_bare_proxy_through():
+    """The documented opt-out, on the function the refusal points callers at."""
+    model = _construct_or_skip("openai-like")
+
+    assert type(resolve_model(model.to_dict(), require_endpoint=False)) is type(model)
+
+
 def test_resolve_model_from_string():
     rebuilt = resolve_model("openai:gpt-4o")
     assert isinstance(rebuilt, Model)
@@ -382,3 +524,43 @@ def test_deprecated_shims_reexport_everything_their_target_exports():
         "two roots is probably stale, which makes this guard vacuous."
     )
     assert not problems, "Compatibility shims out of sync with their targets:\n" + "\n".join(problems)
+
+
+def test_the_guard_can_be_opted_out_of_for_shape_proofs():
+    """`resolve_model` serves two callers with opposite needs.
+
+    `registry/schema.py::_dry_run` reaches it through `spec.hydrate` to prove a config
+    hydrates -- the components-API *write-side* validator. Refusing there would make the
+    endpointless proxies uncreatable rather than merely unrestorable, and unreachable-by-design
+    at that: `Model.to_dict`'s triple is the config schema, so no endpoint can be supplied to
+    satisfy the check.
+
+    The polarity is load-bearing: on by default, so every real restore path is protected
+    without having to remember to ask, and exactly one caller opts out.
+    """
+    pytest.importorskip("openai")
+    from egpt.integrations.models.openai_like import OpenAILike
+
+    serialized = OpenAILike(id="qwen", base_url="http://vllm.internal:8000/v1").to_dict()
+
+    rebuilt = resolve_model(serialized, require_endpoint=False)
+
+    assert type(rebuilt) is OpenAILike
+    assert rebuilt.base_url is None
+
+
+def test_the_components_validator_still_accepts_an_endpointless_proxy():
+    """Non-vacuity for the test above, driven through the real validator rather than a stub.
+
+    This is the regression the first cut of EGPT-164 introduced: `validate_config` rejected a
+    plain Azure agent config, so those providers became uncreatable through the components API.
+    """
+    pytest.importorskip("openai")
+    from egpt.agent._storage import component_spec
+    from egpt.registry.schema import validate_config
+
+    config = {"id": "a1", "name": "A", "model": {"id": "gpt-4.1-mini", "name": "AzureOpenAI", "provider": "Azure"}}
+
+    validated = validate_config(config, "agent", spec=component_spec())
+
+    assert validated["model"]["id"] == "gpt-4.1-mini"

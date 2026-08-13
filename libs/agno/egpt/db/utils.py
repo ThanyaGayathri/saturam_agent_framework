@@ -494,3 +494,82 @@ def resolve_db_from_config(
             return registry_db
 
     return db_from_dict(db_data)
+
+
+def resolve_db_reference(
+    config: Dict[str, Any],
+    os_db: Optional["BaseDb"] = None,
+    registry: Optional["Registry"] = None,
+) -> Tuple[Dict[str, Any], Optional[str]]:
+    """
+    Resolve db reference in config by looking up in registry or OS db.
+
+    If config contains a db dict with an id, this function will:
+    1. Check if the id matches the OS db
+    2. Check if the id exists in the registry
+    3. Merge the resolved db's connection details with the caller-provided
+       fields, with caller-provided fields (e.g. custom table names) taking
+       precedence. This preserves user-specified overrides like
+       ``session_table`` / ``memory_table`` while still reusing the resolved
+       db's connection configuration.
+
+    Lives here rather than in the components router because it is the write-path twin of
+    ``resolve_db_from_config`` above, and both the router and the definition importer
+    (EGPT-2.8) have to run it *before* validating: a config naming a db nobody can resolve
+    must fail as a field-level error rather than be stored and silently lose its db when
+    something later tries to hydrate it.
+
+    Args:
+        config: The config dict that may contain a db reference. Mutated in place.
+        os_db: The OS database instance, when there is one.
+        registry: Optional registry containing registered databases
+
+    Returns:
+        A ``(config, unresolved_db_id)`` pair. ``unresolved_db_id`` is the id the config
+        referenced when nothing could be resolved for it, and ``None`` otherwise. The caller
+        turns that into a field-level validation error -- this used to be logged and
+        forgotten, which let a config naming a db that does not exist be persisted and then
+        silently lose its db at hydration time.
+    """
+    unresolved_db_id: Optional[str] = None
+    component_db = config.get("db")
+    if component_db is not None and isinstance(component_db, dict):
+        component_db_id = component_db.get("id")
+        if component_db_id is not None:
+            resolved_db = None
+            # First check if it matches the OS db
+            if os_db is not None and component_db_id == os_db.id:
+                resolved_db = os_db
+            # Then check the registry
+            elif registry is not None:
+                resolved_db = registry.get_db(component_db_id)
+
+            # Merge resolved db with caller-provided table-naming overrides.
+            # Connection-defining fields (type, db_url, db_file, db_schema,
+            # id, ...) always come from the resolved db so the caller can't
+            # redirect a referenced db to a different backend. Only the
+            # whitelisted table-naming keys (per-table names + table_prefix)
+            # are taken from the caller.
+            if resolved_db is not None:
+                resolved_dict = resolved_db.to_dict()
+                table_overrides = {key: component_db[key] for key in DB_CONFIG_OVERRIDE_KEYS if key in component_db}
+                merged = {**resolved_dict, **table_overrides}
+                # If the caller changes table_prefix, drop the resolved db's
+                # concrete per-table names that the caller did NOT explicitly
+                # override. Otherwise those inherited names would shadow the
+                # new prefix (explicit table name > prefixed default), leaving
+                # the prefix silently ineffective.
+                new_prefix = table_overrides.get("table_prefix")
+                if new_prefix is not None and new_prefix != resolved_dict.get("table_prefix"):
+                    for key in DB_TABLE_NAME_KEYS:
+                        if key not in table_overrides:
+                            merged.pop(key, None)
+                config["db"] = merged
+            else:
+                unresolved_db_id = component_db_id
+                log_error(f"Could not resolve db with id: {component_db_id}")
+    elif component_db is None and "db" in config:
+        # Explicitly set to None, remove the key
+        config.pop("db", None)
+
+    return config, unresolved_db_id

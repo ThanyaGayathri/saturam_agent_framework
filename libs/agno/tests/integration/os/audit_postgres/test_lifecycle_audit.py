@@ -432,12 +432,12 @@ class TestThePostgresBackendDoesNotDriftFromSqlite:
             tenant_id=TENANT_A,
         )
         # Unscoped, the way Agent.save() writes: the config row itself gets a NULL tenant.
-        audit_db.upsert_config("agent-t", config=AGENT_CONFIG)
+        audit_db.upsert_config("agent-t", config=AGENT_CONFIG, tenant_id=None)
 
-        audit_db.delete_config("agent-t", version=2)
+        audit_db.delete_config("agent-t", version=2, tenant_id=None)
 
         scoped, scoped_total = audit_db.list_component_audit("agent-t", tenant_id=TENANT_A, limit=100)
-        unscoped, unscoped_total = audit_db.list_component_audit("agent-t", limit=100)
+        unscoped, unscoped_total = audit_db.list_component_audit("agent-t", limit=100, tenant_id=None)
 
         assert scoped_total == unscoped_total, "the owning tenant cannot see its own component's history"
         assert ComponentAuditAction.CONFIG_DELETE.value in [row["action"] for row in scoped]

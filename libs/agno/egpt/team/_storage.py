@@ -743,7 +743,19 @@ def component_spec(
     return ComponentSpec(
         component_type="team",
         known_keys=_team_config_keys(),
-        hydrate=lambda config: from_dict(Team, data=config, db=db, registry=registry, tenant_id=tenant_id),
+        # `require_endpoint=False`: a shape proof, not a prelude to running. See the agent side of
+        # this in `agent/_storage.py::component_spec` (EGPT-164).
+        #
+        # Currently unreachable, and kept deliberately rather than deleted: `spec.hydrate` has one
+        # caller (`registry/schema.py::_dry_run`), and `validate_config` gates it on
+        # `component_type == "agent"`, so no team or workflow config is ever dry-run. If that gate
+        # is ever lifted -- which is the natural fix for validating team configs -- this flag is
+        # what stops a shape check from refusing a team whose members carry no endpoint. Leaving
+        # it correct costs nothing; discovering it missing at that point would cost a debugging
+        # session.
+        hydrate=lambda config: from_dict(
+            Team, data=config, db=db, registry=registry, tenant_id=tenant_id, require_endpoint=False
+        ),
     )
 
 
@@ -776,6 +788,8 @@ def from_dict(
     db: Optional["BaseDb"] = None,
     registry: Optional["Registry"] = None,
     tenant_id: Optional[str] = None,
+    *,
+    require_endpoint: bool = True,
 ) -> "Team":
     """
     Create a Team from a dictionary.
@@ -794,7 +808,7 @@ def from_dict(
 
     # --- Handle Model reconstruction ---
     if "model" in config:
-        config["model"] = resolve_model(config["model"], registry)
+        config["model"] = resolve_model(config["model"], registry, require_endpoint=require_endpoint)
 
     # --- Handle Members reconstruction ---
     members: Optional[List[Union[Agent, "Team"]]] = None
@@ -810,7 +824,13 @@ def from_dict(
                 if db is None:
                     log_warning(f"Cannot load member agent {member_data['agent_id']}: db is None")
                     continue
-                agent = get_agent_by_id(id=member_data["agent_id"], db=db, registry=registry, tenant_id=tenant_id)
+                agent = get_agent_by_id(
+                    id=member_data["agent_id"],
+                    db=db,
+                    registry=registry,
+                    tenant_id=tenant_id,
+                    require_endpoint=require_endpoint,
+                )
                 if agent:
                     members.append(agent)
                 else:
@@ -820,7 +840,13 @@ def from_dict(
                 if db is None:
                     log_warning(f"Cannot load member team {member_data['team_id']}: db is None")
                     continue
-                nested_team = get_team_by_id(id=member_data["team_id"], db=db, registry=registry, tenant_id=tenant_id)
+                nested_team = get_team_by_id(
+                    id=member_data["team_id"],
+                    db=db,
+                    registry=registry,
+                    tenant_id=tenant_id,
+                    require_endpoint=require_endpoint,
+                )
                 if nested_team:
                     members.append(nested_team)
                 else:
@@ -1056,6 +1082,7 @@ def save(
     stage: str = "published",
     label: Optional[str] = None,
     notes: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> Optional[int]:
     """
     Save the team component and config to the database, including member agents/teams.
@@ -1065,6 +1092,9 @@ def save(
         stage: The stage of the component. Defaults to "published".
         label: The label of the component.
         notes: The notes of the component.
+        tenant_id: Tenant to own the written rows (EGPT-2.7). Threaded into every member's own
+            ``save`` as well: a team and its members must land in the same tenant, or a tenanted
+            team would end up linked to unscoped members that any other tenant can also reach.
 
     Returns:
         Optional[int]: The version number of the saved config.
@@ -1088,7 +1118,7 @@ def save(
         members_list = team.members if isinstance(team.members, list) else []
         for position, member in enumerate(members_list):
             # Save member first - returns version
-            member_version = member.save(db=db_, stage=stage, label=label, notes=notes)
+            member_version = member.save(db=db_, stage=stage, label=label, notes=notes, tenant_id=tenant_id)
 
             # Add link
             all_links.append(
@@ -1109,6 +1139,7 @@ def save(
             name=getattr(team, "name", team.id),
             description=getattr(team, "description", None),
             metadata=getattr(team, "metadata", None),
+            tenant_id=tenant_id,
         )
 
         # Create or update config with links
@@ -1119,6 +1150,7 @@ def save(
             label=label,
             stage=stage,
             notes=notes,
+            tenant_id=tenant_id,
         )
 
         return config["version"]
@@ -1135,6 +1167,7 @@ def _hydrate_from_graph(
     db: "BaseDb",
     registry: Optional["Registry"] = None,
     tenant_id: Optional[str] = None,
+    require_endpoint: bool = True,
 ) -> Optional["Team"]:
     """
     Hydrate a team and its members from an already-loaded component graph.
@@ -1222,14 +1255,29 @@ def _hydrate_from_graph(
                 registry=registry,
                 component_id=member_id,
             )
-            agent = Agent.from_dict(child_config)
+            # `registry=registry`, matching the nested-team branch below. Without it a member
+            # whose model is a registered live instance rebuilds from the serialized triple
+            # instead, losing the connection config the registry was holding -- which for an
+            # OpenAI-schema proxy means no endpoint at all (EGPT-164).
+            #
+            # This also switches on member **tool** rehydration, which is a real behaviour change
+            # and not only a model fix: with `registry=None` the agent path logs "No registry
+            # provided" and does `del config["tools"]`, so members have been loading tool-less
+            # since EGPT-2.5. They now get their `Function`s back. That is the correct end state --
+            # a stored team that declared tools should run with them -- but it is worth naming,
+            # because an entrypoint missing from the registry rehydrates with `entrypoint=None`
+            # (a warning, not an error), so the model is offered a tool that raises when called.
+            # Registering the entrypoints a stored team uses is now load-bearing.
+            agent = Agent.from_dict(child_config, registry=registry, require_endpoint=require_endpoint)
             agent.id = member_id
             if agent.db is None:
                 agent.db = db
             team.members.append(agent)
         elif member_type == "team":
             # Recursively hydrate nested teams from the already-loaded child graph
-            nested_team = _hydrate_from_graph(cls, child_graph, db=db, registry=registry, tenant_id=tenant_id)
+            nested_team = _hydrate_from_graph(
+                cls, child_graph, db=db, registry=registry, tenant_id=tenant_id, require_endpoint=require_endpoint
+            )
             if nested_team is None:
                 raise HydrationError(
                     f"Team '{team_id}' nested team member '{child_id}' could not be hydrated; "
@@ -1251,6 +1299,7 @@ def load(
     label: Optional[str] = None,
     version: Optional[int] = None,
     tenant_id: Optional[str] = None,
+    require_endpoint: bool = True,
 ) -> Optional["Team"]:
     """
     Load a team by id, with hydrated members.
@@ -1272,7 +1321,9 @@ def load(
     if graph is None:
         return None
 
-    return _hydrate_from_graph(cls, graph, db=db, registry=registry, tenant_id=tenant_id)
+    return _hydrate_from_graph(
+        cls, graph, db=db, registry=registry, tenant_id=tenant_id, require_endpoint=require_endpoint
+    )
 
 
 def delete(
@@ -1280,6 +1331,7 @@ def delete(
     *,
     db: Optional["BaseDb"] = None,
     hard_delete: bool = False,
+    tenant_id: Optional[str] = None,
 ) -> bool:
     """
     Delete the team component.
@@ -1287,6 +1339,8 @@ def delete(
     Args:
         db: The database to delete the component from.
         hard_delete: Whether to hard delete the component.
+        tenant_id: Tenant to scope the delete to (EGPT-2.7). A foreign tenant's team is not
+            deleted and ``False`` is returned, exactly as for one that does not exist.
 
     Returns:
         True if the component was deleted, False otherwise.
@@ -1299,7 +1353,7 @@ def delete(
     if team.id is None:
         raise ValueError("Cannot delete team without an id")
 
-    return db_.delete_component(component_id=team.id, hard_delete=hard_delete)
+    return db_.delete_component(component_id=team.id, hard_delete=hard_delete, tenant_id=tenant_id)
 
 
 def get_session_metrics(team: "Team", session_id: Optional[str] = None):
