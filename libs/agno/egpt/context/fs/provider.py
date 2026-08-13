@@ -16,8 +16,9 @@ from egpt.agent import Agent
 from egpt.context._utils import answer_from_run
 from egpt.context.mode import ContextMode
 from egpt.context.provider import Answer, ContextProvider, Status
-from egpt.integrations.tools.file import FileTools
 from egpt.run import RunContext
+from egpt.tools.toolkit import Toolkit
+from egpt.tools.utils import construct_toolkit
 
 if TYPE_CHECKING:
     from egpt.models.base import Model
@@ -108,8 +109,9 @@ class FilesystemContextProvider(ContextProvider):
         )
 
 
-def _build_file_tools(root: Path, *, exclude_patterns: list[str] | None = None) -> FileTools:
-    return FileTools(
+def _build_file_tools(root: Path, *, exclude_patterns: list[str] | None = None) -> Toolkit:
+    return construct_toolkit(
+        "file",
         base_dir=root,
         enable_save_file=False,
         enable_delete_file=False,

@@ -14,7 +14,8 @@ Read + write access to a directory of markdown files. Two tools:
 
 Pluggable backend so the agent surface stays identical whether the
 wiki is just a local folder or a clone of a GitHub repo. See
-``egpt.context.wiki.backend`` for the two ship-by-default backends.
+``egpt.context.wiki.backend`` for ``FileSystemBackend``, and
+``egpt.integrations.context.wiki`` for ``GitBackend``/the Notion backends.
 """
 
 from __future__ import annotations

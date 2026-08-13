@@ -75,20 +75,10 @@ _INTEGRATION_IMPORT_ALLOWLIST = {
     "egpt.os.interfaces.slack.router",
     "egpt.os.interfaces.slack.hitl",
     "egpt.os.interfaces.slack.event_handler",
-    # A8: the context connectors move to integrations/context/* under the follow-up ticket.
-    # These are orchestration-layer modules, so unlike the two groups above they are a real
-    # ADR violation rather than a composition root -- listed here so the debt is visible and
-    # attributed instead of silently passing. EGPT-1.7 deliberately scoped them out; it
-    # repointed them off the deprecation shims so the warnings stay meaningful.
-    "egpt.context.calendar.provider",
-    "egpt.context.database.provider",
-    "egpt.context.fs.provider",
-    "egpt.context.gdrive.provider",
-    "egpt.context.gmail.provider",
-    "egpt.context.google.utils",
-    "egpt.context.mcp.provider",
-    "egpt.context.web.exa_mcp",
-    "egpt.context.web.parallel_mcp",
+    # A8 closed under EGPT-1.7a: the eight context connectors moved to
+    # integrations/context/*, and egpt.context.fs.provider now resolves FileTools through
+    # construct_toolkit like the Slack context provider already did. See
+    # tests/unit/context/test_context_layout.py for the guard covering the new boundary.
 }
 
 

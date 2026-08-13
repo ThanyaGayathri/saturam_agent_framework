@@ -40,9 +40,9 @@ from __future__ import annotations
 import asyncio
 
 from egpt.agent import Agent
-from egpt.context.calendar import GoogleCalendarContextProvider
-from egpt.context.gdrive import GoogleDriveContextProvider
-from egpt.context.gmail import GmailContextProvider
+from egpt.integrations.context.calendar import GoogleCalendarContextProvider
+from egpt.integrations.context.gdrive import GoogleDriveContextProvider
+from egpt.integrations.context.gmail import GmailContextProvider
 from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------

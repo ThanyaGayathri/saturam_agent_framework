@@ -1,9 +1,9 @@
 """Unit tests for the Notion conversion helpers.
 
 These don't hit Notion. They cover the pure functions in
-``egpt.context.wiki.notion_ops`` plus the input-validation paths on
+``egpt.integrations.context.wiki.notion_ops`` plus the input-validation paths on
 ``NotionDatabaseBackend`` and the ``NotImplementedError`` raised by the
-``NotionPageBackend`` stub.
+``NotionPageBackend`` stub (EGPT-1.7a moved all three into the integrations layer).
 """
 
 from __future__ import annotations
@@ -13,11 +13,11 @@ from pathlib import Path
 
 import pytest
 
-from egpt.context.wiki import (
+from egpt.integrations.context.wiki import (
     NotionDatabaseBackend,
     NotionPageBackend,
 )
-from egpt.context.wiki.notion_ops import (
+from egpt.integrations.context.wiki.notion_ops import (
     Manifest,
     blocks_to_markdown,
     markdown_to_blocks,

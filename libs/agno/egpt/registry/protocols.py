@@ -13,6 +13,18 @@ on a shape rather than on ``egpt.agent``. ``deep_copy`` is part of it because
 isolate mutable state between concurrent requests; an ``id``-only protocol would fail
 type-checking there.
 
+``RunnableLike`` is the same idea for a different caller (EGPT-1.7a): a context connector
+moved into ``integrations/`` still has to run a sub-agent, but ``integrations -> orchestration``
+is exactly as forbidden as ``core -> orchestration`` is. It depends on this shape instead of
+importing ``egpt.agent.Agent``, and gets a real instance from
+``egpt.run.utils.construct_runnable``. The signature is intentionally loose --
+``Agent.arun``/``Team.arun`` carry large ``@overload`` sets for streaming and typed output that
+no caller here needs; every context provider just does ``await runnable.arun(query)``, or
+(``ContextProvider._stream_from_agent``) ``async for event in runnable.arun(..., stream=True)``.
+``arun`` is declared ``def``, not ``async def``, so both call shapes type-check against the
+single ``Any`` return -- an ``async def`` here would make the real method's ``@overload``
+between "returns a coroutine" and "returns an async iterator" collapse to just the former.
+
 This module must keep importing nothing but ``typing`` -- that is the whole point of it.
 """
 
@@ -38,4 +50,24 @@ class TeamLike(Protocol):
 
     def deep_copy(self) -> Any:
         """Return an isolated copy, so concurrent runs do not share mutable state."""
+        ...
+
+
+@runtime_checkable
+class RunnableLike(Protocol):
+    """The part of a sub-agent an integrations-layer caller depends on: run it, get output."""
+
+    id: Optional[str]
+
+    def run(self, input: Any, **kwargs: Any) -> Any:
+        """Sync counterpart of ``arun``, for callers on a sync ``query``/``update`` path."""
+        ...
+
+    def arun(self, input: Any, **kwargs: Any) -> Any:
+        """Run with ``input``.
+
+        Callers ``await`` this for a single run output, or ``async for`` it when
+        ``stream=True`` -- see the module docstring for why the return type is ``Any``
+        rather than ``Coroutine``.
+        """
         ...

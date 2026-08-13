@@ -33,7 +33,7 @@ import asyncio
 
 from egpt.agent import Agent
 from egpt.context import ContextMode
-from egpt.context.mcp import MCPContextProvider
+from egpt.integrations.context.mcp import MCPContextProvider
 from egpt.models.openai import OpenAIResponses
 
 

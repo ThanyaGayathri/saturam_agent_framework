@@ -38,12 +38,12 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING
 
 from egpt.context.mode import ContextMode
+from egpt.registry.protocols import RunnableLike
 from egpt.run import RunContext
 from egpt.run.agent import RunOutput
 from egpt.tools import tool
 
 if TYPE_CHECKING:
-    from egpt.agent import Agent
     from egpt.models.base import Model
 
 
@@ -185,11 +185,11 @@ class ContextProvider(ABC):
     # Internals
     # ------------------------------------------------------------------
 
-    async def _aget_query_agent(self, run_context: RunContext | None) -> "Agent | None":
+    async def _aget_query_agent(self, run_context: RunContext | None) -> RunnableLike | None:
         """Override to return the read sub-agent for streaming; None falls back to aquery()."""
         return None
 
-    async def _aget_update_agent(self, run_context: RunContext | None) -> "Agent | None":
+    async def _aget_update_agent(self, run_context: RunContext | None) -> RunnableLike | None:
         """Override to return the write sub-agent for streaming; None falls back to aupdate()."""
         return None
 
@@ -219,7 +219,7 @@ class ContextProvider(ABC):
 
     async def _stream_from_agent(
         self,
-        agent: "Agent",
+        agent: RunnableLike,
         message: str,
         run_context: RunContext | None,
     ):
