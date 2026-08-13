@@ -237,25 +237,48 @@ class MemoryManager:
             str: The id of the memory
         """
         if self.db:
-            if memory.memory_id is None:
-                from uuid import uuid4
-
-                memory_id = memory.memory_id or str(uuid4())
-                memory.memory_id = memory_id
-
-            if user_id is None:
-                user_id = "default"
-            memory.user_id = user_id
-
-            if not memory.updated_at:
-                memory.updated_at = now_epoch_s()
-
+            self._stamp_user_memory(memory=memory, user_id=user_id)
             self._upsert_db_memory(memory=memory)
             return memory.memory_id
 
         else:
             log_warning("Memory Db not provided.")
             return None
+
+    async def aadd_user_memory(
+        self,
+        memory: UserMemory,
+        user_id: Optional[str] = None,
+    ) -> Optional[str]:
+        """Add a user memory for a given user id (async).
+
+        Both halves stamp the row through `_stamp_user_memory`, so the id, owner and timestamp a
+        caller reads back cannot differ between the lanes.
+
+        Args:
+            memory (UserMemory): The memory to add
+            user_id (Optional[str]): The user id to add the memory to. If not provided, the memory is added to the "default" user.
+        Returns:
+            str: The id of the memory
+        """
+        if self.db:
+            self._stamp_user_memory(memory=memory, user_id=user_id)
+            await self._aupsert_db_memory(memory=memory)
+            return memory.memory_id
+
+        else:
+            log_warning("Memory Db not provided.")
+            return None
+
+    @staticmethod
+    def _stamp_user_memory(memory: UserMemory, user_id: Optional[str] = None) -> UserMemory:
+        """Fill in the identity and timestamp a stored memory needs, in place."""
+        if memory.memory_id is None:
+            memory.memory_id = str(uuid4())
+        memory.user_id = user_id if user_id is not None else "default"
+        if not memory.updated_at:
+            memory.updated_at = now_epoch_s()
+        return memory
 
     def replace_user_memory(
         self,
@@ -585,6 +608,20 @@ class MemoryManager:
             log_warning(f"Error storing memory in db: {str(e)}")
             return "Error adding memory"
 
+    async def _aupsert_db_memory(self, memory: UserMemory) -> str:
+        """Async variant of `_upsert_db_memory`, awaiting an async db and calling a sync one."""
+        try:
+            if not self.db:
+                raise ValueError("Memory db not initialized")
+            if isinstance(self.db, AsyncBaseDb):
+                await self.db.upsert_user_memory(memory=memory)
+            else:
+                self.db.upsert_user_memory(memory=memory)
+            return "Memory added successfully"
+        except Exception as e:
+            log_warning(f"Error storing memory in db: {str(e)}")
+            return "Error adding memory"
+
     def _delete_db_memory(self, memory_id: str, user_id: Optional[str] = None) -> str:
         """Use this function to delete a memory from the database."""
         try:
@@ -653,6 +690,53 @@ class MemoryManager:
         else:  # Default to last_n
             return self._get_last_n_memories(user_id=user_id, limit=limit)
 
+    async def asearch_user_memories(
+        self,
+        query: Optional[str] = None,
+        limit: Optional[int] = None,
+        retrieval_method: Optional[Literal["last_n", "first_n", "agentic"]] = None,
+        user_id: Optional[str] = None,
+    ) -> List[UserMemory]:
+        """Search through user memories using the specified retrieval method (async).
+
+        Reads through `aread_from_db` and, for `agentic`, calls `aresponse`, so an async db is
+        awaited rather than driven from a worker thread. Selection is the shared `_first_n` /
+        `_last_n` / `_agentic_*` helpers, so the halves cannot return different memories.
+
+        Args:
+            query: The search query for agentic search. Required if retrieval_method is "agentic".
+            limit: Maximum number of memories to return. Optional.
+            retrieval_method: The method to use for retrieving memories.
+                - "last_n": Return the most recent memories
+                - "first_n": Return the oldest memories
+                - "agentic": Return memories most similar to the query, but using an agentic approach
+            user_id: The user to search for. Optional.
+
+        Returns:
+            A list of UserMemory objects matching the search criteria.
+        """
+
+        if user_id is None:
+            user_id = "default"
+
+        self.set_log_level()
+
+        memories = await self.aread_from_db(user_id=user_id)
+        if not memories:
+            return []
+
+        if retrieval_method == "agentic":
+            if not query:
+                raise ValueError("Query is required for agentic search")
+
+            return await self._asearch_user_memories_agentic(user_id=user_id, query=query, limit=limit)
+
+        elif retrieval_method == "first_n":
+            return self._first_n(memories.get(user_id, []), limit=limit)
+
+        else:  # Default to last_n
+            return self._last_n(memories.get(user_id, []), limit=limit)
+
     def _get_response_format(self) -> Union[Dict[str, Any], Type[BaseModel]]:
         model = self.get_model()
         if model.supports_native_structured_outputs:
@@ -679,13 +763,41 @@ class MemoryManager:
             return []
 
         model = self.get_model()
-
         response_format = self._get_response_format()
+        user_memories: List[UserMemory] = memories[user_id]
 
         log_debug("Searching for memories", center=True)
+        response = model.response(
+            messages=self._agentic_messages(user_memories, query, response_format), response_format=response_format
+        )
+        log_debug("Search for memories complete", center=True)
 
-        # Get all memories as a list
+        return self._agentic_results(model, response, user_memories, limit)
+
+    async def _asearch_user_memories_agentic(
+        self, user_id: str, query: str, limit: Optional[int] = None
+    ) -> List[UserMemory]:
+        """Async variant of `_search_user_memories_agentic`. The prompt and the parse are the
+        shared helpers below, so `aresponse` against `response` is the only difference."""
+        memories = await self.aread_from_db(user_id=user_id)
+        if not memories:
+            return []
+
+        model = self.get_model()
+        response_format = self._get_response_format()
         user_memories: List[UserMemory] = memories[user_id]
+
+        log_debug("Searching for memories", center=True)
+        response = await model.aresponse(
+            messages=self._agentic_messages(user_memories, query, response_format), response_format=response_format
+        )
+        log_debug("Search for memories complete", center=True)
+
+        return self._agentic_results(model, response, user_memories, limit)
+
+    @staticmethod
+    def _agentic_messages(user_memories: List[UserMemory], query: str, response_format: Any) -> List[Message]:
+        """The prompt an agentic search sends. Shared by both halves."""
         system_message_str = "Your task is to search through user memories and return the IDs of the memories that are related to the query.\n"
         system_message_str += "\n<user_memories>\n"
         for memory in user_memories:
@@ -701,7 +813,7 @@ class MemoryManager:
         if response_format == {"type": "json_object"}:
             system_message_str += "\n" + get_json_output_prompt(MemorySearchResponse)  # type: ignore
 
-        messages_for_model = [
+        return [
             Message(role="system", content=system_message_str),
             Message(
                 role="user",
@@ -709,10 +821,11 @@ class MemoryManager:
             ),
         ]
 
-        # Generate a response from the Model (includes running function calls)
-        response = model.response(messages=messages_for_model, response_format=response_format)
-        log_debug("Search for memories complete", center=True)
-
+    @staticmethod
+    def _agentic_results(
+        model: Model, response: Any, user_memories: List[UserMemory], limit: Optional[int] = None
+    ) -> List[UserMemory]:
+        """Turn a model response into the memories it named. Shared by both halves."""
         memory_search: Optional[MemorySearchResponse] = None
         # If the model natively supports structured outputs, the parsed value is already in the structured format
         if (
@@ -756,8 +869,11 @@ class MemoryManager:
         if memories is None:
             memories = {}
 
-        memories_list = memories.get(user_id, [])
+        return self._last_n(memories.get(user_id, []), limit=limit)
 
+    @staticmethod
+    def _last_n(memories_list: List[UserMemory], limit: Optional[int] = None) -> List[UserMemory]:
+        """Rank oldest-first and take the tail. The selection both search halves share."""
         # Sort memories by updated_at timestamp if available
         if memories_list:
             # Sort memories by updated_at timestamp (newest first)
@@ -787,8 +903,12 @@ class MemoryManager:
         if memories is None:
             memories = {}
 
+        return self._first_n(memories.get(user_id, []), limit=limit)
+
+    @staticmethod
+    def _first_n(memories_list: List[UserMemory], limit: Optional[int] = None) -> List[UserMemory]:
+        """Rank oldest-first and take the head. The selection both search halves share."""
         MAX_UNIX_TS = 2**63 - 1
-        memories_list = memories.get(user_id, [])
         # Sort memories by updated_at timestamp if available
         if memories_list:
             # Sort memories by updated_at timestamp (oldest first)

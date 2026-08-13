@@ -8,9 +8,12 @@ silently and one puts another tenant's data into a prompt: tenant isolation and 
 validity.
 
 Out of scope, deliberately: rank fusion beyond a score sum (SM-H2 #132), a consolidation scheduler
-or resumption cursor (SM-L1 #122), **retiring a fact whose source group changed** (SM-L3 #124),
-per-tier routing policy (SM-C2 #90). ``consolidate`` here is scan -> filter -> distil -> write, and
-the report names what it does not do.
+or resumption cursor (SM-L1 #122), **retiring a fact whose source group changed** (SM-L3 #124).
+``consolidate`` here is scan -> filter -> distil -> write, and the report names what it does not do.
+
+Every tier decision this file makes -- which substrates a write reaches, whether a graph write is
+an episode or a fact, which tier consolidation reads and which it writes -- is read from
+:data:`egpt.memory.tiers.TIER_POLICY` (SM-C2 #90). None of it is decided here.
 """
 
 import asyncio
@@ -21,7 +24,16 @@ from uuid import NAMESPACE_OID, uuid4, uuid5
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, register_provider
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
-from egpt.memory.tiers import MemoryTier, substrates_for_tier
+from egpt.memory.tiers import (
+    CONSOLIDATION_SOURCE,
+    CONSOLIDATION_TARGET,
+    GraphWriteShape,
+    MemoryTier,
+    graph_shape_for_tier,
+    policy_for_tier,
+    routes_to,
+    substrates_for_tier,
+)
 from egpt.memory.types import (
     ConsolidationReport,
     FactWrite,
@@ -159,6 +171,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
     def substrates(self) -> Dict[Substrate, bool]:
         return {Substrate.VECTOR: self.vector is not None, Substrate.GRAPH: self.graph is not None}
 
+    def tiers(self) -> Dict[MemoryTier, bool]:
+        """A tier is served when a wired substrate stores it, so a vector-only provider serves
+        three of the four and a graph-only one serves two."""
+        return {tier: bool(substrates_for_tier(tier) & self._wired()) for tier in MemoryTier}
+
     # -- guards ---------------------------------------------------------------
 
     def _wired(self) -> Set[str]:
@@ -166,10 +183,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
     def _require_writable(self, tier: MemoryTier) -> None:
         """Refuse a write no *wired* substrate would store, rather than returning a success receipt."""
-        routed = substrates_for_tier(tier)
+        policy = policy_for_tier(tier)
+        routed = policy.substrates
         if not routed:
             raise MemoryOperationError(
-                f"Tier {tier.value!r} has no persistent substrate. The working buffer is SM-C6's (#94).",
+                f"Tier {tier.value!r} has no persistent substrate; building it out is {policy.owner}.",
                 field_name="tier",
             )
         if not (routed & self._wired()):
@@ -210,11 +228,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         names no substrates and still cannot answer a point-in-time read.
         """
         wired = self.substrates()
-        if (
-            query.as_of is not None
-            and not wired[Substrate.GRAPH]
-            and any("graph" in substrates_for_tier(t) for t in query.resolved_tiers())
-        ):
+        if query.as_of is not None and not wired[Substrate.GRAPH] and routes_to("graph", query.resolved_tiers()):
             raise MemoryOperationError(
                 "A point-in-time read needs the graph substrate, which is the authority for "
                 "bi-temporal validity; none is wired, and the vector projection carries no bounds "
@@ -243,7 +257,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # Tier-aware: excluding the graph is only wrong for a tier the graph actually stores. A
         # procedural read is vector-only, so the graph has no validity opinion to withhold and
         # refusing it blocks the one read shape where skipping the leg is legitimate.
-        graph_backed_tiers = any("graph" in substrates_for_tier(t) for t in query.resolved_tiers())
+        graph_backed_tiers = routes_to("graph", query.resolved_tiers())
         if wired[Substrate.GRAPH] and graph_backed_tiers and Substrate.GRAPH not in query.substrates:
             reason = "point-in-time " if query.as_of is not None else ""
             raise MemoryOperationError(
@@ -290,10 +304,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
     def _graph_backed(records: Sequence[MemoryRecord]) -> List[str]:
         """Ids whose tier routes to the graph -- the only ones it can have an opinion about.
 
-        A procedural read is vector-only per ``SUBSTRATES_BY_TIER``, so asking the graph for its
-        bounds is a guaranteed-empty round trip, and a network hop in Mode B.
+        A procedural read is vector-only per ``TIER_POLICY``, so asking the graph for its bounds is
+        a guaranteed-empty round trip, and a network hop in Mode B.
         """
-        return [r.id for r in records if "graph" in substrates_for_tier(r.tier)]
+        return [r.id for r in records if routes_to("graph", [r.tier])]
 
     def _reconcile_bounds(self, scope: Scope, records: Sequence[MemoryRecord]) -> bool:
         """Overwrite each record's bi-temporal bounds with the graph's, in place.
@@ -488,20 +502,21 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self._raise_write_failure([r for r in results if isinstance(r, BaseException)], receipt)
 
     def _graph_write(self, scope: Scope, event: MemoryEvent, record: MemoryRecord) -> None:
-        """Route by tier: a semantic memory is a fact, not an episode."""
-        if "graph" not in substrates_for_tier(event.tier) or self.graph is None:
+        """Shaped by ``TIER_POLICY``, not by an ``is SEMANTIC`` test: a fact and an episode are
+        different graph writes, and which a tier gets is policy both halves must read alike."""
+        if self.graph is None:
             return
-        if event.tier is MemoryTier.SEMANTIC:
+        if graph_shape_for_tier(event.tier) is GraphWriteShape.FACT:
             self.graph.upsert_fact(scope, FactWrite(record=record, derived_by="co_located.direct_write"))
-        else:
+        elif graph_shape_for_tier(event.tier) is GraphWriteShape.EPISODE:
             self.graph.upsert_episode(scope, event)
 
     async def _agraph_write(self, scope: Scope, event: MemoryEvent, record: MemoryRecord) -> None:
-        if "graph" not in substrates_for_tier(event.tier) or self.graph is None:
+        if self.graph is None:
             return
-        if event.tier is MemoryTier.SEMANTIC:
+        if graph_shape_for_tier(event.tier) is GraphWriteShape.FACT:
             await self.graph.aupsert_fact(scope, FactWrite(record=record, derived_by="co_located.direct_write"))
-        else:
+        elif graph_shape_for_tier(event.tier) is GraphWriteShape.EPISODE:
             await self.graph.aupsert_episode(scope, event)
 
     def write_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
@@ -612,7 +627,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
     @staticmethod
     def _uses(query: MemoryQuery, substrate: Substrate) -> bool:
-        return query.substrates is None or substrate in query.substrates
+        """Whether this read consults ``substrate`` at all.
+
+        Two conditions, and the second is the tier axis doing its job: a leg no requested tier
+        routes to cannot hold a matching row, so consulting it is a guaranteed-empty round trip --
+        a network hop in Mode B, and on a graph-only provider the difference between a procedural
+        read that reports the tier unserved and one that quietly asks the graph anyway.
+        ``_graph_backed`` already applies this reasoning to the bounds call.
+        """
+        if query.substrates is not None and substrate not in query.substrates:
+            return False
+        return routes_to(substrate, query.resolved_tiers())
 
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
         """Read one tier. A tier this provider does not serve reads **empty**, it is not refused.
@@ -643,10 +668,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 "consolidate needs the vector substrate to enumerate episodes; none is wired.",
                 field_name="provider",
             )
-        if tiers is not None and set(tiers) != {MemoryTier.EPISODIC}:
+        if tiers is not None and set(tiers) != {CONSOLIDATION_SOURCE}:
             raise MemoryOperationError(
-                f"consolidate only runs the episodic-to-semantic pass, but was asked for "
-                f"{sorted(t.value for t in tiers)}. Per-tier policy is SM-C2's (#90).",
+                f"consolidate reads the {CONSOLIDATION_SOURCE.value} tier and writes "
+                f"{CONSOLIDATION_TARGET.value}, but was asked for {sorted(t.value for t in tiers)}. "
+                "Which tier a pass may name is TIER_POLICY's consolidates_from.",
                 field_name="tiers",
             )
         return self.vector
@@ -697,7 +723,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
                     # accumulating a copy per pass.
                     record=MemoryRecord(
                         id=str(uuid5(_FACT_NAMESPACE, "|".join(source_ids))),
-                        tier=MemoryTier.SEMANTIC,
+                        tier=CONSOLIDATION_TARGET,
                         content=head.content,
                         scope=head.scope,
                         topics=list(head.topics) if head.topics is not None else None,
@@ -783,14 +809,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
         return [(sc, batched[sc]) for sc in sorted(batched, key=lambda s: s.key())]
 
     def _fact_targets(self, facts: Sequence[FactWrite]) -> Tuple[bool, bool]:
-        """Which substrates a semantic fact routes to, per ``SUBSTRATES_BY_TIER``.
+        """Which substrates the consolidation target tier routes to, per ``TIER_POLICY``.
 
         ``write`` filters by routing and ``_graph_write`` returns early when a tier does not reach
         the graph; consolidate did neither, so it wrote wherever a substrate happened to be wired.
-        Latent while SEMANTIC routes to both -- and silent the moment SM-C2 (#90), which owns that
-        table, changes a row.
+        Latent while the target routes to both, and silent the moment the table changes a row.
         """
-        routed = substrates_for_tier(MemoryTier.SEMANTIC) if facts else frozenset()
+        routed = substrates_for_tier(CONSOLIDATION_TARGET) if facts else frozenset()
         return "vector" in routed, "graph" in routed
 
     def _visible_episodes(self, scope: Scope, episodes: List[MemoryRecord], instant: int) -> List[MemoryRecord]:
@@ -832,7 +857,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # Detached before anything touches them: `scan` may hand back the rows the substrate is
         # holding (`search` returns copies, `scan` need not), and `_reconcile_bounds` writes bounds
         # onto what it is given.
-        scanned = [r.detached() for r in vector.scan(scope, MemoryTier.EPISODIC, limit=self.max_episodes_per_pass)]
+        scanned = [r.detached() for r in vector.scan(scope, CONSOLIDATION_SOURCE, limit=self.max_episodes_per_pass)]
         self._assert_scope_isolation(scope, scanned)
         episodes = self._visible_episodes(scope, scanned, instant)
         facts, merged = self._distil(episodes)
@@ -847,7 +872,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             receipt = WriteReceipt(
                 accepted=len(facts),
                 event_ids=[f.record.id for f in facts],
-                tiers_written=[MemoryTier.SEMANTIC],
+                tiers_written=[CONSOLIDATION_TARGET],
             )
             committed_any = False
             try:
@@ -875,7 +900,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         vector = self._check_consolidatable(tiers)
         instant = now_epoch_s()
         scanned = [
-            r.detached() for r in await vector.ascan(scope, MemoryTier.EPISODIC, limit=self.max_episodes_per_pass)
+            r.detached() for r in await vector.ascan(scope, CONSOLIDATION_SOURCE, limit=self.max_episodes_per_pass)
         ]
         self._assert_scope_isolation(scope, scanned)
         episodes = await self._avisible_episodes(scope, scanned, instant)
@@ -888,7 +913,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             receipt = WriteReceipt(
                 accepted=len(facts),
                 event_ids=[f.record.id for f in facts],
-                tiers_written=[MemoryTier.SEMANTIC],
+                tiers_written=[CONSOLIDATION_TARGET],
             )
             committed_any = False
             try:

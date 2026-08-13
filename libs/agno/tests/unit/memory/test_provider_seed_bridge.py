@@ -14,7 +14,7 @@ from egpt.db.schemas import UserMemory
 from egpt.memory.adapters.seed import SeedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, build_memory_provider
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryEvent, MemoryOperationError, MemoryQuery, Scope, Substrate
+from egpt.memory.types import MemoryEvent, MemoryOperationError, MemoryQuery, PartialWriteError, Scope, Substrate
 
 ACME = Scope(tenant_id="acme", user_id="u1")
 GLOBEX = Scope(tenant_id="globex", user_id="u1")
@@ -61,6 +61,12 @@ class FakeManager:
         matching = [m for m in self.memories if (m.user_id or "default") == pool]
         return matching[:limit] if limit else matching
 
+    async def asearch_user_memories(self, query=None, limit=None, retrieval_method=None, user_id=None):
+        """The async half the real manager grew in SM-C2. It **suspends**, so a gathered read
+        actually interleaves rather than being a sync one in disguise."""
+        await asyncio.sleep(0)
+        return self.search_user_memories(query=query, limit=limit, retrieval_method=retrieval_method, user_id=user_id)
+
     def add_user_memory(self, memory: UserMemory, user_id=None):
         memory.memory_id = memory.memory_id or f"m{len(self.added)}"
         memory.user_id = user_id or "default"  # the real manager's substitution
@@ -69,6 +75,21 @@ class FakeManager:
         # next read would let a round-trip bug pass.
         self.memories.append(memory)
         return memory.memory_id
+
+    async def aadd_user_memory(self, memory: UserMemory, user_id=None):
+        await asyncio.sleep(0)
+        return self.add_user_memory(memory, user_id=user_id)
+
+
+class SyncOnlyManager(FakeManager):
+    """A manager with only the sync half, like a third-party one predating SM-C2.
+
+    The bridge duck-checks its collaborators rather than requiring `MemoryManager`, so the thread
+    hop is still a live path -- and a path with no double is a path with no test.
+    """
+
+    asearch_user_memories = None
+    aadd_user_memory = None
 
 
 class FakeStore:
@@ -125,8 +146,15 @@ class FakeCurator:
 
 
 class FakeMachine:
-    def __init__(self) -> None:
+    """`LearningMachine`'s two surfaces this bridge touches: `curator` and `stores`.
+
+    `stores` is keyed by `learning_type`, as the real machine's is, so the tier mapping is applied
+    to the same shape it will meet in production.
+    """
+
+    def __init__(self, stores: Optional[Dict[str, Any]] = None) -> None:
         self._curator = FakeCurator()
+        self.stores: Dict[str, Any] = dict(stores or {})
 
     @property
     def curator(self) -> FakeCurator:
@@ -162,16 +190,16 @@ def test_the_bridge_calls_memory_manager_with_parameters_it_actually_has(method,
     assert params <= actual, f"MemoryManager.{method} no longer accepts {params - actual}"
 
 
-@pytest.mark.parametrize("sync_only", ["search_user_memories", "add_user_memory"])
-def test_the_sync_only_manager_methods_are_still_sync_only(sync_only):
-    """The reason those async paths hop a thread.
+@pytest.mark.parametrize("verb", ["search_user_memories", "add_user_memory"])
+def test_the_manager_methods_this_bridge_calls_have_both_halves(verb):
+    """SM-C2 gave these two the async variant SPEC section 11.3 carried forward.
 
-    If this fails, the seed grew a real async variant -- which is good news, and the bridge should
-    switch to awaiting it instead of paying for a thread hop.
+    The thread hop is still reachable -- this bridge duck-checks its collaborators, so a
+    third-party manager may have only the sync half -- but it is no longer what the real one gets.
     """
     from egpt.memory.manager import MemoryManager
 
-    assert not hasattr(MemoryManager, "a" + sync_only)
+    assert hasattr(MemoryManager, "a" + verb)
 
 
 def test_the_curator_is_still_narrower_than_the_adr_implies():
@@ -311,17 +339,17 @@ def test_a_bound_store_serves_its_tier_through_recall_and_build_context():
 
 
 def test_a_store_recall_receives_the_scope_and_the_query():
-    """The bridge *passes* all four slots; what a store does with them is the store's business.
+    """The bridge hands over all four slots; honouring them is the store's side of the contract.
 
-    Not "a store takes all four slots, so this scope is fine" -- that restated a claim which is
-    false for every store in the tree (see `_reject_unfilterable_scope`). The bridge's obligation
-    is to hand the slots over; honouring them is the store's, and which stores honour which is
-    SM-C2's (#90) to pin down.
+    Read at a scope the store is declared to honour, because an agent-scoped read of a store that
+    filters on `user_id` alone is now refused -- which is `test_a_bound_store_that_would_ignore_a
+    _slot_is_refused` next door, and the reason this one has to say which slots it means.
     """
     store = FakeStore()
-    SeedMemoryProvider(stores={MemoryTier.SEMANTIC: store}, config=seed_config()).read_tier(
-        ACME_AGENT, MemoryTier.SEMANTIC, MemoryQuery(text="hello")
-    )
+    SeedMemoryProvider(
+        stores={MemoryTier.SEMANTIC: store},
+        config=seed_config(store_slots={"user_profile": ["user_id", "agent_id", "team_id", "session_id"]}),
+    ).read_tier(ACME_AGENT, MemoryTier.SEMANTIC, MemoryQuery(text="hello"))
 
     kwargs = store.recall_kwargs[0]
     assert kwargs["user_id"] == "u1"
@@ -629,10 +657,17 @@ def test_event_metadata_survives_a_manager_write():
 
 
 def test_a_multi_tier_read_does_not_let_the_first_tier_crowd_out_the_rest():
-    """Each tier was asked for `limit` records and then the slice capped at `limit`."""
+    """Each tier was asked for `limit` records and then the slice capped at `limit`.
+
+    `learned_knowledge` filters on `user_id` only under the `"user"` namespace, so a deployment
+    running that namespace declares it -- which is what makes a user-scoped read of it answerable
+    at all, and is the one store combination that can span two tiers under one scope.
+    """
     manager = FakeManager([UserMemory(memory=f"semantic {i}", memory_id=f"m{i}") for i in range(5)])
     bridge = SeedMemoryProvider(
-        manager=manager, stores={MemoryTier.PROCEDURAL: FakeStore("decision_log")}, config=seed_config()
+        manager=manager,
+        stores={MemoryTier.PROCEDURAL: FakeStore("learned_knowledge")},
+        config=seed_config(store_slots={"learned_knowledge": ["user_id"]}),
     )
 
     result = bridge.read(ACME, MemoryQuery(text="q", limit=3))
@@ -930,7 +965,7 @@ def test_a_store_write_defaults_to_not_updated_rather_than_assuming_success():
 def test_two_tiers_bound_to_the_same_learning_type_do_not_collide():
     """The record id carried store and scope but not tier, and this path has no dedup."""
     bridge = SeedMemoryProvider(
-        stores={MemoryTier.SEMANTIC: FakeStore("profile"), MemoryTier.PROCEDURAL: FakeStore("profile")},
+        stores={MemoryTier.SEMANTIC: FakeStore("user_profile"), MemoryTier.PROCEDURAL: FakeStore("user_profile")},
         config=seed_config(),
     )
 
@@ -1098,26 +1133,32 @@ class NarrowStore:
         return dict
 
 
-def test_a_bound_store_may_ignore_slots_the_bridge_hands_it():
-    """A **known gap**, pinned so it is visible rather than discovered.
+def test_a_bound_store_that_would_ignore_a_slot_is_refused():
+    """The gap SM-C1 pinned and SM-C2 closes, kept as its own repro.
 
-    The bridge refuses a scope the *manager* cannot filter, but it cannot check what a bound store
-    did with the slots it passed -- `LearningStore.recall` is declared `(self, **kwargs)`, so
-    deriving the honoured set by signature yields nothing and would refuse every store read.
-
-    So a narrowed read can come back wider, stamped with the requesting scope. Which slots a store
-    honours belongs with the tier-to-store mapping: **SM-C2 (#90)**. This test fails when that
-    lands, which is the point.
+    `decision_log` has no `user_id` parameter, so a read scoped to alice used to return bob's row
+    too, stamped with alice's scope -- wide answer, narrow label, invisible above this layer. The
+    refusal comes from `learn_stores.RECALL_SLOTS`, and it lands *before* the store is asked.
     """
     store = NarrowStore([("a1", "alice", "approved refund"), ("a1", "bob", "denied refund")])
     alice = Scope(tenant_id="acme", user_id="alice", agent_id="a1")
     bridge = SeedMemoryProvider(stores={MemoryTier.PROCEDURAL: store}, config=seed_config())
 
-    records = bridge.read_tier(alice, MemoryTier.PROCEDURAL, MemoryQuery(text="refund"))
+    with pytest.raises(MemoryOperationError, match="does not filter on"):
+        bridge.read_tier(alice, MemoryTier.PROCEDURAL, MemoryQuery(text="refund"))
 
-    assert store.ignored == ["user_id"], "the scope sets user_id; this store has no such parameter"
-    assert "bob" in records[0].content, "the known gap: bob's row reaches a read scoped to alice"
-    assert records[0].scope.user_id == "alice", "...and it is stamped with the requesting scope"
+    assert store.ignored == [], "refused before the store was ever asked"
+
+
+def test_the_same_store_answers_once_the_scope_is_one_it_can_filter():
+    """The refusal is about this scope, not about the store: drop `user_id` and it serves."""
+    store = NarrowStore([("a1", "alice", "approved refund"), ("a2", "bob", "denied refund")])
+    agent_only = Scope(tenant_id="acme", agent_id="a1")
+    bridge = SeedMemoryProvider(stores={MemoryTier.PROCEDURAL: store}, config=seed_config())
+
+    records = bridge.read_tier(agent_only, MemoryTier.PROCEDURAL, MemoryQuery(text="refund"))
+
+    assert "bob" not in records[0].content
 
 
 class SuspendingStore:
@@ -1171,9 +1212,16 @@ async def test_concurrent_store_writes_corrupt_the_accepted_count():
 
     Bounded honestly: `event_ids` and idempotency are unaffected, because
     `LearningStore.process` mints no ids either way -- so this is a wrong count, not lost data.
-    Giving each writer its own view of the flag means the bridge owning per-call store state, which
-    is the tier-to-store binding **SM-C2 (#90)** owns. This test turns green when that lands, and
-    that is the signal to delete it.
+
+    **SM-C2 (#90) looked at this and is not the fix.** The pin previously named this ticket, on the
+    reasoning that per-call store state belongs with the tier-to-store binding. It does not: the
+    binding decides *which* stores a tier has, and this race is in `was_updated` itself, a
+    `LearningStore` protocol property that reports the outcome of the last operation on the store
+    rather than of *your* call. Nothing the bridge can bind changes that. The two fixes available
+    to it are both worse than the defect -- serialising writes per store trades real concurrency
+    for a receipt count, and inferring success from the absence of an exception is what
+    `was_updated` exists to avoid. Closing it properly means `process` returning its own outcome,
+    which is a change to `egpt.learn`'s protocol and needs its own ticket.
     """
     store = SuspendingStore()
     bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: store}, config=seed_config())
@@ -1186,3 +1234,345 @@ async def test_concurrent_store_writes_corrupt_the_accepted_count():
     assert no_op.accepted == 0, "the genuine no-op is reported correctly"
     assert landed.accepted == 0, "KNOWN RACE (SM-C2 #90): this writer's events landed; it should be 1"
     assert landed.tiers_written == [], "...and its tier is missing from the receipt for the same reason"
+
+
+# ---------------------------------------------------------------------------
+# The tier-to-store mapping (SM-C2 #90)
+# ---------------------------------------------------------------------------
+
+
+def test_a_learning_machine_binds_its_stores_by_the_ratified_mapping():
+    """ADR 0003 section 2.2 as wiring, not as a comment: enabling stores on the machine is enough.
+
+    Before this the machine reached the bridge for `consolidate` alone and every tier had to be
+    bound by hand, so the mapping was data nothing consumed.
+    """
+    machine = FakeMachine(stores={"user_memory": FakeStore("user_memory"), "decision_log": FakeStore("decision_log")})
+
+    bridge = SeedMemoryProvider(machine=machine, config=seed_config())
+
+    assert bridge.tiers() == {
+        MemoryTier.WORKING: False,
+        MemoryTier.EPISODIC: False,
+        MemoryTier.SEMANTIC: True,
+        MemoryTier.PROCEDURAL: True,
+    }
+
+
+def test_a_tier_holds_every_machine_store_mapped_to_it():
+    """Three stores are semantic, so a read of that tier consults all three, in table order."""
+    machine = FakeMachine(
+        stores={
+            "user_profile": FakeStore("user_profile", "works at acme"),
+            "user_memory": FakeStore("user_memory", "prefers email"),
+            "entity_memory": FakeStore("entity_memory", "acme is a customer"),
+        }
+    )
+    bridge = SeedMemoryProvider(
+        machine=machine,
+        # entity_memory filters on `user_id` only under the "user" namespace, so a user-scoped
+        # read of it is refused unless the deployment says otherwise.
+        config=seed_config(store_slots={"entity_memory": ["user_id"]}),
+    )
+
+    records = bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q", limit=10))
+
+    assert [r.provenance["learning_type"] for r in records] == ["user_profile", "user_memory", "entity_memory"]
+
+
+def test_an_explicit_binding_replaces_the_machine_s_stores_for_that_tier():
+    """Extending it instead would hand the caller a read they did not ask for."""
+    machine = FakeMachine(stores={"user_memory": FakeStore("user_memory"), "decision_log": FakeStore("decision_log")})
+    chosen = FakeStore("user_profile", "the only one")
+
+    bridge = SeedMemoryProvider(machine=machine, stores={MemoryTier.SEMANTIC: chosen}, config=seed_config())
+
+    assert bridge.stores[MemoryTier.SEMANTIC] == (chosen,)
+    assert [s.learning_type for s in bridge.stores[MemoryTier.PROCEDURAL]] == ["decision_log"]
+
+
+def test_a_machine_carrying_a_store_no_tier_maps_is_refused_at_construction():
+    """Guessing its tier would file its memory as the wrong kind and serve it back as that kind."""
+    machine = FakeMachine(stores={"weather_cache": FakeStore("weather_cache")})
+
+    with pytest.raises(MemoryOperationError, match="weather_cache"):
+        SeedMemoryProvider(machine=machine, config=seed_config())
+
+
+def test_a_custom_store_bound_by_hand_may_travel_with_the_machine():
+    """Its tier is already decided, so there is nothing left to guess."""
+    custom = FakeStore("weather_cache")
+    machine = FakeMachine(stores={"user_memory": FakeStore("user_memory"), "weather_cache": custom})
+
+    bridge = SeedMemoryProvider(machine=machine, stores={MemoryTier.PROCEDURAL: custom}, config=seed_config())
+
+    assert bridge.stores[MemoryTier.PROCEDURAL] == (custom,)
+
+
+def test_a_store_without_a_learning_type_is_refused_at_construction():
+    """Two things key off it -- the record id and the slot lookup -- and both fail quietly.
+
+    Ids would read `None:semantic:...` and collide across stores; the slot lookup would miss the
+    table and refuse every narrowed read of a store that may well honour it.
+    """
+
+    class Nameless(FakeStore):
+        learning_type = None  # type: ignore[assignment]
+
+    with pytest.raises(MemoryProviderConfigError, match="learning_type"):
+        SeedMemoryProvider(stores={MemoryTier.SEMANTIC: Nameless()}, config=seed_config())
+
+
+def test_two_stores_of_the_same_type_in_one_tier_are_refused():
+    """A store's read-projection id is `learning_type:tier:scope`, so the second would overwrite
+    the first inside one slice with nothing to notice it."""
+    with pytest.raises(MemoryProviderConfigError, match="learning_type"):
+        SeedMemoryProvider(
+            stores={MemoryTier.SEMANTIC: [FakeStore("user_memory"), FakeStore("user_memory")]},
+            config=seed_config(),
+        )
+
+
+def test_a_tier_with_stores_bound_no_longer_falls_through_to_the_manager():
+    """The precedence SM-C1 set, restated for a *group* of stores rather than one."""
+    manager = FakeManager([UserMemory(memory="from manager", memory_id="m1")])
+    bridge = SeedMemoryProvider(
+        manager=manager,
+        stores={MemoryTier.SEMANTIC: [FakeStore("user_profile"), FakeStore("user_memory")]},
+        config=seed_config(),
+    )
+
+    records = bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q", limit=10))
+
+    assert len(records) == 2 and manager.search_calls == []
+
+
+def test_a_write_to_a_tier_reaches_every_store_bound_to_it():
+    """`LearningMachine.process` fans out across its stores; so must a tier-scoped write."""
+    profile, memory = FakeStore("user_profile"), FakeStore("user_memory")
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: [profile, memory]}, config=seed_config())
+
+    receipt = bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="likes email", scope=ACME)])
+
+    assert profile.processed and memory.processed
+    assert receipt.tiers_written == [MemoryTier.SEMANTIC]
+
+
+async def test_both_write_halves_reach_every_store_when_one_of_them_fails():
+    """A settled fan-out on both sides, compared by which stores were actually written.
+
+    Short-circuiting the sync loop while gathering the async one is the divergence that survived
+    six rounds on the co-located adapter; the same shape exists here the moment a tier holds two
+    stores.
+    """
+
+    def wire():
+        good, bad = FakeStore("user_profile"), FakeStore("user_memory")
+        bad.process = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("store down"))
+
+        async def aprocess(*a, **k):
+            await asyncio.sleep(0)
+            raise RuntimeError("store down")
+
+        bad.aprocess = aprocess
+        return SeedMemoryProvider(stores={MemoryTier.SEMANTIC: [bad, good]}, config=seed_config()), good
+
+    sync_bridge, sync_good = wire()
+    async_bridge, async_good = wire()
+    events = [MemoryEvent(content="likes email", scope=ACME)]
+
+    with pytest.raises(PartialWriteError):
+        sync_bridge.write_tier(ACME, MemoryTier.SEMANTIC, events)
+    with pytest.raises(PartialWriteError):
+        await async_bridge.awrite_tier(ACME, MemoryTier.SEMANTIC, events)
+
+    assert sync_good.processed == async_good.processed, "the healthy sibling must be written by both halves"
+    assert sync_good.processed, "...and it must actually have been written, or this compares two empties"
+
+
+def test_a_refusal_after_a_sibling_store_committed_is_a_partial_write():
+    """The other half of the rule, and the half a mutation sweep found untested.
+
+    Stores in a tier are written in sequence, so a refusal on the second leaves the first's write
+    in place. Propagating it bare would tell a caller nothing landed while something did -- the
+    same defect `_raise_fanout_failure` fixes one level up, at store granularity.
+    """
+    committed, refusing = FakeStore("user_profile"), FakeStore("user_memory")
+    refusing.process = lambda *a, **k: (_ for _ in ()).throw(MemoryOperationError("nope", field_name="content"))
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: [committed, refusing]}, config=seed_config())
+
+    with pytest.raises(PartialWriteError):
+        bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
+
+    assert committed.processed, "the sibling did commit, which is what makes this partial"
+
+
+def test_a_refusal_with_no_sibling_committed_still_propagates_bare():
+    """Matching the co-located rule: nothing landed, so there is nothing for a receipt to help
+    reconcile, and the caller needs the refusal itself."""
+    store = FakeStore("user_profile")
+    store.process = lambda *a, **k: (_ for _ in ()).throw(MemoryOperationError("nope", field_name="content"))
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: store}, config=seed_config())
+
+    with pytest.raises(MemoryOperationError) as exc:
+        bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
+
+    assert not isinstance(exc.value, PartialWriteError)
+
+
+# ---------------------------------------------------------------------------
+# Scope slots a bound store will not filter on
+# ---------------------------------------------------------------------------
+
+
+def test_the_slot_guard_applies_to_both_read_halves():
+    """One rule, both lanes -- a refusal the async path skipped would be a leak on the async path."""
+    store = FakeStore("decision_log")
+    bridge = SeedMemoryProvider(stores={MemoryTier.PROCEDURAL: store}, config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="does not filter on"):
+        bridge.read_tier(ACME, MemoryTier.PROCEDURAL, MemoryQuery(text="q"))
+    with pytest.raises(MemoryOperationError, match="does not filter on"):
+        asyncio.run(bridge.aread_tier(ACME, MemoryTier.PROCEDURAL, MemoryQuery(text="q")))
+
+    assert store.recall_kwargs == [], "refused before either half asked the store"
+
+
+def test_one_unanswerable_store_in_a_tier_refuses_before_its_siblings_are_asked():
+    """Guarding inside the loop had the sync half recall the first store and then refuse on the
+    second, while the gathered async half recalled them all -- one refusal, two sets of calls."""
+    answerable, unanswerable = FakeStore("user_profile"), FakeStore("decision_log")
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: [answerable, unanswerable]}, config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="does not filter on"):
+        bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="q"))
+
+    assert answerable.recall_kwargs == []
+
+
+def test_an_unknown_store_type_is_refused_for_any_narrowed_scope():
+    """Fail-closed. `LearningStore.recall` is `(self, **kwargs)`, so there is nothing to derive an
+    honoured set from, and assuming the slots apply is the failure this guard exists for."""
+    bridge = SeedMemoryProvider(stores={MemoryTier.PROCEDURAL: FakeStore("weather_cache")}, config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="does not filter on"):
+        bridge.read_tier(ACME, MemoryTier.PROCEDURAL, MemoryQuery(text="q"))
+
+    assert bridge.read_tier(Scope(tenant_id="acme"), MemoryTier.PROCEDURAL, MemoryQuery(text="q"))
+
+
+@pytest.mark.parametrize(
+    "slots", [{"user_profile": ["session"]}, {"user_profile": "user_id"}, {5: ["user_id"]}, ["user_id"]]
+)
+def test_a_malformed_slot_declaration_is_refused_at_construction(slots):
+    """A misspelled slot silently *widens* what this provider answers, which is the direction that
+    matters -- so it is boundary-checked like every other option rather than absorbed."""
+    with pytest.raises(MemoryProviderConfigError, match="store_slots"):
+        SeedMemoryProvider(stores={MemoryTier.SEMANTIC: FakeStore()}, config=seed_config(store_slots=slots))
+
+
+def test_a_write_to_a_store_is_not_slot_guarded_and_the_asymmetry_is_deliberate():
+    """A **pinned gap**, with an owner.
+
+    The read side refuses a slot the store will not filter on. The write side does not, because
+    whether `process` *persists* a slot is a question about the store's columns -- SM-C3's (#91) --
+    and this ticket declines to guess it. The asymmetry is visible here rather than discovered: a
+    session-scoped write is accepted by the same store whose session-scoped read is refused.
+
+    This fails when a write-side slot table lands, which is the signal to guard both.
+    """
+    session_scoped = Scope(tenant_id="acme", session_id="s1")
+    store = FakeStore("user_profile")
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: store}, config=seed_config())
+
+    bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
+    bridge.write_tier(session_scoped, MemoryTier.SEMANTIC, [MemoryEvent(content="y", scope=session_scoped)])
+
+    assert len(store.processed) == 2, "both writes accepted; the session-scoped one keeps no session"
+    with pytest.raises(MemoryOperationError, match="does not filter on"):
+        bridge.read_tier(session_scoped, MemoryTier.SEMANTIC, MemoryQuery(text="y"))
+
+
+# ---------------------------------------------------------------------------
+# The manager's async halves (SPEC section 11.3)
+# ---------------------------------------------------------------------------
+
+
+async def test_the_async_read_awaits_the_manager_rather_than_hopping_a_thread():
+    """Asserted on what the manager was *asked*: a result-only check cannot tell the two apart."""
+    manager = FakeManager([UserMemory(memory="a note", memory_id="m1")])
+    calls = []
+    original = manager.asearch_user_memories
+
+    async def recording(**kwargs):
+        calls.append(kwargs)
+        return await original(**kwargs)
+
+    manager.asearch_user_memories = recording
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    records = await bridge.aread_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="a note"))
+
+    assert [c["user_id"] for c in calls] == ["u1"]
+    assert [r.content for r in records] == ["a note"]
+
+
+async def test_the_async_write_awaits_the_manager_rather_than_hopping_a_thread():
+    manager = FakeManager()
+    calls = []
+    original = manager.aadd_user_memory
+
+    async def recording(memory, user_id=None):
+        calls.append(user_id)
+        return await original(memory, user_id=user_id)
+
+    manager.aadd_user_memory = recording
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    receipt = await bridge.awrite_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
+
+    assert calls == ["u1"] and receipt.accepted == 1
+
+
+async def test_a_manager_without_the_async_halves_still_works_through_the_thread_hop():
+    """The bridge duck-checks its collaborators, so a third-party manager may have only the sync
+    half. Dropping the fallback would turn that into an `AttributeError` at first read."""
+    manager = SyncOnlyManager([UserMemory(memory="a note", memory_id="m1")])
+    bridge = SeedMemoryProvider(manager=manager, config=seed_config())
+
+    records = await bridge.aread_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="a note"))
+    receipt = await bridge.awrite_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
+
+    assert [r.content for r in records] == ["a note"]
+    assert receipt.accepted == 1
+
+
+async def test_both_manager_write_halves_commit_the_same_rows_when_one_event_fails():
+    """Sequential and short-circuiting on both sides: gathering the async half would commit rows
+    the sync half never attempted, for one identical failure."""
+
+    def wire():
+        manager = FakeManager()
+        state = {"calls": 0}
+        original = manager.add_user_memory
+
+        def failing(memory, user_id=None):
+            state["calls"] += 1
+            if state["calls"] == 2:
+                raise RuntimeError("db down")
+            return original(memory, user_id=user_id)
+
+        manager.add_user_memory = failing
+        return SeedMemoryProvider(manager=manager, config=seed_config()), manager
+
+    sync_bridge, sync_manager = wire()
+    async_bridge, async_manager = wire()
+    events = [MemoryEvent(content=f"note {i}", scope=ACME, id=f"n{i}") for i in range(4)]
+
+    with pytest.raises(PartialWriteError) as sync_exc:
+        sync_bridge.write_tier(ACME, MemoryTier.SEMANTIC, events)
+    with pytest.raises(PartialWriteError) as async_exc:
+        await async_bridge.awrite_tier(ACME, MemoryTier.SEMANTIC, events)
+
+    assert [m.memory_id for m in sync_manager.added] == [m.memory_id for m in async_manager.added] == ["n0"]
+    assert sync_exc.value.receipt.event_ids == async_exc.value.receipt.event_ids == ["n0"]

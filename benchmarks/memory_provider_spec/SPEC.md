@@ -379,7 +379,7 @@ owner, not a "later".
 | The Mode B / external adapter | It would have composed the same two ports over the same in-memory doubles. That proves a class can be subclassed, not that a network seam holds. `ProviderMode.FRONTIER` is accepted and reaches the provider today; the swap test covers that. | SM-X2 #138 |
 | A consolidation cursor, watermark, or resumption protocol | Three review rounds of defects lived in the *protocol*, not the implementation: nothing passed the cursor; a time-only cursor could not page past co-second episodes; a no-progress guard fired on a legitimate batch. `consolidate` runs one bounded pass and reports `details["complete"]`. A resumable walk should be designed with the scheduler that drives it. | SM-L1 #122 |
 | Read-path over-fetching to compensate for post-merge validity filtering | No fixed multiplier is correct, and it taxes every read. The real fix is a vector projection that is not stale. Stated as a residual in `VectorSubstrate.search`. | SM-V1 #95 / SM-G1 #99 |
-| Per-tier read/write policy beyond `SUBSTRATES_BY_TIER` | `tiers.py` ships the write-routing data the seam needs to not guess; turning it into policy is a separate charter. | SM-C2 #90 |
+| ~~Per-tier read/write policy beyond `SUBSTRATES_BY_TIER`~~ — **shipped by SM-C2 (#90)** as `tiers.TIER_POLICY`, which replaces `SUBSTRATES_BY_TIER` rather than sitting beside it | `tiers.py` shipped the write-routing data the seam needed to not guess; turning it into policy was a separate charter. | SM-C2 #90 (done) |
 | `MemoryQuery.filters` semantics | No substrate port states a contract for it, so a future backend would have nothing to conform to. A filter that silently does not apply returns an unfiltered slice that looks filtered — refused at the envelope rather than accepted. | SM-V1 #95 |
 
 ### 11.2a Additions the spec did not cover
@@ -388,7 +388,10 @@ owner, not a "later".
   the seam over `MemoryManager` and the `learn` stores with no new infrastructure. Most of it is
   refusals, because the seed cannot honour tenancy, valid time, substrates, or an episodic tier, and
   an ignored parameter returns a wrong answer that looks right.
-- **`SUBSTRATES_BY_TIER`** (`tiers.py`) — ADR 0003 §1's ratified write routing as data.
+- **`SUBSTRATES_BY_TIER`** (`tiers.py`) — ADR 0003 §1's ratified write routing as data. *(Superseded
+  by SM-C2's `TIER_POLICY`, which holds the same rows plus the rest of the per-tier decisions. The
+  copy was removed rather than kept beside it — two tables holding one decision is what SM-C2 exists
+  to close. `substrates_for_tier()` is unchanged and is what most callers wanted from it.)*
 - **`validation.py`** — write-path guards shared by both adapters. Invariants implemented per
   adapter drifted; each one here is paired with a conformance-matrix property.
 - **`FUSION_KEYS` / `CONSOLIDATION_KEYS`** — a floor on the diagnostics every provider reports, so a
@@ -442,8 +445,8 @@ result-only assertion cannot detect a wrong request.
 | Measure weighted-vs-RRF on the **vector+graph** pairing — SM-R8 never did | SM-R13 #19 |
 | Reject `HuggingfaceCustomEmbedder` for `mode=LOCAL` (ADR §A.3c) | SM-V2 #96 |
 | `Curator` is narrower than ADR §2.1 implies (`user_profile` store only, no async) | SM-L4 #125 |
-| `MemoryManager.search_user_memories` / `add_user_memory` have no async variant; the bridge hops a thread | SM-C2 #90 |
-| **Which scope slots a bound `LearningStore` actually filters on.** The seed bridge refuses a scope the *manager* cannot filter (`_reject_unfilterable_scope`) but passes every slot to a bound store and cannot check what the store did with it — each in-tree store filters on a subset (`decision_log` has no `user_id` parameter at all) and documents the rest as "Additional context (ignored)", so a narrowed read can return a wider answer stamped with the requesting scope. Deriving the honoured slots by signature does not work: `LearningStore.recall` is declared `(self, **kwargs)`, so the derived set is empty and every store read is refused. The slot set belongs with the tier-to-store mapping | SM-C2 #90 |
+| ~~`MemoryManager.search_user_memories` / `add_user_memory` have no async variant; the bridge hops a thread~~ — **done in SM-C2 (#90)**: `asearch_user_memories` / `aadd_user_memory` ship, and the bridge awaits them. The hop remains only for a duck-typed manager without them. `Curator.deduplicate` is still sync-only (SM-L4 #125) | SM-C2 #90 (done) |
+| ~~**Which scope slots a bound `LearningStore` actually filters on.**~~ — **done in SM-C2 (#90)**: `memory/learn_stores.py` declares `RECALL_SLOTS` per store beside the tier mapping, and `seed._reject_unhonoured_slots` refuses a read narrowed on a slot the bound store will not filter by. Declared rather than derived, for the reason recorded here (`recall` is `(self, **kwargs)`), and cross-checked against the six shipped stores' real signatures by `test_learn_store_mapping.py`. `entity_memory` / `learned_knowledge` honour `user_id` only under the `"user"` namespace, so their declared set is empty and `options['store_slots']` is the override. **The write side is not modelled**: whether `process` *persists* a slot is a columns question — SM-C3 #91 | SM-C2 #90 (done); write side SM-C3 #91 |
 | Graph enumeration semantics for a `scan` on `GraphSubstrate` | SM-G9 #107 |
 | Bounds-by-id lookup on `GraphSubstrate`, to close point-in-time when the graph's top-`limit` misses a row the vector leg returned | SM-G1 #99 |
 | Re-sync the vector projection on invalidation, so a bounded row stops consuming a page slot. Precision is closed by `bounds_for_ids`; the residual is **recall** — a page dominated by bounded rows comes back short, reported as `fusion["dropped_by_validity"]` | SM-V1 #95 / SM-G1 #99 |

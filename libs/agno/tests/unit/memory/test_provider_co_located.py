@@ -43,6 +43,27 @@ def event(content, **kwargs):
     return MemoryEvent(content=content, scope=kwargs.pop("scope", ACME), **kwargs)
 
 
+@pytest.fixture
+def graph_only_semantic():
+    """Re-route the semantic tier to the graph alone, for the duration of one test.
+
+    The provider reads `TIER_POLICY` on every routing decision, so this is how a test asks "what
+    happens when a tier stops being dual-substrate" without waiting for a ticket to make one so.
+    Patching the table rather than the adapter is deliberate: a path that consults the table is
+    exercised, and a path that hard-codes a tier is not, which is the whole assertion.
+    """
+    from dataclasses import replace as replace_row
+
+    from egpt.memory import tiers as tiers_module
+
+    original = tiers_module.TIER_POLICY[MemoryTier.SEMANTIC]
+    tiers_module.TIER_POLICY[MemoryTier.SEMANTIC] = replace_row(original, substrates=frozenset({"graph"}))
+    try:
+        yield
+    finally:
+        tiers_module.TIER_POLICY[MemoryTier.SEMANTIC] = original
+
+
 def test_the_doubles_satisfy_the_real_ports():
     assert_ports_satisfied()
 
@@ -926,19 +947,13 @@ def test_an_episodic_write_still_uses_the_episode_door():
     assert graph.calls == ["upsert_episode"]
 
 
-def test_the_vector_leg_honours_tier_routing_like_the_graph_leg_does():
-    """Latent until SM-C2 adds a graph-only tier, at which point it becomes a silent extra write."""
-    from egpt.memory import tiers as tiers_module
-
+def test_the_vector_leg_honours_tier_routing_like_the_graph_leg_does(graph_only_semantic):
+    """Latent while no tier is graph-only; a silent extra write the moment one is."""
     p, vector, graph = provider()
-    original = dict(tiers_module.SUBSTRATES_BY_TIER)
-    tiers_module.SUBSTRATES_BY_TIER[MemoryTier.SEMANTIC] = frozenset({"graph"})
-    try:
-        p.write_tier(ACME, MemoryTier.SEMANTIC, [event("graph only fact")])
-        assert vector.rows.get("acme", {}) == {}, "a graph-only tier must not reach the vector leg"
-    finally:
-        tiers_module.SUBSTRATES_BY_TIER.clear()
-        tiers_module.SUBSTRATES_BY_TIER.update(original)
+
+    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("graph only fact")])
+
+    assert vector.rows.get("acme", {}) == {}, "a graph-only tier must not reach the vector leg"
 
 
 def test_consolidation_does_not_restamp_created_at_on_a_stable_fact():
@@ -1135,20 +1150,15 @@ def test_a_substrate_returning_an_unrequested_tier_is_refused():
         p.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="alpha"))
 
 
-def test_consolidation_honours_tier_routing_like_the_write_path_does():
-    """`write` filters by SUBSTRATES_BY_TIER; consolidate wrote wherever a substrate was wired."""
-    import egpt.memory.tiers as tiers_module
-
+def test_consolidation_honours_tier_routing_like_the_write_path_does(graph_only_semantic):
+    """`write` filters by TIER_POLICY; consolidate wrote wherever a substrate was wired."""
     p, vector, graph = provider()
     p.write(ACME, [event("alpha beta gamma", id="ep")])
-    original = tiers_module.SUBSTRATES_BY_TIER[MemoryTier.SEMANTIC]
-    tiers_module.SUBSTRATES_BY_TIER[MemoryTier.SEMANTIC] = frozenset({"graph"})
-    try:
-        p.consolidate(ACME)
-        semantic_in_vector = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC]
-        assert semantic_in_vector == [], "graph-only SEMANTIC must not reach the vector substrate"
-    finally:
-        tiers_module.SUBSTRATES_BY_TIER[MemoryTier.SEMANTIC] = original
+
+    p.consolidate(ACME)
+
+    semantic_in_vector = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC]
+    assert semantic_in_vector == [], "graph-only SEMANTIC must not reach the vector substrate"
 
 
 def test_a_refusal_before_the_fan_out_propagates_bare():
@@ -1344,14 +1354,92 @@ async def test_concurrent_fact_writes_respect_the_configured_bound():
 
 
 def test_bounds_are_not_requested_for_a_tier_the_graph_does_not_hold():
-    """A procedural read is vector-only per SUBSTRATES_BY_TIER, so the round trip is guaranteed
-    empty -- and a network hop in Mode B."""
+    """A procedural read is vector-only per TIER_POLICY, so the round trip is guaranteed empty --
+    and a network hop in Mode B."""
     p, _, graph = provider()
     p.write_tier(ACME, MemoryTier.PROCEDURAL, [event("always confirm", id="pr1")])
 
     p.read_tier(ACME, MemoryTier.PROCEDURAL, MemoryQuery(text="always confirm"))
 
     assert graph.bounds_requests == []
+
+
+@pytest.mark.parametrize(
+    "wiring,served",
+    [
+        ({"vector": FakeVector(), "graph": FakeGraph()}, ["episodic", "semantic", "procedural"]),
+        ({"vector": FakeVector()}, ["episodic", "semantic", "procedural"]),
+        ({"graph": FakeGraph()}, ["episodic", "semantic"]),
+    ],
+)
+def test_which_tiers_are_served_follows_the_wiring(wiring, served):
+    """A graph-only provider cannot serve procedural memory -- the table routes it to the vector
+    substrate alone. Reads of it are empty, so `tiers()` is the only way a caller can tell that
+    from an empty tier."""
+    p = CoLocatedMemoryProvider(**wiring)
+
+    assert [t.value for t, on in p.tiers().items() if on] == served
+
+
+def test_a_row_the_graph_reports_expired_is_not_served():
+    """Transaction time, filtered after reconciliation -- found untested by a mutation sweep.
+
+    The vector projection carries no `expired_at`, so its leg returns the row looking live; the
+    graph's `bounds_for_ids` is the only place the supersession shows up. Dropping the
+    `is_current_belief` filter here served a row the graph had already replaced, and the two
+    validity filters are separate: `_valid_at` is about the world, this is about belief.
+    """
+    p, _, graph = provider()
+    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme", id="f1")])
+    graph.rows["acme"][0].expired_at = now_epoch_s()  # a newer revision exists; this row is not it
+
+    slice_ = p.read(ACME, MemoryQuery(text="ada works at acme"))
+
+    assert slice_.records == []
+    assert slice_.fusion["dropped_as_superseded"] == 1
+    assert slice_.fusion["dropped_by_validity"] == 0, "this is transaction time, not valid time"
+
+
+def test_a_leg_no_requested_tier_routes_to_is_not_consulted_at_all():
+    """The same reasoning one step earlier: not just the bounds call, the search itself.
+
+    Asserted on what the substrate was **asked**, because the result cannot show it -- the graph
+    holds no procedural rows either way, so a read that consults it looks identical to one that
+    does not, right up until Mode B bills for the hop.
+    """
+    p, vector, graph = provider()
+    p.write_tier(ACME, MemoryTier.PROCEDURAL, [event("always confirm", id="pr1")])
+    vector.calls.clear()
+    graph.calls.clear()
+
+    p.read(ACME, MemoryQuery(text="always confirm", tiers=[MemoryTier.PROCEDURAL]))
+
+    assert graph.calls == []
+    assert vector.calls == ["search"], "the leg that does hold the tier is still consulted"
+
+
+async def test_the_async_read_skips_the_same_leg_the_sync_one_does():
+    """A skip on one half only is two different backends behind one seam."""
+    p, _, graph = provider()
+    p.write_tier(ACME, MemoryTier.PROCEDURAL, [event("always confirm", id="pr1")])
+    graph.calls.clear()
+
+    await p.aread(ACME, MemoryQuery(text="always confirm", tiers=[MemoryTier.PROCEDURAL]))
+
+    assert graph.calls == []
+
+
+def test_a_read_of_a_graph_backed_tier_still_consults_both_legs():
+    """The skip is tier-driven, not a blanket optimisation -- the negative alone would pass on a
+    provider that never called the graph at all."""
+    p, vector, graph = provider()
+    p.write_tier(ACME, MemoryTier.SEMANTIC, [event("the customer prefers email", id="s1")])
+    vector.calls.clear()
+    graph.calls.clear()
+
+    p.read(ACME, MemoryQuery(text="the customer", tiers=[MemoryTier.SEMANTIC]))
+
+    assert "traverse" in graph.calls and "search" in vector.calls
 
 
 def test_excluding_the_graph_is_allowed_for_a_tier_the_graph_does_not_hold():

@@ -8,6 +8,9 @@ This section demonstrates how EGPT agents persist and use user memories across r
 - `09_memory_provider_seam.py`: The Symbiotic Memory seam (SM-C1) -- read/write/consolidate over
   both substrates, with the backend and deployment mode chosen by config. Runs with no database and
   no API key.
+- `10_memory_tiers.py`: The CoALA tier model (SM-C2) -- what the framework decides because of a
+  record's tier: write routing, graph write shape, read tier-selection, which tiers a deployment
+  serves, and how the six `learn` stores map in. Also runs with no database and no API key.
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

@@ -16,8 +16,22 @@ from egpt.memory.strategies import (
     MemoryOptimizationStrategyType,
     SummarizeStrategy,
 )
+from egpt.memory.learn_stores import RECALL_SLOTS, STORE_TIERS, stores_by_tier, tier_for_store
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
-from egpt.memory.tiers import PERSISTENT_TIERS, SUBSTRATES_BY_TIER, MemoryTier, substrates_for_tier
+from egpt.memory.tiers import (
+    CONSOLIDATION_SOURCE,
+    CONSOLIDATION_TARGET,
+    DEFAULT_WRITE_TIER,
+    PERSISTENT_TIERS,
+    TIER_POLICY,
+    GraphWriteShape,
+    MemoryTier,
+    TierPolicy,
+    graph_shape_for_tier,
+    policy_for_tier,
+    routes_to,
+    substrates_for_tier,
+)
 from egpt.memory.types import (
     CONSOLIDATION_KEYS,
     FUSION_KEYS,
@@ -48,6 +62,20 @@ __all__ = [
     "SummarizeStrategy",
     # Symbiotic Memory seam envelope (SM-C1)
     "PERSISTENT_TIERS",
+    # The CoALA tier model (SM-C2)
+    "CONSOLIDATION_SOURCE",
+    "CONSOLIDATION_TARGET",
+    "DEFAULT_WRITE_TIER",
+    "GraphWriteShape",
+    "RECALL_SLOTS",
+    "STORE_TIERS",
+    "TIER_POLICY",
+    "TierPolicy",
+    "graph_shape_for_tier",
+    "policy_for_tier",
+    "routes_to",
+    "stores_by_tier",
+    "tier_for_store",
     "ConsolidationReport",
     "FactWrite",
     "MemoryEvent",
@@ -63,7 +91,6 @@ __all__ = [
     # Substrate ports and the helpers a third-party adapter needs (SM-C1)
     "GraphSubstrate",
     "VectorSubstrate",
-    "SUBSTRATES_BY_TIER",
     "checked_graph",
     "checked_vector",
     "consolidation_details",

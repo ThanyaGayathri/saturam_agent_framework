@@ -100,3 +100,24 @@ Note that `scan` here takes no cursor. The `since` / `after_id` pair it used to 
 along with the consolidation resumption protocol; a resumable walk is SM-L1's (#122).
 
 ---
+
+### 10_memory_tiers.py
+
+**Status:** PASS
+
+**Description:** Exercises the SM-C2 CoALA tier model against two in-file substrate stand-ins that
+record what they were asked. Prints the `TIER_POLICY` table, writes one event per tier and shows
+where each landed, shows a query naming no tiers resolving to the three persistent ones, shows a
+procedural read skipping the graph leg while a semantic read consults it, contrasts `tiers()` on a
+both-substrates provider against a graph-only one, and prints the six `learn` stores with the tier
+each maps to and the scope slots its `recall` filters on.
+
+**Result:** Success. Output is **byte-identical across 3 executions** (verified by hashing), which
+matters here because the read paths iterate substrate contents. Write routing observed: an event
+naming no tier lands in `episodic`; the graph holds the episode as an episode and the semantic
+memory as a fact, via the two different ports; the procedural rule reaches the vector substrate
+only and appears in neither graph list. The procedural read reports `consulted the graph: False`
+and the semantic read `True`. The graph-only provider serves `episodic, semantic` and returns `[]`
+for a procedural read rather than refusing it. Requires no database, no model, and no API key.
+
+---

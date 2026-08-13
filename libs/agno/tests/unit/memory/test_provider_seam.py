@@ -76,6 +76,9 @@ class StubProvider(MemoryProvider):
     def substrates(self) -> Dict[Substrate, bool]:
         return {Substrate.VECTOR: True, Substrate.GRAPH: False}
 
+    def tiers(self) -> Dict[MemoryTier, bool]:
+        return {tier: False for tier in MemoryTier}
+
 
 @pytest.fixture(autouse=True)
 def clean_registry():
@@ -122,6 +125,27 @@ def test_every_verb_has_both_halves():
     for verb in ("read", "write", "consolidate", "read_tier", "write_tier"):
         assert hasattr(MemoryProvider, verb)
         assert hasattr(MemoryProvider, "a" + verb)
+
+
+def test_the_two_introspection_calls_are_sync_only_and_deliberately_so():
+    """`substrates` and `tiers` report wiring settled at construction and await nothing.
+
+    CLAUDE.md exempts pure construction from the sync+async rule; asserting the exemption keeps a
+    later reader from "fixing" it with an `async def` that never awaits, which is the dead weight
+    the rule is aimed at.
+    """
+    for verb in ("substrates", "tiers"):
+        assert hasattr(MemoryProvider, verb)
+        assert not hasattr(MemoryProvider, "a" + verb)
+
+
+def test_a_provider_that_cannot_say_which_tiers_it_serves_cannot_be_instantiated():
+    """Reads of an unserved tier are empty rather than refused, so absence is only observable here."""
+    body = {name: fn for name, fn in vars(StubProvider).items() if name != "tiers"}
+    partial = type("TierlessProvider", (MemoryProvider,), body)
+
+    with pytest.raises(TypeError, match="tiers"):
+        partial()
 
 
 # ---------------------------------------------------------------------------

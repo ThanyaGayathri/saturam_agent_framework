@@ -26,7 +26,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence
 
 from egpt.memory.errors import MemoryOperationError
-from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
+from egpt.memory.tiers import DEFAULT_WRITE_TIER, PERSISTENT_TIERS, MemoryTier
 from egpt.utils.dttm import to_epoch_s
 
 __all__ = [
@@ -350,7 +350,7 @@ class MemoryEvent:
 
     content: str
     scope: Scope
-    tier: MemoryTier = MemoryTier.EPISODIC
+    tier: MemoryTier = DEFAULT_WRITE_TIER  # `tiers.TIER_POLICY` decides which one that is
     id: Optional[str] = None
     role: Optional[str] = None  # for message-shaped events (user / assistant / ...)
     topics: Optional[List[str]] = None
