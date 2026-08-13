@@ -194,3 +194,134 @@ class TestTeamLoad:
             Team.load("team-1", db=db, tenant_id="acme")
         assert "team-1" in str(excinfo.value)
         assert "ghost" in str(excinfo.value)
+
+
+class TestGraphMemberHydrationCarriesTheRegistryAndTheEndpointPolicy:
+    """`Team.load` -> `_hydrate_from_graph` -> `Agent.from_dict` for each member.
+
+    Untested before the round-2 review, which is how the missing `registry=` argument reached
+    main in the first place: the member branch rebuilt every model from its serialized identity
+    triple, discarding whatever the registry held. A later refactor dropping it again would have
+    been just as silent.
+    """
+
+    def _member_graph(self, model_config):
+        return {
+            "component": {"component_id": "team-a"},
+            "config": {
+                "config": {"name": "Team A", "members": [{"type": "agent", "agent_id": "agent-1"}]},
+                "tenant_id": "acme",
+                "stage": "published",
+            },
+            "children": [
+                {
+                    "link": {"child_component_id": "agent-1", "meta": {"type": "agent"}},
+                    "graph": {
+                        "component": {"component_id": "agent-1"},
+                        "config": {
+                            "config": {"id": "agent-1", "name": "Member", "model": model_config},
+                            "tenant_id": "acme",
+                            "stage": "published",
+                        },
+                        "children": [],
+                    },
+                }
+            ],
+        }
+
+    def test_a_member_on_an_env_resolved_proxy_loads(self, monkeypatch):
+        """The regression the round-2 review caught: one member on `AzureOpenAI` must not make the
+        whole team unloadable. `_hydrate_from_graph` converts any member failure into a team-wide
+        `HydrationError`, so an over-broad model guard took out every stored team with an Azure or
+        vLLM member -- deployments with no public egress at all."""
+        from egpt.integrations.models.azure.openai_chat import AzureOpenAI
+
+        monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://priv.openai.azure.com")
+        monkeypatch.setenv("AZURE_OPENAI_API_KEY", "k")
+        db = _mock_db(rows={})
+        db.load_component_graph = MagicMock(
+            return_value=self._member_graph({"id": "gpt-4.1-mini", "name": "AzureOpenAI", "provider": "Azure"})
+        )
+
+        team = Team.load("team-a", db=db, tenant_id="acme")
+
+        assert team is not None
+        assert [m.id for m in team.members] == ["agent-1"]
+        assert isinstance(team.members[0].model, AzureOpenAI)
+
+    def test_require_endpoint_reaches_every_member(self):
+        """`require_endpoint` is threaded to members, not just to the team's own model.
+
+        Without the forwarding a caller who opted out still could not load a team whose *member*
+        carried a bare proxy -- and the member is where an endpointless model is most likely to
+        be, since members are the things hydrated from stored graphs.
+        """
+        db = _mock_db(rows={})
+        db.load_component_graph = MagicMock(return_value=self._member_graph("openai-like:qwen"))
+
+        # The member's refusal propagates as a raw `ValueError` rather than being wrapped -- worth
+        # asserting the type that actually escapes, since a caller catching only `HydrationError`
+        # (which the surrounding graph errors use) would not catch this one.
+        with pytest.raises(ValueError, match="cannot be restored"):
+            Team.load("team-a", db=db, tenant_id="acme")
+
+        db.load_component_graph = MagicMock(return_value=self._member_graph("openai-like:qwen"))
+        team = Team.load("team-a", db=db, tenant_id="acme", require_endpoint=False)
+
+        assert team is not None and [m.id for m in team.members] == ["agent-1"]
+
+    def test_require_endpoint_reaches_members_on_the_from_dict_path_too(self):
+        """The `from_dict` member path, which had no coverage and diverged from `Team.load`.
+
+        Round-2 review caught this: `Team.load` threads the flag through `_hydrate_from_graph`,
+        but `Team.from_dict` hydrates members through `get_agent_by_id` / `get_team_by_id`, and
+        neither accepted the parameter -- so the opt-out was inert on exactly the path
+        `get_team_by_id` (the AgentOS read path) takes. Both flag values failed identically.
+
+        Two entry points reaching the same members by different routes need the same test, or the
+        one without coverage is free to drift.
+        """
+        cfg = {"id": "t1", "name": "T", "members": [{"type": "agent", "agent_id": "m1"}]}
+
+        def _db_with_a_bare_proxy_member():
+            db = MagicMock()
+            db.get_component = MagicMock(return_value={"component_id": "m1", "component_type": "agent"})
+            db.get_config = MagicMock(
+                return_value={
+                    "config": {"id": "m1", "name": "M", "model": "openai-like:qwen"},
+                    "tenant_id": None,
+                    "stage": "published",
+                }
+            )
+            return db
+
+        with pytest.raises(HydrationError):
+            Team.from_dict(cfg, db=_db_with_a_bare_proxy_member())
+
+        team = Team.from_dict(cfg, db=_db_with_a_bare_proxy_member(), require_endpoint=False)
+
+        assert team is not None and [m.id for m in team.members] == ["m1"]
+
+    def test_get_team_by_id_forwards_the_opt_out(self):
+        """The entry point finding [3] was actually about.
+
+        `get_team_by_id` routes through `Team.from_dict`, not `Team.load`, so the remedy the
+        refusal message names has to be reachable from here or it is not reachable from AgentOS.
+        """
+        from egpt.team.team import get_team_by_id
+
+        db = MagicMock()
+        db.get_component = MagicMock(return_value={"component_id": "m1", "component_type": "agent"})
+        db.get_config = MagicMock(
+            return_value={
+                "config": {"id": "m1", "name": "M", "model": "openai-like:qwen"},
+                "tenant_id": None,
+                "stage": "published",
+            }
+        )
+
+        import inspect
+
+        assert "require_endpoint" in inspect.signature(get_team_by_id).parameters, (
+            "the AgentOS read path must expose the opt-out its own error message recommends"
+        )

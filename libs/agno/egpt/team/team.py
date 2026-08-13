@@ -1564,8 +1564,23 @@ class Team:
         db: Optional["BaseDb"] = None,
         registry: Optional["Registry"] = None,
         tenant_id: Optional[str] = None,
+        *,
+        require_endpoint: bool = True,
     ) -> "Team":
-        return _storage.from_dict(cls, data=data, db=db, registry=registry, tenant_id=tenant_id)
+        """Rebuild a Team from its serialized form.
+
+        ``require_endpoint`` is forwarded to the team's own model and to every member, on both
+        member-hydration routes: the graph path (``Team.load`` -> ``_hydrate_from_graph``) and the
+        per-member DB reads this path takes (``get_agent_by_id`` / ``get_team_by_id``). The second
+        route did not carry it initially, which made the opt-out inert on exactly the path
+        ``get_team_by_id`` -- the AgentOS read -- takes.
+
+        See ``Agent.from_dict`` for what it refuses and why. It matters more here than on a single
+        agent: one member on a bare endpointless proxy otherwise makes the whole team unloadable.
+        """
+        return _storage.from_dict(
+            cls, data=data, db=db, registry=registry, tenant_id=tenant_id, require_endpoint=require_endpoint
+        )
 
     @classmethod
     def component_spec(
@@ -1614,8 +1629,24 @@ class Team:
         label: Optional[str] = None,
         version: Optional[int] = None,
         tenant_id: Optional[str] = None,
+        require_endpoint: bool = True,
     ) -> Optional["Team"]:
-        return _storage.load(cls, id=id, db=db, registry=registry, label=label, version=version, tenant_id=tenant_id)
+        """Load a team by id, with hydrated members.
+
+        ``require_endpoint`` is forwarded to every member; see ``Agent.from_dict``. It matters more
+        here than on a single agent, because one member on a bare endpointless proxy otherwise
+        makes the whole team unloadable.
+        """
+        return _storage.load(
+            cls,
+            id=id,
+            db=db,
+            registry=registry,
+            label=label,
+            version=version,
+            tenant_id=tenant_id,
+            require_endpoint=require_endpoint,
+        )
 
     def delete(
         self,
@@ -1833,6 +1864,8 @@ def get_team_by_id(
     label: Optional[str] = None,
     registry: Optional["Registry"] = None,
     tenant_id: Optional[str] = None,
+    *,
+    require_endpoint: bool = True,
 ) -> Optional["Team"]:
     """
     Get a Team by id from the database.
@@ -1880,7 +1913,7 @@ def get_team_by_id(
             component_id=id,
         )
 
-        team = Team.from_dict(cfg, db=db, registry=registry, tenant_id=tenant_id)
+        team = Team.from_dict(cfg, db=db, registry=registry, tenant_id=tenant_id, require_endpoint=require_endpoint)
         # Ensure team.id is set to the component_id
         team.id = id
 

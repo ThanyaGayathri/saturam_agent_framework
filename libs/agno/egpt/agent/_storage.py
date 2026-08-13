@@ -792,11 +792,21 @@ def component_spec(*, registry: Optional[Registry] = None) -> ComponentSpec:
     return ComponentSpec(
         component_type="agent",
         known_keys=_agent_config_keys(),
-        hydrate=lambda config: from_dict(Agent, data=config, registry=registry),
+        # `require_endpoint=False`: this hydrate is a *shape* proof, not a prelude to running.
+        # A config naming an endpointless OpenAI-schema proxy is legal to store -- the endpoint
+        # is not part of the config schema, so there is nothing the author could add to satisfy
+        # the check, and refusing here would make those providers uncreatable (EGPT-164).
+        hydrate=lambda config: from_dict(Agent, data=config, registry=registry, require_endpoint=False),
     )
 
 
-def from_dict(cls: Type[Agent], data: Dict[str, Any], registry: Optional[Registry] = None) -> Agent:
+def from_dict(
+    cls: Type[Agent],
+    data: Dict[str, Any],
+    registry: Optional[Registry] = None,
+    *,
+    require_endpoint: bool = True,
+) -> Agent:
     """
     Create an agent from a dictionary.
 
@@ -814,7 +824,7 @@ def from_dict(cls: Type[Agent], data: Dict[str, Any], registry: Optional[Registr
 
     # --- Handle Model reconstruction ---
     if "model" in config:
-        config["model"] = resolve_model(config["model"], registry)
+        config["model"] = resolve_model(config["model"], registry, require_endpoint=require_endpoint)
 
     # --- Handle reasoning_model reconstruction ---
     # TODO: implement reasoning model deserialization
@@ -1118,6 +1128,7 @@ def load(
     label: Optional[str] = None,
     version: Optional[int] = None,
     tenant_id: Optional[str] = None,
+    require_endpoint: bool = True,
 ) -> Optional[Agent]:
     """
     Load an agent by id.
@@ -1164,7 +1175,7 @@ def load(
         component_id=id,
     )
 
-    agent = cls.from_dict(config, registry=registry)
+    agent = cls.from_dict(config, registry=registry, require_endpoint=require_endpoint)
     agent.id = id
     # Only fall back to the caller-provided db if the config didn't
     # reconstruct one. Otherwise we'd clobber any custom table names

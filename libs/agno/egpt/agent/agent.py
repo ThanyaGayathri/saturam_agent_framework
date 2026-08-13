@@ -957,8 +957,23 @@ class Agent:
         return _storage.to_dict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], registry: Optional[Registry] = None) -> "Agent":
-        return _storage.from_dict(cls, data=data, registry=registry)
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        registry: Optional[Registry] = None,
+        *,
+        require_endpoint: bool = True,
+    ) -> "Agent":
+        """Rebuild an Agent from its serialized form.
+
+        ``require_endpoint`` refuses a restore whose model is a bare OpenAI-schema proxy with no
+        endpoint, because the rebuilt client would reach public OpenAI under this process's key
+        (see ``models/utils.proxy_is_missing_its_endpoint``). Pass ``False`` for the
+        restore-then-patch pattern -- ``Agent.from_dict(cfg, require_endpoint=False)`` followed by
+        setting ``agent.model.base_url`` -- which the strict default otherwise makes impossible,
+        since the refusal fires inside ``from_dict`` before a caller can patch anything.
+        """
+        return _storage.from_dict(cls, data=data, registry=registry, require_endpoint=require_endpoint)
 
     @classmethod
     def component_spec(cls, *, registry: Optional[Registry] = None) -> "ComponentSpec":
@@ -1002,8 +1017,24 @@ class Agent:
         label: Optional[str] = None,
         version: Optional[int] = None,
         tenant_id: Optional[str] = None,
+        require_endpoint: bool = True,
     ) -> Optional["Agent"]:
-        return _storage.load(cls, id=id, db=db, registry=registry, label=label, version=version, tenant_id=tenant_id)
+        """Load an agent by id.
+
+        ``require_endpoint`` -- see ``Agent.from_dict``. Exposed here for symmetry with
+        ``Team.load`` and ``get_agent_by_id``, so the opt-out the refusal message recommends is
+        reachable from every public read path rather than only some of them.
+        """
+        return _storage.load(
+            cls,
+            id=id,
+            db=db,
+            registry=registry,
+            label=label,
+            version=version,
+            tenant_id=tenant_id,
+            require_endpoint=require_endpoint,
+        )
 
     def delete(
         self,
@@ -1783,6 +1814,8 @@ def get_agent_by_id(
     label: Optional[str] = None,
     registry: Optional["Registry"] = None,
     tenant_id: Optional[str] = None,
+    *,
+    require_endpoint: bool = True,
 ) -> Optional["Agent"]:
     """
     Get an Agent by id from the database (new entities/configs schema).
@@ -1835,7 +1868,7 @@ def get_agent_by_id(
             component_id=id,
         )
 
-        agent = Agent.from_dict(cfg, registry=registry)
+        agent = Agent.from_dict(cfg, registry=registry, require_endpoint=require_endpoint)
         agent.id = id
 
         return agent

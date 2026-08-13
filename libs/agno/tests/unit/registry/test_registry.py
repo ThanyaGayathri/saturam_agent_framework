@@ -569,10 +569,23 @@ class TestRegistryIntegration:
         assert agent.model.azure_endpoint == "https://example.cognitiveservices.azure.com"
         assert agent.model.api_version == "2024-12-01-preview"
 
-    def test_from_dict_without_registry_rebuilds_bare_model(self):
-        """Without a registry, the model is still rebuilt from its dict (unchanged fallback)."""
+    def test_from_dict_restores_an_env_resolved_proxy_with_its_class_intact(self):
+        """An `AzureOpenAI` with no serialized endpoint restores, and restores as the right class.
+
+        Corrected by the round-2 review. An earlier version of the EGPT-164 guard refused this,
+        on the premise that a proxy without a construction-time endpoint falls back to the OpenAI
+        SaaS default. That is false for `AzureOpenAI`, `VLLM`, `LangDB` and `Cloudflare`: each
+        resolves its endpoint lazily inside its own `_get_client_params`, so a correctly
+        configured private deployment restores with `azure_endpoint is None` and still connects
+        where it should. Refusing it made every stored Azure/vLLM agent unloadable after upgrade.
+
+        Asserting the class and id rather than only that it did not raise: a `pytest.raises` on
+        the old behaviour was satisfied by *any* wrong class, since every candidate is an
+        endpointless proxy. A future change mapping this identity triple to a different class
+        would have kept that test green while agents restored against the wrong API surface.
+        """
         from egpt.agent.agent import Agent
-        from egpt.integrations.models.azure import AzureOpenAI
+        from egpt.integrations.models.azure.openai_chat import AzureOpenAI
 
         config = {
             "id": "test-agent",
@@ -582,10 +595,40 @@ class TestRegistryIntegration:
 
         agent = Agent.from_dict(config)
 
-        assert isinstance(agent.model, AzureOpenAI)
+        assert isinstance(agent.model, AzureOpenAI), "the identity triple must map to AzureOpenAI"
         assert agent.model.id == "gpt-4.1-mini"
-        # No registered instance to source connection params from.
-        assert agent.model.azure_endpoint is None
+
+    def test_from_dict_refuses_a_bare_proxy_that_would_reach_public_openai(self):
+        """The case the guard is actually for, in both spellings.
+
+        Bare `OpenAILike` overrides no client params, so it inherits the OpenAI SDK default and
+        clears its `"not-provided"` api_key -- the rebuilt client sends this tenant's prompts to
+        `https://api.openai.com/v1` under the process `OPENAI_API_KEY`, with nothing raised.
+
+        The string spelling specifically, because that is the one that bypassed the guard while
+        the dict form was refused -- the leak stayed open through the sibling branch of the same
+        function. Both spellings together are asserted in
+        ``tests/unit/models/test_provider_resolution.py::test_a_bare_openai_like_proxy_is_refused_in_both_spellings``;
+        this one covers the public ``Agent.from_dict`` entry point.
+        """
+        from egpt.agent.agent import Agent
+
+        with pytest.raises(ValueError, match="cannot be restored"):
+            Agent.from_dict({"id": "a", "name": "A", "model": "openai-like:qwen"})
+
+    def test_require_endpoint_false_allows_restore_then_patch(self):
+        """The documented remedy has to exist on the public API.
+
+        The refusal tells the caller to supply an endpoint, and `Agent.from_dict` raises before a
+        caller can patch anything -- so without this keyword on the public classmethod the advice
+        had no supported API behind it, only a private module-level function.
+        """
+        from egpt.agent.agent import Agent
+
+        agent = Agent.from_dict({"id": "a", "name": "A", "model": "openai-like:qwen"}, require_endpoint=False)
+        agent.model.base_url = "http://vllm.internal:8000/v1"
+
+        assert agent.model.base_url == "http://vllm.internal:8000/v1"
 
     def test_registry_schema_with_agent(self):
         """Test registry schema lookup with agent config."""

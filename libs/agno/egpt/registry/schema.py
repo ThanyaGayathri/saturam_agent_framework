@@ -645,6 +645,10 @@ _HYDRATION_ERROR_PATHS: Tuple[Tuple[str, str], ...] = (
     ("Model provider", "model.provider"),
     ("Model data is missing an 'id'", "model.id"),
     ("Model data must be a dictionary", "model"),
+    # EGPT-164. Only reachable if a caller opts into `resolve_model(require_endpoint=True)`
+    # from a validation context; the dry-run deliberately does not. Listed so the error would
+    # attribute to the field rather than to the config as a whole if one ever does.
+    ("cannot be restored", "model"),
     ("Invalid model string format", "model"),
     ("Model string must be", "model"),
     ("Unknown step type", "steps"),

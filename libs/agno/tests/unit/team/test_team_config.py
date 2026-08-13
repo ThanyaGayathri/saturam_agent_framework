@@ -420,7 +420,9 @@ class TestTeamFromDict:
 
             team = Team.from_dict(config, db=mock_db)
 
-            mock_get_agent.assert_called_once_with(id="agent-1", db=mock_db, registry=None, tenant_id=None)
+            mock_get_agent.assert_called_once_with(
+                id="agent-1", db=mock_db, registry=None, tenant_id=None, require_endpoint=True
+            )
             assert team.members == [mock_agent]
 
     def test_from_dict_roundtrip(self, team_with_settings):
