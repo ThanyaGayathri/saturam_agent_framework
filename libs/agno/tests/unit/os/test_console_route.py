@@ -277,6 +277,17 @@ const CASES = [
   {id: "a1", model: "openai:gpt-5.5", tools: ["x"], output_schema: {a: 1}, members: [{x: 1}]},
   {id: "a1", model: "openai:gpt-5.5", instructions: ["one", "two"]},
   {id: "a1", instructions: "hi"},
+  // A `db` reference carrying more than `id` -- the shape that used to make clearing the
+  // Database ID field a no-op, because the delete was gated on the object's key count.
+  {id: "a1", model: "openai:gpt-5.5", db: {id: "prod-pg", type: "postgres"}},
+  {id: "a1", model: "openai:gpt-5.5", db: {id: "pg", type: "postgres", table_prefix: "egpt_",
+                                           session_table: "s", memory_table: "m"}},
+  {id: "a1", model: "openai:gpt-5.5", db: {id: "only-id"}},
+  {id: "a1", model: "openai:gpt-5.5", db: {type: "postgres"}},
+  // A model shape this form cannot represent. Invalid, and the server says so -- but the console
+  // must not delete it on the way past.
+  {id: "a1", model: ["openai", "gpt-5.5"]},
+  {id: "a1", model: 42},
 ];
 
 const differing = [];

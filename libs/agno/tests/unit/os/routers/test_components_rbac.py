@@ -70,7 +70,7 @@ BODIES: Dict[str, Dict[str, Any]] = {
     "PATCH /components/agent-1": {"name": "Renamed"},
     "POST /components/agent-1/configs": {"config": {}},
     "PATCH /components/agent-1/configs/1": {"label": "stable"},
-    "POST /components/validate": {"component_type": "agent", "config": {}},
+    "POST /components/validate": {"component_type": "agent", "name": "Test Agent", "config": {}},
 }
 
 

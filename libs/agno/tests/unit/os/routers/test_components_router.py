@@ -968,7 +968,7 @@ class TestValidateEndpoint:
     def test_a_valid_agent_config_validates(self, client):
         response = client.post(
             "/components/validate",
-            json={"component_type": "agent", "config": VALID_AGENT_CONFIG},
+            json={"component_type": "agent", "name": "Agent", "config": VALID_AGENT_CONFIG},
         )
 
         assert response.status_code == 200
@@ -976,8 +976,12 @@ class TestValidateEndpoint:
 
     def test_it_writes_nothing(self, client, mock_db):
         """The defining property: a dry run must not touch a single row, valid or not."""
-        client.post("/components/validate", json={"component_type": "agent", "config": VALID_AGENT_CONFIG})
-        client.post("/components/validate", json={"component_type": "agent", "config": {"instructions": "hi"}})
+        client.post(
+            "/components/validate", json={"component_type": "agent", "name": "Agent", "config": VALID_AGENT_CONFIG}
+        )
+        client.post(
+            "/components/validate", json={"component_type": "agent", "name": "Agent", "config": {"instructions": "hi"}}
+        )
 
         mock_db.create_component_with_config.assert_not_called()
         mock_db.upsert_component.assert_not_called()
@@ -989,7 +993,7 @@ class TestValidateEndpoint:
     def test_an_invalid_config_returns_field_errors(self, client):
         response = client.post(
             "/components/validate",
-            json={"component_type": "agent", "config": {"instructions": "no model here"}},
+            json={"component_type": "agent", "name": "Agent", "config": {"instructions": "no model here"}},
         )
 
         assert response.status_code == 422
@@ -1003,7 +1007,9 @@ class TestValidateEndpoint:
         """A client parses one shape. If these ever diverge, that assumption breaks silently."""
         bad_config = {"instructions": "no model here"}
 
-        dry_run = client.post("/components/validate", json={"component_type": "agent", "config": bad_config})
+        dry_run = client.post(
+            "/components/validate", json={"component_type": "agent", "name": "Agent", "config": bad_config}
+        )
         write = client.post(
             "/components",
             json={"name": "Agent", "component_type": "agent", "config": bad_config},
@@ -1018,6 +1024,7 @@ class TestValidateEndpoint:
             "/components/validate",
             json={
                 "component_type": "agent",
+                "name": "Agent",
                 "config": {"model": "openai:gpt-5.5", "db": {"id": "no-such-db"}},
             },
         )
@@ -1028,13 +1035,15 @@ class TestValidateEndpoint:
 
     def test_an_empty_config_validates(self, client):
         """Mirrors the write path: an empty config is a shell, and there is nothing to reject."""
-        response = client.post("/components/validate", json={"component_type": "agent", "config": {}})
+        response = client.post("/components/validate", json={"component_type": "agent", "name": "Agent", "config": {}})
 
         assert response.status_code == 200
 
     def test_an_unknown_component_type_is_a_request_shape_error(self, client):
         """FastAPI's own 422, deliberately a different body -- a client must handle both."""
-        response = client.post("/components/validate", json={"component_type": "sandwich", "config": {}})
+        response = client.post(
+            "/components/validate", json={"component_type": "sandwich", "name": "Agent", "config": {}}
+        )
 
         assert response.status_code == 422
         body = response.json()
@@ -1042,7 +1051,7 @@ class TestValidateEndpoint:
         assert "error_code" not in body
 
     def test_config_is_required(self, client):
-        response = client.post("/components/validate", json={"component_type": "agent"})
+        response = client.post("/components/validate", json={"component_type": "agent", "name": "Agent"})
 
         assert response.status_code == 422
 
@@ -1050,7 +1059,7 @@ class TestValidateEndpoint:
         """The handler copies before resolving; a dry run returns a verdict, not a rewritten config."""
         response = client.post(
             "/components/validate",
-            json={"component_type": "agent", "config": VALID_AGENT_CONFIG},
+            json={"component_type": "agent", "name": "Agent", "config": VALID_AGENT_CONFIG},
         )
 
         assert set(response.json()) == {"valid", "schema_version"}
@@ -1117,11 +1126,43 @@ class TestTheDryRunDerivesTheIdLikeTheWriteRoute:
 
         assert response.status_code == 200
 
-    def test_name_is_optional(self, client):
-        """Clients that always send an explicit id must not have to start sending a name."""
+    def test_an_explicit_id_alone_is_enough(self, client):
+        """Clients that always send an explicit id must not have to start sending a name too."""
+        response = client.post(
+            "/components/validate",
+            json={"component_id": "support", "component_type": "agent", "config": VALID_AGENT_CONFIG},
+        )
+
+        assert response.status_code == 200
+
+    def test_a_request_naming_no_component_is_refused(self, client):
+        """Neither field means `component_id` stays None, and self-reference detection is gated on
+        it being known -- so the dry run would silently *skip* the check rather than run it, and
+        answer 200 for a config the write route rejects. The write route cannot reach this state
+        at all (`ComponentCreate.name` is required), so accepting less input here than the write
+        it previews is what breaks the verdict-parity contract."""
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "team", "config": self.SELF_REFERENCING_TEAM},
+        )
+
+        assert response.status_code == 422
+        assert "component_id" in str(response.json()["detail"])
+
+    def test_the_refusal_covers_agents_too(self, client):
+        """Required unconditionally rather than only for teams: one precondition is easier to hold
+        than a type-dependent one, and it is the same precondition the write route already has."""
         response = client.post(
             "/components/validate",
             json={"component_type": "agent", "config": VALID_AGENT_CONFIG},
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 422
+
+    def test_a_blank_name_does_not_count_as_an_identity(self, client):
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "team", "name": "", "config": self.SELF_REFERENCING_TEAM},
+        )
+
+        assert response.status_code == 422

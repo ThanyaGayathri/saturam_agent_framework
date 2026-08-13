@@ -268,9 +268,11 @@ class TestTenantIsThreadedToTheDb:
 
 def post_validate(client, config, tenant=None, component_type="agent"):
     headers = {TENANT_HEADER: tenant} if tenant else {}
+    # Same `name` post_component sends: the dry run requires an identity, and comparing the two
+    # responses is only meaningful when they name the same component.
     return client.post(
         "/components/validate",
-        json={"component_type": component_type, "config": config},
+        json={"component_type": component_type, "name": "Test Agent", "config": config},
         headers=headers,
     )
 

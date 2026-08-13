@@ -281,9 +281,9 @@ class TestTheDryRunIsNotACrossTenantOracle:
         client = build_client(mock_db)
 
         for config in (
-            {"component_type": "team", "config": {"members": [{"type": "agent", "agent_id": "agent-1"}]}},
-            {"component_type": "agent", "config": {"model": "openai:gpt-5.5"}},
-            {"component_type": "team", "config": {"members": [{"type": "agent", "agent_id": "agent-1"}]}},
+            {"component_type": "team", "name": "T", "config": {"members": [{"type": "agent", "agent_id": "agent-1"}]}},
+            {"component_type": "agent", "name": "A", "config": {"model": "openai:gpt-5.5"}},
+            {"component_type": "team", "name": "T", "config": {"members": [{"type": "agent", "agent_id": "agent-1"}]}},
         ):
             call(client, "POST", "/components/validate", config, INTRUDER)
 
@@ -294,7 +294,11 @@ class TestTheDryRunIsNotACrossTenantOracle:
     def test_the_verdict_does_not_depend_on_the_callers_tenant(self, mock_db):
         """The owner and an outsider get byte-identical answers for the same config."""
         client = build_client(mock_db)
-        body = {"component_type": "team", "config": {"members": [{"type": "agent", "agent_id": "agent-1"}]}}
+        body = {
+            "component_type": "team",
+            "name": "T",
+            "config": {"members": [{"type": "agent", "agent_id": "agent-1"}]},
+        }
 
         owner = call(client, "POST", "/components/validate", body, OWNER)
         intruder = call(client, "POST", "/components/validate", body, INTRUDER)
@@ -309,7 +313,7 @@ class TestTheDryRunIsNotACrossTenantOracle:
             client,
             "POST",
             "/components/validate",
-            {"component_type": "agent", "config": {"model": "openai:gpt-5.5"}, "tenant_id": OWNER},
+            {"component_type": "agent", "name": "A", "config": {"model": "openai:gpt-5.5"}, "tenant_id": OWNER},
             INTRUDER,
         )
 

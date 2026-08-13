@@ -338,6 +338,14 @@ def attach_routes(
             # Resolution runs first for the same reason it does on the write path: a db id nobody
             # can resolve should surface as a field error at `config.db.id`, not slip through here
             # and fail on the real write.
+            #
+            # `links` is forwarded because `POST /components/{id}/configs` forwards it too -- that
+            # is the route the console uses for every version after the first, so this is the write
+            # path the dry run has to match. `POST /components` ignores links entirely (its
+            # "TODO: Create links from config" is the standing asymmetry), so a first-version dry
+            # run that sends links previews slightly more than that route would apply. Harmless
+            # today because the console never sends them; noted so the TODO is closed on both
+            # routes together rather than one drifting from the other.
             if config:
                 _validate_config(
                     config,

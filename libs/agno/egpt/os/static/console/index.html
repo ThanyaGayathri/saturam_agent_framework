@@ -248,6 +248,7 @@ const state = {
   version: null,     // the version loaded into the editor, null for an unsaved draft
   config: {},        // the parsed config in the editor
   instructionsWasList: false,
+  modelShape: "object",   // "string" | "object" | "opaque" -- see readModelRef
   // Scopes the server has explicitly refused, so we stop offering doomed actions. Tracked per
   // scope rather than as one "can write" flag: components:delete is a SEPARATE scope, so a
   // least-privilege token holding read+write would otherwise lose Save, Publish, Clone and
@@ -642,27 +643,37 @@ const editingPublished = () => { const c = currentConfigRow(); return !!c && c.s
 // `.id` off the string form yields undefined, which rendered the fields blank and then let
 // formToConfig() delete the whole `model` key on the next edit, so the operator was blamed for a
 // missing field the console had removed. Normalising on read is what keeps the round trip lossless.
+//
+// `shape` drives how formToConfig writes back:
+//   "string" -- rebuild the shorthand
+//   "object" -- merge into the object
+//   "opaque" -- a shape this form cannot represent (an array, a number, null). Leave it ALONE
+//               unless the operator actually types a model, so an invalid value reaches the
+//               server and earns its own `invalid_type` instead of being quietly deleted here.
 function readModelRef(model) {
   if (typeof model === "string") {
     const separator = model.indexOf(":");
-    if (separator === -1) return { id: model.trim(), provider: "", wasString: true };
+    if (separator === -1) return { id: model.trim(), provider: "", shape: "string" };
     return {
       provider: model.slice(0, separator).trim(),
       id: model.slice(separator + 1).trim(),
-      wasString: true,
+      shape: "string",
     };
   }
-  if (model && typeof model === "object") {
-    return { id: model.id || "", provider: model.provider || "", wasString: false };
+  if (model && typeof model === "object" && !Array.isArray(model)) {
+    return { id: model.id || "", provider: model.provider || "", shape: "object" };
   }
-  return { id: "", provider: "", wasString: false };
+  if (model === undefined || model === null) {
+    return { id: "", provider: "", shape: "object" };
+  }
+  return { id: "", provider: "", shape: "opaque" };
 }
 
 function configToForm() {
   const config = state.config || {};
   const model = readModelRef(config.model);
   const db = config.db || {};
-  state.modelWasString = model.wasString;
+  state.modelShape = model.shape;
   $("f-model-id").value = model.id || "";
   $("f-model-provider").value = model.provider || "";
   $("f-db-id").value = db.id || "";
@@ -687,7 +698,17 @@ function formToConfig() {
 
   const modelId = $("f-model-id").value.trim();
   const modelProvider = $("f-model-provider").value.trim();
-  if (state.modelWasString) {
+  if (state.modelShape === "opaque") {
+    // A shape the form cannot show. Touch it only if the operator typed a replacement -- deleting
+    // it because the boxes render empty would destroy a value they never edited, and the server
+    // is the right place for an unrepresentable model to be refused.
+    if (modelId || modelProvider) {
+      config.model = {};
+      if (modelId) config.model.id = modelId;
+      if (modelProvider) config.model.provider = modelProvider;
+      state.modelShape = "object";
+    }
+  } else if (state.modelShape === "string") {
     // Written back in the shape it arrived in, for the same reason `instructions` is: rewriting an
     // operator's shorthand as an object is a change they did not ask for. A provider-less string
     // stays a string even though the server will reject it as `invalid_format` -- that error then
@@ -710,8 +731,15 @@ function formToConfig() {
   const dbId = $("f-db-id").value.trim();
   if (dbId) {
     config.db = Object.assign({}, config.db, { id: dbId });
-  } else if (config.db && Object.keys(config.db).length <= 1) {
-    delete config.db;
+  } else if (config.db && typeof config.db === "object" && !Array.isArray(config.db)) {
+    // Delete the field the form owns, not the whole block. A `db` reference legitimately carries
+    // `type`, `session_table`, `table_prefix` and more alongside `id`, and gating the delete on
+    // the key count meant clearing the box did nothing at all for those: the stale id survived in
+    // the config while the form showed the field empty, with no server-side signal because a
+    // still-resolvable id validates cleanly. Same per-field discipline the object-shaped `model`
+    // branch above uses.
+    delete config.db.id;
+    if (!Object.keys(config.db).length) delete config.db;
   }
 
   const instructions = $("f-instructions").value;
@@ -799,14 +827,32 @@ function editorIdentity() {
   };
 }
 
+// Both Validate and Save need an identity before they can usefully talk to the server, and for the
+// same reason: `component_id` is what makes a self-reference detectable, and the server derives it
+// from the name. Save enforced this and Validate did not, so clicking Validate on an unnamed new
+// component asked the server for a verdict it could not fully reach -- a 200 for a self-referencing
+// team that the subsequent Save would 422. Shared, so the two cannot drift apart again.
+// Returns null (having shown the error) when there is nothing to identify the component by.
+function requireEditorIdentity() {
+  const identity = editorIdentity();
+  if (identity.component_id || identity.name) return identity;
+  renderErrors($("editor-error"), {
+    summary: "A name is required before a configuration can be checked or saved.",
+    fields: [{ path: "name", message: "Required.", code: "" }],
+  });
+  return null;
+}
+
 $("btn-validate").addEventListener("click", async () => {
   if (!syncEditorConfig()) return;
   clearFieldErrors();
   clear($("editor-error"));
+  const identity = requireEditorIdentity();
+  if (!identity) return;
   try {
     await api("POST", "/components/validate", Object.assign(
       { component_type: $("f-type").value, config: state.config },
-      editorIdentity()
+      identity
     ));
     renderOk($("editor-error"), "The configuration is valid.");
   } catch (e) {
@@ -821,11 +867,11 @@ async function saveDraft(forceNewVersion) {
   if (!syncEditorConfig()) return;
   clearFieldErrors();
   clear($("editor-error"));
+  if (!requireEditorIdentity()) return;
 
   try {
     if (!state.component) {
       const name = $("f-name").value.trim();
-      if (!name) { renderErrors($("editor-error"), { summary: "A name is required.", fields: [{ path: "name", message: "Required.", code: "" }] }); return; }
       // `set_current` and `version` are declared on the request models but never read by the
       // handlers, so they are deliberately not sent: sending them would imply a guarantee the
       // server does not make.

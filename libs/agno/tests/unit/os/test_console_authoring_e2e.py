@@ -200,7 +200,7 @@ class TestAuthorValidatePublishHydrateRun:
 
         response = client.post(
             "/components/validate",
-            json={"component_type": "agent", "config": {"instructions": "no model named"}},
+            json={"component_type": "agent", "name": "Support", "config": {"instructions": "no model named"}},
             headers=headers,
         )
 
@@ -214,7 +214,7 @@ class TestAuthorValidatePublishHydrateRun:
     def test_a_valid_config_validates(self, client, deployment):
         response = client.post(
             "/components/validate",
-            json={"component_type": "agent", "config": V1_CONFIG},
+            json={"component_type": "agent", "name": "Support", "config": V1_CONFIG},
             headers=deployment["admin"],
         )
 

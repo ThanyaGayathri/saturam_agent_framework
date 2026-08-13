@@ -89,12 +89,17 @@ Authorization: Bearer <token>          # requires components:write, not :read
 - `component_id` is optional and is used only for self-reference detection (a team that lists
   itself as a member). It is **not** looked up: the dry run performs no component reads at all,
   so it cannot be used to probe which ids exist in another tenant.
-- **When `component_id` is omitted, it is derived from `name`** with `generate_id_from_name`,
-  exactly as `POST /components` derives it. Send the same `name` you would send to the create
-  call. Skipping this is what made an earlier revision answer `200 valid` for a self-referencing
-  team that the write route then rejected with `cyclic_reference` — `component_id` is the sole
-  input to that check, so any divergence in how the two routes establish identity is a divergence
-  in the verdict.
+- **One of `component_id` or `name` is required**, and a request carrying neither is refused with
+  a 422. When `component_id` is omitted it is derived from `name` with `generate_id_from_name`,
+  exactly as `POST /components` derives it, so send the same identity you would send to the
+  create call.
+
+  This precondition is the write route's own: `ComponentCreate.name` is mandatory, so the create
+  path can never reach an unidentified state. Accepting less input here than the write it previews
+  is what let an earlier revision answer `200 valid` for a self-referencing team that the write
+  then rejected with `cyclic_reference` — `component_id` is the sole input to that check, and when
+  it is `None` the check is *skipped* rather than passed. Required for every component type rather
+  than only for teams: one precondition is easier to rely on than a type-dependent one.
 - It stores nothing, on any path, valid or not.
 
 The scope is `components:write` rather than `components:read` deliberately — the endpoint reports

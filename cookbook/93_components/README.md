@@ -76,8 +76,12 @@ same field-level 422 body the write routes do and stores nothing:
 ```bash
 curl -X POST localhost:7777/components/validate \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"component_type": "agent", "config": {"instructions": "no model here"}}'
+  -d '{"component_type": "agent", "name": "Support", "config": {"instructions": "no model here"}}'
 ```
+
+Send the same identity you would send to `POST /components` — one of `name` or `component_id` is
+required, because the id is what makes a self-referencing team detectable, and a dry run that
+knows less than the create it previews cannot promise the same verdict.
 
 ```json
 {
