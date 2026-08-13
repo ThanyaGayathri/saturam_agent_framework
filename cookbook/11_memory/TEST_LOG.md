@@ -100,3 +100,28 @@ Note that `scan` here takes no cursor. The `since` / `after_id` pair it used to 
 along with the consolidation resumption protocol; a resumable walk is SM-L1's (#122).
 
 ---
+
+### 10_graph_substrate_neo4j.py
+
+**Status:** PASS
+
+**Description:** The temporal knowledge graph behind the seam, against a real Neo4j 5 Community
+started with `cookbook/scripts/run_neo4j.sh`. Shows that choosing a graph backend is a config edit:
+`config.graph = {"backend": "neo4j", ...}` resolves through `discovery.construct`, and no line below
+the config names Neo4j, a Bolt URI, or the driver.
+
+**Result:** Reports `vector: False / graph: True` -- a graph-only provider is a supported wiring.
+Three scopes read the same query: `acme/ada` sees 1 record, `acme/bob` 0, `globex/ada` 1. The
+`acme/bob` line is the one worth watching: isolation on Community is a property filter on every
+statement, so two users of one tenant are separated by the same mechanism as two tenants, and a
+tenant-only predicate would have returned 1 there. Invalidation reports `t_invalid: 1700000000` with
+`still current belief: True`, which is expire-and-reinsert rather than a delete -- the bounded copy
+is the new current row. The point-in-time reads then answer 1 record as of march and 0 as of june.
+
+An earlier draft of this file invalidated at a `t_invalid` earlier than the episode's `t_valid` and
+was refused by the substrate ("the row would be valid at no instant"), which is the guard working;
+the timeline is now explicit so the output is deterministic.
+
+**Requires:** a running Neo4j (`./cookbook/scripts/run_neo4j.sh`). No model, no API key.
+
+---

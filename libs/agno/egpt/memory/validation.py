@@ -21,7 +21,7 @@ def reject_duplicate_ids(events: Sequence[MemoryEvent]) -> None:
     still reports both accepted. On the co-located path the two substrates additionally end up
     holding different content under one id, which then collides in fusion's dedup.
 
-    Batch-scoped only. Idempotency *across* calls is ``upsert_episode``'s by-id contract.
+    Batch-scoped only. Idempotency *across* calls is ``upsert_episodes``'s by-id contract.
     """
     seen: Set[str] = set()
     for event in events:

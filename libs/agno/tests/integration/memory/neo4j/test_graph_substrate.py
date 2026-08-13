@@ -1,0 +1,434 @@
+"""The Neo4j graph substrate against a real engine (SM-G1 #99).
+
+Gated on ``EGPT_INTEGRATION_NEO4J``; start the engine with ``cookbook/scripts/run_neo4j.sh``.
+
+**This is the half SM-C1 could not write.** Its five acceptance criteria were an interface, and it
+recorded that anything built there could only be exercised against doubles written in the same
+change -- unfalsifiable by construction. These properties run against the engine SM-R2 ratified, so
+a wrong ``WHERE`` clause fails here rather than agreeing with a double that shares its mistake.
+
+Several properties are asserted against **both** the reference double and the real backend, because
+the double is the specification the provider tests are written against: if the two disagree, one of
+them is wrong and every provider test built on the double is resting on it.
+"""
+
+import os
+
+import pytest
+
+pytest.importorskip("neo4j", reason="the Neo4j graph substrate imports its driver at module level")
+
+from egpt.integrations.memory.graph.neo4j import Neo4jGraphSubstrate  # noqa: E402
+from egpt.memory.substrates import GraphSubstrate  # noqa: E402
+from egpt.memory.tiers import MemoryTier  # noqa: E402
+from egpt.memory.types import (  # noqa: E402
+    FactWrite,
+    MemoryEvent,
+    MemoryOperationError,
+    MemoryQuery,
+    MemoryRecord,
+    Scope,
+)
+from tests.unit.memory._fakes import FakeGraph  # noqa: E402
+
+ACME = Scope(tenant_id="acme", user_id="ada")
+ACME_BOB = Scope(tenant_id="acme", user_id="bob")
+GLOBEX = Scope(tenant_id="globex", user_id="ada")
+
+
+def _settings():
+    return {
+        "uri": os.getenv("NEO4J_URI", "bolt://localhost:7691"),
+        "username": os.getenv("NEO4J_USERNAME", "neo4j"),
+        "password": os.getenv("NEO4J_PASSWORD", "smg1testpassword"),
+    }
+
+
+@pytest.fixture
+def graph():
+    substrate = Neo4jGraphSubstrate(**_settings())
+    with substrate._driver.session(database=substrate.database) as session:
+        session.run("MATCH (n) DETACH DELETE n")
+    yield substrate
+    substrate.close()
+
+
+@pytest.fixture(params=["neo4j", "double"])
+def any_graph(request, graph):
+    """The real backend and the reference double, behind one name.
+
+    A property parametrised over both is what keeps the double honest. A permissive double hides
+    provider bugs -- SM-C1's ``FakeVector.scan`` returned live objects, so a provider mutating what
+    it scanned was invisible.
+    """
+    return graph if request.param == "neo4j" else FakeGraph()
+
+
+def episode(content, id_, scope=ACME, occurred_at=100):
+    return MemoryEvent(content=content, scope=scope, id=id_, occurred_at=occurred_at)
+
+
+def fact(id_, content, scope=ACME, **kwargs):
+    record = MemoryRecord(
+        id=id_,
+        tier=MemoryTier.SEMANTIC,
+        content=content,
+        scope=scope,
+        t_valid=kwargs.pop("t_valid", 100),
+        **{k: kwargs.pop(k) for k in ("t_invalid", "expired_at", "superseded_by") if k in kwargs},
+    )
+    return FactWrite(record=record, **kwargs)
+
+
+def ids(records):
+    return sorted(r.id for r in records)
+
+
+# -- the acceptance criteria ------------------------------------------------
+
+
+def test_the_backend_satisfies_the_port(graph):
+    """AC 1: reachable via the seam. Structural, as the port is a Protocol."""
+    assert isinstance(graph, GraphSubstrate)
+
+
+def test_an_episode_is_written_and_read_back(any_graph):
+    """AC 3, first half."""
+    any_graph.upsert_episodes(ACME, [episode("ada moved to berlin", "e1")])
+
+    hits = any_graph.traverse(ACME, MemoryQuery(text="ada moved", tiers=[MemoryTier.EPISODIC]))
+
+    assert ids(hits) == ["e1"]
+    assert hits[0].content == "ada moved to berlin"
+    assert hits[0].tier is MemoryTier.EPISODIC
+
+
+def test_an_entity_fact_is_written_and_read_back(graph):
+    """AC 3, second half: the triple becomes entity nodes joined by a relation."""
+    graph.upsert_facts(ACME, [fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin")])
+
+    hits = graph.traverse(ACME, MemoryQuery(text="ada lives", tiers=[MemoryTier.SEMANTIC]))
+    assert ids(hits) == ["f1"]
+
+    with graph._driver.session(database=graph.database) as session:
+        row = session.run(
+            "MATCH (s:Entity)-[r:REL {id:'f1'}]->(o:Entity) RETURN s.name AS s, r.predicate AS p, o.name AS o"
+        ).single()
+    assert dict(row) == {"s": "ada", "p": "lives_in", "o": "berlin"}
+
+
+def test_an_untripled_fact_is_still_storable(graph):
+    """SPO is optional structure over the statement text, per the port."""
+    graph.upsert_facts(ACME, [fact("f2", "ada is thoughtful about naming")])
+
+    assert ids(graph.traverse(ACME, MemoryQuery(text="ada thoughtful", tiers=[MemoryTier.SEMANTIC]))) == ["f2"]
+
+
+@pytest.mark.parametrize("other", [GLOBEX, ACME_BOB], ids=["across-tenants", "within-a-tenant"])
+def test_a_scope_that_did_not_write_a_row_cannot_read_it(graph, other):
+    """AC 2. Both directions matter: the within-tenant one is the leak a tenant filter alone misses.
+
+    SM-R2 section 5.4 ruled the isolation model is a property filter, because Community denies
+    ``CREATE DATABASE``. That makes this assertion the isolation guarantee itself, not a detail of
+    it.
+    """
+    graph.upsert_episodes(ACME, [episode("ada salary is 200k", "e1")])
+    graph.upsert_facts(ACME, [fact("f1", "ada salary is 200k", subject="ada", predicate="earns", object="200k")])
+
+    query = MemoryQuery(text="ada salary 200k")
+    assert graph.traverse(other, query) == []
+    assert graph.bounds_for_ids(other, ["e1", "f1"]) == {}
+
+
+def test_a_wider_scope_reads_what_a_narrower_one_wrote(graph):
+    """An unset slot means "any", so a tenant-wide read sees both users' rows."""
+    graph.upsert_episodes(ACME, [episode("shared topic here", "e1")])
+    graph.upsert_episodes(ACME_BOB, [episode("shared topic here", "e2", scope=ACME_BOB)])
+
+    hits = graph.traverse(Scope(tenant_id="acme"), MemoryQuery(text="shared topic"))
+
+    assert ids(hits) == ["e1", "e2"]
+
+
+def test_the_read_path_makes_no_model_call(graph, monkeypatch):
+    """AC 4. Asserted by breaking every outbound HTTP client rather than by reading the code."""
+    import httpx
+
+    def explode(*args, **kwargs):
+        raise AssertionError("the read path made a network call outside the Bolt driver")
+
+    monkeypatch.setattr(httpx.Client, "send", explode)
+    monkeypatch.setattr(httpx.AsyncClient, "send", explode)
+
+    graph.upsert_episodes(ACME, [episode("ada moved to berlin", "e1")])
+    assert ids(graph.traverse(ACME, MemoryQuery(text="ada moved"))) == ["e1"]
+
+
+# -- the invariants ---------------------------------------------------------
+
+
+def test_a_repeated_write_replaces_the_row_rather_than_appending(any_graph):
+    """``PartialWriteError`` tells a caller to retry with the same ids because this is idempotent."""
+    any_graph.upsert_episodes(ACME, [episode("first version", "dup")])
+    any_graph.upsert_episodes(ACME, [episode("second version", "dup")])
+
+    hits = any_graph.traverse(ACME, MemoryQuery(text="first second version"))
+
+    assert [(r.id, r.content) for r in hits] == [("dup", "second version")]
+
+
+def test_scores_are_similarities_in_the_unit_interval(any_graph):
+    """The provider sums the legs' scores, so an undeclared scale decides the ranking by magnitude."""
+    any_graph.upsert_episodes(
+        ACME, [episode("ada moved to berlin", "e1"), episode("ada moved to berlin last year", "e2")]
+    )
+
+    hits = any_graph.traverse(ACME, MemoryQuery(text="ada moved to berlin"))
+
+    assert len(hits) == 2
+    assert all(0.0 <= (r.score or 0.0) <= 1.0 for r in hits)
+    assert hits[0].score > hits[1].score, "an exact match must outrank a longer one"
+
+
+def test_the_limit_is_honoured_and_zero_means_zero(any_graph):
+    any_graph.upsert_episodes(ACME, [episode(f"shared token {i}", f"e{i}") for i in range(5)])
+
+    assert len(any_graph.traverse(ACME, MemoryQuery(text="shared token", limit=2))) == 2
+    assert any_graph.traverse(ACME, MemoryQuery(text="shared token", limit=0)) == []
+
+
+def test_the_limit_selects_the_best_rows_rather_than_an_arbitrary_page(any_graph):
+    """Ranking has to happen **before** the cut, which is why the score is computed server-side.
+
+    Truncating an unordered page returns rows that are merely present rather than relevant, and the
+    result still looks like a well-formed answer of the right length.
+    """
+    # The better match is given the id that sorts *last*, so an ordering that fell back to id would
+    # return the other row. With ids in score order this passes whatever the ORDER BY says.
+    any_graph.upsert_episodes(
+        ACME,
+        [
+            episode("berlin", "z-best"),
+            episode("berlin and a good many other unrelated words besides", "a-worst"),
+        ],
+    )
+
+    hits = any_graph.traverse(ACME, MemoryQuery(text="berlin", limit=1))
+
+    assert ids(hits) == ["z-best"]
+
+
+def test_the_limit_applies_to_the_merged_set_not_once_per_shape(any_graph):
+    """Episodes, fact nodes and relations are three statements, each honouring ``limit`` itself.
+
+    A caller asking for one record would otherwise get up to three -- one per shape -- which is a
+    ``limit`` that means something different depending on how the rows happen to be stored.
+    """
+    any_graph.upsert_episodes(ACME, [episode("berlin", "e1")])
+    any_graph.upsert_facts(ACME, [fact("f1", "berlin")])
+
+    assert len(any_graph.traverse(ACME, MemoryQuery(text="berlin", limit=1))) == 1
+    assert len(any_graph.traverse(ACME, MemoryQuery(text="berlin", limit=5))) == 2
+
+
+def test_a_tier_the_query_did_not_ask_for_is_not_returned(any_graph):
+    any_graph.upsert_episodes(ACME, [episode("ada moved to berlin", "e1")])
+    any_graph.upsert_facts(ACME, [fact("f1", "ada moved to berlin")])
+
+    query = MemoryQuery(text="ada moved", tiers=[MemoryTier.SEMANTIC])
+    assert ids(any_graph.traverse(ACME, query)) == ["f1"]
+    assert ids(any_graph.traverse(ACME, MemoryQuery(text="ada moved"), tier=MemoryTier.EPISODIC)) == ["e1"]
+
+
+def test_invalidation_expires_and_reinserts_rather_than_editing_in_place(graph):
+    """SM-R10 section 6 proved in-place wrong: a later fact clobbers an already-set bound.
+
+    Two invalidations must accumulate rows, leave exactly one current belief, apply the tightest
+    bound, and leave the original reconstructable.
+    """
+    graph.upsert_facts(ACME, [fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin")])
+
+    graph.invalidate(ACME, "f1", t_invalid=300, at=310)
+    graph.invalidate(ACME, "f1", t_invalid=200, at=320)
+
+    with graph._driver.session(database=graph.database) as session:
+        rows = [
+            dict(r)
+            for r in session.run(
+                "MATCH (:Entity)-[r:REL {id:'f1'}]->(:Entity) "
+                "RETURN r.t_valid AS t_valid, r.t_invalid AS t_invalid, r.expired_at AS expired_at "
+                "ORDER BY coalesce(r.expired_at, 9999999)"
+            )
+        ]
+
+    assert len(rows) == 3, f"expire-and-reinsert must accumulate rows, got {rows}"
+    live = [r for r in rows if r["expired_at"] is None]
+    assert len(live) == 1, "exactly one current belief"
+    assert live[0]["t_invalid"] == 200, "the tightest bound wins"
+    assert rows[0]["t_invalid"] is None, "the original row is untouched and still reconstructable"
+    # Folded across revisions too, not only stored correctly: the authority lookup must report the
+    # tightest bound it can see, or a fact the graph believes false since 200 is served until 300.
+    assert graph.bounds_for_ids(ACME, ["f1"])["f1"].t_invalid == 200
+
+
+def test_the_bounded_copy_keeps_the_logical_id(graph):
+    """A surrogate key on the successor would break the merge's dedup-by-id.
+
+    That dedup is the only thing carrying the graph's bound onto the vector leg's stale projection,
+    so a fresh id means the invalidated fact reads as current on an ordinary read.
+    """
+    graph.upsert_episodes(ACME, [episode("ada works at acme", "e1")])
+
+    graph.invalidate(ACME, "e1", t_invalid=300, at=310)
+
+    with graph._driver.session(database=graph.database) as session:
+        stored = {r["id"] for r in session.run("MATCH (n:Episode) RETURN n.id AS id")}
+        count = session.run("MATCH (n:Episode) RETURN count(n) AS n").single()["n"]
+    assert stored == {"e1"} and count == 2
+
+
+def test_bounds_report_a_bound_that_ranking_hid(graph):
+    """The precision failure ``bounds_for_ids`` exists for: a false fact served as current belief.
+
+    The successor row carries the same content, so it scores identically and falls off the page.
+    """
+    graph.upsert_facts(ACME, [fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin")])
+    graph.invalidate(ACME, "f1", t_invalid=300, at=310)
+
+    bounds = graph.bounds_for_ids(ACME, ["f1", "never-written"])
+
+    assert set(bounds) == {"f1"}, "an unknown id is absent, not a null entry"
+    assert bounds["f1"].t_invalid == 300
+    assert bounds["f1"].expired_at is None
+
+
+def test_an_invalidation_that_would_leave_the_row_valid_at_no_instant_is_refused(graph):
+    """Valid time is half-open, so such a bound is written, receipted, and then invisible forever."""
+    graph.upsert_episodes(ACME, [episode("ada works at acme", "e1", occurred_at=100)])
+
+    with pytest.raises(ValueError, match="valid at no instant"):
+        graph.invalidate(ACME, "e1", t_invalid=100, at=310)
+
+
+def test_an_invalidation_under_a_foreign_scope_does_nothing(graph):
+    """Scoped like every other statement, so a mis-scoped invalidation is observable rather than silent."""
+    graph.upsert_episodes(ACME, [episode("ada works at acme", "e1")])
+
+    graph.invalidate(GLOBEX, "e1", t_invalid=300, at=310)
+
+    assert graph.bounds_for_ids(ACME, ["e1"])["e1"].t_invalid is None
+
+
+def test_a_fact_is_retired_by_writing_its_transaction_time_fields_back(graph):
+    """A backend that dropped them makes retirement a silent no-op with two current beliefs."""
+    graph.upsert_facts(ACME, [fact("f1", "ada lives in berlin")])
+
+    graph.upsert_facts(ACME, [fact("f1", "ada lives in berlin", expired_at=500, superseded_by="f2")])
+
+    bounds = graph.bounds_for_ids(ACME, ["f1"])["f1"]
+    assert (bounds.expired_at, bounds.superseded_by) == (500, "f2")
+    assert graph.traverse(ACME, MemoryQuery(text="ada lives berlin")) == [], "a retired fact is not current belief"
+
+
+def test_provenance_survives_the_round_trip(graph):
+    """SM-R7 section 7 makes ``source_episode_ids`` load-bearing: it is the fact-to-episode audit trail."""
+    graph.upsert_facts(ACME, [fact("f1", "ada lives in berlin", source_episode_ids=["e1", "e2"])])
+
+    hit = graph.traverse(ACME, MemoryQuery(text="ada lives berlin"))[0]
+
+    assert hit.provenance["source_episode_ids"] == ["e1", "e2"]
+
+
+def test_an_empty_batch_is_a_no_op_rather_than_an_error(any_graph):
+    any_graph.upsert_episodes(ACME, [])
+    any_graph.upsert_facts(ACME, [])
+
+    assert any_graph.bounds_for_ids(ACME, []) == {}
+
+
+def test_a_write_under_a_foreign_scope_is_refused(graph):
+    with pytest.raises(MemoryOperationError, match="does not match the write scope"):
+        graph.upsert_episodes(ACME, [episode("x", "e1", scope=GLOBEX)])
+
+
+# -- sync and async agree ---------------------------------------------------
+
+
+async def test_both_halves_leave_the_same_durable_state(graph):
+    """Not "an async variant exists": the same decisions and the same rows.
+
+    SM-C1 shipped ``write``/``awrite`` persisting different rows for one identical failure, twice,
+    in different rounds, so the comparison is on committed state rather than on return values.
+    """
+
+    def snapshot():
+        with graph._driver.session(database=graph.database) as session:
+            # Sorted by `repr`, because the rows carry nulls and tuple ordering compares an int
+            # against None the moment two rows differ on a bound.
+            return sorted(
+                repr(sorted(dict(r).items(), key=lambda kv: kv[0]))
+                for r in session.run(
+                    "MATCH (n) WHERE n.id IS NOT NULL "
+                    "RETURN labels(n)[0] AS label, n.id AS id, n.content AS content, "
+                    "n.t_invalid AS t_invalid, n.expired_at AS expired_at "
+                    "UNION ALL "
+                    "MATCH ()-[r:REL]->() RETURN 'REL' AS label, r.id AS id, r.content AS content, "
+                    "r.t_invalid AS t_invalid, r.expired_at AS expired_at"
+                )
+            )
+
+    graph.upsert_episodes(ACME, [episode("ada moved to berlin", "e1")])
+    graph.upsert_facts(ACME, [fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin")])
+    graph.invalidate(ACME, "f1", t_invalid=300, at=310)
+    sync_state = snapshot()
+
+    with graph._driver.session(database=graph.database) as session:
+        session.run("MATCH (n) DETACH DELETE n")
+
+    await graph.aupsert_episodes(ACME, [episode("ada moved to berlin", "e1")])
+    await graph.aupsert_facts(
+        ACME, [fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin")]
+    )
+    await graph.ainvalidate(ACME, "f1", t_invalid=300, at=310)
+
+    assert snapshot() == sync_state
+    await graph.aclose()
+
+
+async def test_the_async_reads_agree_with_the_sync_ones(graph):
+    graph.upsert_episodes(ACME, [episode("ada moved to berlin", "e1")])
+    query = MemoryQuery(text="ada moved")
+
+    assert ids(await graph.atraverse(ACME, query)) == ids(graph.traverse(ACME, query))
+    assert await graph.abounds_for_ids(ACME, ["e1"]) == graph.bounds_for_ids(ACME, ["e1"])
+    await graph.aclose()
+
+
+# -- known limitations, pinned ----------------------------------------------
+
+
+def test_traversal_is_single_hop_until_sm_g9(graph):
+    """Pinned rather than commented: this fails when SM-G9 (#107) lands multi-hop traversal.
+
+    ``traverse`` ranks the rows this substrate holds by lexical overlap. It does not follow an edge
+    from an anchor entity, so a fact reachable only through a neighbour is not returned: asking
+    about ada does not surface what is known about berlin, even though an edge joins them. A
+    comment would rot; this states the boundary and reports when it moves.
+    """
+    graph.upsert_facts(
+        ACME,
+        [
+            fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin"),
+            fact("f2", "berlin sits within germany", subject="berlin", predicate="located_in", object="germany"),
+        ],
+    )
+
+    hits = graph.traverse(ACME, MemoryQuery(text="ada"))
+
+    assert ids(hits) == ["f1"], "SM-G9 has landed multi-hop traversal -- update this ticket's boundary"
+
+
+def test_the_graph_is_not_enumerable(graph):
+    """``scan`` is deliberately absent from ``GraphSubstrate``: what enumeration means over a
+    temporal graph (current belief? every revision? edges or nodes?) is SM-G9's (#107) to define."""
+    assert not hasattr(graph, "scan")

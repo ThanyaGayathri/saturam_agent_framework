@@ -3,7 +3,7 @@
 ADR 0001 forbids core, services and orchestration from importing a concrete adapter, but
 they still have to *build* one -- a DB row naming ``model: "openai:gpt-4"`` must become a
 ``Model`` without ``services/factory`` importing ``egpt.integrations.models.openai``. This
-module is that seam. It supersedes the five per-kind construction tables that EGPT-1.4
+module is that seam. It supersedes the per-kind construction tables that EGPT-1.4
 through 1.8 left behind (``_PROVIDERS``, ``_DB_BACKENDS``, ``TOOLKIT_CLASSES``, the
 embedder tuple, and the vector-db table that never existed).
 
@@ -46,15 +46,16 @@ from egpt.utils.log import log_warning
 # Every integration kind resolvable through this seam. Readers are deliberately absent:
 # ReaderFactory keeps its own map (EGPT-1.9 scope decision), so core still names reader
 # modules in one other place.
-KINDS: Tuple[str, ...] = ("model", "db", "vectordb", "tool", "embedder")
+KINDS: Tuple[str, ...] = ("model", "db", "vectordb", "graphdb", "tool", "embedder")
 
 # Kind -> entry-point group suffix. The group name is derived, never hand-written, so the
-# five published strings cannot drift apart. Suffixes are plural because an entry-point
+# published strings cannot drift apart. Suffixes are plural because an entry-point
 # group names a collection.
 _GROUP_SUFFIX: Dict[str, str] = {
     "model": "models",
     "db": "dbs",
     "vectordb": "vectordbs",
+    "graphdb": "graphdbs",
     "tool": "tools",
     "embedder": "embedders",
 }
@@ -69,7 +70,7 @@ SOURCE_RUNTIME = "runtime"
 def entry_point_group(kind: str) -> str:
     """The Python entry-point group a third-party package declares to add a ``kind``.
 
-    These five strings are a public contract -- renaming one silently orphans every plugin
+    These strings are a public contract -- renaming one silently orphans every plugin
     that already ships it -- so they are pinned by ``test_entry_point_discovery.py``.
     """
     _check_kind(kind)
@@ -146,9 +147,9 @@ def _check_kind(kind: str) -> None:
 
 
 def _all_entry_points() -> Dict[str, List[Any]]:
-    """Every entry point in the five groups, scanned once per process.
+    """Every entry point in every group, scanned once per process.
 
-    One scan sliced five ways rather than five scans: ``entry_points()`` walks the metadata
+    One scan sliced per kind rather than one scan per kind: ``entry_points()`` walks the metadata
     of every installed distribution regardless of which group is asked for.
 
     A broken third-party ``.dist-info`` must not take down model resolution for everybody,
@@ -437,6 +438,7 @@ def _kind_constructor(kind: str) -> Callable[..., Any]:
 construct_model = _kind_constructor("model")
 construct_db = _kind_constructor("db")
 construct_vector_db = _kind_constructor("vectordb")
+construct_graph_db = _kind_constructor("graphdb")
 construct_tool = _kind_constructor("tool")
 construct_embedder = _kind_constructor("embedder")
 

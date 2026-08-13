@@ -1,0 +1,206 @@
+"""Guards over the Cypher the Neo4j substrate can emit (SM-G1 #99).
+
+These assert on the **statements**, not on a database, which is the only way to cover every one of
+them: a leak needs just one statement to forget a predicate, and a behavioural test covers the
+statements it happens to exercise. SM-R2 section 5.4 is explicit that on Neo4j Community a
+forgotten scope predicate is a cross-tenant leak with no engine-level second line of defence, so
+this is the line of defence.
+
+The behavioural half -- that the statements do what they say against a real engine -- is
+``tests/integration/memory/neo4j/test_graph_substrate.py``.
+"""
+
+import pytest
+
+pytest.importorskip("neo4j", reason="the Neo4j graph substrate imports its driver at module level")
+
+from egpt.integrations.memory.graph.neo4j import cypher  # noqa: E402
+from egpt.integrations.memory.graph.neo4j.neo4j import Neo4jGraphSubstrate  # noqa: E402
+from egpt.memory.substrates import GraphSubstrate  # noqa: E402
+from egpt.memory.tiers import MemoryTier  # noqa: E402
+from egpt.memory.types import FactWrite, MemoryEvent, MemoryRecord, Scope  # noqa: E402
+
+#: Every slot set, so a statement that drops one is visible. A scope with only a tenant would make
+#: "the tenant predicate is present" the only assertion this file could make.
+FULL = Scope(tenant_id="acme", agent_id="agent-1", user_id="ada", team_id="team-9", session_id="s-3")
+TENANT_ONLY = Scope(tenant_id="acme")
+
+
+def all_statements(scope):
+    """Every statement the module can emit, as ``(label, cypher, params)``.
+
+    Enumerated from the module's own functions rather than listed by hand: a new statement added
+    without a row here would otherwise be untested by construction, which is the hole these guards
+    exist to close.
+    """
+    emitted = [
+        ("upsert_episodes", *cypher.upsert_episodes_statement(scope)),
+        *[
+            (f"upsert_facts[{shape}]", text, params)
+            for shape, (text, params) in cypher.upsert_facts_statements(scope).items()
+        ],
+        *[(f"traverse[{i}]", text, params) for i, (text, params) in enumerate(cypher.traverse_statements(scope))],
+        *[(f"bounds[{i}]", text, params) for i, (text, params) in enumerate(cypher.bounds_statements(scope))],
+        *[(f"live_row[{i}]", text, params) for i, (text, params) in enumerate(cypher.live_row_statements(scope))],
+        *[(f"expire[{i}]", text, params) for i, (text, params) in enumerate(cypher.expire_statements(scope))],
+        *[
+            (f"bounded_copy[{i}]", text, params)
+            for i, (text, params) in enumerate(cypher.insert_bounded_copy_statements(scope))
+        ],
+    ]
+    return emitted
+
+
+def statement_ids(scope):
+    return [label for label, _, _ in all_statements(scope)]
+
+
+@pytest.mark.parametrize("label", statement_ids(FULL))
+def test_every_statement_filters_on_every_scope_slot(label):
+    """A backend that honours the tenant and ignores the user leaks inside the tenant.
+
+    Not "contains tenant_id": the port requires **every** slot the call scope sets, and the slot
+    most likely to be forgotten is the one that separates two users of one customer.
+    """
+    text, params = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+
+    for slot in cypher.SCOPE_SLOTS:
+        assert f".{slot} = ${slot}" in text, f"{label} does not filter on {slot}"
+        assert params[slot] == getattr(FULL, slot), f"{label} binds the wrong value for {slot}"
+
+
+@pytest.mark.parametrize("label", statement_ids(TENANT_ONLY))
+def test_an_unset_slot_contributes_no_clause(label):
+    """``None`` means "any". Filtering on it would narrow a tenant-wide read to nothing."""
+    text, params = next((t, p) for name, t, p in all_statements(TENANT_ONLY) if name == label)
+
+    assert ".tenant_id = $tenant_id" in text
+    for slot in ("agent_id", "user_id", "team_id", "session_id"):
+        assert f".{slot} = ${slot}" not in text, f"{label} filters on an unset {slot}"
+        assert slot not in params
+
+
+@pytest.mark.parametrize("label", statement_ids(FULL))
+def test_no_statement_applies_valid_time(label):
+    """Valid time is the provider's, enforced once on the merged set (finding F2).
+
+    A substrate that filtered ``as_of`` itself would withhold the SCD-2 successor row carrying
+    ``t_invalid`` -- which is the evidence that catches an invalidated fact on the other leg.
+    """
+    text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+
+    assert "$as_of" not in text
+    assert "t_valid <=" not in text and "<= $at" not in text
+
+
+@pytest.mark.parametrize("label", [name for name in statement_ids(FULL) if name.startswith("traverse")])
+def test_traverse_filters_current_belief_before_ranking(label):
+    """Applied before ``limit``, or a page of superseded rows consumes the whole limit."""
+    text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+
+    assert "expired_at IS NULL" in text
+    assert text.index("expired_at IS NULL") < text.index("ORDER BY"), "current belief must precede ranking"
+    assert "LIMIT $limit" in text
+
+
+@pytest.mark.parametrize("label", [name for name in statement_ids(FULL) if name.startswith("bounds")])
+def test_bounds_are_not_filtered_to_current_belief(label):
+    """The bound this exists to surface usually sits on a revision ranking hid.
+
+    Under SCD-2 the successor carrying ``t_invalid`` scores identically to the row it replaced, so
+    a bounds lookup restricted to current belief would report exactly nothing useful.
+    """
+    text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+
+    assert "expired_at IS NULL" not in text
+    assert "LIMIT" not in text, "an authority lookup is unranked and unlimited"
+
+
+def test_the_row_builder_writes_nothing_outside_the_declared_properties():
+    """The schema probe registers exactly these keys; a row carrying more would warn on every read.
+
+    Worse than noise: the notification it would raise is the same one that catches a typo in a
+    property name, so an undeclared key trains a reader to ignore the signal.
+    """
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    row = substrate._row(FULL, "id-1", MemoryTier.EPISODIC, "content here", topics=["a"], t_valid=1)
+
+    assert set(row) <= set(cypher.ROW_PROPERTIES), f"undeclared: {sorted(set(row) - set(cypher.ROW_PROPERTIES))}"
+
+
+def test_the_schema_probe_covers_every_declared_property():
+    for name in cypher.ROW_PROPERTIES:
+        assert f"{name}: " in cypher.SCHEMA_STATEMENTS[0], f"{name} is declared but not registered by the probe"
+
+
+def test_uniqueness_is_on_the_surrogate_key_not_the_logical_id():
+    """A constraint on ``id`` would reject the bounded copy invalidation exists to insert."""
+    constraints = [s for s in cypher.SCHEMA_STATEMENTS if "CONSTRAINT" in s]
+
+    assert constraints, "the schema must constrain something, or this passes vacuously"
+    for statement in constraints:
+        assert "row_id IS UNIQUE" in statement
+        assert "n.id IS UNIQUE" not in statement
+
+
+def test_the_substrate_satisfies_the_port_without_connecting():
+    """Structural conformance, checked on the class: constructing one would open a socket."""
+    required = [name for name in vars(GraphSubstrate) if not name.startswith("_")]
+
+    assert required, "the port must expose methods, or this passes vacuously"
+    missing = [name for name in required if not callable(getattr(Neo4jGraphSubstrate, name, None))]
+    assert not missing, f"Neo4jGraphSubstrate does not satisfy GraphSubstrate: missing {missing}"
+
+
+def test_a_write_under_a_foreign_scope_is_refused():
+    """A mismatch has two defensible readings and a caller cannot tell which it got.
+
+    Under the wrong one, a fact derived from one user's episodes is filed tenant-wide.
+    """
+    from egpt.memory.types import MemoryOperationError
+
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    other = Scope(tenant_id="acme", user_id="bob")
+
+    with pytest.raises(MemoryOperationError, match="does not match the write scope"):
+        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=other, id="e1")])
+
+    record = MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=other)
+    with pytest.raises(MemoryOperationError, match="does not match the write scope"):
+        substrate._fact_batches(FULL, [FactWrite(record=record)])
+
+
+def test_an_episode_without_an_id_is_refused_rather_than_given_one():
+    """Minting one here would break the cross-substrate dedup key the provider stamped."""
+    from egpt.memory.types import MemoryOperationError
+
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+
+    with pytest.raises(MemoryOperationError, match="dedup key"):
+        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=FULL)])
+
+
+def test_a_tripled_fact_becomes_a_relation_and_an_untripled_one_a_node():
+    """SPO is optional structure over the statement text, so both must be storable."""
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    tripled = MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="ada lives in berlin", scope=FULL)
+    plain = MemoryRecord(id="f2", tier=MemoryTier.SEMANTIC, content="ada is thoughtful", scope=FULL)
+
+    batches = substrate._fact_batches(
+        FULL,
+        [
+            FactWrite(record=tripled, subject="ada", predicate="lives_in", object="berlin"),
+            FactWrite(record=plain),
+        ],
+    )
+
+    assert [row["id"] for row in batches["triple"]] == ["f1"]
+    assert [row["id"] for row in batches["node"]] == ["f2"]
+
+
+def test_query_terms_are_deduplicated_before_scoring():
+    """The score's denominator is a set union, so a repeated term would shrink every score."""
+    from egpt.integrations.memory.graph.neo4j.neo4j import _terms
+
+    assert _terms("ada ada moved") == ["ada", "moved"]
+    assert _terms("   ") == []

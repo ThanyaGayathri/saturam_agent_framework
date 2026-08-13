@@ -385,7 +385,7 @@ def test_every_provider_raises_partial_write_error_when_a_backend_fails_mid_writ
     def explode(*args, **kwargs):
         raise RuntimeError("backend down")
 
-    for target, attribute in (("vector", "upsert"), ("graph", "upsert_fact"), ("manager", "add_user_memory")):
+    for target, attribute in (("vector", "upsert"), ("graph", "upsert_facts"), ("manager", "add_user_memory")):
         backend = getattr(provider, target, None)
         if backend is not None:
             setattr(backend, attribute, explode)
@@ -441,21 +441,37 @@ async def test_the_two_write_halves_persist_the_same_state_when_a_backend_fails(
     """
 
     def wire(provider):
-        """Fail the *second* backend call, so both halves have something committed and something not."""
-        state = {"calls": 0}
-        for target, attribute in (("graph", "upsert_fact"), ("manager", "add_user_memory")):
-            backend = getattr(provider, target, None)
-            if backend is None:
-                continue
-            original = getattr(backend, attribute)
+        """Fail on the *second* item, so both halves have something committed and something not."""
+        state = {"items": 0}
 
-            def failing(*args, _original=original, **kwargs):
-                state["calls"] += 1
-                if state["calls"] == 2:
-                    raise RuntimeError("backend down")
+        def tick():
+            state["items"] += 1
+            if state["items"] == 2:
+                raise RuntimeError("backend down")
+
+        graph = getattr(provider, "graph", None)
+        if graph is not None:
+            original_facts = graph.upsert_facts
+
+            def failing_facts(scope, facts, _original=original_facts):
+                # Item at a time, because `upsert_facts` is now one call: failing the batch as a
+                # whole commits nothing, and "something committed" -- the state this compares --
+                # becomes unreachable. The port allows exactly this partial shape.
+                for fact in facts:
+                    tick()
+                    _original(scope, [fact])
+
+            graph.upsert_facts = failing_facts
+
+        manager = getattr(provider, "manager", None)
+        if manager is not None:
+            original_add = manager.add_user_memory
+
+            def failing_add(*args, _original=original_add, **kwargs):
+                tick()
                 return _original(*args, **kwargs)
 
-            setattr(backend, attribute, failing)
+            manager.add_user_memory = failing_add
         return provider
 
     def committed(provider):

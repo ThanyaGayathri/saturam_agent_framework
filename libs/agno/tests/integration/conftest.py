@@ -69,6 +69,7 @@ _PATH_ENV_REQUIREMENTS: tuple[tuple[str, str], ...] = (
     ("os/hydration_postgres", "EGPT_INTEGRATION_POSTGRES"),
     # The component lifecycle audit trail (EGPT-2.6), same rationale.
     ("os/audit_postgres", "EGPT_INTEGRATION_POSTGRES"),
+    ("memory/neo4j", "EGPT_INTEGRATION_NEO4J"),
     ("db/postgres", "EGPT_INTEGRATION_POSTGRES"),
     ("db/async_postgres", "EGPT_INTEGRATION_POSTGRES"),
     ("db/async_mongo", "EGPT_INTEGRATION_MONGO"),

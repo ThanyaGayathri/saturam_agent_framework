@@ -41,13 +41,13 @@ class CompleteVector:
 class CompleteGraph:
     """Structurally satisfies GraphSubstrate without inheriting from it."""
 
-    def upsert_episode(self, scope: Scope, event: MemoryEvent) -> None: ...
+    def upsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None: ...
 
-    async def aupsert_episode(self, scope: Scope, event: MemoryEvent) -> None: ...
+    async def aupsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None: ...
 
-    def upsert_fact(self, scope: Scope, fact: FactWrite) -> None: ...
+    def upsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None: ...
 
-    async def aupsert_fact(self, scope: Scope, fact: FactWrite) -> None: ...
+    async def aupsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None: ...
 
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]: ...
 
@@ -94,10 +94,10 @@ def test_a_vector_backend_missing_any_method_fails_the_port(missing):
 @pytest.mark.parametrize(
     "missing",
     [
-        "upsert_episode",
-        "aupsert_episode",
-        "upsert_fact",
-        "aupsert_fact",
+        "upsert_episodes",
+        "aupsert_episodes",
+        "upsert_facts",
+        "aupsert_facts",
         "traverse",
         "atraverse",
         "bounds_for_ids",
@@ -183,15 +183,15 @@ def test_fact_defaults_to_full_confidence_and_no_derivation():
 # same invariants live in test_provider_co_located.py.
 
 
-def test_the_double_honours_upsert_episode_by_id():
-    """`upsert_episode` is upsert **by id**, which PartialWriteError's retry advice depends on."""
+def test_the_double_honours_upsert_episodes_by_id():
+    """`upsert_episodes` is upsert **by id**, which PartialWriteError's retry advice depends on."""
     from tests.unit.memory._fakes import FakeGraph
 
     graph = FakeGraph()
     event = MemoryEvent(content="first", scope=SCOPE, id="dup")
 
-    graph.upsert_episode(SCOPE, event)
-    graph.upsert_episode(SCOPE, MemoryEvent(content="second", scope=SCOPE, id="dup"))
+    graph.upsert_episodes(SCOPE, [event])
+    graph.upsert_episodes(SCOPE, [MemoryEvent(content="second", scope=SCOPE, id="dup")])
 
     assert [r.content for r in graph.rows[SCOPE.tenant_id]] == ["second"]
 
@@ -205,7 +205,7 @@ def test_the_double_keeps_the_edge_id_on_the_bounded_copy():
     from tests.unit.memory._fakes import FakeGraph
 
     graph = FakeGraph()
-    graph.upsert_episode(SCOPE, MemoryEvent(content="ada works at acme", scope=SCOPE, id="f1", occurred_at=100))
+    graph.upsert_episodes(SCOPE, [MemoryEvent(content="ada works at acme", scope=SCOPE, id="f1", occurred_at=100)])
 
     graph.invalidate(SCOPE, "f1", t_invalid=300, at=310)
 
