@@ -157,6 +157,7 @@ class TestExportProducesAPortableDocument:
             name="Draft Agent",
             config={"id": "draft-agent", "model": {"id": "gpt-5.5", "name": "OpenAIResponses"}},
             stage="draft",
+            tenant_id=None,
         )
 
         document = export_component(component_db, "draft-agent")
