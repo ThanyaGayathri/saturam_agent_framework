@@ -255,3 +255,71 @@ class TestTenantIsThreadedToTheDb:
         client = build_client(mock_db)
         client.delete("/components/agent-1", headers={TENANT_HEADER: "acme"})
         assert mock_db.delete_component.call_args.kwargs["tenant_id"] == "acme"
+
+
+# =============================================================================
+# The dry run enforces the same policy (EGPT-2.9)
+# =============================================================================
+#
+# The console shows allow-list problems inline *before* an operator submits. That only works if
+# the dry run evaluates the identical policy the write path does -- a dry run that were more
+# permissive would green-light a config the write then refuses, which is worse than no dry run.
+
+
+def post_validate(client, config, tenant=None, component_type="agent"):
+    headers = {TENANT_HEADER: tenant} if tenant else {}
+    return client.post(
+        "/components/validate",
+        json={"component_type": component_type, "config": config},
+        headers=headers,
+    )
+
+
+class TestPolicyOnTheDryRun:
+    def test_a_disallowed_model_is_refused_by_the_dry_run(self, mock_db):
+        policy = CapabilityPolicy.from_dict({"defaults": {"models": ["openai"]}})
+        client = build_client(mock_db, policy=policy)
+
+        response = post_validate(client, {"model": "anthropic:claude-sonnet-5"})
+
+        assert response.status_code == 422
+        assert errors_of(response) == [("config.model", "capability_not_permitted")]
+
+    def test_a_privileged_tool_is_refused_by_the_dry_run(self, mock_db, shell_registry):
+        policy = CapabilityPolicy.from_dict({"defaults": {"models": ["openai"], "tools": ["*"]}})
+        client = build_client(mock_db, policy=policy, registry=shell_registry)
+
+        response = post_validate(client, SHELL_CONFIG)
+
+        assert response.status_code == 422
+        assert errors_of(response) == [("config.tools[0].name", "privileged_tool_blocked")]
+
+    def test_the_dry_run_and_the_write_agree(self, mock_db, shell_registry):
+        """Same policy, same config, same body. A client parses one shape and trusts one verdict."""
+        policy = CapabilityPolicy.from_dict({"defaults": {"models": ["openai"], "tools": ["*"]}})
+        client = build_client(mock_db, policy=policy, registry=shell_registry)
+
+        dry_run = post_validate(client, SHELL_CONFIG)
+        write = post_component(client, SHELL_CONFIG)
+
+        assert dry_run.status_code == write.status_code == 422
+        assert dry_run.json() == write.json()
+
+    def test_the_dry_run_applies_the_callers_tenant_policy(self, mock_db):
+        """Per-tenant allow-lists must bind here too, or the console would show acme's rules to globex."""
+        policy = CapabilityPolicy.from_dict(
+            {
+                "defaults": {"models": []},
+                "tenants": {"acme": {"models": ["anthropic"]}},
+            }
+        )
+        client = build_client(mock_db, policy=policy)
+
+        assert post_validate(client, {"model": "anthropic:claude-sonnet-5"}, tenant="acme").status_code == 200
+        assert post_validate(client, {"model": "anthropic:claude-sonnet-5"}, tenant="globex").status_code == 422
+
+    def test_a_permitted_config_validates(self, mock_db):
+        policy = CapabilityPolicy.from_dict({"defaults": {"models": ["openai"]}})
+        client = build_client(mock_db, policy=policy)
+
+        assert post_validate(client, VALID_CONFIG).status_code == 200

@@ -952,3 +952,105 @@ class TestRepeatedDeleteAgainstARealBackend:
 
         assert first.status_code == 204
         assert second.status_code == 404
+
+
+# =============================================================================
+# POST /components/validate -- the dry run (EGPT-2.9)
+# =============================================================================
+#
+# The endpoint exists so an authoring client can show field-level errors *before* it writes
+# anything. Two properties carry that: it stores nothing, and its 422 is the same body the write
+# routes produce -- otherwise a client would need two error parsers and the console's single
+# `normalizeError` would be a lie.
+
+
+class TestValidateEndpoint:
+    def test_a_valid_agent_config_validates(self, client):
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "agent", "config": VALID_AGENT_CONFIG},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"valid": True, "schema_version": 1}
+
+    def test_it_writes_nothing(self, client, mock_db):
+        """The defining property: a dry run must not touch a single row, valid or not."""
+        client.post("/components/validate", json={"component_type": "agent", "config": VALID_AGENT_CONFIG})
+        client.post("/components/validate", json={"component_type": "agent", "config": {"instructions": "hi"}})
+
+        mock_db.create_component_with_config.assert_not_called()
+        mock_db.upsert_component.assert_not_called()
+        mock_db.upsert_config.assert_not_called()
+        mock_db.set_current_version.assert_not_called()
+        mock_db.delete_component.assert_not_called()
+        mock_db.delete_config.assert_not_called()
+
+    def test_an_invalid_config_returns_field_errors(self, client):
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "agent", "config": {"instructions": "no model here"}},
+        )
+
+        assert response.status_code == 422
+        body = response.json()
+        assert body["error_code"] == "CONFIG_VALIDATION_ERROR"
+        assert body["schema_version"] == 1
+        assert body["errors"][0]["path"] == "config.model"
+        assert body["errors"][0]["code"] == "missing_required_field"
+
+    def test_its_error_body_matches_the_write_route(self, client):
+        """A client parses one shape. If these ever diverge, that assumption breaks silently."""
+        bad_config = {"instructions": "no model here"}
+
+        dry_run = client.post("/components/validate", json={"component_type": "agent", "config": bad_config})
+        write = client.post(
+            "/components",
+            json={"name": "Agent", "component_type": "agent", "config": bad_config},
+        )
+
+        assert dry_run.status_code == write.status_code == 422
+        assert dry_run.json() == write.json()
+
+    def test_an_unresolvable_db_reference_is_a_field_error(self, client):
+        """The db reference resolves before validation, so a bad id names its own field."""
+        response = client.post(
+            "/components/validate",
+            json={
+                "component_type": "agent",
+                "config": {"model": "openai:gpt-5.5", "db": {"id": "no-such-db"}},
+            },
+        )
+
+        assert response.status_code == 422
+        paths = [error["path"] for error in response.json()["errors"]]
+        assert "config.db.id" in paths
+
+    def test_an_empty_config_validates(self, client):
+        """Mirrors the write path: an empty config is a shell, and there is nothing to reject."""
+        response = client.post("/components/validate", json={"component_type": "agent", "config": {}})
+
+        assert response.status_code == 200
+
+    def test_an_unknown_component_type_is_a_request_shape_error(self, client):
+        """FastAPI's own 422, deliberately a different body -- a client must handle both."""
+        response = client.post("/components/validate", json={"component_type": "sandwich", "config": {}})
+
+        assert response.status_code == 422
+        body = response.json()
+        assert isinstance(body["detail"], list)
+        assert "error_code" not in body
+
+    def test_config_is_required(self, client):
+        response = client.post("/components/validate", json={"component_type": "agent"})
+
+        assert response.status_code == 422
+
+    def test_the_caller_body_is_not_mutated_into_the_response(self, client):
+        """The handler copies before resolving; a dry run returns a verdict, not a rewritten config."""
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "agent", "config": VALID_AGENT_CONFIG},
+        )
+
+        assert set(response.json()) == {"valid", "schema_version"}

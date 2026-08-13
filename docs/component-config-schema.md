@@ -64,7 +64,36 @@ Semantic validation runs on **every write path that carries a config**:
 | `POST /components/{id}/configs` | yes |
 | `PATCH /components/{id}/configs/{version}` | yes |
 | `PATCH /components/{id}` | no — metadata only, it carries no config |
+| `POST /components/validate` | yes — dry run, writes nothing (EGPT-2.9) |
 | all `GET` endpoints | no |
+
+### The dry run
+
+`POST /components/validate` exists so an authoring client — the admin console, an editor
+integration, a CI check — can show field-level errors *before* it writes anything. Without it the
+only way to find out whether a config is acceptable is to create a draft and read the failure,
+which leaves rows behind for every typo.
+
+```http
+POST /components/validate
+Authorization: Bearer <token>          # requires components:write, not :read
+
+{"component_type": "agent", "config": {...}, "component_id": "support", "links": null}
+```
+
+- `200 {"valid": true, "schema_version": 1}` on success.
+- **`422` with exactly the body the write routes produce** — same `error_code`, same `errors[]`
+  entries, same paths. That is the contract: a client parses one shape and trusts one verdict.
+- It runs the same capability policy the write path does, so the EGPT-2.3 codes
+  (`capability_not_permitted`, `privileged_tool_blocked`) surface here too.
+- `component_id` is optional and is used only for self-reference detection (a team that lists
+  itself as a member). It is **not** looked up: the dry run performs no component reads at all,
+  so it cannot be used to probe which ids exist in another tenant.
+- It stores nothing, on any path, valid or not.
+
+The scope is `components:write` rather than `components:read` deliberately — the endpoint reports
+which models and tools the caller's tenant policy permits, which is not a read-only fact about
+the caller's own data.
 
 Two deliberate non-behaviours:
 

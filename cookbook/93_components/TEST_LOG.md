@@ -178,3 +178,34 @@ envelope fields (`name`, `description`, `metadata`, `notes`), but this example p
 in them, so the `redacted` list still names exactly the three `db_url` values.
 
 ---
+
+### admin_console.py
+
+**Status:** PASS
+
+**Description:** Serves the built-in admin console (EGPT-2.9) on a tenanted `EgptOS` backed by
+SQLite, mints a service-account token for tenant `acme`, and exercises the whole authoring path
+the console drives: serve the page, dry-run an invalid config, create a draft, publish it, add
+and publish a second version, then roll back.
+
+**Result:** `GET /console` returned 200 `text/html` with no `Authorization` header, while
+`GET /components` on the same instance returned 401 -- the page is open, the API behind it is
+not. `POST /components/validate` on a model-less config returned the field-level 422
+(`config.model` / `missing_required_field`) and created nothing. Creating the component returned
+201 with no `current_version`; `PATCH /components/support/configs/1 {"stage":"published"}`
+returned 200 and moved `current_version` to 1. A second draft published as v2 moved it to 2, and
+`POST /components/support/configs/1/set-current` moved it back to 1.
+
+The page's JavaScript was extracted and checked with `node --check` (parses clean), and its
+`normalizeError` was exercised directly against all six response shapes it has to handle: the
+config-validation 422, the same with a bare `config` path, FastAPI's `loc`/`msg` 422, a plain
+string 400, an "Insufficient permissions" 403, and a bodyless 500. Each normalised to the single
+`{summary, fields[]}` shape the UI renders.
+
+**Note:** Run against `.venv/bin/python` in this workspace, which has no `.venvs/demo`. No model
+call is made, so no API key is needed. `EGPT_OS_SECURITY_KEY` must be set or the auth layer is
+never installed and the deployment runs open -- the script prints a reminder. The console itself
+was not driven through a browser; the assertions above are on the API it calls, plus the
+`node`-level checks of the page's own logic.
+
+---

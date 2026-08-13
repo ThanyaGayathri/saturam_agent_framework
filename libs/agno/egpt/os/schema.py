@@ -910,6 +910,30 @@ class ConfigUpdate(BaseModel):
     links: Optional[List[Dict[str, Any]]] = None
 
 
+class ComponentValidateRequest(BaseModel):
+    """A component definition to dry-run through the validator without storing it (EGPT-2.9).
+
+    ``config`` is required here although ``ComponentCreate.config`` is optional: a create with no
+    config makes a shell component to hang versions off, but a validate with no config has
+    nothing to say.
+    """
+
+    component_type: ComponentType = Field(..., description="Type of entity: agent, team, or workflow")
+    config: Dict[str, Any] = Field(..., description="The configuration to validate")
+    component_id: Optional[str] = Field(
+        None,
+        description="The id this config would be stored under. Supplied so self-references are detected.",
+    )
+    links: Optional[List[Dict[str, Any]]] = Field(None, description="Optional links to child components")
+
+
+class ComponentValidateResponse(BaseModel):
+    """Returned (200) when a dry-run config validates. Failures use ``ConfigValidationErrorResponse``."""
+
+    valid: bool = Field(True, description="Always true; an invalid config is a 422, not a false here")
+    schema_version: int = Field(..., description="The config schema version this server validates against")
+
+
 class ComponentBundleEntry(BaseModel):
     """One component inside a portable definition bundle (EGPT-2.8)."""
 

@@ -40,6 +40,58 @@ The Agent-as-Config feature allows you to:
 | `tenant_scoped_hydration.py` | Hydrate DB-defined agents scoped to a tenant, with the config cache |
 | `lifecycle_audit.py` | Walk a definition through draft, publish and rollback, then read its audit trail |
 | `seed_and_export.py` | Export a definition to a portable bundle and import it into another tenant |
+| `admin_console.py` | Serve the built-in admin console and author, publish and roll back a definition from a browser |
+
+---
+
+## Admin console
+
+`EgptOS(enable_console=True)` serves a minimal authoring UI at `GET /console`: list the tenant's
+definitions, edit a draft as a form or as raw JSON, validate it, publish it, and roll back to an
+earlier published version. Every action goes through the same `/components` API, so nothing is
+possible in the console that is not possible with a token and `curl`.
+
+```bash
+.venvs/demo/bin/python cookbook/93_components/admin_console.py
+# open http://localhost:7777/console and paste the token it prints
+```
+
+Three things are worth knowing before you enable it:
+
+- **It is opt-in and off by default.** The page is served *without* a credential, because a
+  browser navigating to it has none to send. The page is inert -- it holds no tenant data -- and
+  every call it makes carries a bearer token the operator pastes in, so scopes and tenancy are
+  enforced normally. Exposing it is still a deployment decision.
+- **The token lives in `sessionStorage`** and is gone when the tab closes. That is also why the
+  page loads nothing external: no CDN script, no webfont, no remote image. It works air-gapped,
+  and it is served under a `Content-Security-Policy` that would break if a CDN were added.
+- **It is deliberately minimal.** There is no visual builder and no tools editor; tools, team
+  members and workflow steps round-trip through the JSON editor untouched.
+
+### Validating without writing
+
+The console's "Validate" button calls `POST /components/validate`, a dry run that returns the
+same field-level 422 body the write routes do and stores nothing:
+
+```bash
+curl -X POST localhost:7777/components/validate \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"component_type": "agent", "config": {"instructions": "no model here"}}'
+```
+
+```json
+{
+  "detail": "Invalid agent configuration: 1 error.",
+  "error_code": "CONFIG_VALIDATION_ERROR",
+  "schema_version": 1,
+  "errors": [{"path": "config.model", "message": "Field 'model' is required for an agent definition.", "code": "missing_required_field"}]
+}
+```
+
+It runs the same capability policy the write path does, so a model or tool the tenant's
+allow-list refuses comes back here as `capability_not_permitted` or `privileged_tool_blocked`
+before anything is created. See `validate_config.py` for the library-level equivalent and
+`capability_policy.py` for the allow-list itself.
 
 ---
 

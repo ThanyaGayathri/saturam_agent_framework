@@ -24,6 +24,8 @@ from egpt.os.schema import (
     ComponentResponse,
     ComponentType,
     ComponentUpdate,
+    ComponentValidateRequest,
+    ComponentValidateResponse,
     ConfigCreate,
     ConfigUpdate,
     ConfigValidationErrorResponse,
@@ -41,7 +43,7 @@ from egpt.registry import Registry
 from egpt.registry.io import ComponentIdConflictError, ComponentIOError, ComponentSoftDeletedError
 from egpt.registry.io import export_component as export_bundle
 from egpt.registry.policy import CapabilityPolicy, resolve_policy
-from egpt.registry.schema import ConfigValidationError
+from egpt.registry.schema import SCHEMA_VERSION, ConfigValidationError
 from egpt.utils.log import log_error
 from egpt.utils.string import generate_id_from_name
 
@@ -279,6 +281,65 @@ def attach_routes(
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             log_error(f"Error creating component: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+    # Declared before the `/components/{component_id}` block on purpose. Starlette scores a full
+    # method+path match above a path-parameter one, so a literal registered later would still
+    # win today -- but only while no `POST /components/{component_id}` route exists. Registering
+    # it here makes that positional rather than incidental.
+    #
+    # The handler is deliberately NOT named `validate_component_config`: `attach_routes` is a
+    # closure, and a local of that name would rebind the module-level validator that
+    # `create_component`, `create_config` and `update_config` call. The operation id carries the
+    # intended name instead.
+    @router.post(
+        "/components/validate",
+        response_model=ComponentValidateResponse,
+        response_model_exclude_none=True,
+        status_code=200,
+        operation_id="validate_component_config",
+        responses={422: {"description": "Config Validation Error", "model": ConfigValidationErrorResponse}},
+        summary="Validate Component Config",
+        description=(
+            "Dry-run a component config through the same validator and capability policy the write "
+            "routes use. Stores nothing. Intended as the pre-flight for an authoring client, so it "
+            "can show field-level errors before creating a draft."
+        ),
+    )
+    async def validate_component_definition(
+        body: ComponentValidateRequest,
+        tenant_id: Optional[str] = Depends(get_tenant_id),
+    ) -> Union[ComponentValidateResponse, JSONResponse]:
+        try:
+            # Copied before resolution: `resolve_db_reference` mutates the mapping in place, and a
+            # dry run has no business editing the caller's parsed body.
+            config = dict(body.config or {})
+            config, unresolved_db_id = _resolve_db_in_config(config, db, registry)
+
+            # Resolution runs first for the same reason it does on the write path: a db id nobody
+            # can resolve should surface as a field error at `config.db.id`, not slip through here
+            # and fail on the real write.
+            if config:
+                validate_component_config(
+                    config,
+                    body.component_type.value,
+                    db=db,
+                    registry=registry,
+                    component_id=body.component_id,
+                    unresolved_db_id=unresolved_db_id,
+                    links=body.links,
+                    policy=policy,
+                    tenant_id=tenant_id,
+                )
+
+            return ComponentValidateResponse(valid=True, schema_version=SCHEMA_VERSION)
+        # Must precede `except ValueError` -- see the note on `create_component`.
+        except ConfigValidationError as e:
+            return config_validation_response(e)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            log_error(f"Error validating component config: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error")
 
     @router.get(
