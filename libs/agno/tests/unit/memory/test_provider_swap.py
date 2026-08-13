@@ -144,7 +144,7 @@ ALL_CONFIGS = {
 }
 
 #: Providers that can serve the SEMANTIC tier, which is what the shared workload writes.
-#: `graph_only` cannot: SUBSTRATES_BY_TIER routes procedural to vector, and consolidate needs a
+#: `graph_only` cannot: TIER_POLICY routes procedural to vector, and consolidate needs a
 #: vector leg to enumerate episodes. It still participates in every *refusal* property below.
 WRITABLE_CONFIGS = {k: v for k, v in ALL_CONFIGS.items() if k != "graph_only"}
 

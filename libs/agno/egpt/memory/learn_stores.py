@@ -104,7 +104,11 @@ def stores_by_tier(
 
     A tier holds **several** stores -- three semantic, two procedural -- so this returns a tuple per
     tier; collapsing to one makes the ratified mapping unusable for any real machine.
-    ``already_bound`` exempts stores the caller bound itself, by identity: their tier is decided.
+
+    ``already_bound`` names stores the caller has placed itself, by identity, and they are left out
+    **entirely** -- not merely exempted from the refusal below. A store bound to one tier while
+    still sitting under its native key on the machine would otherwise be returned for its mapped
+    tier as well, and answer both.
     """
     exempt = {id(store) for store in already_bound}
     unmapped = sorted(name for name, store in stores.items() if name not in STORE_TIERS and id(store) not in exempt)
@@ -118,6 +122,6 @@ def stores_by_tier(
     grouped: Dict[MemoryTier, List["LearningStore"]] = {}
     for name in STORE_TIERS:
         store = stores.get(name)
-        if store is not None:
+        if store is not None and id(store) not in exempt:
             grouped.setdefault(STORE_TIERS[name], []).append(store)
     return {tier: tuple(bound) for tier, bound in grouped.items()}

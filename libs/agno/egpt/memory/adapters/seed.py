@@ -16,7 +16,7 @@ Which store serves which tier, and which scope slots each one's ``recall`` filte
 """
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, List, NoReturn, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, List, NoReturn, Optional, Sequence, Tuple, Union
 from uuid import NAMESPACE_OID, uuid5
 
 from egpt.db.schemas import UserMemory
@@ -44,6 +44,9 @@ if TYPE_CHECKING:
     from egpt.learn.machine import LearningMachine
     from egpt.learn.stores.protocol import LearningStore
     from egpt.memory.manager import MemoryManager
+
+    #: What a tier may be bound to: one store, or several.
+    StoreBinding = Union["LearningStore", Sequence["LearningStore"]]
 
 __all__ = ["SeedMemoryProvider"]
 
@@ -137,7 +140,7 @@ class SeedMemoryProvider(MemoryProvider):
         self,
         manager: Optional["MemoryManager"] = None,
         machine: Optional["LearningMachine"] = None,
-        stores: Optional[Dict[MemoryTier, Any]] = None,
+        stores: Optional[Dict[MemoryTier, "StoreBinding"]] = None,
         config: Optional[MemoryProviderConfig] = None,
     ) -> None:
         if manager is None and machine is None and not stores:
@@ -155,7 +158,7 @@ class SeedMemoryProvider(MemoryProvider):
 
     @staticmethod
     def _bind_stores(
-        stores: Optional[Dict[MemoryTier, Any]],
+        stores: Optional[Dict[MemoryTier, "StoreBinding"]],
         machine: Optional["LearningMachine"],
     ) -> Dict[MemoryTier, Tuple["LearningStore", ...]]:
         """Explicit bindings first, then whatever the machine's mapping adds.
@@ -635,8 +638,8 @@ class SeedMemoryProvider(MemoryProvider):
                 # caller following `PartialWriteError`'s documented retry advice re-sends them
                 # with no id, which mints fresh uuid4 rows and duplicates every one.
                 raise PartialWriteError(self._committed(tier, ids)) from exc
-            if memory_id:
-                ids.append(memory_id)
+            self._require_stored(memory_id, tier, ids)
+            ids.append(memory_id)  # type: ignore[arg-type]  # `_require_stored` narrowed it
         return self._committed(tier, ids)
 
     async def _amanager_write(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
@@ -657,9 +660,22 @@ class SeedMemoryProvider(MemoryProvider):
                 memory_id = await aadd(memory=self._user_memory(event, scope), user_id=scope.user_id)
             except Exception as exc:
                 raise PartialWriteError(self._committed(tier, ids)) from exc
-            if memory_id:
-                ids.append(memory_id)
+            self._require_stored(memory_id, tier, ids)
+            ids.append(memory_id)
         return self._committed(tier, ids)
+
+    @classmethod
+    def _require_stored(cls, memory_id: Optional[str], tier: MemoryTier, ids: List[str]) -> None:
+        """Treat "the manager returned no id" as a failed write, not as a quiet skip.
+
+        ``MemoryManager`` logs a db failure and returns ``None`` rather than raising, because its
+        extraction loops must survive one bad row. Read as "nothing to append", that turned a
+        write nothing stored into a receipt reporting it accepted -- and made the ``except`` arm
+        above dead code for the ordinary failure. A missing id is the same event as an exception,
+        so it takes the same exit, carrying the ids that did land.
+        """
+        if not memory_id:
+            raise PartialWriteError(cls._committed(tier, ids))
 
     @staticmethod
     def _committed(tier: MemoryTier, ids: Sequence[str]) -> WriteReceipt:

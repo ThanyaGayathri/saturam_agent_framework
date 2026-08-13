@@ -409,3 +409,29 @@ async def test_an_agentic_search_calls_the_model_on_the_async_lane():
 
     assert (model.async_calls, model.sync_calls) == (1, 0)
     assert [m.memory for m in found] == ["second"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["last_n", "first_n", None])
+async def test_neither_search_half_reads_the_db_twice_for_one_query(method):
+    """Review finding 4: the async conversion removed a redundant re-fetch on one lane only.
+
+    `search_user_memories` reads the rows, then used to call `_get_last_n_memories`, which reads
+    them again -- so the two halves cost different amounts for the same answer. Asserted on the db
+    call count, because the returned memories are identical either way.
+    """
+    from unittest.mock import MagicMock
+
+    sync_db = MagicMock()
+    sync_db.get_user_memories = MagicMock(return_value=[UserMemory(memory="a", memory_id="m1", user_id="u")])
+    sync_manager = MemoryManager(db=sync_db)
+    async_db = DummyAsyncMemoryDb()
+    async_manager = MemoryManager(db=async_db)
+    await async_manager.aadd_user_memory(UserMemory(memory="a", memory_id="m1"), user_id="u")
+    async_db.calls.clear()
+
+    sync_manager.search_user_memories(retrieval_method=method, user_id="u")
+    await async_manager.asearch_user_memories(retrieval_method=method, user_id="u")
+
+    assert sync_db.get_user_memories.call_count == 1
+    assert len([c for c in async_db.calls if c[0] == "get_user_memories"]) == 1

@@ -30,6 +30,7 @@ from egpt.memory import (
     TIER_POLICY,
     FactWrite,
     MemoryEvent,
+    MemoryOperationError,
     MemoryProviderConfig,
     MemoryQuery,
     MemoryRecord,
@@ -152,6 +153,59 @@ def provider_and_substrates():
     return build_memory_provider(config), vector, graph
 
 
+# ---------------------------------------------------------------------------
+# A seed deployment: the six learn stores behind the same seam
+# ---------------------------------------------------------------------------
+# The tier mapping is what turns "which stores are enabled" into "which tiers are
+# served", so the machine below needs nothing but its stores.
+
+
+class EchoStore:
+    """The smallest thing satisfying LearningStore, so the mapping has something to bind."""
+
+    def __init__(self, learning_type: str) -> None:
+        self.learning_type = learning_type
+        self.schema = dict
+        self.was_updated = False
+
+    def recall(self, **kwargs):
+        return "acme is a customer"
+
+    async def arecall(self, **kwargs):
+        return self.recall(**kwargs)
+
+    def process(self, messages, **kwargs) -> None:
+        self.was_updated = True
+
+    async def aprocess(self, messages, **kwargs) -> None:
+        self.process(messages, **kwargs)
+
+    def build_context(self, data) -> str:
+        return "" if data is None else f"[{self.learning_type}] {data}"
+
+    def get_tools(self, **kwargs):
+        return []
+
+    async def aget_tools(self, **kwargs):
+        return []
+
+
+def build_seed(store, **options):
+    return build_memory_provider(
+        MemoryProviderConfig(
+            provider="seed",
+            options={
+                "stores": {MemoryTier.SEMANTIC: store},
+                # The seed cannot separate tenants, so it refuses to build without both the claim
+                # and the pin -- see 09_memory_provider_seam.py.
+                "single_tenant": True,
+                "tenant_id": "acme",
+                **options,
+            },
+        )
+    )
+
+
 if __name__ == "__main__":
     scope = Scope(tenant_id="acme", user_id="ada@example.com")
 
@@ -260,4 +314,27 @@ if __name__ == "__main__":
     print(
         "  no store maps to episodic: the seed has no episodic memory, which is",
         policy_for_tier(MemoryTier.EPISODIC).owner,
+    )
+    # "none by default" is fail-closed, not an oversight, and it is the first thing an integrator
+    # hits: entity_memory and learned_knowledge filter on user_id only when their namespace is
+    # "user", so a user-scoped read of either is refused until the deployment says it runs that
+    # namespace. Declaring it is one config key, and the refusal names the slot.
+    print()
+    print("A store that filters on nothing by default refuses a narrowed read:")
+    store = EchoStore("entity_memory")
+    try:
+        build_seed(store).read_tier(
+            scope, MemoryTier.SEMANTIC, MemoryQuery(text="acme")
+        )
+    except MemoryOperationError as error:
+        print("  refused:", error)
+    declared = build_seed(store, store_slots={"entity_memory": ["user_id"]})
+    print(
+        "  with options={'store_slots': {'entity_memory': ['user_id']}}:",
+        [
+            r.content
+            for r in declared.read_tier(
+                scope, MemoryTier.SEMANTIC, MemoryQuery(text="acme")
+            )
+        ],
     )

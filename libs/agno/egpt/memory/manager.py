@@ -234,11 +234,12 @@ class MemoryManager:
             memory (UserMemory): The memory to add
             user_id (Optional[str]): The user id to add the memory to. If not provided, the memory is added to the "default" user.
         Returns:
-            str: The id of the memory
+            str: The id of the memory, or None if it was not stored.
         """
         if self.db:
             self._stamp_user_memory(memory=memory, user_id=user_id)
-            self._upsert_db_memory(memory=memory)
+            if not self._upsert_db_memory(memory=memory):
+                return None
             return memory.memory_id
 
         else:
@@ -259,11 +260,12 @@ class MemoryManager:
             memory (UserMemory): The memory to add
             user_id (Optional[str]): The user id to add the memory to. If not provided, the memory is added to the "default" user.
         Returns:
-            str: The id of the memory
+            str: The id of the memory, or None if it was not stored.
         """
         if self.db:
             self._stamp_user_memory(memory=memory, user_id=user_id)
-            await self._aupsert_db_memory(memory=memory)
+            if not await self._aupsert_db_memory(memory=memory):
+                return None
             return memory.memory_id
 
         else:
@@ -304,7 +306,8 @@ class MemoryManager:
             memory.memory_id = memory_id
             memory.user_id = user_id
 
-            self._upsert_db_memory(memory=memory)
+            if not self._upsert_db_memory(memory=memory):
+                return None
 
             return memory.memory_id
         else:
@@ -597,18 +600,25 @@ class MemoryManager:
         return response
 
     # -*- Memory Db Functions
-    def _upsert_db_memory(self, memory: UserMemory) -> str:
-        """Use this function to add a memory to the database."""
+    def _upsert_db_memory(self, memory: UserMemory) -> bool:
+        """Write one memory to the database. **True only if the row landed.**
+
+        The failure is still swallowed and logged rather than raised, because the tool surface and
+        the extraction loops above call this for one memory among many and must not abort the run.
+        What changed is that the outcome is now *reported*: it used to return a status string
+        nobody read, so `add_user_memory` handed back an id for a row that was never written and
+        every caller -- `SeedMemoryProvider` included -- saw a successful write.
+        """
         try:
             if not self.db:
                 raise ValueError("Memory db not initialized")
             self.db.upsert_user_memory(memory=memory)
-            return "Memory added successfully"
+            return True
         except Exception as e:
             log_warning(f"Error storing memory in db: {str(e)}")
-            return "Error adding memory"
+            return False
 
-    async def _aupsert_db_memory(self, memory: UserMemory) -> str:
+    async def _aupsert_db_memory(self, memory: UserMemory) -> bool:
         """Async variant of `_upsert_db_memory`, awaiting an async db and calling a sync one."""
         try:
             if not self.db:
@@ -617,10 +627,10 @@ class MemoryManager:
                 await self.db.upsert_user_memory(memory=memory)
             else:
                 self.db.upsert_user_memory(memory=memory)
-            return "Memory added successfully"
+            return True
         except Exception as e:
             log_warning(f"Error storing memory in db: {str(e)}")
-            return "Error adding memory"
+            return False
 
     def _delete_db_memory(self, memory_id: str, user_id: Optional[str] = None) -> str:
         """Use this function to delete a memory from the database."""
@@ -685,10 +695,13 @@ class MemoryManager:
             return self._search_user_memories_agentic(user_id=user_id, query=query, limit=limit)
 
         elif retrieval_method == "first_n":
-            return self._get_first_n_memories(user_id=user_id, limit=limit)
+            # Selected from the rows already in hand. `_get_first_n_memories` re-reads the db, so
+            # routing through it made every non-agentic search two round trips -- and left the two
+            # halves of this verb costing different amounts for the same answer.
+            return self._first_n(memories.get(user_id, []), limit=limit)
 
         else:  # Default to last_n
-            return self._get_last_n_memories(user_id=user_id, limit=limit)
+            return self._last_n(memories.get(user_id, []), limit=limit)
 
     async def asearch_user_memories(
         self,
@@ -857,7 +870,10 @@ class MemoryManager:
         return memories_to_return[:limit]
 
     def _get_last_n_memories(self, user_id: str, limit: Optional[int] = None) -> List[UserMemory]:
-        """Get the most recent user memories.
+        """Get the most recent user memories, reading them from the db first.
+
+        Kept for callers holding only a `user_id`; `search_user_memories` has the rows already and
+        goes straight to `_last_n`.
 
         Args:
             limit: Maximum number of memories to return.
@@ -891,7 +907,7 @@ class MemoryManager:
         return sorted_memories_list
 
     def _get_first_n_memories(self, user_id: str, limit: Optional[int] = None) -> List[UserMemory]:
-        """Get the oldest user memories.
+        """Get the oldest user memories, reading them from the db first. See `_get_last_n_memories`.
 
         Args:
             limit: Maximum number of memories to return.

@@ -13,6 +13,7 @@ import pytest
 from egpt.db.schemas import UserMemory
 from egpt.memory.adapters.seed import SeedMemoryProvider
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, build_memory_provider
+from egpt.memory.manager import MemoryManager
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryEvent, MemoryOperationError, MemoryQuery, PartialWriteError, Scope, Substrate
 
@@ -1576,3 +1577,107 @@ async def test_both_manager_write_halves_commit_the_same_rows_when_one_event_fai
 
     assert [m.memory_id for m in sync_manager.added] == [m.memory_id for m in async_manager.added] == ["n0"]
     assert sync_exc.value.receipt.event_ids == async_exc.value.receipt.event_ids == ["n0"]
+
+
+# ---------------------------------------------------------------------------
+# Review findings (PR #68)
+# ---------------------------------------------------------------------------
+
+
+def test_a_store_bound_to_one_tier_is_not_also_bound_to_its_mapped_one():
+    """Major 1. A store rebound by hand, still sitting under its native key on the machine, was
+    returned for its mapped tier as well and answered both.
+
+    Non-corrupting -- the two projections carry different ids because the tier is in the id -- but
+    the store's content is shelved as two kinds of memory, and a read of either tier serves it.
+    """
+    store = FakeStore("user_memory")
+    machine = FakeMachine(stores={"user_memory": store})
+
+    bridge = SeedMemoryProvider(machine=machine, stores={MemoryTier.PROCEDURAL: store}, config=seed_config())
+
+    assert bridge.stores == {MemoryTier.PROCEDURAL: (store,)}
+    assert bridge.tiers()[MemoryTier.SEMANTIC] is False
+
+
+def test_the_machine_still_supplies_the_tiers_the_caller_did_not_rebind():
+    """The exclusion is per store, not per machine: rebinding one must not drop the others."""
+    profile, memory = FakeStore("user_profile"), FakeStore("user_memory")
+    machine = FakeMachine(stores={"user_profile": profile, "user_memory": memory})
+
+    bridge = SeedMemoryProvider(machine=machine, stores={MemoryTier.PROCEDURAL: memory}, config=seed_config())
+
+    assert bridge.stores == {MemoryTier.PROCEDURAL: (memory,), MemoryTier.SEMANTIC: (profile,)}
+
+
+class RaisingDb:
+    """A db whose writes fail, like a real one with a closed pool or a constraint violation."""
+
+    def __init__(self) -> None:
+        self.attempts = 0
+
+    def upsert_user_memory(self, memory):
+        self.attempts += 1
+        raise RuntimeError("db down")
+
+    def get_user_memories(self, *args, **kwargs):
+        return []
+
+
+def test_a_manager_whose_db_refuses_the_write_does_not_receipt_it_as_accepted():
+    """Major 2, against a **real** `MemoryManager` rather than a double.
+
+    `_upsert_db_memory` logs a db failure and returns rather than raising -- its extraction loops
+    have to survive one bad row -- so `add_user_memory` used to hand back an id for a row that was
+    never written, and this bridge reported `accepted=1`. The manager now reports the outcome and
+    a missing id takes the same exit as an exception.
+    """
+    db = RaisingDb()
+    bridge = SeedMemoryProvider(manager=MemoryManager(db=db), config=seed_config())
+
+    with pytest.raises(PartialWriteError) as exc:
+        bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="never stored", scope=ACME, id="e1")])
+
+    assert db.attempts == 1, "the write was attempted"
+    assert exc.value.receipt.event_ids == [], "...and nothing landed, so there is nothing to retry with"
+
+
+async def test_both_halves_agree_when_the_db_refuses_partway_through_a_batch():
+    """The committed set, not the exception type: the async half awaits `aadd_user_memory`, so a
+    fix applied to one lane only would show up here rather than in production."""
+
+    class FailingAfterFirst(RaisingDb):
+        def __init__(self):
+            super().__init__()
+            self.stored = []
+
+        def upsert_user_memory(self, memory):
+            self.attempts += 1
+            if self.attempts == 2:
+                raise RuntimeError("db down")
+            self.stored.append(memory.memory_id)
+
+    def wire():
+        db = FailingAfterFirst()
+        return SeedMemoryProvider(manager=MemoryManager(db=db), config=seed_config()), db
+
+    sync_bridge, sync_db = wire()
+    async_bridge, async_db = wire()
+    events = [MemoryEvent(content=f"note {i}", scope=ACME, id=f"n{i}") for i in range(3)]
+
+    with pytest.raises(PartialWriteError) as sync_exc:
+        sync_bridge.write_tier(ACME, MemoryTier.SEMANTIC, events)
+    with pytest.raises(PartialWriteError) as async_exc:
+        await async_bridge.awrite_tier(ACME, MemoryTier.SEMANTIC, events)
+
+    assert sync_db.stored == async_db.stored == ["n0"]
+    assert sync_exc.value.receipt.event_ids == async_exc.value.receipt.event_ids == ["n0"]
+
+
+def test_a_manager_with_no_db_refuses_the_write_rather_than_receipting_nothing():
+    """The same rule reached by the other route: `add_user_memory` returns `None` with no db, which
+    used to leave a silent `accepted=0` receipt on a write that stored nothing."""
+    bridge = SeedMemoryProvider(manager=MemoryManager(), config=seed_config())
+
+    with pytest.raises(PartialWriteError):
+        bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
