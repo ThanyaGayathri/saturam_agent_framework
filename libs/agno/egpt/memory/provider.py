@@ -199,3 +199,20 @@ class MemoryProvider(ABC):
         a caller can tell "the graph returned nothing" from "there is no graph".
         """
         raise NotImplementedError
+
+    # -- lifecycle ------------------------------------------------------------
+
+    def close(self) -> None:
+        """Release whatever the substrates hold. A default no-op, and safe to call twice.
+
+        Concrete rather than abstract because most providers hold nothing: every substrate behind
+        this seam was an in-memory double until SM-G1 (#99) brought one with a connection pool, and
+        an abstract method would have made a third-party adapter implement an empty body.
+
+        It is on the **seam** rather than left to ``provider.graph.close()`` because reaching past
+        the seam for a backend method is exactly what the seam exists to prevent -- and a caller
+        building a provider per request would have no way to know it needed to.
+        """
+
+    async def aclose(self) -> None:
+        """Async variant of :meth:`close`, for substrates whose driver has an async half."""

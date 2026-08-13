@@ -27,10 +27,11 @@ enumeration (SM-G9 #107), PPR over a GDS projection (SM-H4 #134), episode-to-ent
 import json
 import os
 from dataclasses import replace
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple
 from uuid import uuid4
 
 from egpt.integrations.memory.graph.neo4j import cypher
+from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     FactWrite,
@@ -45,12 +46,25 @@ from egpt.memory.types import (
 from egpt.utils.dttm import now_epoch_s
 from egpt.utils.log import log_debug
 
+if TYPE_CHECKING:
+    from neo4j import AsyncDriver
+
 try:
     from neo4j import AsyncGraphDatabase, GraphDatabase
 except ImportError:
     raise ImportError("`neo4j` not installed. Please install using `pip install neo4j`")
 
 __all__ = ["Neo4jGraphSubstrate"]
+
+
+def _tiers(query: MemoryQuery) -> List[str]:
+    """The tier set as the statement binds it.
+
+    Applied in Cypher rather than after the fact, because each statement applies ``LIMIT``
+    server-side: filtering afterwards lets a tight limit cut rows the tier filter would have kept,
+    and the short page looks like a genuine miss.
+    """
+    return [tier.value for tier in query.resolved_tiers()]
 
 
 def _terms(text: str) -> List[str]:
@@ -81,20 +95,22 @@ class Neo4jGraphSubstrate:
         username = username or os.getenv("NEO4J_USERNAME")
         password = password or os.getenv("NEO4J_PASSWORD")
         if not username or not password:
-            raise MemoryOperationError(
+            # A configuration error, not a per-request refusal: `MemoryOperationError` is documented
+            # as what a *correctly configured* provider raises for one call.
+            raise MemoryProviderConfigError(
                 "Neo4jGraphSubstrate needs a username and password, from arguments or NEO4J_USERNAME / NEO4J_PASSWORD.",
                 field_name="password",
             )
         self.uri, self.database = resolved_uri, database or "neo4j"
         self._auth = (username, password)
         self._driver = GraphDatabase.driver(self.uri, auth=self._auth)
-        self._adriver: Optional[Any] = None
+        self._adriver: Optional["AsyncDriver"] = None
         if auto_init_schema:
             self.init_schema()
 
     # -- plumbing -------------------------------------------------------------
 
-    def _async_driver(self) -> Any:
+    def _async_driver(self) -> "AsyncDriver":
         """Built on first use, not in ``__init__``: an async driver binds to the running loop."""
         if self._adriver is None:
             self._adriver = AsyncGraphDatabase.driver(self.uri, auth=self._auth)
@@ -146,6 +162,11 @@ class Neo4jGraphSubstrate:
                 await session.run(statement)
 
     def close(self) -> None:
+        """Close both halves. A caller that used the async path and then called this would
+        otherwise leak the async pool, and nothing about the name suggests it only closes one."""
+        if self._adriver is not None:
+            log_debug("Neo4jGraphSubstrate.close() is dropping an async driver; prefer aclose() there")
+            self._adriver = None
         self._driver.close()
 
     async def aclose(self) -> None:
@@ -181,6 +202,9 @@ class Neo4jGraphSubstrate:
         """
         return {
             **cypher.scope_props(scope),
+            # Paired with `expired_at` in exactly two places -- here (a new row is live) and
+            # `expire_statements` (which removes both). See `cypher.LIVE` for why it exists.
+            cypher.LIVE: True,
             "row_id": str(uuid4()),
             "id": record_id,
             "tier": tier.value,
@@ -194,6 +218,18 @@ class Neo4jGraphSubstrate:
             "provenance": json.dumps(fields.get("provenance") or {}),
             "metadata": json.dumps(fields.get("metadata") or {}),
         }
+
+    @staticmethod
+    def _pair_live_marker(row: Dict[str, Any]) -> Dict[str, Any]:
+        """Keep ``live`` and ``expired_at`` consistent on a row about to be written.
+
+        ``upsert_facts`` is how a fact is *retired*: the caller writes the row back with
+        ``expired_at`` set. Such a row is not current belief, so it must not carry the marker --
+        otherwise it stays visible to every read and holds the live slot the constraint protects.
+        """
+        if row.get("expired_at") is not None:
+            row.pop(cypher.LIVE, None)
+        return row
 
     def _record(self, row: Dict[str, Any], scope: Scope) -> MemoryRecord:
         return MemoryRecord(
@@ -275,6 +311,7 @@ class Neo4jGraphSubstrate:
                 provenance=provenance,
                 metadata={**record.metadata, "confidence": fact.confidence, "derived_by": fact.derived_by},
             )
+            self._pair_live_marker(row)
             if fact.is_triple():
                 row["predicate"] = fact.predicate
                 batches["triple"].append(
@@ -314,8 +351,7 @@ class Neo4jGraphSubstrate:
         Each statement applied ``limit`` to its own shape, so the union can hold up to three times
         it; ranking across shapes and cutting again is what makes ``limit`` mean what it says.
         """
-        wanted = {tier.value for tier in query.resolved_tiers()}
-        hits = [self._record(row, scope) for leg in rows for row in leg if row["tier"] in wanted]
+        hits = [self._record(row, scope) for leg in rows for row in leg]
         hits.sort(key=lambda r: (-(r.score or 0.0), r.created_at or 0, r.content, r.id))
         return hits[: query.limit]
 
@@ -333,7 +369,9 @@ class Neo4jGraphSubstrate:
         query = self._requested(query, tier)
         if not query.limit or not _terms(query.text):
             return []
-        rows = self._run(cypher.traverse_statements(scope), terms=_terms(query.text), limit=query.limit)
+        rows = self._run(
+            cypher.traverse_statements(scope), terms=_terms(query.text), limit=query.limit, tiers=_tiers(query)
+        )
         return self._merge_hits(rows, scope, query)
 
     async def atraverse(
@@ -342,7 +380,9 @@ class Neo4jGraphSubstrate:
         query = self._requested(query, tier)
         if not query.limit or not _terms(query.text):
             return []
-        rows = await self._arun(cypher.traverse_statements(scope), terms=_terms(query.text), limit=query.limit)
+        rows = await self._arun(
+            cypher.traverse_statements(scope), terms=_terms(query.text), limit=query.limit, tiers=_tiers(query)
+        )
         return self._merge_hits(rows, scope, query)
 
     @staticmethod
@@ -405,28 +445,84 @@ class Neo4jGraphSubstrate:
         tightest = t_invalid if live["t_invalid"] is None else min(live["t_invalid"], t_invalid)
         return {"t_invalid": tightest, "live_row_id": live["row_id"]}
 
-    def invalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None:
-        recorded_at = now_epoch_s() if at is None else at
-        bound = self._bound(self._run(cypher.live_row_statements(scope), edge_id=edge_id), edge_id, t_invalid)
+    @staticmethod
+    def _reject_episode(edge_id: str, probe: List[Dict[str, Any]]) -> None:
+        """Refuse an ``invalidate`` aimed at an episode, naming the lifecycle that owns it.
+
+        ADR 0003 section B.6 splits the two: semantic contradiction on a graph **edge** goes through
+        this SCD-2 primitive, while an episodic **row** is retired by SM-R6 re-segmentation or SM-R5
+        decay archival writing ``expired_at`` on the record. Silently obliging would put episode
+        archival on the edge path the ADR separates it from.
+        """
+        if probe:
+            raise MemoryOperationError(
+                f"{edge_id!r} is an episode, and invalidate() governs semantic contradiction on graph "
+                "edges only (ADR 0003 section B.6). An episodic row is retired through its own "
+                "lifecycle -- SM-R6 re-segmentation or SM-R5 decay archival -- by writing expired_at "
+                "on the record, not through this primitive.",
+                field_name="edge_id",
+            )
+
+    def _invalidation_params(
+        self, rows: List[List[Dict[str, Any]]], edge_id: str, t_invalid: int, at: int
+    ) -> Optional[Dict[str, Any]]:
+        """The full parameter set for the write half, or ``None`` when there is nothing to bound."""
+        bound = self._bound(rows, edge_id, t_invalid)
         if bound is None:
-            return
-        self._run(
-            [*cypher.expire_statements(scope), *cypher.insert_bounded_copy_statements(scope)],
-            edge_id=edge_id,
-            at=recorded_at,
-            row_id=str(uuid4()),
-            **bound,
-        )
+            # Not an error: the id may belong to another scope, or never have existed. Logged rather
+            # than raised because a caller cannot tell those apart and neither can this method --
+            # asking would mean reading outside the call scope, which is the one thing it must not do.
+            log_debug(f"invalidate({edge_id!r}) found no live row in scope {self.database!r}; nothing to bound")
+            return None
+        return {"edge_id": edge_id, "at": at, "row_id": str(uuid4()), **bound}
+
+    def invalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None:
+        """Expire-and-reinsert, in **one** transaction: the read the bound is computed from and the
+        write that applies it cannot be separated by another writer.
+
+        A second writer that still slips through -- Neo4j reads do not lock -- loses on the
+        ``(scope_key, id, live)`` uniqueness constraint rather than producing a second current
+        belief. It fails loudly; it does not corrupt.
+
+        Scoped to fact shapes: an episode id is refused, not obliged (see :meth:`_reject_episode`).
+        An id in another scope is a no-op, logged at debug.
+        """
+        recorded_at = now_epoch_s() if at is None else at
+        with self._driver.session(database=self.database) as session:
+            with session.begin_transaction() as tx:
+                probe_text, probe_binds = cypher.episode_probe_statement(scope)
+                self._reject_episode(edge_id, [dict(r) for r in tx.run(probe_text, **probe_binds, edge_id=edge_id)])
+                rows = [
+                    [dict(record) for record in tx.run(text, **binds, edge_id=edge_id)]
+                    for text, binds in cypher.live_row_statements(scope)
+                ]
+                params = self._invalidation_params(rows, edge_id, t_invalid, recorded_at)
+                if params is None:
+                    return
+                for text, binds in (*cypher.expire_statements(scope), *cypher.insert_bounded_copy_statements(scope)):
+                    tx.run(text, **{**binds, **params})
+                tx.commit()
 
     async def ainvalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None:
+        """Async twin of :meth:`invalidate`, with the same one-transaction rule."""
         recorded_at = now_epoch_s() if at is None else at
-        bound = self._bound(await self._arun(cypher.live_row_statements(scope), edge_id=edge_id), edge_id, t_invalid)
-        if bound is None:
-            return
-        await self._arun(
-            [*cypher.expire_statements(scope), *cypher.insert_bounded_copy_statements(scope)],
-            edge_id=edge_id,
-            at=recorded_at,
-            row_id=str(uuid4()),
-            **bound,
-        )
+        async with self._async_driver().session(database=self.database) as session:
+            tx = await session.begin_transaction()
+            try:
+                probe_text, probe_binds = cypher.episode_probe_statement(scope)
+                probe = await tx.run(probe_text, **probe_binds, edge_id=edge_id)
+                self._reject_episode(edge_id, [dict(record) async for record in probe])
+                rows = []
+                for text, binds in cypher.live_row_statements(scope):
+                    result = await tx.run(text, **binds, edge_id=edge_id)
+                    rows.append([dict(record) async for record in result])
+                params = self._invalidation_params(rows, edge_id, t_invalid, recorded_at)
+                if params is None:
+                    await tx.rollback()
+                    return
+                for text, binds in (*cypher.expire_statements(scope), *cypher.insert_bounded_copy_statements(scope)):
+                    await tx.run(text, **{**binds, **params})
+                await tx.commit()
+            except BaseException:
+                await tx.rollback()
+                raise

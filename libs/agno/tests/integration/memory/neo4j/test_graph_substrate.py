@@ -177,6 +177,59 @@ def test_a_repeated_write_replaces_the_row_rather_than_appending(any_graph):
     assert [(r.id, r.content) for r in hits] == [("dup", "second version")]
 
 
+@pytest.mark.parametrize("shape", ["episode", "fact"])
+def test_two_rows_sharing_an_id_in_one_batch_leave_one_live_row(graph, shape):
+    """Review finding, reproduced deterministically with a single caller and no concurrency.
+
+    ``OPTIONAL MATCH`` then a conditional ``CREATE`` is a check-then-act race: both rows of one
+    ``UNWIND`` observed "no live row for this id" and both created one, so a batch carrying a
+    duplicate id produced **two** live rows -- which is not "insert or replace by id" under any
+    reading, and made ``traverse`` return the same id twice.
+
+    Both shapes, because the node and relation legs are mechanically distinct statements and the
+    fix has to land on each.
+    """
+    if shape == "episode":
+        graph.upsert_episodes(ACME, [episode("version A", "dup"), episode("version B", "dup")])
+    else:
+        graph.upsert_facts(
+            ACME,
+            [
+                fact("dup", "version A", subject="ada", predicate="says", object="a"),
+                fact("dup", "version B", subject="ada", predicate="says", object="a"),
+            ],
+        )
+
+    hits = graph.traverse(ACME, MemoryQuery(text="version"))
+
+    assert [r.id for r in hits] == ["dup"], "one logical id must have one live row"
+    assert hits[0].content == "version B", "last write wins, as replace-by-id means"
+
+
+def test_the_live_marker_and_expired_at_never_disagree(graph):
+    """The marker is a second encoding of "current belief", so the two can drift.
+
+    It exists because a uniqueness constraint cannot say "unique among rows whose ``expired_at`` is
+    null" -- but a marker left on an expired row would hold the live slot and hide the successor,
+    and one missing from a live row would exempt it from the constraint that makes ``MERGE`` safe.
+    Checked after a write, a retirement and an invalidation, which are the three writers.
+    """
+    graph.upsert_episodes(ACME, [episode("an episode", "e1")])
+    graph.upsert_facts(ACME, [fact("f1", "a fact"), fact("f2", "a retired fact", expired_at=500)])
+    graph.invalidate(ACME, "f1", t_invalid=300, at=310)
+
+    with graph._driver.session(database=graph.database) as session:
+        disagreeing = session.run(
+            "MATCH (n) WHERE n.row_id IS NOT NULL AND (n.live IS NULL) <> (n.expired_at IS NOT NULL) "
+            "RETURN count(n) AS n "
+            "UNION ALL "
+            "MATCH ()-[r:REL]->() WHERE (r.live IS NULL) <> (r.expired_at IS NOT NULL) RETURN count(r) AS n"
+        )
+        counts = [record["n"] for record in disagreeing]
+
+    assert counts == [0, 0], "a row's live marker must agree with its expired_at"
+
+
 def test_scores_are_similarities_in_the_unit_interval(any_graph):
     """The provider sums the legs' scores, so an undeclared scale decides the ranking by magnitude."""
     any_graph.upsert_episodes(
@@ -271,20 +324,63 @@ def test_invalidation_expires_and_reinserts_rather_than_editing_in_place(graph):
     assert graph.bounds_for_ids(ACME, ["f1"])["f1"].t_invalid == 200
 
 
+def test_concurrent_invalidation_never_leaves_two_current_beliefs(graph):
+    """Review finding: the read that computes the bound and the write that applies it can race.
+
+    Both callers may legitimately read the same live row. What must not happen is both inserting a
+    successor, which would leave one logical fact with two rows claiming to be current belief --
+    the state SCD-2 exists to prevent. Either one wins and the other is a no-op, or the loser fails
+    loudly on the uniqueness constraint; the one outcome ruled out is silent corruption.
+    """
+    import threading
+
+    graph.upsert_facts(ACME, [fact("f1", "ada lives in berlin", t_valid=100)])
+
+    errors: list = []
+    barrier = threading.Barrier(2)
+
+    def invalidate(bound: int) -> None:
+        worker = Neo4jGraphSubstrate(**_settings(), auto_init_schema=False)
+        try:
+            barrier.wait(timeout=10)
+            worker.invalidate(ACME, "f1", t_invalid=bound, at=310)
+        except Exception as exc:  # a loud failure is an accepted outcome; corruption is not
+            errors.append(exc)
+        finally:
+            worker.close()
+
+    threads = [threading.Thread(target=invalidate, args=(bound,)) for bound in (300, 400)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    with graph._driver.session(database=graph.database) as session:
+        live = [
+            dict(record)
+            for record in session.run(
+                "MATCH (n:Fact {id:'f1'}) WHERE n.expired_at IS NULL RETURN n.t_invalid AS t_invalid"
+            )
+        ]
+
+    assert len(live) == 1, f"one logical fact must have one current belief, got {live} (errors: {errors})"
+    assert live[0]["t_invalid"] in (300, 400), "the surviving row must carry a bound one caller asked for"
+
+
 def test_the_bounded_copy_keeps_the_logical_id(graph):
     """A surrogate key on the successor would break the merge's dedup-by-id.
 
     That dedup is the only thing carrying the graph's bound onto the vector leg's stale projection,
     so a fresh id means the invalidated fact reads as current on an ordinary read.
     """
-    graph.upsert_episodes(ACME, [episode("ada works at acme", "e1")])
+    graph.upsert_facts(ACME, [fact("f1", "ada works at acme")])
 
-    graph.invalidate(ACME, "e1", t_invalid=300, at=310)
+    graph.invalidate(ACME, "f1", t_invalid=300, at=310)
 
     with graph._driver.session(database=graph.database) as session:
-        stored = {r["id"] for r in session.run("MATCH (n:Episode) RETURN n.id AS id")}
-        count = session.run("MATCH (n:Episode) RETURN count(n) AS n").single()["n"]
-    assert stored == {"e1"} and count == 2
+        stored = {r["id"] for r in session.run("MATCH (n:Fact) RETURN n.id AS id")}
+        count = session.run("MATCH (n:Fact) RETURN count(n) AS n").single()["n"]
+    assert stored == {"f1"} and count == 2
 
 
 def test_bounds_report_a_bound_that_ranking_hid(graph):
@@ -304,19 +400,34 @@ def test_bounds_report_a_bound_that_ranking_hid(graph):
 
 def test_an_invalidation_that_would_leave_the_row_valid_at_no_instant_is_refused(graph):
     """Valid time is half-open, so such a bound is written, receipted, and then invisible forever."""
-    graph.upsert_episodes(ACME, [episode("ada works at acme", "e1", occurred_at=100)])
+    graph.upsert_facts(ACME, [fact("f1", "ada works at acme", t_valid=100)])
 
     with pytest.raises(ValueError, match="valid at no instant"):
-        graph.invalidate(ACME, "e1", t_invalid=100, at=310)
+        graph.invalidate(ACME, "f1", t_invalid=100, at=310)
+
+
+def test_invalidating_an_episode_is_refused_rather_than_obliged(graph):
+    """ADR 0003 section B.6 gives an episodic row a different lifecycle from a graph edge.
+
+    The port says so in as many words -- "do not route episode archival here" -- and an earlier
+    revision of this backend obliged anyway, with this file's own tests doing exactly what the
+    contract forbids. A refusal that names the owning lifecycle is what makes the boundary real.
+    """
+    graph.upsert_episodes(ACME, [episode("ada works at acme", "e1")])
+
+    with pytest.raises(MemoryOperationError, match="governs semantic contradiction on graph edges"):
+        graph.invalidate(ACME, "e1", t_invalid=300, at=310)
+
+    assert graph.bounds_for_ids(ACME, ["e1"])["e1"].t_invalid is None, "the refusal wrote nothing"
 
 
 def test_an_invalidation_under_a_foreign_scope_does_nothing(graph):
     """Scoped like every other statement, so a mis-scoped invalidation is observable rather than silent."""
-    graph.upsert_episodes(ACME, [episode("ada works at acme", "e1")])
+    graph.upsert_facts(ACME, [fact("f1", "ada works at acme")])
 
-    graph.invalidate(GLOBEX, "e1", t_invalid=300, at=310)
+    graph.invalidate(GLOBEX, "f1", t_invalid=300, at=310)
 
-    assert graph.bounds_for_ids(ACME, ["e1"])["e1"].t_invalid is None
+    assert graph.bounds_for_ids(ACME, ["f1"])["f1"].t_invalid is None
 
 
 def test_a_fact_is_retired_by_writing_its_transaction_time_fields_back(graph):

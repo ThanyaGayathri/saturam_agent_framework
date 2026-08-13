@@ -152,14 +152,19 @@ def resolve_substrate(
     from egpt.registry import discovery
 
     rest = {key: value for key, value in settings.items() if key != "backend"}
-    try:
-        constructed = discovery.construct(kind, backend.strip(), **rest)
-    except ValueError as exc:
-        # `discovery.resolve` raises ValueError for an unknown name. Re-raised as a config error so
-        # a deployment mistake lands on the type this module's callers already assert against. An
-        # ImportError from a missing SDK is deliberately left alone: the integration's own
-        # "pip install neo4j" message is more useful than anything this frame could add.
-        raise MemoryProviderConfigError(str(exc), field_name=field) from exc
+    known = set(discovery.names(kind))
+    if backend.strip() not in known:
+        # Checked rather than caught. `discovery.resolve` signals an unknown name with `ValueError`,
+        # but so does any constructor validating its own arguments -- and `MemoryOperationError` is
+        # itself a `ValueError`, so a blanket `except ValueError` here would silently reclassify a
+        # backend's per-request refusal as a configuration error.
+        raise MemoryProviderConfigError(
+            f"Unknown {kind} backend {backend.strip()!r}. Registered: {', '.join(sorted(known)) or '<none>'}.",
+            field_name=field,
+        )
+    # An ImportError from a missing SDK is deliberately left to propagate: the integration's own
+    # "pip install neo4j" message is more useful than anything this frame could add.
+    constructed = discovery.construct(kind, backend.strip(), **rest)
     return check(constructed, option)
 
 

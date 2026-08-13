@@ -164,6 +164,28 @@ class CoLocatedMemoryProvider(MemoryProvider):
     def substrates(self) -> Dict[Substrate, bool]:
         return {Substrate.VECTOR: self.vector is not None, Substrate.GRAPH: self.graph is not None}
 
+    def close(self) -> None:
+        """Close whichever substrates hold something. Duck-typed, because the ports do not name it.
+
+        Adding ``close`` to ``VectorSubstrate`` / ``GraphSubstrate`` would make every in-memory
+        double implement an empty method to satisfy a Protocol, so a backend that has nothing to
+        release simply does not have the attribute.
+        """
+        for substrate in (self.vector, self.graph):
+            closer = getattr(substrate, "close", None)
+            if callable(closer):
+                closer()
+
+    async def aclose(self) -> None:
+        for substrate in (self.vector, self.graph):
+            closer = getattr(substrate, "aclose", None)
+            if callable(closer):
+                await closer()
+            else:
+                sync_closer = getattr(substrate, "close", None)
+                if callable(sync_closer):
+                    sync_closer()
+
     # -- guards ---------------------------------------------------------------
 
     def _wired(self) -> Set[str]:
@@ -834,6 +856,11 @@ class CoLocatedMemoryProvider(MemoryProvider):
         ``consolidate``'s ``committed_any`` arm -- that arm would report a bare refusal, and a bare
         refusal denies the caller the ids its retry needs.
         """
+        # The same guard `_prepare` applies to a write batch. `_distil`'s grouping partitions its
+        # input, so no two groups can derive one fact id today -- but that is a property of the
+        # current strategy, which SM-L3 (#124) replaces, and an un-enforced invariant one refactor
+        # from reopening a duplicate-row hole is worth one call.
+        reject_duplicate_ids([fact.record for fact in batch])
         failures: List[BaseException] = []
         try:
             self.graph.upsert_facts(fact_scope, batch)  # type: ignore[union-attr]  # caller checked

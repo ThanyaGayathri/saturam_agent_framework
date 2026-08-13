@@ -118,9 +118,16 @@ tenant-only predicate would have returned 1 there. Invalidation reports `t_inval
 `still current belief: True`, which is expire-and-reinsert rather than a delete -- the bounded copy
 is the new current row. The point-in-time reads then answer 1 record as of march and 0 as of june.
 
-An earlier draft of this file invalidated at a `t_invalid` earlier than the episode's `t_valid` and
-was refused by the substrate ("the row would be valid at no instant"), which is the guard working;
-the timeline is now explicit so the output is deterministic.
+Two earlier drafts of this file were refused by the substrate, both times correctly. The first
+invalidated at a `t_invalid` earlier than the row's `t_valid` ("the row would be valid at no
+instant"); the timeline is now explicit so the output is deterministic. The second invalidated an
+**episode**, which ADR 0003 section B.6 routes through its own lifecycle rather than through the
+edge primitive -- the file now writes a semantic fact and invalidates that, which is what the
+primitive is for.
+
+The provider is released with `provider.close()` rather than `provider.graph.close()`: reaching past
+the seam for a backend method is what the seam exists to prevent, and a caller building a provider
+per request has no way to know which substrate holds a connection pool.
 
 **Requires:** a running Neo4j (`./cookbook/scripts/run_neo4j.sh`). No model, no API key.
 

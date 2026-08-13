@@ -6,6 +6,8 @@ resolution (F3), two-sided validity (F6), dual-substrate consolidation (F7), and
 invalidation rather than in-place mutation (F10).
 """
 
+from dataclasses import replace
+
 import pytest
 
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
@@ -18,6 +20,7 @@ from egpt.memory.config import (
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     FUSION_KEYS,
+    FactWrite,
     MemoryEvent,
     MemoryOperationError,
     MemoryQuery,
@@ -25,6 +28,7 @@ from egpt.memory.types import (
     PartialWriteError,
     Scope,
     Substrate,
+    WriteReceipt,
 )
 from egpt.utils.dttm import now_epoch_s
 from tests.unit.memory._fakes import FakeGraph, FakeVector, _yield, assert_ports_satisfied
@@ -1580,6 +1584,23 @@ def test_a_group_with_one_open_ended_episode_stays_open_ended():
     assert len(facts) == 1, "identical content must form one group, or the mixed case is untested"
     assert facts[0].provenance["source_episode_ids"] == ["a", "b"]
     assert facts[0].t_invalid is None, "one unbounded member keeps the whole fact open"
+
+
+def test_consolidation_refuses_two_facts_sharing_an_id():
+    """The guard `write` has always had, on the path that did not.
+
+    `_distil`'s grouping partitions its input, so today no two groups can derive one fact id -- but
+    that is a property of the current strategy, which SM-L3 (#124) replaces. An un-enforced
+    invariant one refactor away from writing two rows under one id is worth one call.
+    """
+    p, _, graph = provider()
+    record = MemoryRecord(id="same", tier=MemoryTier.SEMANTIC, content="a fact", scope=ACME)
+    batch = [FactWrite(record=record), FactWrite(record=replace(record, content="another fact"))]
+
+    with pytest.raises(MemoryOperationError, match="Duplicate event id"):
+        p._graph_fact_batch(ACME, batch, WriteReceipt())
+
+    assert "upsert_facts" not in graph.calls, "the refusal must precede the write"
 
 
 class _CountingFailureGraph(FakeGraph):

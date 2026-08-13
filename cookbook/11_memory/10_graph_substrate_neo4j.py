@@ -87,23 +87,41 @@ for label, scope in (
 print("\nContext for acme/ada:")
 print(provider.read(ACME_ADA, query).as_context())
 
-# The graph is the authority for validity, and invalidation is expire-and-reinsert: the row is
-# never edited in place, so what was believed earlier stays reconstructable.
-graph = provider.graph
-episode_id = provider.read(ACME_ADA, query).records[0].id
-graph.invalidate(ACME_ADA, episode_id, t_invalid=JUNE, at=JUNE + 100)
+# Bi-temporal invalidation applies to a **semantic fact**, not an episode. ADR 0003 section B.6
+# gives the two different lifecycles: a contradiction on a graph edge resolves by expire-and-reinsert
+# here, while an episodic row is retired by its own lifecycle writing `expired_at`. The substrate
+# refuses an episode id rather than obliging, so the boundary is enforced and not just documented.
+provider.write_tier(
+    ACME_ADA,
+    MemoryTier.SEMANTIC,
+    [MemoryEvent(content="ada lives in berlin", scope=ACME_ADA, occurred_at=MARCH)],
+)
 
-bounds = graph.bounds_for_ids(ACME_ADA, [episode_id])[episode_id]
-print("\nAfter invalidation:")
+fact_query = MemoryQuery(text="ada lives berlin", tiers=[MemoryTier.SEMANTIC])
+fact_id = provider.read(ACME_ADA, fact_query).records[0].id
+
+graph = provider.graph
+graph.invalidate(ACME_ADA, fact_id, t_invalid=JUNE, at=JUNE + 100)
+
+bounds = graph.bounds_for_ids(ACME_ADA, [fact_id])[fact_id]
+print("\nAfter invalidating the fact:")
 print(f"  t_invalid: {bounds.t_invalid}")
 print(f"  still current belief: {bounds.expired_at is None}")
 
 print("\nRead as of march, before it became false:")
-before = provider.read(ACME_ADA, MemoryQuery(text="ada moved berlin", as_of=MARCH + 1))
+before = provider.read(
+    ACME_ADA,
+    MemoryQuery(text="ada lives berlin", as_of=MARCH + 1, tiers=[MemoryTier.SEMANTIC]),
+)
 print(f"  {len(before.records)} record(s)")
 
 print("\nRead as of june, after it became false:")
-after = provider.read(ACME_ADA, MemoryQuery(text="ada moved berlin", as_of=JUNE + 1))
+after = provider.read(
+    ACME_ADA,
+    MemoryQuery(text="ada lives berlin", as_of=JUNE + 1, tiers=[MemoryTier.SEMANTIC]),
+)
 print(f"  {len(after.records)} record(s)")
 
-graph.close()
+# Released through the seam, not by reaching into `provider.graph`: a caller that builds a
+# provider per request should not have to know which substrate holds a connection pool.
+provider.close()

@@ -55,8 +55,14 @@ def statement_ids(scope):
     return [label for label, _, _ in all_statements(scope)]
 
 
-@pytest.mark.parametrize("label", statement_ids(FULL))
-def test_every_statement_filters_on_every_scope_slot(label):
+#: Statements that carry their scope **on each row** rather than in bound parameters. A write always
+#: has a fully-specified scope, so it matches `scope_key` exactly; a read's unset slot means "any",
+#: which an equality on the composite key could not express.
+WRITE_STATEMENTS = ("upsert_episodes", "upsert_facts[triple]", "upsert_facts[node]")
+
+
+@pytest.mark.parametrize("label", [name for name in statement_ids(FULL) if name not in WRITE_STATEMENTS])
+def test_every_read_statement_filters_on_every_scope_slot(label):
     """A backend that honours the tenant and ignores the user leaks inside the tenant.
 
     Not "contains tenant_id": the port requires **every** slot the call scope sets, and the slot
@@ -69,7 +75,38 @@ def test_every_statement_filters_on_every_scope_slot(label):
         assert params[slot] == getattr(FULL, slot), f"{label} binds the wrong value for {slot}"
 
 
-@pytest.mark.parametrize("label", statement_ids(TENANT_ONLY))
+@pytest.mark.parametrize("label", WRITE_STATEMENTS)
+def test_every_write_statement_merges_on_the_exact_scope(label):
+    """The write half of the same rule, checked against the mechanism writes actually use.
+
+    A write is keyed on ``scope_key``, which is injective over all five slots -- so this is a
+    *stricter* match than the read predicate, not a laxer one. What must never happen is a write
+    statement that names neither, which is what the coverage assertion below rules out.
+    """
+    text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+
+    assert "scope_key: row.scope_key" in text, f"{label} does not merge on the row's scope"
+
+
+def test_every_statement_is_scoped_by_one_mechanism_or_the_other():
+    """Nothing may be unscoped. Checked over the whole set so a new statement cannot slip through
+    by belonging to neither category above."""
+    for label, text, _ in all_statements(FULL):
+        scoped = ".tenant_id = $tenant_id" in text or "scope_key: row.scope_key" in text
+        assert scoped, f"{label} names no scope at all"
+
+
+def test_the_row_builder_supplies_the_scope_key_a_write_merges_on():
+    """The two halves of the write-side scoping: the statement reads ``row.scope_key``, and this is
+    what puts it there. Asserted together, because either alone is scoping that does not happen."""
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    row = substrate._row(FULL, "id-1", MemoryTier.EPISODIC, "content here")
+
+    assert row["scope_key"] == FULL.key()
+    assert Scope(tenant_id="acme").key() != FULL.key(), "the key must distinguish scopes"
+
+
+@pytest.mark.parametrize("label", [name for name in statement_ids(TENANT_ONLY) if name not in WRITE_STATEMENTS])
 def test_an_unset_slot_contributes_no_clause(label):
     """``None`` means "any". Filtering on it would narrow a tenant-wide read to nothing."""
     text, params = next((t, p) for name, t, p in all_statements(TENANT_ONLY) if name == label)
@@ -133,14 +170,34 @@ def test_the_schema_probe_covers_every_declared_property():
         assert f"{name}: " in cypher.SCHEMA_STATEMENTS[0], f"{name} is declared but not registered by the probe"
 
 
-def test_uniqueness_is_on_the_surrogate_key_not_the_logical_id():
-    """A constraint on ``id`` would reject the bounded copy invalidation exists to insert."""
+def test_the_live_identity_is_constrained_but_the_logical_id_alone_is_not():
+    """Both halves of the SCD-2 bargain, which pull in opposite directions.
+
+    A constraint on ``id`` alone would reject the bounded copy invalidation exists to insert, since
+    a successor shares its predecessor's id. A constraint on nothing leaves ``MERGE`` a check-then-act
+    race. The live identity is the key that permits history and forbids two current beliefs.
+    """
     constraints = [s for s in cypher.SCHEMA_STATEMENTS if "CONSTRAINT" in s]
 
     assert constraints, "the schema must constrain something, or this passes vacuously"
     for statement in constraints:
-        assert "row_id IS UNIQUE" in statement
-        assert "n.id IS UNIQUE" not in statement
+        assert ".id IS UNIQUE" not in statement, "a bare id constraint rejects every SCD-2 successor"
+
+    live_identity = [
+        s for s in constraints if f"id, n.{cypher.LIVE}) IS UNIQUE" in s or f"id, r.{cypher.LIVE}) IS UNIQUE" in s
+    ]
+    assert len(live_identity) == 3, f"every row shape needs the live-identity constraint, got {live_identity}"
+
+
+def test_the_merge_key_and_the_constraint_are_the_same_key():
+    """A constraint on a different key than ``MERGE`` uses protects nothing.
+
+    This is the whole mechanism: Neo4j documents ``MERGE`` as concurrency-safe only when a
+    uniqueness constraint backs the pattern it merges on.
+    """
+    for label in WRITE_STATEMENTS:
+        text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+        assert f"id: row.id, {cypher.LIVE}: true" in text, f"{label} does not merge on the live identity"
 
 
 def test_the_substrate_satisfies_the_port_without_connecting():

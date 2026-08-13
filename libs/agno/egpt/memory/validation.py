@@ -7,21 +7,24 @@ implementation is what stops that recurring; the cross-adapter conformance matri
 ``tests/unit/memory/test_provider_swap.py`` is what proves it did.
 """
 
-from typing import Sequence, Set
+from typing import Sequence, Set, Union
 
-from egpt.memory.types import MemoryEvent, MemoryOperationError, Scope
+from egpt.memory.types import MemoryEvent, MemoryRecord, MemoryOperationError, Scope
 
 __all__ = ["reject_duplicate_ids", "reject_foreign_scopes"]
 
 
-def reject_duplicate_ids(events: Sequence[MemoryEvent]) -> None:
-    """Refuse two events sharing one id in a single batch.
+def reject_duplicate_ids(events: Sequence[Union[MemoryEvent, MemoryRecord]]) -> None:
+    """Refuse two events or records sharing one id in a single batch.
 
     Backends upsert by id, so a duplicate destroys the first event's content -- and the receipt
     still reports both accepted. On the co-located path the two substrates additionally end up
     holding different content under one id, which then collides in fusion's dedup.
 
     Batch-scoped only. Idempotency *across* calls is ``upsert_episodes``'s by-id contract.
+
+    Takes records as well as events because consolidation writes distilled facts, which carry the
+    same hazard through a different type -- one guard rather than two that can drift.
     """
     seen: Set[str] = set()
     for event in events:
