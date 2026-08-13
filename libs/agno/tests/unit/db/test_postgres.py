@@ -193,7 +193,10 @@ def test_create_memory_table(postgres_db, mock_session):
     for index in table.indexes:
         for column in index.columns:
             indexed_columns.append(column.name)
-    assert set(indexed_columns) == {"user_id", "created_at", "updated_at"}
+    # tenant_id joins the set in v2.8.0 (SM-C3 #91): the column is indexed so the tenant-scoped
+    # read path aicoe-tracker#175 adds has an index to use, and so a freshly built table matches
+    # a migrated one.
+    assert set(indexed_columns) == {"user_id", "created_at", "updated_at", "tenant_id"}
 
 
 def test_create_eval_table(postgres_db, mock_session):

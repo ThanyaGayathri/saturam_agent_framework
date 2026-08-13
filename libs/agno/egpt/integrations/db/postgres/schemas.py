@@ -6,7 +6,7 @@ from egpt.db.table_names import DEFAULT_TABLE_PREFIX as TABLE_PREFIX
 
 try:
     from sqlalchemy.dialects.postgresql import JSONB
-    from sqlalchemy.types import BigInteger, Boolean, Date, Integer, String, Text
+    from sqlalchemy.types import BigInteger, Boolean, Date, Float, Integer, String, Text
 except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
 
@@ -31,6 +31,11 @@ SESSION_TABLE_SCHEMA = {
 MEMORY_TABLE_SCHEMA = {
     "memory_id": {"type": String, "primary_key": True, "nullable": False},
     "memory": {"type": JSONB, "nullable": False},
+    # The tenant this memory belongs to (SM-C3 #91). Nullable and un-backfilled: rows written
+    # before multi-tenancy mean "unscoped", which is what makes the migration reversible.
+    # Nothing filters on it yet -- MemoryManager still partitions by user_id alone, and the
+    # read/write path is aicoe-tracker#175.
+    "tenant_id": {"type": String, "nullable": True, "index": True},
     "feedback": {"type": Text, "nullable": True},
     "input": {"type": Text, "nullable": True},
     "agent_id": {"type": String, "nullable": True},
@@ -397,6 +402,156 @@ SERVICE_ACCOUNT_TABLE_SCHEMA = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Memory tiers (SM-C3 #91) -- SM-R12's record model, mirroring
+# ``benchmarks/memory_datamodel/ddl/schema.sql``. Column names match
+# ``egpt.db.schemas.memory`` field-for-field; a parity test asserts it per tier, and a second
+# asserts these agree column-for-column with the SQLite definitions.
+#
+# Two deliberate differences from that DDL, both because this is the portable db layer and not
+# pgvector: ``embedding`` is a JSONB array rather than ``vector(768)`` (SM-V1 #95 owns the typed
+# column, its HNSW index and the dimension parameterisation ADR 0003 section B.4 asks for), and
+# there is no LIST partitioning, so ``tenant_id`` leads the composite primary key and every
+# composite index instead of being a partition key. A bare tenant filter is served by the primary
+# key, which is why only non-PK lookups get their own index below.
+# ---------------------------------------------------------------------------
+
+_TENANT_SCOPED_COLUMNS: dict[str, Any] = {
+    "id": {"type": String, "nullable": False},
+    "tenant_id": {"type": String, "nullable": False},
+    "user_id": {"type": String, "nullable": True},
+    "agent_id": {"type": String, "nullable": True},
+    "team_id": {"type": String, "nullable": True},
+    "session_id": {"type": String, "nullable": True},
+    "created_at": {"type": BigInteger, "nullable": False},
+    "updated_at": {"type": BigInteger, "nullable": True},
+    "metadata": {"type": JSONB, "nullable": False, "default": dict},
+}
+
+# SM-R10's four timestamps. ``superseded_by`` is a single id here; the episodic tier widens it
+# to an array below, because an SM-R6 re-cut can merge or split one episode into several.
+_BI_TEMPORAL_COLUMNS: dict[str, Any] = {
+    "t_valid": {"type": BigInteger, "nullable": True},
+    "t_invalid": {"type": BigInteger, "nullable": True},
+    "expired_at": {"type": BigInteger, "nullable": True},
+    "superseded_by": {"type": String, "nullable": True},
+}
+
+_EMBEDDABLE_COLUMNS: dict[str, Any] = {
+    "embedding": {"type": JSONB, "nullable": True},
+    "embedding_dim": {"type": Integer, "nullable": True},
+    "embedding_version": {"type": String, "nullable": True},
+}
+
+# SM-R5's decay inputs. ``strength`` is absent by decision, not omission (ADR 0003 section 6).
+_DECAYING_COLUMNS: dict[str, Any] = {
+    "importance": {"type": Float, "nullable": False, "default": 0.5},
+    "last_accessed_at": {"type": BigInteger, "nullable": True},
+}
+
+_MEMORY_PRIMARY_KEY = ["tenant_id", "id"]
+
+MEMORY_EPISODIC_TABLE_SCHEMA = {
+    **_TENANT_SCOPED_COLUMNS,
+    **_BI_TEMPORAL_COLUMNS,
+    **_EMBEDDABLE_COLUMNS,
+    **_DECAYING_COLUMNS,
+    "content": {"type": Text, "nullable": False},
+    "occurred_at": {"type": BigInteger, "nullable": True},
+    "location": {"type": String, "nullable": True},
+    "cause": {"type": Text, "nullable": True},
+    "entity_ids": {"type": JSONB, "nullable": False, "default": list},
+    "graph_node_id": {"type": String, "nullable": True},
+    # SM-R6 episode identity / segmentation contract.
+    "revision": {"type": Integer, "nullable": False, "default": 0},
+    "supersedes": {"type": JSONB, "nullable": False, "default": list},
+    "superseded_by": {"type": JSONB, "nullable": False, "default": list},
+    "boundary_method": {"type": String, "nullable": True},
+    "boundary_trigger": {"type": Float, "nullable": True},
+    "boundary_confidence": {"type": Float, "nullable": True},
+    "refined": {"type": Boolean, "nullable": False, "default": False},
+    "segmenter_version": {"type": String, "nullable": True},
+    "__primary_key__": _MEMORY_PRIMARY_KEY,
+    "__composite_indexes__": [
+        {"name": "tenant_id_t_valid_t_invalid", "columns": ["tenant_id", "t_valid", "t_invalid"]},
+    ],
+}
+
+MEMORY_SEMANTIC_FACT_TABLE_SCHEMA = {
+    **_TENANT_SCOPED_COLUMNS,
+    **_BI_TEMPORAL_COLUMNS,
+    **_EMBEDDABLE_COLUMNS,
+    **_DECAYING_COLUMNS,
+    "content": {"type": Text, "nullable": False},
+    "subject": {"type": String, "nullable": True},
+    "predicate": {"type": String, "nullable": True},
+    "object": {"type": String, "nullable": True},
+    "confidence": {"type": Float, "nullable": False, "default": 1.0},
+    "source_episode_ids": {"type": JSONB, "nullable": False, "default": list},
+    "derived_by": {"type": String, "nullable": True},
+    "entity_ids": {"type": JSONB, "nullable": False, "default": list},
+    "__primary_key__": _MEMORY_PRIMARY_KEY,
+    "__composite_indexes__": [
+        {"name": "tenant_id_t_valid_t_invalid", "columns": ["tenant_id", "t_valid", "t_invalid"]},
+    ],
+}
+
+MEMORY_ENTITY_TABLE_SCHEMA = {
+    **_TENANT_SCOPED_COLUMNS,
+    **_EMBEDDABLE_COLUMNS,
+    "entity_type": {"type": String, "nullable": False},
+    "name": {"type": String, "nullable": True},
+    "description": {"type": Text, "nullable": True},
+    "properties": {"type": JSONB, "nullable": False, "default": dict},
+    "__primary_key__": _MEMORY_PRIMARY_KEY,
+}
+
+MEMORY_RELATION_TABLE_SCHEMA = {
+    **_TENANT_SCOPED_COLUMNS,
+    **_BI_TEMPORAL_COLUMNS,
+    "subject_entity_id": {"type": String, "nullable": False},
+    "predicate": {"type": String, "nullable": False},
+    "object_entity_id": {"type": String, "nullable": False},
+    "confidence": {"type": Float, "nullable": False, "default": 1.0},
+    "source_episode_ids": {"type": JSONB, "nullable": False, "default": list},
+    "derived_by": {"type": String, "nullable": True},
+    "__primary_key__": _MEMORY_PRIMARY_KEY,
+    # Both directions: traversal reads an edge from either endpoint.
+    "__composite_indexes__": [
+        {"name": "tenant_id_subject_entity_id", "columns": ["tenant_id", "subject_entity_id"]},
+        {"name": "tenant_id_object_entity_id", "columns": ["tenant_id", "object_entity_id"]},
+        {"name": "tenant_id_t_valid_t_invalid", "columns": ["tenant_id", "t_valid", "t_invalid"]},
+    ],
+}
+
+MEMORY_PROCEDURAL_TABLE_SCHEMA = {
+    **_TENANT_SCOPED_COLUMNS,
+    **_EMBEDDABLE_COLUMNS,
+    "kind": {"type": String, "nullable": False, "default": "rule"},
+    "title": {"type": String, "nullable": True},
+    "content": {"type": Text, "nullable": False},
+    "trigger": {"type": Text, "nullable": True},
+    "tags": {"type": JSONB, "nullable": False, "default": list},
+    "success_count": {"type": Integer, "nullable": True},
+    "__primary_key__": _MEMORY_PRIMARY_KEY,
+}
+
+MEMORY_LINK_TABLE_SCHEMA = {
+    **_TENANT_SCOPED_COLUMNS,
+    **_BI_TEMPORAL_COLUMNS,
+    "from_id": {"type": String, "nullable": False},
+    "from_tier": {"type": String, "nullable": False},
+    "to_id": {"type": String, "nullable": False},
+    "to_tier": {"type": String, "nullable": False},
+    "link_type": {"type": String, "nullable": False, "default": "relates_to"},
+    "__primary_key__": _MEMORY_PRIMARY_KEY,
+    "__composite_indexes__": [
+        {"name": "tenant_id_from_id", "columns": ["tenant_id", "from_id"]},
+        {"name": "tenant_id_to_id", "columns": ["tenant_id", "to_id"]},
+    ],
+}
+
+
 def get_table_schema_definition(
     table_type: str,
     traces_table_name: str = TABLE_PREFIX + "traces",
@@ -438,6 +593,12 @@ def get_table_schema_definition(
         "approvals": APPROVAL_TABLE_SCHEMA,
         "auth_tokens": AUTH_TOKEN_TABLE_SCHEMA,
         "service_accounts": SERVICE_ACCOUNT_TABLE_SCHEMA,
+        "memory_episodic": MEMORY_EPISODIC_TABLE_SCHEMA,
+        "memory_semantic_fact": MEMORY_SEMANTIC_FACT_TABLE_SCHEMA,
+        "memory_entity": MEMORY_ENTITY_TABLE_SCHEMA,
+        "memory_relation": MEMORY_RELATION_TABLE_SCHEMA,
+        "memory_procedural": MEMORY_PROCEDURAL_TABLE_SCHEMA,
+        "memory_link": MEMORY_LINK_TABLE_SCHEMA,
     }
 
     schema = schemas.get(table_type, {})

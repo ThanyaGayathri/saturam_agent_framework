@@ -42,6 +42,31 @@ TABLE_SUFFIXES: Dict[str, str] = {
     "service_accounts_table": "service_accounts",
 }
 
+# The SM-R12 memory tiers (SM-C3 #91), in the order a migration should create them.
+#
+# Deliberately NOT in TABLE_SUFFIXES: these names derive from ``table_prefix`` and are not
+# individually overridable, because nothing reads them yet -- per-table overrides exist to be
+# passed through ``clone_with_table_overrides`` by a consumer, and the read/write path arrives
+# with SM-V1 (#95) and SM-C2 (#90). Promoting them is a one-line move plus the six constructor
+# parameters each backend would then need. ``test_memory_table_names.py`` pins the split so it
+# stays a decision rather than an omission.
+#
+# Each entry is both the table type and its suffix; the attribute is ``{type}_table_name``.
+MEMORY_TIER_TABLE_TYPES = (
+    "memory_episodic",
+    "memory_semantic_fact",
+    "memory_entity",
+    "memory_relation",
+    "memory_procedural",
+    "memory_link",
+)
+
+
+def memory_tier_table_attr(table_type: str) -> str:
+    """Return the instance attribute holding a memory tier table's resolved name."""
+    return f"{table_type}_table_name"
+
+
 # Keep prefixes short enough that the longest derived identifier
 # (e.g. idx_{prefix}component_configs_{columns}) stays under the PostgreSQL
 # 63-byte identifier limit without silent truncation.
