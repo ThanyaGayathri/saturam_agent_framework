@@ -192,6 +192,7 @@ class TestImport:
                 {
                     "component_id": "broken-agent",
                     "component_type": "agent",
+                    "name": "Broken Agent",
                     "config": {"id": "broken-agent", "model": {"id": "x", "provider": "no-such-provider"}},
                     "links": [],
                 }
@@ -217,12 +218,14 @@ class TestImport:
                 {
                     "component_id": "good-agent",
                     "component_type": "agent",
+                    "name": "Good Agent",
                     "config": {**AGENT_CONFIG, "id": "good-agent"},
                     "links": [],
                 },
                 {
                     "component_id": "broken-agent",
                     "component_type": "agent",
+                    "name": "Broken Agent",
                     "config": {"id": "broken-agent", "model": {"id": "x", "provider": "no-such-provider"}},
                     "links": [],
                 },
@@ -248,6 +251,7 @@ class TestImport:
                 {
                     "component_id": "lonely-team",
                     "component_type": "team",
+                    "name": "Lonely Team",
                     "config": {
                         "id": "lonely-team",
                         "model": {"id": "gpt-5.5", "name": "OpenAIResponses", "provider": "OpenAI"},

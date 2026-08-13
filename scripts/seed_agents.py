@@ -127,13 +127,14 @@ def render(results: Sequence[Any]) -> List[str]:
 
 
 def summarize(results: Sequence[Any]) -> str:
-    counts = {"created": 0, "new_version": 0, "unchanged": 0, "metadata_updated": 0, "skipped": 0}
+    counts = {"created": 0, "new_version": 0, "published": 0, "unchanged": 0, "metadata_updated": 0, "skipped": 0}
     for result in results:
         counts[result.action] = counts.get(result.action, 0) + 1
     return (
         f"{len(results)} components: "
         f"{counts['created']} created, "
         f"{counts['new_version']} new version, "
+        f"{counts['published']} published, "
         f"{counts['unchanged']} unchanged, "
         f"{counts['metadata_updated']} metadata updated, "
         f"{counts['skipped']} skipped"
@@ -155,16 +156,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 2
 
     if args.as_json:
-        # The framework logs per-file progress at INFO, which is useful to a human and fatal to
-        # `seed_agents.py --json | jq`: it lands on the same stream as the payload. Quiet it so
-        # stdout carries the document and nothing else.
+        # The framework logs progress at INFO on stdout, which is useful to a human and fatal to
+        # `seed_agents.py --json | jq`: it lands on the same stream as the payload.
         #
-        # After the import, not before: importing egpt configures this logger, so an earlier
-        # setLevel is overwritten -- and would still pass a test whose process imported egpt
-        # beforehand, which is exactly how this was first written.
-        import logging
+        # Every logger, not just "egpt". The framework has three (`egpt`, `egpt-team`,
+        # `egpt-workflow`) and hydrating a team or a workflow -- which importing a bundle
+        # does -- writes to the siblings. Quieting one of them left the other two interleaving
+        # INFO lines into the JSON, and no subprocess test could catch it because a fresh
+        # interpreter has not switched the siblings on yet.
+        #
+        # After the import, not before: importing egpt configures these loggers, so an earlier
+        # call is overwritten.
+        from egpt.utils.log import set_log_level_to_warning
 
-        logging.getLogger("egpt").setLevel(logging.WARNING)
+        for source_type in (None, "team", "workflow"):
+            set_log_level_to_warning(source_type)
 
     try:
         db = build_db(args)

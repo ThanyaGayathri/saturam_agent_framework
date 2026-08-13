@@ -249,6 +249,7 @@ class TestARedactedConfigStillWorks:
                 {
                     "component_id": "orphan-agent",
                     "component_type": "agent",
+                    "name": "Orphan Agent",
                     "config": {
                         "id": "orphan-agent",
                         "model": {"id": "gpt-5.5", "name": "OpenAIResponses", "provider": "OpenAI"},

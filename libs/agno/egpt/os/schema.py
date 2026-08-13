@@ -964,7 +964,10 @@ class ComponentImportRequest(BaseModel):
 class ImportResultItem(BaseModel):
     component_id: str
     component_type: str
-    action: str = Field(..., description="created, new_version, unchanged, metadata_updated or skipped")
+    action: str = Field(
+        ...,
+        description="created, new_version, published, unchanged, metadata_updated or skipped",
+    )
     version: Optional[int] = None
     reason: Optional[str] = None
 
@@ -980,6 +983,7 @@ class ComponentImportResponse(BaseModel):
     results: List[ImportResultItem]
     created: int = 0
     versioned: int = 0
+    published: int = 0
     unchanged: int = 0
     skipped: int = 0
 

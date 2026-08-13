@@ -328,6 +328,7 @@ class TestIdRewriting:
                 {
                     "component_id": "wf",
                     "component_type": "workflow",
+                    "name": "WF",
                     "config": {
                         "id": "wf",
                         "steps": [
@@ -386,7 +387,7 @@ class TestBundleIntegrity:
             )
 
     def test_duplicate_ids_in_one_bundle_are_refused(self):
-        entry = {"component_id": "a", "component_type": "agent", "config": {}}
+        entry = {"component_id": "a", "component_type": "agent", "name": "A", "config": {}}
         with pytest.raises(ComponentIOError, match="appears twice"):
             parse_document({"format": EXPORT_FORMAT, "format_version": 1, "components": [entry, dict(entry)]})
 
@@ -476,6 +477,7 @@ class TestDryRun:
                 {
                     "component_id": "broken",
                     "component_type": "agent",
+                    "name": "Broken",
                     "config": {"id": "broken", "model": {"id": "x", "provider": "no-such-provider"}},
                     "links": [],
                 }

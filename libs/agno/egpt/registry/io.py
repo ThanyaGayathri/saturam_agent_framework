@@ -39,6 +39,7 @@ from typing import Any, Dict, List, Mapping, Optional, Protocol, Sequence, Set, 
 
 from egpt.db.base import ComponentType
 from egpt.registry.schema import COMPONENT_TYPES, SCHEMA_VERSION, migrate, stamp_schema_version
+from egpt.utils.log import log_error, log_warning
 
 __all__ = [
     "EXPORT_FORMAT",
@@ -82,19 +83,39 @@ _DB_CONNECTION_KEYS = frozenset(
     {"db_url", "db_file", "connection_string", "uri", "host", "port", "user", "username", "password"}
 )
 
-#: Separator-anchored so `max_tokens` is not mistaken for a credential while `auth_token` is.
-#: A plain substring match here would redact half the agent settings in the corpus.
+#: Separator-anchored, and plural-tolerant: `api_keys` is the natural shape for a dict of
+#: per-provider credentials, and requiring a separator after the singular let every plural
+#: through. What stops `max_tokens` from matching is not the pattern but the value-type gate in
+#: ``_redact_tree`` -- a credential is never an int, so numbers are never redacted whatever
+#: their key is called. That split is deliberate: trying to express "not max_tokens" in the
+#: regex is how the plurals got excluded in the first place.
 _SECRET_KEY_RE = re.compile(
     r"(^|[_\-.])"
-    r"(api[_-]?key|secret|password|passwd|token|credential|private[_-]?key|access[_-]?key|authorization)"
+    r"(api[_-]?keys?|secrets?|passwords?|passwds?|tokens?|credentials?"
+    r"|private[_-]?keys?|access[_-]?keys?|authorization)"
     r"([_\-.]|$)",
     re.IGNORECASE,
 )
 
+#: Values that can carry a credential. A number or a boolean cannot, so `max_tokens: 4096` and
+#: `num_history_runs: 3` survive regardless of what the key is called; a dict or list *can*
+#: (``api_keys: {"openai": "sk-..."}``) and is redacted whole, because its inner keys are
+#: provider names that no key pattern would catch.
+_REDACTABLE_TYPES = (str, dict, list)
+
 #: A URL carrying userinfo -- `postgresql+psycopg://ai:hunter2@host/ai` -- wherever it is parked.
 #: The structural rules above cover the `db` block; this catches the same string under a key we
 #: do not know about, which is the plausible shape of the next leak (an MCP or toolkit config).
-_DSN_WITH_USERINFO_RE = re.compile(r"^[a-z][a-z0-9+.\-]*://[^/\s@]*:[^@/\s]+@", re.IGNORECASE)
+#:
+#: Searched rather than anchored: a DSN pasted mid-sentence into a description or a note is the
+#: same secret as one that is the whole value, and free-text fields are exactly where that
+#: happens.
+_DSN_WITH_USERINFO_RE = re.compile(r"[a-z][a-z0-9+.\-]*://[^/\s@]*:[^@/\s]+@", re.IGNORECASE)
+
+#: Envelope fields that travel beside the config and can carry the same secrets. ``description``
+#: and ``notes`` are free text an operator writes, which is precisely where a connection string
+#: gets pasted while debugging.
+_SCANNED_PAYLOAD_FIELDS = ("name", "description", "metadata", "notes", "label")
 
 _CONFLICT_POLICIES = ("error", "skip", "new_version")
 _DELETED_POLICIES = ("error", "skip")
@@ -106,7 +127,17 @@ class ComponentIOError(ValueError):
 
     Subclasses ``ValueError`` so the components router's existing ``except ValueError`` arm
     turns it into a 400 even before anything is taught to recognise it specifically.
+
+    ``results`` carries the components already written when the failure happened. It is empty
+    for everything raised before the write phase -- which is almost everything -- and non-empty
+    only when a write partway through the bundle failed. There is no cross-component
+    transaction in ``BaseDb`` to roll that back, so the honest alternative to reporting it is
+    leaving the caller to discover it, which is worse.
     """
+
+    def __init__(self, *args: Any, results: Optional[Sequence["ImportResult"]] = None) -> None:
+        super().__init__(*args)
+        self.results: List["ImportResult"] = list(results or [])
 
 
 class ComponentIdConflictError(ComponentIOError):
@@ -250,7 +281,7 @@ def _redact_tree(value: Any, path: str, redacted: List[str]) -> Any:
         out: Dict[str, Any] = {}
         for key, item in value.items():
             child_path = f"{path}.{key}" if path else str(key)
-            if isinstance(key, str) and item is not None and _SECRET_KEY_RE.search(key):
+            if isinstance(key, str) and isinstance(item, _REDACTABLE_TYPES) and _SECRET_KEY_RE.search(key):
                 redacted.append(child_path)
                 out[key] = REDACTED
                 continue
@@ -258,10 +289,62 @@ def _redact_tree(value: Any, path: str, redacted: List[str]) -> Any:
         return out
     if isinstance(value, list):
         return [_redact_tree(item, f"{path}[{index}]", redacted) for index, item in enumerate(value)]
-    if isinstance(value, str) and _DSN_WITH_USERINFO_RE.match(value):
+    if isinstance(value, str) and _DSN_WITH_USERINFO_RE.search(value):
         redacted.append(path)
         return REDACTED
     return value
+
+
+def redact_payload_fields(payload: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    """Scan the envelope fields that travel beside the config.
+
+    Separate from ``redact_config`` because the two need different treatment, and conflating
+    them is a regression waiting to happen: ``redact_config`` *drops* the ``db`` block's
+    connection keys, and running it over a whole payload would instead leave a ``__redacted__``
+    sentinel there -- the exact failure the note on ``REDACTED`` exists to prevent. These
+    fields have no structural rules, only the generic scan.
+    """
+    redacted: List[str] = []
+    result = dict(payload)
+    for key in _SCANNED_PAYLOAD_FIELDS:
+        if key in result:
+            result[key] = _redact_tree(result[key], key, redacted)
+    return result, redacted
+
+
+def strip_redacted(value: Any, path: str = "", stripped: Optional[List[str]] = None) -> Tuple[Any, List[str]]:
+    """Remove ``__redacted__`` sentinels, returning the value and the paths that held one.
+
+    Import calls this so a redacted bundle does not land as a component that *looks* configured
+    and fails on first use with a credential of the literal string ``__redacted__``. Dropping
+    the key is the same doctrine the ``db`` block already follows: an absent ``api_key`` falls
+    through to the provider SDK's environment lookup, which is usually the right answer in the
+    target, where a sentinel is never the right answer anywhere.
+
+    It also stops the sentinel compounding -- re-exporting an imported bundle would otherwise
+    re-detect ``__redacted__`` as a fresh secret and grow the manifest on every hop.
+    """
+    collected: List[str] = [] if stripped is None else stripped
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        for key, item in value.items():
+            child_path = f"{path}.{key}" if path else str(key)
+            if item == REDACTED:
+                collected.append(child_path)
+                continue
+            out[key], _ = strip_redacted(item, child_path, collected)
+        return out, collected
+    if isinstance(value, list):
+        items = []
+        for index, item in enumerate(value):
+            child_path = f"{path}[{index}]"
+            if item == REDACTED:
+                collected.append(child_path)
+                continue
+            cleaned, _ = strip_redacted(item, child_path, collected)
+            items.append(cleaned)
+        return items, collected
+    return value, collected
 
 
 # ---------------------------------------------------------------------------------------------
@@ -347,6 +430,14 @@ def _check_entry_shape(entry: Any, index: int, seen: Set[str]) -> None:
 
     if not isinstance(entry.get("config"), dict):
         raise ComponentIOError(f"{where}.config must be an object.")
+
+    # Required, though the Postgres column is nullable: SQLite's is not, so an entry without a
+    # name reaches a NOT NULL constraint and comes back as an IntegrityError -- which is not a
+    # ValueError, so it escapes the router's 400 arm and surfaces as a 500 for what is simply a
+    # malformed caller document. Export always emits one.
+    name = entry.get("name")
+    if not isinstance(name, str) or not name:
+        raise ComponentIOError(f"{where}.name must be a non-empty string.")
 
     stage = entry.get("stage", "draft")
     if stage not in _STAGES:
@@ -572,12 +663,19 @@ def export_component(
     payloads: List[Dict[str, Any]] = []
     redacted_paths: List[str] = []
     for index, entry in enumerate(entries):
-        config = entry.config
-        if not include_secrets:
-            config, paths = redact_config(config)
-            redacted_paths.extend(f"components[{index}].config.{path}" for path in paths)
         payload = entry.to_payload()
-        payload["config"] = config
+        if not include_secrets:
+            # Both halves, because a bundle entry is nine fields and only one of them is the
+            # config. `description` and `notes` are free text and `metadata` is an open dict --
+            # scanning only the config left five fields carrying whatever an operator put in
+            # them while `redacted` reported an empty list, which is worse than reporting
+            # nothing: it certifies the file as clean.
+            config, config_paths = redact_config(entry.config)
+            payload["config"] = config
+            redacted_paths.extend(f"components[{index}].config.{path}" for path in config_paths)
+
+            payload, field_paths = redact_payload_fields(payload)
+            redacted_paths.extend(f"components[{index}].{path}" for path in field_paths)
         payloads.append(payload)
 
     document: Dict[str, Any] = {
@@ -677,6 +775,8 @@ class _Plan:
     action: str
     stage: str
     reason: Optional[str] = None
+    #: The existing version this plan acts on, for actions that touch one in place ("published").
+    version: Optional[int] = None
 
 
 def import_document(
@@ -701,13 +801,18 @@ def import_document(
 
     Runs in two phases, and the split is the point: **everything is resolved, validated and
     conflict-probed before anything is written.** A bundle that fails validation on its third
-    component leaves nothing behind, rather than two orphans and an error. Only the
-    soft-deleted case (see ``ComponentSoftDeletedError``) can surface during the write, because
-    no read API can see such a row.
+    component leaves nothing behind, rather than two orphans and an error.
 
-    Writes are still per-component transactions -- there is no cross-component transaction in
-    ``BaseDb`` -- so a database-level fault mid-write can leave a partial bundle. The
-    per-component results are returned so that state is legible rather than silent.
+    Phase two then writes children before parents, whatever order the document lists them in,
+    so a link can never point at a component this run has not created yet.
+
+    What phase one cannot cover: a soft-deleted id (no read API can see one, see
+    ``ComponentSoftDeletedError``) and a database-level fault. Writes are per-component
+    transactions -- ``BaseDb`` has no cross-component transaction -- so either can leave a
+    partial bundle. When that happens the components already written are attached to the raised
+    ``ComponentIOError`` as ``.results`` and logged, because the alternative to reporting a
+    partial write is not preventing it, it is hiding it. Re-running with
+    ``on_conflict="new_version"`` converges.
 
     Args:
         db: A sync ``BaseDb`` with component support.
@@ -764,25 +869,82 @@ def import_document(
     ]
     _check_links_resolvable(db, entries, bundle_members, tenant_id)
 
+    # Children before parents, regardless of the order the document happens to list them in. A
+    # parent-first bundle passes every phase-one check -- its child *is* present -- and then
+    # dies mid-write on a link to a component that has not been created yet, leaving whatever
+    # was written before it. Sorting here removes that failure rather than reporting it.
+    plans = _topologically_order(plans)
+
     if dry_run:
         return [ImportResult(p.entry.component_id, p.entry.component_type, p.action, None, p.reason) for p in plans]
 
     results: List[ImportResult] = []
     versions: Dict[str, int] = {}
     for plan in plans:
-        result = _apply_plan(
-            db,
-            plan,
-            versions,
-            tenant_id=tenant_id,
-            actor=actor,
-            audit_note=audit_note,
-            on_deleted=on_deleted,
-        )
+        try:
+            result = _apply_plan(
+                db,
+                plan,
+                versions,
+                tenant_id=tenant_id,
+                actor=actor,
+                audit_note=audit_note,
+                on_deleted=on_deleted,
+            )
+        except Exception as exc:
+            # Writes are one transaction per component, so anything already applied stays.
+            # Attach it and say so rather than letting the caller discover it later.
+            if results:
+                log_error(
+                    f"Import failed partway through: {len(results)} component(s) were already written "
+                    f"({', '.join(r.component_id for r in results)}). Re-run with "
+                    f"on_conflict='new_version' to converge."
+                )
+            if isinstance(exc, ComponentIOError):
+                exc.results = results
+            raise
         if result.version is not None:
             versions[result.component_id] = result.version
         results.append(result)
     return results
+
+
+def _topologically_order(plans: List[_Plan]) -> List[_Plan]:
+    """Order plans so every component is written after the components it links to.
+
+    Depth-first post-order over the intra-bundle links, walked in document order so the result
+    is deterministic -- a bundle that is already children-first comes back unchanged, which is
+    what export produces and what the shipped templates carry.
+
+    A link to a component outside the bundle is not an edge: it already exists in the target (or
+    ``_check_links_resolvable`` has already refused the import), so it constrains nothing here.
+    """
+    by_id = {plan.entry.component_id: plan for plan in plans}
+    ordered: List[_Plan] = []
+    done: Set[str] = set()
+    visiting: Set[str] = set()
+
+    def visit(plan: _Plan, trail: List[str]) -> None:
+        component_id = plan.entry.component_id
+        if component_id in done:
+            return
+        if component_id in visiting:
+            raise ComponentIOError(
+                "This bundle's components reference each other in a cycle, so there is no order "
+                f"in which they can be written: {' -> '.join([*trail, component_id])}."
+            )
+        visiting.add(component_id)
+        for link in plan.entry.links:
+            child = by_id.get(link["child_component_id"])
+            if child is not None:
+                visit(child, [*trail, component_id])
+        visiting.discard(component_id)
+        done.add(component_id)
+        ordered.append(plan)
+
+    for plan in plans:
+        visit(plan, [])
+    return ordered
 
 
 def _build_id_map(
@@ -809,8 +971,26 @@ def _build_id_map(
     return {old: new for old, new in effective.items() if old != new}
 
 
-def _prepare_config(config: Mapping[str, Any], *, db_id: Optional[str], drop_db: bool) -> Dict[str, Any]:
+def _prepare_config(
+    config: Mapping[str, Any],
+    *,
+    db_id: Optional[str],
+    drop_db: bool,
+    component_id: str = "",
+) -> Dict[str, Any]:
     result = copy.deepcopy(dict(config))
+
+    # Sentinels first, so a redacted bundle does not import a component whose api_key is the
+    # literal string "__redacted__" -- configured-looking and broken on first call. Dropping
+    # the key lets the provider SDK fall back to its environment lookup, which is what the
+    # target usually wants.
+    result, stripped = strip_redacted(result)
+    if stripped:
+        log_warning(
+            f"Importing '{component_id}': dropped {len(stripped)} redacted field(s) "
+            f"({', '.join(stripped)}). Supply them in the target if the component needs them."
+        )
+
     if drop_db:
         result.pop("db", None)
         return result
@@ -832,7 +1012,7 @@ def _plan_entry(
     drop_db: bool,
     stage_override: Optional[str],
 ) -> _Plan:
-    config = _prepare_config(entry.config, db_id=db_id, drop_db=drop_db)
+    config = _prepare_config(entry.config, db_id=db_id, drop_db=drop_db, component_id=entry.component_id)
     config = migrate(config, entry.component_type)
     if validate is not None:
         config = validate(config, entry.component_type, component_id=entry.component_id, links=entry.links)
@@ -864,6 +1044,13 @@ def _plan_entry(
 
     if not configs_equal(current.get("config") or {}, config, entry.component_type):
         return _Plan(entry, config, "new_version", target_stage)
+
+    # Same config, different stage. Seeding a draft and then re-seeding with stage="published"
+    # used to report "unchanged" and exit 0 while `current_version` stayed NULL -- a success
+    # signal on a component nothing will serve. Publishing the version already there is both
+    # what the operator asked for and cheaper than writing a duplicate one.
+    if target_stage == "published" and current.get("stage") != "published":
+        return _Plan(entry, config, "published", target_stage, version=current["version"])
 
     if (owned.get("name"), owned.get("description"), owned.get("metadata")) != (
         entry.name,
@@ -951,6 +1138,20 @@ def _apply_plan(
             "unchanged",
             current["version"] if current else None,
         )
+
+    if plan.action == "published":
+        # Publishing the version that is already there, rather than writing an identical one.
+        # `upsert_config` moves `current_version` inside the same transaction, which is what
+        # makes the component servable -- the thing the operator actually asked for.
+        db.upsert_config(
+            component_id=entry.component_id,
+            version=plan.version,
+            stage="published",
+            tenant_id=tenant_id,
+            actor=actor,
+            audit_note=note,
+        )
+        return ImportResult(entry.component_id, entry.component_type, "published", plan.version)
 
     links = _resolve_links(db, entry, versions, tenant_id)
 

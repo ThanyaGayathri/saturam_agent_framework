@@ -173,4 +173,8 @@ component as `unchanged`, which is the right behaviour but hides what the exampl
 `check_cookbook_pattern.py` reports 6 violations across this folder, all pre-existing in
 `capability_policy.py`, `tenant_budget.py` and `workflows/` -- none in this file.
 
+**Re-run after the PR #66 review fixes:** unchanged output. The export now also redacts the
+envelope fields (`name`, `description`, `metadata`, `notes`), but this example puts no secrets
+in them, so the `redacted` list still names exactly the three `db_url` values.
+
 ---

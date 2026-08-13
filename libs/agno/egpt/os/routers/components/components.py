@@ -808,6 +808,7 @@ def attach_routes(
                 results=[ImportResultItem(**vars(result)) for result in results],
                 created=actions.count("created"),
                 versioned=actions.count("new_version"),
+                published=actions.count("published"),
                 unchanged=actions.count("unchanged") + actions.count("metadata_updated"),
                 skipped=actions.count("skipped"),
             )
