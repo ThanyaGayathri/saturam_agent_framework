@@ -208,4 +208,24 @@ never installed and the deployment runs open -- the script prints a reminder. Th
 was not driven through a browser; the assertions above are on the API it calls, plus the
 `node`-level checks of the page's own logic.
 
+**Re-run against Postgres in Docker** (`agnohq/pgvector:18` on 5532, per
+`./cookbook/scripts/run_pgvector.sh`), because the unit and E2E suites are SQLite-only and the
+Postgres component methods are a separate implementation. The same 26 assertions -- console page,
+unauthenticated refusal, dry run reject/accept, create, publish, hydrate, run, publish v2,
+rollback, re-hydrate, the immutability and undeletable-current negatives, four cross-tenant
+checks, and the audit trail -- all passed on the real backend.
+
+Verified at the SQL level afterwards: `components` carried one row with `tenant_id = acme` and
+`current_version = 1` after the rollback; `component_configs` held both versions as `published`
+with the tenant stamped; and `component_audit` held the six-row narrative
+`component.create, config.create, config.publish, config.create, config.publish, config.rollback`,
+each attributed to `sa:admin-cxacme` -- so publish and rollback are derived from what the
+transaction did, not from what the caller asked for, on Postgres as well as SQLite.
+
+Use a **short** `table_prefix` when isolating a run this way: the component FK names are long
+(`<prefix>component_links_parent_component_id_parent_version_fkey`) and a prefix of more than a
+few characters trips Postgres's 63-character identifier limit, which surfaces first as an
+`IdentifierError` and then, on the retry, as a confusing "table is already defined for this
+MetaData instance".
+
 ---
