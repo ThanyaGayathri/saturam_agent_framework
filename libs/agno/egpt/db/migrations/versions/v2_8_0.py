@@ -21,6 +21,16 @@ neither the column nor the tier tables, so on those backends the column does not
 rather than existing on fresh installs with no upgrade path. Their memory schemas are
 deliberately unchanged; #175 must either extend them or refuse them.
 
+.. warning::
+   Deploy order matters, and the blast radius is larger than v2.7.0's. ``_get_or_create_table``
+   validates a live table against the schema definition and **raises** when a declared column is
+   missing, so a deployment that ships this code before running ``MigrationManager(db).up()``
+   fails every read and write against an existing ``memories`` table -- which is every
+   ``MemoryManager`` call, not one auth path. Only upgrades are affected; a fresh install builds
+   the column. Nothing migrates on startup: the only call sites are the explicit
+   ``/databases/all/migrate`` endpoints. Run the migration first, or in the same maintenance
+   step.
+
 Every decision about *what* SQL to run lives in the ``_plan_*`` functions below, which are pure
 and shared by the sync and async halves. Only the I/O differs between the two, so they cannot
 diverge on a decision -- the failure mode where one half persists different state than the

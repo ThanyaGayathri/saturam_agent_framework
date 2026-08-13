@@ -33,9 +33,7 @@ from egpt.db.schemas.memory import (
 )
 from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, memory_tier_table_attr
 
-pytest.importorskip("sqlalchemy", reason="the db layer needs sqlalchemy")
-
-from egpt.integrations.db.sqlite.sqlite import SqliteDb  # noqa: E402
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 
 PREVIOUS_VERSION = "2.7.0"
 TENANT = "acme"
@@ -408,6 +406,34 @@ class TestMemoriesTenantColumn:
         with db.Session() as sess:
             assert sess.execute(text(f"SELECT memory_id FROM {name}")).fetchone()[0] == "m1"
 
+    def test_the_unmigrated_table_hard_fails_until_the_migration_runs(self, tmp_path):
+        """Pins the deploy-order trap the module docstring warns about.
+
+        Shipping this code against an existing memories table without running the migration is
+        not a degraded read -- ``_get_or_create_table`` validates the live table against the
+        schema definition and raises, so every ``MemoryManager`` call dies. Only an upgrade hits
+        it; a fresh install builds the column. If a future change makes the validator tolerant,
+        this test fails and the warning should come out with it.
+        """
+        path = str(tmp_path / "pre_2_8.db")
+        make_pre_2_8_memories_table(SqliteDb(db_file=path))
+
+        deployed_without_migrating = SqliteDb(db_file=path)
+
+        with pytest.raises(ValueError, match="invalid schema"):
+            deployed_without_migrating._get_table(table_type="memories", create_table_if_not_found=True)
+
+    def test_running_the_migration_first_clears_the_failure(self, tmp_path):
+        """The other half: the documented remedy actually works, so the warning is actionable
+        rather than just alarming."""
+        path = str(tmp_path / "pre_2_8.db")
+        make_pre_2_8_memories_table(SqliteDb(db_file=path))
+
+        migrating = SqliteDb(db_file=path)
+        migrate_up(migrating)
+
+        assert SqliteDb(db_file=path)._get_table(table_type="memories", create_table_if_not_found=True) is not None
+
     def test_a_freshly_built_table_already_matches_the_migrated_one(self, db):
         """The builder and the migration must agree, or a fresh install and an upgraded one
         drift apart on the same version."""
@@ -482,6 +508,27 @@ class TestSyncAsyncParity:
 
         assert async_notnull == sync_notnull
 
+    @pytest.mark.parametrize("table_type", MEMORY_TIER_TABLE_TYPES)
+    async def test_a_partial_insert_behaves_the_same_on_both_halves(self, db, async_db, table_type):
+        """Column *defaults*, not just column presence.
+
+        Nullability parity passes even when one builder drops ``default=``: the column is NOT
+        NULL on both, and only an insert that omits it tells them apart. Every tier carries at
+        least ``metadata`` as NOT NULL with a default, so a writer that omits it -- which
+        aicoe-tracker#175's write path may well do -- would work sync and raise async.
+        """
+        await MigrationManager(db).up()
+        await MigrationManager(async_db).up()
+        minimal = _minimal_row(table_type)
+
+        sync_table = db._get_table(table_type=table_type, create_table_if_not_found=False)
+        with db.Session() as sess, sess.begin():
+            sess.execute(sync_table.insert().values(**minimal))
+
+        async_table = await async_db._get_table(table_type=table_type, create_table_if_not_found=False)
+        async with async_db.async_session_factory() as sess, sess.begin():
+            await sess.execute(async_table.insert().values(**minimal))
+
     async def test_the_async_half_also_survives_down_then_up(self, async_db):
         """The async twin of the MetaData cleanup. Asserted separately because "an async half
         exists" is not the same as "it makes the same decisions": the drop and the forget are
@@ -510,6 +557,30 @@ class TestSyncAsyncParity:
 async def _fetch(async_db, sql):
     async with async_db.async_session_factory() as sess:
         return (await sess.execute(text(sql))).fetchall()
+
+
+def _minimal_row(table_type):
+    """The smallest legal insert: every NOT NULL column that has no default, and nothing else.
+
+    Derived from the schema definition rather than hand-listed, so a new NOT NULL column joins
+    the fixture automatically instead of quietly widening what "partial" means.
+    """
+    from sqlalchemy.types import BigInteger, Integer
+
+    from egpt.integrations.db.sqlite.schemas import get_table_schema_definition
+
+    schema = get_table_schema_definition(table_type)
+    required = {
+        name: config
+        for name, config in schema.items()
+        if not name.startswith("__") and config.get("nullable") is False and "default" not in config
+    }
+    values = {}
+    for name, config in required.items():
+        values[name] = 1_700_000_000 if config["type"] in (BigInteger, Integer) else f"v-{name}"
+    values["from_tier"] = values.get("from_tier") and "episodic"
+    values["to_tier"] = values.get("to_tier") and "semantic"
+    return {name: value for name, value in values.items() if value is not None}
 
 
 def _table_info(database, table_name):

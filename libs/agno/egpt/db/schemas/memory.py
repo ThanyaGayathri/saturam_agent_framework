@@ -209,6 +209,8 @@ class EpisodicRecord(TenantScoped, BiTemporal, Embeddable, Decaying):
     graph_node_id: Optional[str] = None
     revision: int = 0
     supersedes: List[str] = field(default_factory=list)
+    # Widened from BiTemporal's single id -- see the class docstring. The ignore is the
+    # variance mypy flags on the override, not a defect.
     superseded_by: List[str] = field(default_factory=list)  # type: ignore[assignment]
     boundary_method: Optional[str] = None
     boundary_trigger: Optional[float] = None

@@ -377,8 +377,18 @@ SERVICE_ACCOUNT_TABLE_SCHEMA = {
 # pgvector: ``embedding`` is a JSON array rather than ``vector(768)`` (SM-V1 #95 owns the typed
 # column, its index and the dimension parameterisation), and there is no LIST partitioning, so
 # ``tenant_id`` leads the composite primary key and every composite index instead of being a
-# partition key. A bare tenant filter is served by the primary key, which is why only non-PK
-# lookups get their own index below.
+# partition key.
+#
+# Index policy, because the per-tier asymmetry is a decision rather than an oversight: these
+# mirror the indexes SM-R12's DDL declares, minus the HNSW ones that need pgvector. A bare tenant
+# filter is already served by the primary key, so a tier gets its own index only where that DDL
+# has a *non-PK* lookup -- traversal by endpoint, and point-in-time on the tiers SM-R10 filters.
+# ``memory_link`` is bi-temporal but deliberately has no temporal index: SM-R12 indexes it by
+# endpoint only, links being resolved from a known row rather than scanned by validity.
+# ``memory_entity`` and ``memory_procedural`` get none beyond the PK for the same reason --
+# ``entity_type``, ``name`` and ``kind`` are plausible filters, but no read path uses them yet and
+# an index nothing queries is write cost on every insert. Read-path indexes belong with the reader
+# (SM-V1 #95 / aicoe-tracker#175), which is also what knows the selectivity.
 # ---------------------------------------------------------------------------
 
 _TENANT_SCOPED_COLUMNS: dict[str, Any] = {

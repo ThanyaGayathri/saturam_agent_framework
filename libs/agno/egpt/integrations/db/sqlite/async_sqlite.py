@@ -279,6 +279,11 @@ class AsyncSqliteDb(AsyncBaseDb):
                     column_kwargs["primary_key"] = True
                 if "nullable" in col_config:
                     column_kwargs["nullable"] = col_config["nullable"]
+                # Mirrors the sync builder. Without it a NOT NULL column with a default is
+                # built NOT NULL with no default, so a partial insert that succeeds against a
+                # sync-built table raises IntegrityError against an async-built one.
+                if "default" in col_config:
+                    column_kwargs["default"] = col_config["default"]
                 if col_config.get("index", False):
                     indexes.append(col_name)
                 if col_config.get("unique", False):
