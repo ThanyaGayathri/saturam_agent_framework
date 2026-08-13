@@ -29,9 +29,10 @@ TENANT_ONLY = Scope(tenant_id="acme")
 def all_statements(scope):
     """Every statement the module can emit, as ``(label, cypher, params)``.
 
-    Enumerated from the module's own functions rather than listed by hand: a new statement added
-    without a row here would otherwise be untested by construction, which is the hole these guards
-    exist to close.
+    A **maintained** list, not automatic discovery -- and
+    :func:`test_the_statement_list_covers_every_producer` is what keeps the two honest, because a
+    statement missing from here is untested by construction, which is the hole these guards exist
+    to close.
     """
     emitted = [
         ("upsert_episodes", *cypher.upsert_episodes_statement(scope)),
@@ -49,6 +50,29 @@ def all_statements(scope):
         ],
     ]
     return emitted
+
+
+def test_the_statement_list_covers_every_producer():
+    """Fails when a new statement-producing function is added to `cypher.py` without a row above.
+
+    The docstring used to claim the list was derived from the module; it never was. Rather than
+    soften the claim, this makes it true: every exported name ending in ``_statement``/``_statements``
+    has to appear in :func:`all_statements`, so the coverage is enforced instead of asserted.
+    """
+    producers = {name for name in cypher.__all__ if name.endswith(("_statement", "_statements"))}
+    covered = {
+        "traverse_statements",
+        "bounds_statements",
+        "live_row_statements",
+        "expire_statements",
+        "insert_bounded_copy_statements",
+        "upsert_episodes_statement",
+        "upsert_facts_statements",
+        "episode_probe_statement",
+    }
+
+    assert producers <= covered, f"cypher.py exports statement producers no guard enumerates: {producers - covered}"
+    assert covered <= producers, f"the guard names producers cypher.py no longer exports: {covered - producers}"
 
 
 def statement_ids(scope):
