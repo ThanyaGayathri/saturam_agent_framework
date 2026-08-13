@@ -33,6 +33,7 @@ import pytest
 from sqlalchemy import text
 
 from egpt.db.base import ComponentType
+from egpt.db.component_scope import TenantScopeRequiredError
 
 TENANT_A = "tenant-a"
 TENANT_B = "tenant-b"
@@ -380,6 +381,89 @@ def test_tenant_a_can_still_operate_after_the_sweep(seeded):
 # ============================================================================
 # NULL-TENANT ROWS ARE THEIR OWN SCOPE
 # ============================================================================
+
+
+class TestNonHttpWritersInheritTheDbGuarantee:
+    """What ``Agent.save()`` and friends do about tenancy, pinned rather than asserted in prose.
+
+    These entry points keep ``tenant_id=None`` as their default. That is a deliberate,
+    documented limit, not an oversight: ``Agent.save()`` is the framework's most-used public
+    API, and requiring a tenant would force every single-tenant deployment to write
+    ``save(tenant_id=None)`` -- ceremony with no isolation gain, since they have one tenant.
+
+    The consequence is real and is recorded here as executable fact rather than a claim in a
+    docstring: on a **non-strict** db an unscoped save overwrites a foreign tenant's row, and
+    on a **strict** db it is refused. ``require_tenant_id`` is the control; the default is not.
+    If anyone later decides that trade is wrong, these two tests are what changes.
+    """
+
+    def _acme_row(self, db):
+        return db.get_component("shared-id", tenant_id="acme")
+
+    def _seed_acme(self, db):
+        db.create_component_with_config(
+            component_id="shared-id",
+            component_type=ComponentType.AGENT,
+            name="acme's agent",
+            config={"owner": "acme"},
+            stage="published",
+            tenant_id="acme",
+        )
+
+    def test_unscoped_save_overwrites_a_foreign_row_on_a_non_strict_db(self, sqlite_db):
+        """The exposure, stated as a test so it cannot be quietly forgotten.
+
+        Note the row keeps ``tenant_id='acme'``: the victim's own correctly-scoped read serves
+        the foreign config, so there is nothing for them to detect.
+        """
+        from egpt.agent.agent import Agent
+
+        self._seed_acme(sqlite_db)
+        assert sqlite_db.require_tenant_id is False
+
+        Agent(id="shared-id", name="OTHER WRITER", db=sqlite_db).save()
+
+        row = self._acme_row(sqlite_db)
+        assert row["name"] == "OTHER WRITER"
+        assert row["tenant_id"] == "acme"
+
+    def test_strict_mode_refuses_the_unscoped_save(self, sqlite_db):
+        """...and this is why ``require_tenant_id`` is the control rather than the default."""
+        from egpt.agent.agent import Agent
+        from egpt.integrations.db.sqlite.sqlite import SqliteDb
+
+        self._seed_acme(sqlite_db)
+        strict = SqliteDb(db_file=sqlite_db.db_file, require_tenant_id=True)
+
+        with pytest.raises(TenantScopeRequiredError):
+            Agent(id="shared-id", name="OTHER WRITER", db=strict).save()
+
+        assert self._acme_row(sqlite_db)["name"] == "acme's agent"
+
+    def test_a_scoped_save_cannot_reach_a_foreign_row(self, sqlite_db):
+        """Naming a tenant is sufficient even without strict mode."""
+        from egpt.agent.agent import Agent
+
+        self._seed_acme(sqlite_db)
+        try:
+            Agent(id="shared-id", name="OTHER WRITER", db=sqlite_db).save(tenant_id=TENANT_B)
+        except Exception:
+            pass  # an IntegrityError on the shared primary key is an acceptable outcome
+        assert self._acme_row(sqlite_db)["name"] == "acme's agent"
+
+    def test_strict_mode_survives_the_rehydration_clone(self, sqlite_db):
+        """The compounding failure: a clone that dropped the flag removed the mitigation.
+
+        ``EgptOS`` enables strict mode by mutating the registered instance, while
+        ``resolve_db_from_config`` *clones* on the component rehydration path -- so a clone that
+        dropped ``require_tenant_id`` would leave the guard missing exactly where components get
+        written, for an operator who had correctly opted in.
+        """
+        from egpt.integrations.db.sqlite.sqlite import SqliteDb
+
+        strict = SqliteDb(db_file=sqlite_db.db_file, require_tenant_id=True)
+        assert strict.clone_with_table_overrides(session_table="other").require_tenant_id is True
+        assert SqliteDb.from_dict(strict.to_dict()).require_tenant_id is True
 
 
 class TestNullTenantRows:

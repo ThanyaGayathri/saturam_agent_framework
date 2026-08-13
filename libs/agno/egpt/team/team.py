@@ -1590,6 +1590,18 @@ class Team:
         notes: Optional[str] = None,
         tenant_id: Optional[str] = None,
     ) -> Optional[int]:
+        """Persist this team as a DB-defined component.
+
+        ``tenant_id`` names the tenant that owns the written rows. **It defaults to ``None``,
+        which writes unscoped** -- correct for a single-tenant deployment, and what this method
+        did before the parameter existed, but on a multi-tenant database an unscoped write
+        updates a row belonging to any tenant that happens to share this id, leaving that
+        tenant's ``tenant_id`` in place so their own scoped read then serves this config.
+
+        A db built with ``require_tenant_id`` (which ``EgptOS`` sets whenever a tenant claim is
+        configured) refuses the unscoped call outright. That flag, not this default, is the
+        control -- see ``docs/tenancy.md`` section 6.
+        """
         return _storage.save(self, db=db, stage=stage, label=label, notes=notes, tenant_id=tenant_id)
 
     @classmethod
@@ -1612,6 +1624,13 @@ class Team:
         hard_delete: bool = False,
         tenant_id: Optional[str] = None,
     ) -> bool:
+        """Delete this team's component rows.
+
+        ``tenant_id`` scopes the delete. **It defaults to ``None``, which is unscoped** and will
+        therefore delete a matching row belonging to another tenant. As with ``save``, the
+        control is ``require_tenant_id`` on the db rather than this default -- see
+        ``docs/tenancy.md`` section 6.
+        """
         return _storage.delete(self, db=db, hard_delete=hard_delete, tenant_id=tenant_id)
 
     # -*- Public convenience functions

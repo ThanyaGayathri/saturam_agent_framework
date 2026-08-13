@@ -1063,6 +1063,13 @@ class Workflow:
                 must land in the same tenant, or a tenanted workflow would end up linked to
                 unscoped steps that any other tenant can also reach.
 
+                **Defaults to ``None``, which writes unscoped** -- correct for a single-tenant
+                deployment, but on a multi-tenant database an unscoped write updates a row
+                belonging to any tenant sharing this id, leaving their ``tenant_id`` in place so
+                their own scoped read then serves this config. A db built with
+                ``require_tenant_id`` refuses it; that flag, not this default, is the control.
+                See ``docs/tenancy.md`` section 6.
+
         Returns:
             Optional[int]: The version number of the saved config.
         """
@@ -1234,6 +1241,8 @@ class Workflow:
             hard_delete: Whether to hard delete the workflow.
             tenant_id: Tenant to scope the delete to (EGPT-2.7). A foreign tenant's workflow is
                 not deleted and ``False`` is returned, exactly as for one that does not exist.
+                **Defaults to ``None``, which is unscoped** and will therefore delete a matching
+                row belonging to another tenant; ``require_tenant_id`` on the db is the control.
 
         Returns:
             True if the workflow was deleted, False otherwise.
