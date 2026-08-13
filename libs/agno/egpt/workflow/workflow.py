@@ -1048,6 +1048,7 @@ class Workflow:
         stage: str = "published",
         label: Optional[str] = None,
         notes: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[int]:
         """
         Save the workflow component and config.
@@ -1057,6 +1058,17 @@ class Workflow:
             stage: The stage of the component. Defaults to "published".
             label: The label of the component.
             notes: The notes of the component.
+            tenant_id: Tenant to own the written rows (EGPT-2.7). Threaded into every step
+                agent's and team's own ``save`` as well: a workflow and the components it links
+                must land in the same tenant, or a tenanted workflow would end up linked to
+                unscoped steps that any other tenant can also reach.
+
+                **Defaults to ``None``, which writes unscoped** -- correct for a single-tenant
+                deployment, but on a multi-tenant database an unscoped write updates a row
+                belonging to any tenant sharing this id, leaving their ``tenant_id`` in place so
+                their own scoped read then serves this config. A db built with
+                ``require_tenant_id`` refuses it; that flag, not this default, is the control.
+                See ``docs/tenancy.md`` section 6.
 
         Returns:
             Optional[int]: The version number of the saved config.
@@ -1090,13 +1102,14 @@ class Workflow:
                         stage=stage,
                         label=label,
                         notes=notes,
+                        tenant_id=tenant_id,
                     )
                     if step.agent.id is not None and agent_version is not None:
                         saved_versions[step.agent.id] = agent_version
 
                 # Save team if present
                 if step.team and isinstance(step.team, Team):
-                    team_version = step.team.save(db=db_, stage=stage, label=label, notes=notes)
+                    team_version = step.team.save(db=db_, stage=stage, label=label, notes=notes, tenant_id=tenant_id)
                     if step.team.id is not None and team_version is not None:
                         saved_versions[step.team.id] = team_version
 
@@ -1127,6 +1140,7 @@ class Workflow:
                 name=self.name,
                 description=self.description,
                 metadata=self.metadata,
+                tenant_id=tenant_id,
             )
             config = db_.upsert_config(
                 component_id=self.id,
@@ -1135,6 +1149,7 @@ class Workflow:
                 label=label,
                 stage=stage,
                 notes=notes,
+                tenant_id=tenant_id,
             )
 
             return config.get("version")
@@ -1216,6 +1231,7 @@ class Workflow:
         *,
         db: Optional["BaseDb"] = None,
         hard_delete: bool = False,
+        tenant_id: Optional[str] = None,
     ) -> bool:
         """
         Delete the workflow component.
@@ -1223,6 +1239,10 @@ class Workflow:
         Args:
             db: The database to delete the workflow from.
             hard_delete: Whether to hard delete the workflow.
+            tenant_id: Tenant to scope the delete to (EGPT-2.7). A foreign tenant's workflow is
+                not deleted and ``False`` is returned, exactly as for one that does not exist.
+                **Defaults to ``None``, which is unscoped** and will therefore delete a matching
+                row belonging to another tenant; ``require_tenant_id`` on the db is the control.
 
         Returns:
             True if the workflow was deleted, False otherwise.
@@ -1235,7 +1255,7 @@ class Workflow:
         if self.id is None:
             raise ValueError("Cannot delete workflow without an id")
 
-        return db_.delete_component(component_id=self.id, hard_delete=hard_delete)
+        return db_.delete_component(component_id=self.id, hard_delete=hard_delete, tenant_id=tenant_id)
 
     async def aget_run_output(
         self, run_id: str, session_id: Optional[str] = None, user_id: Optional[str] = None

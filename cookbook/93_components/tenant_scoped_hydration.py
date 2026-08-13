@@ -70,7 +70,9 @@ def seed_tenant_agents() -> None:
 # Run Tenant-Scoped Hydration Example
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    if db.get_component(ACME_AGENT_ID) is None:
+    # Every component read names its tenant (EGPT-2.7). The parameter is required, so a
+    # forgotten scope is a TypeError rather than a silent read across every tenant.
+    if db.get_component(ACME_AGENT_ID, tenant_id="acme") is None:
         seed_tenant_agents()
 
     # A tenant hydrates its own component.

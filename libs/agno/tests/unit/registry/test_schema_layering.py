@@ -33,7 +33,7 @@ _FORBIDDEN_PREFIXES = (
 )
 
 
-@pytest.mark.parametrize("module_name", ["schema.py", "policy.py"])
+@pytest.mark.parametrize("module_name", ["schema.py", "policy.py", "io.py"])
 def test_the_validator_names_no_orchestration_module(module_name):
     """Both halves of the validator are core and must stay there.
 
@@ -41,6 +41,12 @@ def test_the_validator_names_no_orchestration_module(module_name):
     in `egpt.integrations.tools.*`, and it does that by comparing module paths as *strings*. The
     table it compares against reads exactly like an import list, so this guard is what keeps
     someone from "tidying it up" into real imports.
+
+    `io.py` (EGPT-2.8) is here for the same reason and closes the same gap the same way: an
+    imported definition must clear the EGPT-2.2 bar, and that validator needs `Agent` -- so it
+    arrives as an injected `ConfigValidator` rather than an import. The temptation there is a
+    convenience `from egpt.components.io import import_component` re-export, which would drag
+    orchestration into core through the back door.
     """
     path = package_root() / "egpt" / "registry" / module_name
     assert path.is_file(), f"validator not found: {path}"

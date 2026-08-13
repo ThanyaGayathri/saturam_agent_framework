@@ -335,12 +335,20 @@ and `INTERNAL_SERVICE_SCOPES` grants it no `components:*` scope in any case.
 - The write-validation dry run threads the tenant into member/step hydration, so validation
   is no longer an existence oracle for foreign component ids.
 
-### Deferred to EGPT-2.7
+### Delivered by EGPT-2.7
 
-- Tenant scoping of every router other than components.
+- Row-level scoping enforcement in the data layer: every component DB method requires a
+  `tenant_id` and fails closed without one. See [tenancy.md](tenancy.md) section 6.
+
+### Deferred beyond EGPT-2.7
+
+- Tenant scoping of session, memory and run data — those tables have no `tenant_id` column, so it
+  is a schema change with a migration rather than an enforcement change.
 - Tenant-aware RBAC scopes and cross-tenant read enforcement on run/session data.
 - Any tenants table, tenant CRUD, or a policy stored in the database.
-- Backfill tooling for rows carrying a NULL `tenant_id`.
+- Backfill *tooling* for rows carrying a NULL `tenant_id`. There is no tenants table to backfill
+  against, so which tenant inherits pre-tenancy rows is a question only the operator can answer;
+  [tenancy.md](tenancy.md) section 6 carries the SQL instead.
 
 ---
 

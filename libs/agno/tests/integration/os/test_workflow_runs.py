@@ -383,11 +383,13 @@ def versioned_workflow_client(temp_storage_db_file):
         name="Workflow Alpha",
         config={"name": "Workflow Alpha", "id": "versioned-wf", "description": "First version"},
         stage="published",
+        tenant_id=None,
     )
     db.upsert_config(
         component_id="versioned-wf",
         config={"name": "Workflow Beta", "id": "versioned-wf", "description": "Second version"},
         stage="published",
+        tenant_id=None,
     )
 
     agent_os = EgptOS(db=db)
@@ -444,11 +446,13 @@ def versioned_workflow_app(temp_storage_db_file):
         name="Workflow Alpha",
         config={"name": "Workflow Alpha", "id": "versioned-wf", "description": "First version"},
         stage="published",
+        tenant_id=None,
     )
     db.upsert_config(
         component_id="versioned-wf",
         config={"name": "Workflow Beta", "id": "versioned-wf", "description": "Second version"},
         stage="published",
+        tenant_id=None,
     )
 
     agent_os = EgptOS(db=db)

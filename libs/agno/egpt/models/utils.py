@@ -184,7 +184,86 @@ def get_model_from_dict(model_data: Dict[str, Any]) -> Optional[Model]:
     return model
 
 
-def resolve_model(model_data: Any, registry: Optional["Registry"] = None) -> Any:
+def proxy_is_missing_its_endpoint(model: Any) -> bool:
+    """Whether ``model`` is a proxy that would silently reach **public OpenAI** without an endpoint.
+
+    True means the rebuilt client sends this tenant's prompts to ``https://api.openai.com/v1``
+    under whatever ``OPENAI_API_KEY`` the process holds, with no error to notice.
+
+    The class survives a ``to_dict``/``get_model_from_dict`` round trip; the endpoint does not.
+    ``Model.to_dict`` persists only ``{id, name, provider}`` deliberately -- it also feeds
+    ``agent/_telemetry.py``, so widening it would ship internal hostnames off-box, and
+    ``test_to_dict_does_not_carry_base_url_so_mode_a_must_reconfigure_it`` guards that.
+
+    **Only bare ``OpenAILike`` qualifies, and narrowing to it is the point.** An earlier version
+    fired on anything with ``is_openai_compatible_proxy`` and no construction-time endpoint, which
+    is every subclass -- ``VLLM``, ``AzureOpenAI``, ``Cloudflare``, ``LangDB`` -- because they
+    inherit the flag. Those four resolve their endpoint *lazily* inside their own
+    ``_get_client_params`` from environment or derived config, so the attributes this function can
+    see are ``None`` on a perfectly-configured private deployment. Measured, with the standard
+    Azure environment set::
+
+        get_model_from_dict({"id": ..., "name": "AzureOpenAI", "provider": "Azure"})
+            construction-time base_url / azure_endpoint : None / None
+            client actually connects to                 : https://priv.openai.azure.com/openai/
+
+    Refusing that restore broke every AgentOS request touching a stored Azure/vLLM/LangDB/
+    Cloudflare agent -- for deployments that had no public egress at all.
+
+    And with *nothing* configured, those four do not leak either; they raise
+    ``ModelAuthenticationError`` naming the variable to set (``VLLM_API_KEY``,
+    ``CLOUDFLARE_API_TOKEN``, ...). Loud and safe. Bare ``OpenAILike`` is the one that overrides no
+    client params, inherits the OpenAI SDK default, and clears its ``"not-provided"`` api_key so
+    the process key applies -- silent and unsafe. That asymmetry is the whole justification for
+    this guard, so the test for it is "does this class resolve its own endpoint", not "does it
+    have one right now".
+
+    ``azure_endpoint`` counts alongside ``base_url`` for the same reason it always did: a caller
+    who set either knows where to connect.
+    """
+    if not getattr(model, "is_openai_compatible_proxy", False):
+        return False
+    if getattr(model, "base_url", None) or getattr(model, "azure_endpoint", None):
+        return False
+    # A subclass that overrides `_get_client_params` resolves its own endpoint (and raises its own
+    # error when it cannot). Only the class that inherits the OpenAI SDK default silently lands on
+    # public OpenAI, so only that class is refused. Checked on the type rather than the instance:
+    # this asks what the class *will* do at client-build time, which no attribute can answer.
+    # Walk the MRO up to (but not including) OpenAILike: a subclass that defines its own
+    # `_get_client_params` resolves its own endpoint. OpenAILike's own definition -- if any -- does
+    # not count, because inheriting *that* is exactly the leaking case.
+    for klass in type(model).__mro__:
+        if klass.__name__ == "OpenAILike":
+            break
+        if "_get_client_params" in klass.__dict__:
+            return False
+    return True
+
+
+def _refuse_endpointless_proxy(model: Any, described_as: str) -> None:
+    """Raise if ``model`` would silently reach public OpenAI. Shared by both restore branches.
+
+    One helper rather than a check per branch, because the string spelling
+    (``"openai-like:qwen"``) and the dict spelling of the same model must answer the same way --
+    they did not, and the string form restored pointing at ``https://api.openai.com/v1`` while the
+    dict form was refused. See :func:`proxy_is_missing_its_endpoint` for why only bare
+    ``OpenAILike`` qualifies.
+    """
+    if not proxy_is_missing_its_endpoint(model):
+        return
+    # "Model" first, so `registry/schema.py::_hydration_error_path` attributes this to the `model`
+    # field rather than to the config as a whole, should a caller opt in from a validation context.
+    raise ValueError(
+        f"Model {described_as!r} cannot be restored: it is a bare OpenAI-schema proxy and the "
+        "serialized form carries no endpoint, so the rebuilt client would connect to "
+        "https://api.openai.com/v1 under this process's OPENAI_API_KEY rather than the server it "
+        "was saved against. Model.to_dict stores only id/name/provider because it also feeds "
+        "telemetry. Supply base_url when rebuilding, register the live model instance, or pass "
+        "require_endpoint=False if an unconfigured proxy is genuinely intended."
+    )
+
+
+def resolve_model(model_data: Any, registry: Optional["Registry"] = None, *, require_endpoint: bool = True) -> Any:
     """Reconstruct a model from its serialized config, preferring a registered live instance.
 
     Rebuilding from a serialized dict only round-trips ``id``/``name``/``provider`` (see
@@ -194,6 +273,26 @@ def resolve_model(model_data: Any, registry: Optional["Registry"] = None) -> Any
     string). Values that are neither a model dict nor a string are returned unchanged.
 
     Shared by Agent and Team reconstruction so both resolve models identically.
+
+    With ``require_endpoint=True``, raises ``ValueError`` when the rebuilt model would silently
+    reach public OpenAI -- see :func:`proxy_is_missing_its_endpoint`, which is the single place
+    this rationale lives. Applied identically to the dict and string spellings.
+
+    **Defaults on; the write-side validator opts out.** ``resolve_model`` is not only the
+    restore-to-run path: ``registry/schema.py::_dry_run`` reaches it through ``spec.hydrate`` ->
+    ``from_dict`` to prove a config hydrates, which is the components-API *write-side* validator.
+    Refusing there would make ``OpenAILike`` uncreatable rather than merely unrestorable, and
+    unreachable-by-design at that -- ``Model.to_dict``'s ``{id, name, provider}`` triple *is* the
+    config schema, so there is no endpoint a caller could add to satisfy the check.
+
+    The polarity matters and is the whole point: defaulting *off* would leave every real
+    restore path silently unprotected, which is the bug rather than a fix. So the guard is on
+    by default and exactly one caller -- ``component_spec()``'s validator lambda, which is
+    proving shape rather than preparing to run -- turns it off.
+
+    The check is not in ``get_model_from_dict`` for a related reason: that function is the
+    general-purpose reconstructor and must keep rebuilding *any* provider's class from its
+    identity triple, which ``test_to_dict_round_trip_preserves_class`` requires for every key.
     """
     if isinstance(model_data, dict) and "id" in model_data:
         if registry is not None:
@@ -204,7 +303,17 @@ def resolve_model(model_data: Any, registry: Optional["Registry"] = None) -> Any
             )
             if registered_model is not None:
                 return registered_model
-        return get_model_from_dict(model_data)
+        model = get_model_from_dict(model_data)
+        if require_endpoint and model is not None:
+            _refuse_endpointless_proxy(model, model_data["id"])
+        return model
     elif isinstance(model_data, str):
-        return get_model(model_data)
+        # Guarded identically to the dict branch above. `validate_config` accepts both spellings,
+        # and leaving this one unchecked meant `"openai-like:qwen"` restored against public OpenAI
+        # while the dict spelling of the same model was refused -- the leak this guard exists to
+        # close, still open through its sibling.
+        model = get_model(model_data)
+        if require_endpoint and model is not None:
+            _refuse_endpointless_proxy(model, model_data)
+        return model
     return model_data

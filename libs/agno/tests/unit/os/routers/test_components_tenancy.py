@@ -77,7 +77,7 @@ def mock_db():
     db = type("MockDb", (BaseDb,), abstract)()
     db.id = "test-db"
 
-    def get_component(component_id, component_type=None, tenant_id=None):
+    def get_component(component_id, component_type=None, *, tenant_id):
         if component_id != "agent-1":
             return None
         # None means unscoped, which sees every row -- the real backends' semantics.

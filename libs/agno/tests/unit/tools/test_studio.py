@@ -270,7 +270,7 @@ class TestCreateAgent:
         assert out["tools"] == ["calculator"]
         assert out["db_version"] == 1
 
-        component = db.get_component("news-scout")
+        component = db.get_component("news-scout", tenant_id=None)
         assert component is not None
         assert component["component_type"] == "agent"
 
@@ -297,9 +297,9 @@ class TestCreateAgent:
         assert first["id"] == "my-agent"
         assert second["id"] == "my-agent-2"
         assert third["id"] == "my-agent-3"
-        assert db.get_component("my-agent")["name"] == "My Agent"
-        assert db.get_component("my-agent-2")["name"] == "my-agent"
-        assert db.get_component("my-agent-3")["name"] == "My--Agent"
+        assert db.get_component("my-agent", tenant_id=None)["name"] == "My Agent"
+        assert db.get_component("my-agent-2", tenant_id=None)["name"] == "my-agent"
+        assert db.get_component("my-agent-3", tenant_id=None)["name"] == "My--Agent"
 
     def test_component_ids_share_global_namespace(self, studio):
         studio.create_agent(name="member", instructions="i", model_id="gpt-5.4")
@@ -323,7 +323,7 @@ class TestCreateAgent:
     async def test_async_create_agent_persists_component(self, studio, db):
         out = _loads(await studio.acreate_agent(name="async-agent", instructions="i", model_id="gpt-5.4"))
         assert out["status"] == "created"
-        assert db.get_component("async-agent") is not None
+        assert db.get_component("async-agent", tenant_id=None) is not None
 
 
 class TestToolNameResolution:
@@ -445,7 +445,7 @@ class TestMCPToolkitPersistence:
 
         assert "error" in out
         assert "agno_docs" in out["error"]
-        assert db.get_component("docs-agent") is None
+        assert db.get_component("docs-agent", tenant_id=None) is None
 
     def test_edit_agent_refuses_unconnected_toolkit(self, db):
         toolkit = Toolkit(name="agno_docs")
@@ -465,7 +465,7 @@ class TestMCPToolkitPersistence:
         out = _loads(studio.create_agent(name="docs-agent", instructions="i", tool_names=["agno_docs"]))
         assert out["status"] == "created"
 
-        config = db.get_config("docs-agent")["config"]
+        config = db.get_config("docs-agent", tenant_id=None)["config"]
         persisted_tools = config.get("tools")
         assert persisted_tools, "connected toolkit functions must be persisted"
         assert [t["name"] for t in persisted_tools] == ["search_docs"]
@@ -490,7 +490,7 @@ class TestMCPToolkitPersistence:
         # The EgptOS lifespan connects the toolkit
         func = self._connect(fresh_toolkit)
 
-        config = db.get_config("docs-agent")["config"]
+        config = db.get_config("docs-agent", tenant_id=None)["config"]
         agent = Agent.from_dict(config, registry=fresh_registry)
 
         assert agent.tools, "rehydrated agent must keep its MCP tools"
@@ -517,7 +517,7 @@ class TestCreateTeam:
         )
         assert out["status"] == "created"
         assert out["member_ids"] == ["a1", "a2"]
-        assert db.get_component("squad")["component_type"] == "team"
+        assert db.get_component("squad", tenant_id=None)["component_type"] == "team"
 
     def test_missing_member_returns_error(self, studio):
         self._make_members(studio)
@@ -556,7 +556,7 @@ class TestCreateWorkflow:
         )
         assert out["status"] == "created"
         assert out["steps"] == ["s1", "s2"]
-        assert db.get_component("pipeline")["component_type"] == "workflow"
+        assert db.get_component("pipeline", tenant_id=None)["component_type"] == "workflow"
 
     def test_empty_step_specs_returns_error(self, studio):
         out = _loads(studio.create_workflow(name="x", description="d", step_specs=[]))
@@ -639,10 +639,10 @@ class TestEditWithoutVersioning:
         assert out["stage"] == "published"
         assert out["version"] == 2
 
-        configs = db.list_configs("tutor")
+        configs = db.list_configs("tutor", tenant_id=None)
         assert [c["stage"] for c in configs] == ["published", "published"]
 
-        current = db.get_config("tutor")
+        current = db.get_config("tutor", tenant_id=None)
         assert current["version"] == 2
 
     def test_second_edit_creates_new_published_version(self, studio, db):
@@ -650,7 +650,7 @@ class TestEditWithoutVersioning:
         studio.edit_agent(agent_id="tutor", instructions="edit1")
         out = _loads(studio.edit_agent(agent_id="tutor", instructions="edit2"))
         assert out["version"] == 3
-        assert db.get_config("tutor")["version"] == 3
+        assert db.get_config("tutor", tenant_id=None)["version"] == 3
 
 
 class TestEditTeam:
@@ -739,10 +739,10 @@ class TestVersioning:
     def test_draft_metadata_not_visible_until_publish(self, studio_versioned, db):
         studio_versioned.create_agent(name="tutor", instructions="i", model_id="gpt-5.4", description="original")
         studio_versioned.edit_agent(agent_id="tutor", description="draft-only")
-        assert db.get_component("tutor")["description"] == "original"
+        assert db.get_component("tutor", tenant_id=None)["description"] == "original"
 
         studio_versioned.publish_component("tutor")
-        assert db.get_component("tutor")["description"] == "draft-only"
+        assert db.get_component("tutor", tenant_id=None)["description"] == "draft-only"
 
     def test_publish_promotes_draft_to_current(self, studio_versioned):
         self._create_and_edit(studio_versioned)
@@ -808,7 +808,7 @@ class TestDelete:
         studio.create_agent(name="temp", instructions="i", model_id="gpt-5.4")
         out = _loads(studio.delete_agent("temp"))
         assert out["status"] == "deleted"
-        assert db.get_component("temp") is None
+        assert db.get_component("temp", tenant_id=None) is None
 
     def test_delete_unknown_agent_returns_error(self, studio):
         out = _loads(studio.delete_agent("ghost"))
@@ -829,7 +829,7 @@ class TestDelete:
 
         out = _loads(tool.delete_agent("temp"))
         assert out["status"] == "deleted"
-        assert db.get_component("temp") is None
+        assert db.get_component("temp", tenant_id=None) is None
 
 
 # ----------------------------------------------------------------------
@@ -1063,11 +1063,11 @@ class TestNoCascadePersistence:
         )
 
         # Team row exists
-        assert db.get_component("mixed-team") is not None
+        assert db.get_component("mixed-team", tenant_id=None) is not None
         # Studio-created agent row exists
-        assert db.get_component("studio-agent") is not None
+        assert db.get_component("studio-agent", tenant_id=None) is not None
         # Code-defined agent MUST NOT be in DB
-        assert db.get_component("greeter-code") is None
+        assert db.get_component("greeter-code", tenant_id=None) is None
 
     def test_create_workflow_does_not_persist_code_defined_agent(self, registry, db):
         greeter = Agent(id="greeter-code", name="Greeter", model=OpenAIResponses(id="gpt-5.4"))
@@ -1078,8 +1078,8 @@ class TestNoCascadePersistence:
             description="d",
             step_specs=[{"name": "s1", "agent_id": "greeter-code"}],
         )
-        assert db.get_component("wf") is not None
-        assert db.get_component("greeter-code") is None
+        assert db.get_component("wf", tenant_id=None) is not None
+        assert db.get_component("greeter-code", tenant_id=None) is None
 
 
 # ----------------------------------------------------------------------
@@ -1112,4 +1112,4 @@ class TestLifecycle:
 
         # Delete
         _loads(studio_versioned.delete_agent("lc"))
-        assert db.get_component("lc") is None
+        assert db.get_component("lc", tenant_id=None) is None
