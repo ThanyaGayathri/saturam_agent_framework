@@ -5,6 +5,7 @@ bridge does *not* do: it does not mutate the seed, it does not invent an episodi
 does not claim substrates it has no access to.
 """
 
+import asyncio
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -1117,3 +1118,71 @@ def test_a_bound_store_may_ignore_slots_the_bridge_hands_it():
     assert store.ignored == ["user_id"], "the scope sets user_id; this store has no such parameter"
     assert "bob" in records[0].content, "the known gap: bob's row reaches a read scoped to alice"
     assert records[0].scope.user_id == "alice", "...and it is stamped with the requesting scope"
+
+
+class SuspendingStore:
+    """A store that records `was_updated`, then suspends before returning.
+
+    Any real store doing IO after its own bookkeeping has this shape, and it is the shape that
+    opens the window: `awrite_tier` reads the flag with no `await` between it and `aprocess`, so
+    the only way another task can interleave is if `aprocess` itself yields after setting it.
+    """
+
+    learning_type = "user_profile"
+    schema = dict
+
+    def __init__(self) -> None:
+        self.was_updated = False
+        self.gate = asyncio.Event()
+
+    def recall(self, **kwargs):
+        return None
+
+    async def arecall(self, **kwargs):
+        return None
+
+    def process(self, messages, **kwargs):
+        self.was_updated = True
+
+    async def aprocess(self, messages, **kwargs):
+        changed = "changes" in messages[0]["content"]
+        self.was_updated = changed  # bookkeeping...
+        if changed:
+            await self.gate.wait()  # ...then IO, during which the other writer runs
+        else:
+            self.gate.set()
+
+    def build_context(self, data):
+        return data or ""
+
+    def get_tools(self, **kwargs):
+        return []
+
+    async def aget_tools(self, **kwargs):
+        return []
+
+
+async def test_concurrent_store_writes_corrupt_the_accepted_count():
+    """A **known race**, pinned so it is verifiable rather than only described in a comment.
+
+    `was_updated` is shared mutable state on a store bound once at construction, so two concurrent
+    `awrite_tier` calls read each other's flag. The writer whose events *did* land reports
+    `accepted=0` and an empty `tiers_written`.
+
+    Bounded honestly: `event_ids` and idempotency are unaffected, because
+    `LearningStore.process` mints no ids either way -- so this is a wrong count, not lost data.
+    Giving each writer its own view of the flag means the bridge owning per-call store state, which
+    is the tier-to-store binding **SM-C2 (#90)** owns. This test turns green when that lands, and
+    that is the signal to delete it.
+    """
+    store = SuspendingStore()
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: store}, config=seed_config())
+
+    landed, no_op = await asyncio.gather(
+        bridge.awrite_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="this changes things", scope=ACME)]),
+        bridge.awrite_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="no-op", scope=ACME)]),
+    )
+
+    assert no_op.accepted == 0, "the genuine no-op is reported correctly"
+    assert landed.accepted == 0, "KNOWN RACE (SM-C2 #90): this writer's events landed; it should be 1"
+    assert landed.tiers_written == [], "...and its tier is missing from the receipt for the same reason"

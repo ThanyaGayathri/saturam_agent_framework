@@ -16,6 +16,7 @@ They are deliberately faithful on the two behaviours the provider depends on:
 
 import asyncio
 from dataclasses import replace
+from uuid import uuid4
 from typing import Dict, List, Optional, Sequence
 
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
@@ -206,7 +207,11 @@ class FakeGraph:
         """Upsert by id, as the port requires. Appending let a repeat write look idempotent."""
         self.calls.append("upsert_episode")
         row = MemoryRecord(
-            id=event.id or "",
+            # Never `event.id or ""`: `types.py` rejects an empty id precisely because it is the
+            # dedup key, and this file is copied as reference by anyone building a double. The
+            # provider always stamps one, so this branch is unreachable in production -- which is
+            # exactly why it has to be right here rather than relied on there.
+            id=event.id or str(uuid4()),
             tier=event.tier,
             content=event.content,
             scope=scope,

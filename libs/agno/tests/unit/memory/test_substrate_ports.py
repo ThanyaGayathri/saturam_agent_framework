@@ -30,13 +30,12 @@ class CompleteVector:
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> List[MemoryRecord]: ...
 
-    def scan(
-        self, scope: Scope, tier: MemoryTier, since: Optional[int] = None, limit: Optional[int] = None
-    ) -> List[MemoryRecord]: ...
+    # Signature mirrors the real port exactly. `runtime_checkable` checks method *presence*, so a
+    # stale parameter here passes the conformance test while misleading anyone who copies this as
+    # reference -- and `since` was removed from `scan` when the consolidation cursor went to SM-L1.
+    def scan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]: ...
 
-    async def ascan(
-        self, scope: Scope, tier: MemoryTier, since: Optional[int] = None, limit: Optional[int] = None
-    ) -> List[MemoryRecord]: ...
+    async def ascan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]: ...
 
 
 class CompleteGraph:
