@@ -39,6 +39,35 @@ jobs:
           --health-timeout 5s
           --health-retries 20
 
+      # The DB-defined agent registry (EGPT-2.10) is mandatory and high-risk, and until now
+      # every suite that proves it against a real Postgres was skipped here: the gate is
+      # EGPT_INTEGRATION_POSTGRES, which nothing set. Six directories -- db/postgres,
+      # db/async_postgres, and os/{tenancy,hydration,audit,seeding}_postgres -- reported green
+      # by never running. Same failure mode as aicoe-tracker#154, one backend over.
+      #
+      # The port mapping is load-bearing, not a preference: the engine URL in
+      # libs/agno/tests/integration/conftest.py is hardcoded to localhost:5532, as are
+      # cookbook/scripts/run_pgvector.sh and the async_postgres conftest. The image matches
+      # run_pgvector.sh so CI and a local run exercise the same server.
+      #
+      # The healthcheck matters more than usual here. With EGPT_INTEGRATION_POSTGRES set, the
+      # `postgres_engine` fixture probes with SELECT 1 during setup and *errors* rather than
+      # skips when nothing is listening -- so a slow start would surface as a wall of failures
+      # rather than as a wait.
+      postgres:
+        image: agnohq/pgvector:18
+        env:
+          POSTGRES_DB: ai
+          POSTGRES_USER: ai
+          POSTGRES_PASSWORD: ai
+        ports:
+          - 5532:5432
+        options: >-
+          --health-cmd "pg_isready -U ai -d ai"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
     steps:
       - uses: actions/checkout@v4
 
@@ -63,6 +92,7 @@ jobs:
         env:
           EGPT_TELEMETRY: false
           EGPT_INTEGRATION_MYSQL: "1"
+          EGPT_INTEGRATION_POSTGRES: "1"
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
