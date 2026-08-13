@@ -1468,3 +1468,142 @@ def test_bounds_reconciled_reports_what_happened_not_what_was_wired():
         MemoryQuery(text="always confirm", tiers=[MemoryTier.PROCEDURAL], substrates=[Substrate.VECTOR]),
     )
     assert excluded.fusion["bounds_reconciled"] is True
+
+
+# ---------------------------------------------------------------------------
+# Round-9 review
+# ---------------------------------------------------------------------------
+
+
+def test_a_derived_fact_inherits_its_sources_upper_bound():
+    """`_distil` propagated `min(t_valid)` and dropped `t_invalid`, so a fact outlived its evidence.
+
+    `_visible_episodes` keeps an episode valid *at the pass instant*, so one bounded in the future
+    passes the filter and used to be minted with no upper bound at all -- unsuppressable afterwards
+    by any read, at any limit, with any `as_of`. The trigger needs `t_invalid > now`: an
+    invalidation dated now-or-earlier is correctly dropped by `_valid_at` before distillation.
+    """
+    future = 3_000_000_000
+    p, vector, graph = provider()
+    p.write(ACME, [event("the server is in rack 12", id="ep1", occurred_at=100)])
+    graph.invalidate(ACME, "ep1", t_invalid=future, at=future)
+
+    p.consolidate(ACME)
+
+    fact = next(r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC)
+    assert (fact.t_valid, fact.t_invalid) == (100, future)
+    assert p.read(ACME, MemoryQuery(text="server rack 12", as_of=future + 1)).records == []
+    assert p.read(ACME, MemoryQuery(text="server rack 12", as_of=future - 1)).records != []
+
+
+def test_a_group_with_one_open_ended_episode_stays_open_ended():
+    """A fact is true for as long as *any* of its evidence is; `min`/`max` would cut it short.
+
+    Identical content, so the two episodes land in **one** group -- the mixed-boundedness case the
+    rule exists for. Near-duplicates below `_DUPLICATE_THRESHOLD` form separate groups and never
+    exercise it, which is how a first attempt at this test passed under mutation.
+    """
+    p, vector, graph = provider()
+    p.write(
+        ACME, [event("rack 12 is down", id="a", occurred_at=100), event("rack 12 is down", id="b", occurred_at=100)]
+    )
+    graph.invalidate(ACME, "a", t_invalid=3_000_000_000, at=3_000_000_000)
+
+    p.consolidate(ACME)
+
+    facts = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC]
+    assert len(facts) == 1, "identical content must form one group, or the mixed case is untested"
+    assert facts[0].provenance["source_episode_ids"] == ["a", "b"]
+    assert facts[0].t_invalid is None, "one unbounded member keeps the whole fact open"
+
+
+class _CountingFailureGraph(FakeGraph):
+    """Fails the n-th `upsert_fact`, counting *attempts* rather than successes."""
+
+    def __init__(self, plan):
+        super().__init__()
+        self.plan, self.n = plan, 0
+
+    def upsert_fact(self, scope, fact):
+        index, self.n = self.n, self.n + 1
+        failure = self.plan.get(index)
+        if failure is not None:
+            raise failure
+        return super().upsert_fact(scope, fact)
+
+    async def aupsert_fact(self, scope, fact):
+        await _yield()
+        return self.upsert_fact(scope, fact)
+
+
+@pytest.mark.parametrize(
+    "plan,label",
+    [
+        ({0: RuntimeError("down")}, "first"),
+        ({1: RuntimeError("down")}, "second"),
+        ({0: RuntimeError("blip"), 1: MemoryOperationError("refuses facts", field_name="tier")}, "mixed"),
+    ],
+)
+async def test_both_consolidate_halves_commit_the_same_state_and_choose_the_same_cause(plan, label):
+    """The sync fan-out aborted on the first raise while the async half settled the batch.
+
+    One identical failure left the two verbs with different durable state, and the **mixed** case
+    gave them opposite retry advice -- "retry me" versus "this will never work". `write` carries a
+    shared `_raise_write_failure` for exactly this; consolidate never had it carried across.
+    """
+
+    def build():
+        p = CoLocatedMemoryProvider(vector=FakeVector(), graph=_CountingFailureGraph(dict(plan)))
+        for i in range(3):
+            p.write(ACME, [event(f"unique topic {i} here", id=f"e{i}")])
+        return p
+
+    def outcome(p, exc):
+        committed = sorted(r.id for r in p.graph.rows.get("acme", []) if r.tier is MemoryTier.SEMANTIC)
+        return committed, type(exc.__cause__), exc.receipt.accepted, sorted(exc.receipt.event_ids)
+
+    sync_provider = build()
+    with pytest.raises(PartialWriteError) as sync_exc:
+        sync_provider.consolidate(ACME)
+    async_provider = build()
+    with pytest.raises(PartialWriteError) as async_exc:
+        await async_provider.aconsolidate(ACME)
+
+    assert outcome(sync_provider, sync_exc.value) == outcome(async_provider, async_exc.value)
+
+
+def test_the_consolidation_receipt_names_the_facts_a_retry_must_reproduce():
+    """`accepted=0, event_ids=[]` with rows already committed is factually wrong output.
+
+    The counters advanced *after* both legs, so for the single-scope case -- every ordinary pass --
+    they were unreachable on any failure, and the error text read "retry with these ids: []".
+    """
+    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=_CountingFailureGraph({2: RuntimeError("down")}))
+    for i in range(3):
+        p.write(ACME, [event(f"unique topic {i} here", id=f"e{i}")])
+
+    with pytest.raises(PartialWriteError) as exc:
+        p.consolidate(ACME)
+
+    committed = [r.id for r in p.vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC]
+    assert committed, "the vector leg must have committed, or this proves nothing"
+    assert exc.value.receipt.accepted == 3
+    assert sorted(exc.value.receipt.event_ids) == sorted(committed)
+    assert "[]" not in str(exc.value)
+
+
+def test_a_first_write_refusal_in_consolidate_propagates_bare():
+    """Nothing landed, so there is no partial state -- matching `write`, where a vector refusal
+    precedes any commit."""
+
+    class RefusingVector(FakeVector):
+        def upsert(self, scope, records):
+            if any(r.tier is MemoryTier.SEMANTIC for r in records):
+                raise MemoryOperationError("this backend refuses facts", field_name="tier")
+            return super().upsert(scope, records)
+
+    p = CoLocatedMemoryProvider(vector=RefusingVector(), graph=FakeGraph())
+    p.write(ACME, [event("alpha beta gamma", id="ep1")])
+
+    with pytest.raises(MemoryOperationError, match="refuses facts"):
+        p.consolidate(ACME)

@@ -208,7 +208,31 @@ class SeedMemoryProvider(MemoryProvider):
         Writes are unaffected. ``UserMemory`` has ``agent_id`` and ``team_id`` columns, so a write
         records them faithfully; it is only the retrieval predicate that cannot use them.
 
-        The store path is unaffected too -- ``LearningStore.recall`` takes all four slots.
+        **The store path is a known gap, not an exemption.** An earlier version of this docstring
+        claimed ``LearningStore.recall`` "takes all four slots", which is false for every store in
+        the tree -- each filters on a subset and documents the rest as *"Additional context
+        (ignored)"*:
+
+        =====================  ==========================  =====================================
+        Store                  Filters on                  Silently absorbs
+        =====================  ==========================  =====================================
+        ``user_profile``       ``user_id``                 agent, team, session
+        ``user_memory``        ``user_id``                 agent, team, session
+        ``session_context``    ``session_id``              agent, team, user
+        ``learned_knowledge``  ``user_id``                 agent, team, session
+        ``entity_memory``      ``user_id``                 agent, team, session
+        ``decision_log``       ``agent_id``, ``session_id``  **``user_id`` is not a parameter**
+        =====================  ==========================  =====================================
+
+        So a narrowed read against a bound store can return a wider answer, stamped with the
+        requesting scope -- the same invisible relabel as the tenant leak, two levels down.
+
+        This branch does **not** refuse it, and the reason is that there is nothing to refuse
+        *against*: ``LearningStore.recall`` is declared ``(self, **kwargs)``, so deriving the
+        honoured slots by signature yields the empty set and refuses every store read. Which slots
+        a bound store honours is part of the tier-to-store mapping, which is **SM-C2's (#90)** --
+        recorded in SPEC section 11.3 rather than guessed at here. An incorrect justification is
+        worse than an acknowledged gap: it is what stops the next reader adding the guard.
         """
         # `MemoryManager` substitutes `user_id = "default"` when it is None (`manager.py`), so
         # within the pinned tenant every user-less scope shares one pool -- and the projection then

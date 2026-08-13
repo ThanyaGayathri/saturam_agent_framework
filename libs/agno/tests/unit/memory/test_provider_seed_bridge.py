@@ -310,7 +310,13 @@ def test_a_bound_store_serves_its_tier_through_recall_and_build_context():
 
 
 def test_a_store_recall_receives_the_scope_and_the_query():
-    """A store takes all four slots, so the narrow scope the manager path refuses is fine here."""
+    """The bridge *passes* all four slots; what a store does with them is the store's business.
+
+    Not "a store takes all four slots, so this scope is fine" -- that restated a claim which is
+    false for every store in the tree (see `_reject_unfilterable_scope`). The bridge's obligation
+    is to hand the slots over; honouring them is the store's, and which stores honour which is
+    SM-C2's (#90) to pin down.
+    """
     store = FakeStore()
     SeedMemoryProvider(stores={MemoryTier.SEMANTIC: store}, config=seed_config()).read_tier(
         ACME_AGENT, MemoryTier.SEMANTIC, MemoryQuery(text="hello")
@@ -1050,3 +1056,64 @@ def test_a_refusal_with_nothing_committed_still_propagates_bare():
 
     with pytest.raises(MemoryOperationError, match="no episodic store"):
         bridge.write(ACME, [MemoryEvent(content="something happened", scope=ACME)])
+
+
+class NarrowStore:
+    """A store that filters on a *subset* of the slots, mirroring `DecisionLogStore.recall`.
+
+    `FakeStore` takes `**kwargs` and returns a constant, so it structurally cannot show what a real
+    store does with the slots it is handed. This one can: it filters on `agent_id` / `session_id`
+    and has no `user_id` parameter at all, exactly like the shipped decision log.
+    """
+
+    learning_type = "decision_log"
+    was_updated = False
+
+    def __init__(self, rows):
+        self.rows = rows  # (agent_id, user_id, text)
+        self.ignored: List[str] = []
+
+    def recall(self, agent_id=None, session_id=None, limit=10, **kwargs):
+        self.ignored = sorted(k for k, v in kwargs.items() if v is not None and k not in ("message", "query"))
+        matching = [r for r in self.rows if agent_id is None or r[0] == agent_id]
+        return "; ".join(f"{user}: {text}" for _, user, text in matching[:limit])
+
+    async def arecall(self, **kwargs):
+        return self.recall(**kwargs)
+
+    def build_context(self, data):
+        return data or ""
+
+    def process(self, messages, **kwargs): ...
+    async def aprocess(self, messages, **kwargs): ...
+    def get_tools(self, **kwargs):
+        return []
+
+    async def aget_tools(self, **kwargs):
+        return []
+
+    @property
+    def schema(self):
+        return dict
+
+
+def test_a_bound_store_may_ignore_slots_the_bridge_hands_it():
+    """A **known gap**, pinned so it is visible rather than discovered.
+
+    The bridge refuses a scope the *manager* cannot filter, but it cannot check what a bound store
+    did with the slots it passed -- `LearningStore.recall` is declared `(self, **kwargs)`, so
+    deriving the honoured set by signature yields nothing and would refuse every store read.
+
+    So a narrowed read can come back wider, stamped with the requesting scope. Which slots a store
+    honours belongs with the tier-to-store mapping: **SM-C2 (#90)**. This test fails when that
+    lands, which is the point.
+    """
+    store = NarrowStore([("a1", "alice", "approved refund"), ("a1", "bob", "denied refund")])
+    alice = Scope(tenant_id="acme", user_id="alice", agent_id="a1")
+    bridge = SeedMemoryProvider(stores={MemoryTier.PROCEDURAL: store}, config=seed_config())
+
+    records = bridge.read_tier(alice, MemoryTier.PROCEDURAL, MemoryQuery(text="refund"))
+
+    assert store.ignored == ["user_id"], "the scope sets user_id; this store has no such parameter"
+    assert "bob" in records[0].content, "the known gap: bob's row reaches a read scoped to alice"
+    assert records[0].scope.user_id == "alice", "...and it is stamped with the requesting scope"

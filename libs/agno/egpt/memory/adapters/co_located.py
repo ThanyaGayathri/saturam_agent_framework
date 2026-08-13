@@ -706,6 +706,20 @@ class CoLocatedMemoryProvider(MemoryProvider):
                         # later than the oldest episode it was distilled from answers a
                         # point-in-time read wrongly for the interval in between.
                         t_valid=min((m.t_valid for m in group if m.t_valid is not None), default=None),
+                        # ...and the latest, symmetrically, or the fact **outlives every episode it
+                        # came from**. `_visible_episodes` keeps an episode valid *at the pass
+                        # instant*, so one carrying a future-dated `t_invalid` passes the filter and
+                        # used to be minted with no upper bound at all -- unsuppressable afterwards
+                        # by any read, at any limit, with any `as_of`. That is the failure
+                        # `_visible_episodes` exists to prevent, one step later in the same method.
+                        #
+                        # Open-ended if *any* member is: a group with one unbounded episode is
+                        # still true for as long as that episode is. And since
+                        # `min(t_valid) <= m.t_valid < m.t_invalid <= max(t_invalid)` for every
+                        # member, this can never build the empty interval the envelope refuses.
+                        t_invalid=(
+                            None if any(m.t_invalid is None for m in group) else max(m.t_invalid for m in group)  # type: ignore[type-var]
+                        ),
                         created_at=max((m.created_at for m in group if m.created_at is not None), default=now),
                     ),
                     source_episode_ids=source_ids,
@@ -796,6 +810,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
         await self._areconcile_bounds(scope, episodes)
         return [e for e in episodes if e.is_current_belief() and _valid_at(e, instant)]
 
+    def _graph_fact_batch(self, fact_scope: Scope, batch: Sequence[FactWrite], receipt: WriteReceipt) -> None:
+        """The sync counterpart of ``_gather_writes`` for one batch of facts.
+
+        A bare loop here aborted on the first raise while the async half settled the whole batch --
+        so one identical failure left the two verbs with different durable state, and a mixed
+        failure gave them **opposite retry advice**. `write` carries a shared
+        ``_raise_write_failure`` for exactly this; consolidate never had it carried across.
+        """
+        failures: List[BaseException] = []
+        for fact in batch:
+            try:
+                self.graph.upsert_fact(fact_scope, fact)  # type: ignore[union-attr]  # caller checked
+            except Exception as exc:  # noqa: PERF203 - per-fact isolation, as in `write`
+                failures.append(exc)
+        self._raise_write_failure(failures, receipt)
+
     def consolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         vector = self._check_consolidatable(tiers)
         instant = now_epoch_s()
@@ -809,21 +839,35 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         if facts:
             to_vector, to_graph = self._fact_targets(facts)
-            receipt = WriteReceipt(accepted=0, event_ids=[], tiers_written=[MemoryTier.SEMANTIC])
+            # Stamped up front, exactly as `write` does. Advancing counters inside the loop left
+            # `accepted=0, event_ids=[]` on every single-scope failure -- the ordinary case -- while
+            # rows were already committed, and the error text then reads "retry with these ids: []".
+            # Counting only committed rows is the other tempting fix and is ruled out by
+            # `PartialWriteError`'s own contract: `event_ids` are the ids a retry must reuse.
+            receipt = WriteReceipt(
+                accepted=len(facts),
+                event_ids=[f.record.id for f in facts],
+                tiers_written=[MemoryTier.SEMANTIC],
+            )
+            committed_any = False
             try:
                 for fact_scope, batch in self._by_scope(facts):
                     if to_vector:
                         vector.upsert(fact_scope, [f.record for f in batch])
+                        committed_any = True
                     if to_graph and self.graph is not None:
-                        for fact in batch:
-                            self.graph.upsert_fact(fact_scope, fact)
-                    receipt.accepted += len(batch)
-                    receipt.event_ids.extend(f.record.id for f in batch)
+                        self._graph_fact_batch(fact_scope, batch, receipt)
+                        committed_any = True
             except PartialWriteError:
                 raise
+            except MemoryOperationError:
+                # A refusal on the *first* write, before anything landed, is just a refusal --
+                # matching `write`, where a vector refusal precedes any commit and propagates bare.
+                # Once something is committed it is a partial write like any other.
+                if not committed_any:
+                    raise
+                raise PartialWriteError(receipt) from None
             except Exception as exc:
-                # Same rule as `write`: by the time a substrate refuses, `vector.upsert` has
-                # committed facts, so a bare refusal would deny the caller the receipt.
                 raise PartialWriteError(receipt) from exc
         return self._report(scope, scanned, episodes, facts, merged)
 
@@ -841,17 +885,26 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
         if facts:
             to_vector, to_graph = self._fact_targets(facts)
-            receipt = WriteReceipt(accepted=0, event_ids=[], tiers_written=[MemoryTier.SEMANTIC])
+            receipt = WriteReceipt(
+                accepted=len(facts),
+                event_ids=[f.record.id for f in facts],
+                tiers_written=[MemoryTier.SEMANTIC],
+            )
+            committed_any = False
             try:
                 for fact_scope, batch in self._by_scope(facts):
                     if to_vector:
                         await vector.aupsert(fact_scope, [f.record for f in batch])
+                        committed_any = True
                     if to_graph and self.graph is not None:
                         await self._gather_writes([self.graph.aupsert_fact(fact_scope, f) for f in batch], receipt)
-                    receipt.accepted += len(batch)
-                    receipt.event_ids.extend(f.record.id for f in batch)
+                        committed_any = True
             except PartialWriteError:
                 raise
+            except MemoryOperationError:
+                if not committed_any:
+                    raise
+                raise PartialWriteError(receipt) from None
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
         return self._report(scope, scanned, episodes, facts, merged)
