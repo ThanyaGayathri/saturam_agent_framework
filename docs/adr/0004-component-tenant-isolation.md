@@ -124,10 +124,56 @@ methods still raise `NotImplementedError` (maximally fail-closed: no data is rea
 ClickHouse's component reads still return empty. Their signatures were updated so a future
 implementer inherits the contract rather than reintroducing the fail-open default.
 
-**Two tenant resolvers still exist.** `egpt.os.utils.resolve_tenant_id` serves model-policy
-selection on the factory/websocket path, which has no `Request`. It was left alone: it is not on
-the component data-access path, so reconciling it would touch policy resolution for no isolation
-gain. It remains recorded as a known limit.
+**Two tenant resolvers still exist, and they disagree.** `egpt.os.utils.resolve_tenant_id` serves
+the factory/websocket path, which has no `Request` to read `request.state.tenant_id` from.
+
+An earlier draft of this ADR claimed it "is not on the component data-access path". **That was
+wrong**, and the correction matters because it changes what the limit actually is.
+`workflows/router.py:125` feeds its result into `get_workflow_by_id_async(..., tenant_id=...)`,
+which reaches hydration and `db.get_config` — so it *is* a component read path, and this ADR's
+enforcement applies to it.
+
+The real limit is that the two resolvers produce different answers for the same principal.
+`resolve_tenant_id` falls back to `user_id` (when that id is the middleware-verified one) where
+`egpt.os.tenancy.current_tenant_id` returns `None`:
+
+| Principal | HTTP path | WS / factory path |
+|---|---|---|
+| JWT with the tenant claim | that claim | that claim |
+| Verified JWT, **no** tenant claim | `None` → refused under `require_tenant_id` | `tenant_id="alice"` — the user id used as a tenant namespace |
+
+So the WS path fails **open** relative to HTTP: it scopes to a namespace derived from a user id
+rather than refusing. Reads stay confined to that namespace, so it is not a cross-tenant leak, but
+it is a second isolation model reachable from the same credential — and a component written under
+`tenant_id="alice"` is invisible to the same user's HTTP requests.
+
+Reconciling the two resolvers is out of scope here (it touches `ModelPolicy` selection, which this
+ADR does not otherwise reason about) and is tracked as
+[aicoe-tracker#174](https://github.com/Saturam-Inc/aicoe-tracker/issues/174) with the divergence
+table and acceptance criteria. What this ADR must not do is record it as a limit that does not
+apply to component access, because it does.
+
+**The non-HTTP entry points keep an unscoped default.** `Agent.save/delete`, `Team.save/delete`
+and `Workflow.save/delete` take `tenant_id` but default it to `None`. On a **non-strict** db that
+means an unscoped write can update a row owned by another tenant sharing the same
+`component_id` — and the row keeps its original `tenant_id`, so the owner's correctly-scoped read
+then serves the foreign config with nothing to detect.
+
+This is a deliberate trade and is not what the fourteen data-layer methods do, so the asymmetry
+needs stating. Requiring a tenant on `Agent.save()` — the framework's most-used public API, and
+the one every quickstart calls — would force every single-tenant deployment to write
+`save(tenant_id=None)`: pure ceremony for a caller who has exactly one tenant, in exchange for
+catching a plumbing mistake that the data layer's own required parameter already catches one
+level down. The required parameter earns its cost on internal plumbing; it does not earn it on
+the user-facing entry point.
+
+`require_tenant_id` is therefore the control for these three writers, not their default — and
+that is only a real control because the flag now survives `clone_with_table_overrides` and
+`to_dict`/`from_dict`. It did not in the first version of this change, which meant the stated
+mitigation was silently absent on the component rehydration path that clones the db. Both
+behaviours are pinned by `TestNonHttpWritersInheritTheDbGuarantee`, so the trade is executable
+fact rather than a claim in a docstring, and reversing it is a test change rather than an
+archaeology exercise.
 
 ## Alternatives Considered
 

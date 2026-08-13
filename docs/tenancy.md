@@ -376,12 +376,24 @@ change with a migration rather than an enforcement change — tracked separately
 - **Sessions, memories and runs are unscoped.** Hydration itself is scoped (section 5) and the
   agents/teams/workflows routers are tenant-gated, but the surrounding run/session data is not.
   Needs a `tenant_id` column and migration on those tables; follow-up work, not EGPT-2.7.
-- **Two tenant resolvers exist**: `egpt.os.tenancy.current_tenant_id` (middleware-written
-  request state) and `egpt.os.utils.resolve_tenant_id` (factory-context claims, used by the
-  workflow websocket path, which has no `Request`). Each hydration path threads the value it
-  already has. EGPT-2.7 deliberately left this alone: `resolve_tenant_id` serves model-policy
-  selection on a path with no `Request`, not component data access, so reconciling them would
-  touch policy resolution for no isolation gain. Still follow-up work.
+- **The non-HTTP writers default to unscoped.** `Agent.save/delete`, `Team.save/delete` and
+  `Workflow.save/delete` take a `tenant_id` but default it to `None`. On a non-strict db an
+  unscoped write can update a row owned by another tenant that shares the `component_id`, and the
+  row keeps its original `tenant_id` — so the owner's correctly-scoped read then serves the foreign
+  config with nothing to detect. `require_tenant_id` refuses it, and **is** the control for these
+  three; the default is not. Requiring a tenant on `Agent.save()` was considered and rejected — see
+  [adr/0004](adr/0004-component-tenant-isolation.md). Pinned by
+  `TestNonHttpWritersInheritTheDbGuarantee`.
+- **Two tenant resolvers exist and they disagree.** `egpt.os.tenancy.current_tenant_id`
+  (middleware-written request state) and `egpt.os.utils.resolve_tenant_id` (factory-context claims,
+  used by the workflow websocket path, which has no `Request`). The second **is** on a component
+  read path — `workflows/router.py:125` feeds it into `get_workflow_by_id_async`, which reaches
+  `db.get_config`. For a verified principal carrying no tenant claim, the HTTP path resolves `None`
+  (refused under `require_tenant_id`) while the WS path resolves `tenant_id="<user_id>"`, using a
+  user id as a tenant namespace. Reads stay inside that namespace, so it is not a cross-tenant leak,
+  but it is a second isolation model reachable from one credential, and a component written there is
+  invisible to the same user over HTTP. Tracked as
+  [aicoe-tracker#174](https://github.com/Saturam-Inc/aicoe-tracker/issues/174).
 - **Cache staleness across workers is bounded by the TTL**, not eliminated: only the worker
   that processes a mutation evicts immediately. Event-driven invalidation is still unbuilt —
   EGPT-2.6 delivered the audit trail, not this.
