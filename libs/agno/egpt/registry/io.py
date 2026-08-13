@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Protocol, Sequence, Set, Tuple, Union
 
 from egpt.db.base import ComponentType
+from egpt.db.component_scope import TenantScopeRequiredError
 from egpt.registry.schema import COMPONENT_TYPES, SCHEMA_VERSION, migrate, stamp_schema_version
 from egpt.utils.log import log_error, log_warning
 
@@ -1023,7 +1024,18 @@ def _plan_entry(
 
     # Deliberately unscoped: component_id is the global primary key, so this is the only probe
     # that predicts what the database will do with the write.
-    existing = db.get_component(entry.component_id, tenant_id=None)
+    #
+    # A db built with `require_tenant_id` refuses an unscoped component read by design (EGPT-2.7),
+    # and EgptOS turns that on for every db as soon as a tenant claim is configured -- so on any
+    # tenancy-enabled deployment this probe raised and took `POST /components/import` and
+    # `seed_from_directory` down with it (a 500 on every import). Fall back to the scoped read
+    # there. It cannot see an id held by another tenant, so such a collision now surfaces as the
+    # primary-key error from the write instead of as `ComponentIdConflictError` -- the same trade
+    # already accepted for the studio id probe, and documented in docs/tenancy.md section 7.
+    try:
+        existing = db.get_component(entry.component_id, tenant_id=None)
+    except TenantScopeRequiredError:
+        existing = db.get_component(entry.component_id, tenant_id=tenant_id)
     if existing is None:
         return _Plan(entry, config, "created", target_stage)
 
