@@ -48,8 +48,9 @@ TABLE_SUFFIXES: Dict[str, str] = {
 # individually overridable, because nothing reads them yet -- per-table overrides exist to be
 # passed through ``clone_with_table_overrides`` by a consumer, and the read/write path arrives
 # with SM-V1 (#95) and SM-C2 (#90). Promoting them is a one-line move plus the six constructor
-# parameters each backend would then need. ``test_memory_table_names.py`` pins the split so it
-# stays a decision rather than an omission.
+# parameters each backend would then need.
+# ``test_memory_schemas.py::TestTableNaming`` pins the split so it stays a decision rather than
+# an omission.
 #
 # Each entry is both the table type and its suffix; the attribute is ``{type}_table_name``.
 MEMORY_TIER_TABLE_TYPES = (
@@ -67,9 +68,13 @@ def memory_tier_table_attr(table_type: str) -> str:
     return f"{table_type}_table_name"
 
 
-# Keep prefixes short enough that the longest derived identifier
-# (e.g. idx_{prefix}component_configs_{columns}) stays under the PostgreSQL
-# 63-byte identifier limit without silent truncation.
+# Bounds the prefix, but does NOT on its own keep derived identifiers under PostgreSQL's 63-byte
+# limit: at the full 32 characters, idx_{prefix}component_configs_tenant_id_component_id is
+# already 76 bytes and idx_{prefix}memory_semantic_fact_tenant_id_t_valid_t_invalid is 84, and
+# PostgreSQL truncates rather than erroring. Shortening the index-name convention cannot close
+# this -- even a single-column index on the longest memory table is 66 bytes at a 32-character
+# prefix. The real fix is a bounded derivation in the table builders (truncate-and-hash), which
+# is repo-wide and not this constant's job.
 TABLE_PREFIX_MAX_LENGTH = 32
 
 _TABLE_PREFIX_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")

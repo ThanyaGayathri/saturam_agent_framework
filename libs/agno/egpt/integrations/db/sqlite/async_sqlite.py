@@ -235,6 +235,11 @@ class AsyncSqliteDb(AsyncBaseDb):
             (self.schedule_runs_table_name, "schedule_runs"),
             (self.approvals_table_name, "approvals"),
             (self.service_accounts_table_name, "service_accounts"),
+            # Memory tiers (SM-C3 #91), derived so a new tier joins auto-provisioning rather than
+            # being remembered. AgentOS calls this on startup with auto_provision_dbs=True and
+            # migrations never run automatically, so a table missing here is a table a fresh
+            # deployment simply never gets.
+            *[(getattr(self, memory_tier_table_attr(tier)), tier) for tier in MEMORY_TIER_TABLE_TYPES],
         ]
 
         for table_name, table_type in tables_to_create:

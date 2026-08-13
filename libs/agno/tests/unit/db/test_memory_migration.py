@@ -448,6 +448,51 @@ class TestMemoriesTenantColumn:
 
 
 # --------------------------------------------------------------------------- #
+# Auto-provisioning
+# --------------------------------------------------------------------------- #
+
+
+class TestAutoProvisioning:
+    """``AgentOS`` calls ``_create_all_tables`` on startup when ``auto_provision_dbs`` is on (the
+    default), and nothing runs migrations automatically -- the only call sites are the explicit
+    ``/databases/all/migrate`` endpoints. A tier missing from that list is therefore a tier a
+    fresh deployment never gets, migration or no migration.
+    """
+
+    def test_a_fresh_deployment_gets_every_tier_table(self, db):
+        db._create_all_tables()
+
+        created = table_names(db)
+        assert [t for t in MEMORY_TIER_TABLE_TYPES if f"egpt_{t}" not in created] == []
+
+    def test_auto_provisioned_tables_match_the_migrated_ones(self, db, tmp_path):
+        """Provisioning and migrating must converge, or a fresh install and an upgraded one
+        disagree on the same version."""
+        db._create_all_tables()
+        migrated = SqliteDb(db_file=str(tmp_path / "migrated.db"))
+        migrate_up(migrated)
+
+        for table_type in MEMORY_TIER_TABLE_TYPES:
+            name = f"egpt_{table_type}"
+            assert columns(db, name) == columns(migrated, name), table_type
+            assert index_names(db, name) == index_names(migrated, name), table_type
+
+    async def test_the_async_backend_provisions_them_too(self, async_db):
+        await async_db._create_all_tables()
+
+        created = {row[0] for row in await _fetch(async_db, "SELECT name FROM sqlite_master WHERE type='table'")}
+
+        assert [t for t in MEMORY_TIER_TABLE_TYPES if f"egpt_{t}" not in created] == []
+
+    @pytest.fixture
+    def async_db(self, tmp_path):
+        pytest.importorskip("aiosqlite", reason="AsyncSqliteDb resolves the dialect in __init__")
+        from egpt.integrations.db.sqlite.async_sqlite import AsyncSqliteDb
+
+        return AsyncSqliteDb(db_file=str(tmp_path / "async_provision.db"))
+
+
+# --------------------------------------------------------------------------- #
 # Sync / async parity
 # --------------------------------------------------------------------------- #
 

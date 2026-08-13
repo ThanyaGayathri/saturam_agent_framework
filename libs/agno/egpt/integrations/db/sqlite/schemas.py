@@ -389,6 +389,23 @@ SERVICE_ACCOUNT_TABLE_SCHEMA = {
 # ``entity_type``, ``name`` and ``kind`` are plausible filters, but no read path uses them yet and
 # an index nothing queries is write cost on every insert. Read-path indexes belong with the reader
 # (SM-V1 #95 / aicoe-tracker#175), which is also what knows the selectivity.
+#
+# A third difference the header used to omit: the DDL declares ``entity_ids``, ``supersedes``,
+# ``superseded_by``, ``source_episode_ids`` and ``tags`` as ``TEXT[]`` (7 column instances across
+# 4 tables); they are stored here as JSON so SQLite can carry them too.
+#
+# Two fidelity gaps, named so a future reader diffing against the DDL does not read them as
+# accidental. **Partial indexes:** SM-R12 scopes its temporal indexes with
+# ``WHERE expired_at IS NULL``; the composite indexes below are unfiltered, because the builder's
+# only predicate-carrying mechanism hardcodes ``unique=True``. Expressing it needs a new schema
+# key, which belongs with the reader that benefits (SM-V1 #95 / aicoe-tracker#175).
+# **CHECK constraints:** SM-R12 enforces the bi-temporal ordering in the database; there is no
+# CHECK support anywhere in this shared DSL, so those invariants -- and the closed vocabularies on
+# ``kind`` and the link tiers -- hold only at the ``egpt.db.schemas.memory`` row-model boundary.
+# Until the builder grows one, **every writer must go through the row models**; raw SQL or a bulk
+# loader can violate them silently. For the same reason a reader must resolve cross-tier
+# references (``from_id``/``to_id``, ``source_episode_ids``, ``entity_ids``) by ``(tenant_id,
+# id)`` -- the id alone is not unique across tenants.
 # ---------------------------------------------------------------------------
 
 _TENANT_SCOPED_COLUMNS: dict[str, Any] = {
