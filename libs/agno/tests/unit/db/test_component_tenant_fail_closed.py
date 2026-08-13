@@ -151,6 +151,62 @@ def _component_functiondefs(source_path):
     return found
 
 
+def _touches_tenant_scoped_table(fn):
+    """Whether a method body reads or writes rows of a tenant-scoped component table.
+
+    Two conditions, both required:
+
+    1. It resolves one of the component tables, via the backends' single idiom for reaching a
+       table (``self._get_table(table_type="components")``).
+    2. It executes a statement.
+
+    Detecting by behaviour rather than by name is the whole point -- a name filter is an
+    allowlist in disguise and is what let ``resolve_version`` through. The second condition is
+    what separates row access from table plumbing: ``_get_table`` itself and
+    ``_require_component_audit_table`` resolve component tables but only ever return the
+    ``Table`` object, so they have no rows to scope and nothing to guard.
+    """
+    resolves_table = False
+    executes = False
+    for node in ast.walk(fn):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr == "execute":
+            executes = True
+        elif node.func.attr == "_get_table":
+            for kw in node.keywords:
+                if (
+                    kw.arg == "table_type"
+                    and isinstance(kw.value, ast.Constant)
+                    and kw.value.value in TENANT_SCOPED_COMPONENT_TABLES
+                ):
+                    resolves_table = True
+    return resolves_table and executes
+
+
+def _has_tenant_guard(fn):
+    """Whether the guard is the method's first statement, after any docstring."""
+    body = list(fn.body)
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        body = body[1:]
+    if not body:
+        return False
+    stmt = body[0]
+    return (
+        isinstance(stmt, ast.Assign)
+        and isinstance(stmt.value, ast.Call)
+        and isinstance(stmt.value.func, ast.Attribute)
+        and stmt.value.func.attr == "_require_tenant_scope"
+        and isinstance(stmt.targets[0], ast.Name)
+        and stmt.targets[0].id == "tenant_id"
+    )
+
+
 # ============================================================================
 # 1. OMISSION IS IMPOSSIBLE
 # ============================================================================
@@ -186,20 +242,65 @@ class TestTenantIdIsRequired:
         with pytest.raises(TypeError, match="tenant_id"):
             getattr(sqlite_db, method_name)(**kwargs)
 
-    def test_every_component_method_is_listed(self):
-        """``COMPONENT_DATA_ACCESS_METHODS`` must not fall behind ``BaseDb``.
+    @pytest.mark.parametrize("class_name", sorted(BACKEND_SOURCES))
+    def test_every_method_touching_a_tenant_scoped_table_is_guarded(self, class_name):
+        """Enumerate by what a method *touches*, not by what it is *called*.
 
-        Pins the list the other tests iterate. A component method added to ``BaseDb`` but not
-        here would otherwise be exempt from every guarantee in this file.
+        This is the test that has to be right, because it is the one that decides which methods
+        the rest of this file checks. Two earlier framings were both wrong:
+
+        - Enumerating from ``vars(BaseDb)`` cannot see a method defined only on a backend class.
+          ``SqliteDb.resolve_version`` was exactly that -- a public, positionally-callable,
+          unguarded read of the ``components`` table sitting between two guarded siblings,
+          invisible to a ``BaseDb``-derived list.
+        - Filtering by name (``"component" | "config" | "link" | "version"``) is an allowlist
+          wearing a heuristic's clothes. It does not even match ``get_dependents``, one of the
+          fourteen, which survived only because the list was hand-typed. A future
+          ``probe_ownership`` would escape silently.
+
+        So: walk every backend class in the source, find each method that resolves a
+        tenant-scoped table, and require the guard. That property is the one actually wanted,
+        and it needs no list kept in sync -- a new method is covered the moment it is written.
         """
-        declared = {
-            name
-            for name, obj in vars(BaseDb).items()
-            if callable(obj) and not name.startswith("_") and "tenant_id" in inspect.signature(obj).parameters
-        }
-        component_like = {n for n in declared if "component" in n or "config" in n or "link" in n or "version" in n}
-        missing = component_like - set(COMPONENT_DATA_ACCESS_METHODS)
-        assert not missing, f"component methods missing from COMPONENT_DATA_ACCESS_METHODS: {sorted(missing)}"
+        tree = ast.parse((_REPO_LIBS / BACKEND_SOURCES[class_name]).read_text())
+        unguarded = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            for fn in node.body:
+                if not isinstance(fn, ast.FunctionDef):
+                    continue
+                if not _touches_tenant_scoped_table(fn):
+                    continue
+                if not _has_tenant_guard(fn):
+                    unguarded.append(f"{node.name}.{fn.name} (line {fn.lineno})")
+
+        assert not unguarded, (
+            "these methods resolve a tenant-scoped component table but do not call "
+            "self._require_tenant_scope() as their first statement, so they read or write "
+            "component rows with no tenant predicate on a strict db:\n  " + "\n  ".join(unguarded)
+        )
+
+    def test_the_declared_method_list_is_complete(self):
+        """``COMPONENT_DATA_ACCESS_METHODS`` covers every guarded public method.
+
+        The list drives the signature and behavioural tests above. The AST scan is what finds
+        methods; this pins that the hand-maintained list has not fallen behind it, for the public
+        API surface. Private helpers (``_resolve_version``) are guarded but are not part of the
+        documented fourteen, so they are excluded here and covered by the scan.
+        """
+        found = set()
+        for source in BACKEND_SOURCES.values():
+            tree = ast.parse((_REPO_LIBS / source).read_text())
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                for fn in node.body:
+                    if isinstance(fn, ast.FunctionDef) and not fn.name.startswith("_") and _has_tenant_guard(fn):
+                        found.add(fn.name)
+
+        missing = found - set(COMPONENT_DATA_ACCESS_METHODS)
+        assert not missing, f"guarded public methods missing from COMPONENT_DATA_ACCESS_METHODS: {sorted(missing)}"
 
 
 # ============================================================================
@@ -272,9 +373,9 @@ class TestUnscopedAccessIsRefusedWhenRequired:
         monkeypatch.setenv("EGPT_REQUIRE_TENANT_ID", "true")
         assert SqliteDb(db_file=":memory:").require_tenant_id is True
 
-    @pytest.mark.parametrize("value", ["1", "yes", "TRUE"])
+    @pytest.mark.parametrize("value", ["1", "yes", "TRUE", "on", "y", "t", "  true  "])
     def test_env_var_accepts_the_common_truthy_spellings(self, monkeypatch, value):
-        """``1`` and ``yes`` must work too.
+        """``1``, ``yes``, ``on`` and friends must all work.
 
         Accepting only the literal ``true`` would leave an operator who set
         ``EGPT_REQUIRE_TENANT_ID=1`` believing a security control was on while it was off.
@@ -283,6 +384,28 @@ class TestUnscopedAccessIsRefusedWhenRequired:
 
         monkeypatch.setenv("EGPT_REQUIRE_TENANT_ID", value)
         assert SqliteDb(db_file=":memory:").require_tenant_id is True
+
+    @pytest.mark.parametrize("value", ["0", "no", "off", "FALSE", "n", ""])
+    def test_env_var_accepts_the_common_falsy_spellings(self, monkeypatch, value):
+        from egpt.integrations.db.sqlite.sqlite import SqliteDb
+
+        monkeypatch.setenv("EGPT_REQUIRE_TENANT_ID", value)
+        assert SqliteDb(db_file=":memory:").require_tenant_id is False
+
+    @pytest.mark.parametrize("value", ["enabled", "ture", "maybe", "2", "please"])
+    def test_an_unrecognised_env_value_refuses_to_start(self, monkeypatch, value):
+        """A typo'd security flag must fail to boot, not fail open.
+
+        The dangerous behaviour is the ordinary one: a general-purpose boolean reader maps
+        anything it does not recognise to ``False``, so ``EGPT_REQUIRE_TENANT_ID=enabled`` would
+        leave enforcement off silently, on a deployment whose operator believes they turned it
+        on. Raising is recoverable in seconds; running unprotected is never noticed.
+        """
+        from egpt.integrations.db.sqlite.sqlite import SqliteDb
+
+        monkeypatch.setenv("EGPT_REQUIRE_TENANT_ID", value)
+        with pytest.raises(ValueError, match="not a recognised boolean"):
+            SqliteDb(db_file=":memory:")
 
     def test_explicit_ctor_arg_does_not_downgrade_the_env(self, monkeypatch):
         """``require_tenant_id=False`` must not switch off what the environment turned on.
@@ -369,6 +492,30 @@ class TestResolveTenantScope:
         """
         with pytest.raises(TenantScopeRequiredError, match="empty"):
             resolve_tenant_scope(value, require=require, method="m")
+
+    @pytest.mark.parametrize("value", ["acme ", " acme", "  acme\t", "\nacme\n"])
+    def test_surrounding_whitespace_is_stripped(self, value):
+        """Returning the raw string would create a tenant nobody can name again.
+
+        ``"acme "`` and ``"acme"`` are different values to a SQL predicate, so an unstripped
+        write lands rows in a namespace no properly-trimmed caller can reach -- the same
+        consequence the blank-tenant check above exists to prevent, by a subtler route. The HTTP
+        path is safe (the JWT middleware strips); this reaches the non-HTTP callers, where the
+        tenant comes from a script argument, a config file or an environment variable.
+        """
+        assert resolve_tenant_scope(value, require=True, method="m") == "acme"
+
+    def test_a_padded_tenant_reaches_the_same_rows_as_the_trimmed_one(self, sqlite_db):
+        """The end-to-end consequence of the strip, through a real write and read."""
+        sqlite_db.create_component_with_config(
+            component_id="c1",
+            component_type=ComponentType.AGENT,
+            name="c1",
+            config={"model": "gpt-5.5"},
+            tenant_id="acme ",
+        )
+        assert sqlite_db.get_component("c1", tenant_id="acme") is not None
+        assert sqlite_db.get_component("c1", tenant_id=" acme") is not None
 
     def test_error_names_the_method(self):
         with pytest.raises(TenantScopeRequiredError, match="get_component"):

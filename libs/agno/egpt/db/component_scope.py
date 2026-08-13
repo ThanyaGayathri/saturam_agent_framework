@@ -67,12 +67,16 @@ between the two is pinned by a test instead.
 
 from typing import Optional, Tuple
 
+from egpt.utils.env import branded_env_key, get_branded_env
+
 __all__ = [
     "COMPONENT_DATA_ACCESS_METHODS",
+    "REQUIRE_TENANT_ID_ENV",
     "TENANT_COLUMN",
     "TENANT_SCOPED_COMPONENT_TABLES",
     "TENANT_SCOPE_REQUIRED_DETAIL",
     "TenantScopeRequiredError",
+    "require_tenant_id_from_env",
     "resolve_tenant_scope",
 ]
 
@@ -117,6 +121,15 @@ TENANT_SCOPE_REQUIRED_DETAIL = (
 )
 
 
+REQUIRE_TENANT_ID_ENV = "REQUIRE_TENANT_ID"
+
+# Spellings accepted for the environment switch, compared case-insensitively after stripping.
+# Anything outside these two sets is a hard error rather than a silent False -- see
+# :func:`require_tenant_id_from_env`.
+_ENV_TRUE = frozenset({"true", "1", "yes", "y", "on", "t"})
+_ENV_FALSE = frozenset({"false", "0", "no", "n", "off", "f", ""})
+
+
 class TenantScopeRequiredError(Exception):
     """Raised when a component operation is unscoped on a db that requires a tenant.
 
@@ -125,8 +138,41 @@ class TenantScopeRequiredError(Exception):
     """
 
 
+def require_tenant_id_from_env() -> bool:
+    """Read ``EGPT_REQUIRE_TENANT_ID``, refusing to guess at a value it does not recognise.
+
+    A general-purpose boolean reader treats anything it does not recognise as false. That is the
+    wrong default for a security switch: ``EGPT_REQUIRE_TENANT_ID=on`` or ``=enabled`` or a
+    typo'd ``=ture`` would leave enforcement off, with no error and nothing in the logs, on a
+    deployment whose operator believes they turned it on. Failing to boot is recoverable in
+    seconds; silently running unprotected is not noticed at all.
+
+    So the accepted spellings are deliberately wide (``true``/``1``/``yes``/``y``/``on``/``t``
+    and their negatives, case-insensitive, surrounding whitespace ignored) and anything else
+    raises.
+
+    Raises:
+        ValueError: If the variable is set to a value that is neither clearly true nor clearly
+            false.
+    """
+    raw = get_branded_env(REQUIRE_TENANT_ID_ENV)
+    if raw is None:
+        return False
+    value = raw.strip().lower()
+    if value in _ENV_TRUE:
+        return True
+    if value in _ENV_FALSE:
+        return False
+    raise ValueError(
+        f"{branded_env_key(REQUIRE_TENANT_ID_ENV)}={raw!r} is not a recognised boolean. "
+        f"Use one of {sorted(_ENV_TRUE)} to require a tenant on every component operation, or "
+        f"one of {sorted(v for v in _ENV_FALSE if v)} to allow unscoped access. Refusing to "
+        f"start rather than silently leaving tenant enforcement off."
+    )
+
+
 def resolve_tenant_scope(tenant_id: Optional[str], *, require: bool, method: str) -> Optional[str]:
-    """Validate the tenant scope of one component call and return it unchanged.
+    """Validate and normalize the tenant scope of one component call.
 
     Called as the first statement of every component method on every backend, *before* the
     method's own ``try``. Inside the ``try`` a refusal would be caught by the
@@ -143,8 +189,15 @@ def resolve_tenant_scope(tenant_id: Optional[str], *, require: bool, method: str
         method: The calling method's name, for the error message.
 
     Returns:
-        ``tenant_id``, unchanged. Returning rather than mutating keeps the call site a single
-        line that reads as a validation.
+        The tenant, **stripped of surrounding whitespace**, or ``None`` for an unscoped call.
+
+        Stripping is a correctness requirement, not tidiness. ``"acme "`` and ``"acme"`` are
+        different values to a SQL predicate, so passing the raw string through would let a write
+        stamp rows into a tenant that no properly-trimmed caller can ever name again -- exactly
+        the outcome the blank-tenant check below exists to prevent, reached by a subtler route.
+        The HTTP path is not where this bites (the JWT middleware already strips); it is the
+        non-HTTP callers this whole ticket exists to protect, where the tenant arrives from a
+        script argument, a config file, or an environment variable.
 
     Raises:
         TenantScopeRequiredError: If ``tenant_id`` is ``None`` and ``require`` is set, or if it
@@ -157,9 +210,10 @@ def resolve_tenant_scope(tenant_id: Optional[str], *, require: bool, method: str
         if require:
             raise TenantScopeRequiredError(f"{method}() was called unscoped. {TENANT_SCOPE_REQUIRED_DETAIL}")
         return None
-    if not tenant_id.strip():
+    normalized = tenant_id.strip()
+    if not normalized:
         raise TenantScopeRequiredError(
             f"{method}() was called with an empty tenant_id. Pass a real tenant, or None for "
             "explicitly unscoped access."
         )
-    return tenant_id
+    return normalized

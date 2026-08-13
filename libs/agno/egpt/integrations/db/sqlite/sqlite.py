@@ -218,12 +218,19 @@ class SqliteDb(BaseDb):
 
         Passing ``db_engine`` through is what keeps the clone on the existing connection
         pool instead of opening a second one per component load.
+
+        ``require_tenant_id`` is carried over for the same reason (EGPT-2.7), and it matters
+        more than it looks: ``EgptOS`` enables that flag by *mutating* the registered instance,
+        while ``egpt.db.utils.resolve_db_from_config`` clones on the component rehydration path
+        -- so a clone that dropped it would leave the guard missing at precisely the point
+        components are written, for an operator who had correctly opted in.
         """
         return SqliteDb(
             db_file=self.db_file,
             db_url=self.db_url,
             db_engine=self.db_engine,
             id=self.id,
+            require_tenant_id=self.require_tenant_id,
             **overrides,
         )
 
@@ -253,6 +260,7 @@ class SqliteDb(BaseDb):
             auth_tokens_table=data.get("auth_tokens_table"),
             service_accounts_table=data.get("service_accounts_table"),
             id=data.get("id"),
+            require_tenant_id=bool(data.get("require_tenant_id", False)),
         )
 
     def close(self) -> None:
@@ -4695,22 +4703,32 @@ class SqliteDb(BaseDb):
             log_error(f"Error getting dependents: {str(e)}")
             raise
 
-    def resolve_version(
+    def _resolve_version(
         self,
         component_id: str,
         version: Optional[int],
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[int]:
         """Resolve a version number, handling NULL (current) case.
+
+        Private, and tenant-guarded like its fourteen siblings (EGPT-2.7). It reads the
+        ``components`` table, so leaving it public with a defaulted ``tenant_id`` made it a
+        positionally-callable unscoped component read that defeated ``require_tenant_id`` --
+        the exact shape this ticket exists to close. Postgres already named it ``_resolve_version``;
+        the two now agree.
 
         Args:
             component_id: The component ID.
             version: Version number or None for current.
-            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
+            tenant_id: Tenant to scope the lookup to. Required; ``None`` is explicitly
+                unscoped and is refused when the db was built with ``require_tenant_id``.
 
         Returns:
             Resolved version number or None if component not found.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "_resolve_version")
+
         if version is not None:
             return version
 
@@ -4774,7 +4792,7 @@ class SqliteDb(BaseDb):
                     return None
                 version = labeled.get("version")
 
-            resolved_version = self.resolve_version(component_id, version, tenant_id=tenant_id)
+            resolved_version = self._resolve_version(component_id, version, tenant_id=tenant_id)
             if resolved_version is None:
                 return None
 
@@ -4806,7 +4824,7 @@ class SqliteDb(BaseDb):
                 child_id = link["child_component_id"]
                 child_ver = link.get("child_version")
 
-                resolved_child_ver = self.resolve_version(child_id, child_ver, tenant_id=tenant_id)
+                resolved_child_ver = self._resolve_version(child_id, child_ver, tenant_id=tenant_id)
                 resolved_versions[child_id] = resolved_child_ver
 
                 if resolved_child_ver is None:

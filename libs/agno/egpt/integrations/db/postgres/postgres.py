@@ -211,7 +211,10 @@ class PostgresDb(BaseDb):
         pool instead of opening a second one per component load. ``create_schema`` must be
         carried over too: it defaults to True, so a deployment that set it False because
         its role has no CREATE privilege would otherwise have schema DDL silently
-        re-enabled on the clone.
+        re-enabled on the clone. ``require_tenant_id`` is carried for the identical reason
+        (EGPT-2.7): ``EgptOS`` enables it by mutating the registered instance, and
+        ``egpt.db.utils.resolve_db_from_config`` clones on the component rehydration path, so a
+        clone that dropped it would remove the guard exactly where components get written.
         """
         return PostgresDb(
             db_url=self.db_url,
@@ -219,6 +222,7 @@ class PostgresDb(BaseDb):
             db_schema=self.db_schema,
             create_schema=self.create_schema,
             id=self.id,
+            require_tenant_id=self.require_tenant_id,
             **overrides,
         )
 
@@ -248,6 +252,7 @@ class PostgresDb(BaseDb):
             auth_tokens_table=data.get("auth_tokens_table"),
             service_accounts_table=data.get("service_accounts_table"),
             id=data.get("id"),
+            require_tenant_id=bool(data.get("require_tenant_id", False)),
         )
 
     def close(self) -> None:
@@ -4785,18 +4790,26 @@ class PostgresDb(BaseDb):
         self,
         component_id: str,
         version: Optional[int],
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[int]:
         """Resolve a version number, handling None as 'current'.
+
+        Tenant-guarded like its fourteen siblings (EGPT-2.7): it reads the ``components`` table,
+        so a defaulted ``tenant_id`` here would be an unscoped component read that defeats
+        ``require_tenant_id``.
 
         Args:
             component_id: The component ID.
             version: Version number or None for current.
-            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
+            tenant_id: Tenant to scope the lookup to. Required; ``None`` is explicitly
+                unscoped and is refused when the db was built with ``require_tenant_id``.
 
         Returns:
             Resolved version number, or None if component missing/deleted or no current.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "_resolve_version")
+
         if version is not None:
             return version
 

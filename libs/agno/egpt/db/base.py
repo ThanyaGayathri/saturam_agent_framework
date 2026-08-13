@@ -7,7 +7,7 @@ from uuid import uuid4
 if TYPE_CHECKING:
     from egpt.tracing.schemas import Span, Trace
 
-from egpt.db.component_scope import resolve_tenant_scope
+from egpt.db.component_scope import require_tenant_id_from_env, resolve_tenant_scope
 from egpt.db.schemas import UserMemory
 from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
@@ -21,7 +21,6 @@ from egpt.db.table_names import (
 )
 from egpt.run.base import RunStatus
 from egpt.session import Session
-from egpt.utils.env import get_branded_env_bool
 
 
 class SessionType(str, Enum):
@@ -48,7 +47,12 @@ class BaseDb(ABC):
     called with ``tenant_id=None`` raises ``TenantScopeRequiredError`` rather than applying no
     tenant predicate. Off by default; ``EgptOS`` turns it on for every registered db when the
     deployment configures a tenant claim, and ``EGPT_REQUIRE_TENANT_ID`` turns it on for dbs
-    built outside ``EgptOS``. See ``egpt/db/component_scope.py``.
+    built outside ``EgptOS``.
+
+    **It can only be turned on, never off.** The constructor argument is OR'd with the
+    environment variable, so ``require_tenant_id=False`` on a deployment that set
+    ``EGPT_REQUIRE_TENANT_ID`` leaves the db strict -- a caller's default argument must not be
+    able to relax a deployment-wide security control. See ``egpt/db/component_scope.py``.
     """
 
     # We assume the database to be up to date with the 2.0.0 release
@@ -84,12 +88,13 @@ class BaseDb(ABC):
         # deployment keeps working; ``EgptOS`` turns it on for every registered db when an
         # operator configures ``AuthorizationConfig(tenant_id_claim=...)``, and
         # ``EGPT_REQUIRE_TENANT_ID`` sets it for callers that never build a db through EgptOS.
-        # Only ever turned *on* here: an explicit ``False`` must not override the environment
-        # into being less strict, because that is the direction that loses data isolation.
-        # ``strict=False`` accepts ``1`` and ``yes`` as well as ``true``: silently ignoring
-        # ``EGPT_REQUIRE_TENANT_ID=1`` would leave an operator who believes they enabled a
-        # security control with it switched off.
-        self.require_tenant_id = require_tenant_id or get_branded_env_bool("REQUIRE_TENANT_ID", strict=False)
+        #
+        # The ``or`` is one-way on purpose: this can be turned on here but never off. An
+        # explicit ``require_tenant_id=False`` -- which is also the default every caller passes
+        # implicitly -- must not relax what the deployment enabled, because that is the
+        # direction that loses isolation. Pinned by
+        # ``test_explicit_ctor_arg_does_not_downgrade_the_env``.
+        self.require_tenant_id = require_tenant_id or require_tenant_id_from_env()
         self.table_prefix = validate_table_prefix(table_prefix)
         self.session_table_name = session_table or f"{self.table_prefix}sessions"
         self.culture_table_name = culture_table or f"{self.table_prefix}culture"
@@ -124,6 +129,12 @@ class BaseDb(ABC):
             "id": self.id,
             "table_prefix": self.table_prefix,
         }
+        # Serialized only when on (EGPT-2.7). A security control must survive a
+        # to_dict/from_dict round trip, or a db rehydrated from a stored config silently loses
+        # the enforcement its original had. Omitted when False for the same reason default table
+        # names are omitted: it keeps stored configs free of restated defaults.
+        if self.require_tenant_id:
+            data["require_tenant_id"] = True
         for param, suffix in TABLE_SUFFIXES.items():
             value = getattr(self, table_name_attr(param), None)
             if value is not None and value != f"{self.table_prefix}{suffix}":
@@ -157,6 +168,7 @@ class BaseDb(ABC):
             service_accounts_table=data.get("service_accounts_table"),
             table_prefix=data.get("table_prefix"),
             id=data.get("id"),
+            require_tenant_id=bool(data.get("require_tenant_id", False)),
         )
 
     def clone_with_table_overrides(self, **overrides: Any) -> Optional["BaseDb"]:
