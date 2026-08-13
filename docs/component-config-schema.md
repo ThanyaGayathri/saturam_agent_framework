@@ -78,7 +78,7 @@ which leaves rows behind for every typo.
 POST /components/validate
 Authorization: Bearer <token>          # requires components:write, not :read
 
-{"component_type": "agent", "config": {...}, "component_id": "support", "links": null}
+{"component_type": "agent", "config": {...}, "component_id": "support", "name": "Support", "links": null}
 ```
 
 - `200 {"valid": true, "schema_version": 1}` on success.
@@ -89,6 +89,12 @@ Authorization: Bearer <token>          # requires components:write, not :read
 - `component_id` is optional and is used only for self-reference detection (a team that lists
   itself as a member). It is **not** looked up: the dry run performs no component reads at all,
   so it cannot be used to probe which ids exist in another tenant.
+- **When `component_id` is omitted, it is derived from `name`** with `generate_id_from_name`,
+  exactly as `POST /components` derives it. Send the same `name` you would send to the create
+  call. Skipping this is what made an earlier revision answer `200 valid` for a self-referencing
+  team that the write route then rejected with `cyclic_reference` — `component_id` is the sole
+  input to that check, so any divergence in how the two routes establish identity is a divergence
+  in the verdict.
 - It stores nothing, on any path, valid or not.
 
 The scope is `components:write` rather than `components:read` deliberately — the endpoint reports

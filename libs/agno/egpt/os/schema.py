@@ -924,6 +924,13 @@ class ComponentValidateRequest(BaseModel):
         None,
         description="The id this config would be stored under. Supplied so self-references are detected.",
     )
+    name: Optional[str] = Field(
+        None,
+        description=(
+            "The display name the component would be created with. Used only to derive "
+            "`component_id` when it is omitted, exactly as POST /components does."
+        ),
+    )
     links: Optional[List[Dict[str, Any]]] = Field(None, description="Optional links to child components")
 
 

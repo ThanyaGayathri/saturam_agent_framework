@@ -1054,3 +1054,74 @@ class TestValidateEndpoint:
         )
 
         assert set(response.json()) == {"valid", "schema_version"}
+
+
+# =============================================================================
+# The dry run and the write route must agree on identity (PR #72 review, finding 1)
+# =============================================================================
+#
+# `create_component` derives `component_id` from `name` when the caller omits it, and
+# `component_id` is the *only* input to self-reference detection. A dry run that passed the
+# caller's `component_id` straight through therefore answered 200 for a self-referencing team
+# that the write route then rejected with `cyclic_reference` -- and on the console's default
+# path, where the id box is optional and labelled "derived from name".
+
+
+class TestTheDryRunDerivesTheIdLikeTheWriteRoute:
+    SELF_REFERENCING_TEAM = {"members": [{"type": "team", "team_id": "support-team"}]}
+
+    def test_a_self_reference_is_caught_when_the_id_is_derived_from_the_name(self, client):
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "team", "name": "Support Team", "config": self.SELF_REFERENCING_TEAM},
+        )
+
+        assert response.status_code == 422
+        assert [(e["path"], e["code"]) for e in response.json()["errors"]] == [
+            ("config.members[0].team_id", "cyclic_reference")
+        ]
+
+    def test_it_agrees_with_the_write_route_on_a_derived_id(self, client):
+        """The byte-identity contract, on the path that used to break it."""
+        body = {"name": "Support Team", "component_type": "team", "config": self.SELF_REFERENCING_TEAM}
+
+        dry_run = client.post("/components/validate", json=body)
+        write = client.post("/components", json=body)
+
+        assert dry_run.status_code == write.status_code == 422
+        assert dry_run.json() == write.json()
+
+    def test_an_explicit_id_still_wins_over_the_name(self, client):
+        """`component_id` is authoritative when supplied, exactly as on the write route."""
+        response = client.post(
+            "/components/validate",
+            json={
+                "component_type": "team",
+                "component_id": "something-else",
+                "name": "Support Team",
+                "config": self.SELF_REFERENCING_TEAM,
+            },
+        )
+
+        assert response.status_code == 200
+
+    def test_a_team_that_does_not_reference_itself_is_unaffected(self, client):
+        response = client.post(
+            "/components/validate",
+            json={
+                "component_type": "team",
+                "name": "Support Team",
+                "config": {"members": [{"type": "agent", "agent_id": "faq-agent"}]},
+            },
+        )
+
+        assert response.status_code == 200
+
+    def test_name_is_optional(self, client):
+        """Clients that always send an explicit id must not have to start sending a name."""
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "agent", "config": VALID_AGENT_CONFIG},
+        )
+
+        assert response.status_code == 200

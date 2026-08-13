@@ -248,7 +248,11 @@ const state = {
   version: null,     // the version loaded into the editor, null for an unsaved draft
   config: {},        // the parsed config in the editor
   instructionsWasList: false,
-  canWrite: true,    // flipped off after a scope 403 so we stop offering doomed actions
+  // Scopes the server has explicitly refused, so we stop offering doomed actions. Tracked per
+  // scope rather than as one "can write" flag: components:delete is a SEPARATE scope, so a
+  // least-privilege token holding read+write would otherwise lose Save, Publish, Clone and
+  // Rollback for the session the first time someone clicked Delete.
+  deniedScopes: new Set(),
 };
 
 // ---------------------------------------------------------------------------
@@ -256,6 +260,13 @@ const state = {
 // ---------------------------------------------------------------------------
 
 const $ = (id) => document.getElementById(id);
+
+// The three component scopes are independent (os/scopes.py), so each is asked about separately.
+// Unknown until the server refuses one: absence of a refusal means "offer it and let the server
+// decide", which is the right default for a token whose scopes the console cannot introspect.
+const hasScope = (scope) => !state.deniedScopes.has(scope);
+const canWrite = () => hasScope("components:write");
+const canDelete = () => hasScope("components:delete");
 
 function el(tag, opts) {
   const node = document.createElement(tag);
@@ -297,12 +308,12 @@ $("btn-token-save").addEventListener("click", () => {
   if (!value) { renderErrors($("token-error"), { summary: "Paste a token first.", fields: [] }); return; }
   sessionStorage.setItem(TOKEN_KEY, value);
   $("token-modal").hidden = true;
-  state.canWrite = true;
+  state.deniedScopes.clear();
   loadList();
 });
 $("btn-signout").addEventListener("click", () => {
   sessionStorage.removeItem(TOKEN_KEY);
-  state.canWrite = true;
+  state.deniedScopes.clear();
   show("list");
   clear($("list-body"));
   openTokenModal("Signed out.");
@@ -352,11 +363,17 @@ async function api(method, path, body) {
 
   if (response.status === 401) {
     openTokenModal("The server rejected this token. Paste a current one.");
-  } else if (response.status === 403 && norm.summary.indexOf("Insufficient permissions") === 0) {
-    // The token authenticated but lacks components:write (or :delete). Stop offering writes
-    // rather than let every button fail the same way.
-    state.canWrite = false;
-    renderEditorActions();
+  } else if (response.status === 403) {
+    // The token authenticated but lacks a scope. Record exactly which one the server named --
+    // "Insufficient permissions. Required scope(s): components:delete" -- so only the controls
+    // needing that scope are withdrawn. A bare "Insufficient permissions" names nothing, so
+    // nothing is latched: guessing would disable controls that might work.
+    const named = /Required scope\(s\):\s*(.+)$/.exec(norm.summary);
+    if (named) {
+      named[1].split(",").forEach((scope) => state.deniedScopes.add(scope.trim()));
+      renderEditorActions();
+      if (state.component) renderVersions();
+    }
   }
 
   throw new ApiError(response.status, norm);
@@ -620,10 +637,32 @@ const editingPublished = () => { const c = currentConfigRow(); return !!c && c.s
 
 // --- form <-> config -------------------------------------------------------
 
+// A config may store `model` either as an object or as the "<provider>:<model_id>" shorthand --
+// the server accepts and stores both verbatim (registry/schema.py `_check_model_ref`). Reading
+// `.id` off the string form yields undefined, which rendered the fields blank and then let
+// formToConfig() delete the whole `model` key on the next edit, so the operator was blamed for a
+// missing field the console had removed. Normalising on read is what keeps the round trip lossless.
+function readModelRef(model) {
+  if (typeof model === "string") {
+    const separator = model.indexOf(":");
+    if (separator === -1) return { id: model.trim(), provider: "", wasString: true };
+    return {
+      provider: model.slice(0, separator).trim(),
+      id: model.slice(separator + 1).trim(),
+      wasString: true,
+    };
+  }
+  if (model && typeof model === "object") {
+    return { id: model.id || "", provider: model.provider || "", wasString: false };
+  }
+  return { id: "", provider: "", wasString: false };
+}
+
 function configToForm() {
   const config = state.config || {};
-  const model = config.model || {};
+  const model = readModelRef(config.model);
   const db = config.db || {};
+  state.modelWasString = model.wasString;
   $("f-model-id").value = model.id || "";
   $("f-model-provider").value = model.provider || "";
   $("f-db-id").value = db.id || "";
@@ -648,7 +687,19 @@ function formToConfig() {
 
   const modelId = $("f-model-id").value.trim();
   const modelProvider = $("f-model-provider").value.trim();
-  if (modelId || modelProvider) {
+  if (state.modelWasString) {
+    // Written back in the shape it arrived in, for the same reason `instructions` is: rewriting an
+    // operator's shorthand as an object is a change they did not ask for. A provider-less string
+    // stays a string even though the server will reject it as `invalid_format` -- that error then
+    // names the text the operator actually typed, instead of one the console substituted.
+    if (modelId && modelProvider) {
+      config.model = modelProvider + ":" + modelId;
+    } else if (modelId || modelProvider) {
+      config.model = modelProvider ? modelProvider + ":" : modelId;
+    } else {
+      delete config.model;
+    }
+  } else if (modelId || modelProvider) {
     config.model = Object.assign({}, config.model);
     if (modelId) config.model.id = modelId; else delete config.model.id;
     if (modelProvider) config.model.provider = modelProvider; else delete config.model.provider;
@@ -709,33 +760,54 @@ function renderEditorActions() {
   const published = editingPublished();
   const existing = !!state.component;
 
-  $("btn-save").disabled = !state.canWrite || published;
+  $("btn-save").disabled = !canWrite() || published;
   $("btn-save").textContent = existing ? (state.version === null ? "Save new draft" : "Save draft") : "Create component";
   $("btn-save").title = published
     ? "Published configs are immutable. Clone this version to a draft to change it."
     : "";
 
   $("btn-save-new").hidden = !existing;
-  $("btn-save-new").disabled = !state.canWrite;
+  $("btn-save-new").disabled = !canWrite();
 
   $("btn-delete-component").hidden = !existing;
-  $("btn-delete-component").disabled = !state.canWrite;
+  $("btn-delete-component").disabled = !canDelete();
 
   const readOnly = published;
   ["f-name", "f-description", "f-model-id", "f-model-provider", "f-db-id", "f-instructions", "f-json"]
     .forEach((id) => { $(id).readOnly = readOnly && id !== "f-name" && id !== "f-description"; });
 }
 
+// The single place that decides what the editor's current bytes are. Validate and Save MUST both
+// go through it: the `change` listeners only fire on blur-after-edit, so a handler that skipped
+// formToConfig() would act on a stale state.config and the two would transmit different bytes --
+// a green Validate followed by a red Save, on a config that was never the one validated.
+// Returns false when the JSON does not parse, having already shown the error.
+function syncEditorConfig() {
+  if (!jsonToConfig()) return false;
+  formToConfig();
+  return true;
+}
+
+// What identifies the component being validated. Mirrors what saveDraft would send, because
+// `component_id` is the sole input to self-reference detection: sending a different identity to
+// the dry run than to the write is what makes the two disagree. `name` is sent so the server can
+// derive the id exactly as POST /components does when the id box is left empty.
+function editorIdentity() {
+  return {
+    component_id: state.component ? state.component.component_id : ($("f-id").value.trim() || null),
+    name: state.component ? state.component.name || null : ($("f-name").value.trim() || null),
+  };
+}
+
 $("btn-validate").addEventListener("click", async () => {
-  if (!jsonToConfig()) return;
+  if (!syncEditorConfig()) return;
   clearFieldErrors();
   clear($("editor-error"));
   try {
-    await api("POST", "/components/validate", {
-      component_type: $("f-type").value,
-      config: state.config,
-      component_id: state.component ? state.component.component_id : ($("f-id").value.trim() || null),
-    });
+    await api("POST", "/components/validate", Object.assign(
+      { component_type: $("f-type").value, config: state.config },
+      editorIdentity()
+    ));
     renderOk($("editor-error"), "The configuration is valid.");
   } catch (e) {
     renderErrors($("editor-error"), e.norm || { summary: String(e), fields: [] });
@@ -746,8 +818,7 @@ $("btn-save").addEventListener("click", () => saveDraft(false));
 $("btn-save-new").addEventListener("click", () => saveDraft(true));
 
 async function saveDraft(forceNewVersion) {
-  if (!jsonToConfig()) return;
-  formToConfig();
+  if (!syncEditorConfig()) return;
   clearFieldErrors();
   clear($("editor-error"));
 
@@ -850,7 +921,7 @@ function renderVersions() {
       actions.appendChild(el("button", {
         text: "Clone to draft",
         cls: "link",
-        disabled: !state.canWrite,
+        disabled: !canWrite(),
         title: "Published configs are immutable. This copies it into a new editable draft.",
         onClick: () => cloneToDraft(config),
       }));
@@ -858,7 +929,7 @@ function renderVersions() {
       actions.appendChild(el("button", {
         text: "Publish",
         cls: "link",
-        disabled: !state.canWrite,
+        disabled: !canWrite(),
         title: "Publish this draft and make it the version runtimes hydrate.",
         onClick: () => publish(config.version),
       }));
@@ -868,18 +939,18 @@ function renderVersions() {
     actions.appendChild(el("button", {
       text: "Make current",
       cls: "link",
-      disabled: !canRollback || !state.canWrite,
+      disabled: !canRollback || !canWrite(),
       title: isCurrent
         ? "Already the current version."
         : (published ? "Roll back to this published version." : "Only a published version can be made current."),
       onClick: () => rollback(config.version),
     }));
 
-    const canDelete = !published && !isCurrent;
+    const rowIsDeletable = !published && !isCurrent;
     actions.appendChild(el("button", {
       text: "Delete",
       cls: "link danger",
-      disabled: !canDelete || !state.canWrite,
+      disabled: !rowIsDeletable || !canDelete(),
       title: published
         ? "Published versions cannot be deleted."
         : (isCurrent ? "The current version cannot be deleted." : "Delete this draft."),

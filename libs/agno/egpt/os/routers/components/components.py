@@ -12,7 +12,16 @@ from egpt.db.component_audit import COMPONENT_AUDIT_ACTIONS
 from egpt.db.utils import resolve_db_reference
 from egpt.os.actor import get_actor
 from egpt.os.auth import get_authentication_dependency, require_route_scopes
-from egpt.os.routers.components.validation import config_validation_response, validate_component_config
+
+# Aliased on import, and that is load-bearing rather than cosmetic. `attach_routes` is a closure,
+# so a handler inside it named `validate_component_config` would rebind the validator for every
+# other handler in the closure -- three of them call it. Binding the module-level function to a
+# name no route handler would plausibly take makes that collision structurally impossible instead
+# of merely discouraged, which matters because `/components/validate` carries
+# `operation_id="validate_component_config"`: the dangerous spelling sits a few lines from the
+# handler, inviting a future contributor to "fix the inconsistency".
+from egpt.os.routers.components.validation import config_validation_response
+from egpt.os.routers.components.validation import validate_component_config as _validate_config
 from egpt.os.schema import (
     BadRequestResponse,
     ComponentAuditResponse,
@@ -232,7 +241,7 @@ def attach_routes(
             # nothing to validate yet. Validation runs after the db reference is resolved, so
             # it sees exactly the bytes that get persisted.
             if config:
-                config = validate_component_config(
+                config = _validate_config(
                     config,
                     body.component_type.value,
                     db=db,
@@ -316,16 +325,26 @@ def attach_routes(
             config = dict(body.config or {})
             config, unresolved_db_id = _resolve_db_in_config(config, db, registry)
 
+            # The id is derived from `name` exactly as `create_component` derives it, because
+            # `component_id` is the sole input to self-reference detection: a team that lists
+            # itself is only detectable once the id is known. Passing the caller's `component_id`
+            # straight through made the dry run answer 200 for the config the write route then
+            # 422s with `cyclic_reference` -- and on the console's default path, where the id box
+            # is optional. Any divergence between these two lines is a divergence in the verdict.
+            component_id = body.component_id
+            if component_id is None and body.name:
+                component_id = generate_id_from_name(body.name)
+
             # Resolution runs first for the same reason it does on the write path: a db id nobody
             # can resolve should surface as a field error at `config.db.id`, not slip through here
             # and fail on the real write.
             if config:
-                validate_component_config(
+                _validate_config(
                     config,
                     body.component_type.value,
                     db=db,
                     registry=registry,
-                    component_id=body.component_id,
+                    component_id=component_id,
                     unresolved_db_id=unresolved_db_id,
                     links=body.links,
                     policy=policy,
@@ -485,7 +504,7 @@ def attach_routes(
             config_data, unresolved_db_id = _resolve_db_in_config(config_data, db, registry)
 
             if config_data:
-                config_data = validate_component_config(
+                config_data = _validate_config(
                     config_data,
                     str(component["component_type"]),
                     db=db,
@@ -549,7 +568,7 @@ def attach_routes(
             if config_data is not None:
                 config_data, unresolved_db_id = _resolve_db_in_config(config_data, db, registry)
                 if config_data:
-                    config_data = validate_component_config(
+                    config_data = _validate_config(
                         config_data,
                         str(component["component_type"]),
                         db=db,

@@ -248,3 +248,102 @@ class TestTheAssetShips:
 
         assert path.is_file(), f"{path} is missing; check the package-data entry in pyproject.toml"
         assert path.read_text(encoding="utf-8").lstrip().startswith("<!doctype html>")
+
+
+# =============================================================================
+# The page's own logic (PR #72 review, findings 2 and 3)
+# =============================================================================
+#
+# The console is plain JavaScript with no build step, so there is no JS test runner in this repo
+# and none is being introduced for it. These tests extract the page's pure functions and run them
+# under `node`, skipping where node is absent -- which keeps the two review findings pinned
+# wherever node exists (every developer machine, and CI images that carry it) instead of nowhere.
+
+JS_ROUND_TRIP = r"""
+const fs = require("fs");
+const html = fs.readFileSync(process.argv[2], "utf8");  // argv[1] is this script
+const js = html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script>"));
+const slice = js.slice(js.indexOf("function readModelRef"), js.indexOf("// Returns false and shows"));
+
+const inputs = {};
+const $ = (id) => (inputs[id] = inputs[id] || { value: "" });
+const state = { config: {}, modelWasString: false, instructionsWasList: false };
+eval(slice);
+
+const CASES = [
+  {id: "a1", name: "A", model: "openai:gpt-5.5"},
+  {id: "a1", model: {id: "gpt-5.5", provider: "openai"}},
+  {id: "a1", model: "gpt-5.5"},
+  {id: "a1", model: "openai:gpt-5.5", tools: ["x"], output_schema: {a: 1}, members: [{x: 1}]},
+  {id: "a1", model: "openai:gpt-5.5", instructions: ["one", "two"]},
+  {id: "a1", instructions: "hi"},
+];
+
+const differing = [];
+for (const original of CASES) {
+  state.config = JSON.parse(JSON.stringify(original));
+  configToForm();
+  const out = formToConfig();
+  if (JSON.stringify(out) !== JSON.stringify(original)) {
+    differing.push({original: original, got: out});
+  }
+}
+console.log(JSON.stringify(differing));
+"""
+
+
+@pytest.fixture
+def node():
+    import shutil
+
+    binary = shutil.which("node")
+    if binary is None:
+        pytest.skip("node is not installed; the console's JS assertions need it")
+    return binary
+
+
+class TestTheFormJsonRoundTripIsLossless:
+    def test_every_config_shape_survives_the_form(self, node, tmp_path):
+        """Finding 2: a `model` stored as the "<provider>:<id>" string -- which the server accepts
+        and stores verbatim -- rendered blank in the form, so the next field change deleted the
+        whole key and the operator was blamed for a missing field the console had removed."""
+        import json
+        import subprocess
+
+        script = tmp_path / "round_trip.js"
+        script.write_text(JS_ROUND_TRIP, encoding="utf-8")
+
+        result = subprocess.run(
+            [node, str(script), str(console_asset_path())],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        assert result.returncode == 0, result.stderr
+        differing = json.loads(result.stdout)
+        assert differing == [], f"these configs did not survive the form: {differing}"
+
+
+class TestValidateAndSaveCannotDiverge:
+    def test_both_go_through_the_same_sync_helper(self):
+        """Finding 3: the Validate handler skipped `formToConfig()` while `saveDraft` called it, so
+        the two transmitted different bytes -- a green Validate on a config that was never sent.
+
+        Asserted on the source rather than by driving a browser: the property is "there is exactly
+        one place that decides the editor's current bytes, and both callers use it", which is a
+        structural claim about the file.
+        """
+        page = console_asset_path().read_text(encoding="utf-8")
+
+        assert page.count("function syncEditorConfig()") == 1
+        assert page.count("syncEditorConfig()") == 3  # the definition plus both callers
+        # Neither caller may reach past it to the lower-level pair.
+        assert "if (!jsonToConfig()) return;\n  formToConfig();" not in page
+
+    def test_validate_sends_the_same_identity_the_write_would(self):
+        """Finding 1's client half: the dry run must name the same component the save will."""
+        page = console_asset_path().read_text(encoding="utf-8")
+
+        assert page.count("function editorIdentity()") == 1
+        assert "editorIdentity()" in page

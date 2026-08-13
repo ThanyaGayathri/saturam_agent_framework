@@ -14,9 +14,17 @@ from fastapi.responses import FileResponse
 # is what keeps a future edit from quietly reintroducing a CDN. The operator's bearer token lives
 # in this origin's sessionStorage, so "no third-party script" is a security property here, not
 # just an air-gap convenience. 'unsafe-inline' is unavoidable for a single-file page.
+#
+# ``base-uri`` is listed explicitly because ``default-src`` does **not** cover it -- absent its own
+# directive it defaults permissive. With ``script-src 'unsafe-inline'`` unavoidable for a
+# single-file page, an injected ``<base href>`` would repoint every relative fetch this page makes,
+# including the ones carrying the operator's bearer token. There is no injection sink today (the
+# page renders every server-supplied value with ``textContent``), so this closes a step in a chain
+# rather than a live hole.
 CONSOLE_CSP = (
     "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; "
-    "script-src 'unsafe-inline'; img-src data:; form-action 'none'; frame-ancestors 'none'"
+    "script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; "
+    "frame-ancestors 'none'"
 )
 
 
