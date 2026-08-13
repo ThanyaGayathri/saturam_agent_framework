@@ -150,6 +150,14 @@ def traverse_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
 
     Three statements rather than one ``UNION``: a union of three ranked, limited legs still needs a
     merge above it, so it buys nothing and costs the ability to read each statement on its own.
+
+    **Cost model, stated because no index changes it.** The scoring runs per row over everything
+    that survives the scope, tier and current-belief filters, before ``ORDER BY ... LIMIT``. None of
+    the shipped indexes lead with a column this statement filters on, so the work scales with
+    rows-in-scope rather than with ``limit`` -- a tenant-prefix scan at best, however narrow the
+    caller's ``user_id`` happens to be. Picking an index for it is guesswork until someone measures
+    at the real envelope, and SM-G9 (#107) replaces this read path outright; sizing it is the same
+    unmeasured question as the graph-side isolation benchmark SM-R2 section 5.4 asks for.
     """
     return [
         _traverse(f"MATCH (e:{EPISODE})", "e", scope),
@@ -373,7 +381,13 @@ _PROBE = (
 
 #: Idempotent schema. Uniqueness is on ``row_id`` and not on ``id``: under SCD-2 one logical id has
 #: many revisions, so a constraint on ``id`` would reject the bounded copy that invalidation exists
-#: to insert. The lookup indexes are what keep the scope predicate off a full scan.
+#: to insert.
+#:
+#: The indexes below back the **id-equality** reads -- ``bounds_for_ids``, ``live_row``, and the
+#: entity merge. They do **not** help ``traverse``, which filters on the scope slots, ``tier`` and
+#: ``expired_at`` and never mentions ``id``: see that statement's cost note in
+#: :func:`traverse_statements`. Claiming otherwise here would be the more comfortable comment and
+#: the false one.
 #: The identity every write ``MERGE``s on. A composite uniqueness constraint here is what turns
 #: ``MERGE`` from "usually one row" into a guarantee: Neo4j documents ``MERGE`` as safe under
 #: concurrency only when a constraint backs the pattern. Expired revisions carry no ``live`` marker,

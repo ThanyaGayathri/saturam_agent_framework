@@ -846,6 +846,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
         await self._areconcile_bounds(scope, episodes)
         return [e for e in episodes if e.is_current_belief() and _valid_at(e, instant)]
 
+    @staticmethod
+    def _check_distilled(facts: Sequence[FactWrite]) -> None:
+        """The guard ``_prepare`` applies to a write batch, applied to a consolidated one.
+
+        Called **before** either half writes anything, for two reasons. One function both halves
+        call cannot drift -- added to the sync path alone, it was missing from the async one a
+        review later. And a refusal before the fan-out must propagate bare: inside the write's
+        ``try`` it was reshaped into a ``PartialWriteError`` announcing zero committed ids, which
+        tells a caller to retry something that never started.
+
+        ``_distil``'s grouping partitions its input, so no two groups can derive one fact id today
+        -- but that is a property of the current strategy, which SM-L3 (#124) replaces, and an
+        un-enforced invariant one refactor from reopening a duplicate-row hole is worth one call.
+        """
+        reject_duplicate_ids([fact.record for fact in facts])
+
     def _graph_fact_batch(self, fact_scope: Scope, batch: Sequence[FactWrite], receipt: WriteReceipt) -> None:
         """The sync counterpart of ``_gather_writes`` for one batch of facts.
 
@@ -856,11 +872,6 @@ class CoLocatedMemoryProvider(MemoryProvider):
         ``consolidate``'s ``committed_any`` arm -- that arm would report a bare refusal, and a bare
         refusal denies the caller the ids its retry needs.
         """
-        # The same guard `_prepare` applies to a write batch. `_distil`'s grouping partitions its
-        # input, so no two groups can derive one fact id today -- but that is a property of the
-        # current strategy, which SM-L3 (#124) replaces, and an un-enforced invariant one refactor
-        # from reopening a duplicate-row hole is worth one call.
-        reject_duplicate_ids([fact.record for fact in batch])
         failures: List[BaseException] = []
         try:
             self.graph.upsert_facts(fact_scope, batch)  # type: ignore[union-attr]  # caller checked
@@ -880,6 +891,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         facts, merged = self._distil(episodes)
 
         if facts:
+            self._check_distilled(facts)
             to_vector, to_graph = self._fact_targets(facts)
             # Stamped up front, exactly as `write` does. Advancing counters inside the loop left
             # `accepted=0, event_ids=[]` on every single-scope failure -- the ordinary case -- while
@@ -926,6 +938,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         facts, merged = await asyncio.to_thread(self._distil, episodes)
 
         if facts:
+            self._check_distilled(facts)
             to_vector, to_graph = self._fact_targets(facts)
             receipt = WriteReceipt(
                 accepted=len(facts),

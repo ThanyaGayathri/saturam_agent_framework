@@ -57,6 +57,23 @@ except ImportError:
 __all__ = ["Neo4jGraphSubstrate"]
 
 
+def _as_json(value: Optional[Dict[str, Any]], field: str) -> str:
+    """Serialize a nested value, in this module's error envelope rather than the stdlib's.
+
+    A Neo4j property holds primitives and arrays only, so these two travel as JSON. Every other
+    input failure here raises ``MemoryOperationError``; a bare ``TypeError`` from ``json`` would be
+    the one that does not, and it names neither the field nor the record.
+    """
+    try:
+        return json.dumps(value or {})
+    except TypeError as exc:
+        raise MemoryOperationError(
+            f"{field} is not JSON-serializable ({exc}). A graph property holds primitives and "
+            "arrays, so nested values are stored as JSON.",
+            field_name=field,
+        ) from exc
+
+
 def _tiers(query: MemoryQuery) -> List[str]:
     """The tier set as the statement binds it.
 
@@ -105,6 +122,12 @@ class Neo4jGraphSubstrate:
         self._auth = (username, password)
         self._driver = GraphDatabase.driver(self.uri, auth=self._auth)
         self._adriver: Optional["AsyncDriver"] = None
+        # Eager, unlike `PgVector`'s deferred `create_schema`. The statements are idempotent, so a
+        # repeat costs latency and not correctness -- and the uniqueness constraints are what make
+        # `MERGE` safe, so a backend that wrote before creating them would be unprotected for
+        # exactly as long as it took to notice. `auto_init_schema=False` is the opt-out. Deferring
+        # to first use becomes worth revisiting if an async construction path is ever added, since
+        # these are blocking calls.
         if auto_init_schema:
             self.init_schema()
 
@@ -131,6 +154,10 @@ class Neo4jGraphSubstrate:
                 tx.commit()
         return results
 
+    # `_run` has no explicit rollback: `with session.begin_transaction()` rolls back on an
+    # exception, which `_arun` cannot use because the async driver's transaction is not a context
+    # manager. The two are equivalent, and are spelled differently only for that reason -- worth
+    # stating so a reader does not "fix" the asymmetry on one side and create a real one.
     async def _arun(
         self, statements: Sequence[Tuple[str, Dict[str, Any]]], **params: Any
     ) -> List[List[Dict[str, Any]]]:
@@ -162,11 +189,24 @@ class Neo4jGraphSubstrate:
                 await session.run(statement)
 
     def close(self) -> None:
-        """Close both halves. A caller that used the async path and then called this would
-        otherwise leak the async pool, and nothing about the name suggests it only closes one."""
+        """Close the sync driver, and **refuse** when an async one is still open.
+
+        Dropping the reference is not closing: it leaves the pool's sockets and background tasks
+        open -- a live ``ResourceWarning: unclosed AsyncBoltDriver`` -- and permanently disables
+        :meth:`aclose`'s own guard, so the leak becomes unreachable rather than fixed.
+
+        Closing it here is not possible either, and the reason is structural rather than a missing
+        ``await``: an async driver binds to the event loop that created it, so once that loop has
+        finished ``asyncio.run`` on a fresh one raises ``Event loop is closed`` mid-teardown. That
+        leaves refusing, which is what this module does everywhere else it cannot honour a call.
+        """
         if self._adriver is not None:
-            log_debug("Neo4jGraphSubstrate.close() is dropping an async driver; prefer aclose() there")
-            self._adriver = None
+            raise MemoryOperationError(
+                "This substrate has an open async driver, and close() cannot release it: an async "
+                "driver is bound to the loop that created it, so a sync call can neither await it "
+                "nor drive that loop. Call aclose() from the same async context; it closes both.",
+                field_name="close",
+            )
         self._driver.close()
 
     async def aclose(self) -> None:
@@ -187,9 +227,15 @@ class Neo4jGraphSubstrate:
         episodes is filed tenant-wide and every user in the tenant can read it.
         """
         if row_scope != scope:
+            # Slot names, never the values. This fires on a *foreign* scope by definition, so the
+            # values are exactly the identifiers that must not reach a log line or an API response
+            # -- the convention `co_located._assert_scope_isolation` already states and follows.
+            differing = [
+                slot for slot in cypher.SCOPE_SLOTS if getattr(row_scope, slot, None) != getattr(scope, slot, None)
+            ]
             raise MemoryOperationError(
-                f"Record scope {row_scope.key()!r} does not match the write scope {scope.key()!r}. "
-                "Batch per scope rather than leaving the choice to the backend.",
+                f"Record scope does not match the write scope; {len(differing)} slot(s) differ: "
+                f"{', '.join(differing)}. Batch per scope rather than leaving the choice to the backend.",
                 field_name="scope",
             )
 
@@ -215,8 +261,8 @@ class Neo4jGraphSubstrate:
             "created_at": fields.get("created_at"),
             "expired_at": fields.get("expired_at"),
             "superseded_by": fields.get("superseded_by"),
-            "provenance": json.dumps(fields.get("provenance") or {}),
-            "metadata": json.dumps(fields.get("metadata") or {}),
+            "provenance": _as_json(fields.get("provenance"), "provenance"),
+            "metadata": _as_json(fields.get("metadata"), "metadata"),
         }
 
     @staticmethod

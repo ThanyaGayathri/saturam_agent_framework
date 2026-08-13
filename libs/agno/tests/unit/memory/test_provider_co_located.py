@@ -28,7 +28,6 @@ from egpt.memory.types import (
     PartialWriteError,
     Scope,
     Substrate,
-    WriteReceipt,
 )
 from egpt.utils.dttm import now_epoch_s
 from tests.unit.memory._fakes import FakeGraph, FakeVector, _yield, assert_ports_satisfied
@@ -1586,21 +1585,32 @@ def test_a_group_with_one_open_ended_episode_stays_open_ended():
     assert facts[0].t_invalid is None, "one unbounded member keeps the whole fact open"
 
 
-def test_consolidation_refuses_two_facts_sharing_an_id():
-    """The guard `write` has always had, on the path that did not.
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_consolidation_refuses_two_facts_sharing_an_id(half, monkeypatch):
+    """The guard `write` has always had, on the path that did not -- reached from **both** halves.
 
-    `_distil`'s grouping partitions its input, so today no two groups can derive one fact id -- but
-    that is a property of the current strategy, which SM-L3 (#124) replaces. An un-enforced
-    invariant one refactor away from writing two rows under one id is worth one call.
+    Driven through `consolidate`, not by calling the helper: the first attempt asserted on the
+    helper directly and passed happily with the guard deleted from the async entry point, which is
+    the divergence this parametrisation exists to catch.
+
+    `_distil` cannot produce a duplicate id today -- its grouping partitions the input -- so the
+    strategy is stubbed to produce one. That is the point of the guard: it holds whatever SM-L3
+    (#124) replaces the grouping with.
     """
     p, _, graph = provider()
+    p.write(ACME, [event("alpha beta gamma", id="ep1")])
     record = MemoryRecord(id="same", tier=MemoryTier.SEMANTIC, content="a fact", scope=ACME)
-    batch = [FactWrite(record=record), FactWrite(record=replace(record, content="another fact"))]
+    duplicated = [FactWrite(record=record), FactWrite(record=replace(record, content="another fact"))]
+    monkeypatch.setattr(type(p), "_distil", lambda self, episodes: (duplicated, 0))
 
-    with pytest.raises(MemoryOperationError, match="Duplicate event id"):
-        p._graph_fact_batch(ACME, batch, WriteReceipt())
+    with pytest.raises(MemoryOperationError, match="Duplicate event id") as exc:
+        if half == "sync":
+            p.consolidate(ACME)
+        else:
+            await p.aconsolidate(ACME)
 
-    assert "upsert_facts" not in graph.calls, "the refusal must precede the write"
+    assert not isinstance(exc.value, PartialWriteError), "a refusal before any write propagates bare"
+    assert "upsert_facts" not in graph.calls and "aupsert_facts" not in graph.calls, "nothing was written"
 
 
 class _CountingFailureGraph(FakeGraph):

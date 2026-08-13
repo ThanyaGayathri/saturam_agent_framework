@@ -515,6 +515,57 @@ async def test_the_async_reads_agree_with_the_sync_ones(graph):
     await graph.aclose()
 
 
+# -- lifecycle --------------------------------------------------------------
+
+
+async def test_aclose_releases_the_async_pool_rather_than_dropping_the_reference():
+    """Review finding, reproduced as ``ResourceWarning: unclosed AsyncBoltDriver``.
+
+    Setting ``_adriver = None`` looks like closing and is not: the pool's sockets and background
+    tasks stay open, and the dropped reference makes the leak unreachable rather than fixed.
+    """
+    import gc
+    import warnings
+
+    substrate = Neo4jGraphSubstrate(**_settings())
+    await substrate.aupsert_episodes(ACME, [episode("an episode", "e1")])
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        await substrate.aclose()
+        gc.collect()
+
+    leaks = [str(w.message) for w in caught if issubclass(w.category, ResourceWarning)]
+    assert not leaks, f"aclose() left resources open: {leaks}"
+    assert substrate._adriver is None
+
+
+async def test_sync_close_refuses_while_an_async_driver_is_open():
+    """A sync call cannot release it, and pretending to is what produced the leak above.
+
+    An async driver binds to the loop that created it, so ``close()`` can neither await it nor
+    drive that loop -- the refusal names ``aclose()`` rather than silently doing the wrong thing.
+    """
+    substrate = Neo4jGraphSubstrate(**_settings())
+    await substrate.aupsert_episodes(ACME, [episode("an episode", "e1")])
+
+    with pytest.raises(MemoryOperationError, match="aclose"):
+        substrate.close()
+
+    await substrate.aclose()
+
+
+def test_the_provider_closes_its_substrates_through_the_seam(graph):
+    """The seam owns the lifecycle; a caller should not reach for `provider.graph.close()`."""
+    from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
+
+    provider = CoLocatedMemoryProvider(graph=graph)
+    provider.close()
+
+    with pytest.raises(Exception):
+        graph.traverse(ACME, MemoryQuery(text="anything"))
+
+
 # -- known limitations, pinned ----------------------------------------------
 
 

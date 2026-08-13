@@ -224,6 +224,13 @@ class GraphSubstrate(Protocol):
         ``TemporalBounds`` for an id it knows overwrites that row's ``expired_at``, because the
         graph is the authority (ADR 0003 D8). The overwrite is deliberate; it is only safe while
         this method round-trips the fields.
+
+        **Upsert replaces; only :meth:`invalidate` preserves a predecessor.** Retiring a fact this
+        way overwrites the live row in place, so a caller that changes ``content`` or ``t_valid`` in
+        the same write leaves no trace of the previous version. That is the right shape for a
+        correction and the wrong one for a contradiction, which is what :meth:`invalidate` and its
+        expire-and-reinsert are for. Stated because everything else in this port says "never edit in
+        place", and a reader is entitled to assume that holds here too.
         """
         ...
 

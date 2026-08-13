@@ -279,6 +279,34 @@ def test_a_tripled_fact_becomes_a_relation_and_an_untripled_one_a_node():
     assert [row["id"] for row in batches["node"]] == ["f2"]
 
 
+@pytest.mark.parametrize(
+    "spo",
+    [
+        {"subject": "ada"},
+        {"subject": "ada", "predicate": "lives_in"},
+        {"predicate": "lives_in", "object": "berlin"},
+        {"object": "berlin"},
+    ],
+    ids=["subject-only", "no-object", "no-subject", "object-only"],
+)
+def test_a_partial_triple_takes_the_node_path_and_drops_its_fragments(spo):
+    """`is_triple()` needs all three, so a partial one is a node -- and its fragments are not stored.
+
+    Pinned rather than left incidental: the silent part is that `subject`/`object` go nowhere on the
+    node path, so a caller supplying two of three gets a fact whose partial structure is dropped
+    without complaint. That is the documented "SPO is optional structure over the statement text"
+    contract, and this is what says it was meant.
+    """
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    record = MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="ada lives in berlin", scope=FULL)
+
+    batches = substrate._fact_batches(FULL, [FactWrite(record=record, **spo)])
+
+    assert batches["triple"] == []
+    assert [row["id"] for row in batches["node"]] == ["f1"]
+    assert "predicate" not in batches["node"][0], "the node path stores no SPO fragment"
+
+
 def test_query_terms_are_deduplicated_before_scoring():
     """The score's denominator is a set union, so a repeated term would shrink every score."""
     from egpt.integrations.memory.graph.neo4j.neo4j import _terms
