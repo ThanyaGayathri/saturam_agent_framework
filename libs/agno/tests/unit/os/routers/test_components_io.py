@@ -70,6 +70,7 @@ def seeded(db):
         name="FAQ Agent",
         config=AGENT_CONFIG,
         stage="published",
+        tenant_id=None,
     )
     db.create_component_with_config(
         component_id="support-team",
@@ -92,6 +93,7 @@ def seeded(db):
                 "meta": {"type": "agent"},
             }
         ],
+        tenant_id=None,
     )
 
 
@@ -155,6 +157,7 @@ class TestExport:
             name="Leaky Agent",
             config={**AGENT_CONFIG, "id": "leaky-agent", "db": {"id": "os-db", "db_url": "postgresql://u:p@h/d"}},
             stage="published",
+            tenant_id=None,
         )
 
         response = client.get("/components/leaky-agent/export", params={"include_secrets": True})
@@ -174,7 +177,7 @@ class TestImport:
         body = response.json()
         assert body["created"] == 2
         assert [item["action"] for item in body["results"]] == ["created", "created"]
-        assert db.get_component("copy-support-team") is not None
+        assert db.get_component("copy-support-team", tenant_id=None) is not None
 
     def test_a_colliding_id_is_a_409(self, client, seeded):
         document = client.get("/components/support-team/export").json()
@@ -235,7 +238,7 @@ class TestImport:
         response = client.post("/components/import", json={"document": document})
 
         assert response.status_code == 422
-        assert db.get_component("good-agent") is None
+        assert db.get_component("good-agent", tenant_id=None) is None
 
     def test_a_malformed_bundle_is_a_400(self, client):
         response = client.post("/components/import", json={"document": {"not": "a bundle"}})
@@ -286,7 +289,7 @@ class TestImport:
         response = client.post("/components/import", json={"document": document, "id_prefix": "copy-"})
 
         assert response.status_code == 201
-        links = db.get_links("copy-support-team", 1)
+        links = db.get_links("copy-support-team", 1, tenant_id=None)
         assert [link["child_component_id"] for link in links] == ["faq-agent"]
 
     def test_it_evicts_the_hydration_cache_for_every_touched_id(self, client, seeded, db, registry):

@@ -73,6 +73,7 @@ class TestTheWholePayloadIsRedactedNotJustTheConfig:
             label="stable",
             config={"id": "leaky", "model": MODEL},
             stage="published",
+            tenant_id=None,
         )
         return export_component(component_db, "leaky")
 
@@ -100,6 +101,7 @@ class TestTheWholePayloadIsRedactedNotJustTheConfig:
             description="Nothing to see here.",
             config={"id": "clean", "model": MODEL},
             stage="published",
+            tenant_id=None,
         )
 
         assert export_component(component_db, "clean")["redacted"] == []
@@ -117,6 +119,7 @@ class TestTheWholePayloadIsRedactedNotJustTheConfig:
             name="With Db",
             config={"id": "with-db", "model": MODEL, "db": {"id": "os-db", "type": "postgres", "db_url": DSN}},
             stage="published",
+            tenant_id=None,
         )
 
         document = export_component(component_db, "with-db")
@@ -216,6 +219,7 @@ class TestRedactedSentinelsDoNotImport:
             name="Keyed",
             config={"id": "keyed", "model": {**MODEL, "api_key": "sk-live"}},
             stage="published",
+            tenant_id=None,
         )
         first = export_component(component_db, "keyed")
         assert first["redacted"] == ["components[0].config.model.api_key"]
