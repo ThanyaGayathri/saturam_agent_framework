@@ -828,7 +828,7 @@ class ComponentType(str, Enum):
 
 
 class ComponentCreate(BaseModel):
-    name: str = Field(..., description="Display name")
+    name: str = Field(..., min_length=1, description="Display name")
     component_id: Optional[str] = Field(
         None, description="Unique identifier for the entity. Auto-generated from name if not provided."
     )

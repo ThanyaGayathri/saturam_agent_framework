@@ -221,6 +221,39 @@ class TestAuthorValidatePublishHydrateRun:
         assert response.status_code == 200
         assert response.json()["valid"] is True
 
+    def test_an_identity_less_body_gets_a_422_not_a_500(self, client, deployment):
+        """PR #72 round-3 review: `_require_an_identity` raises a bare `ValueError`, and pydantic
+        v2 puts that exception object itself into the error's `ctx`. `EgptOS`'s own
+        `RequestValidationError` handler serialised `exc.errors()` straight to JSON with no
+        `jsonable_encoder`, so this exact request 500'd -- the one input the guard exists to
+        reject. The three tests that certified a clean 422 all built a bare `FastAPI()`, which
+        uses FastAPI's *default* handler and never hit this; only a request through the real
+        `EgptOS` app reaches the handler this bug was in.
+        """
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "team", "config": {"members": []}},
+            headers=deployment["admin"],
+        )
+
+        assert response.status_code == 422
+        assert "component_id" in str(response.json()["detail"])
+
+    def test_an_empty_name_cannot_create_a_component(self, client, deployment):
+        """PR #72 round-3 review: `requireEditorIdentity()` accepts `component_id` OR `name`, but
+        `saveDraft` sent the raw name regardless of which one satisfied the gate -- and
+        `ComponentCreate.name` had no `min_length`, so a component-id-only submission created a
+        component with an empty name. Fixed at the schema (`min_length=1`) so every caller of
+        `POST /components` is protected, not just the console."""
+        response = client.post(
+            "/components",
+            json={"name": "", "component_id": "no-name", "component_type": "agent", "config": V1_CONFIG},
+            headers=deployment["admin"],
+        )
+
+        assert response.status_code == 422
+        assert client.get("/components", headers=deployment["admin"]).json()["data"] == []
+
     def test_a_draft_is_not_current_until_it_is_published(self, client, deployment):
         headers = deployment["admin"]
 

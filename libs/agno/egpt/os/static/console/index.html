@@ -249,6 +249,7 @@ const state = {
   config: {},        // the parsed config in the editor
   instructionsWasList: false,
   modelShape: "object",   // "string" | "object" | "opaque" -- see readModelRef
+  dbShape: "object",      // "object" | "opaque" -- see readDbRef
   // Scopes the server has explicitly refused, so we stop offering doomed actions. Tracked per
   // scope rather than as one "can write" flag: components:delete is a SEPARATE scope, so a
   // least-privilege token holding read+write would otherwise lose Save, Publish, Clone and
@@ -669,11 +670,26 @@ function readModelRef(model) {
   return { id: "", provider: "", shape: "opaque" };
 }
 
+// `db` gets the same opaque-shape treatment as `model` above: the server still accepts a
+// non-object `db` (`_check_db_ref`'s `invalid_type` handling), and Object.assign-ing an id into a
+// string or array spreads its character/element indices into a new object, destroying it. A
+// shape this form cannot render is left alone unless the operator types a replacement.
+function readDbRef(db) {
+  if (db && typeof db === "object" && !Array.isArray(db)) {
+    return { id: db.id || "", shape: "object" };
+  }
+  if (db === undefined || db === null) {
+    return { id: "", shape: "object" };
+  }
+  return { id: "", shape: "opaque" };
+}
+
 function configToForm() {
   const config = state.config || {};
   const model = readModelRef(config.model);
-  const db = config.db || {};
+  const db = readDbRef(config.db);
   state.modelShape = model.shape;
+  state.dbShape = db.shape;
   $("f-model-id").value = model.id || "";
   $("f-model-provider").value = model.provider || "";
   $("f-db-id").value = db.id || "";
@@ -724,12 +740,26 @@ function formToConfig() {
     config.model = Object.assign({}, config.model);
     if (modelId) config.model.id = modelId; else delete config.model.id;
     if (modelProvider) config.model.provider = modelProvider; else delete config.model.provider;
-  } else {
-    delete config.model;
+  } else if (config.model && typeof config.model === "object" && !Array.isArray(config.model)) {
+    // Both boxes cleared. Delete the fields the form owns, not the whole block -- an object-shaped
+    // model legitimately carries siblings the form does not render (`temperature`, `max_tokens`,
+    // `top_p`, `response_format`...), and a wholesale `delete config.model` destroyed those the
+    // moment both boxes went empty even though clearing just one already preserved them correctly.
+    // Same per-field discipline as the `db` branch below.
+    delete config.model.id;
+    delete config.model.provider;
+    if (!Object.keys(config.model).length) delete config.model;
   }
 
   const dbId = $("f-db-id").value.trim();
-  if (dbId) {
+  if (state.dbShape === "opaque") {
+    // A shape the form cannot show (string, array, number). Touch it only if the operator typed a
+    // replacement, mirroring the model-opaque branch above -- same reasoning, same contract.
+    if (dbId) {
+      config.db = { id: dbId };
+      state.dbShape = "object";
+    }
+  } else if (dbId) {
     config.db = Object.assign({}, config.db, { id: dbId });
   } else if (config.db && typeof config.db === "object" && !Array.isArray(config.db)) {
     // Delete the field the form owns, not the whole block. A `db` reference legitimately carries
@@ -872,6 +902,18 @@ async function saveDraft(forceNewVersion) {
   try {
     if (!state.component) {
       const name = $("f-name").value.trim();
+      if (!name) {
+        // requireEditorIdentity() above accepts component_id OR name -- correct for Validate,
+        // where component_id alone is enough to detect a self-reference. POST /components has a
+        // narrower need: it derives everything from name, so an id-only submission here would
+        // reach the server with an empty name. The server itself refuses that too
+        // (ComponentCreate.name has min_length=1), but catching it here saves the round trip.
+        renderErrors($("editor-error"), {
+          summary: "A name is required to create a component.",
+          fields: [{ path: "name", message: "Required.", code: "" }],
+        });
+        return;
+      }
       // `set_current` and `version` are declared on the request models but never read by the
       // handlers, so they are deliberately not sent: sending them would imply a guarantee the
       // server does not make.

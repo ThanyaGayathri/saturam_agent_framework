@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import uuid4
 
 from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
@@ -1196,9 +1197,12 @@ class EgptOS:
             @fastapi_app.exception_handler(RequestValidationError)
             async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
                 log_error(f"Validation error (422): {exc.errors()}")
+                # pydantic v2 puts the raised exception object itself into each error's `ctx`
+                # (e.g. a bare ValueError from a @model_validator) -- json.dumps chokes on that
+                # unless it goes through jsonable_encoder first, which stringifies it instead.
                 return JSONResponse(
                     status_code=422,
-                    content={"detail": exc.errors()},
+                    content={"detail": jsonable_encoder(exc.errors())},
                 )
 
             @fastapi_app.exception_handler(HTTPException)

@@ -336,6 +336,102 @@ class TestTheFormJsonRoundTripIsLossless:
         assert differing == [], f"these configs did not survive the form: {differing}"
 
 
+# A round trip with no mutation in between can only prove identity is preserved -- it cannot reach
+# the *clearing* bug PR #72's review found three times running (round 2's `db.id`, round 3's
+# `model` siblings): every prior version of this file's round-trip harness stayed green with that
+# fix fully reverted. This harness sets a field to "" (or types into it) between configToForm()
+# and formToConfig(), the way an operator actually edits the page, so a reverted clearing fix goes
+# red here instead of shipping unnoticed a fourth time.
+JS_CLEARING_MUTATIONS = r"""
+const fs = require("fs");
+const html = fs.readFileSync(process.argv[2], "utf8");  // argv[1] is this script
+const js = html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script>"));
+const slice = js.slice(js.indexOf("function readModelRef"), js.indexOf("// Returns false and shows"));
+
+const inputs = {};
+const $ = (id) => (inputs[id] = inputs[id] || { value: "" });
+const state = { config: {}, modelWasString: false, instructionsWasList: false };
+eval(slice);
+
+const MUTATIONS = [
+  {
+    label: "clearing both model boxes preserves siblings the form does not render",
+    original: {model: {id: "gpt-5.5", provider: "openai", temperature: 0.2, max_tokens: 4096}},
+    clear: ["f-model-id", "f-model-provider"],
+    expected: {model: {temperature: 0.2, max_tokens: 4096}},
+  },
+  {
+    label: "clearing both model boxes drops the block once nothing is left",
+    original: {model: {id: "gpt-5.5", provider: "openai"}},
+    clear: ["f-model-id", "f-model-provider"],
+    expected: {},
+  },
+  {
+    label: "clearing the db id preserves siblings the form does not render",
+    original: {model: "openai:gpt-5.5", db: {id: "prod-pg", type: "postgres"}},
+    clear: ["f-db-id"],
+    expected: {model: "openai:gpt-5.5", db: {type: "postgres"}},
+  },
+  {
+    label: "clearing the only field in db drops the block once nothing is left",
+    original: {model: "openai:gpt-5.5", db: {id: "only-id"}},
+    clear: ["f-db-id"],
+    expected: {model: "openai:gpt-5.5"},
+  },
+  {
+    label: "an opaque db is left alone when its (already-blank) box is not touched",
+    original: {model: "openai:gpt-5.5", db: "legacy-db-string"},
+    clear: [],
+    expected: {model: "openai:gpt-5.5", db: "legacy-db-string"},
+  },
+  {
+    label: "typing into an opaque db's id box replaces it instead of corrupting it",
+    original: {model: "openai:gpt-5.5", db: "legacy-db-string"},
+    set: {"f-db-id": "new-db-id"},
+    expected: {model: "openai:gpt-5.5", db: {id: "new-db-id"}},
+  },
+];
+
+const mismatches = [];
+for (const m of MUTATIONS) {
+  state.config = JSON.parse(JSON.stringify(m.original));
+  configToForm();
+  (m.clear || []).forEach((id) => { $(id).value = ""; });
+  Object.entries(m.set || {}).forEach(([id, value]) => { $(id).value = value; });
+  const out = formToConfig();
+  if (JSON.stringify(out) !== JSON.stringify(m.expected)) {
+    mismatches.push({label: m.label, expected: m.expected, got: out});
+  }
+}
+console.log(JSON.stringify(mismatches));
+"""
+
+
+class TestClearingAFieldDoesNotLoseItsSiblings:
+    def test_every_mutation_matches_its_expected_output(self, node, tmp_path):
+        """Findings from round 2 (`db.id` survived clearing) and round 3 (clearing both `model`
+        boxes deleted temperature/max_tokens alongside them): both fixes are correct, but the
+        identity-only round trip above cannot reach either bug, since neither reverted fix changes
+        what an *unmutated* config round-trips to. This is the harness the round-3 review asked
+        for: mutate between configToForm() and formToConfig(), then check the result."""
+        import json
+        import subprocess
+
+        script = tmp_path / "clearing_mutations.js"
+        script.write_text(JS_CLEARING_MUTATIONS, encoding="utf-8")
+
+        result = subprocess.run(
+            [node, str(script), str(console_asset_path())],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        assert result.returncode == 0, result.stderr
+        mismatches = json.loads(result.stdout)
+        assert mismatches == [], f"these mutations produced the wrong output: {mismatches}"
+
+
 class TestValidateAndSaveCannotDiverge:
     def test_both_go_through_the_same_sync_helper(self):
         """Finding 3: the Validate handler skipped `formToConfig()` while `saveDraft` called it, so
