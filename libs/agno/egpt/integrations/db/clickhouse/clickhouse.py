@@ -20,7 +20,7 @@ Typical usage::
 """
 
 from datetime import date, datetime, timezone
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple
 
 from egpt.db.base import BaseDb, ComponentType
 from egpt.db.filter_converter import TRACE_COLUMNS as TRACE_FILTER_COLUMNS
@@ -788,31 +788,93 @@ class ClickhouseDb(BaseDb):
         return []
 
     # --- Components (called by EgptOS at startup) ---
+    #
+    # Read-only no-ops: ClickHouse is a traces store, and EgptOS probes these at startup on any
+    # configured db. Returning empty is fail-closed -- no component is reachable here, so no
+    # component can leak across tenants. The write methods are deliberately not overridden and
+    # inherit BaseDb's NotImplementedError.
+    #
+    # The signatures are spelled out rather than `*args, **kwargs` so the keyword-only
+    # ``tenant_id`` contract (EGPT-2.7) is enforced here too: a caller that forgets the tenant
+    # must fail the same way on every backend, or the habit of omitting it survives in whatever
+    # code path happens to run against ClickHouse.
     def get_component(
         self,
         component_id: str,
         component_type: Optional[ComponentType] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
         return None
 
-    def list_components(self, *args, **kwargs):  # type: ignore[override]
+    def list_components(
+        self,
+        component_type: Optional[ComponentType] = None,
+        include_deleted: bool = False,
+        limit: int = 20,
+        offset: int = 0,
+        exclude_component_ids: Optional[Set[str]] = None,
+        *,
+        tenant_id: Optional[str],
+    ) -> Tuple[List[Dict[str, Any]], int]:
         return [], 0
 
-    def get_config(self, *args, **kwargs):  # type: ignore[override]
+    def get_config(
+        self,
+        component_id: str,
+        version: Optional[int] = None,
+        label: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
         return None
 
-    def list_configs(self, *args, **kwargs):  # type: ignore[override]
+    def list_configs(
+        self,
+        component_id: str,
+        include_config: bool = False,
+        *,
+        tenant_id: Optional[str],
+    ) -> List[Dict[str, Any]]:
         return []
 
-    def list_component_audit(self, *args, **kwargs):  # type: ignore[override]
+    def list_component_audit(
+        self,
+        component_id: str,
+        version: Optional[int] = None,
+        action: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+        *,
+        tenant_id: Optional[str],
+    ) -> Tuple[List[Dict[str, Any]], int]:
         return [], 0
 
-    def get_links(self, *args, **kwargs):  # type: ignore[override]
+    def get_links(
+        self,
+        component_id: str,
+        version: int,
+        link_kind: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
+    ) -> List[Dict[str, Any]]:
         return []
 
-    def get_dependents(self, *args, **kwargs):  # type: ignore[override]
+    def get_dependents(
+        self,
+        component_id: str,
+        version: Optional[int] = None,
+        *,
+        tenant_id: Optional[str],
+    ) -> List[Dict[str, Any]]:
         return []
 
-    def load_component_graph(self, *args, **kwargs):  # type: ignore[override]
+    def load_component_graph(
+        self,
+        component_id: str,
+        version: Optional[int] = None,
+        label: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
         return None

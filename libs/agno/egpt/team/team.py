@@ -1564,8 +1564,23 @@ class Team:
         db: Optional["BaseDb"] = None,
         registry: Optional["Registry"] = None,
         tenant_id: Optional[str] = None,
+        *,
+        require_endpoint: bool = True,
     ) -> "Team":
-        return _storage.from_dict(cls, data=data, db=db, registry=registry, tenant_id=tenant_id)
+        """Rebuild a Team from its serialized form.
+
+        ``require_endpoint`` is forwarded to the team's own model and to every member, on both
+        member-hydration routes: the graph path (``Team.load`` -> ``_hydrate_from_graph``) and the
+        per-member DB reads this path takes (``get_agent_by_id`` / ``get_team_by_id``). The second
+        route did not carry it initially, which made the opt-out inert on exactly the path
+        ``get_team_by_id`` -- the AgentOS read -- takes.
+
+        See ``Agent.from_dict`` for what it refuses and why. It matters more here than on a single
+        agent: one member on a bare endpointless proxy otherwise makes the whole team unloadable.
+        """
+        return _storage.from_dict(
+            cls, data=data, db=db, registry=registry, tenant_id=tenant_id, require_endpoint=require_endpoint
+        )
 
     @classmethod
     def component_spec(
@@ -1588,8 +1603,21 @@ class Team:
         stage: str = "published",
         label: Optional[str] = None,
         notes: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> Optional[int]:
-        return _storage.save(self, db=db, stage=stage, label=label, notes=notes)
+        """Persist this team as a DB-defined component.
+
+        ``tenant_id`` names the tenant that owns the written rows. **It defaults to ``None``,
+        which writes unscoped** -- correct for a single-tenant deployment, and what this method
+        did before the parameter existed, but on a multi-tenant database an unscoped write
+        updates a row belonging to any tenant that happens to share this id, leaving that
+        tenant's ``tenant_id`` in place so their own scoped read then serves this config.
+
+        A db built with ``require_tenant_id`` (which ``EgptOS`` sets whenever a tenant claim is
+        configured) refuses the unscoped call outright. That flag, not this default, is the
+        control -- see ``docs/tenancy.md`` section 6.
+        """
+        return _storage.save(self, db=db, stage=stage, label=label, notes=notes, tenant_id=tenant_id)
 
     @classmethod
     def load(
@@ -1601,16 +1629,40 @@ class Team:
         label: Optional[str] = None,
         version: Optional[int] = None,
         tenant_id: Optional[str] = None,
+        require_endpoint: bool = True,
     ) -> Optional["Team"]:
-        return _storage.load(cls, id=id, db=db, registry=registry, label=label, version=version, tenant_id=tenant_id)
+        """Load a team by id, with hydrated members.
+
+        ``require_endpoint`` is forwarded to every member; see ``Agent.from_dict``. It matters more
+        here than on a single agent, because one member on a bare endpointless proxy otherwise
+        makes the whole team unloadable.
+        """
+        return _storage.load(
+            cls,
+            id=id,
+            db=db,
+            registry=registry,
+            label=label,
+            version=version,
+            tenant_id=tenant_id,
+            require_endpoint=require_endpoint,
+        )
 
     def delete(
         self,
         *,
         db: Optional["BaseDb"] = None,
         hard_delete: bool = False,
+        tenant_id: Optional[str] = None,
     ) -> bool:
-        return _storage.delete(self, db=db, hard_delete=hard_delete)
+        """Delete this team's component rows.
+
+        ``tenant_id`` scopes the delete. **It defaults to ``None``, which is unscoped** and will
+        therefore delete a matching row belonging to another tenant. As with ``save``, the
+        control is ``require_tenant_id`` on the db rather than this default -- see
+        ``docs/tenancy.md`` section 6.
+        """
+        return _storage.delete(self, db=db, hard_delete=hard_delete, tenant_id=tenant_id)
 
     # -*- Public convenience functions
     def get_run_output(
@@ -1812,6 +1864,8 @@ def get_team_by_id(
     label: Optional[str] = None,
     registry: Optional["Registry"] = None,
     tenant_id: Optional[str] = None,
+    *,
+    require_endpoint: bool = True,
 ) -> Optional["Team"]:
     """
     Get a Team by id from the database.
@@ -1859,7 +1913,7 @@ def get_team_by_id(
             component_id=id,
         )
 
-        team = Team.from_dict(cfg, db=db, registry=registry, tenant_id=tenant_id)
+        team = Team.from_dict(cfg, db=db, registry=registry, tenant_id=tenant_id, require_endpoint=require_endpoint)
         # Ensure team.id is set to the component_id
         team.id = id
 

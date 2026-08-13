@@ -1,0 +1,38 @@
+{
+  "components": [
+    {
+      "component_id": "support-agent",
+      "component_type": "agent",
+      "config": {
+        "add_search_knowledge_instructions": true,
+        "description": "Answers customer questions about the product.",
+        "id": "support-agent",
+        "instructions": [
+          "Answer only from the information you are given.",
+          "If you do not know the answer, say so and offer to escalate."
+        ],
+        "markdown": true,
+        "model": {
+          "id": "gpt-5.5",
+          "name": "OpenAIResponses",
+          "provider": "OpenAI"
+        },
+        "name": "Support Agent",
+        "num_history_runs": 3,
+        "schema_version": 1
+      },
+      "description": "Answers customer questions about the product.",
+      "label": null,
+      "links": [],
+      "metadata": null,
+      "name": "Support Agent",
+      "notes": null,
+      "stage": "published"
+    }
+  ],
+  "format": "egpt.component-bundle",
+  "format_version": 1,
+  "redacted": [],
+  "root": "support-agent",
+  "schema_version": 1
+}

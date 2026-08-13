@@ -88,6 +88,7 @@ class SqliteDb(BaseDb):
         service_accounts_table: Optional[str] = None,
         table_prefix: Optional[str] = None,
         id: Optional[str] = None,
+        require_tenant_id: bool = False,
     ):
         """
         Interface for interacting with a SQLite database.
@@ -120,6 +121,12 @@ class SqliteDb(BaseDb):
             schedules_table (Optional[str]): Name of the table to store cron schedules.
             schedule_runs_table (Optional[str]): Name of the table to store schedule run history.
             id (Optional[str]): ID of the database.
+            require_tenant_id (bool): Refuse unscoped component access (EGPT-2.7). With this set,
+                a component method called with ``tenant_id=None`` raises
+                ``TenantScopeRequiredError`` instead of applying no tenant predicate -- which also
+                makes the NULL-tenant rows written before multi-tenancy unreachable. ``EgptOS``
+                sets it automatically when ``AuthorizationConfig(tenant_id_claim=...)`` is
+                configured, and ``EGPT_REQUIRE_TENANT_ID`` sets it for dbs built outside EgptOS.
 
         Raises:
             ValueError: If none of the tables are provided.
@@ -148,6 +155,7 @@ class SqliteDb(BaseDb):
         super().__init__(
             id=id,
             table_prefix=table_prefix,
+            require_tenant_id=require_tenant_id,
             session_table=session_table,
             culture_table=culture_table,
             memory_table=memory_table,
@@ -210,12 +218,19 @@ class SqliteDb(BaseDb):
 
         Passing ``db_engine`` through is what keeps the clone on the existing connection
         pool instead of opening a second one per component load.
+
+        ``require_tenant_id`` is carried over for the same reason (EGPT-2.7), and it matters
+        more than it looks: ``EgptOS`` enables that flag by *mutating* the registered instance,
+        while ``egpt.db.utils.resolve_db_from_config`` clones on the component rehydration path
+        -- so a clone that dropped it would leave the guard missing at precisely the point
+        components are written, for an operator who had correctly opted in.
         """
         return SqliteDb(
             db_file=self.db_file,
             db_url=self.db_url,
             db_engine=self.db_engine,
             id=self.id,
+            require_tenant_id=self.require_tenant_id,
             **overrides,
         )
 
@@ -245,6 +260,7 @@ class SqliteDb(BaseDb):
             auth_tokens_table=data.get("auth_tokens_table"),
             service_accounts_table=data.get("service_accounts_table"),
             id=data.get("id"),
+            require_tenant_id=bool(data.get("require_tenant_id", False)),
         )
 
     def close(self) -> None:
@@ -3337,7 +3353,8 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         component_type: Optional[ComponentType] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
         """Get a component by ID.
 
@@ -3349,6 +3366,8 @@ class SqliteDb(BaseDb):
         Returns:
             Component dictionary or None if not found.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "get_component")
+
         try:
             table = self._get_table(table_type="components")
             if table is None:
@@ -3379,7 +3398,8 @@ class SqliteDb(BaseDb):
         description: Optional[str] = None,
         current_version: Optional[int] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -3403,6 +3423,8 @@ class SqliteDb(BaseDb):
         Raises:
             ValueError: If creating and component_type is not provided.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "upsert_component")
+
         try:
             table = self._get_table(table_type="components", create_table_if_not_found=True)
             if table is None:
@@ -3534,7 +3556,8 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         hard_delete: bool = False,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> bool:
@@ -3554,6 +3577,8 @@ class SqliteDb(BaseDb):
         Returns:
             True if deleted, False if not found.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "delete_component")
+
         try:
             components_table = self._get_table(table_type="components")
             configs_table = self._get_table(table_type="component_configs")
@@ -3632,7 +3657,8 @@ class SqliteDb(BaseDb):
         limit: int = 20,
         offset: int = 0,
         exclude_component_ids: Optional[Set[str]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Tuple[List[Dict[str, Any]], int]:
         """List components with pagination.
 
@@ -3647,6 +3673,8 @@ class SqliteDb(BaseDb):
         Returns:
             Tuple of (list of component dicts, total count).
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "list_components")
+
         try:
             table = self._get_table(table_type="components")
             if table is None:
@@ -3699,7 +3727,8 @@ class SqliteDb(BaseDb):
         stage: str = "draft",
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -3726,6 +3755,8 @@ class SqliteDb(BaseDb):
         Raises:
             ValueError: If component already exists, invalid stage, or link missing child_version.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "create_component_with_config")
+
         if stage not in {"draft", "published"}:
             raise ValueError(f"Invalid stage: {stage}")
 
@@ -3867,7 +3898,8 @@ class SqliteDb(BaseDb):
         component_id: str,
         version: Optional[int] = None,
         label: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[Dict[str, Any]]:
         """Get a config by component ID and version or label.
 
@@ -3880,6 +3912,8 @@ class SqliteDb(BaseDb):
         Returns:
             Config dictionary or None if not found.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "get_config")
+
         try:
             configs_table = self._get_table(table_type="component_configs")
             components_table = self._get_table(table_type="components")
@@ -3947,7 +3981,8 @@ class SqliteDb(BaseDb):
         stage: Optional[str] = None,
         notes: Optional[str] = None,
         links: Optional[List[Dict[str, Any]]] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -3977,6 +4012,8 @@ class SqliteDb(BaseDb):
             ValueError: If component doesn't exist, version not found, label conflict,
                         or attempting to update a published config.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "upsert_config")
+
         if stage is not None and stage not in {"draft", "published"}:
             raise ValueError(f"Invalid stage: {stage}")
 
@@ -4202,7 +4239,8 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         version: int,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> bool:
@@ -4224,6 +4262,8 @@ class SqliteDb(BaseDb):
         Raises:
             ValueError: If attempting to delete a published or current config.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "delete_config")
+
         try:
             configs_table = self._get_table(table_type="component_configs")
             links_table = self._get_table(table_type="component_links")
@@ -4320,7 +4360,8 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         include_config: bool = False,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> List[Dict[str, Any]]:
         """List all config versions for a component.
 
@@ -4333,6 +4374,8 @@ class SqliteDb(BaseDb):
             List of config dictionaries, newest first.
             Returns empty list if component not found or deleted.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "list_configs")
+
         try:
             configs_table = self._get_table(table_type="component_configs")
             components_table = self._get_table(table_type="components")
@@ -4383,7 +4426,8 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         version: int,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
         actor: Optional[str] = None,
         audit_note: Optional[str] = None,
     ) -> bool:
@@ -4407,6 +4451,8 @@ class SqliteDb(BaseDb):
         Raises:
             ValueError: If attempting to set a draft config as current.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "set_current_version")
+
         try:
             configs_table = self._get_table(table_type="component_configs")
             components_table = self._get_table(table_type="components")
@@ -4516,7 +4562,8 @@ class SqliteDb(BaseDb):
         action: Optional[str] = None,
         limit: int = 20,
         offset: int = 0,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Tuple[List[Dict[str, Any]], int]:
         """List a component's lifecycle audit history, newest first.
 
@@ -4535,6 +4582,8 @@ class SqliteDb(BaseDb):
         Returns:
             Tuple of (list of audit record dicts, total count).
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "list_component_audit")
+
         try:
             table = self._get_table(table_type="component_audit")
             if table is None:
@@ -4574,7 +4623,8 @@ class SqliteDb(BaseDb):
         component_id: str,
         version: int,
         link_kind: Optional[str] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> List[Dict[str, Any]]:
         """Get links for a config version.
 
@@ -4587,6 +4637,8 @@ class SqliteDb(BaseDb):
         Returns:
             List of link dictionaries, ordered by position.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "get_links")
+
         try:
             table = self._get_table(table_type="component_links")
             if table is None:
@@ -4617,7 +4669,8 @@ class SqliteDb(BaseDb):
         self,
         component_id: str,
         version: Optional[int] = None,
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> List[Dict[str, Any]]:
         """Find all components that reference this component.
 
@@ -4629,6 +4682,8 @@ class SqliteDb(BaseDb):
         Returns:
             List of link dictionaries showing what depends on this component.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "get_dependents")
+
         try:
             table = self._get_table(table_type="component_links")
             if table is None:
@@ -4648,22 +4703,32 @@ class SqliteDb(BaseDb):
             log_error(f"Error getting dependents: {str(e)}")
             raise
 
-    def resolve_version(
+    def _resolve_version(
         self,
         component_id: str,
         version: Optional[int],
-        tenant_id: Optional[str] = None,
+        *,
+        tenant_id: Optional[str],
     ) -> Optional[int]:
         """Resolve a version number, handling NULL (current) case.
+
+        Private, and tenant-guarded like its fourteen siblings (EGPT-2.7). It reads the
+        ``components`` table, so leaving it public with a defaulted ``tenant_id`` made it a
+        positionally-callable unscoped component read that defeated ``require_tenant_id`` --
+        the exact shape this ticket exists to close. Postgres already named it ``_resolve_version``;
+        the two now agree.
 
         Args:
             component_id: The component ID.
             version: Version number or None for current.
-            tenant_id: Optional tenant to scope the lookup to. None means no tenant filter.
+            tenant_id: Tenant to scope the lookup to. Required; ``None`` is explicitly
+                unscoped and is refused when the db was built with ``require_tenant_id``.
 
         Returns:
             Resolved version number or None if component not found.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "_resolve_version")
+
         if version is not None:
             return version
 
@@ -4688,8 +4753,8 @@ class SqliteDb(BaseDb):
         component_id: str,
         version: Optional[int] = None,
         label: Optional[str] = None,
-        tenant_id: Optional[str] = None,
         *,
+        tenant_id: Optional[str],
         _visited: Optional[Set[Tuple[str, int]]] = None,
         _max_depth: int = 50,
     ) -> Optional[Dict[str, Any]]:
@@ -4711,6 +4776,8 @@ class SqliteDb(BaseDb):
             Dictionary with component, config, children, and resolved_versions.
             Returns None if component not found or depth exceeded.
         """
+        tenant_id = self._require_tenant_scope(tenant_id, "load_component_graph")
+
         try:
             if _max_depth <= 0:
                 return None
@@ -4725,7 +4792,7 @@ class SqliteDb(BaseDb):
                     return None
                 version = labeled.get("version")
 
-            resolved_version = self.resolve_version(component_id, version, tenant_id=tenant_id)
+            resolved_version = self._resolve_version(component_id, version, tenant_id=tenant_id)
             if resolved_version is None:
                 return None
 
@@ -4757,7 +4824,7 @@ class SqliteDb(BaseDb):
                 child_id = link["child_component_id"]
                 child_ver = link.get("child_version")
 
-                resolved_child_ver = self.resolve_version(child_id, child_ver, tenant_id=tenant_id)
+                resolved_child_ver = self._resolve_version(child_id, child_ver, tenant_id=tenant_id)
                 resolved_versions[child_id] = resolved_child_ver
 
                 if resolved_child_ver is None:

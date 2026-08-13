@@ -420,7 +420,9 @@ class TestTeamFromDict:
 
             team = Team.from_dict(config, db=mock_db)
 
-            mock_get_agent.assert_called_once_with(id="agent-1", db=mock_db, registry=None, tenant_id=None)
+            mock_get_agent.assert_called_once_with(
+                id="agent-1", db=mock_db, registry=None, tenant_id=None, require_endpoint=True
+            )
             assert team.members == [mock_agent]
 
     def test_from_dict_roundtrip(self, team_with_settings):
@@ -493,6 +495,7 @@ class TestTeamSave:
             name="Test Team",
             description="A test team for unit testing",
             metadata=None,
+            tenant_id=None,
         )
         assert version == 1
 
@@ -714,7 +717,7 @@ class TestTeamDelete:
         basic_team.db = mock_db
         result = basic_team.delete()
 
-        mock_db.delete_component.assert_called_once_with(component_id="test-team", hard_delete=False)
+        mock_db.delete_component.assert_called_once_with(component_id="test-team", hard_delete=False, tenant_id=None)
         assert result is True
 
     def test_delete_with_hard_delete(self, basic_team, mock_db):
@@ -724,7 +727,7 @@ class TestTeamDelete:
         basic_team.db = mock_db
         result = basic_team.delete(hard_delete=True)
 
-        mock_db.delete_component.assert_called_once_with(component_id="test-team", hard_delete=True)
+        mock_db.delete_component.assert_called_once_with(component_id="test-team", hard_delete=True, tenant_id=None)
         assert result is True
 
     def test_delete_with_explicit_db(self, basic_team, mock_db):
