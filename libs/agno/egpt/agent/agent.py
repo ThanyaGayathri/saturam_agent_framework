@@ -762,8 +762,8 @@ class Agent:
     def set_id(self) -> None:
         return _init.set_id(self)
 
-    def initialize_agent(self, debug_mode: Optional[bool] = None) -> None:
-        return _init.initialize_agent(self, debug_mode=debug_mode)
+    def initialize_agent(self, debug_mode: Optional[bool] = None, run_context: Optional[Any] = None) -> None:
+        return _init.initialize_agent(self, debug_mode=debug_mode, run_context=run_context)
 
     def add_tool(self, tool: Union[Toolkit, Callable, Function, Dict]) -> None:
         return _init.add_tool(self, tool)

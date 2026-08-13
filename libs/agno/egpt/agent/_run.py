@@ -1796,7 +1796,8 @@ def run_dispatch(
     session_id, user_id = initialize_session(agent, session_id=session_id, user_id=user_id)
 
     # Initialize the Agent
-    agent.initialize_agent(debug_mode=debug_mode)
+    # run_context threaded so the initialisation resolve sees this run's tenant (#173).
+    agent.initialize_agent(debug_mode=debug_mode, run_context=run_context)
 
     image_artifacts, video_artifacts, audio_artifacts, file_artifacts = validate_media_object_id(
         images=images, videos=videos, audios=audio, files=files
@@ -3278,7 +3279,8 @@ def arun_dispatch(  # type: ignore
     session_id, user_id = initialize_session(agent, session_id=session_id, user_id=user_id)
 
     # Initialize the Agent
-    agent.initialize_agent(debug_mode=debug_mode)
+    # run_context threaded so the initialisation resolve sees this run's tenant (#173).
+    agent.initialize_agent(debug_mode=debug_mode, run_context=run_context)
 
     image_artifacts, video_artifacts, audio_artifacts, file_artifacts = validate_media_object_id(
         images=images, videos=videos, audios=audio, files=files
@@ -3807,7 +3809,8 @@ def continue_run_dispatch(
         user_id=user_id,
     )
     # Initialize the Agent
-    agent.initialize_agent(debug_mode=debug_mode)
+    # run_context threaded so the initialisation resolve sees this run's tenant (#173).
+    agent.initialize_agent(debug_mode=debug_mode, run_context=run_context)
 
     # Read existing session from storage
     agent_session = read_or_create_session(agent, session_id=session_id, user_id=user_id)
@@ -4681,7 +4684,8 @@ def acontinue_run_dispatch(  # type: ignore
     )
 
     # Initialize the Agent
-    agent.initialize_agent(debug_mode=debug_mode)
+    # run_context threaded so the initialisation resolve sees this run's tenant (#173).
+    agent.initialize_agent(debug_mode=debug_mode, run_context=run_context)
 
     # Read existing session and update metadata BEFORE resolving run options,
     # so that session-stored metadata is visible to resolve_run_options.

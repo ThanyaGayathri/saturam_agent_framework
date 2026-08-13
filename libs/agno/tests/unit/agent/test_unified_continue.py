@@ -57,7 +57,7 @@ def _patch_sync_dispatch_dependencies(
 def _make_agent(monkeypatch: pytest.MonkeyPatch, runs: Optional[list[Any]] = None) -> Agent:
     agent = Agent(name="test-agent")
     _patch_sync_dispatch_dependencies(agent, monkeypatch, runs=runs)
-    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
     return agent
 
 
@@ -460,7 +460,7 @@ class TestAsyncEmptyBodyResume:
 
         agent = Agent(name="test-agent")
         _patch_async_dispatch_dependencies(agent, monkeypatch, runs=[interrupted_run])
-        monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+        monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
 
         # Patch _acontinue_run to capture the call
         captured: dict = {"reached": False}
@@ -509,7 +509,7 @@ class TestAsyncEmptyBodyResume:
 
         agent = Agent(name="test-agent", retries=0)  # no retries so the failure is immediate
         _patch_async_dispatch_dependencies(agent, monkeypatch, runs=[paused_run])
-        monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+        monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
 
         from egpt.run import approval as approval_mod
 
@@ -1716,7 +1716,7 @@ class TestForkSession:
         from egpt.agent import _session
 
         monkeypatch.setattr(_session, "save_session", lambda agent, session: saved.append(session))
-        monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+        monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
         agent._saved = saved  # type: ignore[attr-defined]
         return agent
 
@@ -1874,7 +1874,7 @@ class TestStreamingParity:
         monkeypatch.setattr(_run, "aresolve_run_dependencies", lambda agent, run_context: None)
 
         agent = Agent(name="stream-test")
-        monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+        monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
 
         # Patch the streaming inner function to capture state *after* dispatch
         # has applied all modifiers/sugar normalization. This is the slot that
@@ -2108,7 +2108,7 @@ class TestStreamingRealBody:
         monkeypatch.setattr(response_mod, "ahandle_model_response_stream", fake_ahandle_stream)
 
         agent = Agent(name="real-stream")
-        monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+        monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
 
         # Patch agent.aget_tools so it doesn't traverse the live tool registry
         async def fake_aget_tools(**kwargs):

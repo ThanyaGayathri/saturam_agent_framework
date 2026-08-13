@@ -117,11 +117,16 @@ def _model_provider_for(component: Any) -> Optional[ModelProvider]:
     return get_default_model_provider()
 
 
-def _resolve_via_provider(component: Any, *, role: str = "model") -> Optional[Model]:
+def _resolve_via_provider(component: Any, *, role: str = "model", run_context: Optional[Any] = None) -> Optional[Model]:
     """Ask the configured provider which model serves this component (EGPT-3.1).
 
     Returns None when no provider is configured, leaving the caller on the pre-EGPT-3.1
     default path, byte for byte.
+
+    ``run_context`` carries the identity of the run this resolve is being performed for, when
+    there is one (#173). It is what stops a residency-pinned tenant resolving under the default
+    policy: without it, the request reaches the provider with ``tenant_id=None`` and a policy
+    like ``acme -> in-VPC, default -> frontier`` picks the frontier tier for acme's own turn.
 
     A configured provider that returns None is a different outcome and is *not* silently
     treated as "no provider": the seam's whole purpose is that a Mode A deployment never
@@ -144,8 +149,18 @@ def _resolve_via_provider(component: Any, *, role: str = "model") -> Optional[Mo
     # `requested` stays None: the caller's guard means no model was pinned, so there is no
     # user intent for the provider to honor. Per-run signals (token estimates, tool counts,
     # escalation state) belong to resolve_run_model below, which EGPT-3.5 wires from the run
-    # path.
-    resolved = provider.resolve(ModelResolveRequest(agent_id=component.id, role=role))
+    # path -- only *identity* is threaded here, because identity is what selects the policy and
+    # therefore the endpoint (#173). The two resolves per run now agree on the tenant; they
+    # still differ on the load-dependent signals, which is the point of re-entering per run.
+    resolved = provider.resolve(
+        ModelResolveRequest(
+            agent_id=component.id,
+            role=role,
+            tenant_id=getattr(run_context, "tenant_id", None),
+            user_id=getattr(run_context, "user_id", None),
+            session_id=getattr(run_context, "session_id", None),
+        )
+    )
     if resolved is None:
         raise ValueError(
             f"Model provider {getattr(provider, 'name', type(provider).__name__)!r} returned no model. "
@@ -197,12 +212,24 @@ async def aresolve_run_model(agent: Any, request: ModelResolveRequest) -> Option
     return await aresolve_via(provider, request)
 
 
-def set_default_model(agent: Agent) -> None:
+def set_default_model(agent: Agent, run_context: Optional[Any] = None) -> None:
+    """Give the agent a model if it has none.
+
+    ``run_context`` is the run this initialisation is being performed for, when there is one.
+    It exists to carry the tenant into the seam (EGPT-164/#173): without it this resolve runs
+    under the *default* policy, so a tenant pinned to in-VPC inference by a residency policy
+    would have an out-of-region backend constructed here and swapped out later by
+    ``apply_run_model`` -- the client is built and authenticated before the correction lands.
+
+    Optional because this is also reached outside any run: ``EgptOS._initialize_agents`` at
+    startup and ``AgentFactory._post_resolve``. Those have no run to speak of, and passing
+    ``None`` is the pre-#173 behaviour exactly.
+    """
     # Use the default Model (OpenAIResponses) if no model is provided
     if agent.model is None:
         # The provider seam (EGPT-3.1). A configured provider decides; with none configured
         # this returns None immediately and the original default path below runs unchanged.
-        resolved = _resolve_via_provider(agent)
+        resolved = _resolve_via_provider(agent, run_context=run_context)
         if resolved is not None:
             agent.model = resolved
             return
@@ -395,13 +422,13 @@ def get_models(agent: Agent) -> None:
         agent.compression_manager.model = agent.model
 
 
-def initialize_agent(agent: Agent, debug_mode: Optional[bool] = None) -> None:
+def initialize_agent(agent: Agent, debug_mode: Optional[bool] = None, run_context: Optional[Any] = None) -> None:
     # set_id before set_default_model (EGPT-3.1): the seam passes agent.id to the provider as
     # its per-agent routing signal, and Agent.id defaults to None, so resolving first made that
     # signal always None for any agent declared without an explicit id -- the common case.
     # set_id only fills a missing id from the name, so hoisting it changes nothing else.
     set_id(agent)
-    set_default_model(agent)
+    set_default_model(agent, run_context=run_context)
     set_debug(agent, debug_mode=debug_mode)
     set_telemetry(agent)
     set_checkpoint(agent)

@@ -54,7 +54,7 @@ def test_run_dispatch_cleans_up_registered_run_on_setup_failure(monkeypatch: pyt
     agent = Agent(name="test-agent")
     _patch_sync_dispatch_dependencies(agent, monkeypatch, runs=[])
 
-    def failing_initialize_agent(debug_mode=None):
+    def failing_initialize_agent(debug_mode=None, run_context=None):
         raise RuntimeError("initialize failed")
 
     monkeypatch.setattr(agent, "initialize_agent", failing_initialize_agent)
@@ -72,7 +72,7 @@ def test_run_dispatch_does_not_reset_cancellation_before_impl(monkeypatch: pytes
 
     run_id = "run-preserve-cancelled-state"
 
-    def initialize_and_cancel(debug_mode=None):
+    def initialize_and_cancel(debug_mode=None, run_context=None):
         # register_run now happens inside _run, so we register here to test cancellation
         register_run(run_id)
         assert cancel_run(run_id) is True
@@ -110,7 +110,7 @@ def test_run_dispatch_does_not_reset_cancellation_before_impl(monkeypatch: pytes
 def test_continue_run_dispatch_handles_none_session_runs(monkeypatch: pytest.MonkeyPatch):
     agent = Agent(name="test-agent")
     monkeypatch.setattr(_init, "has_async_db", lambda agent: False)
-    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
     monkeypatch.setattr(_storage, "update_metadata", lambda agent, session=None: None)
     monkeypatch.setattr(_storage, "load_session_state", lambda agent, session=None, session_state=None: session_state)
     monkeypatch.setattr(
@@ -131,7 +131,7 @@ def test_continue_run_dispatch_handles_none_session_runs(monkeypatch: pytest.Mon
 @pytest.mark.asyncio
 async def test_acontinue_run_dispatch_handles_none_session_runs(monkeypatch: pytest.MonkeyPatch):
     agent = Agent(name="test-agent")
-    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
     monkeypatch.setattr(_storage, "update_metadata", lambda agent, session=None: None)
     monkeypatch.setattr(_storage, "load_session_state", lambda agent, session=None, session_state=None: session_state)
 
@@ -365,7 +365,7 @@ def _make_precedence_test_agent() -> Agent:
 
 def _patch_continue_dispatch_dependencies(agent: Agent, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_init, "has_async_db", lambda agent: False)
-    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
     monkeypatch.setattr(_storage, "update_metadata", lambda agent, session=None: None)
     monkeypatch.setattr(_storage, "load_session_state", lambda agent, session=None, session_state=None: session_state)
     monkeypatch.setattr(
@@ -385,7 +385,7 @@ def _patch_continue_dispatch_dependencies(agent: Agent, monkeypatch: pytest.Monk
 def test_run_dispatch_respects_run_context_precedence(monkeypatch: pytest.MonkeyPatch):
     agent = _make_precedence_test_agent()
     _patch_sync_dispatch_dependencies(agent, monkeypatch, runs=[])
-    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
 
     def fake_run_impl(
         agent: Agent,
@@ -478,7 +478,7 @@ def test_run_dispatch_respects_run_context_precedence(monkeypatch: pytest.Monkey
 @pytest.mark.asyncio
 async def test_arun_dispatch_respects_run_context_precedence(monkeypatch: pytest.MonkeyPatch):
     agent = _make_precedence_test_agent()
-    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
     monkeypatch.setattr(_response, "get_response_format", lambda agent, run_context=None: None)
 
     async def fake_arun_impl(
@@ -650,7 +650,7 @@ def test_continue_run_dispatch_respects_run_context_precedence(monkeypatch: pyte
 @pytest.mark.asyncio
 async def test_acontinue_run_dispatch_respects_run_context_precedence(monkeypatch: pytest.MonkeyPatch):
     agent = _make_precedence_test_agent()
-    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
     monkeypatch.setattr(_response, "get_response_format", lambda agent, run_context=None: None)
 
     async def fake_acontinue_run(
@@ -1048,7 +1048,7 @@ def test_continue_run_dispatch_syncs_requirements_with_updated_tools(monkeypatch
 
     agent = Agent(name="test-agent")
     _patch_sync_dispatch_dependencies(agent, monkeypatch)
-    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
 
     # Simulate a paused run loaded from the session store.
     old_tool = ToolExecution(
@@ -1158,7 +1158,7 @@ async def test_acontinue_run_dispatch_skips_response_format_when_parser_model_se
     when agent.parser_model is set, mirroring arun_dispatch's guard."""
     agent = _make_precedence_test_agent()
     agent.parser_model = object()
-    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None: None)
+    monkeypatch.setattr(agent, "initialize_agent", lambda debug_mode=None, run_context=None: None)
     monkeypatch.setattr(_response, "get_response_format", lambda agent, run_context=None: {"type": "json_object"})
 
     captured: dict[str, Any] = {}
