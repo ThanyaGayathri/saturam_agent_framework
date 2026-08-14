@@ -16,7 +16,7 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
-from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, memory_tier_table_attr
+from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.schemas.service_accounts import (
     resolve_service_account_sort_column,
     validate_service_account_update,
@@ -49,7 +49,7 @@ try:
     from sqlalchemy import Column, ForeignKey, MetaData, String, Table, func, select, text
     from sqlalchemy.dialects import sqlite
     from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
-    from sqlalchemy.schema import Index, PrimaryKeyConstraint, UniqueConstraint
+    from sqlalchemy.schema import CheckConstraint, Index, PrimaryKeyConstraint, UniqueConstraint
 except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
 
@@ -273,6 +273,8 @@ class AsyncSqliteDb(AsyncBaseDb):
             schema_primary_key = table_schema.pop("__primary_key__", None)
             schema_composite_indexes = table_schema.pop("__composite_indexes__", [])
             schema_partial_unique_indexes = table_schema.pop("_partial_unique_indexes", [])
+            schema_partial_indexes = table_schema.pop("__partial_indexes__", [])
+            schema_check_constraints = table_schema.pop("__check_constraints__", [])
 
             # Get the columns, indexes, and unique constraints from the table schema
             for col_name, col_config in table_schema.items():
@@ -324,12 +326,12 @@ class AsyncSqliteDb(AsyncBaseDb):
 
             # Add indexes to the table definition
             for idx_col in indexes:
-                idx_name = f"idx_{table_name}_{idx_col}"
+                idx_name = derive_index_name(table_name, [idx_col])
                 table.append_constraint(Index(idx_name, idx_col))
 
             # Composite indexes
             for idx_config in schema_composite_indexes:
-                idx_name = f"idx_{table_name}_{'_'.join(idx_config['columns'])}"
+                idx_name = derive_index_name(table_name, idx_config["columns"])
                 table.append_constraint(Index(idx_name, *idx_config["columns"]))
 
             # Partial unique indexes (unique only for rows matching the where clause).
@@ -347,6 +349,24 @@ class AsyncSqliteDb(AsyncBaseDb):
                     idx_name,
                     *[table.c[col] for col in idx_config["columns"]],
                     unique=True,
+                    sqlite_where=text(idx_config["where"]),
+                )
+
+            # CHECK constraints. SM-R12's DDL enforces the bi-temporal ordering in the database;
+            # without this key those invariants would hold only in the Python row models, so a
+            # bulk loader or raw SQL could write a row no reader can interpret.
+            for constraint in schema_check_constraints:
+                table.append_constraint(CheckConstraint(constraint["sql"], name=f"{table_name}_{constraint['name']}"))
+
+            # Partial (non-unique) indexes -- the WHERE clause SM-R12 scopes its temporal indexes
+            # with, so a current-belief lookup does not walk expired rows.
+            for idx_config in schema_partial_indexes:
+                missing = [c for c in idx_config["columns"] if c not in table.c]
+                if missing:
+                    raise ValueError(f"Partial index references missing columns in {table_name}: {missing}")
+                Index(
+                    derive_index_name(table_name, idx_config["columns"]),
+                    *[table.c[col] for col in idx_config["columns"]],
                     sqlite_where=text(idx_config["where"]),
                 )
 

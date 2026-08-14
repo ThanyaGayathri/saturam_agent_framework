@@ -14,6 +14,7 @@ import tempfile
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from egpt.db.migrations.manager import MigrationManager
 from egpt.db.migrations.versions.v2_8_0 import (
@@ -448,6 +449,96 @@ class TestMemoriesTenantColumn:
 
 
 # --------------------------------------------------------------------------- #
+# Database-level invariants
+# --------------------------------------------------------------------------- #
+
+BI_TEMPORAL_TABLES = ["memory_episodic", "memory_semantic_fact", "memory_relation", "memory_link"]
+
+
+class TestCheckConstraints:
+    """SM-R12 enforces the bi-temporal ordering in the database, not only in the row models.
+
+    Every insert here goes through raw ``Table.insert()``, deliberately bypassing
+    ``egpt.db.schemas.memory`` -- that is the path a bulk loader or a raw-SQL writer takes, and
+    the reason a Python-only guard is not enough.
+    """
+
+    @pytest.mark.parametrize("table_type", BI_TEMPORAL_TABLES)
+    def test_an_inverted_valid_window_is_refused_by_the_database(self, db, table_type):
+        migrate_up(db)
+
+        with pytest.raises(IntegrityError):
+            _raw_insert(db, table_type, created_at=100, t_valid=200, t_invalid=100)
+
+    @pytest.mark.parametrize("table_type", BI_TEMPORAL_TABLES)
+    def test_expiry_before_creation_is_refused_by_the_database(self, db, table_type):
+        migrate_up(db)
+
+        with pytest.raises(IntegrityError):
+            _raw_insert(db, table_type, created_at=200, expired_at=100)
+
+    @pytest.mark.parametrize("table_type", BI_TEMPORAL_TABLES)
+    def test_an_open_ended_window_is_accepted(self, db, table_type):
+        """The NULL guards are what let a still-true, still-held row through -- the common case.
+        A constraint that rejected these would be worse than none."""
+        migrate_up(db)
+
+        _raw_insert(db, table_type, created_at=100)
+
+    @pytest.mark.parametrize("table_type", ["memory_entity", "memory_procedural"])
+    def test_non_temporal_tiers_carry_no_temporal_constraints(self, db, table_type):
+        """SM-R12 puts the CHECKs on the four bi-temporal tables only; entity and procedural have
+        no window to constrain."""
+        migrate_up(db)
+
+        assert "CHECK" not in _table_ddl(db, f"egpt_{table_type}")
+
+
+class TestPartialIndexes:
+    @pytest.mark.parametrize("table_type", ["memory_semantic_fact", "memory_relation"])
+    def test_the_temporal_index_is_scoped_to_current_rows(self, db, table_type):
+        """SM-R12 scopes these with ``WHERE expired_at IS NULL`` so a current-belief lookup does
+        not walk superseded rows."""
+        migrate_up(db)
+
+        temporal = _index_sql(db, f"egpt_{table_type}", "t_valid")
+
+        assert temporal, f"no temporal index on {table_type}"
+        assert "expired_at IS NULL" in temporal
+
+    def test_the_episodic_temporal_index_is_deliberately_unfiltered(self, db):
+        """Episodic's index is unfiltered in SM-R12's DDL -- decay archival reads expired rows,
+        so scoping it would hide exactly what that reader wants."""
+        migrate_up(db)
+
+        assert "WHERE" not in (_index_sql(db, "egpt_memory_episodic", "t_valid") or "")
+
+
+def _raw_insert(database, table_type, **temporal):
+    """Insert the minimal legal row plus the temporal values under test, via raw SQL."""
+    table = database._get_table(table_type=table_type, create_table_if_not_found=False)
+    values = {**_minimal_row(table_type), **temporal}
+    values["id"] = f"raw-{'-'.join(str(v) for v in temporal.values())}"
+    with database.Session() as sess, sess.begin():
+        sess.execute(table.insert().values(**values))
+
+
+def _table_ddl(database, table_name):
+    with database.Session() as sess:
+        return sess.execute(
+            text("SELECT sql FROM sqlite_master WHERE type='table' AND name=:n"), {"n": table_name}
+        ).scalar()
+
+
+def _index_sql(database, table_name, column):
+    with database.Session() as sess:
+        rows = sess.execute(
+            text("SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name=:n"), {"n": table_name}
+        ).fetchall()
+    return next((sql for name, sql in rows if sql and column in (name or "")), None)
+
+
+# --------------------------------------------------------------------------- #
 # Auto-provisioning
 # --------------------------------------------------------------------------- #
 
@@ -476,6 +567,9 @@ class TestAutoProvisioning:
             name = f"egpt_{table_type}"
             assert columns(db, name) == columns(migrated, name), table_type
             assert index_names(db, name) == index_names(migrated, name), table_type
+            # The CHECK constraints live in the table DDL, so comparing columns alone would let
+            # one path ship them and the other not.
+            assert _table_ddl(db, name) == _table_ddl(migrated, name), table_type
 
     async def test_the_async_backend_provisions_them_too(self, async_db):
         await async_db._create_all_tables()

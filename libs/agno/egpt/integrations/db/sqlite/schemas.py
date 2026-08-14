@@ -441,6 +441,18 @@ _DECAYING_COLUMNS: dict[str, Any] = {
     "last_accessed_at": {"type": BigInteger, "nullable": True},
 }
 
+# The CHECK constraints SM-R12's DDL declares on every bi-temporal table. Enforced in the database
+# rather than only in the row models, so a bulk loader or raw SQL cannot write a window no reader
+# can interpret. The IS NULL guards are what let an open-ended (still true, still held) row pass.
+_BI_TEMPORAL_CHECKS = [
+    {"name": "tvalid_order", "sql": "t_valid IS NULL OR t_invalid IS NULL OR t_invalid >= t_valid"},
+    {"name": "expiry_order", "sql": "expired_at IS NULL OR expired_at >= created_at"},
+]
+
+# SM-R12 scopes the fact and relation temporal indexes to current rows; the episodic one is
+# unfiltered in that DDL and stays unfiltered here.
+_CURRENT_BELIEF_TEMPORAL_INDEX = [{"columns": ["tenant_id", "t_valid", "t_invalid"], "where": "expired_at IS NULL"}]
+
 _MEMORY_PRIMARY_KEY = ["tenant_id", "id"]
 
 MEMORY_EPISODIC_TABLE_SCHEMA = {
@@ -463,6 +475,7 @@ MEMORY_EPISODIC_TABLE_SCHEMA = {
     "boundary_confidence": {"type": Float, "nullable": True},
     "refined": {"type": Boolean, "nullable": False, "default": False},
     "segmenter_version": {"type": String, "nullable": True},
+    "__check_constraints__": _BI_TEMPORAL_CHECKS,
     "__primary_key__": _MEMORY_PRIMARY_KEY,
     "__composite_indexes__": [
         {"name": "tenant_id_t_valid_t_invalid", "columns": ["tenant_id", "t_valid", "t_invalid"]},
@@ -482,10 +495,9 @@ MEMORY_SEMANTIC_FACT_TABLE_SCHEMA = {
     "source_episode_ids": {"type": JSON, "nullable": False, "default": list},
     "derived_by": {"type": String, "nullable": True},
     "entity_ids": {"type": JSON, "nullable": False, "default": list},
+    "__check_constraints__": _BI_TEMPORAL_CHECKS,
+    "__partial_indexes__": _CURRENT_BELIEF_TEMPORAL_INDEX,
     "__primary_key__": _MEMORY_PRIMARY_KEY,
-    "__composite_indexes__": [
-        {"name": "tenant_id_t_valid_t_invalid", "columns": ["tenant_id", "t_valid", "t_invalid"]},
-    ],
 }
 
 MEMORY_ENTITY_TABLE_SCHEMA = {
@@ -507,13 +519,14 @@ MEMORY_RELATION_TABLE_SCHEMA = {
     "confidence": {"type": Float, "nullable": False, "default": 1.0},
     "source_episode_ids": {"type": JSON, "nullable": False, "default": list},
     "derived_by": {"type": String, "nullable": True},
+    "__check_constraints__": _BI_TEMPORAL_CHECKS,
     "__primary_key__": _MEMORY_PRIMARY_KEY,
     # Both directions: traversal reads an edge from either endpoint.
     "__composite_indexes__": [
         {"name": "tenant_id_subject_entity_id", "columns": ["tenant_id", "subject_entity_id"]},
         {"name": "tenant_id_object_entity_id", "columns": ["tenant_id", "object_entity_id"]},
-        {"name": "tenant_id_t_valid_t_invalid", "columns": ["tenant_id", "t_valid", "t_invalid"]},
     ],
+    "__partial_indexes__": _CURRENT_BELIEF_TEMPORAL_INDEX,
 }
 
 MEMORY_PROCEDURAL_TABLE_SCHEMA = {
@@ -536,6 +549,7 @@ MEMORY_LINK_TABLE_SCHEMA = {
     "to_id": {"type": String, "nullable": False},
     "to_tier": {"type": String, "nullable": False},
     "link_type": {"type": String, "nullable": False, "default": "relates_to"},
+    "__check_constraints__": _BI_TEMPORAL_CHECKS,
     "__primary_key__": _MEMORY_PRIMARY_KEY,
     "__composite_indexes__": [
         {"name": "tenant_id_from_id", "columns": ["tenant_id", "from_id"]},

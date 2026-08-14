@@ -27,7 +27,14 @@ from egpt.db.schemas.memory import (
     TenantScoped,
     UserMemory,
 )
-from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, TABLE_SUFFIXES, memory_tier_table_attr
+from egpt.db.table_names import (
+    MAX_IDENTIFIER_LENGTH,
+    MEMORY_TIER_TABLE_TYPES,
+    TABLE_PREFIX_MAX_LENGTH,
+    TABLE_SUFFIXES,
+    derive_index_name,
+    memory_tier_table_attr,
+)
 
 # Every persisted tier, with the table type its rows live in and the minimum kwargs that make
 # one valid. The single source of truth for the parametrised properties below.
@@ -426,6 +433,40 @@ class TestTableNaming:
         promotes them, which is the moment the six constructor parameters are also needed.
         """
         assert table_type not in TABLE_SUFFIXES
+
+    @pytest.mark.parametrize("table_type", MEMORY_TIER_TABLE_TYPES)
+    def test_index_names_stay_within_the_identifier_limit_at_any_legal_prefix(self, table_type):
+        """PostgreSQL truncates past 63 bytes silently, which turns two long index names into one
+        index and an "already exists" nobody can explain. The memory tables are the longest in
+        the schema, so they are where an unbounded derivation shows up first."""
+        longest_prefix = "a" * TABLE_PREFIX_MAX_LENGTH
+        schema = sqlite_schemas.get_table_schema_definition(table_type)
+        index_column_sets = [index["columns"] for index in schema.get("__composite_indexes__", [])] + [
+            index["columns"] for index in schema.get("__partial_indexes__", [])
+        ]
+
+        for columns in index_column_sets:
+            name = derive_index_name(f"{longest_prefix}{table_type}", columns)
+            assert len(name) <= MAX_IDENTIFIER_LENGTH, name
+
+    def test_the_default_prefix_keeps_the_readable_name(self):
+        """Bounding must not rename anything at a normal prefix, or an upgrade would rebuild
+        every index it touches."""
+        assert (
+            derive_index_name("egpt_memory_semantic_fact", ["tenant_id", "t_valid", "t_invalid"])
+            == "idx_egpt_memory_semantic_fact_tenant_id_t_valid_t_invalid"
+        )
+
+    def test_two_over_long_names_stay_distinct(self):
+        """Truncation alone would collide these into one index; the hash is what keeps them
+        apart."""
+        table = "a" * TABLE_PREFIX_MAX_LENGTH + "memory_semantic_fact"
+
+        first = derive_index_name(table, ["tenant_id", "t_valid", "t_invalid"])
+        second = derive_index_name(table, ["tenant_id", "t_valid", "expired_at"])
+
+        assert first != second
+        assert first == derive_index_name(table, ["tenant_id", "t_valid", "t_invalid"]), "must be stable"
 
     def test_the_migration_runner_can_resolve_every_tier_table(self):
         """Without an entry here a tier table is simply unreachable by the runner, so its

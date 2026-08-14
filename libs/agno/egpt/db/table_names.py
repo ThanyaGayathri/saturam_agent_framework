@@ -8,7 +8,8 @@ value in a brand-refresh PR without an upgrade plan.
 """
 
 import re
-from typing import Dict, Optional
+from hashlib import sha1
+from typing import Dict, Optional, Sequence
 
 # Default prefix for persisted database table names (e.g. egpt_sessions).
 DEFAULT_TABLE_PREFIX = "egpt_"
@@ -68,14 +69,32 @@ def memory_tier_table_attr(table_type: str) -> str:
     return f"{table_type}_table_name"
 
 
-# Bounds the prefix, but does NOT on its own keep derived identifiers under PostgreSQL's 63-byte
-# limit: at the full 32 characters, idx_{prefix}component_configs_tenant_id_component_id is
-# already 76 bytes and idx_{prefix}memory_semantic_fact_tenant_id_t_valid_t_invalid is 84, and
-# PostgreSQL truncates rather than erroring. Shortening the index-name convention cannot close
-# this -- even a single-column index on the longest memory table is 66 bytes at a 32-character
-# prefix. The real fix is a bounded derivation in the table builders (truncate-and-hash), which
-# is repo-wide and not this constant's job.
+# Bounds the prefix. It cannot on its own keep derived identifiers short enough -- at the full 32
+# characters ``idx_{prefix}component_configs_tenant_id_component_id`` is 76 bytes and
+# ``idx_{prefix}memory_semantic_fact_tenant_id_t_valid_t_invalid`` is 84 -- so
+# :func:`derive_index_name` bounds the result instead.
 TABLE_PREFIX_MAX_LENGTH = 32
+
+# PostgreSQL truncates identifiers past this silently rather than erroring, which turns two long
+# index names into one index and a confusing "already exists". SQLite has no such limit, but the
+# derivation is shared so both backends agree on the name.
+MAX_IDENTIFIER_LENGTH = 63
+
+
+def derive_index_name(table_name: str, columns: Sequence[str]) -> str:
+    """Return the index name for ``columns`` on ``table_name``, bounded to a safe length.
+
+    ``idx_{table}_{columns}`` while that fits, which is every table at the default prefix, so
+    existing deployments see no rename. Beyond the limit the name is truncated and given a hash
+    of the full name, which keeps it stable across runs and distinct between indexes that share a
+    truncated prefix -- the collision the silent truncation would otherwise produce.
+    """
+    full = f"idx_{table_name}_{'_'.join(columns)}"
+    if len(full) <= MAX_IDENTIFIER_LENGTH:
+        return full
+    digest = sha1(full.encode("utf-8")).hexdigest()[:8]
+    return f"{full[: MAX_IDENTIFIER_LENGTH - len(digest) - 1]}_{digest}"
+
 
 _TABLE_PREFIX_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
