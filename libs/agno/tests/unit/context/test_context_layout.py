@@ -202,7 +202,13 @@ def test_no_concrete_connector_imported_outside_integrations():
 
 
 def test_no_integrations_context_module_imports_orchestration():
-    """`RunnableLike` + `construct_runnable` exist so this edge never needs to open."""
+    """`RunnableLike` + `construct_runnable` exist so this edge never needs to open.
+
+    AST-based, so it catches module-level, function-local, bare, and aliased import forms --
+    but not a dynamic `importlib.import_module("egpt.team.team")`. That's inherent to scanning
+    source rather than executing it; a string-literal scan to catch it would false-positive on
+    the docstrings and error messages these modules already contain.
+    """
     root = _integrations_context_root()
     offenders = []
 
@@ -313,20 +319,37 @@ def test_no_test_patches_a_deprecated_connector_shim_path():
     failing loudly about a bad target. `egpt/context/slack/__init__.py`'s docstring calls this
     footgun out explicitly; this guard is what actually catches it. Mirrors
     `test_knowledge_layout.py::test_no_test_patches_a_deprecated_shim_path`.
+
+    `wiki` is excluded from `_MOVED_CONNECTOR_PACKAGES` (it wasn't moved wholesale -- see this
+    file's module docstring), so it gets a second, narrower sweep scoped to just `git_ops` and
+    `notion_ops` -- its two eager whole-module shims, the same shape as the other 8 packages'.
+    It can't reuse the whole-package sweep's prefix: `WikiBackend`/`FileSystemBackend`/the
+    provider genuinely still live at `egpt.context.wiki`, so a handful of tests legitimately
+    reference that path and would false-positive if `wiki` itself were swept.
     """
     tests_root = package_root() / "tests"
     assert tests_root.is_dir(), f"test root not found: {tests_root}"
-    # Non-vacuity floor: an empty or stale scan root would silently report PASS.
-    assert len(list(tests_root.rglob("test_*.py"))) >= 100, (
-        f"only {len(list(tests_root.rglob('test_*.py')))} test files found under {tests_root}; "
-        "the scan root is stale, which makes this guard vacuous."
-    )
 
-    offenders = find_shim_path_strings(
+    scanned, offenders = find_shim_path_strings(
         tests_root,
         "egpt.context",
         _MOVED_CONNECTOR_PACKAGES,
         exclude={Path(__file__).resolve()},  # this file names the paths on purpose
+    )
+    wiki_scanned, wiki_offenders = find_shim_path_strings(
+        tests_root,
+        "egpt.context.wiki",
+        {"git_ops", "notion_ops"},
+        exclude={Path(__file__).resolve()},
+    )
+    offenders += wiki_offenders
+
+    # Non-vacuity floor: an empty or stale scan root would silently report PASS. Taken from the
+    # helper's own return value, not a separately computed count, so a mutation that makes the
+    # helper scan nothing is caught here too.
+    assert scanned >= 100 and wiki_scanned >= 100, (
+        f"only {scanned}/{wiki_scanned} test files scanned under {tests_root}; "
+        "the scan root is stale, which makes this guard vacuous."
     )
 
     assert not offenders, (

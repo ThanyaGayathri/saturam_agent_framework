@@ -2,9 +2,8 @@
 
 Import from ``egpt.integrations.context.web`` instead; this module will be removed.
 
-Names are re-exported via a wildcard star-import against the target module (not proxied
-through ``__getattr__`` alone), so star-imports, ``dir()`` and static type checking keep
-working on this path.
+Names are re-exported explicitly and listed in ``__all__``, with a ``__getattr__``
+fallback for names the target provides lazily.
 
 Known limitations:
 
