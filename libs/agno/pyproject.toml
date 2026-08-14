@@ -493,11 +493,21 @@ markers = [
 # knowledge/test_knowledge_layout,vectordb/test_backend_layout,db/test_backend_resolution,
 # models/...}.py). Hand-listing every shim subdirectory here would duplicate those guards and go
 # stale on every new extra, so this config's source_modules list the whole orchestration/services/
-# api/core packages that are NOT already covered that way. `egpt.container`, `egpt.providers`,
-# `egpt.settings` postdate ADR 0001's inventory and are not yet classified in the matrix -- out of
-# scope here pending an ADR update. `egpt.cloud` has no `__init__.py` today (only `cloud/aws/`,
-# which is provider-specific and arguably belongs in integrations per ADR 0001's own module
-# mapping) and isn't an importable package yet -- also out of scope.
+# api/core packages that are NOT already covered that way. `egpt.cloud` has no `__init__.py` today
+# (only `cloud/aws/`, which is provider-specific and arguably belongs in integrations per ADR
+# 0001's own module mapping) and isn't an importable package yet -- out of scope.
+#
+# `egpt.container`, `egpt.providers`, `egpt.settings` postdate ADR 0001's inventory and are not
+# yet classified in the matrix -- but unlike `egpt.cloud`/the mixed trees above, they ARE
+# included below (in both contracts' module lists), specifically because `allow_indirect_imports
+# = true` makes an *excluded* module an undetectable stepping-stone: with direct-imports-only
+# checking, a chain like `egpt.agent -> egpt.container -> egpt.integrations.X` is invisible
+# unless `egpt.container` is itself a listed module, since neither hop is checked on its own.
+# `egpt.os` already imports `egpt.container`, `egpt.memory` already imports `egpt.providers`, and
+# `egpt.api`/`egpt.os`/`egpt.registry` already import `egpt.settings` in production code, so
+# leaving these three off the list would leave a real, silently-exploitable gap rather than a
+# hypothetical one. Including them here closes the detection gap without prejudging their formal
+# ADR layer classification, which is still pending.
 root_package = "egpt"
 
 # --- Integrations column (matrix's N cells for core/orchestration/services/api -> integrations) ---
@@ -519,9 +529,15 @@ root_package = "egpt"
 # violation here -- e.g. `egpt.exceptions` (a single-file core module) transitively "reaches"
 # `egpt.integrations` only because something several hops away happens to import a concrete
 # provider, with nothing at any single hop being a real ADR 0001 violation on its own. Scoping to
-# direct imports matches how this repo's existing layout guards already check this
+# direct imports is in the same *spirit* as this repo's existing layout guards
 # (libs/agno/tests/unit/_layer_guards.py's `imported_modules()` walks each file's own AST for its
-# own import statements, not the whole reachable graph).
+# own import statements, not the whole reachable graph) -- but it is NOT equivalent coverage:
+# those guards `rglob` every `.py` file under `egpt/`, while this config only checks the curated
+# `source_modules` list below. A module left off that list (and not itself a shim already covered
+# by another guard) is invisible to this contract even for its own direct imports -- see the
+# `egpt.container`/`egpt.providers`/`egpt.settings` note above for why those three are included
+# despite not being ADR-classified yet, and why leaving a module off this list is a real gap, not
+# a neutral omission.
 [[tool.importlinter.contracts]]
 name = "core, orchestration, services, and api must not import integrations"
 type = "forbidden"
@@ -558,6 +574,9 @@ source_modules = [
     "egpt.api",
     "egpt.client",
     "egpt.remote",
+    "egpt.container",
+    "egpt.providers",
+    "egpt.settings",
 ]
 forbidden_modules = [
     "egpt.integrations",
@@ -610,9 +629,13 @@ forbidden_modules = [
     "egpt.api",
     "egpt.client",
     "egpt.remote",
+    "egpt.container",
+    "egpt.providers",
+    "egpt.settings",
 ]
-# No ignore_imports: egpt.integrations.discord.client currently violates this contract by
-# importing egpt.agent/egpt.team. Left in scope deliberately -- see
+# No ignore_imports: 24 distinct modules under egpt.integrations currently violate this contract
+# by importing egpt.agent/egpt.team directly (egpt.integrations.discord.client is one of them,
+# not the only one). Left in scope deliberately -- see
 # libs/agno/tests/unit/test_import_linter_contracts.py.
 
 # --- No import cycles across the integrations boundary (ADR 0001 Rule 7, scoped to this config) ---
