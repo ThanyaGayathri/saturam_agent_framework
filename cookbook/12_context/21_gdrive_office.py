@@ -33,7 +33,7 @@ from __future__ import annotations
 import asyncio
 
 from egpt.agent import Agent
-from egpt.context.gdrive import GDriveContextProvider
+from egpt.integrations.context.gdrive import GDriveContextProvider
 from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------

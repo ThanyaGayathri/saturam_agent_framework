@@ -50,8 +50,9 @@ import sys
 from pathlib import Path
 
 from egpt.agent import Agent
-from egpt.context.wiki import NotionDatabaseBackend, WikiContextProvider
-from egpt.context.wiki.notion_ops import parse_page_file
+from egpt.context.wiki import WikiContextProvider
+from egpt.integrations.context.wiki import NotionDatabaseBackend
+from egpt.integrations.context.wiki.notion_ops import parse_page_file
 from egpt.models.openai import OpenAIResponses
 
 TOKEN = os.getenv("NOTION_API_KEY")

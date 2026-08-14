@@ -141,6 +141,8 @@ Format:
 | DB backends | `libs/agno/egpt/integrations/db/` |
 | Vector DB interface | `libs/agno/egpt/vectordb/` (`VectorDb` + distance/score/search) |
 | Vector DB backends | `libs/agno/egpt/integrations/vectordb/` |
+| Context provider contract + local providers | `libs/agno/egpt/context/` (`ContextProvider`/`ContextBackend`, `fs/`, `workspace/`, `wiki/provider.py`) |
+| Context connectors | `libs/agno/egpt/integrations/context/` (calendar, database, gdrive, gmail, google, mcp, slack, web, and wiki's git/Notion backends) |
 | Tests | `libs/agno/tests/` |
 
 ---

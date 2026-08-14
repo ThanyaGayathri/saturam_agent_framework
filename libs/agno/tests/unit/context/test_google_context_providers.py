@@ -8,9 +8,9 @@ pytest.importorskip(
     "googleapiclient", reason="the Gmail/Calendar providers import the Google API client at module level"
 )
 
-from egpt.context.calendar import GoogleCalendarContextProvider  # noqa: E402
-from egpt.context.gmail import GmailContextProvider  # noqa: E402
 from egpt.context.mode import ContextMode  # noqa: E402
+from egpt.integrations.context.calendar import GoogleCalendarContextProvider  # noqa: E402
+from egpt.integrations.context.gmail import GmailContextProvider  # noqa: E402
 from egpt.integrations.tools.google.auth import AuthConfig  # noqa: E402
 
 DEFAULT_GOOGLE_API_TIMEOUT = 120.0

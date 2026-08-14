@@ -29,8 +29,9 @@ from pathlib import Path
 
 from db import get_db
 from egpt.agent import Agent
-from egpt.context.web import ParallelMCPBackend
-from egpt.context.wiki import GitBackend, WikiContextProvider
+from egpt.context.wiki import WikiContextProvider
+from egpt.integrations.context.web import ParallelMCPBackend
+from egpt.integrations.context.wiki import GitBackend
 from settings import default_model, html_tools, sub_agent_model
 
 _REPO_URL = getenv("WIKI_REPO_URL")

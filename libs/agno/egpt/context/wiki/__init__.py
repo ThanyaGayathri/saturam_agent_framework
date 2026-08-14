@@ -1,9 +1,9 @@
+import threading as _threading
+import warnings as _warnings
+
 from egpt.context.wiki.backend import (
     CommitSummary,
     FileSystemBackend,
-    GitBackend,
-    NotionDatabaseBackend,
-    NotionPageBackend,
     WikiBackend,
     WikiBackendError,
 )
@@ -27,3 +27,42 @@ __all__ = [
     "WikiBackendError",
     "WikiContextProvider",
 ]
+
+# GitBackend/NotionDatabaseBackend/NotionPageBackend moved to
+# egpt.integrations.context.wiki (EGPT-1.7a) -- they each depend on an external
+# service (git, notion_client), which makes them integrations, not orchestration.
+# Resolved lazily, not with a top-level import: this package also holds real
+# orchestration code (WikiContextProvider) that must not statically import
+# integrations, and eager resolution would warn on every unrelated import too.
+_MOVED = {"GitBackend", "NotionDatabaseBackend", "NotionPageBackend"}
+
+# CPython's IMPORT_FROM opcode probes a module with hasattr() before getattr(), so
+# `from egpt.context.wiki import GitBackend` would otherwise hit __getattr__ -- and warn --
+# twice per import. Track names already warned so each fires once per process, matching the
+# eager shim packages (their warnings.warn() runs at module-exec time, which sys.modules
+# caching already limits to once). Guarded by a lock since, unlike the eager shims, this
+# check-then-add runs on every access rather than once at import time.
+_warned: set = set()
+_warned_lock = _threading.Lock()
+
+
+def __dir__():
+    return sorted(set(globals()) | set(__all__))
+
+
+def __getattr__(name: str):
+    if name in _MOVED:
+        with _warned_lock:
+            already_warned = name in _warned
+            _warned.add(name)
+        if not already_warned:
+            _warnings.warn(
+                f"egpt.context.wiki.{name} is deprecated; import from egpt.integrations.context.wiki instead. "
+                "This shim will be removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        import egpt.integrations.context.wiki as _target
+
+        return getattr(_target, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
