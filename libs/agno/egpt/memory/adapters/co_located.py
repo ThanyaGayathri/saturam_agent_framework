@@ -50,17 +50,13 @@ from egpt.memory.types import (
     MemorySlice,
     PartialWriteError,
     Scope,
+    require_scope,
     Substrate,
     WriteReceipt,
     consolidation_details,
     fusion_diagnostics,
 )
-from egpt.memory.validation import (
-    assert_scope_isolation,
-    reject_duplicate_ids,
-    reject_foreign_scopes,
-    require_scope,
-)
+from egpt.memory.validation import assert_scope_isolation, reject_duplicate_ids, reject_foreign_scopes
 from egpt.utils.dttm import now_epoch_s
 
 __all__ = ["CoLocatedMemoryProvider"]

@@ -23,7 +23,6 @@ from egpt.memory.validation import (
     assert_scope_isolation,
     reject_duplicate_ids,
     reject_foreign_scopes,
-    require_scope,
 )
 from egpt.memory.tiers import (
     CONSOLIDATION_SOURCE,
@@ -60,6 +59,7 @@ from egpt.memory.types import (
     WriteReceipt,
     consolidation_details,
     fusion_diagnostics,
+    require_scope,
 )
 
 __all__ = [

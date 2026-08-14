@@ -44,13 +44,14 @@ from egpt.memory.types import (
     MemorySlice,
     PartialWriteError,
     Scope,
+    require_scope,
     Substrate,
     WriteReceipt,
     consolidation_details,
     fusion_diagnostics,
     write_details,
 )
-from egpt.memory.validation import reject_duplicate_ids, reject_foreign_scopes, require_scope
+from egpt.memory.validation import reject_duplicate_ids, reject_foreign_scopes
 
 if TYPE_CHECKING:
     from egpt.learn.machine import LearningMachine

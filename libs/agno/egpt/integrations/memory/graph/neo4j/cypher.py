@@ -21,8 +21,7 @@ to a node and a relationship alike.
 
 from typing import Any, Dict, List, Tuple
 
-from egpt.memory.types import SCOPE_SLOTS, Scope
-from egpt.memory.validation import require_scope
+from egpt.memory.types import SCOPE_SLOTS, Scope, require_scope
 
 __all__ = [
     "EPISODE",

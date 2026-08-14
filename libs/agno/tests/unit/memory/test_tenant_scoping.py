@@ -38,8 +38,9 @@ from egpt.memory.types import (
     MemoryRecord,
     MemoryScopeRequiredError,
     Scope,
+    require_scope,
 )
-from egpt.memory.validation import MEMORY_DATA_ACCESS_METHODS, assert_scope_isolation, require_scope
+from egpt.memory.validation import MEMORY_DATA_ACCESS_METHODS, assert_scope_isolation
 from egpt.providers.model_provider import ProviderMode
 from tests.unit.memory._fakes import FakeGraph, FakeVector
 from tests.unit.memory.test_provider_swap import ALL_CONFIGS, WRITABLE_CONFIGS

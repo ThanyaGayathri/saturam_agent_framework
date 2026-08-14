@@ -26,7 +26,6 @@ from uuid import uuid4
 
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.validation import require_scope
 from egpt.memory.types import (
     SCOPE_SLOTS,
     FactWrite,
@@ -34,6 +33,7 @@ from egpt.memory.types import (
     MemoryQuery,
     MemoryRecord,
     Scope,
+    require_scope,
     Substrate,
     TemporalBounds,
 )
