@@ -74,10 +74,13 @@ def require_scope(scope: Any, *, method: str) -> Scope:
         method: The calling method's name, for the error message.
 
     Returns:
-        The same :class:`Scope`, so a caller can write ``scope = require_scope(scope, ...)``.
+        The same :class:`Scope`. Callers use it as a bare statement rather than rebinding, because
+        it validates in place and returns the identical object -- there is nothing to rebind. The
+        return exists for a caller holding a loosely-typed value who wants the narrowing.
 
     Raises:
-        MemoryScopeRequiredError: If ``scope`` is not a ``Scope``, or carries a blank tenant.
+        MemoryScopeRequiredError: If ``scope`` is not a ``Scope``, carries a blank tenant, or
+            carries any slot ``Scope.__post_init__`` would have rejected or normalised.
     """
     if not isinstance(scope, Scope):
         raise MemoryScopeRequiredError(
@@ -87,14 +90,30 @@ def require_scope(scope: Any, *, method: str) -> Scope:
             "object that merely looks like one reaches the backend untrimmed.",
             field_name="scope",
         )
-    # A subclass may define its own `__post_init__` and never reach `Scope`'s. Cheap to re-assert
-    # here, and this is the one slot whose absence crosses a trust boundary rather than narrowing
-    # a partition.
+    # A subclass may define its own `__post_init__` and never reach `Scope`'s, so re-assert what
+    # that method guarantees. **Every slot, not just the tenant**: the tenant is the one that
+    # crosses a trust boundary, but `user_id="  u1  "` reaches a predicate unnormalised and
+    # matches no row written under `"u1"` -- a partition split on incidental whitespace, which is
+    # the hazard `Scope.__post_init__` normalises away and the reason it normalises all five.
+    #
+    # Validated, not normalised. `Scope` is frozen, and rewriting a caller's object here would
+    # make the fix invisible at the call site while `Scope` itself stayed the only place that
+    # normalises -- two places doing it differently is what this whole module exists to prevent.
     if not isinstance(scope.tenant_id, str) or not scope.tenant_id.strip():
         raise MemoryScopeRequiredError(
             f"{method}() was called with Scope.tenant_id={scope.tenant_id!r}. A blank tenant is "
             "unscoped, and unscoped is the widest tenancy rather than the narrowest.",
             field_name="tenant_id",
+        )
+    for slot in SCOPE_SLOTS:
+        value = getattr(scope, slot, None)
+        if value is None or (isinstance(value, str) and value == value.strip() and value):
+            continue
+        raise MemoryScopeRequiredError(
+            f"{method}() was called with Scope.{slot}={value!r}, which Scope.__post_init__ would "
+            "have rejected or trimmed. Pass None to leave a slot unset; a blank or padded slot "
+            "partitions on whitespace and matches no row written under the trimmed value.",
+            field_name=slot,
         )
     return scope
 

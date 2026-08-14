@@ -28,7 +28,7 @@ from typing import Any, Callable, Dict, List
 import pytest
 
 from egpt.integrations.memory.graph.neo4j import cypher
-from egpt.memory.config import build_memory_provider
+from egpt.memory.config import MemoryProviderConfig, build_memory_provider
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
@@ -41,9 +41,16 @@ from egpt.memory.types import (
     Scope,
 )
 from egpt.memory.validation import MEMORY_DATA_ACCESS_METHODS, assert_scope_isolation, require_scope
-from tests.unit.memory.test_provider_swap import ALL_CONFIGS
+from egpt.providers.model_provider import ProviderMode
+from tests.unit.memory._fakes import FakeGraph, FakeVector
+from tests.unit.memory.test_provider_swap import ALL_CONFIGS, WRITABLE_CONFIGS
 
 ACME = Scope(tenant_id="acme", user_id="u1")
+
+#: How many public builders in ``cypher`` take a scope. Exact rather than a floor: the point of
+#: the discovery below is that a builder added later is covered, and a floor would equally pass
+#: when one is removed or renamed out of the sweep.
+SCOPE_TAKING_BUILDERS = 10
 
 
 def build(config_name: str) -> MemoryProvider:
@@ -53,7 +60,7 @@ def build(config_name: str) -> MemoryProvider:
 
 #: Every adapter class the registry can produce, by name. Derived from the wirings rather than
 #: hand-listed, so an adapter registered later is checked without this file changing.
-ADAPTER_CLASSES = {type(build(name)).__name__: type(build(name)) for name in ALL_CONFIGS}
+ADAPTER_CLASSES = {type(provider).__name__: type(provider) for provider in (build(name) for name in ALL_CONFIGS)}
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +137,9 @@ def durable_state(provider: MemoryProvider) -> str:
     graph = getattr(provider, "graph", None)
     if graph is not None:
         parts.append(repr(sorted((tenant, sorted(r.id for r in rows)) for tenant, rows in graph.rows.items())))
-        parts.append(repr(len(graph.facts)))
+        # Identities, not `len`: a count-preserving swap -- one fact replaced by another -- would
+        # compare equal and let a guard that had already written pass as if it had not.
+        parts.append(repr(sorted(f.record.id for f in graph.facts)))
     manager = getattr(provider, "manager", None)
     if manager is not None:
         parts.append(repr([m.memory for m in manager.memories]))
@@ -178,12 +187,31 @@ def test_a_refused_call_writes_nothing(config_name, method, shape):
     assert durable_state(provider) == before
 
 
-@pytest.mark.parametrize("config_name", sorted(ALL_CONFIGS))
+@pytest.mark.parametrize("config_name", sorted(WRITABLE_CONFIGS))
 def test_a_scoped_call_still_works(config_name):
     """The guard refuses the unscoped call and nothing else.
 
-    Without this the matrix above is satisfied by a provider that refuses everything.
+    Without this the matrix above is satisfied by a provider that refuses everything -- and read
+    alone would not have shown it: a guard that broke a scoped ``write_tier`` or ``consolidate``
+    passes a read-only counterweight. So the write and consolidate lanes are exercised too, on
+    every wiring that serves the tier the seam's shared workload uses.
     """
+    provider = build(config_name)
+    events = [MemoryEvent(content="the customer prefers email", scope=ACME)]
+
+    receipt = provider.write_tier(ACME, MemoryTier.SEMANTIC, events)
+    report = provider.consolidate(ACME)
+    slice_ = provider.read(ACME, MemoryQuery(text="the customer", tiers=[MemoryTier.SEMANTIC]))
+
+    assert receipt.accepted == 1
+    assert report.scope == ACME
+    assert slice_.scope == ACME
+
+
+@pytest.mark.parametrize("config_name", sorted(ALL_CONFIGS))
+def test_a_scoped_read_still_works_on_every_wiring(config_name):
+    """The read half of the counterweight, including ``graph_only`` -- which serves no semantic
+    write, so it cannot join the lane above but must still answer a scoped read."""
     provider = build(config_name)
     slice_ = provider.read(ACME, MemoryQuery(text="anything", tiers=[MemoryTier.SEMANTIC]))
     assert slice_.scope == ACME
@@ -192,6 +220,25 @@ def test_a_scoped_call_still_works(config_name):
 # ---------------------------------------------------------------------------
 # The guard cannot be dropped from an adapter added later
 # ---------------------------------------------------------------------------
+
+
+def _first_require_scope_call(statement: Any) -> Any:
+    """The ``require_scope`` call a statement makes, whether or not it binds the result.
+
+    Both forms are legitimate guards -- `require_scope(scope, ...)` and
+    `scope = require_scope(scope, ...)`, which is the narrowing form the return value exists for.
+    Recognising only the bare expression would make the docstring's advertised usage fail CI with
+    "first statement is not a require_scope call", which reads as a missing guard.
+    """
+    if isinstance(statement, ast.Expr):
+        call = statement.value
+    elif isinstance(statement, (ast.Assign, ast.AnnAssign)) and statement.value is not None:
+        call = statement.value
+    else:
+        return None
+    if isinstance(call, ast.Call) and getattr(call.func, "id", None) == "require_scope":
+        return call
+    return None
 
 
 def _guarded_methods(cls: type) -> Dict[str, str]:
@@ -207,13 +254,35 @@ def _guarded_methods(cls: type) -> Dict[str, str]:
             continue
         body = [s for s in node.body if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))]
         first = body[0] if body else None
-        call = first.value if isinstance(first, ast.Expr) and isinstance(first.value, ast.Call) else None
-        if call is None or getattr(call.func, "id", None) != "require_scope":
+        call = _first_require_scope_call(first)
+        if call is None:
             found[node.name] = f"first statement is not a require_scope call: {ast.dump(first) if first else 'empty'}"
             continue
         literal = next((kw.value.value for kw in call.keywords if kw.arg == "method"), None)
         found[node.name] = str(literal)
     return found
+
+
+@pytest.mark.parametrize(
+    "form",
+    [
+        "    require_scope(scope, method='read')\n    return 1",
+        "    scope = require_scope(scope, method='read')\n    return 1",
+        "    scope: Scope = require_scope(scope, method='read')\n    return 1",
+    ],
+    ids=["bare", "assigned", "annotated"],
+)
+def test_both_guard_forms_are_recognised(form):
+    """The docstring offers the return value; CI must not reject the only way to use it."""
+    node = ast.parse(f"def read(self, scope):\n{form}").body[0]
+    body = [s for s in node.body if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))]
+    assert _first_require_scope_call(body[0]) is not None
+
+
+def test_a_first_statement_that_is_not_the_guard_is_still_rejected():
+    """The counterweight: widening the accepted forms must not accept an unguarded method."""
+    node = ast.parse("def read(self, scope):\n    scope = normalise(scope)\n    return 1").body[0]
+    assert _first_require_scope_call(node.body[0]) is None
 
 
 @pytest.mark.parametrize("class_name", sorted(ADAPTER_CLASSES))
@@ -234,8 +303,11 @@ def test_the_data_access_list_covers_every_verb_on_the_seam():
     """A verb added to ``MemoryProvider`` is either data access or introspection, and the first
     kind needs a guard. Without this the list above quietly stops being complete."""
     abstract = set(MemoryProvider.__abstractmethods__)
-    introspection = {"substrates", "tiers"}
-    assert abstract - introspection == set(MEMORY_DATA_ACCESS_METHODS)
+    # The abstract methods that are not data access. `close`/`aclose` are absent because they are
+    # concrete no-ops on the ABC, not because they were judged non-data-access -- if either
+    # becomes abstract it lands in `abstract` and fails here, which is the review this set wants.
+    non_data_access_abstracts = {"substrates", "tiers"}
+    assert abstract - non_data_access_abstracts == set(MEMORY_DATA_ACCESS_METHODS)
 
 
 # ---------------------------------------------------------------------------
@@ -281,18 +353,70 @@ def scope_taking_builders() -> List[Callable[..., Any]]:
         obj = getattr(cypher, name)
         if callable(obj) and "scope" in inspect.signature(obj).parameters:
             builders.append(obj)
-    assert len(builders) >= 8, "the discovery lost its subjects; a rename would make this vacuous"
+    assert len(builders) == SCOPE_TAKING_BUILDERS, (
+        f"expected {SCOPE_TAKING_BUILDERS} scope-taking builders, found {len(builders)}. A floor "
+        "would let a rename or a deletion pass silently, which is the failure this count guards."
+    )
     return builders
 
 
 @pytest.mark.parametrize("shape", sorted(UNSCOPED))
 def test_no_cypher_can_be_built_without_a_tenant(shape):
     """The data-layer half of Decision 1: ``provider.graph`` is public, so the seam's guard is not
-    the last line. Every builder refuses, including the two that bind no scope parameter."""
+    the last line. Every builder refuses, including the two that bind no scope parameter.
+
+    And each refusal **names the builder the caller invoked**, not the ``scope_predicate`` it
+    routes through. Six of the ten are guarded transitively, so without the verb threaded through
+    they all reported one name and sent a reader to a helper they never called -- the same defect
+    as a post-condition reporting the verb it delegated to, one layer down.
+    """
     for builder in scope_taking_builders():
         args = ["e"] if "alias" in inspect.signature(builder).parameters else []
-        with pytest.raises(MemoryScopeRequiredError):
+        with pytest.raises(MemoryScopeRequiredError) as excinfo:
             builder(*args, UNSCOPED[shape]) if args else builder(UNSCOPED[shape])
+        assert str(excinfo.value).startswith(f"{builder.__name__}()")
+
+
+def scope_taking_methods(obj: Any) -> List[str]:
+    """Every public method on a substrate that takes a scope, found by signature."""
+    return sorted(
+        name
+        for name, fn in vars(type(obj)).items()
+        if callable(fn) and not name.startswith("_") and "scope" in inspect.signature(fn).parameters
+    )
+
+
+@pytest.mark.parametrize("double", [FakeVector, FakeGraph], ids=lambda d: d.__name__)
+@pytest.mark.parametrize("shape", sorted(UNSCOPED))
+def test_no_substrate_double_answers_an_unscoped_call(double, shape):
+    """A double must be **stricter than the loosest real backend**, and the one real substrate in
+    the tree refuses at its statement layer. Reached directly, because ``provider.vector`` and
+    ``provider.graph`` are public attributes -- which is the whole reason the seam's guard is not
+    the last line.
+
+    Discovered by signature, so a verb added to a double is covered without editing this test.
+    """
+    substrate = double()
+    query = MemoryQuery(text="anything", tiers=[MemoryTier.SEMANTIC])
+    arguments: Dict[str, tuple] = {
+        "upsert": ([],),
+        "search": (query,),
+        "scan": (MemoryTier.SEMANTIC,),
+        "upsert_episodes": ([],),
+        "upsert_facts": ([],),
+        "traverse": (query,),
+        "bounds_for_ids": ([],),
+        "invalidate": ("edge-1", 100),
+    }
+    methods = scope_taking_methods(substrate)
+    assert methods, "the discovery lost its subjects"
+    for name in methods:
+        rest = arguments[name[1:] if name.startswith("a") and name[1:] in arguments else name]
+        with pytest.raises(MemoryScopeRequiredError) as excinfo:
+            run(getattr(substrate, name)(UNSCOPED[shape], *rest))
+        # Each verb names itself, as the adapters do: a refusal that reports the method it
+        # delegated to sends a reader to the wrong frame.
+        assert f"{name}()" in str(excinfo.value)
 
 
 def test_a_scoped_builder_still_emits_the_tenant_predicate():
@@ -334,6 +458,51 @@ def test_the_isolation_guard_refuses_to_run_unscoped(shape):
         assert_scope_isolation(UNSCOPED[shape], [leaked], method="read")
 
 
+class LeakyVector(FakeVector):
+    """A backend that drops the scope predicate -- the defect the post-condition exists to catch.
+
+    Overrides the guarded methods entirely, so the record it returns is out of scope by
+    construction rather than by a scope this test had to smuggle past a guard.
+    """
+
+    def search(self, scope, query, tier=None):  # type: ignore[no-untyped-def]
+        require_scope(scope, method="search")
+        return [
+            MemoryRecord(
+                id="leak",
+                tier=MemoryTier.SEMANTIC,
+                content="another tenant's row",
+                scope=Scope(tenant_id="globex", user_id="u1"),
+            )
+        ]
+
+    async def asearch(self, scope, query, tier=None):  # type: ignore[no-untyped-def]
+        await asyncio.sleep(0)
+        return self.search(scope, query, tier)
+
+
+@pytest.mark.parametrize("method", ["read", "aread", "read_tier", "aread_tier"])
+def test_a_leak_names_the_verb_the_caller_used(method):
+    """The post-condition must agree with the entry guard about which method is running.
+
+    ``read_tier`` delegates to the shared read path and ``aread`` is a different code path
+    entirely, so a message naming ``read`` for either one sends a reader to the wrong frame --
+    the async half especially, where the two implementations genuinely differ.
+    """
+    provider = build_memory_provider(
+        MemoryProviderConfig(
+            provider="co_located", mode=ProviderMode.LOCAL, options={"vector_substrate": LeakyVector()}
+        )
+    )
+    query = MemoryQuery(text="row", tiers=[MemoryTier.SEMANTIC])
+    arguments = (ACME, MemoryTier.SEMANTIC, query) if "tier" in method else (ACME, query)
+
+    with pytest.raises(MemoryOperationError) as excinfo:
+        run(getattr(provider, method)(*arguments))
+
+    assert str(excinfo.value).startswith(f"{method}()")
+
+
 def test_an_unset_slot_constrains_nothing():
     """``None`` means "any". Treating it as a predicate would refuse a legitimately wide read."""
     wide = Scope(tenant_id="acme")
@@ -344,5 +513,46 @@ def test_an_unset_slot_constrains_nothing():
 
 
 def test_require_scope_returns_the_scope_it_validated():
-    """So a caller can write ``scope = require_scope(scope, ...)`` without a second lookup."""
+    """So a caller holding a loosely-typed value gets the narrowing the return type promises."""
     assert require_scope(ACME, method="read") is ACME
+
+
+def test_a_blank_tenant_is_refused_as_a_tenant_failure_not_a_generic_slot_one():
+    """The tenant has its own check ahead of the slot loop, and its own ``field_name``.
+
+    Without this the dedicated check is redundant with the loop -- which would still refuse the
+    call, but report it as an ordinary slot problem. An operator alerting on unscoped access
+    filters on ``field_name``, and "some slot was malformed" is not that signal.
+    """
+    with pytest.raises(MemoryScopeRequiredError) as excinfo:
+        require_scope(UnvalidatedScope(tenant_id="", user_id="u1"), method="read")
+
+    assert excinfo.value.field_name == "tenant_id"
+    assert "unscoped is the widest tenancy" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("slot", [s for s in SCOPE_SLOTS if s != "tenant_id"])
+@pytest.mark.parametrize("value", ["  u1  ", "u1 ", ""], ids=["padded", "trailing", "blank"])
+def test_a_non_tenant_slot_that_skipped_normalisation_is_refused(slot, value):
+    """``Scope.__post_init__`` normalises all five slots; a subclass that skips it must not slip
+    an unnormalised one past the guard.
+
+    ``user_id="  u1  "`` is not a tenancy breach -- it fails closed, matching no row. It is a
+    partition split on incidental whitespace: the same user reads and writes two disjoint sets
+    depending on how the identifier reached the call, with nothing in the logs.
+    """
+    scope = UnvalidatedScope(**{"tenant_id": "acme", slot: value})
+
+    with pytest.raises(MemoryScopeRequiredError) as excinfo:
+        require_scope(scope, method="read")
+
+    assert excinfo.value.field_name == slot
+    assert "read()" in str(excinfo.value)
+
+
+def test_a_properly_constructed_scope_passes_the_slot_check():
+    """The counterweight: ``Scope`` normalises on construction, so every real scope survives --
+    including one built from padded input, which is trimmed rather than refused."""
+    scope = Scope(tenant_id=" acme ", user_id="  u1  ", agent_id="a1", team_id="t1", session_id="s1")
+    assert require_scope(scope, method="read") is scope
+    assert scope.user_id == "u1"

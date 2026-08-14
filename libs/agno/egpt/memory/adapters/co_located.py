@@ -618,15 +618,36 @@ class CoLocatedMemoryProvider(MemoryProvider):
             ),
         )
 
-    def _merged(self, scope: Scope, query: MemoryQuery, legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
-        """Merge the legs and run every post-condition that does not need a backend call."""
+    def _merged(
+        self,
+        scope: Scope,
+        query: MemoryQuery,
+        legs: Sequence[Sequence[MemoryRecord]],
+        *,
+        method: str,
+    ) -> List[MemoryRecord]:
+        """Merge the legs and run every post-condition that does not need a backend call.
+
+        ``method`` is required rather than defaulted: both halves call this, and a default would
+        make the async one report the sync verb -- which is the same "names the method it delegated
+        to" defect the entry guards exist to avoid, surfacing from the post-condition instead.
+        """
         merged = _merge(legs)
-        assert_scope_isolation(scope, merged, method="read")
+        assert_scope_isolation(scope, merged, method=method)
         self._assert_requested_tiers(query, merged)
         return merged
 
     def read(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         require_scope(scope, method="read")
+        return self._read(scope, query, method="read")
+
+    def _read(self, scope: Scope, query: MemoryQuery, *, method: str) -> MemorySlice:
+        """The read path both entry points share, carrying the verb that entered it.
+
+        ``read_tier`` delegates here rather than to :meth:`read` so a post-condition failure names
+        the verb the caller used. Threading it is what keeps the entry guard and the post-condition
+        from disagreeing about which method is running.
+        """
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
         vector_hits: List[MemoryRecord] = []
@@ -635,12 +656,16 @@ class CoLocatedMemoryProvider(MemoryProvider):
             vector_hits = list(self.vector.search(scope, query))
         if self.graph is not None and self._uses(query, Substrate.GRAPH):
             graph_hits = list(self.graph.traverse(scope, query))
-        merged = self._merged(scope, query, [vector_hits, graph_hits])
+        merged = self._merged(scope, query, [vector_hits, graph_hits], method=method)
         reconciled = self._reconcile_bounds(scope, merged)
         return self._slice(scope, query, merged, vector_hits, graph_hits, instant, reconciled)
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
         require_scope(scope, method="aread")
+        return await self._aread(scope, query, method="aread")
+
+    async def _aread(self, scope: Scope, query: MemoryQuery, *, method: str) -> MemorySlice:
+        """Async variant of :meth:`_read`, carrying the verb the same way."""
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
 
@@ -657,7 +682,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # Concurrent: the legs are independent by construction, and Mode B pays for series over a
         # network.
         vector_hits, graph_hits = await asyncio.gather(vector_leg(), graph_leg())
-        merged = self._merged(scope, query, [vector_hits, graph_hits])
+        merged = self._merged(scope, query, [vector_hits, graph_hits], method=method)
         reconciled = await self._areconcile_bounds(scope, merged)
         return self._slice(scope, query, merged, vector_hits, graph_hits, instant, reconciled)
 
@@ -689,12 +714,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
         the second call is a type check on an object already in hand.
         """
         require_scope(scope, method="read_tier")
-        return self.read(scope, replace(query, tiers=[tier])).records
+        return self._read(scope, replace(query, tiers=[tier]), method="read_tier").records
 
     async def aread_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
         """Async variant of :meth:`read_tier`, with the same read-empty rule."""
         require_scope(scope, method="aread_tier")
-        return (await self.aread(scope, replace(query, tiers=[tier]))).records
+        return (await self._aread(scope, replace(query, tiers=[tier]), method="aread_tier")).records
 
     # -- consolidate ----------------------------------------------------------
 

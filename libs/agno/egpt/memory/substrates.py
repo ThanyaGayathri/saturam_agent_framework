@@ -37,9 +37,19 @@ class VectorSubstrate(Protocol):
 
     Every slot is spelled out because "tenant predicate" alone leaves four of them to a backend
     author's judgement, and a backend that honours the tenant and ignores the user serves one
-    user's memory to another inside the same tenant. SM-C4 (#92) makes this fail-closed at the data
-    layer; the provider re-checks the tenant slot as a post-condition, because that one leaks
-    across a trust boundary.
+    user's memory to another inside the same tenant. The provider re-checks the tenant slot as a
+    post-condition, because that one leaks across a trust boundary.
+
+    **An implementation must call** ``require_scope(scope, method=<verb>)``
+    (:mod:`egpt.memory.validation`) **as the first statement of every method here** -- SM-C4's
+    (#92) rule that a forgotten scope errors at the data layer rather than being read as "no
+    predicate". The seam guards its own entry points, but ``CoLocatedMemoryProvider.vector`` is a
+    public attribute, so the seam is not the last line. The graph substrate does this inside
+    ``cypher.scope_predicate`` / ``scope_props``, which every statement it emits routes through;
+    a store whose predicates are built by a driver rather than by its own code should guard the
+    port method instead. Stated here rather than left to a reviewer because this port has no
+    production implementor yet (SM-V1 #95) and a Protocol is free to change today and breaking
+    tomorrow.
 
     A backend must resolve the tier set exactly as ``MemoryQuery.resolved_tiers`` does. When one
     leg honoured the tier filter and the other did not, the leakage surfaced only in the merged
@@ -164,6 +174,10 @@ class GraphSubstrate(Protocol):
     section 6 proved in-place wrong: a later fact clobbers an already-set bound, and belief
     evolution stops reconstructing. A production backend delegates to SM-R10's ``upsert_edge`` /
     ``invalidate_edge`` / ``retract_edge``.
+
+    The fail-closed obligation :class:`VectorSubstrate` states applies here identically. The
+    shipped backend discharges it in ``cypher.scope_predicate`` / ``scope_props`` rather than per
+    method, because every statement it emits is built by one of those two.
     """
 
     def upsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:

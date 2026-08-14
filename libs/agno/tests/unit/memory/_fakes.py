@@ -9,6 +9,11 @@ They are deliberately faithful on the two behaviours the provider depends on:
 
 * Tenant scoping is real -- records are bucketed by ``scope.tenant_id``, so a cross-tenant leak
   would show up here rather than being assumed away.
+* Every scope-taking method calls ``require_scope`` first (SM-C4 #92), because a double must be
+  **stricter than the loosest real backend** and the one real substrate in the tree refuses an
+  unscoped call at its statement layer. A double that answered one would be modelling a backend
+  weaker than any that exists, and ``CoLocatedMemoryProvider.vector`` / ``.graph`` are public, so
+  a caller can reach these directly.
 * ``FakeGraph.invalidate`` does genuine **expire-and-reinsert (SCD-2)**: it expires the live row
   on the transaction axis and inserts a bounded copy. Nothing is mutated in place, because
   SM-R10 section 6 proved in-place wrong and a double that cheated would hide it.
@@ -21,6 +26,7 @@ from uuid import uuid4
 
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
+from egpt.memory.validation import require_scope
 from egpt.memory.types import (
     SCOPE_SLOTS,
     FactWrite,
@@ -135,6 +141,7 @@ class FakeVector:
         return [r for r in self._bucket(scope).values() if scoped(r.scope, scope)]
 
     def upsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        require_scope(scope, method="upsert")
         self.calls.append("upsert")
         bucket = self._bucket(scope)
         for record in records:
@@ -142,11 +149,13 @@ class FakeVector:
             bucket[record.id] = replace(record, substrate=Substrate.VECTOR)
 
     async def aupsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        require_scope(scope, method="aupsert")
         await _yield()
         self.calls.append("aupsert")
         self.upsert(scope, records)
 
     def search(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="search")
         self.calls.append("search")
         self.search_limits.append(query.limit)
         tiers = {tier} if tier else set(query.resolved_tiers())
@@ -160,11 +169,13 @@ class FakeVector:
         return _ranked(hits, query.limit)
 
     async def asearch(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="asearch")
         await _yield()
         self.calls.append("asearch")
         return self.search(scope, query, tier)
 
     def scan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="scan")
         self.calls.append("scan")
         self.scan_limits.append(limit)
         # Copies, like `search` returns. `scan` handing back live objects made a provider that
@@ -177,6 +188,7 @@ class FakeVector:
         return rows if limit is None else rows[:limit]
 
     async def ascan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="ascan")
         await _yield()
         self.calls.append("ascan")
         return self.scan(scope, tier, limit)
@@ -210,6 +222,7 @@ class FakeGraph:
 
     def upsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
         """Upsert by id, as the port requires. Appending let a repeat write look idempotent."""
+        require_scope(scope, method="upsert_episodes")
         self.calls.append("upsert_episodes")
         self.episode_batch_sizes.append(len(events))
         for event in events:
@@ -241,12 +254,14 @@ class FakeGraph:
         # Suspends, then delegates to the sync name. The delegation is load-bearing for tests that
         # patch one verb to fail: patching only the sync name and having the async half reimplement
         # it is how the two halves get compared against different code.
+        require_scope(scope, method="aupsert_episodes")
         await _yield()
         self.calls.append("aupsert_episodes")
         self.upsert_episodes(scope, events)
 
     def upsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
         """Upsert by id, as the port name says -- appending would let a re-run look idempotent."""
+        require_scope(scope, method="upsert_facts")
         self.calls.append("upsert_facts")
         self.fact_batch_sizes.append(len(facts))
         for fact in facts:
@@ -264,11 +279,13 @@ class FakeGraph:
         bucket.append(row)
 
     async def aupsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
+        require_scope(scope, method="aupsert_facts")
         await _yield()
         self.calls.append("aupsert_facts")
         self.upsert_facts(scope, facts)
 
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="traverse")
         self.calls.append("traverse")
         self.traverse_limits.append(query.limit)
         tiers = {tier} if tier else set(query.resolved_tiers())
@@ -282,6 +299,7 @@ class FakeGraph:
     async def atraverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> List[MemoryRecord]:
+        require_scope(scope, method="atraverse")
         await _yield()
         self.calls.append("atraverse")
         return self.traverse(scope, query, tier)
@@ -294,6 +312,7 @@ class FakeGraph:
         row would miss nothing today, but a double that answered from the ranked page would make
         the provider's reconciliation untestable, which is the failure this method exists to catch.
         """
+        require_scope(scope, method="bounds_for_ids")
         self.calls.append("bounds_for_ids")
         self.bounds_requests.append(list(ids))
         wanted = set(ids)
@@ -315,12 +334,14 @@ class FakeGraph:
         return found
 
     async def abounds_for_ids(self, scope: Scope, ids: Sequence[str]) -> Dict[str, TemporalBounds]:
+        require_scope(scope, method="abounds_for_ids")
         await _yield()
         self.calls.append("abounds_for_ids")
         return self.bounds_for_ids(scope, ids)
 
     def invalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None:
         """Expire the live row on the transaction axis, then insert a bounded copy."""
+        require_scope(scope, method="invalidate")
         self.calls.append("invalidate")
         recorded_at = at if at is not None else t_invalid
         bucket = self._bucket(scope)
@@ -333,6 +354,7 @@ class FakeGraph:
             bucket.append(replace(row, t_invalid=tightest, expired_at=None, created_at=recorded_at))
 
     async def ainvalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None:
+        require_scope(scope, method="ainvalidate")
         await _yield()
         self.calls.append("ainvalidate")
         self.invalidate(scope, edge_id, t_invalid, at)
