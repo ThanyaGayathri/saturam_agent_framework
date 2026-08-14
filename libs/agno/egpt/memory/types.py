@@ -25,7 +25,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence
 
-from egpt.memory.errors import MemoryOperationError
+from egpt.memory.errors import MemoryOperationError, MemoryScopeRequiredError
 from egpt.memory.tiers import DEFAULT_WRITE_TIER, PERSISTENT_TIERS, MemoryTier
 from egpt.utils.dttm import to_epoch_s
 
@@ -42,8 +42,10 @@ __all__ = [
     "MemoryOperationError",
     "MemoryQuery",
     "MemoryRecord",
+    "MemoryScopeRequiredError",
     "MemorySlice",
     "PartialWriteError",
+    "SCOPE_SLOTS",
     "Scope",
     "Substrate",
     "TemporalBounds",
@@ -143,6 +145,17 @@ def _escape(value: Optional[str]) -> str:
     return value.replace("%", "%25").replace("/", "%2F").replace("*", "%2A")
 
 
+#: Every partition slot a memory row carries, in :meth:`Scope.key` order.
+#:
+#: One declaration because four sites had written the tuple out by hand -- the normalisation loop
+#: below, the co-located provider's isolation guard, the Neo4j statement builders, and the seed's
+#: narrowing check -- and a slot added to :class:`Scope` reaches a predicate only in the copies
+#: someone remembered. ``tenant_id`` is not special-cased in any of them: a backend that honours
+#: the tenant and drops ``user_id`` serves one user's memory to another, which is the same leak one
+#: boundary in.
+SCOPE_SLOTS = ("tenant_id", "agent_id", "user_id", "team_id", "session_id")
+
+
 @dataclass(frozen=True)
 class Scope:
     """Isolation and addressing. Present on **every** read, write, and consolidate call.
@@ -177,7 +190,7 @@ class Scope:
         #
         # Note this is a different argument from requiring `tenant_id`: that one is about unscoped
         # being the *widest* tenancy. The others fail closed, so they are a partitioning bug.
-        for slot in ("tenant_id", "agent_id", "user_id", "team_id", "session_id"):
+        for slot in SCOPE_SLOTS:
             value = getattr(self, slot)
             if value is None:
                 continue
@@ -201,16 +214,11 @@ class Scope:
         ``/`` inside a tenant-supplied identifier merged two adjacent slots --
         ``agent_id="b/c", user_id="d"`` and ``agent_id="b", user_id="c/d"`` produced one key -- and
         any code that groups by this string then files one scope's data under the other.
+
+        Built from :data:`SCOPE_SLOTS` rather than a hand-written list, so a slot added to this
+        dataclass widens the key instead of colliding with the scopes that lack it.
         """
-        return "/".join(
-            [
-                _escape(self.tenant_id),
-                _escape(self.agent_id),
-                _escape(self.user_id),
-                _escape(self.team_id),
-                _escape(self.session_id),
-            ]
-        )
+        return "/".join(_escape(getattr(self, slot)) for slot in SCOPE_SLOTS)
 
 
 @dataclass(frozen=True)

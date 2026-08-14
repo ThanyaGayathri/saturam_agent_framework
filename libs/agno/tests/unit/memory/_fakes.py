@@ -22,6 +22,7 @@ from uuid import uuid4
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
+    SCOPE_SLOTS,
     FactWrite,
     MemoryEvent,
     MemoryQuery,
@@ -49,7 +50,7 @@ def scoped(record_scope: Scope, call_scope: Scope) -> bool:
     one. Modelling the full conjunctive predicate is what makes the port's scoping contract
     testable at all.
     """
-    for slot in ("tenant_id", "user_id", "agent_id", "team_id", "session_id"):
+    for slot in SCOPE_SLOTS:
         wanted = getattr(call_scope, slot)
         if wanted is not None and getattr(record_scope, slot) != wanted:
             return False

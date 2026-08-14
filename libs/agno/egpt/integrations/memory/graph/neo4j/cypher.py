@@ -21,7 +21,8 @@ to a node and a relationship alike.
 
 from typing import Any, Dict, List, Tuple
 
-from egpt.memory.types import Scope
+from egpt.memory.types import SCOPE_SLOTS, Scope
+from egpt.memory.validation import require_scope
 
 __all__ = [
     "EPISODE",
@@ -47,11 +48,6 @@ EPISODE = "Episode"
 FACT = "Fact"
 REL = "REL"
 
-#: The scope slots every row carries and every read filters on. ``tenant_id`` is not special-cased
-#: anywhere below: a backend that honours the tenant and ignores the user serves one user's memory
-#: to another inside the same tenant, which is the same leak one boundary in.
-SCOPE_SLOTS = ("tenant_id", "agent_id", "user_id", "team_id", "session_id")
-
 
 def scope_props(scope: Scope) -> Dict[str, Any]:
     """The scope columns to store on a row, plus the merge identity.
@@ -59,7 +55,10 @@ def scope_props(scope: Scope) -> Dict[str, Any]:
     ``scope_key`` (:meth:`Scope.key`) is the *write* identity -- fixed-arity and percent-escaped, so
     two scopes cannot collide. The individual slots are what *reads* filter on, because an unset
     slot means "any" and an equality on the composite key could not express that.
+
+    Fail-closed (SM-C4 #92): see :func:`scope_predicate`.
     """
+    require_scope(scope, method="scope_props")
     return {
         "scope_key": scope.key(),
         **{slot: getattr(scope, slot) for slot in SCOPE_SLOTS},
@@ -72,7 +71,18 @@ def scope_predicate(alias: str, scope: Scope) -> Tuple[str, Dict[str, Any]]:
     Every slot the *call* scope sets becomes an equality; a slot left ``None`` means "any" and
     contributes no clause. ``tenant_id`` is mandatory on :class:`Scope`, so there is always at
     least one.
+
+    **This is where the graph substrate fails closed (SM-C4 #92).** Every read predicate is built
+    here and every stored row's scope columns come from :func:`scope_props`, so refusing an
+    unscoped call at these two points means no Cypher can filter, and no row can be written,
+    without a tenant. The two write-statement builders bind no scope at all and validate it
+    directly, which closes the module: no public builder here accepts an unscoped call.
+
+    Guarded at the data layer and not only at the seam because the ticket's Decision 1 rejects
+    API-only scoping as bypassable -- and ``CoLocatedMemoryProvider.graph`` is a public attribute,
+    so the seam's guard is genuinely not the last line.
     """
+    require_scope(scope, method="scope_predicate")
     clauses: List[str] = []
     params: Dict[str, Any] = {}
     for slot in SCOPE_SLOTS:
@@ -219,15 +229,17 @@ def _upsert_node(label: str) -> Tuple[str, Dict[str, Any]]:
     return (f"UNWIND $rows AS row MERGE (n:{label} {_IDENTITY}) SET n = row"), _WRITE_BINDS
 
 
-# `scope` is unused by both builders below, and deliberately kept: a write carries its scope on each
-# row (see `_WRITE_BINDS`), so there is nothing to bind -- but dropping the parameter would make
-# these two the only statement builders a caller invokes differently, which is how the scope stops
-# being passed at all. The `noqa` says "unused"; this says "and that is the point".
-def upsert_episodes_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:  # noqa: ARG001 - see above
+# `scope` binds no parameter in either builder below, and is deliberately kept: a write carries its
+# scope on each row (see `_WRITE_BINDS`), so there is nothing to bind -- but dropping the parameter
+# would make these two the only statement builders a caller invokes differently, which is how the
+# scope stops being passed at all. Since SM-C4 they validate it rather than ignore it, so the
+# fail-closed property holds over *every* public builder here and not only the ones that filter.
+def upsert_episodes_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
+    require_scope(scope, method="upsert_episodes_statement")
     return _upsert_node(EPISODE)
 
 
-def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]]]:  # noqa: ARG001 - as above
+def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]]]:
     """The two fact shapes, keyed by which one a batch's rows belong to: a tripled fact is a
     relation between entities, an untripled one a node. Both carry the same envelope.
 
@@ -242,6 +254,7 @@ def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]
     entity resolution, which is SM-G8's (#106), and a backend that pre-emptively shared them would
     have made the isolation guarantee depend on a dedup policy nobody has written yet.
     """
+    require_scope(scope, method="upsert_facts_statements")
     triple = (
         "UNWIND $rows AS row "
         "MERGE (s:Entity {scope_key: row.scope_key, name: row.subject}) "

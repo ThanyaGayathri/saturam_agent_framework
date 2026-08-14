@@ -55,7 +55,12 @@ from egpt.memory.types import (
     consolidation_details,
     fusion_diagnostics,
 )
-from egpt.memory.validation import reject_duplicate_ids, reject_foreign_scopes
+from egpt.memory.validation import (
+    assert_scope_isolation,
+    reject_duplicate_ids,
+    reject_foreign_scopes,
+    require_scope,
+)
 from egpt.utils.dttm import now_epoch_s
 
 __all__ = ["CoLocatedMemoryProvider"]
@@ -316,39 +321,6 @@ class CoLocatedMemoryProvider(MemoryProvider):
             )
 
     @staticmethod
-    def _assert_scope_isolation(scope: Scope, records: Sequence[MemoryRecord]) -> None:
-        """No record may leave the seam, or be persisted, under a scope that did not ask for it.
-
-        **All five slots, not just the tenant.** The port requires a backend to apply every set
-        slot conjunctively, and a backend that honours the tenant and drops the ``user_id``
-        predicate -- the exact bug that docstring warns about -- served one user's row to another
-        with a tenant-only guard watching. Four more comparisons on a list already in hand.
-
-        A ``None`` slot on the call scope means "any", so it constrains nothing; a set slot must
-        match exactly. Applied on the consolidate path too, where a leaked row would otherwise be
-        distilled into a genuine fact under the caller's scope and pass every later check.
-        """
-        # Slot names and a count, never the offending values. This guard fires exactly when a
-        # backend has leaked another tenant's rows, so echoing their identifiers puts them in a log
-        # line or an API response -- and "which slot, how many" is the whole of what an operator
-        # can act on.
-        slots: Set[str] = set()
-        offenders = 0
-        for record in records:
-            for slot in ("tenant_id", "user_id", "agent_id", "team_id", "session_id"):
-                wanted = getattr(scope, slot)
-                if wanted is not None and getattr(record.scope, slot, None) != wanted:
-                    slots.add(slot)
-                    offenders += 1
-                    break
-        if offenders:
-            raise MemoryOperationError(
-                f"A substrate returned {offenders} record(s) outside the call scope; it dropped a "
-                f"scope predicate on {sorted(slots)}.",
-                field_name="scope",
-            )
-
-    @staticmethod
     def _graph_backed(records: Sequence[MemoryRecord]) -> List[str]:
         """Ids whose tier routes to the graph -- the only ones it can have an opinion about.
 
@@ -455,6 +427,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         )
 
     def write(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
+        require_scope(scope, method="write")
         stamped, records = self._prepare(scope, events)
         vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
         receipt = self._receipt(stamped)
@@ -489,6 +462,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         return receipt
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
+        require_scope(scope, method="awrite")
         stamped, records = self._prepare(scope, events)
         vector_records = [r for r in records if "vector" in substrates_for_tier(r.tier)]
         receipt = self._receipt(stamped)
@@ -581,10 +555,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # Hoisted, because `_prepare`'s guard is inside the per-event loop: an empty batch never
         # reached it, so `write_tier(WORKING, [])` returned a success receipt for a tier that
         # `write_tier(WORKING, [event])` refuses. `seed.write_tier` already guards up front.
+        require_scope(scope, method="write_tier")
         self._require_writable(tier)
         return self.write(scope, [replace(event, tier=tier) for event in events])
 
     async def awrite_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
+        require_scope(scope, method="awrite_tier")
         self._require_writable(tier)
         return await self.awrite(scope, [replace(event, tier=tier) for event in events])
 
@@ -645,11 +621,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
     def _merged(self, scope: Scope, query: MemoryQuery, legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
         """Merge the legs and run every post-condition that does not need a backend call."""
         merged = _merge(legs)
-        self._assert_scope_isolation(scope, merged)
+        assert_scope_isolation(scope, merged, method="read")
         self._assert_requested_tiers(query, merged)
         return merged
 
     def read(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
+        require_scope(scope, method="read")
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
         vector_hits: List[MemoryRecord] = []
@@ -663,6 +640,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         return self._slice(scope, query, merged, vector_hits, graph_hits, instant, reconciled)
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
+        require_scope(scope, method="aread")
         self._require_answerable(query)
         instant = query.as_of if query.as_of is not None else now_epoch_s()
 
@@ -705,11 +683,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
         returned `[]`, and `co_located.read(tiers=[WORKING])` returned an empty slice -- so no
         caller could write one handler. Reads report absence; **writes** refuse it, because writing
         somewhere nothing will store it loses data while reading it simply finds nothing.
+
+        The guard is repeated here rather than left to the ``read`` it delegates to, so the
+        refusal names the verb the caller used. Every entry point carries its own for that reason;
+        the second call is a type check on an object already in hand.
         """
+        require_scope(scope, method="read_tier")
         return self.read(scope, replace(query, tiers=[tier])).records
 
     async def aread_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
         """Async variant of :meth:`read_tier`, with the same read-empty rule."""
+        require_scope(scope, method="aread_tier")
         return (await self.aread(scope, replace(query, tiers=[tier]))).records
 
     # -- consolidate ----------------------------------------------------------
@@ -937,13 +921,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
         self._raise_write_failure(failures, receipt)
 
     def consolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
+        require_scope(scope, method="consolidate")
         vector = self._check_consolidatable(tiers)
         instant = now_epoch_s()
         # Detached before anything touches them: `scan` may hand back the rows the substrate is
         # holding (`search` returns copies, `scan` need not), and `_reconcile_bounds` writes bounds
         # onto what it is given.
         scanned = [r.detached() for r in vector.scan(scope, CONSOLIDATION_SOURCE, limit=self.max_episodes_per_pass)]
-        self._assert_scope_isolation(scope, scanned)
+        assert_scope_isolation(scope, scanned, method="consolidate")
         episodes = self._visible_episodes(scope, scanned, instant)
         facts, merged = self._distil(episodes)
 
@@ -983,12 +968,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
         return self._report(scope, scanned, episodes, facts, merged)
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
+        require_scope(scope, method="aconsolidate")
         vector = self._check_consolidatable(tiers)
         instant = now_epoch_s()
         scanned = [
             r.detached() for r in await vector.ascan(scope, CONSOLIDATION_SOURCE, limit=self.max_episodes_per_pass)
         ]
-        self._assert_scope_isolation(scope, scanned)
+        assert_scope_isolation(scope, scanned, method="aconsolidate")
         episodes = await self._avisible_episodes(scope, scanned, instant)
         # Off the loop: `_distil` is quadratic and measured seconds of pure CPU at the cap, during
         # which no other coroutine in the process runs.

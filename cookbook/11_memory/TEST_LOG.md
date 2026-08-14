@@ -99,6 +99,10 @@ fix: `vector row IS graph row -> False`, and two invalidations leave one current
 Note that `scan` here takes no cursor. The `since` / `after_id` pair it used to model was removed
 along with the consolidation resumption protocol; a resumable walk is SM-L1's (#122).
 
+Re-run under SM-C4 (#92): unchanged output, byte for byte. The fail-closed entry guard refuses a
+call that carries no `Scope`, and every call here carries one, so a cookbook that had to change
+would have meant the guard was refusing legitimate traffic.
+
 ---
 
 ### 10_graph_substrate_neo4j.py
