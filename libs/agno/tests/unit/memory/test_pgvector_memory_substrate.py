@@ -11,15 +11,14 @@ immediately, so it fails in the ``unit-drivers-absent`` job where psycopg is del
 
 import asyncio
 import math
-from hashlib import blake2b
-
 import re
+from hashlib import blake2b
 from pathlib import Path
 
 import pytest
 
+from egpt.integrations.memory.vector.pgvector import PgVectorMemorySubstrate, sql
 from egpt.integrations.memory.vector.pgvector import pgvector as module
-from egpt.integrations.memory.vector.pgvector import PgVectorMemorySubstrate
 from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.substrates import VectorSubstrate
 from egpt.memory.tiers import MemoryTier
@@ -395,3 +394,41 @@ def test_the_default_port_is_the_one_the_setup_script_publishes():
     published = re.search(r"-p (\d+):5432", script)
     assert published, "run_pgvector.sh no longer publishes a port in the expected form"
     assert f":{published.group(1)}/" in URL
+
+
+def _built(table: str) -> PgVectorMemorySubstrate:
+    """Construct with a given table name. Never connects, but `create_engine` imports the DBAPI."""
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+    return PgVectorMemorySubstrate(db_url=URL, embedder=StubEmbedder(), table=table, auto_init_schema=False)
+
+
+@pytest.mark.parametrize(
+    "length, accepted",
+    [(sql.MAX_TABLE_BYTES, True), (sql.MAX_TABLE_BYTES + 1, False)],
+    ids=["at the budget", "one byte over"],
+)
+def test_a_table_name_is_held_to_what_its_derived_identifiers_can_spend(length, accepted):
+    """``identifier`` accepts any table up to Postgres' 63 bytes, but three identifiers are derived
+    from it by suffixing -- two indexes at +5 and a partition at +35 -- so a name in the middle of
+    that range is legal itself and produces an illegal partition. Before the guard that surfaced as
+    a bare ``ValueError`` at the **first write of each new tenant**, a long way from the setting
+    that caused it, and outside this backend's error envelope.
+
+    The boundary is parametrised off ``sql.MAX_TABLE_BYTES`` rather than spelled as 28, so changing
+    a suffix moves the test with the code instead of leaving it asserting a stale number.
+    """
+    table = "m" * length
+    if accepted:
+        assert _built(table).table == table
+    else:
+        with pytest.raises(MemoryProviderConfigError, match="63-byte identifier limit"):
+            _built(table)
+
+
+def test_a_ranked_row_without_a_distance_is_refused_rather_than_ranked_first():
+    """``_ranked`` mapped a missing distance to ``0.0`` -- a *perfect* cosine match -- so an
+    unranked row reaching the relevance filter would have led the page with ``score=None``, which
+    the provider then fuses as zero. Unreachable from ``search``, whose statement always returns a
+    float; refused by name so a future caller finds the contract instead of the misranking."""
+    with pytest.raises(MemoryOperationError, match="carries no distance"):
+        module._similar({"id": "e1"})

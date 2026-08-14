@@ -28,12 +28,14 @@ from egpt.memory.types import Scope
 __all__ = [
     "COLUMNS",
     "MAX_HNSW_DIM",
+    "MAX_TABLE_BYTES",
     "SCOPE_SLOTS",
     "create_partition_statement",
     "ef_search_statement",
     "identifier",
     "partition_name",
     "qualified",
+    "table_identifier",
     "scan_statement",
     "schema_statements",
     "scope_predicate",
@@ -46,6 +48,16 @@ __all__ = [
 #: backend that honours the tenant and ignores the user serves one user's memory to another inside
 #: the same tenant.
 SCOPE_SLOTS: Tuple[str, ...] = ("tenant_id", "agent_id", "user_id", "team_id", "session_id")
+
+#: How many bytes a table name may spend, so that **every** identifier derived from it still fits.
+#:
+#: Three are derived by suffixing: the two parent indexes add ``_hnsw`` / ``_scan``, and a partition
+#: adds ``_p_`` plus a 32-character digest. Derived from the longest of those rather than written as
+#: a number, because the two would drift the moment a suffix changed -- and the failure is invisible
+#: until it lands: ``identifier`` accepts the bare table at 63 bytes, then the *derived* name raises
+#: a bare ``ValueError``, for the index names at construction and for a partition at the first write
+#: of each new tenant, outside this backend's error envelope either way.
+MAX_TABLE_BYTES = 63 - len("_p_") - 32
 
 #: pgvector indexes at most 2000 dimensions with HNSW, against 16000 for the column type. A
 #: deployment above that has a ``vector`` column that no HNSW index can cover, so every search is
@@ -150,6 +162,22 @@ def identifier(name: str, field: str) -> str:
         if not char.isascii() or not (char.isalnum() or char in "_$"):
             raise ValueError(f"{field} may contain ASCII letters, digits, '_' and '$' only, got {name!r}.")
     return name
+
+
+def table_identifier(name: str, field: str = "table") -> str:
+    """The memory table's name, held to the tighter budget its derived identifiers need.
+
+    Separate from :func:`identifier` because the constraint is not the table's own: at 63 bytes it
+    is a perfectly legal relation name, and only the names built *from* it overflow.
+    """
+    validated = identifier(name, field)
+    if len(validated.encode()) > MAX_TABLE_BYTES:
+        raise ValueError(
+            f"table {name!r} is {len(validated.encode())} bytes, above the {MAX_TABLE_BYTES}-byte "
+            f"budget: a partition of it is named '<table>_p_<32-char digest>', which would exceed "
+            "Postgres' 63-byte identifier limit and fail at the first write for each new tenant."
+        )
+    return validated
 
 
 def qualified(schema: str, table: str) -> str:

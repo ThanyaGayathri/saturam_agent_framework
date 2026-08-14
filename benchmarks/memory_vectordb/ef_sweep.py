@@ -32,11 +32,10 @@ import time
 from typing import Any, Dict, List
 
 import numpy as np
-from sqlalchemy import text as sql_text
-
-from egpt.integrations.memory.vector.pgvector import PgVectorMemorySubstrate
+from egpt.integrations.memory.vector.pgvector import PgVectorMemorySubstrate, sql
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryQuery, MemoryRecord, Scope
+from sqlalchemy import text as sql_text
 
 TABLE = "bench_memory_vectors"
 
@@ -81,6 +80,16 @@ def load(path: str, needed: int) -> np.ndarray:
     import h5py
 
     with h5py.File(path, "r") as handle:
+        available = len(handle["train"])
+        # A short slice is silent: the per-tenant offsets below would still index it, so later
+        # tenants would be scored against ground truth built from rows they were never given and
+        # the recall column would be wrong with nothing to say so. The whole point of this file is
+        # a number someone will ratify.
+        if available < needed:
+            raise SystemExit(
+                f"Dataset has {available} rows but {needed} were requested. Reduce --per-tenant or "
+                "--tenants, or use a larger split."
+            )
         return _normalize(np.asarray(handle["train"][:needed]))
 
 
@@ -133,7 +142,9 @@ def main() -> int:
     # a fixture this script owns, and exposing a `drop_schema()` on a memory substrate so a
     # benchmark can reset itself would put a destructive verb on the seam for no caller.
     with substrate._engine.begin() as connection:
-        connection.execute(sql_text(f"DROP TABLE IF EXISTS ai.{TABLE} CASCADE"))
+        connection.execute(
+            sql_text(f"DROP TABLE IF EXISTS {sql.qualified('ai', TABLE)} CASCADE")
+        )
     substrate.init_schema()
 
     scopes = [

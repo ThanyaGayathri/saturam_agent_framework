@@ -7,7 +7,8 @@ install that has no SDKs at all.
 
 ``discovery`` imports these lazily -- ``egpt.registry._declarations.<group suffix>`` on
 first touch of a kind -- so a module named here must match the suffix in
-``discovery._GROUP_SUFFIX`` (``models``, ``dbs``, ``vectordbs``, ``graphdbs``, ``tools``, ``embedders``).
+``discovery._GROUP_SUFFIX`` (``models``, ``dbs``, ``vectordbs``, ``vectorstores``, ``graphdbs``,
+``tools``, ``embedders``).
 
 Adding a provider means adding one row to one of these modules. Adding one from *outside*
 this repository means declaring an entry point instead and editing nothing here -- see

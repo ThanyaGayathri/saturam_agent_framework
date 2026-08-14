@@ -64,6 +64,8 @@ MARCH = 1_600_000_000
 
 # Ids are stated so re-running this file replaces the same three rows rather than accumulating a
 # fresh set: the substrate upserts by id, and a provider mints one per write when you leave it out.
+# `ada-berlin` appearing under two tenants is deliberate, not a copy-paste slip: the primary key
+# is (tenant_id, id), so an id is only unique *within* a tenant and these are two distinct rows.
 provider.write(
     ACME_ADA,
     [

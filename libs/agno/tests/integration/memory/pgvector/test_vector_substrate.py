@@ -69,7 +69,7 @@ def _url():
 def _fresh():
     substrate = PgVectorMemorySubstrate(db_url=_url(), embedder=TokenEmbedder(), table=TABLE, auto_init_schema=False)
     with substrate._engine.begin() as connection:
-        connection.execute(text(f"DROP TABLE IF EXISTS ai.{TABLE} CASCADE"))
+        connection.execute(text(f"DROP TABLE IF EXISTS {sql.qualified('ai', TABLE)} CASCADE"))
     substrate.init_schema()
     return substrate
 
@@ -92,13 +92,23 @@ async def async_store():
 
 
 @pytest.fixture(params=["pgvector", "double"])
-def any_store(request, store):
+def any_store(request):
     """The real backend and the reference double, behind one name.
 
     A property parametrised over both is what keeps the double honest: a double more permissive
     than the backend cannot catch a provider bug that only appears when the backend is strict.
+
+    The two are built **here** rather than by taking ``store`` as an argument. That form looked
+    equivalent and was not: pytest materialises a requested fixture whatever the parametrisation
+    does with it, so every ``double`` case also opened a connection and recreated the table --
+    binding the one variant designed to need no database to a live one.
     """
-    return store if request.param == "pgvector" else FakeVector()
+    if request.param != "pgvector":
+        yield FakeVector()
+        return
+    substrate = _fresh()
+    yield substrate
+    substrate.close()
 
 
 def record(id_, content, scope=ACME, tier=MemoryTier.EPISODIC, **kwargs):

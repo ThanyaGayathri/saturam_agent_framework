@@ -22,8 +22,8 @@ graph invalidates a fact, which has no call site until contradiction *detection*
 
 import json
 import os
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
 from egpt.integrations.memory.vector.pgvector import sql
 from egpt.knowledge.embedder import Embedder
@@ -142,10 +142,22 @@ def _similar(row: Dict[str, Any]) -> bool:
     """Whether a hit is a match at all -- cosine distance strictly under 1.0.
 
     A distance of 1.0 is orthogonality and above it is opposition, both of which normalise to a
-    similarity of 0.0. ``scan`` rows carry no distance and are never filtered by this.
+    similarity of 0.0.
+
+    **A row with no distance is refused, not passed through.** Only ranked reads reach here, and
+    every one of their rows carries the operator's result; a ``scan`` row does not, and letting one
+    through was worse than either alternative -- ``_ranked`` sorted a missing distance as ``0.0``,
+    which is a *perfect* match, so an unranked row would have led the page. Dropping it silently
+    would be the other half of the same mistake, so this says which contract was broken.
     """
     distance = row.get("distance")
-    return distance is None or float(distance) < 1.0
+    if distance is None:
+        raise MemoryOperationError(
+            "A ranked row carries no distance. Only search results are ranked; scan rows are "
+            "returned in insertion order and must not reach the relevance filter.",
+            field_name="distance",
+        )
+    return float(distance) < 1.0
 
 
 def _vector_literal(embedding: Sequence[float], dim: int, record_id: str) -> str:
@@ -194,7 +206,14 @@ class PgVectorMemorySubstrate:
                 field_name="db_url",
             )
         self.db_url: URL = self._normalized(resolved_url)
-        self.schema, self.table = sql.identifier(schema, "schema"), sql.identifier(table, "table")
+        # Both names arrive from deployment config, so a bad one is a deployment fault and reaches
+        # the caller as this seam's config error rather than as a bare `ValueError` from a statement
+        # builder. `table_identifier` rather than `identifier` for the second: a 63-byte table name
+        # is a legal relation but not a legal *base* for one, and it is the derived names that fail
+        # -- at construction for the two indexes, and at the first write of each new tenant for a
+        # partition, which is far from the setting that caused it.
+        self.schema = self._named(sql.identifier, schema, "schema")
+        self.table = self._named(sql.table_identifier, table, "table")
         self.embedder = self._resolved_embedder(embedder, embedder_options)
         self.dim = self._resolved_dim(dim, self.embedder)
         self.ef_search = ef_search
@@ -212,6 +231,18 @@ class PgVectorMemorySubstrate:
             self.init_schema()
 
     # -- construction-time validation -----------------------------------------
+
+    @staticmethod
+    def _named(validate: Any, value: Any, field: str) -> str:
+        """Run an identifier check, re-raising its refusal as a configuration fault.
+
+        One wrapper for both names rather than a try/except at each, so a third identifier cannot
+        be added on the one path that still leaks a bare ``ValueError``.
+        """
+        try:
+            return str(validate(value, field))
+        except ValueError as exc:
+            raise MemoryProviderConfigError(str(exc), field_name=field) from exc
 
     @staticmethod
     def _normalized(db_url: str) -> "URL":
@@ -424,6 +455,13 @@ class PgVectorMemorySubstrate:
                 ddl = connection.execute(text(sql.create_partition_statement()), binds).scalar()
                 connection.execute(text(self._partition_ddl(ddl)))
         except MemoryOperationError:
+            # Wider than `DuplicateTable`, deliberately: the recoverable case is defined by the
+            # *state*, not by which error announced it. Another process committing the same
+            # partition between this transaction's IF NOT EXISTS and its CREATE is the only way the
+            # DDL can fail and the caller still get what it asked for, so the question asked is
+            # "is it there now" rather than "did the message say duplicate" -- message matching
+            # breaks on a locale, a server version, or a driver that rewords. Anything else
+            # re-raises, and a failure that leaves no partition behind always does.
             with self._translated("partition probe"), self._engine.begin() as connection:
                 present = connection.execute(
                     text(self._EXISTS), {"qualified": self._qualified_partition(binds)}
@@ -594,7 +632,7 @@ class PgVectorMemorySubstrate:
         paired = sorted(
             (pair for pair in zip(rows, records) if _similar(pair[0])),
             key=lambda pair: (
-                float(pair[0]["distance"]) if pair[0].get("distance") is not None else 0.0,
+                float(pair[0]["distance"]),
                 pair[1].created_at or 0,
                 pair[1].content,
                 pair[1].id,
