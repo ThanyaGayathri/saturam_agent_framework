@@ -77,10 +77,12 @@ PROVENANCE_KEYS: Tuple[str, ...] = ("entity_ids", "graph_node_id", "supersedes",
 def graph_node_id_for(scope: Scope, episode_id: str) -> str:
     """The id of the ``(:Episode)`` node this episode is stored as, per SM-G1's write identity.
 
-    That backend ``MERGE``s an episode node on ``(scope_key, id)``, so the node is addressed by the
-    scope key with the episode id appended as a sixth slot -- escaped by
+    That backend ``MERGE``s an episode node on ``(scope_key, id, live: true)``. This addresses the
+    first two: the scope key with the episode id appended as a sixth slot, escaped by
     :func:`~egpt.memory.types.escape_key_slot`, because fixed arity without escaping is not
-    injectivity (an id containing ``/`` would otherwise read as two slots).
+    injectivity (an id containing ``/`` would otherwise read as two slots). The ``live`` marker is
+    deliberately not encoded -- it selects which *revision* is current, and one logical episode has
+    many under SCD-2, so a pointer that pinned it would name a row rather than the episode.
 
     Derived, never free-form: the vector row and the graph node cannot disagree about which node an
     episode is if neither side gets to choose. Whether the node *exists* is a different question --
@@ -156,6 +158,11 @@ def _reject_reserved_metadata(metadata: Dict[str, Any], where: str) -> None:
     Called on both projections, because the collision is the same one in both directions: the
     episode's own ``importance`` and the caller's would occupy one key, and whichever the
     projection wrote last would silently win. Naming the keys lets the caller move them.
+
+    Ordering differs by direction, which changes only *which* refusal a caller sees:
+    :func:`episode_to_record` pops ``topics`` before calling this, so a row carrying a non-list
+    ``metadata["topics"]`` is refused by :func:`_require_list` naming the type, not here naming the
+    reserved key. Both are ``MemoryOperationError``; the first is the more useful message.
     """
     clashing = sorted(key for key in metadata if key in _RESERVED_METADATA_KEYS)
     if clashing:
@@ -175,6 +182,11 @@ def episode_from_event(event: MemoryEvent) -> EpisodicRecord:
 
     ``importance`` is left at the row default. Scoring it is SM-E5's (#112), and a value invented
     here would rank episodes against each other on nothing.
+
+    ``MemoryEvent.role`` is **not carried**. Neither ``EpisodicRecord`` nor ``MemoryRecord`` has a
+    role field, so keeping it would mean inventing a metadata convention on behalf of SM-E2 (#109),
+    which owns the capture path and is the only caller with a role to place. Pinned by
+    ``test_role_is_not_preserved_here`` so the choice is made there rather than inherited from here.
     """
     if event.tier is not MemoryTier.EPISODIC:
         raise MemoryOperationError(

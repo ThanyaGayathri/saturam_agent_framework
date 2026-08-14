@@ -5,9 +5,11 @@ seam, and persisting one is SM-V1's (#95). The pinned-limitation tests at the en
 sibling ticket's behaviour arrives in this module, which is where it would go unnoticed.
 """
 
+import importlib
 import importlib.util
 from dataclasses import replace
 
+import egpt.memory as memory_package
 import pytest
 from egpt.db.schemas.memory import EpisodicRecord as PersistedEpisodicRecord
 from egpt.memory.schemas.episodic import (
@@ -69,27 +71,31 @@ def test_the_exported_episode_is_the_persisted_row():
     assert EpisodicRecord is PersistedEpisodicRecord
 
 
-@pytest.mark.parametrize(
-    "name, module",
-    [
-        ("EPISODE_KEYS", "egpt.memory.schemas.episodic"),
-        ("PROVENANCE_KEYS", "egpt.memory.schemas.episodic"),
-        ("TOPICS_KEY", "egpt.memory.schemas.episodic"),
-        # Promoted from `types._escape` by this PR, and half of the pair `graph_node_id_for`
-        # exports: a caller extending the slot encoding needs both from the same boundary.
-        ("escape_key_slot", "egpt.memory.types"),
-    ],
-)
+#: Every name this ticket adds to ``egpt.memory.__all__``, with the module that defines it. The
+#: whole set rather than the constants alone: an ``is``-identity check is what catches a re-export
+#: that starts wrapping rather than forwarding.
+EXPORTED_SURFACE = [
+    ("EPISODE_KEYS", "egpt.memory.schemas.episodic"),
+    ("PROVENANCE_KEYS", "egpt.memory.schemas.episodic"),
+    ("TOPICS_KEY", "egpt.memory.schemas.episodic"),
+    ("EpisodicRecord", "egpt.memory.schemas.episodic"),
+    ("episode_details", "egpt.memory.schemas.episodic"),
+    ("episode_from_event", "egpt.memory.schemas.episodic"),
+    ("episode_to_record", "egpt.memory.schemas.episodic"),
+    ("graph_node_id_for", "egpt.memory.schemas.episodic"),
+    # Promoted from `types._escape` by this PR, and half of the pair `graph_node_id_for`
+    # exports: a caller extending the slot encoding needs both from the same boundary.
+    ("escape_key_slot", "egpt.memory.types"),
+]
+
+
+@pytest.mark.parametrize("name, module", EXPORTED_SURFACE)
 def test_the_episode_surface_is_reachable_from_the_package(name, module):
     """Exported symmetrically or not at all: a caller who cannot write
     ``from egpt.memory import TOPICS_KEY`` reaches into a submodule or hard-codes the string, and a
     later rename then misses them."""
-    import importlib
-
-    import egpt.memory as memory
-
-    assert name in memory.__all__
-    assert getattr(memory, name) is getattr(importlib.import_module(module), name)
+    assert name in memory_package.__all__
+    assert getattr(memory_package, name) is getattr(importlib.import_module(module), name)
 
 
 # -- acceptance criteria -----------------------------------------------------------------------
@@ -171,23 +177,28 @@ def test_the_graph_node_id_separates_slots_that_would_otherwise_collide():
     importlib.util.find_spec("neo4j") is None,
     reason="the Neo4j package imports its driver at module level",
 )
-def test_the_graph_node_id_matches_the_identity_the_backend_merges_on():
-    """The drift guard: SM-G1 addresses an episode node by ``(scope_key, id)``. If that statement
-    changes, this link stops resolving, and nothing else would say so.
+def test_the_graph_merge_key_has_not_changed_shape():
+    """The drift guard: SM-G1 merges an episode node on ``{scope_key, id, live: true}``, and
+    :func:`graph_node_id_for` addresses the first two. If that key changes shape, the link stops
+    resolving and nothing else in the suite would say so.
+
+    It asserts on the *statement*, not on ``graph_node_id`` -- the pointer is a vector-side field
+    on ``EpisodicRecord`` and is not a property of the graph node at all (it appears nowhere in
+    ``cypher.ROW_PROPERTIES``). What the pointer's own format must be is
+    ``test_the_episode_links_to_its_graph_node``, which needs no driver.
 
     Skipped per test rather than per module: everything else here is pure core and must still run
     on the ``unit-drivers-absent`` lane."""
     from egpt.integrations.memory.graph.neo4j import cypher
 
     statement, _ = cypher.upsert_episodes_statement(SCOPE)
-    scope_key = cypher.scope_props(SCOPE)["scope_key"]
 
     # The whole merge key, not a substring of it. The live marker is what confines the MERGE to the
     # currently-believed row, and dropping it would leave the id and scope assertions passing while
     # by-id upsert quietly stopped being idempotent. Built from `cypher.LIVE` rather than the
     # literal, because renaming the marker is fine and removing it is not.
     assert f"MERGE (n:{cypher.EPISODE} {{scope_key: row.scope_key, id: row.id, {cypher.LIVE}: true}})" in statement
-    assert graph_node_id_for(SCOPE, "ep-1") == scope_key + "/" + escape_key_slot("ep-1")
+    assert "graph_node_id" not in cypher.ROW_PROPERTIES
 
 
 # -- boundary refusals -------------------------------------------------------------------------
@@ -296,6 +307,16 @@ def test_an_episode_with_no_graph_link_still_projects():
 # -- the supersede fork ------------------------------------------------------------------------
 
 
+def test_no_replacement_leaves_the_envelope_id_unset():
+    """The third case in the table, named rather than left implicit: an episode nothing has
+    replaced must not acquire a replacement id from an empty list."""
+    record = episode_to_record(episode_from_event(an_event()))
+
+    assert record.superseded_by is None
+    assert record.provenance["superseded_by"] == []
+    assert record.is_current_belief()
+
+
 def test_one_replacement_narrows_to_the_envelope_id():
     episode = replace(episode_from_event(an_event()), superseded_by=["ep-2"])
 
@@ -356,6 +377,18 @@ def test_importance_is_not_scored_here():
     """Pins SM-E5 (#112). Salience is LLM-assigned on the async lane; a value invented at build
     time would rank episodes against each other on nothing. Delete this test when SM-E5 lands."""
     assert episode_from_event(an_event()).importance == 0.5
+
+
+def test_role_is_not_preserved_here():
+    """Pins SM-E2 (#109). ``MemoryEvent.role`` has no column on ``EpisodicRecord`` and no field on
+    ``MemoryRecord``, so carrying it would mean choosing a metadata convention on behalf of the
+    capture path -- which is the only caller that has a role to place, and owns how a conversation
+    frame is represented. ``adapters/seed.py`` reads ``event.role`` twice, so the value is real and
+    the deferral has to be visible. Delete this test when SM-E2 lands."""
+    episode = episode_from_event(an_event(role="user"))
+
+    assert "role" not in episode.metadata
+    assert "role" not in episode_to_record(episode).metadata
 
 
 def test_no_boundary_metadata_is_assigned_here():

@@ -134,7 +134,10 @@ def _epoch_or_none(value: Any) -> Optional[int]:
 def escape_key_slot(value: Optional[str]) -> str:
     """One slot of :meth:`Scope.key`, with the separator made unambiguous.
 
-    ``%`` first, or escaping ``/`` would itself be escapable into a collision.
+    Three characters are escaped. ``%`` first, or escaping the others would itself be escapable
+    into a collision; ``/`` because it separates slots; and ``*`` because it is the unset-slot
+    sentinel -- ``agent_id="*"`` must not produce the same slot as an unset ``agent_id``, so it
+    becomes ``%2A``.
 
     Public because :func:`egpt.memory.schemas.episodic.graph_node_id_for` extends a scope key with
     a sixth slot and must escape it the same way; two implementations of one escaping rule is how

@@ -173,6 +173,6 @@ all three) and by diffing raw (that line the only difference). Observed: valid t
 `occurred_at` (1700000000) while `created_at` is the run clock, so the two axes are visibly
 independent; `graph_node_id` is `acme/assistant/ada/*/deploy-42/ep-1`, the scope key with the
 episode id as a sixth slot; `importance` stays at the 0.5 default because scoring it is SM-E5's;
-the split prints `superseded_by: None` on the record with `['ep-2', 'ep-3']` in provenance. Each
+the split prints `superseded_by on record: None` with `['ep-2', 'ep-3']` in provenance. Each
 refusal names the field and, where one exists, the ticket that owns the behaviour. Requires no
 database, no model, and no API key.

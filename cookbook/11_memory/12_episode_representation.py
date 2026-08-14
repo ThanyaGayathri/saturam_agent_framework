@@ -101,8 +101,12 @@ split = episode_to_record(replace(episode, superseded_by=["ep-2", "ep-3"]))
 
 print()
 print("After a re-segmentation split (SM-R6 identity contract)")
-print("  single replacement id:", split.superseded_by, "(a fork names none)")
-print("  every replacement:    ", split.provenance["superseded_by"])
+print(
+    "  superseded_by on record:",
+    split.superseded_by,
+    "-- a fork names no single replacement",
+)
+print("  every replacement:      ", split.provenance["superseded_by"])
 
 # ---------------------------------------------------------------------------
 # 5. The boundary refuses rather than guesses
@@ -130,6 +134,9 @@ for label, build in (
 ):
     try:
         build()
+        # No fallthrough: a boundary that stops refusing would otherwise print nothing at all,
+        # and a silently missing line reads exactly like a line that was never there.
+        print("  " + label + ": NOT REFUSED -- this boundary no longer guards")
     except MemoryOperationError as error:
         print("  " + label + ":", error)
 
