@@ -103,7 +103,9 @@ class InMemoryGraph:
         self.calls.append("upsert_episodes")
         self.episodes.extend(events)
 
-    async def aupsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
+    async def aupsert_episodes(
+        self, scope: Scope, events: Sequence[MemoryEvent]
+    ) -> None:
         self.upsert_episodes(scope, events)
 
     def upsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:

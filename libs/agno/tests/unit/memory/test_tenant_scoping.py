@@ -113,6 +113,10 @@ UNSCOPED = {
     "blank_tenant": UnvalidatedScope(tenant_id="", user_id="u1"),
     # Whitespace is the same case one step subtler: `.strip()` is what makes it unscoped.
     "whitespace_tenant": UnvalidatedScope(tenant_id="   ", user_id="u1"),
+    # Padded but not blank, and the only shape here that survives the early tenant check --
+    # `"acme ".strip()` is truthy -- so it is refused by the slot loop instead, under a different
+    # message. Without it the whole matrix below exercises one of the two refusal paths.
+    "padded_tenant": UnvalidatedScope(tenant_id="acme ", user_id="u1"),
 }
 
 
@@ -399,16 +403,48 @@ def test_no_cypher_can_be_built_without_a_tenant(shape):
         assert str(excinfo.value).startswith(f"{builder.__name__}()")
 
 
+class LeakyVector(FakeVector):
+    """A backend that drops the scope predicate -- the defect the post-condition exists to catch.
+
+    Overrides the guarded methods entirely, so the record it returns is out of scope by
+    construction rather than by a scope this test had to smuggle past a guard.
+    """
+
+    def search(self, scope, query, tier=None):  # type: ignore[no-untyped-def]
+        require_scope(scope, method="search")
+        return [
+            MemoryRecord(
+                id="leak",
+                tier=MemoryTier.SEMANTIC,
+                content="another tenant's row",
+                scope=Scope(tenant_id="globex", user_id="u1"),
+            )
+        ]
+
+    async def asearch(self, scope, query, tier=None):  # type: ignore[no-untyped-def]
+        # Its own guard, not the one inside the `search` it delegates to. Without it this half
+        # refuses under the sync verb -- the exact misdirection the guards are named for, and it
+        # was here until parametrising the double sweep over an *inheriting* double surfaced it.
+        require_scope(scope, method="asearch")
+        await asyncio.sleep(0)
+        return self.search(scope, query, tier)
+
+
 def scope_taking_methods(obj: Any) -> List[str]:
-    """Every public method on a substrate that takes a scope, found by signature."""
+    """Every public method on a substrate that takes a scope, found by signature.
+
+    ``getmembers`` rather than ``vars``: the latter returns only what the concrete class defines,
+    so a double that grew a mixin or a base class would have its inherited verbs skipped in
+    silence -- which is the opposite of what "found by signature" promises.
+    """
     return sorted(
         name
-        for name, fn in vars(type(obj)).items()
-        if callable(fn) and not name.startswith("_") and "scope" in inspect.signature(fn).parameters
+        for name, fn in inspect.getmembers(type(obj), predicate=callable)
+        if not name.startswith("_") and "scope" in inspect.signature(fn).parameters
     )
 
 
-@pytest.mark.parametrize("double", [FakeVector, FakeGraph], ids=lambda d: d.__name__)
+@pytest.mark.parametrize("double", [FakeVector, FakeGraph, LeakyVector], ids=lambda d: d.__name__)
 @pytest.mark.parametrize("shape", sorted(UNSCOPED))
 def test_no_substrate_double_answers_an_unscoped_call(double, shape):
     """A double must be **stricter than the loosest real backend**, and the one real substrate in
@@ -439,6 +475,16 @@ def test_no_substrate_double_answers_an_unscoped_call(double, shape):
         # Each verb names itself, as the adapters do: a refusal that reports the method it
         # delegated to sends a reader to the wrong frame.
         assert f"{name}()" in str(excinfo.value)
+
+
+def test_the_double_discovery_sees_inherited_methods():
+    """``LeakyVector`` defines two verbs and inherits four.
+
+    A discovery reading only the concrete class would check a third of its surface and still
+    report success -- so the sweep above would silently stop covering an inheriting double, which
+    is the shape a real backend subclassing a base adapter would take.
+    """
+    assert scope_taking_methods(LeakyVector()) == scope_taking_methods(FakeVector())
 
 
 def test_a_scoped_builder_still_emits_the_tenant_predicate():
@@ -480,29 +526,6 @@ def test_the_isolation_guard_refuses_to_run_unscoped(shape):
         assert_scope_isolation(UNSCOPED[shape], [leaked], method="read")
 
 
-class LeakyVector(FakeVector):
-    """A backend that drops the scope predicate -- the defect the post-condition exists to catch.
-
-    Overrides the guarded methods entirely, so the record it returns is out of scope by
-    construction rather than by a scope this test had to smuggle past a guard.
-    """
-
-    def search(self, scope, query, tier=None):  # type: ignore[no-untyped-def]
-        require_scope(scope, method="search")
-        return [
-            MemoryRecord(
-                id="leak",
-                tier=MemoryTier.SEMANTIC,
-                content="another tenant's row",
-                scope=Scope(tenant_id="globex", user_id="u1"),
-            )
-        ]
-
-    async def asearch(self, scope, query, tier=None):  # type: ignore[no-untyped-def]
-        await asyncio.sleep(0)
-        return self.search(scope, query, tier)
-
-
 @pytest.mark.parametrize("method", ["read", "aread", "read_tier", "aread_tier"])
 def test_a_leak_names_the_verb_the_caller_used(method):
     """The post-condition must agree with the entry guard about which method is running.
@@ -537,6 +560,21 @@ def test_an_unset_slot_constrains_nothing():
 def test_require_scope_returns_the_scope_it_validated():
     """So a caller holding a loosely-typed value gets the narrowing the return type promises."""
     assert require_scope(ACME, method="read") is ACME
+
+
+@pytest.mark.parametrize("shape", sorted(UNSCOPED))
+@pytest.mark.parametrize("method", MEMORY_DATA_ACCESS_METHODS)
+def test_the_refusal_carries_the_verb_structurally(method, shape):
+    """``verb`` is an attribute, not a substring of the message.
+
+    The error *type* answers "was anything called unscoped". Paging specifically on an unscoped
+    ``consolidate`` needed a regex over prose otherwise, and the name is already in hand at every
+    raise -- so the information was there and only the structure was missing.
+    """
+    with pytest.raises(MemoryScopeRequiredError) as excinfo:
+        require_scope(UNSCOPED[shape], method=method)
+
+    assert excinfo.value.verb == method
 
 
 def test_a_blank_tenant_is_refused_as_a_tenant_failure_not_a_generic_slot_one():

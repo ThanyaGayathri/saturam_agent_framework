@@ -26,7 +26,7 @@ from weakref import WeakKeyDictionary
 from egpt.db.schemas import UserMemory
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, register_provider
 from egpt.memory.learn_stores import (
-    SCOPE_SLOTS,
+    STORE_FILTERABLE_SLOTS,
     UNANSWERABLE_STORES,
     filterable_slots,
     recordable_slots,
@@ -461,7 +461,7 @@ class SeedMemoryProvider(MemoryProvider):
         # can reach -- and an unreachable branch is one no test can hold to account.
         recordable = self._recordable[id(store)]
         unrecordable = [
-            slot for slot in SCOPE_SLOTS if getattr(scope, slot, None) is not None and slot not in recordable
+            slot for slot in STORE_FILTERABLE_SLOTS if getattr(scope, slot, None) is not None and slot not in recordable
         ]
         if unrecordable:
             learning_type = _learning_type(store)
@@ -1223,11 +1223,11 @@ def _checked_slots(raw: Any) -> Dict[str, FrozenSet[str]]:
                 f"config.options['store_slots'][{learning_type!r}] must be a collection of slot names.",
                 field_name="options.store_slots",
             )
-        unknown = sorted(set(slots) - set(SCOPE_SLOTS))
+        unknown = sorted(set(slots) - set(STORE_FILTERABLE_SLOTS))
         if unknown:
             raise MemoryProviderConfigError(
                 f"config.options['store_slots'][{learning_type!r}] names unknown slot(s) {unknown}; "
-                f"a scope slot is one of {list(SCOPE_SLOTS)}. A misspelled slot silently widens what "
+                f"a scope slot is one of {list(STORE_FILTERABLE_SLOTS)}. A misspelled slot silently widens what "
                 "this provider will answer.",
                 field_name="options.store_slots",
             )

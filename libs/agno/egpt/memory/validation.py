@@ -89,6 +89,7 @@ def require_scope(scope: Any, *, method: str) -> Scope:
             "rows. Construct egpt.memory.Scope(tenant_id=...), which normalises every slot; an "
             "object that merely looks like one reaches the backend untrimmed.",
             field_name="scope",
+            verb=method,
         )
     # A subclass may define its own `__post_init__` and never reach `Scope`'s, so re-assert what
     # that method guarantees. **Every slot, not just the tenant**: the tenant is the one that
@@ -104,6 +105,7 @@ def require_scope(scope: Any, *, method: str) -> Scope:
             f"{method}() was called with Scope.tenant_id={scope.tenant_id!r}. A blank tenant is "
             "unscoped, and unscoped is the widest tenancy rather than the narrowest.",
             field_name="tenant_id",
+            verb=method,
         )
     for slot in SCOPE_SLOTS:
         value = getattr(scope, slot, None)
@@ -114,11 +116,12 @@ def require_scope(scope: Any, *, method: str) -> Scope:
             "have rejected or trimmed. Pass None to leave a slot unset; a blank or padded slot "
             "partitions on whitespace and matches no row written under the trimmed value.",
             field_name=slot,
+            verb=method,
         )
     return scope
 
 
-def assert_scope_isolation(scope: Scope, records: Sequence[MemoryRecord], *, method: str) -> None:
+def assert_scope_isolation(scope: Any, records: Sequence[MemoryRecord], *, method: str) -> None:
     """No record may leave the seam, or be persisted, under a scope that did not ask for it.
 
     **All five slots, not just the tenant.** The substrate ports require a backend to apply every

@@ -37,4 +37,13 @@ class MemoryScopeRequiredError(MemoryOperationError):
     raises is a ``MemoryOperationError`` -- the swap conformance matrix asserts that type across
     both adapters -- so a refusal outside that taxonomy would be the anomaly. Revisit when memory
     gets an HTTP surface.
+
+    ``verb`` carries the method that refused, structured rather than only interpolated into the
+    message. The type alone answers "was anything called unscoped"; paging specifically on an
+    unscoped ``consolidate`` needed a regex over the message otherwise, and ``require_scope``
+    already has the name in hand at every raise.
     """
+
+    def __init__(self, message: str, *, field_name: Optional[str] = None, verb: str = "") -> None:
+        super().__init__(message, field_name=field_name)
+        self.verb = verb

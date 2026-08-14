@@ -49,16 +49,18 @@ FACT = "Fact"
 REL = "REL"
 
 
-def scope_props(scope: Scope) -> Dict[str, Any]:
+def scope_props(scope: Scope, *, method: str = "scope_props") -> Dict[str, Any]:
     """The scope columns to store on a row, plus the merge identity.
 
     ``scope_key`` (:meth:`Scope.key`) is the *write* identity -- fixed-arity and percent-escaped, so
     two scopes cannot collide. The individual slots are what *reads* filter on, because an unset
     slot means "any" and an equality on the composite key could not express that.
 
-    Fail-closed (SM-C4 #92): see :func:`scope_predicate`.
+    Fail-closed (SM-C4 #92): see :func:`scope_predicate`, including why ``method`` is threaded.
+    A caller reaching this directly on a write path gets its own name in the refusal rather than
+    this function's.
     """
-    require_scope(scope, method="scope_props")
+    require_scope(scope, method=method)
     return {
         "scope_key": scope.key(),
         **{slot: getattr(scope, slot) for slot in SCOPE_SLOTS},

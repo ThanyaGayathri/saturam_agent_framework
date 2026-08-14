@@ -251,10 +251,10 @@ class FakeGraph:
         bucket.append(row)
 
     async def aupsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
+        require_scope(scope, method="aupsert_episodes")
         # Suspends, then delegates to the sync name. The delegation is load-bearing for tests that
         # patch one verb to fail: patching only the sync name and having the async half reimplement
         # it is how the two halves get compared against different code.
-        require_scope(scope, method="aupsert_episodes")
         await _yield()
         self.calls.append("aupsert_episodes")
         self.upsert_episodes(scope, events)

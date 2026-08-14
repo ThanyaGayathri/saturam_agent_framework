@@ -26,6 +26,7 @@ from uuid import uuid4
 from typing import Dict, List, Optional, Sequence
 
 from egpt.memory import (
+    SCOPE_SLOTS,
     FactWrite,
     MemoryEvent,
     MemoryProvider,
@@ -37,6 +38,7 @@ from egpt.memory import (
     Substrate,
     TemporalBounds,
     build_memory_provider,
+    require_scope,
 )
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
 from egpt.providers.model_provider import ProviderMode
@@ -56,7 +58,7 @@ def scoped(record_scope: Scope, call_scope: Scope) -> bool:
     other users' rows inside the same tenant, which the provider's own scope post-condition then
     rejects -- so a tenant-only double does not even work here, let alone teach the contract.
     """
-    for slot in ("tenant_id", "user_id", "agent_id", "team_id", "session_id"):
+    for slot in SCOPE_SLOTS:
         wanted = getattr(call_scope, slot)
         if wanted is not None and getattr(record_scope, slot) != wanted:
             return False
@@ -73,6 +75,7 @@ class InMemoryVector:
         return self.rows.setdefault(scope.tenant_id, {})
 
     def upsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        require_scope(scope, method="upsert")
         # A copy, not the caller's object. Storing the reference made this substrate and the graph
         # below share one row, so graph.invalidate() also stamped expired_at on the "vector" copy
         # and the bi-temporal demo worked partly for the wrong reason.
@@ -80,11 +83,13 @@ class InMemoryVector:
             self._bucket(scope)[record.id] = replace(record, substrate=Substrate.VECTOR)
 
     async def aupsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        require_scope(scope, method="aupsert")
         self.upsert(scope, records)
 
     def search(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> List[MemoryRecord]:
+        require_scope(scope, method="search")
         wanted = {tier} if tier else set(query.resolved_tiers())
         terms = set(query.text.lower().split())
         hits = []
@@ -110,11 +115,13 @@ class InMemoryVector:
     async def asearch(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> List[MemoryRecord]:
+        require_scope(scope, method="asearch")
         return self.search(scope, query, tier)
 
     def scan(
         self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None
     ) -> List[MemoryRecord]:
+        require_scope(scope, method="scan")
         # The port's contract, not a shortcut: ascending created_at then id, `limit` respected.
         # Reference code gets copied, so it should model the contract it teaches.
         rows = [
@@ -129,6 +136,7 @@ class InMemoryVector:
     async def ascan(
         self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None
     ) -> List[MemoryRecord]:
+        require_scope(scope, method="ascan")
         return self.scan(scope, tier, limit)
 
 
@@ -142,6 +150,7 @@ class InMemoryGraph:
         return self.rows.setdefault(scope.tenant_id, [])
 
     def upsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
+        require_scope(scope, method="upsert_episodes")
         # Upsert by id, which the port requires. Appending would make a repeat write duplicate the
         # row, and PartialWriteError tells callers to retry with the same ids precisely because
         # that retry is meant to be idempotent.
@@ -171,18 +180,22 @@ class InMemoryGraph:
     async def aupsert_episodes(
         self, scope: Scope, events: Sequence[MemoryEvent]
     ) -> None:
+        require_scope(scope, method="aupsert_episodes")
         self.upsert_episodes(scope, events)
 
     def upsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
+        require_scope(scope, method="upsert_facts")
         for fact in facts:
             self._upsert(scope, replace(fact.record, substrate=Substrate.GRAPH))
 
     async def aupsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
+        require_scope(scope, method="aupsert_facts")
         self.upsert_facts(scope, facts)
 
     def traverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> List[MemoryRecord]:
+        require_scope(scope, method="traverse")
         wanted = {tier} if tier else set(query.resolved_tiers())
         terms = set(query.text.lower().split())
         hits = [
@@ -204,11 +217,13 @@ class InMemoryGraph:
     async def atraverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> List[MemoryRecord]:
+        require_scope(scope, method="atraverse")
         return self.traverse(scope, query, tier)
 
     def bounds_for_ids(
         self, scope: Scope, ids: Sequence[str]
     ) -> Dict[str, TemporalBounds]:
+        require_scope(scope, method="bounds_for_ids")
         # Unranked and unlimited, by id. The provider calls this on every read because ranking
         # cannot be trusted to surface a bound: the SCD-2 successor row carries the same content
         # as the live row, so it scores the same and falls off the page.
@@ -239,11 +254,13 @@ class InMemoryGraph:
     async def abounds_for_ids(
         self, scope: Scope, ids: Sequence[str]
     ) -> Dict[str, TemporalBounds]:
+        require_scope(scope, method="abounds_for_ids")
         return self.bounds_for_ids(scope, ids)
 
     def invalidate(
         self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None
     ) -> None:
+        require_scope(scope, method="invalidate")
         recorded_at = at if at is not None else t_invalid
         for row in list(self._bucket(scope)):
             if row.id == edge_id and row.is_current_belief():
@@ -263,6 +280,7 @@ class InMemoryGraph:
     async def ainvalidate(
         self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None
     ) -> None:
+        require_scope(scope, method="ainvalidate")
         self.invalidate(scope, edge_id, t_invalid, at)
 
 
