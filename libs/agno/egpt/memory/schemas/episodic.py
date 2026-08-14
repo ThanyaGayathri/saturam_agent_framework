@@ -1,0 +1,264 @@
+"""The episode as the memory seam builds and returns it (SM-E1 #108).
+
+The persisted shape is SM-C3's :class:`~egpt.db.schemas.memory.EpisodicRecord`, re-exported here
+rather than redefined -- two episode dataclasses is the divergence SM-C3 (#91) avoided when it
+promoted SM-R12's model, and SM-E5 (#112) and SM-G6 (#104) both name this module as where they add
+to the episode.
+
+Net-new is the pair of projections between that row and the seam envelope
+(:mod:`egpt.memory.types`), plus the referent of ``EpisodicRecord.graph_node_id``: ADR 0003
+section 1 recorded it as *"an untyped pointer with no defined referent"* because no episode node
+type existed. SM-G1 (#99) shipped ``(:Episode)``, so :func:`graph_node_id_for` names it.
+
+Nothing here reads or writes a store, so there are no async twins -- these are the
+pure-construction functions CLAUDE.md exempts. Persisting an episode is SM-V1's (#95); capturing
+one from a run is SM-E2's (#109).
+"""
+
+from typing import Any, Dict, List, Optional, Tuple
+
+from egpt.db.schemas.memory import EpisodicRecord
+from egpt.memory.tiers import MemoryTier
+from egpt.memory.types import (
+    MemoryEvent,
+    MemoryOperationError,
+    MemoryRecord,
+    Scope,
+    escape_key_slot,
+)
+from egpt.utils.dttm import now_epoch_s
+
+__all__ = [
+    "EPISODE_KEYS",
+    "PROVENANCE_KEYS",
+    "TOPICS_KEY",
+    "EpisodicRecord",
+    "episode_details",
+    "episode_from_event",
+    "episode_to_record",
+    "graph_node_id_for",
+]
+
+
+#: The episode fields a reader gets in ``MemoryRecord.metadata``, and the floor
+#: :func:`episode_details` fills. The same contract :data:`~egpt.memory.types.FUSION_KEYS` provides
+#: on the read path: without a floor, a consumer that branches on ``importance`` raises ``KeyError``
+#: against whichever episode did not happen to carry one.
+#:
+#: These are the SM-R12 section 4.3 fields that survive the projection -- context (when/where/why),
+#: SM-R5's decay inputs, and SM-R6's segmentation metadata. They are *data*: scoring on them is
+#: SM-E4 (#111) / SM-E5 (#112), and segmenting is SM-E3 (#110).
+EPISODE_KEYS: Tuple[str, ...] = (
+    "occurred_at",
+    "location",
+    "cause",
+    "importance",
+    "last_accessed_at",
+    "revision",
+    "refined",
+    "boundary_method",
+    "boundary_trigger",
+    "boundary_confidence",
+    "segmenter_version",
+)
+
+#: ``topics`` has no column on ``EpisodicRecord`` but is first-class on both ``MemoryEvent`` and
+#: ``MemoryRecord``, so the row carries it in ``metadata`` and the projection restores it. Dropping
+#: it instead would lose caller data on a round trip through the episode tier.
+TOPICS_KEY = "topics"
+
+_RESERVED_METADATA_KEYS = frozenset(EPISODE_KEYS) | {TOPICS_KEY}
+
+#: The reference keys :func:`episode_to_record` always puts in ``MemoryRecord.provenance``. Empty
+#: rather than absent when the episode has none, for the reason :data:`EPISODE_KEYS` is a floor.
+PROVENANCE_KEYS: Tuple[str, ...] = ("entity_ids", "graph_node_id", "supersedes", "superseded_by")
+
+
+def graph_node_id_for(scope: Scope, episode_id: str) -> str:
+    """The id of the ``(:Episode)`` node this episode is stored as, per SM-G1's write identity.
+
+    That backend ``MERGE``s an episode node on ``(scope_key, id)``, so the node is addressed by the
+    scope key with the episode id appended as a sixth slot -- escaped by
+    :func:`~egpt.memory.types.escape_key_slot`, because fixed arity without escaping is not
+    injectivity (an id containing ``/`` would otherwise read as two slots).
+
+    Derived, never free-form: the vector row and the graph node cannot disagree about which node an
+    episode is if neither side gets to choose. Whether the node *exists* is a different question --
+    a deployment with no graph substrate has none, and SM-R12 section 9 makes cross-tier references
+    advisory, so a reader tolerates a missing target. Keeping the two views consistent over time is
+    SM-E10's (#117).
+    """
+    if not isinstance(episode_id, str) or not episode_id.strip():
+        raise MemoryOperationError(
+            f"An episode id is required to address its graph node; got {episode_id!r}.",
+            field_name="id",
+        )
+    return f"{scope.key()}/{escape_key_slot(episode_id)}"
+
+
+def episode_details(
+    occurred_at: Optional[int] = None,
+    location: Optional[str] = None,
+    cause: Optional[str] = None,
+    importance: float = 0.5,
+    last_accessed_at: Optional[int] = None,
+    revision: int = 0,
+    refined: bool = False,
+    boundary_method: Optional[str] = None,
+    boundary_trigger: Optional[float] = None,
+    boundary_confidence: Optional[float] = None,
+    segmenter_version: Optional[str] = None,
+    **extra: Any,
+) -> Dict[str, Any]:
+    """Build a metadata payload carrying every key in :data:`EPISODE_KEYS`.
+
+    Extra keys are free -- the contract is a floor, not a ceiling.
+    """
+    details: Dict[str, Any] = {
+        "occurred_at": occurred_at,
+        "location": location,
+        "cause": cause,
+        "importance": importance,
+        "last_accessed_at": last_accessed_at,
+        "revision": revision,
+        "refined": refined,
+        "boundary_method": boundary_method,
+        "boundary_trigger": boundary_trigger,
+        "boundary_confidence": boundary_confidence,
+        "segmenter_version": segmenter_version,
+    }
+    details.update(extra)
+    return details
+
+
+def _reject_reserved_metadata(metadata: Dict[str, Any], where: str) -> None:
+    """Refuse caller metadata that would collide with an episode field.
+
+    Called on both projections, because the collision is the same one in both directions: the
+    episode's own ``importance`` and the caller's would occupy one key, and whichever the
+    projection wrote last would silently win. Naming the keys lets the caller move them.
+    """
+    clashing = sorted(key for key in metadata if key in _RESERVED_METADATA_KEYS)
+    if clashing:
+        raise MemoryOperationError(
+            f"{where} metadata uses {clashing}, which the episode projection fills from the record's "
+            f"own fields. Reserved keys: {sorted(_RESERVED_METADATA_KEYS)}.",
+            field_name="metadata",
+        )
+
+
+def episode_from_event(event: MemoryEvent) -> EpisodicRecord:
+    """Project a write-back event into the episode row that stores it.
+
+    The time decisions are the ones ``CoLocatedMemoryProvider._prepare`` already makes, made here
+    too rather than differently: ``occurred_at`` is valid time and defaults to now when the caller
+    did not say when it happened, and ``created_at`` is the transaction time of this write.
+
+    ``importance`` is left at the row default. Scoring it is SM-E5's (#112), and a value invented
+    here would rank episodes against each other on nothing.
+    """
+    if event.tier is not MemoryTier.EPISODIC:
+        raise MemoryOperationError(
+            f"Only an episodic event is an episode; this one is {event.tier.value!r}. Route it by "
+            "tier (egpt.memory.tiers) rather than storing it in the wrong shape.",
+            field_name="tier",
+        )
+    if not event.id:
+        # The same requirement, and the same reason, as `Neo4jGraphSubstrate._episode_rows`: one
+        # logical episode has one id across both substrates, so minting a second one here would
+        # surface the episode twice after fusion (finding F1).
+        raise MemoryOperationError(
+            "MemoryEvent.id is required here: it is the cross-substrate dedup key, and the row and "
+            "the graph node are addressed by it. The provider stamps one before the call.",
+            field_name="id",
+        )
+    _reject_reserved_metadata(event.metadata, "MemoryEvent")
+
+    now = now_epoch_s()
+    occurred_at = event.occurred_at if event.occurred_at is not None else now
+    metadata = dict(event.metadata)
+    if event.topics is not None:
+        metadata[TOPICS_KEY] = list(event.topics)
+    scope = event.scope
+    return EpisodicRecord(
+        id=event.id,
+        tenant_id=scope.tenant_id,
+        user_id=scope.user_id,
+        agent_id=scope.agent_id,
+        team_id=scope.team_id,
+        session_id=scope.session_id,
+        created_at=now,
+        metadata=metadata,
+        content=event.content,
+        occurred_at=occurred_at,
+        t_valid=occurred_at,
+        graph_node_id=graph_node_id_for(scope, event.id),
+    )
+
+
+def _scope_of(episode: EpisodicRecord) -> Scope:
+    return Scope(
+        tenant_id=episode.tenant_id,
+        user_id=episode.user_id,
+        agent_id=episode.agent_id,
+        team_id=episode.team_id,
+        session_id=episode.session_id,
+    )
+
+
+def episode_to_record(episode: EpisodicRecord) -> MemoryRecord:
+    """Project a stored episode into the record the seam returns.
+
+    ``superseded_by`` narrows from the row's list to the envelope's single id, and only when there
+    is exactly one: an SM-R6 re-cut can split one episode into several, and naming one of them "the
+    replacement" would send a reader following the supersede chain down one branch of a fork. The
+    full list is always in ``provenance``, so nothing is lost either way.
+    """
+    metadata = dict(episode.metadata)
+    topics = metadata.pop(TOPICS_KEY, None)
+    _reject_reserved_metadata(metadata, f"Episode {episode.id!r}")
+    if episode.graph_node_id is not None:
+        expected = graph_node_id_for(_scope_of(episode), episode.id)
+        if episode.graph_node_id != expected:
+            raise MemoryOperationError(
+                f"Episode {episode.id!r} carries a graph_node_id that does not address its own "
+                "graph node. The link is derived from the scope and the episode id "
+                "(graph_node_id_for), so a different value points at another episode's node.",
+                field_name="graph_node_id",
+            )
+
+    metadata.update(
+        episode_details(
+            occurred_at=episode.occurred_at,
+            location=episode.location,
+            cause=episode.cause,
+            importance=episode.importance,
+            last_accessed_at=episode.last_accessed_at,
+            revision=episode.revision,
+            refined=episode.refined,
+            boundary_method=episode.boundary_method,
+            boundary_trigger=episode.boundary_trigger,
+            boundary_confidence=episode.boundary_confidence,
+            segmenter_version=episode.segmenter_version,
+        )
+    )
+    superseded_by: List[str] = list(episode.superseded_by)
+    return MemoryRecord(
+        id=episode.id,
+        tier=MemoryTier.EPISODIC,
+        content=episode.content,
+        scope=_scope_of(episode),
+        topics=list(topics) if topics is not None else None,
+        provenance={
+            "entity_ids": list(episode.entity_ids),
+            "graph_node_id": episode.graph_node_id,
+            "supersedes": list(episode.supersedes),
+            "superseded_by": superseded_by,
+        },
+        t_valid=episode.t_valid,
+        t_invalid=episode.t_invalid,
+        created_at=episode.created_at,
+        expired_at=episode.expired_at,
+        superseded_by=superseded_by[0] if len(superseded_by) == 1 else None,
+        metadata=metadata,
+    )
