@@ -31,6 +31,12 @@ deliberately unchanged; #175 must either extend them or refuse them.
    ``/databases/all/migrate`` endpoints. Run the migration first, or in the same maintenance
    step.
 
+**Partial runs are safe to retry.** Each table is migrated independently and stamped
+independently, and every step is guarded by an existence check, so a process killed after three
+tier tables exist resumes from there rather than starting over or double-creating. The tenant
+column and the tier tables are independent of each other, so a database caught between the two
+is queryable either way.
+
 Every decision about *what* SQL to run lives in the ``_plan_*`` functions below, which are pure
 and shared by the sync and async halves. Only the I/O differs between the two, so they cannot
 diverge on a decision -- the failure mode where one half persists different state than the

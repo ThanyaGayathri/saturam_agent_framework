@@ -513,6 +513,17 @@ class TestPartialIndexes:
 
         assert "WHERE" not in (_index_sql(db, "egpt_memory_episodic", "t_valid") or "")
 
+    def test_the_predicate_is_found_even_when_the_index_name_is_hashed(self, tmp_path):
+        """At a long table prefix ``derive_index_name`` truncates and hashes, so the column no
+        longer appears in the index name. A name-based lookup returns None here and every
+        assertion in this class goes vacuous -- which is why the helper matches the SQL body."""
+        long_prefix = SqliteDb(db_file=str(tmp_path / "long.db"), table_prefix="a" * 31 + "_")
+        long_prefix._create_all_tables()
+        table = long_prefix.memory_semantic_fact_table_name
+
+        assert "t_valid" not in "".join(index_names(long_prefix, table)), "prefix is not long enough to hash"
+        assert "expired_at IS NULL" in (_index_sql(long_prefix, table, "t_valid") or "")
+
 
 def _raw_insert(database, table_type, **temporal):
     """Insert the minimal legal row plus the temporal values under test, via raw SQL."""
@@ -531,11 +542,17 @@ def _table_ddl(database, table_name):
 
 
 def _index_sql(database, table_name, column):
+    """The CREATE INDEX statement covering ``column``, matched on the SQL body.
+
+    Deliberately not matched on the index *name*: ``derive_index_name`` hashes names past 63
+    bytes, so at a long table prefix the column string is not in the name and a name-based lookup
+    quietly returns None -- which turns a "no WHERE clause" assertion into a vacuous pass.
+    """
     with database.Session() as sess:
         rows = sess.execute(
             text("SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name=:n"), {"n": table_name}
         ).fetchall()
-    return next((sql for name, sql in rows if sql and column in (name or "")), None)
+    return next((sql for _, sql in rows if sql and column in sql), None)
 
 
 # --------------------------------------------------------------------------- #

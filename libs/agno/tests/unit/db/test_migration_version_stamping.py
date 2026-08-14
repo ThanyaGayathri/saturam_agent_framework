@@ -17,9 +17,7 @@ import pytest
 from egpt.db.base import AsyncBaseDb, BaseDb
 from egpt.db.migrations.manager import MigrationManager
 
-pytest.importorskip("sqlalchemy", reason="the migration modules import sqlalchemy at module scope")
-
-from egpt.integrations.db.sqlite.sqlite import SqliteDb  # noqa: E402
+from egpt.integrations.db.sqlite.sqlite import SqliteDb
 
 LATEST = MigrationManager.available_versions[-1][1].public
 

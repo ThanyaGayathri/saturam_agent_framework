@@ -323,12 +323,27 @@ class TestSerialisation:
 # Model <-> physical schema parity
 # --------------------------------------------------------------------------- #
 
-sqlite_schemas = pytest.importorskip(
-    "egpt.integrations.db.sqlite.schemas", reason="sqlalchemy is required for the table schemas"
-)
-postgres_schemas = pytest.importorskip(
-    "egpt.integrations.db.postgres.schemas", reason="sqlalchemy is required for the table schemas"
-)
+
+def _schemas(backend):
+    """The backend's schema module, or a skip for just this test.
+
+    A fixture rather than a module-scope ``importorskip``: a ``Skipped`` raised while the module
+    (or a class body) is being imported skips the **whole file**, which would take the ~250
+    pure-Python conformance tests above with it. Resolved per test, only these classes skip.
+    """
+    return pytest.importorskip(
+        f"egpt.integrations.db.{backend}.schemas", reason="sqlalchemy is required for the table schemas"
+    )
+
+
+@pytest.fixture
+def sqlite_schemas():
+    return _schemas("sqlite")
+
+
+@pytest.fixture
+def postgres_schemas():
+    return _schemas("postgres")
 
 
 def columns_of(schema):
@@ -338,14 +353,14 @@ def columns_of(schema):
 class TestPhysicalSchemaParity:
     @pytest.mark.parametrize("tier", ALL_TIERS)
     @pytest.mark.parametrize("backend", ["sqlite", "postgres"])
-    def test_columns_match_the_model_field_for_field(self, tier, backend):
+    def test_columns_match_the_model_field_for_field(self, tier, backend, sqlite_schemas, postgres_schemas):
         module = sqlite_schemas if backend == "sqlite" else postgres_schemas
         schema = module.get_table_schema_definition(TIERS[tier][1])
 
         assert columns_of(schema) == field_names(tier)
 
     @pytest.mark.parametrize("tier", ALL_TIERS)
-    def test_the_two_backends_agree_on_columns_and_nullability(self, tier):
+    def test_the_two_backends_agree_on_columns_and_nullability(self, tier, sqlite_schemas, postgres_schemas):
         table_type = TIERS[tier][1]
         sqlite_schema = sqlite_schemas.get_table_schema_definition(table_type)
         postgres_schema = postgres_schemas.get_table_schema_definition(table_type)
@@ -355,7 +370,7 @@ class TestPhysicalSchemaParity:
             assert sqlite_schema[column].get("nullable") == postgres_schema[column].get("nullable"), column
 
     @pytest.mark.parametrize("tier", ALL_TIERS)
-    def test_the_two_backends_agree_on_the_primary_key_and_indexes(self, tier):
+    def test_the_two_backends_agree_on_the_primary_key_and_indexes(self, tier, sqlite_schemas, postgres_schemas):
         table_type = TIERS[tier][1]
         sqlite_schema = sqlite_schemas.get_table_schema_definition(table_type)
         postgres_schema = postgres_schemas.get_table_schema_definition(table_type)
@@ -364,7 +379,7 @@ class TestPhysicalSchemaParity:
         assert sqlite_schema.get("__composite_indexes__") == postgres_schema.get("__composite_indexes__")
 
     @pytest.mark.parametrize("tier", ALL_TIERS)
-    def test_tenant_id_leads_every_composite_index(self, tier):
+    def test_tenant_id_leads_every_composite_index(self, tier, sqlite_schemas):
         """There is no LIST partitioning here, so a tenant-blind index would scan across
         tenants. Leading with tenant_id is what keeps the non-partitioned layout equivalent."""
         schema = sqlite_schemas.get_table_schema_definition(TIERS[tier][1])
@@ -373,7 +388,9 @@ class TestPhysicalSchemaParity:
             assert index["columns"][0] == "tenant_id", index
 
     @pytest.mark.parametrize("backend", ["sqlite", "postgres"])
-    def test_a_backend_refuses_an_unknown_tier_rather_than_returning_empty(self, backend):
+    def test_a_backend_refuses_an_unknown_tier_rather_than_returning_empty(
+        self, backend, sqlite_schemas, postgres_schemas
+    ):
         module = sqlite_schemas if backend == "sqlite" else postgres_schemas
 
         with pytest.raises(ValueError, match="Unknown table type"):
@@ -382,12 +399,20 @@ class TestPhysicalSchemaParity:
 
 class TestSeedMemoryTable:
     @pytest.mark.parametrize("backend", ["sqlite", "postgres"])
-    def test_the_memories_table_carries_tenant_id(self, backend):
+    def test_the_memories_table_carries_tenant_id(self, backend, sqlite_schemas, postgres_schemas):
         module = sqlite_schemas if backend == "sqlite" else postgres_schemas
         schema = module.get_table_schema_definition("memories")
 
         assert schema["tenant_id"]["nullable"] is True, "a NOT NULL column could not be added reversibly"
         assert schema["tenant_id"]["index"] is True
+
+    def test_user_memory_tolerates_a_column_it_does_not_model(self):
+        """Aligned with ``MemoryRow.from_dict``. A row carrying a column this model has not
+        caught up with -- mid rolling deploy, or a backend with an extra one -- must read, not
+        raise."""
+        memory = UserMemory.from_dict({"memory": "m", "tenant_id": "acme", "no_such_column": 1})
+
+        assert memory.tenant_id == "acme"
 
     def test_user_memory_carries_tenant_id_and_drops_it_when_unset(self):
         assert "tenant_id" not in UserMemory(memory="m").to_dict()
@@ -435,7 +460,7 @@ class TestTableNaming:
         assert table_type not in TABLE_SUFFIXES
 
     @pytest.mark.parametrize("table_type", MEMORY_TIER_TABLE_TYPES)
-    def test_index_names_stay_within_the_identifier_limit_at_any_legal_prefix(self, table_type):
+    def test_index_names_stay_within_the_identifier_limit_at_any_legal_prefix(self, table_type, sqlite_schemas):
         """PostgreSQL truncates past 63 bytes silently, which turns two long index names into one
         index and an "already exists" nobody can explain. The memory tables are the longest in
         the schema, so they are where an unbounded derivation shows up first."""

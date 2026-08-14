@@ -365,7 +365,11 @@ class UserMemory:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "UserMemory":
-        data = dict(data)
+        # Unknown keys are dropped rather than raising, matching ``MemoryRow.from_dict``: this
+        # reads database rows, and a column the model does not model yet -- during a rolling
+        # deploy, or a backend carrying an extra one -- should not crash the read.
+        known = {f.name for f in fields(cls)}
+        data = {k: v for k, v in data.items() if k in known}
 
         # Preserve 0 and None explicitly; only process if key exists
         if "created_at" in data and data["created_at"] is not None:
