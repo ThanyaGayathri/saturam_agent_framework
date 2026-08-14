@@ -9,7 +9,7 @@ implementation is what stops that recurring; the cross-adapter conformance matri
 
 from typing import Sequence, Set, Union
 
-from egpt.memory.types import MemoryEvent, MemoryRecord, MemoryOperationError, Scope
+from egpt.memory.types import MemoryEvent, MemoryOperationError, MemoryRecord, Scope
 
 __all__ = ["reject_duplicate_ids", "reject_foreign_scopes"]
 

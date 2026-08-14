@@ -16,8 +16,8 @@ They are deliberately faithful on the two behaviours the provider depends on:
 
 import asyncio
 from dataclasses import replace
-from uuid import uuid4
 from typing import Dict, List, Optional, Sequence
+from uuid import uuid4
 
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier

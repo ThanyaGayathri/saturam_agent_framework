@@ -166,7 +166,7 @@ class MemoryProvider(ABC):
         **A tier this provider does not serve reads empty; it is not refused.** One rule, so a
         caller can write one handler: reads report absence, and only **writes** refuse an unserved
         tier -- writing where nothing will store it loses data, reading there simply finds nothing.
-        ``substrates()`` and the tier map are how a caller learns what is served.
+        :meth:`tiers` is how a caller tells the two apart.
         """
         raise NotImplementedError
 
@@ -179,8 +179,9 @@ class MemoryProvider(ABC):
     def write_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
         """Write events to a named tier, overriding each event's own ``tier``.
 
-        The counterpart of ``LearningStore.process``. Per-tier write *policy* -- which tier a given
-        event should land in -- is SM-C2's (#90); this is the mechanism it will route through.
+        The counterpart of ``LearningStore.process``. Where a tier's writes then land --- which
+        substrates, and in what shape --- is :data:`~egpt.memory.tiers.TIER_POLICY`, read by every
+        provider rather than decided per adapter.
         """
         raise NotImplementedError
 
@@ -197,6 +198,20 @@ class MemoryProvider(ABC):
 
         For diagnostics and health checks, and for the vector-only tenant SM-C5 (#93) supports:
         a caller can tell "the graph returned nothing" from "there is no graph".
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def tiers(self) -> Dict[MemoryTier, bool]:
+        """Which tiers this provider actually serves, every member of the enum present.
+
+        The tier axis's answer to :meth:`substrates`, and it is needed for the same reason: reads
+        of an unserved tier are **empty rather than refused**, so without this a caller cannot tell
+        an empty tier from an absent one -- and only one of those is worth reporting. A write to an
+        unserved tier is refused, so this is also how a caller avoids the refusal.
+
+        Sync-only, like ``substrates``: it reports wiring the provider settled at construction and
+        awaits nothing.
         """
         raise NotImplementedError
 
