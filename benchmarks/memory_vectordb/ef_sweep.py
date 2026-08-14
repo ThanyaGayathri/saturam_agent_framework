@@ -32,6 +32,7 @@ import time
 from typing import Any, Dict, List
 
 import numpy as np
+from sqlalchemy import text as sql_text
 
 from egpt.integrations.memory.vector.pgvector import PgVectorMemorySubstrate
 from egpt.memory.tiers import MemoryTier
@@ -68,6 +69,15 @@ def _normalize(matrix: np.ndarray) -> np.ndarray:
 
 
 def load(path: str, needed: int) -> np.ndarray:
+    # Named here rather than left to h5py, which answers an empty path with
+    # `OSError: Unable to synchronously open file (invalid file name)` and no clue which argument
+    # it meant. Same class as the port default this file shipped wrong: a published reproduce
+    # command should fail with the reason, or not at all.
+    if not path:
+        raise SystemExit(
+            "No dataset. Pass --dataset or set MEMBENCH_ANN_HDF5 to a GloVe-100-angular HDF5 file; "
+            "see benchmarks/memory_vectordb/README.md for where to get one."
+        )
     import h5py
 
     with h5py.File(path, "r") as handle:
@@ -94,7 +104,7 @@ def main() -> int:
     parser.add_argument(
         "--db-url",
         default=os.getenv(
-            "EGPT_MEMORY_PG_URL", "postgresql+psycopg://ai:ai@localhost:5533/ai"
+            "EGPT_MEMORY_PG_URL", "postgresql+psycopg://ai:ai@localhost:5532/ai"
         ),
     )
     parser.add_argument("--dataset", default=os.getenv("MEMBENCH_ANN_HDF5", ""))
@@ -119,8 +129,9 @@ def main() -> int:
     substrate = PgVectorMemorySubstrate(
         db_url=args.db_url, embedder=embedder, table=TABLE, auto_init_schema=False
     )
-    from sqlalchemy import text as sql_text
-
+    # Reaching past the substrate's own API on purpose: dropping the bench table is teardown for
+    # a fixture this script owns, and exposing a `drop_schema()` on a memory substrate so a
+    # benchmark can reset itself would put a destructive verb on the seam for no caller.
     with substrate._engine.begin() as connection:
         connection.execute(sql_text(f"DROP TABLE IF EXISTS ai.{TABLE} CASCADE"))
     substrate.init_schema()

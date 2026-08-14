@@ -13,6 +13,9 @@ import asyncio
 import math
 from hashlib import blake2b
 
+import re
+from pathlib import Path
+
 import pytest
 
 from egpt.integrations.memory.vector.pgvector import pgvector as module
@@ -23,7 +26,7 @@ from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryOperationError, MemoryRecord, Scope, Substrate
 
 DIM = 8
-URL = "postgresql+psycopg://ai:secret@localhost:5533/ai"
+URL = "postgresql+psycopg://ai:secret@localhost:5532/ai"
 ACME = Scope(tenant_id="acme", user_id="ada")
 
 
@@ -64,7 +67,14 @@ def test_the_class_carries_every_method_the_port_names():
 # -- construction refusals (no driver needed: each raises before the engine) ---
 
 
-def test_a_missing_url_is_refused_at_construction():
+def test_a_missing_url_is_refused_at_construction(monkeypatch):
+    """The env fallback is cleared explicitly, because the assertion is about its *absence*.
+
+    Without this the test passes only on a machine where ``EGPT_MEMORY_PG_URL`` happens to be
+    unset -- and it silently stops testing anything on one where it is, which is every machine
+    running the integration suite. Found exactly that way.
+    """
+    monkeypatch.delenv("EGPT_MEMORY_PG_URL", raising=False)
     with pytest.raises(MemoryProviderConfigError, match="db_url"):
         PgVectorMemorySubstrate(db_url=None, embedder=StubEmbedder())
 
@@ -227,14 +237,17 @@ def test_a_record_without_a_created_at_is_stamped(substrate):
     assert substrate._row(ACME, record(), [0.0] * DIM)["created_at"] is not None
 
 
-@pytest.mark.parametrize("driver_shape", ["psycopg", "asyncpg"])
-def test_both_drivers_json_shapes_decode_to_the_same_record(substrate, driver_shape):
-    """psycopg decodes ``jsonb`` to a ``dict``; asyncpg hands back raw text. A substrate that
-    handled one shape would return ``metadata`` as a string on the other half -- an asymmetry a test
-    comparing one half against itself cannot see."""
+@pytest.mark.parametrize("stored_shape", ["decoded", "external_write"])
+def test_both_stored_json_shapes_decode_to_the_same_record(substrate, stored_shape):
+    """A jsonb column reaches the read path in two shapes, and both must produce one record.
+
+    ``decoded`` is what psycopg hands back for a row this backend wrote. ``external_write`` is raw
+    text, which is what a migration or an operator's ``UPDATE`` can leave behind -- **not** an
+    asyncpg path, as the first version of this label claimed: ``_normalized`` refuses that driver at
+    construction, so no such path exists to test."""
     stored = {"source": "chat", "nested": {"a": 1}}
-    raw = stored if driver_shape == "psycopg" else '{"source": "chat", "nested": {"a": 1}}'
-    topics = ["cats"] if driver_shape == "psycopg" else '["cats"]'
+    raw = stored if stored_shape == "decoded" else '{"source": "chat", "nested": {"a": 1}}'
+    topics = ["cats"] if stored_shape == "decoded" else '["cats"]'
     row = {
         "id": "e1",
         "tier": "episodic",
@@ -341,9 +354,44 @@ def test_a_zero_limit_scan_is_zero_rows_not_unlimited(substrate):
     assert substrate._scan_call("ai", "v", ACME, MemoryTier.EPISODIC, None) is not None
 
 
-def test_close_refuses_while_an_async_engine_is_open(substrate):
+def test_close_refuses_without_disposing_either_half(substrate):
     """Dropping the reference is not closing: it leaves the pool's sockets open and permanently
-    disables ``aclose``'s own guard, so the leak becomes unreachable rather than fixed."""
+    disables ``aclose``'s own guard, so the leak becomes unreachable rather than fixed.
+
+    The refusal is **all-or-nothing**, which is the half a ``pytest.raises`` alone does not pin: a
+    raising method that had disposed the sync pool on its way out would hand a caller who catches
+    the error -- catchable, being the same class as any other per-request refusal -- an object whose
+    sync half fails on every later call. So the dispose is asserted *not* to have happened, and the
+    message is asserted to say so.
+    """
+    disposed = []
     substrate._aengine = object()
-    with pytest.raises(MemoryOperationError, match="aclose"):
+    substrate._engine.dispose = lambda *a, **k: disposed.append("sync")  # type: ignore[method-assign]
+    with pytest.raises(MemoryOperationError, match="aclose") as raised:
         substrate.close()
+    assert disposed == [], "close() disposed the sync pool on a path that reports releasing nothing"
+    assert "released nothing" in str(raised.value)
+
+
+def test_a_jsonb_array_in_a_mapping_column_is_refused_by_name():
+    """psycopg decodes a jsonb *array* to a ``list``, and the first version accepted that beside
+    ``dict``: ``dict(["a", "b"])`` raised a bare ``ValueError`` from the middle of a read, outside
+    this module's error envelope. Only a row written outside this backend can produce it, which is
+    exactly the case the decode path exists for."""
+    with pytest.raises(MemoryOperationError, match="did not decode to a JSON object"):
+        module._from_json(["a", "b"], "metadata", "e1")
+
+
+def test_the_default_port_is_the_one_the_setup_script_publishes():
+    """The default URL and ``run_pgvector.sh`` are two statements of one fact, and they drifted:
+    this suite and the benchmark shipped ``5533`` -- the port of a container started by hand to
+    avoid a clash -- while the script publishes ``5532``, so a bare run got `connection refused`.
+
+    Parsed from the script rather than hard-coded, or this test would assert the same constant
+    twice and pass however far the two drifted.
+    """
+    repo = Path(__file__).resolve().parents[5]
+    script = (repo / "cookbook" / "scripts" / "run_pgvector.sh").read_text()
+    published = re.search(r"-p (\d+):5432", script)
+    assert published, "run_pgvector.sh no longer publishes a port in the expected form"
+    assert f":{published.group(1)}/" in URL

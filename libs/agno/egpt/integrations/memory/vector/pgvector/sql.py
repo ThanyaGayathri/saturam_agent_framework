@@ -107,11 +107,12 @@ _CURRENT_BELIEF = "expired_at IS NULL"
 
 #: Casts on the parameters whose Python type does not name a Postgres type on its own.
 #:
-#: Spelled in the statement rather than left to the driver, because the two drivers disagree:
-#: psycopg adapts a ``dict`` to ``jsonb`` and asyncpg refuses it, so a value that round-trips on
-#: the sync half raises on the async one. Both halves therefore send **JSON text** and let the cast
-#: do the typing, which is also what makes the vector parameter portable -- ``pgvector`` registers
-#: its SQLAlchemy type on a mapped column, and these statements are textual.
+#: Spelled in the statement because a textual statement carries no type information for its binds,
+#: and psycopg will not guess: a bare ``dict`` parameter is met with ``cannot adapt type 'dict'``.
+#: It could be wrapped in ``psycopg.types.json.Jsonb``, but that names the driver in every write
+#: path, so the value travels as **JSON text** and the cast does the typing. Same reason the vector
+#: parameter carries one -- ``pgvector`` registers its SQLAlchemy type on a *mapped column*, and
+#: there is no mapped column here.
 _CASTS: Dict[str, str] = {
     "topics": "jsonb",
     "provenance": "jsonb",
@@ -290,6 +291,15 @@ def search_statement(schema: str, table: str, scope: Scope) -> Tuple[str, Dict[s
     is the exact failure SM-R3 Finding 3 describes; deterministic ordering is applied to the
     returned page instead, where it costs nothing.
 
+    **The zero-similarity cut is not in this statement**, and that is measured rather than assumed.
+    Written as ``AND embedding <=> :q < 1.0`` it lands in the plan's ``Filter:``, so the distance is
+    computed again for every row the index scan *visits*, not for the few it returns: 5.23 ms p50
+    against 3.15 ms without it, on the 100k/tenant partition. Because the scan is ordered by that
+    same distance, every row the cut would remove ranks strictly below every row it keeps -- so
+    applying it to the returned page instead yields the identical set, and ``_ranked`` does that.
+    The distance still appears twice, in the select list and the ``ORDER BY``; only the second is
+    per-visited-row, and it is what the index answers with.
+
     ``as_of`` is **not** applied here and no parameter carries it: valid time is enforced once, on
     the merged set, because it needs the graph's bounds as well (finding F2).
     """
@@ -298,7 +308,6 @@ def search_statement(schema: str, table: str, scope: Scope) -> Tuple[str, Dict[s
         f"SELECT {_READ_COLUMNS}, embedding <=> {_QUERY_VECTOR} AS distance "
         f"FROM {qualified(schema, table)} "
         f"WHERE {predicate} AND tier = ANY({cast_param('tiers', 'text[]')}) AND {_CURRENT_BELIEF} "
-        f"AND embedding <=> {_QUERY_VECTOR} < 1.0 "
         f"ORDER BY embedding <=> {_QUERY_VECTOR} "
         "LIMIT :limit"
     )

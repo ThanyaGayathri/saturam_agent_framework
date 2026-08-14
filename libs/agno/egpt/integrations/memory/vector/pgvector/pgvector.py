@@ -86,22 +86,27 @@ def _as_json(value: Any, field: str) -> str:
 
 
 def _from_json(value: Any, field: str, record_id: Any) -> Dict[str, Any]:
-    """Decode a stored nested value, tolerating both drivers' return shapes.
+    """Decode a stored nested value into the mapping ``MemoryRecord`` expects.
 
-    psycopg decodes ``jsonb`` to a ``dict`` and asyncpg hands back the raw text. Normalising here
-    is what keeps the two halves' records **equal** rather than merely both non-empty -- an
-    asymmetry that a test comparing one half against itself would never see.
+    psycopg decodes ``jsonb`` for us, so a column this backend wrote arrives as a ``dict`` and the
+    ``json.loads`` path below is for a row written by something else -- a migration, a bulk loader,
+    an operator's ``UPDATE`` -- which may hold text.
+
+    **Only a ``dict`` is passed through.** psycopg decodes a jsonb *array* to a ``list``, and the
+    first version accepted that alongside ``dict``, so ``dict(["a", "b"])`` raised a bare
+    ``ValueError`` out of the middle of a read -- the one unshaped failure left in the module.
+    Letting a list fall through to ``json.loads`` is what turns it into the named refusal below.
     """
     if value is None:
         return {}
-    if isinstance(value, (dict, list)):
+    if isinstance(value, dict):
         return dict(value)
     try:
         return dict(json.loads(value))
     except (TypeError, ValueError) as exc:
         raise MemoryOperationError(
-            f"{field} on record {record_id!r} is not readable JSON ({exc}). A row written outside "
-            "this backend will not round-trip.",
+            f"{field} on record {record_id!r} did not decode to a JSON object ({exc}). This column "
+            "holds a mapping; a row written outside this backend will not round-trip.",
             field_name=field,
         ) from exc
 
@@ -131,6 +136,16 @@ def _topics(value: Any, record_id: Any) -> Optional[List[str]]:
             f"topics on record {record_id!r} is not a readable JSON array ({exc}).",
             field_name="topics",
         ) from exc
+
+
+def _similar(row: Dict[str, Any]) -> bool:
+    """Whether a hit is a match at all -- cosine distance strictly under 1.0.
+
+    A distance of 1.0 is orthogonality and above it is opposition, both of which normalise to a
+    similarity of 0.0. ``scan`` rows carry no distance and are never filtered by this.
+    """
+    distance = row.get("distance")
+    return distance is None or float(distance) < 1.0
 
 
 def _vector_literal(embedding: Sequence[float], dim: int, record_id: str) -> str:
@@ -286,7 +301,16 @@ class PgVectorMemorySubstrate:
     # -- plumbing -------------------------------------------------------------
 
     def _async_engine(self) -> "AsyncEngine":
-        """Built on first use, not in ``__init__``: an async engine binds to the running loop."""
+        """Built on first use, not in ``__init__``: an async engine binds to the running loop.
+
+        Unlocked, and that is load-bearing rather than an omission: there is no ``await`` between
+        the check and the assignment, so no other coroutine on this loop can interleave. A lock
+        would be the wrong shape anyway -- an ``asyncio.Lock`` binds to a loop as surely as the
+        engine does, so it cannot protect the case it looks like it protects. **Two threads driving
+        two loops through one substrate would race here**, each building an engine and the second
+        overwriting the first's pool; that arrangement needs a substrate per loop, since a
+        connection from one loop's pool is unusable on the other regardless.
+        """
         if self._aengine is None:
             self._aengine = create_async_engine(self.db_url, pool_pre_ping=True, pool_recycle=3600)
         return self._aengine
@@ -365,6 +389,24 @@ class PgVectorMemorySubstrate:
     #: DDL failure, which is why it is a separate transaction: the failed one is already aborted.
     _EXISTS = "SELECT to_regclass(:qualified) IS NOT NULL"
 
+    @staticmethod
+    def _partition_ddl(value: Any) -> str:
+        """The composed ``CREATE TABLE ... PARTITION OF`` text, checked before it is executed.
+
+        Defence, and named as such: ``format()`` returns NULL only when its *format string* is NULL,
+        and that argument is a literal in this module, so no test can reach this. What it buys is
+        that a future edit making any bind nullable fails as a named refusal rather than as
+        ``syntax error at or near "None"`` from a statement nobody wrote. One helper rather than the
+        same two lines in each twin, so the two cannot come to disagree about it.
+        """
+        if not isinstance(value, str) or not value:
+            raise MemoryOperationError(
+                f"Composing the partition DDL returned {value!r} instead of a statement. This is a "
+                "server-side format() over non-null identifiers, so it should be unreachable.",
+                field_name="ensure_partition",
+            )
+        return value
+
     def ensure_partition(self, tenant_id: str) -> None:
         """Create this tenant's partition, which inherits the parent's indexes.
 
@@ -380,7 +422,7 @@ class PgVectorMemorySubstrate:
         try:
             with self._translated("partition create"), self._engine.begin() as connection:
                 ddl = connection.execute(text(sql.create_partition_statement()), binds).scalar()
-                connection.execute(text(str(ddl)))
+                connection.execute(text(self._partition_ddl(ddl)))
         except MemoryOperationError:
             with self._translated("partition probe"), self._engine.begin() as connection:
                 present = connection.execute(
@@ -399,7 +441,7 @@ class PgVectorMemorySubstrate:
             with self._translated("partition create"):
                 async with self._async_engine().begin() as connection:
                     result = await connection.execute(text(sql.create_partition_statement()), binds)
-                    await connection.execute(text(str(result.scalar())))
+                    await connection.execute(text(self._partition_ddl(result.scalar())))
         except MemoryOperationError:
             with self._translated("partition probe"):
                 async with self._async_engine().begin() as connection:
@@ -416,18 +458,27 @@ class PgVectorMemorySubstrate:
         return f"{binds['schema']}.{binds['partition']}"
 
     def close(self) -> None:
-        """Close the sync engine, and **refuse** when an async one is still open.
+        """Close the sync engine, or -- with an async engine open -- **release nothing and refuse**.
 
-        Dropping the reference is not closing: it leaves the pool's sockets open and permanently
-        disables :meth:`aclose`'s own guard, so the leak becomes unreachable rather than fixed.
-        Closing it here is not possible either -- an async engine's connections belong to the loop
-        that opened them, so a sync call can neither await them nor drive that loop.
+        Closing the async half here is not possible: its connections belong to the loop that opened
+        them, so a sync call can neither await them nor drive that loop. Dropping the reference is
+        not closing either; it leaves the pool's sockets open and permanently disables
+        :meth:`aclose`'s own guard, so the leak becomes unreachable rather than fixed.
+
+        **The refusal is all-or-nothing, and the sync pool is deliberately left open with it.**
+        Disposing that half on the way out would make a raising method leave the substrate
+        half-dead: a caller that catches this -- and it is catchable, being the same error class as
+        any other per-request refusal -- would hold an object whose sync half now fails on every
+        call, for a teardown it did not get. Nothing is released, the message says so, and
+        :meth:`aclose` is the one call that closes both. Pinned by
+        ``test_close_refuses_without_disposing_either_half``.
         """
         if self._aengine is not None:
             raise MemoryOperationError(
                 "This substrate has an open async engine, and close() cannot release it: its "
-                "connections belong to the loop that opened them. Call aclose() from the same async "
-                "context; it closes both.",
+                "connections belong to the loop that opened them. **Neither pool has been closed** "
+                "-- this call released nothing. Call aclose() from the same async context; it "
+                "closes both.",
                 field_name="close",
             )
         self._engine.dispose()
@@ -531,9 +582,17 @@ class PgVectorMemorySubstrate:
         which is the whole failure SM-R3 Finding 3 describes. Ties inside the page are broken here,
         on ``created_at`` then content then id: **not** on a UUID, which would make the order of two
         equally-similar memories depend on which random id they were minted with.
+
+        **Zero similarity is dropped here rather than in the ``WHERE`` clause.** It is not a match:
+        it would occupy a page slot, contribute nothing to the sum the provider fuses on, and put an
+        unrelated memory in a prompt. As a SQL predicate it cost a second distance computation for
+        every row the index visited (5.23 ms p50 against 3.15 ms); here it costs one comparison per
+        *returned* row. The two produce the same set because the scan is ordered by that distance,
+        so everything the cut removes already ranks below everything it keeps -- a page cannot come
+        back short of a row this filter would have kept.
         """
         paired = sorted(
-            zip(rows, records),
+            (pair for pair in zip(rows, records) if _similar(pair[0])),
             key=lambda pair: (
                 float(pair[0]["distance"]) if pair[0].get("distance") is not None else 0.0,
                 pair[1].created_at or 0,

@@ -63,7 +63,7 @@ class TokenEmbedder:
 
 
 def _url():
-    return os.getenv("EGPT_MEMORY_PG_URL", "postgresql+psycopg://ai:ai@localhost:5533/ai")
+    return os.getenv("EGPT_MEMORY_PG_URL", "postgresql+psycopg://ai:ai@localhost:5532/ai")
 
 
 def _fresh():
