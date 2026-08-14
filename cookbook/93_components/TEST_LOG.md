@@ -178,3 +178,54 @@ envelope fields (`name`, `description`, `metadata`, `notes`), but this example p
 in them, so the `redacted` list still names exactly the three `db_url` values.
 
 ---
+
+### admin_console.py
+
+**Status:** PASS
+
+**Description:** Serves the built-in admin console (EGPT-2.9) on a tenanted `EgptOS` backed by
+SQLite, mints a service-account token for tenant `acme`, and exercises the whole authoring path
+the console drives: serve the page, dry-run an invalid config, create a draft, publish it, add
+and publish a second version, then roll back.
+
+**Result:** `GET /console` returned 200 `text/html` with no `Authorization` header, while
+`GET /components` on the same instance returned 401 -- the page is open, the API behind it is
+not. `POST /components/validate` on a model-less config returned the field-level 422
+(`config.model` / `missing_required_field`) and created nothing. Creating the component returned
+201 with no `current_version`; `PATCH /components/support/configs/1 {"stage":"published"}`
+returned 200 and moved `current_version` to 1. A second draft published as v2 moved it to 2, and
+`POST /components/support/configs/1/set-current` moved it back to 1.
+
+The page's JavaScript was extracted and checked with `node --check` (parses clean), and its
+`normalizeError` was exercised directly against all six response shapes it has to handle: the
+config-validation 422, the same with a bare `config` path, FastAPI's `loc`/`msg` 422, a plain
+string 400, an "Insufficient permissions" 403, and a bodyless 500. Each normalised to the single
+`{summary, fields[]}` shape the UI renders.
+
+**Note:** Run against `.venv/bin/python` in this workspace, which has no `.venvs/demo`. No model
+call is made, so no API key is needed. `EGPT_OS_SECURITY_KEY` must be set or the auth layer is
+never installed and the deployment runs open -- the script prints a reminder. The console itself
+was not driven through a browser; the assertions above are on the API it calls, plus the
+`node`-level checks of the page's own logic.
+
+**Re-run against Postgres in Docker** (`agnohq/pgvector:18` on 5532, per
+`./cookbook/scripts/run_pgvector.sh`), because the unit and E2E suites are SQLite-only and the
+Postgres component methods are a separate implementation. The same 26 assertions -- console page,
+unauthenticated refusal, dry run reject/accept, create, publish, hydrate, run, publish v2,
+rollback, re-hydrate, the immutability and undeletable-current negatives, four cross-tenant
+checks, and the audit trail -- all passed on the real backend.
+
+Verified at the SQL level afterwards: `components` carried one row with `tenant_id = acme` and
+`current_version = 1` after the rollback; `component_configs` held both versions as `published`
+with the tenant stamped; and `component_audit` held the six-row narrative
+`component.create, config.create, config.publish, config.create, config.publish, config.rollback`,
+each attributed to `sa:admin-cxacme` -- so publish and rollback are derived from what the
+transaction did, not from what the caller asked for, on Postgres as well as SQLite.
+
+Use a **short** `table_prefix` when isolating a run this way: the component FK names are long
+(`<prefix>component_links_parent_component_id_parent_version_fkey`) and a prefix of more than a
+few characters trips Postgres's 63-character identifier limit, which surfaces first as an
+`IdentifierError` and then, on the retry, as a confusing "table is already defined for this
+MetaData instance".
+
+---

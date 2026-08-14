@@ -1,0 +1,1149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Console</title>
+<!--
+  The built-in admin console (EGPT-2.9). A single self-contained page over the /components
+  authoring API: list definitions, edit a draft, validate it, publish it, roll back.
+
+  Two rules this file must keep:
+
+  1. NO EXTERNAL RESOURCES. No CDN script, no webfont, no remote image. The operator's bearer
+     token lives in this origin's sessionStorage, so every third-party script would be a script
+     that can read it. It is also what makes the Content-Security-Policy the server sends
+     enforceable, and what lets the console run in an air-gapped deployment. Adding a CDN here
+     silently breaks all three.
+
+  2. NO innerHTML ON SERVER-DERIVED VALUES. Component names, config bodies and error messages are
+     operator-supplied strings echoed back into this page. Every one of them is rendered with
+     textContent via el()/text(). There is no HTML-string templating anywhere below.
+-->
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f7f8fa; --border: #d9dde3; --fg: #1a1d21; --muted: #646b75;
+    --accent: #2f5fd0; --accent-fg: #ffffff; --danger: #b3261e; --ok: #1c6b3f;
+    --warn-bg: #fdf3f2; --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15181c; --panel: #1d2126; --border: #333a42; --fg: #e6e9ed; --muted: #9aa3ad;
+      --accent: #6f97e8; --accent-fg: #10131a; --danger: #f2857c; --ok: #6ac48f;
+      --warn-bg: #2a1e1d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+    border-bottom: 1px solid var(--border); background: var(--panel); flex-wrap: wrap;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .01em; }
+  header .spacer { flex: 1; }
+  main { padding: 20px; max-width: 1100px; margin: 0 auto; }
+  h2 { font-size: 14px; margin: 0 0 10px; font-weight: 600; }
+  h3 { font-size: 13px; margin: 22px 0 8px; font-weight: 600; color: var(--muted);
+       text-transform: uppercase; letter-spacing: .06em; }
+  button {
+    font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg); cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  button.danger { color: var(--danger); }
+  button.link { border: none; background: none; color: var(--accent); padding: 2px 4px; }
+  input, select, textarea {
+    font: inherit; padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg); width: 100%;
+  }
+  textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; }
+  label { display: block; margin-bottom: 12px; }
+  label > span.lbl { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .row > * { flex: 1; min-width: 180px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.actions { text-align: right; white-space: nowrap; }
+  code, .mono { font-family: var(--mono); font-size: 12.5px; }
+  .chip {
+    display: inline-block; font-family: var(--mono); font-size: 11px; padding: 1px 6px;
+    border-radius: 4px; border: 1px solid var(--border); color: var(--muted);
+  }
+  .chip.cur { border-color: var(--ok); color: var(--ok); }
+  .chip.pub { border-color: var(--accent); color: var(--accent); }
+  .banner {
+    border: 1px solid var(--danger); background: var(--warn-bg); color: var(--danger);
+    border-radius: 6px; padding: 10px 12px; margin-bottom: 14px;
+  }
+  .banner.ok { border-color: var(--ok); color: var(--ok); background: transparent; }
+  .banner ul { margin: 6px 0 0; padding-left: 18px; }
+  .err { color: var(--danger); font-size: 12px; margin-top: 3px; }
+  .muted { color: var(--muted); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .panel { border: 1px solid var(--border); border-radius: 8px; padding: 16px; background: var(--panel); }
+  .modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex;
+    align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal > div { background: var(--bg); border-radius: 10px; padding: 20px; max-width: 560px; width: 100%; }
+  [hidden] { display: none !important; }
+  .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Agent Console</h1>
+  <span id="ctx" class="muted mono"></span>
+  <span class="spacer"></span>
+  <button id="btn-token">Token</button>
+  <button id="btn-signout">Sign out</button>
+</header>
+
+<main>
+  <!-- List view -->
+  <section id="view-list" hidden>
+    <div class="toolbar">
+      <select id="filter-type" style="width:auto">
+        <option value="">All types</option>
+        <option value="agent">Agents</option>
+        <option value="team">Teams</option>
+        <option value="workflow">Workflows</option>
+      </select>
+      <button id="btn-reload">Reload</button>
+      <span class="spacer" style="flex:1"></span>
+      <button id="btn-prev">Prev</button>
+      <span id="page-label" class="muted"></span>
+      <button id="btn-next">Next</button>
+      <button id="btn-new" class="primary">New component</button>
+    </div>
+    <div id="list-error"></div>
+    <table>
+      <thead><tr><th>ID</th><th>Name</th><th>Type</th><th>Current version</th><th></th></tr></thead>
+      <tbody id="list-body"></tbody>
+    </table>
+    <p id="list-empty" class="muted" hidden>No components yet. Create one to get started.</p>
+  </section>
+
+  <!-- Editor view -->
+  <section id="view-editor" hidden>
+    <div class="toolbar">
+      <button id="btn-back">Back to list</button>
+      <span class="spacer" style="flex:1"></span>
+      <span id="editing-label" class="muted"></span>
+    </div>
+
+    <div id="editor-error"></div>
+
+    <div class="panel">
+      <h2 id="editor-title">New component</h2>
+      <div class="grid2">
+        <label><span class="lbl">Name</span><input id="f-name" data-path="name"></label>
+        <label><span class="lbl">Component ID</span><input id="f-id" placeholder="derived from name"></label>
+        <label><span class="lbl">Type</span>
+          <select id="f-type">
+            <option value="agent">agent</option>
+            <option value="team">team</option>
+            <option value="workflow">workflow</option>
+          </select>
+        </label>
+        <label><span class="lbl">Description</span><input id="f-description" data-path="description"></label>
+      </div>
+
+      <h3>Config</h3>
+      <div class="grid2">
+        <label><span class="lbl">Model ID</span><input id="f-model-id" data-path="model.id" placeholder="gpt-5.5"></label>
+        <label><span class="lbl">Model provider</span><input id="f-model-provider" data-path="model.provider" placeholder="openai"></label>
+        <label><span class="lbl">Database ID</span><input id="f-db-id" data-path="db.id" placeholder="optional"></label>
+        <label><span class="lbl">Tools</span><input id="f-tools" data-path="tools" readonly class="mono">
+          <span class="hint">Read-only here. Edit in the JSON below.</span></label>
+      </div>
+      <label><span class="lbl">Instructions</span><textarea id="f-instructions" data-path="instructions" rows="4"></textarea></label>
+
+      <h3>Raw config JSON</h3>
+      <p class="hint" style="margin-top:0">The JSON is the source of truth. Fields above write into it; anything they do not
+        cover (tools, members, steps, output schemas) round-trips untouched.</p>
+      <textarea id="f-json" rows="16" spellcheck="false" data-path=""></textarea>
+      <div id="json-error"></div>
+
+      <div class="toolbar" style="margin:16px 0 0">
+        <button id="btn-validate">Validate</button>
+        <button id="btn-save" class="primary">Save draft</button>
+        <button id="btn-save-new" hidden>Save as new draft version</button>
+        <span class="spacer" style="flex:1"></span>
+        <button id="btn-delete-component" class="danger" hidden>Delete component</button>
+      </div>
+    </div>
+
+    <div id="versions-wrap" hidden>
+      <h3>Versions</h3>
+      <table>
+        <thead><tr><th>Version</th><th>Stage</th><th>Label</th><th>Notes</th><th></th></tr></thead>
+        <tbody id="versions-body"></tbody>
+      </table>
+    </div>
+
+    <div id="audit-wrap" hidden>
+      <h3>History</h3>
+      <table>
+        <thead><tr><th>When</th><th>Action</th><th>Version</th><th>Actor</th></tr></thead>
+        <tbody id="audit-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<!-- Token modal -->
+<div class="modal" id="token-modal" hidden>
+  <div>
+    <h2>Bearer token</h2>
+    <p class="hint" style="margin-top:0">
+      Paste a JWT, a service-account token (<code>agno_pat_...</code>), or this deployment's
+      security key. It is kept in <code>sessionStorage</code> and is gone when you close the tab.
+      The token's scopes and tenant decide what you can see and change.
+    </p>
+    <div id="token-error"></div>
+    <textarea id="token-input" rows="5" spellcheck="false"></textarea>
+    <div class="toolbar" style="margin:14px 0 0">
+      <button id="btn-token-save" class="primary">Save</button>
+      <button id="btn-token-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+// Derived, never hardcoded: the OS can be mounted under a prefix
+// (parent.mount("/api", os_app)), in which case this page is served at /api/console and the API
+// lives at /api/components. Starlette leaves scope["path"] untouched when mounted, so the only
+// reliable base is where this page actually is.
+const API_BASE = window.location.pathname.replace(/\/console\/?$/, "");
+
+const TOKEN_KEY = "egpt_console_token";
+const PAGE_SIZE = 20;
+
+// Sent verbatim by os/tenancy.py. Matched exactly so a credential with no tenant gets an
+// explanation rather than a generic "forbidden" the operator cannot act on.
+const TENANCY_REQUIRED_DETAIL =
+  "This deployment scopes components by tenant, and this credential carries no tenant identity.";
+
+const state = {
+  page: 1,
+  totalPages: 1,
+  componentType: "",
+  component: null,   // ComponentResponse being edited, null in create mode
+  configs: [],       // ComponentConfigResponse[]
+  version: null,     // the version loaded into the editor, null for an unsaved draft
+  config: {},        // the parsed config in the editor
+  instructionsWasList: false,
+  modelShape: "object",   // "string" | "object" | "opaque" -- see readModelRef
+  dbShape: "object",      // "object" | "opaque" -- see readDbRef
+  // Scopes the server has explicitly refused, so we stop offering doomed actions. Tracked per
+  // scope rather than as one "can write" flag: components:delete is a SEPARATE scope, so a
+  // least-privilege token holding read+write would otherwise lose Save, Publish, Clone and
+  // Rollback for the session the first time someone clicked Delete.
+  deniedScopes: new Set(),
+};
+
+// ---------------------------------------------------------------------------
+// Tiny DOM helpers -- textContent only, never innerHTML (see the note at the top)
+// ---------------------------------------------------------------------------
+
+const $ = (id) => document.getElementById(id);
+
+// The three component scopes are independent (os/scopes.py), so each is asked about separately.
+// Unknown until the server refuses one: absence of a refusal means "offer it and let the server
+// decide", which is the right default for a token whose scopes the console cannot introspect.
+const hasScope = (scope) => !state.deniedScopes.has(scope);
+const canWrite = () => hasScope("components:write");
+const canDelete = () => hasScope("components:delete");
+
+function el(tag, opts) {
+  const node = document.createElement(tag);
+  if (!opts) return node;
+  if (opts.text !== undefined) node.textContent = String(opts.text);
+  if (opts.cls) node.className = opts.cls;
+  if (opts.title) node.title = opts.title;
+  if (opts.onClick) node.addEventListener("click", opts.onClick);
+  if (opts.disabled) node.disabled = true;
+  return node;
+}
+
+function clear(node) {
+  while (node.firstChild) node.removeChild(node.firstChild);
+}
+
+function show(view) {
+  $("view-list").hidden = view !== "list";
+  $("view-editor").hidden = view !== "editor";
+}
+
+// ---------------------------------------------------------------------------
+// Token handling
+// ---------------------------------------------------------------------------
+
+const token = () => sessionStorage.getItem(TOKEN_KEY) || "";
+
+function openTokenModal(message) {
+  renderErrors($("token-error"), message ? { summary: message, fields: [] } : null);
+  $("token-input").value = token();
+  $("token-modal").hidden = false;
+  $("token-input").focus();
+}
+
+$("btn-token").addEventListener("click", () => openTokenModal(null));
+$("btn-token-cancel").addEventListener("click", () => { $("token-modal").hidden = true; });
+$("btn-token-save").addEventListener("click", () => {
+  const value = $("token-input").value.trim();
+  if (!value) { renderErrors($("token-error"), { summary: "Paste a token first.", fields: [] }); return; }
+  sessionStorage.setItem(TOKEN_KEY, value);
+  $("token-modal").hidden = true;
+  state.deniedScopes.clear();
+  loadList();
+});
+$("btn-signout").addEventListener("click", () => {
+  sessionStorage.removeItem(TOKEN_KEY);
+  state.deniedScopes.clear();
+  show("list");
+  clear($("list-body"));
+  openTokenModal("Signed out.");
+});
+
+// ---------------------------------------------------------------------------
+// API layer
+// ---------------------------------------------------------------------------
+
+// Thrown for every non-2xx. `norm` is the already-normalised {summary, fields} so callers never
+// have to know which of the API's error shapes they got.
+class ApiError extends Error {
+  constructor(status, norm) {
+    super(norm.summary);
+    this.status = status;
+    this.norm = norm;
+  }
+}
+
+async function api(method, path, body) {
+  let response;
+  try {
+    response = await fetch(API_BASE + path, {
+      method: method,
+      credentials: "omit",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token(),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new ApiError(0, { summary: "Could not reach the server: " + e.message, fields: [] });
+  }
+
+  if (response.status === 204) return null;
+
+  let payload = null;
+  const raw = await response.text();
+  if (raw) {
+    try { payload = JSON.parse(raw); } catch (e) { payload = null; }
+  }
+
+  if (response.ok) return payload;
+
+  const norm = normalizeError(response.status, payload, raw);
+
+  if (response.status === 401) {
+    openTokenModal("The server rejected this token. Paste a current one.");
+  } else if (response.status === 403) {
+    // The token authenticated but lacks a scope. Record exactly which one the server named --
+    // "Insufficient permissions. Required scope(s): components:delete" -- so only the controls
+    // needing that scope are withdrawn. A bare "Insufficient permissions" names nothing, so
+    // nothing is latched: guessing would disable controls that might work.
+    const named = /Required scope\(s\):\s*(.+)$/.exec(norm.summary);
+    if (named) {
+      named[1].split(",").forEach((scope) => state.deniedScopes.add(scope.trim()));
+      renderEditorActions();
+      if (state.component) renderVersions();
+    }
+  }
+
+  throw new ApiError(response.status, norm);
+}
+
+// The API answers with three different error bodies, plus the no-body case. One place knows that,
+// so every caller downstream sees a single {summary, fields[]} shape.
+//
+//   1. config validation (EGPT-2.2/2.3) -- 422, error_code CONFIG_VALIDATION_ERROR, errors[] of
+//      {path, message, code}. This is the one that carries capability_not_permitted and
+//      privileged_tool_blocked, so it is the reason this console exists.
+//   2. FastAPI request-shape -- 422 with detail as an array of {loc, msg, type}.
+//   3. everything else -- detail as a plain string (400/404/409, the audit route's 422, and any
+//      HTTPException once the app-level handler stringifies it).
+function normalizeError(status, body, raw) {
+  if (body && body.error_code === "CONFIG_VALIDATION_ERROR" && Array.isArray(body.errors)) {
+    return {
+      summary: body.detail || "The configuration is not valid.",
+      fields: body.errors.map((e) => ({
+        // Errors are reported against the stored document ("config.model.id"); the editor's
+        // inputs are keyed on the config-relative path ("model.id").
+        path: String(e.path || "").replace(/^config\.?/, ""),
+        message: String(e.message || ""),
+        code: String(e.code || ""),
+      })),
+    };
+  }
+
+  if (body && Array.isArray(body.detail)) {
+    return {
+      summary: "The request body was rejected.",
+      fields: body.detail.map((e) => ({
+        path: (e.loc || []).filter((p) => p !== "body").join("."),
+        message: String(e.msg || ""),
+        code: String(e.type || ""),
+      })),
+    };
+  }
+
+  if (body && typeof body.detail === "string") {
+    return { summary: body.detail, fields: [] };
+  }
+
+  if (body && typeof body.message === "string") {
+    return { summary: body.message, fields: [] };
+  }
+
+  return { summary: raw ? "HTTP " + status + ": " + raw.slice(0, 200) : "HTTP " + status, fields: [] };
+}
+
+// ---------------------------------------------------------------------------
+// Error rendering
+// ---------------------------------------------------------------------------
+
+function clearFieldErrors() {
+  document.querySelectorAll(".err[data-field-error]").forEach((n) => n.remove());
+}
+
+// Renders a normalised error into `target`. Field errors are attached to the matching input where
+// one exists; the rest go into the banner's own list, so a path this form does not know about is
+// still visible rather than silently dropped.
+function renderErrors(target, norm) {
+  clear(target);
+  if (!norm) return;
+
+  const banner = el("div", { cls: "banner" });
+
+  let summary = norm.summary;
+  if (summary === TENANCY_REQUIRED_DETAIL) {
+    summary =
+      "This deployment scopes components by tenant, and your credential carries no tenant. " +
+      "Use a service-account token, or a JWT that includes the tenant claim.";
+  } else if (summary.indexOf("Insufficient permissions") === 0) {
+    summary = summary + " This console can only do what your token is scoped for.";
+  }
+  banner.appendChild(el("div", { text: summary }));
+
+  const unmatched = [];
+  for (const field of norm.fields || []) {
+    const input = field.path ? document.querySelector('[data-path="' + cssEscape(field.path) + '"]') : null;
+    if (input && input.parentElement) {
+      const note = el("div", { cls: "err", text: field.message + (field.code ? "  [" + field.code + "]" : "") });
+      note.setAttribute("data-field-error", "1");
+      input.parentElement.appendChild(note);
+    } else {
+      unmatched.push(field);
+    }
+  }
+
+  if (unmatched.length) {
+    const list = el("ul");
+    for (const field of unmatched) {
+      const label = field.path ? field.path + ": " : "";
+      list.appendChild(el("li", { text: label + field.message + (field.code ? "  [" + field.code + "]" : "") }));
+    }
+    banner.appendChild(list);
+  }
+
+  target.appendChild(banner);
+  target.scrollIntoView({ block: "nearest" });
+}
+
+function renderOk(target, message) {
+  clear(target);
+  target.appendChild(el("div", { cls: "banner ok", text: message }));
+}
+
+// Paths come from the server. CSS.escape is not in every browser this may run in, and the paths
+// are dotted identifiers, so quote-escaping is all that is needed for the attribute selector.
+function cssEscape(value) {
+  return String(value).replace(/["\\]/g, "\\$&");
+}
+
+// ---------------------------------------------------------------------------
+// List view
+// ---------------------------------------------------------------------------
+
+async function loadList() {
+  if (!token()) { openTokenModal(null); return; }
+  show("list");
+  clear($("list-error"));
+  try {
+    const query =
+      "?page=" + state.page +
+      "&limit=" + PAGE_SIZE +
+      (state.componentType ? "&component_type=" + encodeURIComponent(state.componentType) : "");
+    const payload = await api("GET", "/components" + query);
+    renderList(payload);
+  } catch (e) {
+    renderErrors($("list-error"), e.norm || { summary: String(e), fields: [] });
+    clear($("list-body"));
+  }
+}
+
+function renderList(payload) {
+  const rows = (payload && payload.data) || [];
+  const meta = (payload && payload.meta) || {};
+  state.totalPages = meta.total_pages || 1;
+  $("page-label").textContent = "Page " + (meta.page || state.page) + " of " + state.totalPages;
+  $("btn-prev").disabled = (meta.page || state.page) <= 1;
+  $("btn-next").disabled = (meta.page || state.page) >= state.totalPages;
+
+  const body = $("list-body");
+  clear(body);
+  $("list-empty").hidden = rows.length > 0;
+
+  for (const component of rows) {
+    const tr = el("tr");
+    tr.appendChild(el("td", { text: component.component_id, cls: "mono" }));
+    tr.appendChild(el("td", { text: component.name || "" }));
+    tr.appendChild(el("td", { text: component.component_type }));
+    const version = el("td");
+    version.appendChild(
+      component.current_version
+        ? el("span", { cls: "chip cur", text: "v" + component.current_version })
+        : el("span", { cls: "muted", text: "unpublished" })
+    );
+    tr.appendChild(version);
+    const actions = el("td", { cls: "actions" });
+    actions.appendChild(el("button", { text: "Open", cls: "link", onClick: () => openComponent(component.component_id) }));
+    tr.appendChild(actions);
+    body.appendChild(tr);
+  }
+}
+
+$("filter-type").addEventListener("change", (e) => { state.componentType = e.target.value; state.page = 1; loadList(); });
+$("btn-reload").addEventListener("click", () => loadList());
+$("btn-prev").addEventListener("click", () => { if (state.page > 1) { state.page -= 1; loadList(); } });
+$("btn-next").addEventListener("click", () => { if (state.page < state.totalPages) { state.page += 1; loadList(); } });
+$("btn-back").addEventListener("click", () => loadList());
+$("btn-new").addEventListener("click", () => openNew());
+
+// ---------------------------------------------------------------------------
+// Editor
+// ---------------------------------------------------------------------------
+
+function openNew() {
+  state.component = null;
+  state.configs = [];
+  state.version = null;
+  state.config = { model: { id: "gpt-5.5", provider: "openai" }, instructions: "" };
+  state.instructionsWasList = false;
+  $("editor-title").textContent = "New component";
+  $("f-name").value = "";
+  $("f-id").value = "";
+  $("f-id").disabled = false;
+  $("f-description").value = "";
+  $("f-type").value = "agent";
+  $("f-type").disabled = false;
+  $("versions-wrap").hidden = true;
+  $("audit-wrap").hidden = true;
+  clear($("editor-error"));
+  clearFieldErrors();
+  configToForm();
+  renderEditorActions();
+  show("editor");
+}
+
+async function openComponent(componentId) {
+  clear($("editor-error"));
+  clearFieldErrors();
+  try {
+    // The 404 from this call is the tenant-scoped existence check. list_configs deliberately
+    // answers 200 with [] for an absent or foreign component, so it cannot tell "no versions
+    // yet" from "not yours" -- this can, which is why the versions render is gated on it.
+    const component = await api("GET", "/components/" + encodeURIComponent(componentId));
+    const configs = await api("GET", "/components/" + encodeURIComponent(componentId) + "/configs");
+
+    state.component = component;
+    state.configs = Array.isArray(configs) ? configs.slice().sort((a, b) => a.version - b.version) : [];
+
+    $("editor-title").textContent = component.component_id;
+    $("f-name").value = component.name || "";
+    $("f-id").value = component.component_id;
+    $("f-id").disabled = true;
+    $("f-description").value = component.description || "";
+    $("f-type").value = component.component_type;
+    $("f-type").disabled = true;
+
+    const initial = pickInitialVersion();
+    loadVersionIntoEditor(initial);
+    renderVersions();
+    renderEditorActions();
+    show("editor");
+    loadAudit(componentId);
+  } catch (e) {
+    show("list");
+    renderErrors($("list-error"), e.norm || { summary: String(e), fields: [] });
+  }
+}
+
+// Prefer an editable draft, then the published current version, then whatever exists.
+function pickInitialVersion() {
+  const draft = state.configs.filter((c) => c.stage !== "published").pop();
+  if (draft) return draft;
+  const current = state.configs.find((c) => c.version === state.component.current_version);
+  return current || state.configs[state.configs.length - 1] || null;
+}
+
+function loadVersionIntoEditor(config) {
+  state.version = config ? config.version : null;
+  state.config = config && config.config ? JSON.parse(JSON.stringify(config.config)) : {};
+  configToForm();
+  clearFieldErrors();
+  clear($("json-error"));
+  updateEditingLabel();
+}
+
+function updateEditingLabel() {
+  const label = $("editing-label");
+  if (!state.component) { label.textContent = "unsaved"; return; }
+  if (state.version === null) { label.textContent = "new draft version"; return; }
+  const config = currentConfigRow();
+  const bits = ["v" + state.version, config ? config.stage : ""];
+  if (state.component.current_version === state.version) bits.push("current");
+  label.textContent = bits.filter(Boolean).join(" - ");
+}
+
+const currentConfigRow = () => state.configs.find((c) => c.version === state.version) || null;
+const editingPublished = () => { const c = currentConfigRow(); return !!c && c.stage === "published"; };
+
+// --- form <-> config -------------------------------------------------------
+
+// A config may store `model` either as an object or as the "<provider>:<model_id>" shorthand --
+// the server accepts and stores both verbatim (registry/schema.py `_check_model_ref`). Reading
+// `.id` off the string form yields undefined, which rendered the fields blank and then let
+// formToConfig() delete the whole `model` key on the next edit, so the operator was blamed for a
+// missing field the console had removed. Normalising on read is what keeps the round trip lossless.
+//
+// `shape` drives how formToConfig writes back:
+//   "string" -- rebuild the shorthand
+//   "object" -- merge into the object
+//   "opaque" -- a shape this form cannot represent (an array, a number, null). Leave it ALONE
+//               unless the operator actually types a model, so an invalid value reaches the
+//               server and earns its own `invalid_type` instead of being quietly deleted here.
+function readModelRef(model) {
+  if (typeof model === "string") {
+    const separator = model.indexOf(":");
+    if (separator === -1) return { id: model.trim(), provider: "", shape: "string" };
+    return {
+      provider: model.slice(0, separator).trim(),
+      id: model.slice(separator + 1).trim(),
+      shape: "string",
+    };
+  }
+  if (model && typeof model === "object" && !Array.isArray(model)) {
+    return { id: model.id || "", provider: model.provider || "", shape: "object" };
+  }
+  if (model === undefined || model === null) {
+    return { id: "", provider: "", shape: "object" };
+  }
+  return { id: "", provider: "", shape: "opaque" };
+}
+
+// `db` gets the same opaque-shape treatment as `model` above: the server still accepts a
+// non-object `db` (`_check_db_ref`'s `invalid_type` handling), and Object.assign-ing an id into a
+// string or array spreads its character/element indices into a new object, destroying it. A
+// shape this form cannot render is left alone unless the operator types a replacement.
+function readDbRef(db) {
+  if (db && typeof db === "object" && !Array.isArray(db)) {
+    return { id: db.id || "", shape: "object" };
+  }
+  if (db === undefined || db === null) {
+    return { id: "", shape: "object" };
+  }
+  return { id: "", shape: "opaque" };
+}
+
+function configToForm() {
+  const config = state.config || {};
+  const model = readModelRef(config.model);
+  const db = readDbRef(config.db);
+  state.modelShape = model.shape;
+  state.dbShape = db.shape;
+  $("f-model-id").value = model.id || "";
+  $("f-model-provider").value = model.provider || "";
+  $("f-db-id").value = db.id || "";
+
+  state.instructionsWasList = Array.isArray(config.instructions);
+  $("f-instructions").value = state.instructionsWasList
+    ? config.instructions.join("\n")
+    : (config.instructions || "");
+
+  // Tools stay read-only: a real tool editor is out of scope for a minimal console, and the
+  // shapes vary (plain names, {name, ...} refs, MCP servers). They round-trip through the JSON.
+  const tools = config.tools;
+  $("f-tools").value = Array.isArray(tools)
+    ? tools.map((t) => (typeof t === "string" ? t : (t && (t.name || t.id)) || "?")).join(", ")
+    : "";
+
+  $("f-json").value = JSON.stringify(config, null, 2);
+}
+
+function formToConfig() {
+  const config = state.config || (state.config = {});
+
+  const modelId = $("f-model-id").value.trim();
+  const modelProvider = $("f-model-provider").value.trim();
+  if (state.modelShape === "opaque") {
+    // A shape the form cannot show. Touch it only if the operator typed a replacement -- deleting
+    // it because the boxes render empty would destroy a value they never edited, and the server
+    // is the right place for an unrepresentable model to be refused.
+    if (modelId || modelProvider) {
+      config.model = {};
+      if (modelId) config.model.id = modelId;
+      if (modelProvider) config.model.provider = modelProvider;
+      state.modelShape = "object";
+    }
+  } else if (state.modelShape === "string") {
+    // Written back in the shape it arrived in, for the same reason `instructions` is: rewriting an
+    // operator's shorthand as an object is a change they did not ask for. A provider-less string
+    // stays a string even though the server will reject it as `invalid_format` -- that error then
+    // names the text the operator actually typed, instead of one the console substituted.
+    if (modelId && modelProvider) {
+      config.model = modelProvider + ":" + modelId;
+    } else if (modelId || modelProvider) {
+      config.model = modelProvider ? modelProvider + ":" : modelId;
+    } else {
+      delete config.model;
+    }
+  } else if (modelId || modelProvider) {
+    config.model = Object.assign({}, config.model);
+    if (modelId) config.model.id = modelId; else delete config.model.id;
+    if (modelProvider) config.model.provider = modelProvider; else delete config.model.provider;
+  } else if (config.model && typeof config.model === "object" && !Array.isArray(config.model)) {
+    // Both boxes cleared. Delete the fields the form owns, not the whole block -- an object-shaped
+    // model legitimately carries siblings the form does not render (`temperature`, `max_tokens`,
+    // `top_p`, `response_format`...), and a wholesale `delete config.model` destroyed those the
+    // moment both boxes went empty even though clearing just one already preserved them correctly.
+    // Same per-field discipline as the `db` branch below.
+    delete config.model.id;
+    delete config.model.provider;
+    if (!Object.keys(config.model).length) delete config.model;
+  }
+
+  const dbId = $("f-db-id").value.trim();
+  if (state.dbShape === "opaque") {
+    // A shape the form cannot show (string, array, number). Touch it only if the operator typed a
+    // replacement, mirroring the model-opaque branch above -- same reasoning, same contract.
+    if (dbId) {
+      config.db = { id: dbId };
+      state.dbShape = "object";
+    }
+  } else if (dbId) {
+    config.db = Object.assign({}, config.db, { id: dbId });
+  } else if (config.db && typeof config.db === "object" && !Array.isArray(config.db)) {
+    // Delete the field the form owns, not the whole block. A `db` reference legitimately carries
+    // `type`, `session_table`, `table_prefix` and more alongside `id`, and gating the delete on
+    // the key count meant clearing the box did nothing at all for those: the stale id survived in
+    // the config while the form showed the field empty, with no server-side signal because a
+    // still-resolvable id validates cleanly. Same per-field discipline the object-shaped `model`
+    // branch above uses.
+    delete config.db.id;
+    if (!Object.keys(config.db).length) delete config.db;
+  }
+
+  const instructions = $("f-instructions").value;
+  if (instructions.trim()) {
+    // Preserve whichever shape the config already used: rewriting a list as a string (or the
+    // reverse) is a change the operator did not ask for.
+    config.instructions = state.instructionsWasList ? instructions.split("\n").filter((l) => l.trim()) : instructions;
+  } else {
+    delete config.instructions;
+  }
+
+  $("f-json").value = JSON.stringify(config, null, 2);
+  return config;
+}
+
+// Returns false and shows an inline error when the JSON does not parse -- the operator's text is
+// never silently discarded or overwritten.
+function jsonToConfig() {
+  clear($("json-error"));
+  const raw = $("f-json").value.trim();
+  if (!raw) { state.config = {}; return true; }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    renderErrors($("json-error"), { summary: "That is not valid JSON: " + e.message, fields: [] });
+    return false;
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    renderErrors($("json-error"), { summary: "The config must be a JSON object.", fields: [] });
+    return false;
+  }
+  state.config = parsed;
+  configToForm();
+  return true;
+}
+
+["f-model-id", "f-model-provider", "f-db-id", "f-instructions"].forEach((id) => {
+  $(id).addEventListener("change", () => formToConfig());
+});
+$("f-json").addEventListener("blur", () => jsonToConfig());
+
+// --- actions ---------------------------------------------------------------
+
+function renderEditorActions() {
+  const published = editingPublished();
+  const existing = !!state.component;
+
+  $("btn-save").disabled = !canWrite() || published;
+  $("btn-save").textContent = existing ? (state.version === null ? "Save new draft" : "Save draft") : "Create component";
+  $("btn-save").title = published
+    ? "Published configs are immutable. Clone this version to a draft to change it."
+    : "";
+
+  $("btn-save-new").hidden = !existing;
+  $("btn-save-new").disabled = !canWrite();
+
+  $("btn-delete-component").hidden = !existing;
+  $("btn-delete-component").disabled = !canDelete();
+
+  const readOnly = published;
+  ["f-name", "f-description", "f-model-id", "f-model-provider", "f-db-id", "f-instructions", "f-json"]
+    .forEach((id) => { $(id).readOnly = readOnly && id !== "f-name" && id !== "f-description"; });
+}
+
+// The single place that decides what the editor's current bytes are. Validate and Save MUST both
+// go through it: the `change` listeners only fire on blur-after-edit, so a handler that skipped
+// formToConfig() would act on a stale state.config and the two would transmit different bytes --
+// a green Validate followed by a red Save, on a config that was never the one validated.
+// Returns false when the JSON does not parse, having already shown the error.
+function syncEditorConfig() {
+  if (!jsonToConfig()) return false;
+  formToConfig();
+  return true;
+}
+
+// What identifies the component being validated. Mirrors what saveDraft would send, because
+// `component_id` is the sole input to self-reference detection: sending a different identity to
+// the dry run than to the write is what makes the two disagree. `name` is sent so the server can
+// derive the id exactly as POST /components does when the id box is left empty.
+function editorIdentity() {
+  return {
+    component_id: state.component ? state.component.component_id : ($("f-id").value.trim() || null),
+    name: state.component ? state.component.name || null : ($("f-name").value.trim() || null),
+  };
+}
+
+// Both Validate and Save need an identity before they can usefully talk to the server, and for the
+// same reason: `component_id` is what makes a self-reference detectable, and the server derives it
+// from the name. Save enforced this and Validate did not, so clicking Validate on an unnamed new
+// component asked the server for a verdict it could not fully reach -- a 200 for a self-referencing
+// team that the subsequent Save would 422. Shared, so the two cannot drift apart again.
+// Returns null (having shown the error) when there is nothing to identify the component by.
+function requireEditorIdentity() {
+  const identity = editorIdentity();
+  if (identity.component_id || identity.name) return identity;
+  renderErrors($("editor-error"), {
+    summary: "A name is required before a configuration can be checked or saved.",
+    fields: [{ path: "name", message: "Required.", code: "" }],
+  });
+  return null;
+}
+
+$("btn-validate").addEventListener("click", async () => {
+  if (!syncEditorConfig()) return;
+  clearFieldErrors();
+  clear($("editor-error"));
+  const identity = requireEditorIdentity();
+  if (!identity) return;
+  try {
+    await api("POST", "/components/validate", Object.assign(
+      { component_type: $("f-type").value, config: state.config },
+      identity
+    ));
+    renderOk($("editor-error"), "The configuration is valid.");
+  } catch (e) {
+    renderErrors($("editor-error"), e.norm || { summary: String(e), fields: [] });
+  }
+});
+
+$("btn-save").addEventListener("click", () => saveDraft(false));
+$("btn-save-new").addEventListener("click", () => saveDraft(true));
+
+async function saveDraft(forceNewVersion) {
+  if (!syncEditorConfig()) return;
+  clearFieldErrors();
+  clear($("editor-error"));
+  if (!requireEditorIdentity()) return;
+
+  try {
+    if (!state.component) {
+      const name = $("f-name").value.trim();
+      if (!name) {
+        // requireEditorIdentity() above accepts component_id OR name -- correct for Validate,
+        // where component_id alone is enough to detect a self-reference. POST /components has a
+        // narrower need: it derives everything from name, so an id-only submission here would
+        // reach the server with an empty name. The server itself refuses that too
+        // (ComponentCreate.name has min_length=1), but catching it here saves the round trip.
+        renderErrors($("editor-error"), {
+          summary: "A name is required to create a component.",
+          fields: [{ path: "name", message: "Required.", code: "" }],
+        });
+        return;
+      }
+      // `set_current` and `version` are declared on the request models but never read by the
+      // handlers, so they are deliberately not sent: sending them would imply a guarantee the
+      // server does not make.
+      const created = await api("POST", "/components", {
+        name: name,
+        component_id: $("f-id").value.trim() || null,
+        component_type: $("f-type").value,
+        description: $("f-description").value.trim() || null,
+        config: state.config,
+        stage: "draft",
+      });
+      await openComponent(created.component_id);
+      renderOk($("editor-error"), "Draft created. Publish it when you are ready.");
+      return;
+    }
+
+    const componentId = state.component.component_id;
+
+    // Metadata lives on the component row, not the config, so it is a separate call. It is not
+    // validated, so it cannot fail the way a config can.
+    await api("PATCH", "/components/" + encodeURIComponent(componentId), {
+      name: $("f-name").value.trim() || null,
+      description: $("f-description").value.trim() || null,
+    });
+
+    if (forceNewVersion || state.version === null) {
+      await api("POST", "/components/" + encodeURIComponent(componentId) + "/configs", {
+        config: state.config,
+        stage: "draft",
+      });
+    } else {
+      await api("PATCH", "/components/" + encodeURIComponent(componentId) + "/configs/" + state.version, {
+        config: state.config,
+      });
+    }
+
+    await openComponent(componentId);
+    renderOk($("editor-error"), "Draft saved.");
+  } catch (e) {
+    renderErrors($("editor-error"), e.norm || { summary: String(e), fields: [] });
+  }
+}
+
+$("btn-delete-component").addEventListener("click", async () => {
+  const componentId = state.component.component_id;
+  if (!window.confirm("Delete " + componentId + " and all of its versions?")) return;
+  try {
+    await api("DELETE", "/components/" + encodeURIComponent(componentId));
+    loadList();
+  } catch (e) {
+    renderErrors($("editor-error"), e.norm || { summary: String(e), fields: [] });
+  }
+});
+
+// --- versions --------------------------------------------------------------
+
+// The enabled/disabled state below mirrors the server's lifecycle rules exactly, and every
+// disabled control says why. The server is still the authority -- it answers 400 on each of these
+// -- but an operator should not have to discover a rule by tripping over it.
+//
+//   published configs are immutable            -> no edit, clone to a draft instead
+//   set_current_version requires a published    -> no rollback to a draft
+//   the current version cannot be deleted       -> no delete on it
+//   published versions cannot be deleted        -> no delete on any of them
+function renderVersions() {
+  $("versions-wrap").hidden = false;
+  const body = $("versions-body");
+  clear(body);
+
+  for (const config of state.configs) {
+    const published = config.stage === "published";
+    const isCurrent = state.component.current_version === config.version;
+
+    const tr = el("tr");
+    const versionCell = el("td");
+    versionCell.appendChild(el("span", { text: "v" + config.version, cls: "mono" }));
+    if (isCurrent) versionCell.appendChild(document.createTextNode(" "));
+    if (isCurrent) versionCell.appendChild(el("span", { cls: "chip cur", text: "current" }));
+    tr.appendChild(versionCell);
+    tr.appendChild(el("td")).appendChild(el("span", { cls: published ? "chip pub" : "chip", text: config.stage }));
+    tr.appendChild(el("td", { text: config.label || "" }));
+    tr.appendChild(el("td", { text: config.notes || "" }));
+
+    const actions = el("td", { cls: "actions" });
+
+    actions.appendChild(el("button", {
+      text: published ? "View" : "Edit",
+      cls: "link",
+      onClick: () => { loadVersionIntoEditor(config); renderVersions(); renderEditorActions(); },
+    }));
+
+    if (published) {
+      actions.appendChild(el("button", {
+        text: "Clone to draft",
+        cls: "link",
+        disabled: !canWrite(),
+        title: "Published configs are immutable. This copies it into a new editable draft.",
+        onClick: () => cloneToDraft(config),
+      }));
+    } else {
+      actions.appendChild(el("button", {
+        text: "Publish",
+        cls: "link",
+        disabled: !canWrite(),
+        title: "Publish this draft and make it the version runtimes hydrate.",
+        onClick: () => publish(config.version),
+      }));
+    }
+
+    const canRollback = published && !isCurrent;
+    actions.appendChild(el("button", {
+      text: "Make current",
+      cls: "link",
+      disabled: !canRollback || !canWrite(),
+      title: isCurrent
+        ? "Already the current version."
+        : (published ? "Roll back to this published version." : "Only a published version can be made current."),
+      onClick: () => rollback(config.version),
+    }));
+
+    const rowIsDeletable = !published && !isCurrent;
+    actions.appendChild(el("button", {
+      text: "Delete",
+      cls: "link danger",
+      disabled: !rowIsDeletable || !canDelete(),
+      title: published
+        ? "Published versions cannot be deleted."
+        : (isCurrent ? "The current version cannot be deleted." : "Delete this draft."),
+      onClick: () => deleteVersion(config.version),
+    }));
+
+    tr.appendChild(actions);
+    body.appendChild(tr);
+  }
+}
+
+async function publish(version) {
+  clear($("editor-error"));
+  clearFieldErrors();
+  try {
+    // Publishing IS a stage transition on the config: the server moves current_version in the
+    // same transaction, so there is no separate publish call to make.
+    await api("PATCH", "/components/" + encodeURIComponent(state.component.component_id) + "/configs/" + version, {
+      stage: "published",
+    });
+    await openComponent(state.component.component_id);
+    renderOk($("editor-error"), "Published v" + version + ". Runtimes will hydrate it.");
+  } catch (e) {
+    renderErrors($("editor-error"), e.norm || { summary: String(e), fields: [] });
+  }
+}
+
+async function rollback(version) {
+  clear($("editor-error"));
+  try {
+    await api("POST", "/components/" + encodeURIComponent(state.component.component_id) + "/configs/" + version + "/set-current");
+    await openComponent(state.component.component_id);
+    renderOk($("editor-error"), "Rolled back to v" + version + ".");
+  } catch (e) {
+    renderErrors($("editor-error"), e.norm || { summary: String(e), fields: [] });
+  }
+}
+
+async function cloneToDraft(config) {
+  clear($("editor-error"));
+  try {
+    const created = await api("POST", "/components/" + encodeURIComponent(state.component.component_id) + "/configs", {
+      config: config.config,
+      stage: "draft",
+      notes: "Cloned from v" + config.version,
+    });
+    await openComponent(state.component.component_id);
+    loadVersionIntoEditor(state.configs.find((c) => c.version === created.version) || null);
+    renderVersions();
+    renderEditorActions();
+    renderOk($("editor-error"), "Cloned v" + config.version + " into draft v" + created.version + ".");
+  } catch (e) {
+    renderErrors($("editor-error"), e.norm || { summary: String(e), fields: [] });
+  }
+}
+
+async function deleteVersion(version) {
+  if (!window.confirm("Delete draft v" + version + "?")) return;
+  clear($("editor-error"));
+  try {
+    await api("DELETE", "/components/" + encodeURIComponent(state.component.component_id) + "/configs/" + version);
+    await openComponent(state.component.component_id);
+    renderOk($("editor-error"), "Deleted draft v" + version + ".");
+  } catch (e) {
+    renderErrors($("editor-error"), e.norm || { summary: String(e), fields: [] });
+  }
+}
+
+// --- audit -----------------------------------------------------------------
+
+// Best-effort: a token without components:read on the audit route, or a deployment that has not
+// backfilled the table, should cost the operator a table -- not an error banner over the editor.
+async function loadAudit(componentId) {
+  const body = $("audit-body");
+  clear(body);
+  $("audit-wrap").hidden = true;
+  try {
+    const payload = await api("GET", "/components/" + encodeURIComponent(componentId) + "/audit?limit=10");
+    const rows = (payload && payload.data) || [];
+    if (!rows.length) return;
+    for (const entry of rows) {
+      const tr = el("tr");
+      tr.appendChild(el("td", { text: new Date(entry.created_at * 1000).toLocaleString() }));
+      tr.appendChild(el("td", { text: entry.action, cls: "mono" }));
+      tr.appendChild(el("td", { text: entry.version === null || entry.version === undefined ? "" : "v" + entry.version }));
+      tr.appendChild(el("td", { text: entry.actor || "unattributed" }));
+      body.appendChild(tr);
+    }
+    $("audit-wrap").hidden = false;
+  } catch (e) {
+    // Intentionally silent.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+
+$("ctx").textContent = API_BASE || "/";
+if (token()) {
+  loadList();
+} else {
+  show("list");
+  openTokenModal(null);
+}
+</script>
+</body>
+</html>
