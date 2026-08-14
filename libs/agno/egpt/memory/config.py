@@ -21,7 +21,7 @@ The provider registry stays local to this package rather than becoming a
 ``egpt.registry.discovery`` kind. Discovery's declarations live in **core**, and a memory provider
 is a **services**-layer composition; declaring it there would have core naming a services module,
 a direction ADR 0001 does not sanction. The *backends* a provider composes are a different matter
--- pgvector (SM-V1 #95) and the graph engine (SM-G1 #99) are integrations and will resolve through
+-- pgvector (SM-V1 #95) and the graph engine (SM-G1 #99) are integrations, resolved through
 ``discovery.construct``, which is what ADR 0001's "config-swappable backends use the same
 constructor registry" refers to.
 """
@@ -101,7 +101,7 @@ class MemoryProviderConfig:
 
 def resolve_substrate(
     field: str,
-    kind: Optional[str],
+    kind: str,
     settings: Dict[str, Any],
     injected: Any,
     option: str,
@@ -116,10 +116,6 @@ def resolve_substrate(
     constructor, so a DSN or a Bolt URI never reaches a call site. The backend itself is an
     integration resolved by registry key -- ``egpt/memory/`` imports no concrete engine (ADR 0001).
 
-    ``kind`` is ``None`` for a field no registry kind can serve yet. Settings for such a field are
-    **refused**, not ignored: a deployment that configured a backend and silently got none would
-    read from an empty substrate that looks configured.
-
     Supplying **both** a config and an injected instance is refused rather than ranked. Either
     precedence is defensible, so a caller cannot tell which one it got, and the losing side is
     silently inert -- a test double quietly bypassed in favour of a real database, or the reverse.
@@ -132,15 +128,6 @@ def resolve_substrate(
             "Pass one: with both, which of them is live depends on a precedence rule you cannot see.",
             field_name=field,
         )
-    if kind is None:
-        raise MemoryProviderConfigError(
-            f"config.{field} is set, but no registry kind serves it yet, so honouring it is not "
-            f"possible and ignoring it would leave you reading from a substrate that looks "
-            f"configured. Inject one through options[{option!r}] until SM-V1 (#95) registers a "
-            f"backend. Got {sorted(settings)}.",
-            field_name=field,
-        )
-
     backend = settings.get("backend")
     if not isinstance(backend, str) or not backend.strip():
         raise MemoryProviderConfigError(

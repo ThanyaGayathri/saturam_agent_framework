@@ -79,8 +79,8 @@ class VectorSubstrate(Protocol):
         while a graph traversal returns a path or PPR score on an unrelated range. Mixed unchecked,
         whichever leg has the larger magnitude decides the ranking and a distance-valued leg
         inverts it. **A backend whose native metric is a distance or an unbounded score is
-        responsible for converting.** Stated here because these ports have no implementors yet, so
-        it costs a docstring today and a breaking Protocol change once SM-V1 (#95) ships one.
+        responsible for converting.** ``PgVectorMemorySubstrate`` (SM-V1 #95) is the first backend
+        held to it, and converts ``<=>`` through ``vectordb.score.normalize_score``.
 
         **Return current belief only** (``expired_at IS NULL``), filtered *before* ranking. That
         is a transaction-time property every row carries locally, so both substrates can apply it
@@ -102,8 +102,12 @@ class VectorSubstrate(Protocol):
         them. That is a recall shortfall, not a precision one -- nothing false is returned, and
         ``MemorySlice.fusion["dropped_by_validity"]`` reports how many went. Over-fetching by a
         fixed multiplier does not fix it: no multiplier is correct, and it taxes every read. The
-        fix is for the vector projection not to be stale (re-sync on invalidation, or carry the
-        bounds), which is SM-V1 (#95) / SM-G1 (#99) work. Recorded in SPEC section 11.3.
+        fix is for the vector projection not to be stale -- re-synced when the graph bounds a fact
+        -- and it is **still open after SM-V1**, for a reason that is not the backend's: nothing
+        calls ``GraphSubstrate.invalidate`` through the seam. ``MemoryProvider`` deliberately does
+        not expose the verb, and deciding that a contradiction happened is SM-G5's (#103), so a
+        re-sync hook added here today would have no caller and no test that could observe it.
+        Recorded in SPEC section 11.3.
         """
         ...
 

@@ -46,7 +46,7 @@ from egpt.utils.log import log_warning
 # Every integration kind resolvable through this seam. Readers are deliberately absent:
 # ReaderFactory keeps its own map (EGPT-1.9 scope decision), so core still names reader
 # modules in one other place.
-KINDS: Tuple[str, ...] = ("model", "db", "vectordb", "graphdb", "tool", "embedder")
+KINDS: Tuple[str, ...] = ("model", "db", "vectordb", "vectorstore", "graphdb", "tool", "embedder")
 
 # Kind -> entry-point group suffix. The group name is derived, never hand-written, so the
 # published strings cannot drift apart. Suffixes are plural because an entry-point
@@ -55,6 +55,7 @@ _GROUP_SUFFIX: Dict[str, str] = {
     "model": "models",
     "db": "dbs",
     "vectordb": "vectordbs",
+    "vectorstore": "vectorstores",
     "graphdb": "graphdbs",
     "tool": "tools",
     "embedder": "embedders",
@@ -438,6 +439,7 @@ def _kind_constructor(kind: str) -> Callable[..., Any]:
 construct_model = _kind_constructor("model")
 construct_db = _kind_constructor("db")
 construct_vector_db = _kind_constructor("vectordb")
+construct_vector_store = _kind_constructor("vectorstore")
 construct_graph_db = _kind_constructor("graphdb")
 construct_tool = _kind_constructor("tool")
 construct_embedder = _kind_constructor("embedder")
