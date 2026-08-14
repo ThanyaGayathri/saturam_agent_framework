@@ -151,3 +151,28 @@ memory as a fact, via the two different ports; the procedural rule reaches the v
 only and appears in neither graph list. The procedural read reports `consulted the graph: False`
 and the semantic read `True`. The graph-only provider serves `episodic, semantic` and returns `[]`
 for a procedural read rather than refusing it. Requires no database, no model, and no API key.
+
+---
+
+### 12_episode_representation.py
+
+**Status:** PASS
+
+**Description:** Exercises the SM-E1 episode representation with no substrates at all, because the
+subject is the record rather than a store. Builds an episode from a write-back event and prints
+what the row carries (identity, tenant, raw content, `occurred_at`, `t_valid`, `created_at`,
+default `importance`), shows `graph_node_id` derived from the scope key and the episode id, reads
+the episode back as a `MemoryRecord` and prints the provenance references, the `EPISODE_KEYS`
+metadata floor and the caller's own metadata surviving beside it, shows a re-segmentation split
+naming no single replacement while keeping both, and prints the four boundary refusals (missing
+id, wrong tier, metadata that would shadow an episode field, a link addressing another episode).
+
+**Result:** Success. Output is identical across 3 executions apart from the one `created_at` line,
+which is this run's transaction time -- verified by hashing with that line masked (same digest for
+all three) and by diffing raw (that line the only difference). Observed: valid time comes from
+`occurred_at` (1700000000) while `created_at` is the run clock, so the two axes are visibly
+independent; `graph_node_id` is `acme/assistant/ada/*/deploy-42/ep-1`, the scope key with the
+episode id as a sixth slot; `importance` stays at the 0.5 default because scoring it is SM-E5's;
+the split prints `superseded_by on record: None` with `['ep-2', 'ep-3']` in provenance. Each
+refusal names the field and, where one exists, the ticket that owns the behaviour. Requires no
+database, no model, and no API key.

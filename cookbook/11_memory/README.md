@@ -14,6 +14,9 @@ This section demonstrates how EGPT agents persist and use user memories across r
 - `11_memory_tiers.py`: The CoALA tier model (SM-C2) -- what the framework decides because of a
   record's tier: write routing, graph write shape, read tier-selection, which tiers a deployment
   serves, and how the six `learn` stores map in. Also runs with no database and no API key.
+- `12_episode_representation.py`: The unit of episodic memory (SM-E1) -- how a write-back event
+  becomes the stored episode row, how that row's link to its graph episode node is derived rather
+  than chosen, and what a reader gets back. Runs with no database and no API key.
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 
