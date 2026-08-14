@@ -123,11 +123,24 @@ and type-hints the result as `RunnableLike` instead of `Agent`. `context/wiki/ba
 
 **Scope of this amendment.** The seam is deliberately narrow: only `egpt.agent.Agent` has a
 row today. `integrations/discord/client.py` still imports `egpt.agent.agent.Agent` /
-`egpt.team.team.Team` directly (a pre-existing violation, not introduced by this ticket) and
-the upcoming channel-adapter move (`os/interfaces/*` → `integrations/channels/*`) will hit the
-same edge for `Team` and for whatever protocol `BaseInterface` needs. Both are explicitly out
-of scope for EGPT-1.7a; the seam is shaped so a `"team"` row and a `BaseInterface`-shaped
-protocol can be added later without redesigning it, but neither is added by this ticket.
+`egpt.team.team.Team` directly (a pre-existing violation, not introduced by this ticket,
+tracked as aicoe-tracker#180) and the upcoming channel-adapter move (`os/interfaces/*` →
+`integrations/channels/*`) will hit a similar edge. Both are explicitly out of scope for
+EGPT-1.7a.
+
+At the time of this amendment, the channel-adapter move (#158) was expected to need a `"team"`
+row in `construct_runnable` and a `BaseInterface`-shaped protocol. EGPT-1.7b found neither
+extension necessary once it actually moved `os/interfaces/whatsapp` (and, in a follow-up PR,
+`os/interfaces/slack`) into `integrations/channels/*`: the router/handler modules never
+construct an `Agent`/`Team`/`Workflow` themselves — their composition-root caller (the
+`Whatsapp`/`Slack` `BaseInterface` subclass, which stays in `egpt.os`) always passes one in
+already built — so `construct_runnable`'s seam does not apply here, and `BaseInterface` never
+leaves `egpt.os` either. What EGPT-1.7b added instead is a fourth, narrower protocol,
+`egpt.registry.protocols.AsyncRunnableLike` (`id` + `arun` only, no `run`, no `deep_copy`):
+`RunnableLike` cannot be reused for this, because `RemoteAgent`/`RemoteTeam`/`RemoteWorkflow`
+(`egpt.remote.base.BaseRemote` subclasses) implement only `arun`, not the sync `run`
+`RunnableLike` also requires, and every channel-adapter call site only ever does
+`await entity.arun(...)` or `async for event in entity.arun(..., stream=True)`.
 
 ### Design decisions
 
@@ -139,6 +152,7 @@ protocol can be added later without redesigning it, but neither is added by this
 | 4 | Keep the existing `Registry` as the resolution seam, extended with **constructors by name** | Instance `get_*` covers pre-wired objects; constructor `construct_*` covers D2 DB-defined runtime hydration without services importing concretes | Instance-only registry (rejected: cannot hydrate arbitrary DB config); services importing `_PROVIDERS` (rejected: breaks matrix) |
 | 5 | Split interface from implementation in `models/`, `db/`, `vectordb/`, `knowledge/`, `tools/`, `utils/`, `tracing/` | Concrete mechanism that decouples core from integrations | Move whole packages wholesale (rejected: drags interfaces out of core) |
 | 6 | (EGPT-1.7a) A narrow `RunnableLike` protocol + `construct_runnable` seam in core, so integrations can run a sub-agent without importing `egpt.agent` | Only option that also resolves the live `integrations/discord/client.py` breach and the upcoming channel-adapter move (#158) with one rule; a provider/backend split (keep the provider, and its `Agent` construction, in orchestration) does not survive #158, where whole adapters including routers must move | Provider/backend split per connector, generalizing the existing `wiki/`/`web/` shape (rejected: fewer files move for this ticket alone, but does not generalize to #158's whole-adapter moves); `ignore_imports` exemption on the layout guard (rejected: writes the violation into the gate EGPT-1.11 exists to enforce) |
+| 6a | (EGPT-1.7b) #158's channel-adapter move is discharged with a fourth protocol, `AsyncRunnableLike` (`id` + `arun` only), not by extending `construct_runnable` | The adapters only ever receive an already-built entity from their composition-root caller — they never construct one — so `construct_runnable` does not apply; `RunnableLike` cannot be reused since `RemoteAgent`/`RemoteTeam`/`RemoteWorkflow` implement only `arun`, not `RunnableLike`'s required sync `run` | Extending `construct_runnable`'s `_ROWS` with a `"team"`/`"workflow"` row, as row 6 anticipated (rejected once implementation showed nothing here constructs an entity — would have added an unused seam); reusing `RunnableLike` as-is (rejected: fails structurally for the `Remote*` classes) |
 
 ## Layer → module mapping
 
@@ -196,7 +210,7 @@ Packages marked **split** keep interfaces/types in **core** and move concrete im
 
 | Module | Notes |
 |--------|-------|
-| `integrations/` | Existing package; destination for channel and other external adapters (already has `discord/`) |
+| `integrations/` | Existing package; destination for channel and other external adapters — `discord/` (pre-existing, separately tracked as aicoe-tracker#180 debt) and, since EGPT-1.7b, `channels/whatsapp/` (and `channels/slack/` in its follow-up PR) |
 | `models/<providers>/` | All concrete providers (`openai/`, `anthropic/`, `ollama/`, …) |
 | `models/utils.py` | Provider construction table (`_PROVIDERS` → concrete module paths). **Must not stay in core.** Becomes the integrations-side source that **registers constructors** into the core Registry seam at startup. |
 | `db/<backends>/` | Concrete DB backends (`postgres/`, `sqlite/`, `mongo/`, …) |

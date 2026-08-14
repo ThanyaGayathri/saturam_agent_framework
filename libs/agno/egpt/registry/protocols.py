@@ -25,6 +25,21 @@ no caller here needs; every context provider just does ``await runnable.arun(que
 single ``Any`` return -- an ``async def`` here would make the real method's ``@overload``
 between "returns a coroutine" and "returns an async iterator" collapse to just the former.
 
+``AsyncRunnableLike`` is a third, narrower variant (EGPT-1.7b): the channel adapters moved into
+``egpt.integrations.channels.*`` never construct an entity themselves (their composition-root
+caller in ``egpt.os`` always passes one in already built), so ``construct_runnable`` does not
+apply -- they only need to type the entity they were handed. ``RunnableLike`` cannot be reused
+for this: ``RemoteAgent``/``RemoteTeam``/``RemoteWorkflow`` (``egpt.remote.base.BaseRemote``
+subclasses) implement only ``arun``, not a sync ``run``, so they do not structurally satisfy
+``RunnableLike``. Every channel-adapter call site only ever does ``await entity.arun(...)`` or
+``async for event in entity.arun(..., stream=True)`` -- never ``.run()`` -- so the protocol drops
+``run`` (and ``deep_copy``, which these callers never need either). ``id`` is declared as a
+read-only ``@property`` rather than a plain attribute (unlike ``AgentLike``/``TeamLike``/
+``RunnableLike`` above): those three are only ever satisfied by ``Agent``/``Team`` (a mutable
+``id`` field), but a channel-adapter caller also has to accept ``RemoteAgent``/``RemoteTeam``/
+``RemoteWorkflow``, whose ``id`` is a read-only property -- mypy rejects a read-only property
+against a plain (implicitly settable) protocol attribute.
+
 This module must keep importing nothing but ``typing`` -- that is the whole point of it.
 """
 
@@ -69,5 +84,27 @@ class RunnableLike(Protocol):
         Callers ``await`` this for a single run output, or ``async for`` it when
         ``stream=True`` -- see the module docstring for why the return type is ``Any``
         rather than ``Coroutine``.
+        """
+        ...
+
+
+@runtime_checkable
+class AsyncRunnableLike(Protocol):
+    """The part of an entity a channel adapter depends on: id it, run it async, get output."""
+
+    @property
+    def id(self) -> Optional[str]:
+        """Read-only: see the module docstring for why this is a property, not an attribute."""
+        ...
+
+    def arun(self, *args: Any, **kwargs: Any) -> Any:
+        """Run with the caller's ``input`` (and whatever else it passes); callers always
+        ``await`` or ``async for`` this -- see the module docstring for why ``RunnableLike``
+        (which also requires a sync ``run``) cannot be reused here. ``*args``/``**kwargs``
+        rather than a named ``input`` parameter: ``Workflow.arun``'s overloads default
+        ``input`` to ``None`` (``Agent.arun``/``Team.arun`` require it), and mypy's protocol
+        conformance check for overloaded methods does not treat that as compatible with a
+        single required-``input`` signature. A fully permissive signature sidesteps matching
+        each concrete class's overload set individually.
         """
         ...

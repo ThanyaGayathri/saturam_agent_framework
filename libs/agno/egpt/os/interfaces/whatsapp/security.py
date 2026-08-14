@@ -1,33 +1,29 @@
-import hashlib
-import hmac
-from typing import Optional
+"""Deprecated compatibility shim (EGPT-1.7b, aicoe-tracker#158).
 
-from fastapi import HTTPException
+Import from ``egpt.integrations.channels.whatsapp.security`` instead; this module will be
+removed.
 
-from egpt.settings import resolve, resolve_bool
-from egpt.utils.log import log_warning
+Names are re-exported via a wildcard star-import against the target module (not proxied
+through ``__getattr__`` alone), so star-imports, ``dir()`` and static type checking keep
+working on this path.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.channels.whatsapp.security as _target
+from egpt.integrations.channels.whatsapp.security import *  # noqa: F401,F403
+
+_warnings.warn(
+    "egpt.os.interfaces.whatsapp.security is deprecated; import from "
+    "egpt.integrations.channels.whatsapp.security instead. This shim will be removed in a "
+    "future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-def validate_webhook_signature(payload: bytes, signature_header: Optional[str]) -> bool:
-    app_secret = resolve("whatsapp_app_secret")
-    if not app_secret:
-        # Explicit opt-out: operator must deliberately set this for local dev
-        if resolve_bool("whatsapp_skip_signature_validation"):
-            log_warning("WHATSAPP_SKIP_SIGNATURE_VALIDATION=true — signature check disabled")
-            return True
-        raise HTTPException(
-            status_code=500,
-            detail="WHATSAPP_APP_SECRET not set. Set WHATSAPP_SKIP_SIGNATURE_VALIDATION=true for local development.",
-        )
-
-    if not signature_header or not signature_header.startswith("sha256="):
-        return False
-
-    # Header format: "sha256=<hex>"; strip prefix to compare digests
-    expected_signature = signature_header.removeprefix("sha256=")
-
-    hmac_obj = hmac.new(app_secret.encode(), payload, hashlib.sha256)
-    calculated_signature = hmac_obj.hexdigest()
-
-    # Constant-time comparison prevents timing side-channels
-    return hmac.compare_digest(calculated_signature, expected_signature)
+def __getattr__(name: str):
+    return getattr(_target, name)

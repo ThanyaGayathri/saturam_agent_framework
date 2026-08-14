@@ -603,6 +603,17 @@ ignore_imports = [
     # tracked in tests/unit/knowledge/test_knowledge_layout.py's _INTEGRATION_IMPORT_ALLOWLIST.
     "egpt.os.routers.knowledge.knowledge -> egpt.integrations.knowledge.remote_content.s3",
     "egpt.os.routers.knowledge.knowledge -> egpt.integrations.knowledge.remote_content.github",
+    # Rule 4 composition root, EGPT-1.7b (aicoe-tracker#158): the thin Whatsapp BaseInterface
+    # subclass stays in egpt.os and wires the moved channel-adapter router. Ratified; tracked
+    # in tests/unit/os/interfaces/test_channels_layout.py.
+    "egpt.os.interfaces.whatsapp.whatsapp -> egpt.integrations.channels.whatsapp.router",
+    # EGPT-1.7b deprecation shims: egpt/os/interfaces/whatsapp/{router,helpers,security}.py
+    # are `from <target> import *` shims left at the old path so existing imports keep
+    # resolving (see each file's docstring). Temporary -- removed along with the shims once
+    # the deprecation period ends. Guarded by test_channels_layout.py, not silently masked.
+    "egpt.os.interfaces.whatsapp.router -> egpt.integrations.channels.whatsapp.router",
+    "egpt.os.interfaces.whatsapp.helpers -> egpt.integrations.channels.whatsapp.helpers",
+    "egpt.os.interfaces.whatsapp.security -> egpt.integrations.channels.whatsapp.security",
 ]
 
 # --- Integrations depend only on core (matrix: integrations -> orchestration/services/api = N) ---
@@ -638,9 +649,21 @@ forbidden_modules = [
     "egpt.providers",
     "egpt.settings",
 ]
-# No ignore_imports: 24 distinct modules under egpt.integrations currently violate this contract
-# by importing egpt.agent/egpt.team directly (egpt.integrations.discord.client is one of them,
-# not the only one). Left in scope deliberately -- see
+ignore_imports = [
+    # EGPT-1.7b (aicoe-tracker#158): egpt.settings is a leaf, dependency-free config module
+    # (typed env-var resolution only -- see its own module docstring) that is listed as
+    # forbidden here purely as the "egpt.container/providers/settings" indirect-chain
+    # detection safeguard described in this section's header comment, not because a channel
+    # adapter reading its own webhook secret via `resolve()` is an actual layering violation.
+    # `egpt.integrations.channels.whatsapp.security` reads `whatsapp_app_secret`/
+    # `whatsapp_skip_signature_validation`; `.helpers` reads `whatsapp_verify_token` -- exactly
+    # the "inbound-webhook verification secrets" egpt.settings' docstring says it exists for.
+    "egpt.integrations.channels.whatsapp.helpers -> egpt.settings",
+    "egpt.integrations.channels.whatsapp.security -> egpt.settings",
+]
+# Otherwise no ignore_imports: 24 distinct modules under egpt.integrations currently violate
+# this contract by importing egpt.agent/egpt.team directly (egpt.integrations.discord.client
+# is one of them, not the only one). Left in scope deliberately -- see
 # libs/agno/tests/unit/test_import_linter_contracts.py.
 
 # --- No import cycles across the integrations boundary (ADR 0001 Rule 7, scoped to this config) ---
