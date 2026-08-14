@@ -4,8 +4,8 @@ from typing import Dict, List, Optional, Union
 from fastapi.routing import APIRouter
 
 from egpt.agent import Agent, RemoteAgent
+from egpt.integrations.channels.slack.router import attach_routes
 from egpt.os.interfaces.base import BaseInterface
-from egpt.os.interfaces.slack.router import attach_routes
 from egpt.team import RemoteTeam, Team
 from egpt.workflow import RemoteWorkflow, Workflow
 

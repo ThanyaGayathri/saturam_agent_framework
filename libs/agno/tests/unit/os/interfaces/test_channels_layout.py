@@ -33,7 +33,7 @@ from tests.unit._layer_guards import (
 # Packages moved into egpt.integrations.channels.* under EGPT-1.7b. Closed set -- every name
 # here was egpt/os/interfaces/<name>/ before its move, so a missing shim is a slip, not a
 # newly added channel.
-_MOVED_CHANNEL_PACKAGES = {"whatsapp"}  # "slack" joins once its EGPT-1.7b PR lands
+_MOVED_CHANNEL_PACKAGES = {"whatsapp", "slack"}
 
 
 def _integrations_channels_root():

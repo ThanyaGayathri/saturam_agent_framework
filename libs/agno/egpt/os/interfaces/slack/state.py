@@ -1,120 +1,28 @@
-from __future__ import annotations
+"""Deprecated compatibility shim (EGPT-1.7b, aicoe-tracker#158).
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Literal, Optional, Union
+Import from ``egpt.integrations.channels.slack.state`` instead; this module will be removed.
 
-from typing_extensions import TypedDict
+Names are re-exported via a wildcard star-import against the target module (not proxied
+through ``__getattr__`` alone), so star-imports, ``dir()`` and static type checking keep
+working on this path.
 
-if TYPE_CHECKING:
-    from egpt.media import Audio, File, Image, Video
-    from egpt.run.agent import RunPausedEvent as AgentRunPausedEvent
-    from egpt.run.base import BaseRunOutputEvent
-    from egpt.run.team import RunPausedEvent as TeamRunPausedEvent
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
 
-# Literal not Enum — values flow directly into Slack API dicts as plain strings.
-# "pending" added for HITL pauses — Slack's AI Stream UI treats in_progress cards
-# that outlive the stream idle window as errors, whereas pending cards are valid waits.
-TaskStatus = Literal["pending", "in_progress", "complete", "error"]
+import warnings as _warnings
 
+import egpt.integrations.channels.slack.state as _target
+from egpt.integrations.channels.slack.state import *  # noqa: F401,F403
 
-class TaskUpdateDict(TypedDict):
-    type: str
-    id: str
-    title: str
-    status: TaskStatus
-
-
-@dataclass
-class TaskCard:
-    title: str
-    status: TaskStatus = "in_progress"
+_warnings.warn(
+    "egpt.os.interfaces.slack.state is deprecated; import from "
+    "egpt.integrations.channels.slack.state instead. This shim will be removed in a "
+    "future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-@dataclass
-class StreamState:
-    # Slack thread title — set once on first content to avoid repeated API calls
-    title_set: bool = False
-    # Error events may lack tool_call_id; this generates fallback IDs (tool_error_0, tool_error_1, ...)
-    error_count: int = 0
-
-    text_buffer: str = ""
-
-    # Counter for unique reasoning task card keys (reasoning_0, reasoning_1, ...)
-    reasoning_round: int = 0
-
-    task_cards: Dict[str, TaskCard] = field(default_factory=dict)
-
-    images: List["Image"] = field(default_factory=list)
-    videos: List["Video"] = field(default_factory=list)
-    audio: List["Audio"] = field(default_factory=list)
-    files: List["File"] = field(default_factory=list)
-
-    # Used by process_event to suppress nested agent events in workflow mode
-    entity_type: Literal["agent", "team", "workflow"] = "agent"
-    # Leader/workflow name; member_name() compares against it to detect team members
-    entity_name: str = ""
-
-    # Last StepOutput content; WorkflowCompleted uses as fallback when content is None
-    workflow_final_content: str = ""
-
-    # Set by handlers on terminal events; router reads this for the final flush
-    terminal_status: Optional[TaskStatus] = None
-
-    # Total chars sent to the current Slack stream; reset on rotation
-    stream_chars_sent: int = 0
-
-    # Stashed by _on_run_paused; router posts Block Kit approval card after stream.stop()
-    paused_event: Optional[Union["AgentRunPausedEvent", "TeamRunPausedEvent"]] = None
-
-    def track_task(self, key: str, title: str, status: TaskStatus = "in_progress") -> None:
-        self.task_cards[key] = TaskCard(title=title, status=status)
-
-    def complete_task(self, key: str) -> None:
-        card = self.task_cards.get(key)
-        if card:
-            card.status = "complete"
-
-    def error_task(self, key: str) -> None:
-        card = self.task_cards.get(key)
-        if card:
-            card.status = "error"
-
-    def resolve_all_pending(self, status: TaskStatus = "complete") -> List[TaskUpdateDict]:
-        # Called at stream end to close any cards left in_progress (e.g. if the
-        # model finished without emitting a ToolCallCompleted for every start).
-        chunks: List[TaskUpdateDict] = []
-        for key, card in self.task_cards.items():
-            if card.status == "in_progress":
-                card.status = status  # type: ignore[assignment]
-                chunks.append(TaskUpdateDict(type="task_update", id=key, title=card.title, status=status))
-        return chunks
-
-    def append_content(self, text: str) -> None:
-        self.text_buffer += str(text)
-
-    def append_error(self, error_msg: str) -> None:
-        self.text_buffer += f"\n_Error: {error_msg}_"
-
-    def has_content(self) -> bool:
-        return bool(self.text_buffer)
-
-    def flush(self) -> str:
-        result = self.text_buffer
-        self.text_buffer = ""
-        return result
-
-    def collect_media(self, chunk: BaseRunOutputEvent) -> None:
-        # Media can't be streamed inline — Slack requires a separate upload after
-        # the stream ends. We collect here and upload_response_media() sends them.
-        for img in getattr(chunk, "images", None) or []:
-            if img not in self.images:
-                self.images.append(img)
-        for vid in getattr(chunk, "videos", None) or []:
-            if vid not in self.videos:
-                self.videos.append(vid)
-        for aud in getattr(chunk, "audio", None) or []:
-            if aud not in self.audio:
-                self.audio.append(aud)
-        for f in getattr(chunk, "files", None) or []:
-            if f not in self.files:
-                self.files.append(f)
+def __getattr__(name: str):
+    return getattr(_target, name)

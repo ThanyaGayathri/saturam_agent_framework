@@ -70,11 +70,10 @@ _INTEGRATION_IMPORT_ALLOWLIST = {
     # A12: os/mcp.py owns the built-in MCP tool surface and wires the extracted registrar.
     # This is the composition root ADR 0001 rule 4 carves out.
     "egpt.os.mcp",
-    # A13: the Slack channel adapter moves to integrations/channels/slack under the
-    # follow-up ticket. Until then it is an api-layer module holding a concrete toolkit.
-    "egpt.os.interfaces.slack.router",
-    "egpt.os.interfaces.slack.hitl",
-    "egpt.os.interfaces.slack.event_handler",
+    # A13 closed under EGPT-1.7b: the Slack channel adapter moved to
+    # integrations/channels/slack/*, where its SlackTools import is a same-layer reference.
+    # See tests/unit/os/interfaces/test_channels_layout.py for the guard covering the new
+    # boundary.
     # A8 closed under EGPT-1.7a: the eight context connectors moved to
     # integrations/context/*, and egpt.context.fs.provider now resolves FileTools through
     # construct_toolkit like the Slack context provider already did. See

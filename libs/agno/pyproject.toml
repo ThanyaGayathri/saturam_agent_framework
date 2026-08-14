@@ -522,14 +522,14 @@ root_package = "egpt"
 # mapping (provider utils "move with their providers" -- extraction prerequisite #3 -- and
 # `tracing/exporter.py` is listed under the integrations layer).
 #
-# No `ignore_imports` here for the known egpt.os.interfaces.slack.* violations (A13, owned by
-# aicoe-tracker#158) or the newly-found violations (egpt.guardrails.openai, the toolkit/model
-# files importing Agent/Team directly -- owned by aicoe-tracker#180) -- see
+# No `ignore_imports` here for the newly-found violations (egpt.guardrails.openai, the
+# toolkit/model files importing Agent/Team directly -- owned by aicoe-tracker#180) -- see
 # libs/agno/tests/unit/test_import_linter_contracts.py, which tracks them explicitly instead of
 # masking them here. ignore_imports below is reserved for the ADR-ratified composition-root /
 # extraction-prerequisite carve-outs only. (The A8 context-connector debt this comment used to
-# also cover was cleared by EGPT-1.7a / aicoe-tracker#157 -- see the scope note above for why
-# `egpt.context` is excluded from this contract's module lists now, not tracked-and-clean.)
+# also cover was cleared by EGPT-1.7a / aicoe-tracker#157, and the A13 Slack channel-adapter
+# debt by EGPT-1.7b / aicoe-tracker#158 -- see the scope note above for why `egpt.context` is
+# excluded from this contract's module lists now, not tracked-and-clean.)
 #
 # allow_indirect_imports = true: "forbidden" contracts check the whole transitive dependency
 # chain by default, which floods the report with reachability noise unrelated to a real
@@ -614,6 +614,28 @@ ignore_imports = [
     "egpt.os.interfaces.whatsapp.router -> egpt.integrations.channels.whatsapp.router",
     "egpt.os.interfaces.whatsapp.helpers -> egpt.integrations.channels.whatsapp.helpers",
     "egpt.os.interfaces.whatsapp.security -> egpt.integrations.channels.whatsapp.security",
+    # Rule 4 composition root, EGPT-1.7b (aicoe-tracker#158): the thin Slack BaseInterface
+    # subclass stays in egpt.os and wires the moved channel-adapter router. Ratified; tracked
+    # in tests/unit/os/interfaces/test_channels_layout.py.
+    "egpt.os.interfaces.slack.slack -> egpt.integrations.channels.slack.router",
+    # EGPT-1.7b deprecation shims: egpt/os/interfaces/slack/{router,event_handler,hitl,events,
+    # builders,components,helpers,ids,interactions,pause,security,state,types}.py are
+    # `from <target> import *` shims left at the old path so existing imports keep resolving
+    # (see each file's docstring). Temporary -- removed along with the shims once the
+    # deprecation period ends. Guarded by test_channels_layout.py, not silently masked.
+    "egpt.os.interfaces.slack.router -> egpt.integrations.channels.slack.router",
+    "egpt.os.interfaces.slack.event_handler -> egpt.integrations.channels.slack.event_handler",
+    "egpt.os.interfaces.slack.hitl -> egpt.integrations.channels.slack.hitl",
+    "egpt.os.interfaces.slack.events -> egpt.integrations.channels.slack.events",
+    "egpt.os.interfaces.slack.builders -> egpt.integrations.channels.slack.builders",
+    "egpt.os.interfaces.slack.components -> egpt.integrations.channels.slack.components",
+    "egpt.os.interfaces.slack.helpers -> egpt.integrations.channels.slack.helpers",
+    "egpt.os.interfaces.slack.ids -> egpt.integrations.channels.slack.ids",
+    "egpt.os.interfaces.slack.interactions -> egpt.integrations.channels.slack.interactions",
+    "egpt.os.interfaces.slack.pause -> egpt.integrations.channels.slack.pause",
+    "egpt.os.interfaces.slack.security -> egpt.integrations.channels.slack.security",
+    "egpt.os.interfaces.slack.state -> egpt.integrations.channels.slack.state",
+    "egpt.os.interfaces.slack.types -> egpt.integrations.channels.slack.types",
 ]
 
 # --- Integrations depend only on core (matrix: integrations -> orchestration/services/api = N) ---
@@ -660,6 +682,9 @@ ignore_imports = [
     # the "inbound-webhook verification secrets" egpt.settings' docstring says it exists for.
     "egpt.integrations.channels.whatsapp.helpers -> egpt.settings",
     "egpt.integrations.channels.whatsapp.security -> egpt.settings",
+    # Same reasoning, Slack's half of EGPT-1.7b: egpt.integrations.channels.slack.security
+    # reads `slack_signing_secret` to verify inbound Slack request signatures.
+    "egpt.integrations.channels.slack.security -> egpt.settings",
 ]
 # Otherwise no ignore_imports: 24 distinct modules under egpt.integrations currently violate
 # this contract by importing egpt.agent/egpt.team directly (egpt.integrations.discord.client

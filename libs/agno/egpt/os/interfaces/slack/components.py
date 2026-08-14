@@ -1,42 +1,28 @@
-from __future__ import annotations
+"""Deprecated compatibility shim (EGPT-1.7b, aicoe-tracker#158).
 
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+Import from ``egpt.integrations.channels.slack.components`` instead; this module will be removed.
 
-from slack_sdk.models.blocks.basic_components import MarkdownTextObject, PlainTextObject
-from slack_sdk.models.blocks.block_elements import ButtonElement, ImageElement
+Names are re-exported via a wildcard star-import against the target module (not proxied
+through ``__getattr__`` alone), so star-imports, ``dir()`` and static type checking keep
+working on this path.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
+
+import warnings as _warnings
+
+import egpt.integrations.channels.slack.components as _target
+from egpt.integrations.channels.slack.components import *  # noqa: F401,F403
+
+_warnings.warn(
+    "egpt.os.interfaces.slack.components is deprecated; import from "
+    "egpt.integrations.channels.slack.components instead. This shim will be removed in a "
+    "future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-@dataclass
-class Card:
-    # Card block shipped in Slack API 2024 but slack_sdk lacks model class
-    actions: List[ButtonElement]
-    icon: Optional[ImageElement] = None
-    title: Optional[PlainTextObject | MarkdownTextObject] = None
-    subtitle: Optional[PlainTextObject | MarkdownTextObject] = None
-    body: Optional[PlainTextObject | MarkdownTextObject] = None
-    subtext: Optional[PlainTextObject | MarkdownTextObject] = None
-    block_id: Optional[str] = None
-
-    @property
-    def type(self) -> str:
-        return "card"
-
-    def to_dict(self) -> Dict[str, Any]:
-        result: Dict[str, Any] = {
-            "type": self.type,
-            "actions": [a.to_dict() for a in self.actions],
-        }
-        if self.icon:
-            result["icon"] = self.icon.to_dict()
-        if self.title:
-            result["title"] = self.title.to_dict()
-        if self.subtitle:
-            result["subtitle"] = self.subtitle.to_dict()
-        if self.body:
-            result["body"] = self.body.to_dict()
-        if self.subtext:
-            result["subtext"] = self.subtext.to_dict()
-        if self.block_id:
-            result["block_id"] = self.block_id
-        return result
+def __getattr__(name: str):
+    return getattr(_target, name)

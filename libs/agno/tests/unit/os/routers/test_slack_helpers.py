@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("slack_sdk", reason="the Slack interface needs the Slack SDK")
 
-from egpt.os.interfaces.slack.helpers import (  # noqa: E402
+from egpt.integrations.channels.slack.helpers import (  # noqa: E402
     BotNameResolver,
     download_event_files_async,
     extract_event_context,
@@ -16,7 +16,7 @@ from egpt.os.interfaces.slack.helpers import (  # noqa: E402
     task_id,
     upload_response_media_async,
 )
-from egpt.os.interfaces.slack.state import StreamState  # noqa: E402
+from egpt.integrations.channels.slack.state import StreamState  # noqa: E402
 
 
 class TestTaskId:
@@ -82,7 +82,7 @@ class TestDownloadEventFilesAsync:
                 {"id": "F1", "name": "clip.mp4", "mimetype": "video/mp4", "url_private": "https://files.slack.com/F1"}
             ]
         }
-        with patch("egpt.os.interfaces.slack.helpers.httpx.AsyncClient") as mock_httpx:
+        with patch("egpt.integrations.channels.slack.helpers.httpx.AsyncClient") as mock_httpx:
             mock_client = AsyncMock()
             mock_client.get = AsyncMock(return_value=mock_response)
             mock_httpx.return_value.__aenter__ = AsyncMock(return_value=mock_client)
@@ -153,7 +153,7 @@ class TestUploadResponseMediaAsync:
             videos=None,
             audio=None,
         )
-        with patch("egpt.os.interfaces.slack.helpers.log_error"):
+        with patch("egpt.integrations.channels.slack.helpers.log_error"):
             await upload_response_media_async(client, response, "C1", "ts1")
 
 
