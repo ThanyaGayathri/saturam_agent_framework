@@ -18,6 +18,7 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
+from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.schemas.service_accounts import (
     resolve_service_account_sort_column,
     validate_service_account_update,
@@ -43,6 +44,7 @@ from egpt.utils.string import generate_id, sanitize_postgres_string, sanitize_po
 
 try:
     from sqlalchemy import (
+        CheckConstraint,
         ForeignKey,
         ForeignKeyConstraint,
         Index,
@@ -295,6 +297,11 @@ class PostgresDb(BaseDb):
             (self.schedule_runs_table_name, "schedule_runs"),
             (self.approvals_table_name, "approvals"),
             (self.service_accounts_table_name, "service_accounts"),
+            # Memory tiers (SM-C3 #91), derived so a new tier joins auto-provisioning rather than
+            # being remembered. AgentOS calls this on startup with auto_provision_dbs=True and
+            # migrations never run automatically, so a table missing here is a table a fresh
+            # deployment simply never gets.
+            *[(getattr(self, memory_tier_table_attr(tier)), tier) for tier in MEMORY_TIER_TABLE_TYPES],
         ]
 
         for table_name, table_type in tables_to_create:
@@ -328,6 +335,8 @@ class PostgresDb(BaseDb):
             schema_foreign_keys = table_schema.pop("__foreign_keys__", [])
             schema_composite_indexes = table_schema.pop("__composite_indexes__", [])
             schema_partial_unique_indexes = table_schema.pop("_partial_unique_indexes", [])
+            schema_partial_indexes = table_schema.pop("__partial_indexes__", [])
+            schema_check_constraints = table_schema.pop("__check_constraints__", [])
 
             # Build columns
             for col_name, col_config in table_schema.items():
@@ -416,12 +425,12 @@ class PostgresDb(BaseDb):
             for idx_col in indexes:
                 if idx_col not in table.c:
                     raise ValueError(f"Index references missing column in {table_name}: {idx_col}")
-                idx_name = f"idx_{table_name}_{idx_col}"
+                idx_name = derive_index_name(table_name, [idx_col])
                 Index(idx_name, table.c[idx_col])  # Correct way; do NOT append as constraint
 
             # Composite indexes
             for idx_config in schema_composite_indexes:
-                idx_name = f"idx_{table_name}_{'_'.join(idx_config['columns'])}"
+                idx_name = derive_index_name(table_name, idx_config["columns"])
                 idx_cols = [table.c[c] for c in idx_config["columns"]]
                 Index(idx_name, *idx_cols)
 
@@ -444,6 +453,25 @@ class PostgresDb(BaseDb):
             if self.create_schema:
                 with self.Session() as sess, sess.begin():
                     create_schema(session=sess, db_schema=self.db_schema)
+
+            # CHECK constraints. SM-R12's DDL enforces the bi-temporal ordering in the database;
+            # without this key those invariants would hold only in the Python row models, so a
+            # bulk loader or raw SQL could write a row no reader can interpret.
+            for constraint in schema_check_constraints:
+                table.append_constraint(CheckConstraint(constraint["sql"], name=f"{table_name}_{constraint['name']}"))
+
+            # Partial (non-unique) indexes -- the WHERE clause SM-R12 scopes its temporal indexes
+            # with, so a current-belief lookup does not walk expired rows.
+            for idx_config in schema_partial_indexes:
+                missing = [c for c in idx_config["columns"] if c not in table.c]
+                if missing:
+                    raise ValueError(f"Partial index references missing columns in {table_name}: {missing}")
+                idx_cols = [table.c[c] for c in idx_config["columns"]]
+                Index(
+                    derive_index_name(table_name, idx_config["columns"]),
+                    *idx_cols,
+                    postgresql_where=text(idx_config["where"]),
+                )
 
             # Create table
             table_created = False
@@ -679,6 +707,13 @@ class PostgresDb(BaseDb):
                 create_table_if_not_found=create_table_if_not_found,
             )
             return self.service_accounts_table
+
+        if table_type in MEMORY_TIER_TABLE_TYPES:
+            return self._get_or_create_table(
+                table_name=getattr(self, memory_tier_table_attr(table_type)),
+                table_type=table_type,
+                create_table_if_not_found=create_table_if_not_found,
+            )
 
         raise ValueError(f"Unknown table type: {table_type}")
 

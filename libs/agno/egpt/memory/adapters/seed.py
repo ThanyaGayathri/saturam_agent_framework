@@ -77,9 +77,10 @@ def _provenance_note(event: MemoryEvent) -> Optional[str]:
 def _record_from_user_memory(memory: UserMemory, scope: Scope) -> MemoryRecord:
     """Project a seed ``UserMemory`` into the seam's read-projection.
 
-    ``UserMemory`` has no tenant and no temporal fields (SM-C3 #91 adds them), so the tenant comes
-    from the caller's scope and the bi-temporal fields stay ``None`` -- which reads correctly as
-    "valid since forever, never invalidated, current belief".
+    ``UserMemory`` has a ``tenant_id`` column since SM-C3 (#91) but nothing populates or filters
+    on it yet, and it has no temporal fields at all, so the tenant comes from the caller's scope
+    and the bi-temporal fields stay ``None`` -- which reads correctly as "valid since forever,
+    never invalidated, current belief".
     """
     return MemoryRecord(
         # A row with no id still needs a stable one: `MemoryRecord.id` is the dedup key. Derived
@@ -135,8 +136,9 @@ class SeedMemoryProvider(MemoryProvider):
     def _require_single_tenant_acknowledgement(self) -> None:
         """Refuse to build unless the deployment states it is single-tenant.
 
-        ``UserMemory`` has no tenant column and ``MemoryManager`` partitions on ``user_id`` alone,
-        so ``Scope.tenant_id`` is accepted on every call and applied on none::
+        ``MemoryManager`` partitions on ``user_id`` alone, so ``Scope.tenant_id`` is accepted on
+        every call and applied on none. SM-C3 (#91) added the ``tenant_id`` column, but a column
+        no query filters on changes nothing here::
 
             write(Scope(tenant_id='acme',   user_id='ada')) -> "acme Q4 revenue is 12M"
             read (Scope(tenant_id='globex', user_id='ada')) -> ["acme Q4 revenue is 12M"]
@@ -147,20 +149,21 @@ class SeedMemoryProvider(MemoryProvider):
 
         Namespacing the manager key (``f"{tenant}/{user}"``) is the tempting alternative and is
         worse: it orphans every row an existing deployment already wrote, with no error anywhere.
-        That migration belongs with the schema that gains a real tenant column (SM-C3 #91).
+        Threading the column through the manager and every backend is aicoe-tracker#175.
         """
         if not self.config.options.get("single_tenant"):
             raise MemoryProviderConfigError(
-                "SeedMemoryProvider cannot enforce tenant isolation: UserMemory has no tenant "
-                "column and MemoryManager partitions by user_id alone, so Scope.tenant_id is "
-                "accepted and never applied. Two tenants sharing a user_id would read each "
+                "SeedMemoryProvider cannot enforce tenant isolation: MemoryManager partitions "
+                "by user_id alone, so Scope.tenant_id is accepted and never applied. The "
+                "UserMemory.tenant_id column exists but no query filters on it. Two tenants "
+                "sharing a user_id would read each "
                 "other's memories, and the projection would stamp the reader's tenant onto the "
                 "result, hiding the leak from every check above this layer.\n\n"
                 "If this deployment serves exactly one tenant, say so explicitly:\n"
                 '    MemoryProviderConfig(provider="seed", options={"single_tenant": True, '
                 '"tenant_id": "acme"})\n\n'
                 "For real multi-tenant memory use the co_located provider, or wait for the "
-                "tenant-scoped schema in SM-C3 (#91).",
+                "tenant-scoped read/write path (aicoe-tracker#175).",
                 field_name="options.single_tenant",
             )
 
