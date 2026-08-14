@@ -30,7 +30,7 @@ from egpt.learn.stores import (
     UserMemoryStore,
     UserProfileStore,
 )
-from egpt.memory.errors import MemoryOperationError
+from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.learn_stores import (
     RECALL_SLOTS,
     SCOPE_SLOTS,
@@ -96,7 +96,7 @@ def test_no_seed_store_maps_to_the_episodic_tier():
 def test_an_unmapped_store_is_refused_rather_than_guessed_into_a_tier():
     """A custom store's tier is the deployment's choice; filing it wrongly stores memory as the
     wrong kind and serves it back as that kind."""
-    with pytest.raises(MemoryOperationError, match="No tier is mapped"):
+    with pytest.raises(MemoryProviderConfigError, match="No tier is mapped"):
         tier_for_store("weather_cache")
 
 
@@ -266,7 +266,7 @@ def test_the_order_within_a_tier_comes_from_the_table_not_the_machine():
 
 
 def test_a_machine_carrying_an_unmapped_store_is_refused():
-    with pytest.raises(MemoryOperationError, match=r"\['weather_cache'\]"):
+    with pytest.raises(MemoryProviderConfigError, match=r"\['weather_cache'\]"):
         stores_by_tier({"user_memory": Store("user_memory"), "weather_cache": Store("weather_cache")})
 
 

@@ -1376,7 +1376,7 @@ def test_a_machine_carrying_a_store_no_tier_maps_is_refused_at_construction():
     """Guessing its tier would file its memory as the wrong kind and serve it back as that kind."""
     machine = FakeMachine(stores={"weather_cache": FakeStore("weather_cache")})
 
-    with pytest.raises(MemoryOperationError, match="weather_cache"):
+    with pytest.raises(MemoryProviderConfigError, match="weather_cache"):
         SeedMemoryProvider(machine=machine, config=seed_config())
 
 
@@ -2052,3 +2052,48 @@ def test_concurrent_sync_writes_to_one_store_each_get_their_own_answer():
 
     assert (landed.accepted, landed.tiers_written) == (1, [MemoryTier.SEMANTIC])
     assert (no_op.accepted, no_op.tiers_written) == (0, [])
+
+
+def test_a_tier_where_every_store_fails_reports_nothing_accepted():
+    """The write fan-out's other end: no store took the batch, so the partial write says so.
+
+    The mirror of `test_a_partial_store_failure_reports_the_tier_the_sibling_committed_to` --
+    that one asserts a sibling's commit survives into the receipt, this one that an empty receipt
+    is what a total failure produces, rather than the tier being credited for the attempt.
+    """
+    stores = [FakeStore("user_profile"), FakeStore("user_memory")]
+    for store in stores:
+        store.process = raises_from_process(RuntimeError("store down"))
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: stores}, config=seed_config())
+
+    with pytest.raises(PartialWriteError) as exc:
+        bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
+
+    assert exc.value.receipt.accepted == 0
+    assert exc.value.receipt.tiers_written == []
+    assert exc.value.receipt.details["stores"] == {}, "no store reported an outcome, so none is claimed"
+
+
+async def test_a_tier_where_every_store_fails_reports_the_same_on_both_halves():
+    """Settled fan-outs on both lanes must agree about a total failure, not only a partial one."""
+
+    def wire():
+        stores = [FakeStore("user_profile"), FakeStore("user_memory")]
+
+        async def aprocess(messages, user_id=None, agent_id=None, team_id=None, **kwargs):
+            await asyncio.sleep(0)
+            raise RuntimeError("store down")
+
+        for store in stores:
+            store.process = raises_from_process(RuntimeError("store down"))
+            store.aprocess = aprocess
+        return SeedMemoryProvider(stores={MemoryTier.SEMANTIC: stores}, config=seed_config())
+
+    events = [MemoryEvent(content="x", scope=ACME)]
+    with pytest.raises(PartialWriteError) as sync_exc:
+        wire().write_tier(ACME, MemoryTier.SEMANTIC, events)
+    with pytest.raises(PartialWriteError) as async_exc:
+        await wire().awrite_tier(ACME, MemoryTier.SEMANTIC, events)
+
+    assert sync_exc.value.receipt.details == async_exc.value.receipt.details == {"stores": {}}
+    assert sync_exc.value.receipt.accepted == async_exc.value.receipt.accepted == 0

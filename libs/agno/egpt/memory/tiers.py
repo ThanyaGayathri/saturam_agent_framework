@@ -170,9 +170,17 @@ def _validate_policy(policy: Dict[MemoryTier, TierPolicy]) -> None:
         raise ValueError(f"Exactly one tier is the consolidation target; the table names {targets}.")
     # Exactly one, not "at least one": two tiers sharing one bounded pass is the scheduler's
     # question (SM-L1 #122), and a second source added without it starves whichever came second.
-    sources = [t.value for t, row in policy.items() if row.consolidates_from]
+    sources = [t for t, row in policy.items() if row.consolidates_from]
     if len(sources) != 1:
-        raise ValueError(f"Exactly one tier is the consolidation source; the table names {sources}.")
+        raise ValueError(f"Exactly one tier is the consolidation source; the table names {[t.value for t in sources]}.")
+    # `consolidate` enumerates its source with `VectorSubstrate.scan`, so a source the vector
+    # substrate does not hold has nothing to scan: every pass would report a drained tier while
+    # reading none of it. Checked here rather than discovered as a permanently empty report.
+    if "vector" not in policy[sources[0]].substrates:
+        raise ValueError(
+            f"TIER_POLICY makes {sources[0].value!r} the consolidation source, but it does not route "
+            "to the vector substrate, which is what a pass enumerates from."
+        )
 
 
 _validate_policy(TIER_POLICY)

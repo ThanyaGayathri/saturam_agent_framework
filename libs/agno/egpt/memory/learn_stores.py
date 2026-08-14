@@ -12,7 +12,7 @@ risks an import cycle through ``egpt/memory/__init__``.
 import inspect
 from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple
 
-from egpt.memory.errors import MemoryOperationError
+from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import Scope
 
@@ -75,15 +75,19 @@ def tier_for_store(learning_type: str) -> MemoryTier:
 
     Unmapped raises rather than defaults: a guess files memory as a kind nobody chose, and the
     read side then serves it as that kind.
+
+    ``MemoryProviderConfigError``, not ``MemoryOperationError``: which stores a tier holds is
+    settled when the provider is built, so this is a deployment fault rather than the per-request
+    refusal that error is documented as.
     """
     try:
         return STORE_TIERS[learning_type]
     except (KeyError, TypeError):
-        raise MemoryOperationError(
+        raise MemoryProviderConfigError(
             f"No tier is mapped for a store of type {learning_type!r}. ADR 0003 section 2.2 maps "
             f"the six seed stores ({', '.join(sorted(STORE_TIERS))}); a custom store's tier is the "
             "deployment's choice, so bind it explicitly with stores={MemoryTier...: store}.",
-            field_name="learning_type",
+            field_name="stores",
         ) from None
 
 
@@ -154,7 +158,7 @@ def stores_by_tier(
     exempt = {id(store) for store in already_bound}
     unmapped = sorted(name for name, store in stores.items() if name not in STORE_TIERS and id(store) not in exempt)
     if unmapped:
-        raise MemoryOperationError(
+        raise MemoryProviderConfigError(
             f"LearningMachine carries store(s) {unmapped} that ADR 0003 section 2.2 does not map to "
             "a tier. Bind them explicitly with stores={MemoryTier...: store}, or drop them from the "
             "machine -- routing a store to a guessed tier files its memory as the wrong kind.",

@@ -51,6 +51,12 @@ def graph_only_semantic():
     happens when a tier stops being dual-substrate" without waiting for a ticket to make one so.
     Patching the table rather than the adapter is deliberate: a path that consults the table is
     exercised, and a path that hard-codes a tier is not, which is the whole assertion.
+
+    **The four derived constants do not follow.** `PERSISTENT_TIERS`, `DEFAULT_WRITE_TIER`,
+    `CONSOLIDATION_SOURCE` and `CONSOLIDATION_TARGET` are computed once at import, so they keep the
+    real table's answers here. Nothing under test reads them for *substrate* routing -- that goes
+    through `substrates_for_tier`, which reads the table live -- but a test that needs a rerouted
+    tier to change one of those four has to patch it as well.
     """
     from dataclasses import replace as replace_row
 

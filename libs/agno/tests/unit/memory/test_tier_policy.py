@@ -214,6 +214,19 @@ def test_no_tier_claiming_a_role_is_refused(flag, message):
         _validate_policy(_table(**{DEFAULT_WRITE_TIER: {flag: False}}))
 
 
+def test_a_consolidation_source_the_vector_substrate_does_not_hold_is_refused():
+    """`consolidate` enumerates its source with `VectorSubstrate.scan`.
+
+    A source routed to the graph alone has nothing to scan, so every pass would report a drained
+    tier having read none of it -- a silently empty loop rather than a failure. Caught in the table
+    rather than discovered as a permanently zero report.
+    """
+    graph_only = {"substrates": frozenset({"graph"}), "graph_shape": GraphWriteShape.EPISODE}
+
+    with pytest.raises(ValueError, match="enumerates from"):
+        _validate_policy(_table(**{CONSOLIDATION_SOURCE: graph_only}))
+
+
 def test_a_second_consolidation_source_is_refused_rather_than_silently_starved():
     """Two sources share one bounded pass, and deciding how is the scheduler's -- SM-L1 (#122).
 

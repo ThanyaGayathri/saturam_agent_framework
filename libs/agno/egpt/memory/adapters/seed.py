@@ -20,6 +20,7 @@ import asyncio
 import threading
 from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, List, NoReturn, Optional, Sequence, Tuple, Union, cast
 from uuid import NAMESPACE_OID, uuid5
+from weakref import WeakKeyDictionary
 
 from egpt.db.schemas import UserMemory
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, register_provider
@@ -165,15 +166,35 @@ class SeedMemoryProvider(MemoryProvider):
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
         self._store_slots: Dict[str, FrozenSet[str]] = _checked_slots(self.config.options.get("store_slots"))
         self._reject_undeclarable_slots()
+        #: Each bound store's write-side slot set, resolved once. The store set is fixed at
+        #: construction and `inspect.signature` is not free, so deriving it per write put signature
+        #: introspection on the hot path for an answer that cannot change.
+        #:
+        #: The read side needs no such map: it reads the declared table, and `filterable_slots` is
+        #: called once per store at construction to check that declaration.
+        self._recordable: Dict[int, FrozenSet[str]] = {
+            id(store): recordable_slots(store) for group in self.stores.values() for store in group
+        }
         #: One lock per bound store, so a write and its `was_updated` read are one critical
         #: section. Built here because the store set is fixed at construction, which keeps the
         #: lookup free of its own race.
+        #:
+        #: **Within a lane, not across them.** This one serialises threaded callers; the async map
+        #: below serialises coroutines. A deployment driving *one store* from a thread pool and an
+        #: event loop at the same time is not excluded, and would need the async side to acquire
+        #: this lock through a worker thread -- a hop on every write, to close a shape
+        #: ``LearningStore`` does not support in the first place.
         self._write_locks: Dict[int, threading.Lock] = {
             id(store): threading.Lock() for group in self.stores.values() for store in group
         }
-        #: The async twin, keyed by ``(loop, store)``: an ``asyncio.Lock`` binds to the loop that
-        #: first awaits it, and one provider may be driven from more than one.
-        self._awrite_locks: Dict[Tuple[int, int], asyncio.Lock] = {}
+        #: The async twin, per loop: an ``asyncio.Lock`` binds to the loop that first awaits it,
+        #: and one provider may be driven from more than one. Keyed **weakly** by the loop, so a
+        #: finished loop's locks are collected with it rather than accumulating for the life of the
+        #: provider -- a long-lived provider across many short-lived loops is the ordinary shape in
+        #: tests and in anything using ``asyncio.run`` per request.
+        self._awrite_locks: "WeakKeyDictionary[asyncio.AbstractEventLoop, Dict[int, asyncio.Lock]]" = (
+            WeakKeyDictionary()
+        )
         self._require_single_tenant_acknowledgement()
         self._tenant: str = self._require_declared_tenant()
 
@@ -220,10 +241,10 @@ class SeedMemoryProvider(MemoryProvider):
 
     def _awrite_lock(self, store: "LearningStore") -> asyncio.Lock:
         """This store's lock for the running loop, created on the loop that will await it."""
-        key = (id(asyncio.get_running_loop()), id(store))
-        lock = self._awrite_locks.get(key)
+        per_store = self._awrite_locks.setdefault(asyncio.get_running_loop(), {})
+        lock = per_store.get(id(store))
         if lock is None:
-            lock = self._awrite_locks[key] = asyncio.Lock()
+            lock = per_store[id(store)] = asyncio.Lock()
         return lock
 
     # -- construction guards --------------------------------------------------
@@ -371,7 +392,12 @@ class SeedMemoryProvider(MemoryProvider):
 
     def _guard_store_writes(self, stores: Sequence["LearningStore"], scope: Scope) -> None:
         """Check every store before **any** of them is written, for the reason :meth:`_guard_stores`
-        gives on the read side -- a refusal partway leaves the tier half written."""
+        gives on the read side -- a refusal partway leaves the tier half written.
+
+        The first unrecordable slot refuses the whole write rather than collecting every offending
+        store: the caller's next move is to widen the scope or rebind the tier either way, and one
+        named slot is what tells them which.
+        """
         for store in stores:
             self._reject_unrecordable_slots(store, scope)
 
@@ -395,10 +421,12 @@ class SeedMemoryProvider(MemoryProvider):
         is one it *sees*, not necessarily one it persists. Whether a seen slot survives into the
         row is a columns question, SM-C3's (#91).
         """
+        # Indexed, not `.get` with a fallback: every store in `self.stores` is resolved at
+        # construction and this guard only ever sees those, so a fallback would be a branch nothing
+        # can reach -- and an unreachable branch is one no test can hold to account.
+        recordable = self._recordable[id(store)]
         unrecordable = [
-            slot
-            for slot in SCOPE_SLOTS
-            if getattr(scope, slot, None) is not None and slot not in recordable_slots(store)
+            slot for slot in SCOPE_SLOTS if getattr(scope, slot, None) is not None and slot not in recordable
         ]
         if unrecordable:
             learning_type = _learning_type(store)
@@ -564,7 +592,9 @@ class SeedMemoryProvider(MemoryProvider):
         """The same retrieval on the async lane, awaiting the manager when it has an async half.
 
         The thread hop stays for a duck-typed manager without one -- this bridge checks its
-        collaborators by method, not by type.
+        collaborators by method, not by type. ``last_n`` is hardcoded for the reason
+        :meth:`_manager_records` gives: there is nothing to rank by, and ``agentic`` would put an
+        LLM round trip on a read path that promises none.
         """
         if self.manager is None:
             return []
@@ -804,11 +834,14 @@ class SeedMemoryProvider(MemoryProvider):
         ids: List[str] = []
         for event in events:
             try:
-                memory_id = await aadd(memory=self._user_memory(event, scope), user_id=scope.user_id)
+                # Annotated because `aadd` came from `getattr`, which types as `Any` and would
+                # silently switch this loop's checking off -- the sync twin below is checked, and
+                # two halves type-checked differently is how they drift.
+                memory_id: Optional[str] = await aadd(memory=self._user_memory(event, scope), user_id=scope.user_id)
             except Exception as exc:
                 raise PartialWriteError(self._committed(tier, ids)) from exc
             self._require_stored(memory_id, tier, ids)
-            ids.append(memory_id)
+            ids.append(memory_id)  # type: ignore[arg-type]  # `_require_stored` narrowed it
         return self._committed(tier, ids)
 
     @classmethod

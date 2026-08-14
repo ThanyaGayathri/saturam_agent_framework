@@ -277,14 +277,17 @@ class MemoryManager:
             return None
 
     @staticmethod
-    def _stamp_user_memory(memory: UserMemory, user_id: Optional[str] = None) -> UserMemory:
-        """Fill in the identity and timestamp a stored memory needs, in place."""
+    def _stamp_user_memory(memory: UserMemory, user_id: Optional[str] = None) -> None:
+        """Fill in the identity and timestamp a stored memory needs, **in place**.
+
+        Returns nothing, because returning the instance it mutated reads as a builder and invites
+        `stamped = _stamp(...)` beside a caller still holding the original.
+        """
         if memory.memory_id is None:
             memory.memory_id = str(uuid4())
         memory.user_id = user_id if user_id is not None else "default"
         if not memory.updated_at:
             memory.updated_at = now_epoch_s()
-        return memory
 
     def replace_user_memory(
         self,

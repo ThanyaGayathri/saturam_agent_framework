@@ -506,17 +506,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
         different graph writes, and which a tier gets is policy both halves must read alike."""
         if self.graph is None:
             return
-        if graph_shape_for_tier(event.tier) is GraphWriteShape.FACT:
+        shape = graph_shape_for_tier(event.tier)
+        if shape is GraphWriteShape.FACT:
             self.graph.upsert_fact(scope, FactWrite(record=record, derived_by="co_located.direct_write"))
-        elif graph_shape_for_tier(event.tier) is GraphWriteShape.EPISODE:
+        elif shape is GraphWriteShape.EPISODE:
             self.graph.upsert_episode(scope, event)
 
     async def _agraph_write(self, scope: Scope, event: MemoryEvent, record: MemoryRecord) -> None:
         if self.graph is None:
             return
-        if graph_shape_for_tier(event.tier) is GraphWriteShape.FACT:
+        shape = graph_shape_for_tier(event.tier)
+        if shape is GraphWriteShape.FACT:
             await self.graph.aupsert_fact(scope, FactWrite(record=record, derived_by="co_located.direct_write"))
-        elif graph_shape_for_tier(event.tier) is GraphWriteShape.EPISODE:
+        elif shape is GraphWriteShape.EPISODE:
             await self.graph.aupsert_episode(scope, event)
 
     def write_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
