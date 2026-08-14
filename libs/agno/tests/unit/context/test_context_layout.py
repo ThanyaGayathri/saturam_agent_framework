@@ -52,10 +52,13 @@ _MOVED_CONNECTOR_PACKAGES = {
 _SUBMODULE_SHIM_COUNT = 12  # one provider.py per package except google (utils.py) and web (5)
 
 # egpt.context.wiki's __init__ lazily proxies GitBackend/NotionDatabaseBackend/NotionPageBackend
-# to their new home (see its module docstring) -- the one legitimate orchestration -> integrations
-# reference outside the shim packages themselves.
+# to their new home (see its module docstring), and its git_ops/notion_ops are eager whole-module
+# shims like the other connector packages' -- these are the legitimate orchestration ->
+# integrations references outside the shim packages the _MOVED_CONNECTOR_PACKAGES skip covers.
 _CONTEXT_INTEGRATION_IMPORT_ALLOWLIST = {
     "egpt.context.wiki",
+    "egpt.context.wiki.git_ops",
+    "egpt.context.wiki.notion_ops",
 }
 
 
@@ -149,6 +152,30 @@ def test_wiki_shim_proxies_the_three_moved_backends():
         )
 
 
+@pytest.mark.parametrize("submodule", ["git_ops", "notion_ops"])
+def test_wiki_submodule_shims_exist_and_warn(submodule):
+    """`git_ops.py`/`notion_ops.py` moved wholesale (unlike the three backend classes, which
+    are proxied lazily via `__getattr__`) and need their own eager shim module, same as every
+    other moved connector submodule. `skip_prefix="wiki"` excludes wiki from the automatic
+    `check_submodule_shims` sweep (see this file's module docstring), so this is the guard
+    that actually covers these two.
+    """
+    shim_path = _context_root() / "wiki" / f"{submodule}.py"
+    assert shim_path.exists(), (
+        f"No deprecation shim at {shim_path}. egpt.integrations.context.wiki.{submodule} moved "
+        "wholesale in EGPT-1.7a and needs a shim at the old path so existing imports keep resolving."
+    )
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        shim_module = importlib.import_module(f"egpt.context.wiki.{submodule}")
+        shim_module = importlib.reload(shim_module)
+
+    assert any(issubclass(w.category, DeprecationWarning) for w in caught), (
+        f"importing egpt.context.wiki.{submodule} did not warn."
+    )
+
+
 def test_no_concrete_connector_imported_outside_integrations():
     """Only the integrations layer and the shim packages may name a connector module."""
     root = package_root() / "egpt"
@@ -219,7 +246,12 @@ def test_context_core_modules_do_not_import_orchestration():
         hits = sorted(
             m
             for m in imported_modules(path)
-            if m == "egpt.agent" or m.startswith("egpt.agent.") or m == "egpt.team" or m == "egpt.workflow"
+            if m == "egpt.agent"
+            or m.startswith("egpt.agent.")
+            or m == "egpt.team"
+            or m.startswith("egpt.team.")
+            or m == "egpt.workflow"
+            or m.startswith("egpt.workflow.")
         )
         if hits:
             offenders.append(f"{module}: {hits}")
@@ -229,6 +261,13 @@ def test_context_core_modules_do_not_import_orchestration():
         + "\n".join(offenders)
         + "\nUse egpt.registry.protocols.RunnableLike for typing and construct_runnable to build one."
     )
+
+
+# calendar/gdrive/gmail import the Google API client at module level (via
+# egpt.integrations.tools.google.*), so importing their shim without the driver installed
+# raises ImportError rather than exercising the shim -- gate them like test_providers.py does.
+_REQUIRES_GOOGLE_API = {"calendar", "gdrive", "gmail"}
+_GOOGLE_API_REASON = "the Google providers import the Google API client at module level"
 
 
 @pytest.mark.parametrize("package", sorted(_MOVED_CONNECTOR_PACKAGES))
@@ -242,6 +281,9 @@ def test_eager_shim_binds_correct_objects_and_warns(package):
     `_warnings.warn()` call to re-run; without it, `sys.modules` caching means only the first
     import anywhere in the whole test session would ever observe the warning.
     """
+    if package in _REQUIRES_GOOGLE_API:
+        pytest.importorskip("googleapiclient", reason=_GOOGLE_API_REASON)
+
     shim_module = importlib.import_module(f"egpt.context.{package}")
     target_module = importlib.import_module(f"egpt.integrations.context.{package}")
 

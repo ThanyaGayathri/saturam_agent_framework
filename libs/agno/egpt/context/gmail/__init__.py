@@ -2,8 +2,9 @@
 
 Import from ``egpt.integrations.context.gmail`` instead; this module will be removed.
 
-Names are re-exported explicitly (not proxied through ``__getattr__`` alone) so that
-star-imports, ``dir()`` and static type checking keep working on this path.
+Names are re-exported via a wildcard star-import against the target module (not proxied
+through ``__getattr__`` alone), so star-imports, ``dir()`` and static type checking keep
+working on this path.
 
 Known limitations:
 

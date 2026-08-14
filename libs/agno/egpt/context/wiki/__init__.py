@@ -1,3 +1,4 @@
+import threading as _threading
 import warnings as _warnings
 
 from egpt.context.wiki.backend import (
@@ -39,8 +40,10 @@ _MOVED = {"GitBackend", "NotionDatabaseBackend", "NotionPageBackend"}
 # `from egpt.context.wiki import GitBackend` would otherwise hit __getattr__ -- and warn --
 # twice per import. Track names already warned so each fires once per process, matching the
 # eager shim packages (their warnings.warn() runs at module-exec time, which sys.modules
-# caching already limits to once).
+# caching already limits to once). Guarded by a lock since, unlike the eager shims, this
+# check-then-add runs on every access rather than once at import time.
 _warned: set = set()
+_warned_lock = _threading.Lock()
 
 
 def __dir__():
@@ -49,8 +52,10 @@ def __dir__():
 
 def __getattr__(name: str):
     if name in _MOVED:
-        if name not in _warned:
+        with _warned_lock:
+            already_warned = name in _warned
             _warned.add(name)
+        if not already_warned:
             _warnings.warn(
                 f"egpt.context.wiki.{name} is deprecated; import from egpt.integrations.context.wiki instead. "
                 "This shim will be removed in a future release.",
