@@ -39,9 +39,27 @@ __all__ = [
     "scan_statement",
     "schema_statements",
     "scope_predicate",
+    "SettingError",
     "search_statement",
     "upsert_statement",
 ]
+
+
+class SettingError(ValueError):
+    """A deployment setting this module rejects, carrying **which** one.
+
+    A ``ValueError`` subclass so nothing that already catches one changes behaviour, and it names
+    its field so the caller does not have to recover that by parsing a message. That is what lets
+    ``PgVectorMemorySubstrate`` re-raise every one of these as a ``MemoryProviderConfigError`` with
+    a correct ``field_name`` through a single wrapper -- and, more to the point, what makes a
+    validator added here later participate in that automatically rather than becoming the one path
+    that still leaks a bare ``ValueError``.
+    """
+
+    def __init__(self, message: str, *, field: str) -> None:
+        super().__init__(message)
+        self.field = field
+
 
 #: Every scope slot, in the order :meth:`Scope.key` writes them. ``tenant_id`` is the partition
 #: key; the other four are ordinary columns. Both are applied the same way on a read, because a
@@ -153,14 +171,16 @@ def identifier(name: str, field: str) -> str:
     deployment config and are always ordinary, so the conservative set is free.
     """
     if not isinstance(name, str) or not name:
-        raise ValueError(f"{field} must be a non-empty string, got {name!r}.")
+        raise SettingError(f"{field} must be a non-empty string, got {name!r}.", field=field)
     if len(name.encode()) > 63:
-        raise ValueError(f"{field} is {len(name.encode())} bytes; Postgres truncates identifiers at 63.")
+        raise SettingError(f"{field} is {len(name.encode())} bytes; Postgres truncates identifiers at 63.", field=field)
     if not name[0].isascii() or not (name[0].isalpha() or name[0] == "_"):
-        raise ValueError(f"{field} must start with an ASCII letter or underscore, got {name!r}.")
+        raise SettingError(f"{field} must start with an ASCII letter or underscore, got {name!r}.", field=field)
     for char in name[1:]:
         if not char.isascii() or not (char.isalnum() or char in "_$"):
-            raise ValueError(f"{field} may contain ASCII letters, digits, '_' and '$' only, got {name!r}.")
+            raise SettingError(
+                f"{field} may contain ASCII letters, digits, '_' and '$' only, got {name!r}.", field=field
+            )
     return name
 
 
@@ -172,10 +192,11 @@ def table_identifier(name: str, field: str = "table") -> str:
     """
     validated = identifier(name, field)
     if len(validated.encode()) > MAX_TABLE_BYTES:
-        raise ValueError(
+        raise SettingError(
             f"table {name!r} is {len(validated.encode())} bytes, above the {MAX_TABLE_BYTES}-byte "
             f"budget: a partition of it is named '<table>_p_<32-char digest>', which would exceed "
-            "Postgres' 63-byte identifier limit and fail at the first write for each new tenant."
+            "Postgres' 63-byte identifier limit and fail at the first write for each new tenant.",
+            field=field,
         )
     return validated
 
@@ -233,13 +254,14 @@ def schema_statements(schema: str, table: str, dim: int, m: int, ef_construction
     index that is missing in production.
     """
     if not isinstance(dim, int) or isinstance(dim, bool) or not 0 < dim <= MAX_HNSW_DIM:
-        raise ValueError(
+        raise SettingError(
             f"dim must be an integer in 1..{MAX_HNSW_DIM}, got {dim!r}. pgvector's HNSW index covers "
-            f"at most {MAX_HNSW_DIM} dimensions; a wider column is searchable only by exact scan."
+            f"at most {MAX_HNSW_DIM} dimensions; a wider column is searchable only by exact scan.",
+            field="dim",
         )
     for name, value in (("m", m), ("ef_construction", ef_construction)):
         if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-            raise ValueError(f"{name} must be a positive integer, got {value!r}.")
+            raise SettingError(f"{name} must be a positive integer, got {value!r}.", field=name)
     parent = qualified(schema, table)
     return [
         "CREATE EXTENSION IF NOT EXISTS vector",
@@ -380,5 +402,5 @@ def ef_search_statement(ef_search: int) -> str:
     re-tunes whatever runs next on it.
     """
     if not isinstance(ef_search, int) or isinstance(ef_search, bool) or not 1 <= ef_search <= 1000:
-        raise ValueError(f"ef_search must be an integer in 1..1000, got {ef_search!r}.")
+        raise SettingError(f"ef_search must be an integer in 1..1000, got {ef_search!r}.", field="ef_search")
     return f"SET LOCAL hnsw.ef_search = {ef_search}"

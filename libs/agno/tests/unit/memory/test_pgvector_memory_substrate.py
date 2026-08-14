@@ -154,15 +154,39 @@ def test_an_embedder_declaring_no_dimension_needs_an_explicit_one():
         PgVectorMemorySubstrate._resolved_dim(None, NoDim())
 
 
-def test_an_out_of_range_ef_search_is_refused_at_construction():
-    """It reaches a statement as a literal, so a bad value is cheapest to catch here."""
-    with pytest.raises(ValueError, match="ef_search"):
-        PgVectorMemorySubstrate(db_url=URL, embedder=StubEmbedder(), ef_search=0)
+class _WideEmbedder(StubEmbedder):
+    """Declares more dimensions than pgvector's HNSW index can cover."""
+
+    dimensions = sql.MAX_HNSW_DIM + 1
 
 
-def test_a_hostile_table_name_is_refused_at_construction():
-    with pytest.raises(ValueError, match="table"):
-        PgVectorMemorySubstrate(db_url=URL, embedder=StubEmbedder(), table='v"; DROP TABLE x; --')
+@pytest.mark.parametrize(
+    "setting, field",
+    [
+        ({"ef_search": 0}, "ef_search"),
+        ({"m": 0}, "m"),
+        ({"ef_construction": 0}, "ef_construction"),
+        ({"dim": sql.MAX_HNSW_DIM + 1}, "dim"),
+        ({"schema": "bad-name"}, "schema"),
+        ({"table": 'v"; DROP TABLE x; --'}, "table"),
+    ],
+    ids=["ef_search", "m", "ef_construction", "dim", "schema", "table"],
+)
+def test_every_rejected_setting_arrives_as_a_config_error_naming_its_field(setting, field):
+    """Asserted on the **narrow** class, not on ``ValueError``, because that is the difference the
+    caller sees. ``MemoryProviderConfigError`` is a ``ValueError`` subclass and not the reverse, so
+    a test written against the base passes whether or not the wrapping happened -- which is how
+    ``ef_search``, ``m``, ``ef_construction`` and the ``dim`` ceiling shipped leaking a bare
+    ``ValueError`` while their four siblings were wrapped, with a green suite either way.
+
+    ``field_name`` is asserted too: it is the only thing this class carries that the base does not,
+    so a caller narrowing to it is narrowing in order to read this.
+    """
+    if field == "dim":
+        setting = {**setting, "embedder": _WideEmbedder()}
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        PgVectorMemorySubstrate(db_url=URL, embedder=setting.pop("embedder", StubEmbedder()), **setting)
+    assert raised.value.field_name == field
 
 
 # -- row mapping ---------------------------------------------------------------

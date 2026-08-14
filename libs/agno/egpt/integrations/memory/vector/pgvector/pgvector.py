@@ -212,16 +212,19 @@ class PgVectorMemorySubstrate:
         # is a legal relation but not a legal *base* for one, and it is the derived names that fail
         # -- at construction for the two indexes, and at the first write of each new tenant for a
         # partition, which is far from the setting that caused it.
-        self.schema = self._named(sql.identifier, schema, "schema")
-        self.table = self._named(sql.table_identifier, table, "table")
         self.embedder = self._resolved_embedder(embedder, embedder_options)
-        self.dim = self._resolved_dim(dim, self.embedder)
         self.ef_search = ef_search
         self.embedding_version = embedding_version
-        # Validated at construction rather than at first read: `ef_search` reaches a statement as a
-        # literal, and the rest reach DDL, so this is where a bad value is cheap.
-        sql.ef_search_statement(ef_search)
-        self._schema_statements = sql.schema_statements(self.schema, self.table, self.dim, m, ef_construction)
+        # Every setting is checked here rather than at first use, and all of them inside one
+        # wrapper: `ef_search` reaches a statement as a literal and the rest reach DDL, so this is
+        # where a bad value is cheap -- and a refusal that arrives as a bare `ValueError` is one a
+        # caller narrowing to `MemoryProviderConfigError` never sees.
+        with self._settings_checked():
+            self.schema = sql.identifier(schema, "schema")
+            self.table = sql.table_identifier(table)
+            self.dim = self._resolved_dim(dim, self.embedder)
+            sql.ef_search_statement(ef_search)
+            self._schema_statements = sql.schema_statements(self.schema, self.table, self.dim, m, ef_construction)
         self._engine: Engine = create_engine(self.db_url, pool_pre_ping=True, pool_recycle=3600)
         self._aengine: Optional["AsyncEngine"] = None
         #: Tenants whose partition this process has already created. A cache, never an authority:
@@ -233,16 +236,25 @@ class PgVectorMemorySubstrate:
     # -- construction-time validation -----------------------------------------
 
     @staticmethod
-    def _named(validate: Any, value: Any, field: str) -> str:
-        """Run an identifier check, re-raising its refusal as a configuration fault.
+    @contextmanager
+    def _settings_checked() -> Iterator[None]:
+        """Re-raise any setting this backend rejects as a **configuration** fault.
 
-        One wrapper for both names rather than a try/except at each, so a third identifier cannot
-        be added on the one path that still leaks a bare ``ValueError``.
+        Every construction-time check runs inside this, not just the two identifiers the first
+        version wrapped. ``MemoryProviderConfigError`` is a ``ValueError`` subclass and not the
+        reverse, so a caller narrowing to it -- to read ``field_name``, which only it carries --
+        silently missed ``ef_search``, ``dim``, ``m`` and ``ef_construction``, each of which left
+        here as a bare ``ValueError``. Through ``build_memory_provider`` that was invisible, since
+        ``resolve_substrate`` re-wraps whatever a constructor raises; direct injection through
+        ``options['vector_substrate']`` is a supported path and got the raw error.
+
+        The field comes from :class:`sql.SettingError`, so a validator added to that module later
+        is covered without being listed here -- which is the failure this replaced, at one remove.
         """
         try:
-            return str(validate(value, field))
-        except ValueError as exc:
-            raise MemoryProviderConfigError(str(exc), field_name=field) from exc
+            yield
+        except sql.SettingError as exc:
+            raise MemoryProviderConfigError(str(exc), field_name=exc.field) from exc
 
     @staticmethod
     def _normalized(db_url: str) -> "URL":
