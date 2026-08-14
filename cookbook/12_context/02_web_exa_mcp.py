@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 
 from egpt.agent import Agent
-from egpt.context.web import ExaMCPBackend, WebContextProvider
+from egpt.integrations.context.web import ExaMCPBackend, WebContextProvider
 from egpt.models.openai import OpenAIResponses
 
 

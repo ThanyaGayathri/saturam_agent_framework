@@ -57,7 +57,7 @@ class TestCalendarDelegatedUserDecision:
     @pytest.fixture
     def cls(self):
         pytest.importorskip("googleapiclient", reason="the calendar provider imports Google SDKs at module level")
-        from egpt.context.calendar.provider import GoogleCalendarContextProvider
+        from egpt.integrations.context.calendar.provider import GoogleCalendarContextProvider
 
         return GoogleCalendarContextProvider
 

@@ -1,106 +1,27 @@
-"""ExaMCPBackend — keyless (or keyed) web search via Exa's public MCP server.
+"""Deprecated compatibility shim (EGPT-1.7a).
 
-Exposes Exa's `web_search_exa` + `web_fetch_exa` tools to the calling
-agent. The default endpoint is keyless; passing `api_key` (or setting
-`EXA_API_KEY`) raises the rate ceiling.
+Import from ``egpt.integrations.context.web.exa_mcp`` instead; this module will be removed.
 
-Fallback option — prefer `ExaBackend` (direct SDK) when `EXA_API_KEY`
-is set. MCP adds connection-setup overhead that isn't worth it when
-the SDK path is available.
+Names are re-exported via a wildcard star-import against the target module (not proxied
+through ``__getattr__`` alone), so star-imports, ``dir()`` and static type checking keep
+working on this path.
+
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
 """
 
-from __future__ import annotations
+import warnings as _warnings
 
-import asyncio
-from collections.abc import Sequence
-from os import getenv
-from typing import Any
+import egpt.integrations.context.web.exa_mcp as _target
+from egpt.integrations.context.web.exa_mcp import *  # noqa: F401,F403
 
-from egpt.context.backend import ContextBackend
-from egpt.context.provider import Status
-from egpt.utils.log import log_warning
-
-_BASE_URL = "https://mcp.exa.ai/mcp"
-_DEFAULT_TOOLS: Sequence[str] = ("web_search_exa", "web_fetch_exa")
+_warnings.warn(
+    "egpt.context.web.exa_mcp is deprecated; import from egpt.integrations.context.web.exa_mcp instead. "
+    "This shim will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-class ExaMCPBackend(ContextBackend):
-    """Backend for `WebContextProvider` that speaks to Exa's MCP server."""
-
-    def __init__(
-        self,
-        *,
-        api_key: str | None = None,
-        timeout_seconds: int = 60,
-        include_tools: Sequence[str] | None = _DEFAULT_TOOLS,
-        exclude_tools: Sequence[str] | None = None,
-        tool_name_prefix: str | None = None,
-    ) -> None:
-        self.api_key = api_key if api_key is not None else (getenv("EXA_API_KEY", "") or None)
-        self.timeout_seconds = timeout_seconds
-        self.include_tools = list(include_tools) if include_tools is not None else None
-        self.exclude_tools = list(exclude_tools) if exclude_tools is not None else None
-        self.tool_name_prefix = tool_name_prefix
-        # Build URL with tool filter query param
-        tools_param = ",".join(self.include_tools) if self.include_tools else ""
-        if self.api_key:
-            self.url = f"{_BASE_URL}?exaApiKey={self.api_key}&tools={tools_param}"
-        else:
-            self.url = f"{_BASE_URL}?tools={tools_param}"
-        self._mcp_tools: Any = None
-
-    def status(self) -> Status:
-        return Status(ok=True, detail=f"mcp.exa.ai ({'keyed' if self.api_key else 'keyless'})")
-
-    async def astatus(self) -> Status:
-        return await asyncio.to_thread(self.status)
-
-    def get_tools(self) -> list:
-        if self._mcp_tools is None:
-            self._mcp_tools = self._build_tools()
-        return [self._mcp_tools]
-
-    def _build_tools(self) -> Any:
-        from datetime import timedelta
-
-        from egpt.integrations.tools.mcp import MCPTools
-        from egpt.integrations.tools.mcp.params import StreamableHTTPClientParams
-
-        server_params = StreamableHTTPClientParams(
-            url=self.url,
-            timeout=timedelta(seconds=self.timeout_seconds),
-        )
-        return MCPTools(
-            server_params=server_params,
-            transport="streamable-http",
-            exclude_tools=self.exclude_tools,
-            tool_name_prefix=self.tool_name_prefix,
-            timeout_seconds=self.timeout_seconds,
-        )
-
-    async def asetup(self) -> None:
-        """Connect to the Exa MCP server.
-
-        On failure, logs a warning; the web backend will be
-        unavailable until the next restart.
-        """
-        if self._mcp_tools is None:
-            self._mcp_tools = self._build_tools()
-        if getattr(self._mcp_tools, "initialized", False):
-            return
-        try:
-            await self._mcp_tools._connect()
-        except Exception as exc:
-            log_warning(f"ExaMCPBackend setup failed — {type(exc).__name__}: {exc}.")
-            self._mcp_tools = None
-
-    async def aclose(self) -> None:
-        """Close the MCP session and drop cached state."""
-        tools = self._mcp_tools
-        self._mcp_tools = None
-        if tools is None:
-            return
-        try:
-            await tools.close()
-        except Exception as exc:
-            log_warning(f"ExaMCPBackend close raised {type(exc).__name__}: {exc}")
+def __getattr__(name: str):
+    return getattr(_target, name)

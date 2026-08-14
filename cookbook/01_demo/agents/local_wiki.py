@@ -15,8 +15,8 @@ from pathlib import Path
 
 from db import get_db
 from egpt.agent import Agent
-from egpt.context.web import ParallelMCPBackend
 from egpt.context.wiki import FileSystemBackend, WikiContextProvider
+from egpt.integrations.context.web import ParallelMCPBackend
 from settings import default_model, html_tools, sub_agent_model
 
 WIKI_PATH = Path(__file__).resolve().parents[1] / "data" / "wiki"

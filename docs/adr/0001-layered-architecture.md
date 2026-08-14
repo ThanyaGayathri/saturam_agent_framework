@@ -88,6 +88,47 @@ Still open after EGPT-1.9, recorded so it is not mistaken for done:
 - **Prerequisite 6 is half discharged.** All 18 embedders now have declaration rows, so every embedder *is* reachable by name (`test_every_embedder_subclass_is_registered` keeps the table complete, and keys are the module basename, following the db and vectordb kinds rather than the hyphenated model slugs users type). What remains is the consumer: memory still imports its embedder rather than resolving one by string, so Mode A↔B is not yet a config swap. That is memory-side work under SM-R3/SM-R4, not registry work — the seam it needs exists.
 - **Readers were left out of scope.** `knowledge/reader/reader_factory.py` keeps its own method-local `reader_class_map`, so after EGPT-1.9 core still names integration modules in two directories rather than one. EGPT-1.11's import-linter contracts must account for both.
 
+#### Runtime construction seam (sub-agents) — normative, added EGPT-1.7a
+
+EGPT-1.7a extracts the context connectors (`context/gmail/`, `slack/`, `gdrive/`, `calendar/`,
+`google/`, `web/`, `database/`, `mcp/`, and the git/Notion halves of `context/wiki/`) into
+`integrations/context/*`. Every one of them builds a sub-agent to wrap its toolkit — but
+`egpt.agent.Agent` is orchestration, and rule 2 (`integrations → core only`) forbids an
+integrations module from naming it, exactly as rule 3 forbids orchestration from naming a
+concrete integration. Moving the connectors as-is would trade one forbidden edge for the
+other.
+
+**Ratified seam:** a `Protocol` in core (`egpt/registry/protocols.py::RunnableLike` — the
+same file and the same idea as `AgentLike`/`TeamLike`: core depends on the shape an agent
+exposes, not on `egpt.agent`) plus a small, purpose-built construction table
+(`egpt/run/utils.py::construct_runnable`/`get_runnable_class`, backed by a `_ROWS` dict in
+the same module) that resolves `"agent" -> egpt.agent.Agent` by string, mirroring
+`egpt.tools.utils.construct_toolkit`'s shape exactly.
+
+**Deliberately not folded into `egpt.registry.discovery`'s five-`KIND` seam.** That table
+(models/dbs/vectordbs/tools/embedders) exists for adapters a third party can register an
+alternative to under a new name, and is entry-point-capable for exactly that reason. There is
+one orchestration runtime class, not a family of interchangeable ones, so extending the
+shared `KINDS` tuple (and its pinned `entry_point_group` strings, see
+`tests/unit/registry/test_entry_point_discovery.py`) for a caller that was never meant to be
+pluggable would grow the wrong table. `egpt/run/utils.py` reuses the *pattern* — resolve a
+class by string, construct lazily — without joining the *taxonomy*.
+
+**Who calls it:** any `integrations/context/*` provider that used to do
+`from egpt.agent import Agent; Agent(id=..., ...)` now does
+`from egpt.run.utils import construct_runnable; construct_runnable("agent", id=..., ...)`,
+and type-hints the result as `RunnableLike` instead of `Agent`. `context/wiki/backend.py`'s
+`WikiBackend.summarize_diff()` (core, called by the integrations-side `GitBackend`/
+`NotionDatabaseBackend`) uses the same seam internally, for the same reason.
+
+**Scope of this amendment.** The seam is deliberately narrow: only `egpt.agent.Agent` has a
+row today. `integrations/discord/client.py` still imports `egpt.agent.agent.Agent` /
+`egpt.team.team.Team` directly (a pre-existing violation, not introduced by this ticket) and
+the upcoming channel-adapter move (`os/interfaces/*` → `integrations/channels/*`) will hit the
+same edge for `Team` and for whatever protocol `BaseInterface` needs. Both are explicitly out
+of scope for EGPT-1.7a; the seam is shaped so a `"team"` row and a `BaseInterface`-shaped
+protocol can be added later without redesigning it, but neither is added by this ticket.
+
 ### Design decisions
 
 | # | Decision | Rationale | Alternatives considered |
@@ -97,6 +138,7 @@ Still open after EGPT-1.9, recorded so it is not mistaken for done:
 | 3 | Repurpose the existing `integrations/` package | Already exists (near-empty); avoids a redundant top-level | New top-level directory (rejected: redundant) |
 | 4 | Keep the existing `Registry` as the resolution seam, extended with **constructors by name** | Instance `get_*` covers pre-wired objects; constructor `construct_*` covers D2 DB-defined runtime hydration without services importing concretes | Instance-only registry (rejected: cannot hydrate arbitrary DB config); services importing `_PROVIDERS` (rejected: breaks matrix) |
 | 5 | Split interface from implementation in `models/`, `db/`, `vectordb/`, `knowledge/`, `tools/`, `utils/`, `tracing/` | Concrete mechanism that decouples core from integrations | Move whole packages wholesale (rejected: drags interfaces out of core) |
+| 6 | (EGPT-1.7a) A narrow `RunnableLike` protocol + `construct_runnable` seam in core, so integrations can run a sub-agent without importing `egpt.agent` | Only option that also resolves the live `integrations/discord/client.py` breach and the upcoming channel-adapter move (#158) with one rule; a provider/backend split (keep the provider, and its `Agent` construction, in orchestration) does not survive #158, where whole adapters including routers must move | Provider/backend split per connector, generalizing the existing `wiki/`/`web/` shape (rejected: fewer files move for this ticket alone, but does not generalize to #158's whole-adapter moves); `ignore_imports` exemption on the layout guard (rejected: writes the violation into the gate EGPT-1.11 exists to enforce) |
 
 ## Layer → module mapping
 
@@ -113,10 +155,11 @@ Packages marked **split** keep interfaces/types in **core** and move concrete im
 | `vectordb/base.py`, `vectordb/distance.py`, `vectordb/score.py`, `vectordb/search.py` | Vector DB interface + shared search helpers |
 | `knowledge/protocol.py`, `knowledge/types.py`, `knowledge/content.py`, `knowledge/document/`, `knowledge/chunking/`, `knowledge/utils.py`, `knowledge/filesystem.py` | Knowledge interfaces and domain types (not readers/embedders). **`knowledge/knowledge.py` target stays core only after the prerequisite refactor below.** |
 | `tools/function.py`, `tools/toolkit.py`, `tools/decorator.py` | Tool/function interfaces and registration decorator |
-| `run/` | Run context and run-lifecycle domain types |
+| `run/` | Run context and run-lifecycle domain types. **`run/utils.py`** (EGPT-1.7a) is the sub-agent construction seam — see below. |
 | `session/` | Session domain types |
 | `approval/` | Approval domain types and `@approval` decorator |
-| `registry/` | Resolution seam (`Registry`); generalized in EGPT-1.9 |
+| `registry/` | Resolution seam (`Registry`); generalized in EGPT-1.9. **`registry/protocols.py`** carries `AgentLike`/`TeamLike` and, since EGPT-1.7a, `RunnableLike` — see below. |
+| `context/provider.py`, `context/mode.py`, `context/_utils.py`, `context/backend.py`, `context/wiki/backend.py` (`WikiBackendError`, `CommitSummary`, `WikiBackend` ABC, `FileSystemBackend` only) | **(EGPT-1.7a)** The `ContextProvider`/`ContextBackend` contract, domain types, and the one backend with no external dependency. Reclassified from orchestration to core so that concrete connectors — now in `integrations/context/*` — can subclass `ContextProvider`/`WikiBackend` without an `integrations → orchestration` edge. See the split-packages table and the sub-agent construction seam below. |
 | `utils/` (generic only) | Shared helpers with no provider SDKs and no upward layer imports—see split table |
 | `tracing/schemas.py` | Tracing schemas. **`tracing/setup.py` stays out of enforceable core until prerequisite #5** (today imports exporter + `remote.base`). |
 | `exceptions.py`, `filters.py`, `media.py`, `metrics.py`, `brand.py`, `debug.py` | Framework-wide domain / helper modules |
@@ -132,7 +175,7 @@ Packages marked **split** keep interfaces/types in **core** and move concrete im
 | `workflow/` | Workflow runtime |
 | `reasoning/` | Reasoning loops / strategies |
 | `hooks/` | Run hooks |
-| `context/` (orchestration subset) | Context builders / assemblers (`backend.py`, `provider.py`, `mode.py`, `workspace/`, `fs/`, `wiki/`, …) |
+| `context/` (orchestration subset) | Local providers with no external dependency: `fs/`, `workspace/`, `wiki/provider.py`. **(EGPT-1.7a)** `backend.py`, `provider.py`, `mode.py`, `_utils.py`, and `wiki/backend.py`'s ABC/local half moved to the core table above; the eight external connectors moved to integrations (see below). |
 | `utils/agent.py`, `utils/team.py`, `utils/events.py`, `utils/reasoning.py`, `utils/response.py`, `utils/hooks.py`, `utils/print_response/` | Helpers that import orchestration and/or services; cannot live in core |
 
 ### services
@@ -162,7 +205,8 @@ Packages marked **split** keep interfaces/types in **core** and move concrete im
 | `knowledge/reader/`, `knowledge/embedder/`, `knowledge/reranker/`, `knowledge/loaders/`, `knowledge/remote_content/`, `knowledge/remote_knowledge.py` | I/O and remote knowledge adapters; embedders used by memory Mode A/B live here |
 | `tracing/exporter.py` (+ provider-specific exporters when added) | Tracing exporters |
 | `utils/gemini.py`, `utils/openai.py`, `utils/mcp.py`, `utils/streamlit.py`, `utils/models/` | Provider-/SDK-specific helpers |
-| External connectors currently under `context/` (e.g. `gmail/`, `slack/`, `gdrive/`, `calendar/`, `google/`, `web/`, `database/`, `mcp/`) | Move into integrations when extracted |
+| `context/{calendar,database,gdrive,gmail,google,mcp,slack,web}/` | **Moved in EGPT-1.7a.** Each connector's `Agent` construction now goes through `construct_runnable` (see the sub-agent construction seam above) instead of a static `egpt.agent` import; `slack/provider.py`'s toolkit construction already went through `construct_toolkit` since EGPT-1.7. |
+| `context/wiki/{git_ops.py,notion_ops.py}`, and `GitBackend`/`NotionDatabaseBackend`/`NotionPageBackend` (split out of `wiki/backend.py`) | **Moved in EGPT-1.7a**, alongside each other under `integrations/context/wiki/`. `git_ops.py`/`notion_ops.py` have no `egpt` dependency and moved verbatim. |
 | Provider-specific slices of `cloud/` (e.g. `cloud/aws/`) | Cloud-provider deploy adapters (see api note) |
 
 ### api / control-plane
@@ -188,7 +232,7 @@ These packages are the central decoupling mechanism. Interfaces stay addressable
 | `tools/` | `function.py`, `toolkit.py`, `decorator.py` | **Integrations:** all toolkit modules, `mcp/`, `mcp_toolbox.py`, and similar adapters |
 | `tracing/` | `schemas.py`; **`setup.py` only after prerequisite #5** | **Integrations:** `exporter.py` and concrete exporters; setup may live at composition root until refactored |
 | `utils/` | Generic helpers only (e.g. `log.py`, `http.py`, `env.py`, `dttm.py`, `string` helpers, `media.py`, `json_schema.py`, `encryption.py`, …) | **Integrations:** `gemini.py`, `openai.py`, `mcp.py`, `streamlit.py`, `models/`. **Orchestration:** `agent.py`, `team.py`, `events.py`, `reasoning.py`, `response.py`, `hooks.py`, `print_response/` |
-| `context/` | — (no core slice) | **Orchestration:** builders/assemblers. **Integrations:** external connectors (`gmail/`, `slack/`, `gdrive/`, …) |
+| `context/` | **(EGPT-1.7a)** `provider.py`, `mode.py`, `_utils.py`, `backend.py`, `wiki/backend.py`'s ABC/local half (contract + domain types) | **Orchestration:** local providers with no external dependency (`fs/`, `workspace/`, `wiki/provider.py`). **Integrations:** the eight external connectors (`gmail/`, `slack/`, `gdrive/`, `calendar/`, `google/`, `web/`, `database/`, `mcp/`) and `wiki/`'s git/Notion backends — **moved in EGPT-1.7a** |
 | `memory/` | Managers / strategies stay in **services** (not a core split) | **Integrations:** vector-store + embedder backends consumed by memory (via Registry); keeps Mode A↔B a config swap (SM-R3/SM-R4) |
 | `cloud/` | Agnostic control-plane helpers stay in **api** | **Integrations:** provider-specific deploy adapters (e.g. `aws/`) |
 
@@ -208,7 +252,7 @@ Every current **top-level** name under `libs/agno/egpt/` is assigned a primary l
 
 | Top-level | Primary layer |
 |-----------|---------------|
-| `agent`, `agents`, `components`, `team`, `workflow`, `reasoning`, `hooks`, `context` | orchestration (context connectors → integrations when extracted) |
+| `agent`, `agents`, `components`, `team`, `workflow`, `reasoning`, `hooks`, `context` | orchestration (`context` is split as of EGPT-1.7a — see the split-packages table; its core slice is covered by the "interface slices of split packages" row below) |
 | `eval`, `learn`, `memory`, `culture`, `skills`, `scheduler`, `compression`, `factory`, `guardrails` | services |
 | `integrations`, plus concrete slices of `models`, `db`, `vectordb`, `tools`, `knowledge`, `tracing`, `utils` | integrations |
 | `os`, `api`, `client`, `remote`, `cloud` | api / control-plane (`cloud/` provider adapters → integrations when extracted) |
@@ -272,6 +316,9 @@ layers =
 # Note: do not place egpt.knowledge.knowledge here until prerequisite #1 is done.
 # Generic egpt.utils.* modules are added to the core layer after the utils split.
 # Do not place egpt.tracing.setup here until prerequisite #5 is done.
+# EGPT-1.7a: egpt.context is now split, matching knowledge/db/vectordb/tools above --
+# egpt.context.provider/mode/_utils/backend and egpt.context.wiki.backend go in the core
+# layer line instead once EGPT-1.11 encodes this contract per-module rather than per-package.
 
 # 2) Upper layers must not import integrations (matrix N cells).
 #    Also forbid non-allowlisted api modules from importing integrations
@@ -365,6 +412,36 @@ forbidden_modules =
 
 EGPT-1.11 must expand the `…` placeholders to the full post-move module inventory and keep the matrix cells unchanged.
 
+**Status after EGPT-1.11 (aicoe-tracker#52): partially discharged, scoped down.** The contracts
+are implemented at `libs/agno/pyproject.toml` `[tool.importlinter]`, but only for the
+*integrations column* of the matrix (core/orchestration/services/api ↔ integrations) — not the
+*layer-ordering* cells this sketch's contract #1 (`type = layers`) also covers
+(core→orchestration/services/api, services→orchestration/api, orchestration→api). Encoding those
+against the real tree surfaced ~42 direct violations that are not toolkit/connector debt like the
+A13 item below (A8 was cleared by EGPT-1.7a/aicoe-tracker#157 while this PR was in flight — see
+its own update to this ADR above), but look like deliberate, undocumented design choices: `egpt.run.*`
+(core) structurally references `egpt.reasoning`/`egpt.workflow` types in its event data models,
+the `Remote*` wrapper classes (`agent.remote`, `team.remote`, `workflow.remote`, plus `_run`/
+`_telemetry`) couple orchestration to `egpt.os`/`egpt.client`/`egpt.remote` for HTTP/telemetry,
+and `egpt.eval.*` couples services to `egpt.api.evals`. None of that is owned by an existing
+ticket, and reconciling it needs a design decision (an ADR amendment, most likely), not a lint
+rule — see [aicoe-tracker#180](https://github.com/Saturam-Inc/aicoe-tracker/issues/180) for tracking. Encoding the layer-ordering
+cells is deferred to that follow-up.
+
+For the integrations column that *is* now enforced: contracts use `allow_indirect_imports = true`
+(checking direct imports only, not the whole transitive reachability grimp's default would check
+— see the comment in `pyproject.toml`), and carry **no** `ignore_imports` for the A13 debt or
+for the toolkit/model-provider files found to reference `egpt.agent`/`egpt.team` directly during
+this work (tracked as [aicoe-tracker#180](https://github.com/Saturam-Inc/aicoe-tracker/issues/180)) — a stakeholder comment on aicoe-tracker#52
+explicitly rejected masking that debt this way. `libs/agno/tests/unit/test_import_linter_contracts.py`
+tracks the exact known set instead, and the `import-linter` CI job is intentionally
+non-required until that set is empty. `egpt.context` itself is excluded from these contracts'
+module lists (like `egpt.db`/`egpt.models`/`egpt.vectordb`/`egpt.knowledge`/`egpt.tools`): EGPT-1.7a
+gave it its own dedicated guard, `tests/unit/context/test_context_layout.py`, which checks the
+same boundary with connector-specific precision — including the `integrations.context.* ->
+egpt.agent/team/workflow` edge, via the `RunnableLike`/`construct_runnable` seam that ticket
+introduced.
+
 ## Consequences
 
 ### Positive
@@ -383,6 +460,11 @@ EGPT-1.11 must expand the `…` placeholders to the full post-move module invent
 - `context/` and `utils/` are mixed packages; extraction must follow the split table.
 - `knowledge/knowledge.py`, `models/utils.py` (constructor registration), provider utils, `tracing/setup.py`, memory backend wiring, and Registry↔Agent/Team typing are explicit prerequisites (see above).
 - Private `docs/` symlink workflow: this repo tracks only `docs/adr/` (see `.gitignore`). Prefer not to replace `docs/` with a full external symlink that would shadow the tracked ADR tree; keep private docs elsewhere or nest them beside `adr/`.
+- The layer-ordering cells of the matrix (core/services/orchestration relative to each other, as
+  opposed to the integrations column) are not yet CI-enforced — see the EGPT-1.11 status note
+  above. `egpt.run.*`'s coupling to `egpt.reasoning`/`egpt.workflow` and the `Remote*` wrapper
+  classes' coupling to `egpt.os`/`egpt.client`/`egpt.remote` in particular look like they need
+  this ADR amended (a seam or a reclassification), not just code moves.
 
 ### Out of scope for this ADR
 

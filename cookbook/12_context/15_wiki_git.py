@@ -34,7 +34,8 @@ import sys
 from pathlib import Path
 
 from egpt.agent import Agent
-from egpt.context.wiki import GitBackend, WikiContextProvider
+from egpt.context.wiki import WikiContextProvider
+from egpt.integrations.context.wiki import GitBackend
 from egpt.models.openai import OpenAIResponses
 
 REPO_URL = os.getenv("WIKI_REPO_URL")

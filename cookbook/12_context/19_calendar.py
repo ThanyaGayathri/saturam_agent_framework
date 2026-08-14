@@ -45,7 +45,7 @@ from __future__ import annotations
 import asyncio
 
 from egpt.agent import Agent
-from egpt.context.calendar import GoogleCalendarContextProvider
+from egpt.integrations.context.calendar import GoogleCalendarContextProvider
 from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------
