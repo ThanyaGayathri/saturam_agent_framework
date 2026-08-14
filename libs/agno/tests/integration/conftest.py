@@ -69,6 +69,7 @@ _PATH_ENV_REQUIREMENTS: tuple[tuple[str, str], ...] = (
     ("os/hydration_postgres", "EGPT_INTEGRATION_POSTGRES"),
     # The component lifecycle audit trail (EGPT-2.6), same rationale.
     ("os/audit_postgres", "EGPT_INTEGRATION_POSTGRES"),
+    ("memory/neo4j", "EGPT_INTEGRATION_NEO4J"),
     # Seeding and portable import/export of definitions (EGPT-2.8). Needs real Postgres for a
     # reason SQLite cannot supply: jsonb normalizes key order, so a round-trip assertion written
     # as string equality passes on SQLite's TEXT and fails here.

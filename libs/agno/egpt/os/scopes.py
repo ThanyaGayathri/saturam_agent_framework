@@ -567,12 +567,18 @@ def get_default_scope_mappings() -> Dict[str, List[str]]:
         "GET /registry": ["registry:read"],
         # Component endpoints (Studio)
         "GET /components": ["components:read"],
-        # Portable definitions (EGPT-2.8). These sit ABOVE the wildcards on purpose: the
-        # fallback below takes the first pattern that fnmatches, in insertion order, so
-        # "GET /components/*" would otherwise swallow the export route and decide its scope by
-        # accident rather than by decision. Reordering this dict silently changes authorization.
+        # Literal component routes (EGPT-2.8 portability, EGPT-2.9 dry-run validation). These sit
+        # ABOVE the wildcards on purpose: the fallback below takes the first pattern that
+        # fnmatches, in insertion order, so "GET /components/*" would otherwise swallow the export
+        # route and decide its scope by accident rather than by decision. No "POST /components/*"
+        # entry exists today, so the two POSTs here are not yet at risk -- keeping them in this
+        # block is what makes that survive the day one is added. Reordering this dict silently
+        # changes authorization.
         "GET /components/*/export": ["components:read"],
         "POST /components/import": ["components:write"],
+        # Write, not read: the dry run evaluates the same capability allow-list a write does, so a
+        # read-only caller has no business probing which models the tenant policy permits.
+        "POST /components/validate": ["components:write"],
         "GET /components/*": ["components:read"],
         "POST /components": ["components:write"],
         "PATCH /components/*": ["components:write"],

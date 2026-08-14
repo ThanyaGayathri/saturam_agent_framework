@@ -33,6 +33,24 @@ if TYPE_CHECKING:
 # be allowed to claim it (see is_reserved_principal).
 INTERNAL_SCHEDULER_USER_ID = "__scheduler__"
 
+# Routes excluded from JWT/RBAC checks unless a caller passes its own list. Documentation and the
+# OpenAPI document itself carry no tenant data, and "/" is the unauthenticated liveness surface.
+#
+# A module constant rather than a literal inside the method below because `EgptOS` has to *extend*
+# it: passing `excluded_route_paths` replaces these defaults wholesale, so anything that needs one
+# more entry (a self-authenticating interface prefix, the admin console page) would otherwise have
+# to repeat all of them and could drift silently. Callers get a copy -- this list must not be
+# mutable through them.
+DEFAULT_EXCLUDED_ROUTE_PATHS: List[str] = [
+    "/",
+    "/health",
+    "/info",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+    "/docs/oauth2-redirect",
+]
+
 # Private request.state marker set only by this middleware once it has decided a request's
 # auth. The mount short-circuit reads THIS, not the public request.state.authenticated
 # flag, so no other middleware can trip it.
@@ -730,15 +748,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     def _get_default_excluded_routes(self) -> List[str]:
         """Get default routes that should be excluded from RBAC checks."""
-        return [
-            "/",
-            "/health",
-            "/info",
-            "/docs",
-            "/redoc",
-            "/openapi.json",
-            "/docs/oauth2-redirect",
-        ]
+        return list(DEFAULT_EXCLUDED_ROUTE_PATHS)
 
     def _extract_resource_id_from_path(self, path: str, resource_type: str) -> Optional[str]:
         """

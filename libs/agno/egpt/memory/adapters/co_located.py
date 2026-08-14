@@ -17,11 +17,17 @@ an episode or a fact, which tier consolidation reads and which it writes -- is r
 """
 
 import asyncio
+import inspect
 from dataclasses import replace
 from typing import Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple
 from uuid import NAMESPACE_OID, uuid4, uuid5
 
-from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, register_provider
+from egpt.memory.config import (
+    MemoryProviderConfig,
+    MemoryProviderConfigError,
+    register_provider,
+    resolve_substrate,
+)
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
 from egpt.memory.tiers import (
@@ -175,6 +181,48 @@ class CoLocatedMemoryProvider(MemoryProvider):
         """A tier is served when a wired substrate stores it, so a vector-only provider serves
         three of the four and a graph-only one serves two."""
         return {tier: bool(substrates_for_tier(tier) & self._wired()) for tier in MemoryTier}
+
+    def close(self) -> None:
+        """Close whichever substrates hold something. Duck-typed, because the ports do not name it.
+
+        Adding ``close`` to ``VectorSubstrate`` / ``GraphSubstrate`` would make every in-memory
+        double implement an empty method to satisfy a Protocol, so a backend that has nothing to
+        release simply does not have the attribute.
+        """
+        failures: List[BaseException] = []
+        for substrate in (self.vector, self.graph):
+            closer = getattr(substrate, "close", None)
+            if callable(closer):
+                try:
+                    closer()
+                except Exception as exc:  # noqa: PERF203 - every substrate gets closed regardless
+                    failures.append(exc)
+        self._raise_close_failure(failures)
+
+    @staticmethod
+    def _raise_close_failure(failures: Sequence[BaseException]) -> None:
+        """Close everything, then report. Shared so neither half can stop at the first failure.
+
+        Latent while the vector substrate holds nothing, and exactly the kind of latent that stops
+        being latent: SM-V1 (#95) brings a second connection pool, and a raising vector closer would
+        otherwise leave the graph pool open with nothing to reopen it.
+        """
+        if failures:
+            raise failures[0]
+
+    async def aclose(self) -> None:
+        failures: List[BaseException] = []
+        for substrate in (self.vector, self.graph):
+            closer = getattr(substrate, "aclose", None) or getattr(substrate, "close", None)
+            if not callable(closer):
+                continue
+            try:
+                result = closer()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:  # noqa: PERF203 - as above
+                failures.append(exc)
+        self._raise_close_failure(failures)
 
     # -- guards ---------------------------------------------------------------
 
@@ -414,17 +462,25 @@ class CoLocatedMemoryProvider(MemoryProvider):
             if self.vector is not None and vector_records:
                 self.vector.upsert(scope, vector_records)
             if self.graph is not None:
-                # Every event is attempted, then failures are raised together -- the sync half of
+                # Both verbs are attempted, then failures are raised together -- the sync half of
                 # the settle-then-propagate rule `_gather_writes` applies. A refusal is collected
                 # like any other failure rather than short-circuiting: an `except
                 # MemoryOperationError: raise` arm here left the two halves three graph rows apart
                 # for one identical failure, which is the divergence this loop exists to prevent.
+                episodes, facts = self._graph_batches(stamped, records)
                 failures: List[BaseException] = []
-                for event, record in zip(stamped, records):
+
+                def attempt(write: Any, batch: Sequence[Any]) -> None:
+                    """One try/except, shared by both verbs. Written twice, they drift."""
+                    if not batch:
+                        return
                     try:
-                        self._graph_write(scope, event, record)
-                    except Exception as exc:  # noqa: PERF203 - per-event isolation is the point
+                        write(scope, batch)
+                    except Exception as exc:
                         failures.append(exc)
+
+                attempt(self.graph.upsert_episodes, episodes)
+                attempt(self.graph.upsert_facts, facts)
                 self._raise_write_failure(failures, receipt)
         except (PartialWriteError, MemoryOperationError):
             raise  # already shaped by `_raise_write_failure`; re-wrapping buries the cause
@@ -440,22 +496,20 @@ class CoLocatedMemoryProvider(MemoryProvider):
             if self.vector is not None and vector_records:
                 await self.vector.aupsert(scope, vector_records)
             if self.graph is not None:
-                # Gathered, not serial: a batch write is the stronger case for concurrency than the
-                # read path, since the serial count is len(events) rather than 2. The port wants
-                # `upsert_episodes` / `upsert_facts` eventually -- adding them after SM-G1 ships
-                # implementors is a breaking Protocol change, so it is cheapest now.
-                #
-                # Parity with the sync half comes from *both* attempting every event, not from
+                # Parity with the sync half comes from *both* attempting every verb, not from
                 # `gather` itself: bare `gather` propagates the first exception without cancelling
                 # its siblings, so they commit regardless. What `return_exceptions=True` adds is
                 # deterministic selection -- a `MemoryOperationError` among the failures must win
                 # over a transport error, or the same batch reports "retry me" on one run and
                 # "this will never work" on the next -- and it stops sibling exceptions becoming
                 # never-retrieved warnings.
-                await self._gather_writes(
-                    [self._agraph_write(scope, e, r) for e, r in zip(stamped, records)],
-                    receipt,
-                )
+                episodes, facts = self._graph_batches(stamped, records)
+                writes: List[Awaitable[Any]] = []
+                if episodes:
+                    writes.append(self.graph.aupsert_episodes(scope, episodes))
+                if facts:
+                    writes.append(self.graph.aupsert_facts(scope, facts))
+                await self._gather_writes(writes, receipt)
         except (PartialWriteError, MemoryOperationError):
             raise  # already shaped by `_raise_write_failure`; re-wrapping buries the cause
         except Exception as exc:
@@ -501,25 +555,27 @@ class CoLocatedMemoryProvider(MemoryProvider):
         results = await asyncio.gather(*(bounded(c) for c in coroutines), return_exceptions=True)
         self._raise_write_failure([r for r in results if isinstance(r, BaseException)], receipt)
 
-    def _graph_write(self, scope: Scope, event: MemoryEvent, record: MemoryRecord) -> None:
-        """Shaped by ``TIER_POLICY``, not by an ``is SEMANTIC`` test: a fact and an episode are
-        different graph writes, and which a tier gets is policy both halves must read alike."""
-        if self.graph is None:
-            return
-        shape = graph_shape_for_tier(event.tier)
-        if shape is GraphWriteShape.FACT:
-            self.graph.upsert_fact(scope, FactWrite(record=record, derived_by="co_located.direct_write"))
-        elif shape is GraphWriteShape.EPISODE:
-            self.graph.upsert_episode(scope, event)
+    @staticmethod
+    def _graph_batches(
+        stamped: Sequence[MemoryEvent], records: Sequence[MemoryRecord]
+    ) -> Tuple[List[MemoryEvent], List[FactWrite]]:
+        """Split one write into the graph's two verbs. Routing lives here, once, for both halves.
 
-    async def _agraph_write(self, scope: Scope, event: MemoryEvent, record: MemoryRecord) -> None:
-        if self.graph is None:
-            return
-        shape = graph_shape_for_tier(event.tier)
-        if shape is GraphWriteShape.FACT:
-            await self.graph.aupsert_fact(scope, FactWrite(record=record, derived_by="co_located.direct_write"))
-        elif shape is GraphWriteShape.EPISODE:
-            await self.graph.aupsert_episode(scope, event)
+        A semantic memory is a fact, not an episode: routing it through the episode verb produces a
+        flat pseudo-episode rather than the entity/relation shape SM-R7 intends (finding F9).
+        """
+        episodes: List[MemoryEvent] = []
+        facts: List[FactWrite] = []
+        for event, record in zip(stamped, records):
+            # Shaped by `TIER_POLICY`, not by an `is SEMANTIC` test. The table guarantees a
+            # graph shape exactly when the tier routes to the graph, so this one lookup also
+            # decides whether the event reaches the graph at all.
+            shape = graph_shape_for_tier(event.tier)
+            if shape is GraphWriteShape.FACT:
+                facts.append(FactWrite(record=record, derived_by="co_located.direct_write"))
+            elif shape is GraphWriteShape.EPISODE:
+                episodes.append(event)
+        return episodes, facts
 
     def write_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
         # Hoisted, because `_prepare`'s guard is inside the per-event loop: an empty batch never
@@ -813,9 +869,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
     def _fact_targets(self, facts: Sequence[FactWrite]) -> Tuple[bool, bool]:
         """Which substrates the consolidation target tier routes to, per ``TIER_POLICY``.
 
-        ``write`` filters by routing and ``_graph_write`` returns early when a tier does not reach
-        the graph; consolidate did neither, so it wrote wherever a substrate happened to be wired.
-        Latent while the target routes to both, and silent the moment the table changes a row.
+        ``write`` filters by routing and ``_graph_batches`` drops a tier that does not reach the
+        graph; consolidate did neither, so it wrote wherever a substrate happened to be wired.
+        Latent while SEMANTIC routes to both -- and silent the moment SM-C2 (#90), which owns that
+        table, changes a row.
         """
         routed = substrates_for_tier(CONSOLIDATION_TARGET) if facts else frozenset()
         return "vector" in routed, "graph" in routed
@@ -837,20 +894,46 @@ class CoLocatedMemoryProvider(MemoryProvider):
         await self._areconcile_bounds(scope, episodes)
         return [e for e in episodes if e.is_current_belief() and _valid_at(e, instant)]
 
+    @staticmethod
+    def _check_distilled(facts: Sequence[FactWrite]) -> None:
+        """The guard ``_prepare`` applies to a write batch, applied to a consolidated one.
+
+        Called **before** either half writes anything, for two reasons. One function both halves
+        call cannot drift -- added to the sync path alone, it was missing from the async one a
+        review later. And a refusal before the fan-out must propagate bare: inside the write's
+        ``try`` it was reshaped into a ``PartialWriteError`` announcing zero committed ids, which
+        tells a caller to retry something that never started.
+
+        ``_distil``'s grouping partitions its input, so no two groups can derive one fact id today
+        -- but that is a property of the current strategy, which SM-L3 (#124) replaces, and an
+        un-enforced invariant one refactor from reopening a duplicate-row hole is worth one call.
+        """
+        reject_duplicate_ids([fact.record for fact in facts])
+
     def _graph_fact_batch(self, fact_scope: Scope, batch: Sequence[FactWrite], receipt: WriteReceipt) -> None:
         """The sync counterpart of ``_gather_writes`` for one batch of facts.
 
-        A bare loop here aborted on the first raise while the async half settled the whole batch --
-        so one identical failure left the two verbs with different durable state, and a mixed
-        failure gave them **opposite retry advice**. `write` carries a shared
-        ``_raise_write_failure`` for exactly this; consolidate never had it carried across.
+        **A batched write reports one failure, not the best of several.** The per-fact loop this
+        replaced could collect a transport error *and* a refusal from one batch and let
+        ``_raise_write_failure`` pick the refusal as the cause; a single call raises once, so that
+        selection has nothing to choose between here. The trade is deliberate -- one round trip per
+        scope group was the point -- and the selection still matters on the `write` path, where the
+        two verbs fan out and can fail differently
+        (`test_a_refusal_among_concurrent_failures_wins_over_a_transport_error`). The consolidate
+        test's own "mixed" case was dropped for exactly this reason, which its docstring records.
+
+        Both halves now make **one** call, so they cannot diverge on how many facts they attempted.
+        What still has to be shared is how a failure is *shaped*: ``upsert_facts`` is explicitly not
+        required to be atomic, so a batch that raises may have committed part of itself. That is a
+        partial write whatever else has happened, which is why it is shaped here rather than left to
+        ``consolidate``'s ``committed_any`` arm -- that arm would report a bare refusal, and a bare
+        refusal denies the caller the ids its retry needs.
         """
         failures: List[BaseException] = []
-        for fact in batch:
-            try:
-                self.graph.upsert_fact(fact_scope, fact)  # type: ignore[union-attr]  # caller checked
-            except Exception as exc:  # noqa: PERF203 - per-fact isolation, as in `write`
-                failures.append(exc)
+        try:
+            self.graph.upsert_facts(fact_scope, batch)  # type: ignore[union-attr]  # caller checked
+        except Exception as exc:
+            failures.append(exc)
         self._raise_write_failure(failures, receipt)
 
     def consolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
@@ -865,6 +948,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         facts, merged = self._distil(episodes)
 
         if facts:
+            self._check_distilled(facts)
             to_vector, to_graph = self._fact_targets(facts)
             # Stamped up front, exactly as `write` does. Advancing counters inside the loop left
             # `accepted=0, event_ids=[]` on every single-scope failure -- the ordinary case -- while
@@ -911,6 +995,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         facts, merged = await asyncio.to_thread(self._distil, episodes)
 
         if facts:
+            self._check_distilled(facts)
             to_vector, to_graph = self._fact_targets(facts)
             receipt = WriteReceipt(
                 accepted=len(facts),
@@ -924,7 +1009,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
                         await vector.aupsert(fact_scope, [f.record for f in batch])
                         committed_any = True
                     if to_graph and self.graph is not None:
-                        await self._gather_writes([self.graph.aupsert_fact(fact_scope, f) for f in batch], receipt)
+                        await self._gather_writes([self.graph.aupsert_facts(fact_scope, batch)], receipt)
                         committed_any = True
             except PartialWriteError:
                 raise
@@ -939,12 +1024,23 @@ class CoLocatedMemoryProvider(MemoryProvider):
 
 @register_provider("co_located")
 def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
-    """Substrates arrive through ``config.options`` until SM-V1 (#95) / SM-G1 (#99) register real
-    backends, at which point ``config.vector``/``config.graph`` resolve through
-    ``egpt.registry.discovery.construct`` and this stays the only construction call site."""
+    """The only construction call site, for a real backend and an injected double alike.
+
+    ``config.graph`` resolves through ``egpt.registry.discovery.construct`` (SM-G1 #99);
+    ``config.vector`` will do the same once SM-V1 (#95) registers a ``vectordb``-backed substrate,
+    and takes the identical path today so the two cannot diverge. ``options`` keeps carrying an
+    already-built substrate, which is how a test injects a double.
+    """
     return CoLocatedMemoryProvider(
-        vector=checked_vector(config.options.get("vector_substrate")),
-        graph=checked_graph(config.options.get("graph_substrate")),
+        # `vector` has no registry kind yet: no registered `vectordb` satisfies `VectorSubstrate`,
+        # whose async methods carry the `a` prefix rather than `VectorDb`'s `async_`. SM-V1 (#95)
+        # owns that bridge; until then the field is refused rather than quietly dropped.
+        vector=resolve_substrate(
+            "vector", None, config.vector, config.options.get("vector_substrate"), "vector_substrate", checked_vector
+        ),
+        graph=resolve_substrate(
+            "graph", "graphdb", config.graph, config.options.get("graph_substrate"), "graph_substrate", checked_graph
+        ),
         config=config,
         max_episodes_per_pass=config.options.get("max_episodes_per_pass", _MAX_EPISODES_PER_PASS),
         max_concurrent_writes=config.options.get("max_concurrent_writes", _MAX_CONCURRENT_WRITES),

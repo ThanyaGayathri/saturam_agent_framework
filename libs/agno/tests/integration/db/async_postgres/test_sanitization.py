@@ -334,7 +334,32 @@ async def test_span_upsert_sanitizes_fields(async_postgres_db_real: AsyncPostgre
     """Test that null bytes in span fields are sanitized."""
     from datetime import datetime, timezone
 
-    from egpt.tracing.schemas import Span
+    from egpt.tracing.schemas import Span, Trace
+
+    # egpt_spans.trace_id is a real foreign key on Postgres (SQLite does not enforce it), so the
+    # parent trace has to exist first. Without it `create_span` logs the FK violation and returns
+    # None -- the insert never happens and the sanitization assertions below pass vacuously on a
+    # missing row. This suite had never run in CI, which is how that went unnoticed.
+    now = datetime.now(timezone.utc)
+    await async_postgres_db_real.upsert_trace(
+        Trace(
+            trace_id="test_trace_null",
+            name="TraceName",
+            status="OK",
+            start_time=now,
+            end_time=now,
+            duration_ms=50,
+            total_spans=1,
+            error_count=0,
+            run_id=None,
+            session_id=None,
+            user_id=None,
+            agent_id=None,
+            team_id=None,
+            workflow_id=None,
+            created_at=now,
+        )
+    )
 
     span = Span(
         span_id="test_span_null",

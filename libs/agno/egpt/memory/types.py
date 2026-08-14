@@ -69,7 +69,7 @@ class PartialWriteError(RuntimeError):
     The ids matter more than the failure. A provider mints an id for any event lacking one, so a
     naive retry writes *fresh* rows for the same logical memories -- finding F1 arriving through the
     error path. Carrying the receipt lets a caller retry with ``MemoryEvent.id`` set, which is
-    idempotent provided the substrate upserts by id (see ``GraphSubstrate.upsert_episode``).
+    idempotent provided the substrate upserts by id (see ``GraphSubstrate.upsert_episodes``).
 
     **``event_ids`` are the ids a retry must reuse**, and ``accepted`` is how many of them there
     are. That is the one reading true of both adapters and the one the retry advice needs. On

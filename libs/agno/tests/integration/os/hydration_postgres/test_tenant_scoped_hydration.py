@@ -51,6 +51,8 @@ ALL_SCOPES = [
     "teams:read",
     "teams:write",
     "teams:run",
+    "workflows:read",
+    "workflows:run",
 ]
 
 MOCK_MODEL = {"id": "mock-1", "provider": "mock", "name": "MockModel"}
@@ -304,6 +306,92 @@ class TestTeamOfDbMembersHydrates:
 
         foreign = client.get("/teams/db-team", headers=auth(tenant=TENANT_B))
         assert foreign.status_code == 404
+
+
+class TestWorkflowOfDbStepsHydrates:
+    """The third hydration recursion, on Postgres (EGPT-2.10).
+
+    A team resolves its members and a workflow resolves its *steps*; those are different code
+    paths (`Team.from_dict` via `load_component_graph` versus `Step.from_dict` falling back to
+    `get_agent_by_id`), and only the first one was covered here. The step fallback is the one
+    that has to carry the caller's tenant into a nested read, so a scoped workflow cannot end up
+    executing another tenant's agent.
+    """
+
+    WORKFLOW_CONFIG = {
+        "name": "DB Workflow",
+        "steps": [{"type": "Step", "name": "step-1", "agent_id": "wf-agent"}],
+    }
+
+    def _create_workflow(self, client, component_id, tenant, config=None):
+        return client.post(
+            "/components",
+            json={
+                "name": component_id,
+                "component_id": component_id,
+                "component_type": "workflow",
+                "config": dict(self.WORKFLOW_CONFIG if config is None else config),
+                "stage": "published",
+            },
+            headers=auth(tenant=tenant),
+        )
+
+    def test_a_workflow_whose_steps_are_db_rows_hydrates_and_runs(self, client):
+        assert create_agent_component(client, "wf-agent", TENANT_A, name="Workflow Agent").status_code == 201
+        assert self._create_workflow(client, "db-workflow", TENANT_A).status_code == 201
+
+        hydrated = client.get("/workflows/db-workflow", headers=auth(tenant=TENANT_A))
+        assert hydrated.status_code == 200, hydrated.text
+
+        run = client.post(
+            "/workflows/db-workflow/runs",
+            data={"message": "hello", "stream": "false"},
+            headers={**auth(tenant=TENANT_A), "Content-Type": "application/x-www-form-urlencoded"},
+        )
+        assert run.status_code == 200, run.text
+        assert "mock answer" in run.text
+
+    def test_tenant_b_cannot_see_or_run_the_workflow(self, client):
+        create_agent_component(client, "wf-agent", TENANT_A)
+        self._create_workflow(client, "db-workflow", TENANT_A)
+
+        assert client.get("/workflows/db-workflow", headers=auth(tenant=TENANT_B)).status_code == 404
+        assert client.get("/workflows", headers=auth(tenant=TENANT_B)).json() == []
+
+        run = client.post(
+            "/workflows/db-workflow/runs",
+            data={"message": "hello", "stream": "false"},
+            headers={**auth(tenant=TENANT_B), "Content-Type": "application/x-www-form-urlencoded"},
+        )
+        assert run.status_code == 404, run.text
+
+    def test_a_step_agent_owned_by_another_tenant_fails_the_hydration_loudly(self, client, hydration_db):
+        """The predicate is real SQL under the step fallback, not a mock honoring intent.
+
+        The step read comes back empty because tenant A cannot see tenant B's agent, and the
+        workflow then refuses to build rather than yielding a step with no executor -- the same
+        doctrine as the partial team. A silently executor-less step would be the dangerous
+        outcome: a workflow that runs and quietly does nothing.
+        """
+        from egpt.registry.hydrate import HydrationError  # noqa: PLC0415
+        from egpt.workflow.workflow import get_workflow_by_id  # noqa: PLC0415
+
+        assert create_agent_component(client, "b-agent", TENANT_B).status_code == 201
+        config = {"name": "Cross Workflow", "steps": [{"type": "Step", "name": "step-1", "agent_id": "b-agent"}]}
+        assert self._create_workflow(client, "cross-workflow", TENANT_A, config=config).status_code == 201
+        assert self._create_workflow(client, "b-workflow", TENANT_B, config=config).status_code == 201
+
+        # One registry for both calls, so the tenant is the only thing that differs. Without it
+        # the step agent would fail to resolve for an unrelated reason -- the mock provider is
+        # only resolvable through the registry -- and the assertion would pass vacuously.
+        registry = Registry(models=[MockModel()])
+
+        with pytest.raises(HydrationError, match="must have one executor"):
+            get_workflow_by_id(db=hydration_db, id="cross-workflow", registry=registry, tenant_id=TENANT_A)
+
+        # Tenant B, who does own the agent, hydrates the same definition without complaint -- so
+        # the refusal above is the tenant predicate, not a broken step definition.
+        assert get_workflow_by_id(db=hydration_db, id="b-workflow", registry=registry, tenant_id=TENANT_B) is not None
 
 
 class TestValidTokenWithoutTenantClaimFailsClosed:

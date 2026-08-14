@@ -58,6 +58,9 @@ ROUTES: List[tuple] = [
     # with endswith, "/components/*" does not suffix-match "/components/*/audit", and an
     # unmapped route under this prefix is a hard 403.
     ("GET", "/components/agent-1/audit", "components:read"),
+    # The dry run (EGPT-2.9) is a write scope: it evaluates the same capability allow-list a real
+    # write does, so it must not be reachable with components:read alone.
+    ("POST", "/components/validate", "components:write"),
 ]
 
 # Bodies that satisfy each write route's request model. Deliberately config-less: a request
@@ -67,6 +70,7 @@ BODIES: Dict[str, Dict[str, Any]] = {
     "PATCH /components/agent-1": {"name": "Renamed"},
     "POST /components/agent-1/configs": {"config": {}},
     "PATCH /components/agent-1/configs/1": {"label": "stable"},
+    "POST /components/validate": {"component_type": "agent", "name": "Test Agent", "config": {}},
 }
 
 

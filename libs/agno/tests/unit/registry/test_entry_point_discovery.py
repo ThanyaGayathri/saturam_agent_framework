@@ -40,15 +40,18 @@ def _install(monkeypatch, kind, entry_points):
 
 
 def test_entry_point_group_names_are_stable():
-    """These five strings are a public contract: a plugin declares one to be discoverable.
+    """These strings are a public contract: a plugin declares one to be discoverable.
 
     Renaming one silently orphans every package that already ships it, so a rename has to be
-    a deliberate edit here rather than a side effect of refactoring the kind names.
+    a deliberate edit here rather than a side effect of refactoring the kind names. Compared as a
+    whole mapping rather than key by key, so *adding* a kind lands here too -- a new group name is
+    the same kind of published string as a renamed one.
     """
     assert {kind: discovery.entry_point_group(kind) for kind in discovery.KINDS} == {
         "model": "egpt.models",
         "db": "egpt.dbs",
         "vectordb": "egpt.vectordbs",
+        "graphdb": "egpt.graphdbs",
         "tool": "egpt.tools",
         "embedder": "egpt.embedders",
     }

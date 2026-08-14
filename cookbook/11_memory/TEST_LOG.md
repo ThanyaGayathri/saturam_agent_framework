@@ -101,7 +101,39 @@ along with the consolidation resumption protocol; a resumable walk is SM-L1's (#
 
 ---
 
-### 10_memory_tiers.py
+### 10_graph_substrate_neo4j.py
+
+**Status:** PASS
+
+**Description:** The temporal knowledge graph behind the seam, against a real Neo4j 5 Community
+started with `cookbook/scripts/run_neo4j.sh`. Shows that choosing a graph backend is a config edit:
+`config.graph = {"backend": "neo4j", ...}` resolves through `discovery.construct`, and no line below
+the config names Neo4j, a Bolt URI, or the driver.
+
+**Result:** Reports `vector: False / graph: True` -- a graph-only provider is a supported wiring.
+Three scopes read the same query: `acme/ada` sees 1 record, `acme/bob` 0, `globex/ada` 1. The
+`acme/bob` line is the one worth watching: isolation on Community is a property filter on every
+statement, so two users of one tenant are separated by the same mechanism as two tenants, and a
+tenant-only predicate would have returned 1 there. Invalidation reports `t_invalid: 1700000000` with
+`still current belief: True`, which is expire-and-reinsert rather than a delete -- the bounded copy
+is the new current row. The point-in-time reads then answer 1 record as of march and 0 as of june.
+
+Two earlier drafts of this file were refused by the substrate, both times correctly. The first
+invalidated at a `t_invalid` earlier than the row's `t_valid` ("the row would be valid at no
+instant"); the timeline is now explicit so the output is deterministic. The second invalidated an
+**episode**, which ADR 0003 section B.6 routes through its own lifecycle rather than through the
+edge primitive -- the file now writes a semantic fact and invalidates that, which is what the
+primitive is for.
+
+The provider is released with `provider.close()` rather than `provider.graph.close()`: reaching past
+the seam for a backend method is what the seam exists to prevent, and a caller building a provider
+per request has no way to know which substrate holds a connection pool.
+
+**Requires:** a running Neo4j (`./cookbook/scripts/run_neo4j.sh`). No model, no API key.
+
+---
+
+### 11_memory_tiers.py
 
 **Status:** PASS
 
@@ -119,5 +151,3 @@ memory as a fact, via the two different ports; the procedural rule reaches the v
 only and appears in neither graph list. The procedural read reports `consulted the graph: False`
 and the semantic read `True`. The graph-only provider serves `episodic, semantic` and returns `[]`
 for a procedural read rather than refusing it. Requires no database, no model, and no API key.
-
----

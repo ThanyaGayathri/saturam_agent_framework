@@ -168,6 +168,7 @@ class TestExportAppliesIt:
                 "db": {"id": "os-db", "type": "postgres", "db_url": DSN},
             },
             stage="published",
+            tenant_id=None,
         )
 
         document = export_component(component_db, "leaky-agent")
@@ -190,6 +191,7 @@ class TestExportAppliesIt:
                 "db": {"id": "os-db", "type": "postgres", "db_url": DSN},
             },
             stage="published",
+            tenant_id=None,
         )
 
         document = export_component(component_db, "leaky-agent", include_secrets=True)
@@ -223,6 +225,7 @@ class TestARedactedConfigStillWorks:
                 "db": {"id": "source-db", "type": "sqlite", "db_file": "/tmp/source.db"},
             },
             stage="published",
+            tenant_id=None,
         )
         document = export_component(component_db, "leaky-agent")
 

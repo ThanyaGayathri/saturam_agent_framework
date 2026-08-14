@@ -99,6 +99,87 @@ class MemoryProviderConfig:
                 ) from None
 
 
+def resolve_substrate(
+    field: str,
+    kind: Optional[str],
+    settings: Dict[str, Any],
+    injected: Any,
+    option: str,
+    check: Callable[[Any, str], Any],
+) -> Any:
+    """Build a substrate from ``config.vector`` / ``config.graph``, or take the injected one.
+
+    Written once and used for both substrates. An invariant applied to one leg and not the adjacent
+    one is the defect class this seam keeps producing, and these two legs are as adjacent as they get.
+
+    ``settings`` names its backend under ``"backend"`` and passes every other key to the
+    constructor, so a DSN or a Bolt URI never reaches a call site. The backend itself is an
+    integration resolved by registry key -- ``egpt/memory/`` imports no concrete engine (ADR 0001).
+
+    ``kind`` is ``None`` for a field no registry kind can serve yet. Settings for such a field are
+    **refused**, not ignored: a deployment that configured a backend and silently got none would
+    read from an empty substrate that looks configured.
+
+    Supplying **both** a config and an injected instance is refused rather than ranked. Either
+    precedence is defensible, so a caller cannot tell which one it got, and the losing side is
+    silently inert -- a test double quietly bypassed in favour of a real database, or the reverse.
+    """
+    if not settings:
+        return check(injected, option)
+    if injected is not None:
+        raise MemoryProviderConfigError(
+            f"config.{field} names a backend and options[{option!r}] supplies an instance. "
+            "Pass one: with both, which of them is live depends on a precedence rule you cannot see.",
+            field_name=field,
+        )
+    if kind is None:
+        raise MemoryProviderConfigError(
+            f"config.{field} is set, but no registry kind serves it yet, so honouring it is not "
+            f"possible and ignoring it would leave you reading from a substrate that looks "
+            f"configured. Inject one through options[{option!r}] until SM-V1 (#95) registers a "
+            f"backend. Got {sorted(settings)}.",
+            field_name=field,
+        )
+
+    backend = settings.get("backend")
+    if not isinstance(backend, str) or not backend.strip():
+        raise MemoryProviderConfigError(
+            f"config.{field} needs a 'backend' key naming a registered {kind} (for example "
+            f"{{'backend': 'neo4j', ...}}); the remaining keys are passed to it.",
+            field_name=field,
+        )
+
+    from egpt.registry import discovery
+
+    rest = {key: value for key, value in settings.items() if key != "backend"}
+    known = set(discovery.names(kind))
+    if backend.strip() not in known:
+        # Checked rather than caught. `discovery.resolve` signals an unknown name with `ValueError`,
+        # but so does any constructor validating its own arguments -- and `MemoryOperationError` is
+        # itself a `ValueError`, so a blanket `except ValueError` here would silently reclassify a
+        # backend's per-request refusal as a configuration error.
+        raise MemoryProviderConfigError(
+            f"Unknown {kind} backend {backend.strip()!r}. Registered: {', '.join(sorted(known)) or '<none>'}.",
+            field_name=field,
+        )
+    # An ImportError from a missing SDK is deliberately left to propagate: the integration's own
+    # "pip install neo4j" message is more useful than anything this frame could add.
+    try:
+        constructed = discovery.construct(kind, backend.strip(), **rest)
+    except (ImportError, MemoryProviderConfigError):
+        raise
+    except Exception as exc:
+        # Anything else a backend's constructor raises -- an unreachable host, a rejected password,
+        # a bad DSN -- is a failure to *build* this provider, whatever its type. Callers of
+        # `build_memory_provider` assert on `MemoryProviderConfigError`; leaving a raw
+        # `ServiceUnavailable` here makes the seam's construction contract depend on which backend
+        # the config happened to name.
+        raise MemoryProviderConfigError(
+            f"Could not construct the {kind} backend {backend.strip()!r}: {exc}", field_name=field
+        ) from exc
+    return check(constructed, option)
+
+
 #: An adapter factory: takes a config, returns a ready provider.
 ProviderFactory = Callable[[MemoryProviderConfig], MemoryProvider]
 

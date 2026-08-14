@@ -5,6 +5,7 @@ from packaging import version as packaging_version
 from packaging.version import Version
 
 from egpt.db.base import AsyncBaseDb, BaseDb
+from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, memory_tier_table_attr
 from egpt.utils.log import log_debug, log_error, log_info, log_warning
 
 
@@ -18,6 +19,7 @@ class MigrationManager:
         ("v2_5_6", packaging_version.parse("2.5.6")),
         ("v2_6_0", packaging_version.parse("2.6.0")),
         ("v2_7_0", packaging_version.parse("2.7.0")),
+        ("v2_8_0", packaging_version.parse("2.8.0")),
     ]
 
     # Mapping from table_type to the BaseDb attribute holding that table's resolved name.
@@ -38,6 +40,7 @@ class MigrationManager:
         # by the runner, so a migration targeting it would never run -- which is exactly the
         # state the component tables were in before EGPT-2.1 added theirs.
         "service_accounts": "service_accounts_table_name",
+        **{table_type: memory_tier_table_attr(table_type) for table_type in MEMORY_TIER_TABLE_TYPES},
     }
 
     def __init__(self, db: Union[AsyncBaseDb, BaseDb]):

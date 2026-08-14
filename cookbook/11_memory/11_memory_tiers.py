@@ -10,7 +10,8 @@ Key concepts:
   substrates a write reaches, how a graph write is shaped, which tier a read
   searches by default, and which tier consolidation reads and writes.
 - Writes route by tier. A procedural rule reaches the vector substrate only; an
-  episode reaches both, as an episode; a semantic fact reaches both, as a fact.
+  episode reaches both, through the graph's episode verb; a semantic fact reaches
+  both, through its fact verb.
 - Reads select tiers. A query naming no tiers searches every persistent one, and
   a leg no requested tier routes to is not consulted at all.
 - provider.tiers() says which tiers a deployment actually serves, because a read
@@ -98,19 +99,19 @@ class InMemoryGraph:
         self.facts: List[FactWrite] = []
         self.calls: List[str] = []
 
-    def upsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
-        self.calls.append("upsert_episode")
-        self.episodes.append(event)
+    def upsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
+        self.calls.append("upsert_episodes")
+        self.episodes.extend(events)
 
-    async def aupsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
-        self.upsert_episode(scope, event)
+    async def aupsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
+        self.upsert_episodes(scope, events)
 
-    def upsert_fact(self, scope: Scope, fact: FactWrite) -> None:
-        self.calls.append("upsert_fact")
-        self.facts.append(fact)
+    def upsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
+        self.calls.append("upsert_facts")
+        self.facts.extend(facts)
 
-    async def aupsert_fact(self, scope: Scope, fact: FactWrite) -> None:
-        self.upsert_fact(scope, fact)
+    async def aupsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
+        self.upsert_facts(scope, facts)
 
     def traverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None

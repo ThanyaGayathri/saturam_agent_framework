@@ -196,6 +196,10 @@ class FakeGraph:
         #: Every id set the provider asked bounds for -- asserting on the *request* is what makes a
         #: missing reconciliation visible, since a result-only assertion cannot see one.
         self.bounds_requests: List[List[str]] = []
+        #: One entry per write call. A result-only assertion cannot tell one batched round trip
+        #: from `len(events)` of them, which is the property the batched verbs exist for.
+        self.episode_batch_sizes: List[int] = []
+        self.fact_batch_sizes: List[int] = []
 
     def _bucket(self, scope: Scope) -> List[MemoryRecord]:
         return self.rows.setdefault(scope.tenant_id, [])
@@ -203,9 +207,14 @@ class FakeGraph:
     def _matching(self, scope: Scope) -> List[MemoryRecord]:
         return [r for r in self._bucket(scope) if scoped(r.scope, scope)]
 
-    def upsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
+    def upsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
         """Upsert by id, as the port requires. Appending let a repeat write look idempotent."""
-        self.calls.append("upsert_episode")
+        self.calls.append("upsert_episodes")
+        self.episode_batch_sizes.append(len(events))
+        for event in events:
+            self._upsert_episode(scope, event)
+
+    def _upsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
         row = MemoryRecord(
             # Never `event.id or ""`: `types.py` rejects an empty id precisely because it is the
             # dedup key, and this file is copied as reference by anyone building a double. The
@@ -227,14 +236,22 @@ class FakeGraph:
                 return
         bucket.append(row)
 
-    async def aupsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
+    async def aupsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
+        # Suspends, then delegates to the sync name. The delegation is load-bearing for tests that
+        # patch one verb to fail: patching only the sync name and having the async half reimplement
+        # it is how the two halves get compared against different code.
         await _yield()
-        self.calls.append("aupsert_episode")
-        self.upsert_episode(scope, event)
+        self.calls.append("aupsert_episodes")
+        self.upsert_episodes(scope, events)
 
-    def upsert_fact(self, scope: Scope, fact: FactWrite) -> None:
+    def upsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
         """Upsert by id, as the port name says -- appending would let a re-run look idempotent."""
-        self.calls.append("upsert_fact")
+        self.calls.append("upsert_facts")
+        self.fact_batch_sizes.append(len(facts))
+        for fact in facts:
+            self._upsert_fact(scope, fact)
+
+    def _upsert_fact(self, scope: Scope, fact: FactWrite) -> None:
         reject_scope_mismatch(scope, fact.record)
         self.facts.append(fact)
         bucket = self._bucket(scope)
@@ -245,10 +262,10 @@ class FakeGraph:
                 return
         bucket.append(row)
 
-    async def aupsert_fact(self, scope: Scope, fact: FactWrite) -> None:
+    async def aupsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
         await _yield()
-        self.calls.append("aupsert_fact")
-        self.upsert_fact(scope, fact)
+        self.calls.append("aupsert_facts")
+        self.upsert_facts(scope, facts)
 
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
         self.calls.append("traverse")

@@ -6,6 +6,8 @@ resolution (F3), two-sided validity (F6), dual-substrate consolidation (F7), and
 invalidation rather than in-place mutation (F10).
 """
 
+from dataclasses import replace
+
 import pytest
 
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
@@ -18,6 +20,7 @@ from egpt.memory.config import (
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     FUSION_KEYS,
+    FactWrite,
     MemoryEvent,
     MemoryOperationError,
     MemoryQuery,
@@ -450,7 +453,7 @@ def test_a_distilled_fact_goes_through_the_fact_path_not_the_episode_path():
 
     p.consolidate(ACME)
 
-    assert "upsert_fact" in graph.calls
+    assert "upsert_facts" in graph.calls
     assert graph.facts[0].derived_by == "co_located.deterministic_dedup"
 
 
@@ -515,7 +518,7 @@ async def test_the_async_path_uses_the_async_substrate_methods():
     await p.aread(ACME, MemoryQuery(text="alpha"))
     await p.aconsolidate(ACME)
 
-    assert {"aupsert", "aupsert_episode", "asearch", "atraverse", "ascan", "aupsert_fact"} <= set(
+    assert {"aupsert", "aupsert_episodes", "asearch", "atraverse", "ascan", "aupsert_facts"} <= set(
         vector.calls + graph.calls
     )
 
@@ -798,10 +801,10 @@ def test_a_partial_write_raises_with_the_stamped_ids_so_a_retry_stays_idempotent
     """Major 9. The exception propagated with no receipt, so a retry minted fresh ids (breaking F1)."""
     p, vector, graph = provider()
 
-    def explode(scope, event_):
+    def explode(scope, events_):
         raise RuntimeError("graph down")
 
-    graph.upsert_episode = explode  # type: ignore[method-assign]
+    graph.upsert_episodes = explode  # type: ignore[method-assign]
 
     with pytest.raises(PartialWriteError) as exc:
         p.write(ACME, [event("w1"), event("w2")])
@@ -809,7 +812,7 @@ def test_a_partial_write_raises_with_the_stamped_ids_so_a_retry_stays_idempotent
     ids = exc.value.receipt.event_ids
     assert len(ids) == 2
     # Retrying with those ids reuses the rows the vector leg already committed.
-    graph.upsert_episode = FakeGraph.upsert_episode.__get__(graph)  # type: ignore[method-assign]
+    graph.upsert_episodes = FakeGraph.upsert_episodes.__get__(graph)  # type: ignore[method-assign]
     p.write(ACME, [event("w1", id=ids[0]), event("w2", id=ids[1])])
     assert set(vector.rows["acme"]) == set(ids)
 
@@ -934,14 +937,14 @@ def test_the_graph_leg_does_not_alias_the_callers_lists():
 def test_a_semantic_write_reaches_the_graph_through_the_fact_door():
     """Major 5. F9's failure class on the write path: a fact stored as a flat pseudo-episode.
 
-    Deviation D3 added `upsert_fact` for exactly this and only wired it inside `consolidate`.
+    Deviation D3 added `upsert_facts` for exactly this and only wired it inside `consolidate`.
     """
     p, _, graph = provider()
 
     p.write_tier(ACME, MemoryTier.SEMANTIC, [event("ada works at acme")])
 
-    assert "upsert_fact" in graph.calls
-    assert "upsert_episode" not in graph.calls
+    assert "upsert_facts" in graph.calls
+    assert "upsert_episodes" not in graph.calls
     assert graph.facts[0].derived_by == "co_located.direct_write"
 
 
@@ -950,7 +953,7 @@ def test_an_episodic_write_still_uses_the_episode_door():
 
     p.write(ACME, [event("something happened")])
 
-    assert graph.calls == ["upsert_episode"]
+    assert graph.calls == ["upsert_episodes"]
 
 
 def test_the_vector_leg_honours_tier_routing_like_the_graph_leg_does(graph_only_semantic):
@@ -1186,7 +1189,7 @@ def test_a_refusal_during_the_fan_out_is_a_partial_write_carrying_the_receipt():
     """
 
     class RefusingGraph(FakeGraph):
-        def upsert_episode(self, scope, event):
+        def upsert_episodes(self, scope, events):
             raise MemoryOperationError("this backend refuses episodes", field_name="tier")
 
     p = CoLocatedMemoryProvider(vector=FakeVector(), graph=RefusingGraph())
@@ -1224,21 +1227,29 @@ async def test_a_refusal_among_concurrent_failures_wins_over_a_transport_error()
     """
 
     class MixedFailures(FakeGraph):
-        async def aupsert_episode(self, scope, event):
+        """The two write verbs fan out concurrently, and they fail differently."""
+
+        async def aupsert_episodes(self, scope, events):
             await _yield()
-            if event.id == "e0":
-                raise RuntimeError("transport blip")
-            if event.id == "e1":
-                raise MemoryOperationError("this backend refuses episodes", field_name="tier")
-            return self.upsert_episode(scope, event)
+            raise RuntimeError("transport blip")
+
+        async def aupsert_facts(self, scope, facts):
+            await _yield()
+            raise MemoryOperationError("this backend refuses facts", field_name="tier")
 
     p = CoLocatedMemoryProvider(vector=FakeVector(), graph=MixedFailures())
 
     with pytest.raises(PartialWriteError) as exc:
-        await p.awrite(ACME, [event(f"note {i}", id=f"e{i}") for i in range(4)])
+        await p.awrite(
+            ACME,
+            [
+                event("an episode", id="e0"),
+                event("a fact", id="e1", tier=MemoryTier.SEMANTIC),
+            ],
+        )
 
     cause = exc.value.__cause__
-    assert isinstance(cause, MemoryOperationError) and "refuses episodes" in str(cause)
+    assert isinstance(cause, MemoryOperationError) and "refuses facts" in str(cause)
 
 
 def test_consolidate_does_not_mutate_the_rows_the_substrate_handed_it():
@@ -1327,11 +1338,12 @@ async def test_the_two_read_legs_actually_run_concurrently():
     assert [r.id for r in slice_.records] == ["a1"]
 
 
-async def test_concurrent_fact_writes_respect_the_configured_bound():
+async def test_concurrent_graph_writes_respect_the_configured_bound():
     """Every fan-out must go through `_gather_writes`; the fact branch was the one that did not.
 
-    `batch` is bounded only by `max_episodes_per_pass`, so without the semaphore a real engine
-    sees thousands of simultaneous round trips -- the failure `_MAX_CONCURRENT_WRITES` names.
+    The batched verbs shrank the live fan-out from `len(events)` to the two write verbs, so the
+    bound is exercised at 1 rather than at 40. Set to 2 it could no longer fail, which is worse
+    than no test: the semaphore could be deleted and this would still pass.
     """
     import asyncio
 
@@ -1341,22 +1353,78 @@ async def test_concurrent_fact_writes_respect_the_configured_bound():
             self.live = 0
             self.peak = 0
 
-        async def aupsert_fact(self, scope, fact):
+        async def _counted(self, work):
             self.live += 1
             self.peak = max(self.peak, self.live)
             try:
                 await asyncio.sleep(0)
-                return self.upsert_fact(scope, fact)
+                return work()
             finally:
                 self.live -= 1
 
+        async def aupsert_episodes(self, scope, events):
+            return await self._counted(lambda: FakeGraph.upsert_episodes(self, scope, events))
+
+        async def aupsert_facts(self, scope, facts):
+            return await self._counted(lambda: FakeGraph.upsert_facts(self, scope, facts))
+
     graph = CountingGraph()
-    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=graph, max_concurrent_writes=2)
+    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=graph, max_concurrent_writes=1)
+
+    # Mixed, so both verbs are in flight at once -- unbounded, the peak would be 2.
+    await p.awrite(
+        ACME,
+        [event("an episode", id="e0"), event("a fact", id="e1", tier=MemoryTier.SEMANTIC)],
+    )
+
+    assert graph.episode_batch_sizes == [1] and graph.fact_batch_sizes == [1], "both verbs must be in flight"
+    assert graph.peak == 1, f"peak concurrency {graph.peak} exceeded max_concurrent_writes=1"
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_a_write_is_one_round_trip_per_verb(half):
+    """The `write` half of the same property, which `consolidate` does not cover.
+
+    Both verbs, with more than one event each, because a per-event fan-out and a batched call are
+    indistinguishable at a batch of one -- and one is exactly what the mixed-batch tests use.
+    """
+    graph = FakeGraph()
+    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=graph)
+    batch = [event(f"episode {i}", id=f"e{i}") for i in range(3)] + [
+        event(f"fact {i}", id=f"f{i}", tier=MemoryTier.SEMANTIC) for i in range(2)
+    ]
+
+    if half == "sync":
+        p.write(ACME, batch)
+    else:
+        await p.awrite(ACME, batch)
+
+    assert graph.episode_batch_sizes == [3], "three episodes must be one call"
+    assert graph.fact_batch_sizes == [2], "two facts must be one call"
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_a_batch_of_facts_is_one_round_trip_per_scope_group(half):
+    """SPEC section 11.3: a write is one round trip, not `len(events)` of them.
+
+    Both halves, because they reach the substrate through different code -- `_graph_fact_batch` and
+    `_gather_writes` -- and an assertion on one leaves the other free to fan out per fact.
+
+    Asserted on what the substrate was *asked for* rather than on what landed: the stored rows are
+    identical either way, so a result-only assertion cannot tell the two apart.
+    """
+    graph = FakeGraph()
+    p = CoLocatedMemoryProvider(vector=FakeVector(), graph=graph, max_concurrent_writes=4)
     p.write(ACME, [event(f"unique topic {i} here", id=f"e{i}") for i in range(40)])
+    graph.fact_batch_sizes.clear()
 
-    await p.aconsolidate(ACME)
+    if half == "sync":
+        p.consolidate(ACME)
+    else:
+        await p.aconsolidate(ACME)
 
-    assert graph.peak <= 2, f"peak concurrency {graph.peak} exceeded max_concurrent_writes=2"
+    assert len(graph.fact_batch_sizes) == 1, "one scope group must be one call, not one call per fact"
+    assert graph.fact_batch_sizes[0] > 1, "the batch must be non-trivial, or the property is untested"
 
 
 def test_bounds_are_not_requested_for_a_tier_the_graph_does_not_hold():
@@ -1485,14 +1553,14 @@ def test_consolidation_does_not_retire_and_says_so():
     assert "facts_superseded" not in report.details
     live = [r for r in vector.rows["acme"].values() if r.tier is MemoryTier.SEMANTIC and r.is_current_belief()]
     assert len(live) == 2, "the known limitation: SM-L3 (#124) makes this 1"
-    assert "invalidate" not in graph.calls and "upsert_fact" in graph.calls
+    assert "invalidate" not in graph.calls and "upsert_facts" in graph.calls
 
 
 def test_a_refusal_during_consolidation_is_a_partial_write():
     """The same rule as `write`: by the time the graph refuses, the facts are committed."""
 
     class RefusingGraph(FakeGraph):
-        def upsert_fact(self, scope, fact):
+        def upsert_facts(self, scope, facts):
             raise MemoryOperationError("this backend refuses facts", field_name="tier")
 
     p = CoLocatedMemoryProvider(vector=FakeVector(), graph=RefusingGraph())
@@ -1611,39 +1679,109 @@ def test_a_group_with_one_open_ended_episode_stays_open_ended():
     assert facts[0].t_invalid is None, "one unbounded member keeps the whole fact open"
 
 
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_consolidation_refuses_two_facts_sharing_an_id(half, monkeypatch):
+    """The guard `write` has always had, on the path that did not -- reached from **both** halves.
+
+    Driven through `consolidate`, not by calling the helper: the first attempt asserted on the
+    helper directly and passed happily with the guard deleted from the async entry point, which is
+    the divergence this parametrisation exists to catch.
+
+    `_distil` cannot produce a duplicate id today -- its grouping partitions the input -- so the
+    strategy is stubbed to produce one. That is the point of the guard: it holds whatever SM-L3
+    (#124) replaces the grouping with.
+    """
+    p, _, graph = provider()
+    p.write(ACME, [event("alpha beta gamma", id="ep1")])
+    record = MemoryRecord(id="same", tier=MemoryTier.SEMANTIC, content="a fact", scope=ACME)
+    duplicated = [FactWrite(record=record), FactWrite(record=replace(record, content="another fact"))]
+    monkeypatch.setattr(type(p), "_distil", lambda self, episodes: (duplicated, 0))
+
+    with pytest.raises(MemoryOperationError, match="Duplicate event id") as exc:
+        if half == "sync":
+            p.consolidate(ACME)
+        else:
+            await p.aconsolidate(ACME)
+
+    assert not isinstance(exc.value, PartialWriteError), "a refusal before any write propagates bare"
+    assert "upsert_facts" not in graph.calls and "aupsert_facts" not in graph.calls, "nothing was written"
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_closing_the_provider_closes_every_substrate_even_if_one_raises(half):
+    """Latent only until SM-V1 (#95) brings a second connection pool.
+
+    A closer that raises must not stop the loop: the substrate that never got closed is the one
+    still holding a pool, and nothing will reopen the provider to try again. The failure is still
+    reported -- closing everything is not the same as swallowing.
+    """
+    closed = []
+
+    class _Raising(FakeVector):
+        def close(self):
+            closed.append("vector")
+            raise RuntimeError("vector closer failed")
+
+    class _Closing(FakeGraph):
+        def close(self):
+            closed.append("graph")
+
+    p = CoLocatedMemoryProvider(vector=_Raising(), graph=_Closing())
+
+    with pytest.raises(RuntimeError, match="vector closer failed"):
+        if half == "sync":
+            p.close()
+        else:
+            await p.aclose()
+
+    assert closed == ["vector", "graph"], f"every substrate must be closed, got {closed}"
+
+
 class _CountingFailureGraph(FakeGraph):
-    """Fails the n-th `upsert_fact`, counting *attempts* rather than successes."""
+    """Fails on the n-th fact *inside* a batch, having committed the ones before it.
+
+    ``upsert_facts`` is explicitly not required to be atomic, so this is a shape a real backend
+    produces: part of the batch is durable and the call still raises. A double that failed the
+    whole batch cleanly would make the interesting half of the parity question disappear.
+    """
 
     def __init__(self, plan):
         super().__init__()
         self.plan, self.n = plan, 0
 
-    def upsert_fact(self, scope, fact):
-        index, self.n = self.n, self.n + 1
-        failure = self.plan.get(index)
-        if failure is not None:
-            raise failure
-        return super().upsert_fact(scope, fact)
+    def upsert_facts(self, scope, facts):
+        self.calls.append("upsert_facts")
+        self.fact_batch_sizes.append(len(facts))
+        for fact in facts:
+            index, self.n = self.n, self.n + 1
+            failure = self.plan.get(index)
+            if failure is not None:
+                raise failure
+            self._upsert_fact(scope, fact)
 
-    async def aupsert_fact(self, scope, fact):
+    async def aupsert_facts(self, scope, facts):
         await _yield()
-        return self.upsert_fact(scope, fact)
+        return self.upsert_facts(scope, facts)
 
 
 @pytest.mark.parametrize(
     "plan,label",
     [
-        ({0: RuntimeError("down")}, "first"),
-        ({1: RuntimeError("down")}, "second"),
-        ({0: RuntimeError("blip"), 1: MemoryOperationError("refuses facts", field_name="tier")}, "mixed"),
+        ({0: RuntimeError("down")}, "first-fact-transport"),
+        ({1: RuntimeError("down")}, "second-fact-transport"),
+        ({0: MemoryOperationError("refuses facts", field_name="tier")}, "first-fact-refusal"),
     ],
 )
 async def test_both_consolidate_halves_commit_the_same_state_and_choose_the_same_cause(plan, label):
     """The sync fan-out aborted on the first raise while the async half settled the batch.
 
-    One identical failure left the two verbs with different durable state, and the **mixed** case
-    gave them opposite retry advice -- "retry me" versus "this will never work". `write` carries a
-    shared `_raise_write_failure` for exactly this; consolidate never had it carried across.
+    One identical failure left the two verbs with different durable state, and a refusal gave them
+    opposite retry advice -- "retry me" versus "this will never work". `write` carries a shared
+    `_raise_write_failure` for exactly this; consolidate never had it carried across.
+
+    Which cause *wins* among several is no longer decidable here -- one batched call can only raise
+    once -- so that half of the rule is exercised on the write path, where the two verbs genuinely
+    fail concurrently (`test_a_refusal_among_concurrent_failures_wins_over_a_transport_error`).
     """
 
     def build():

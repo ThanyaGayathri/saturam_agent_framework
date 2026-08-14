@@ -233,7 +233,49 @@ consequences worth knowing:
 
 ---
 
-## 5. Scope
+## 5. The admin console (EGPT-2.9)
+
+`EgptOS(enable_console=True)` serves a minimal authoring UI at `GET /console`. It is a single
+self-contained HTML page shipped as package data — no build step, no CDN, no node toolchain —
+and it drives nothing but the `/components` API, so it can do exactly what a token can do and
+no more.
+
+Every lifecycle rule above shows up in it as an enabled or disabled control, each carrying a
+`title` that says why:
+
+| Row state | Edit | Publish | Make current | Delete |
+|---|---|---|---|---|
+| draft, not current | yes | yes | no — target must be published | yes |
+| draft, is current | yes | yes | no | **no** — current cannot be deleted |
+| published, is current | **no** → *Clone to draft* | no | no — already current | **no** |
+| published, not current | **no** → *Clone to draft* | no | **yes — this is rollback** | **no** |
+
+*Clone to draft* is `POST /components/{id}/configs` with the published body and `stage: "draft"`:
+the escape hatch from immutability, so an operator does not have to know the rule to work around
+it. The server remains the authority — each greyed-out action is still refused with a 400 if it
+is reached another way.
+
+Publish and rollback map to the two calls in §1: publishing is `PATCH .../configs/{version}`
+with `{"stage": "published"}`, and rollback is `POST .../configs/{version}/set-current`. The
+console re-reads the component after both, because `current_version` lives on the component row
+and not on the config it points at.
+
+Two things worth knowing before enabling it:
+
+- **The page is served without a credential**, because a browser navigating to it has none to
+  send. It is inert — no tenant data is baked into it — and every call it makes carries a bearer
+  token the operator pastes in, so scopes and tenancy are enforced normally. `EgptOS` adds
+  `/console` to the auth middleware's excluded paths only when the flag is on. It is off by
+  default so that exposing it stays a deployment decision.
+- **The token lives in `sessionStorage`**, which is why the page loads nothing external and is
+  served under a `Content-Security-Policy` that forbids it. Adding a CDN would put a third-party
+  script in a position to read an admin token, and would break the page.
+
+Cookbook: `cookbook/93_components/admin_console.py`.
+
+---
+
+## 6. Scope
 
 Not in this ticket:
 

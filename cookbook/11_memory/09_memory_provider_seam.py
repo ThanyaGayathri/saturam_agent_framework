@@ -141,23 +141,24 @@ class InMemoryGraph:
     def _bucket(self, scope: Scope) -> List[MemoryRecord]:
         return self.rows.setdefault(scope.tenant_id, [])
 
-    def upsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
+    def upsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
         # Upsert by id, which the port requires. Appending would make a repeat write duplicate the
         # row, and PartialWriteError tells callers to retry with the same ids precisely because
         # that retry is meant to be idempotent.
-        self._upsert(
-            scope,
-            MemoryRecord(
-                # Never `event.id or ""` -- `types.py` rejects an empty id precisely because it is
-                # the dedup key, and reference code gets copied. The provider always stamps one.
-                id=event.id or str(uuid4()),
-                tier=event.tier,
-                content=event.content,
-                scope=scope,
-                substrate=Substrate.GRAPH,
-                t_valid=event.occurred_at,
-            ),
-        )
+        for event in events:
+            self._upsert(
+                scope,
+                MemoryRecord(
+                    # Never `event.id or ""` -- `types.py` rejects an empty id precisely because it
+                    # is the dedup key, and reference code gets copied. The provider always stamps one.
+                    id=event.id or str(uuid4()),
+                    tier=event.tier,
+                    content=event.content,
+                    scope=scope,
+                    substrate=Substrate.GRAPH,
+                    t_valid=event.occurred_at,
+                ),
+            )
 
     def _upsert(self, scope: Scope, row: MemoryRecord) -> None:
         bucket = self._bucket(scope)
@@ -167,14 +168,17 @@ class InMemoryGraph:
                 return
         bucket.append(row)
 
-    async def aupsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
-        self.upsert_episode(scope, event)
+    async def aupsert_episodes(
+        self, scope: Scope, events: Sequence[MemoryEvent]
+    ) -> None:
+        self.upsert_episodes(scope, events)
 
-    def upsert_fact(self, scope: Scope, fact: FactWrite) -> None:
-        self._upsert(scope, replace(fact.record, substrate=Substrate.GRAPH))
+    def upsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
+        for fact in facts:
+            self._upsert(scope, replace(fact.record, substrate=Substrate.GRAPH))
 
-    async def aupsert_fact(self, scope: Scope, fact: FactWrite) -> None:
-        self.upsert_fact(scope, fact)
+    async def aupsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
+        self.upsert_facts(scope, facts)
 
     def traverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
