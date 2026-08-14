@@ -26,7 +26,7 @@ from __future__ import annotations
 import asyncio
 
 from egpt.agent import Agent
-from egpt.context.gdrive import GoogleDriveContextProvider
+from egpt.integrations.context.gdrive import GoogleDriveContextProvider
 from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------

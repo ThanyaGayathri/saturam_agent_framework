@@ -243,19 +243,24 @@ def find_shim_path_strings(tests_root, prefix, names, exclude=frozenset()):
     the test make a real call instead of failing loudly about a bad target. The shim
     docstrings record this, but prose does not stop anyone re-introducing it.
 
-    Returns a sorted list of ``relative/path.py:lineno`` strings. `exclude` holds resolved
-    paths to skip -- a guard file naming these paths on purpose is not an offender.
+    Returns ``(scanned, offenders)``: ``scanned`` is the number of files walked, so a caller
+    can assert this helper actually looked at something rather than trusting a separately
+    computed file count that could drift from what this loop scans. ``offenders`` is a sorted
+    list of ``relative/path.py:lineno`` strings. `exclude` holds resolved paths to skip -- a
+    guard file naming these paths on purpose is not an offender.
     """
     pattern = re.compile(r"""["']%s\.(?:%s)\b""" % (re.escape(prefix), "|".join(sorted(re.escape(n) for n in names))))
 
+    scanned = 0
     offenders = []
     for path in sorted(tests_root.rglob("test_*.py")):
         if path.resolve() in exclude:
             continue
+        scanned += 1
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if pattern.search(line):
                 offenders.append(f"{path.relative_to(tests_root)}:{lineno}")
-    return offenders
+    return scanned, offenders
 
 
 def check_shim_parity(targets_root, shims_root, extra_exports=None, lazy_exports=None, skip_prefix="_"):

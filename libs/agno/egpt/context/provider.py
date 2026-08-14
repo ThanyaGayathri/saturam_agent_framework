@@ -38,12 +38,12 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING
 
 from egpt.context.mode import ContextMode
+from egpt.registry.protocols import RunnableLike
 from egpt.run import RunContext
 from egpt.run.agent import RunOutput
 from egpt.tools import tool
 
 if TYPE_CHECKING:
-    from egpt.agent import Agent
     from egpt.models.base import Model
 
 
@@ -106,8 +106,8 @@ class ContextProvider(ABC):
         # reaching for `mode=tools` / `mode=agent`.
         self.read = read
         self.write = write
-        self.query_tool_name = query_tool_name or f"query_{_sanitize_id(id)}"
-        self.update_tool_name = update_tool_name or f"update_{_sanitize_id(id)}"
+        self.query_tool_name = query_tool_name or f"query_{sanitize_id(id)}"
+        self.update_tool_name = update_tool_name or f"update_{sanitize_id(id)}"
         self.stream_sub_agent_events = stream_sub_agent_events
 
     @abstractmethod
@@ -185,11 +185,11 @@ class ContextProvider(ABC):
     # Internals
     # ------------------------------------------------------------------
 
-    async def _aget_query_agent(self, run_context: RunContext | None) -> "Agent | None":
+    async def _aget_query_agent(self, run_context: RunContext | None) -> RunnableLike | None:
         """Override to return the read sub-agent for streaming; None falls back to aquery()."""
         return None
 
-    async def _aget_update_agent(self, run_context: RunContext | None) -> "Agent | None":
+    async def _aget_update_agent(self, run_context: RunContext | None) -> RunnableLike | None:
         """Override to return the write sub-agent for streaming; None falls back to aupdate()."""
         return None
 
@@ -219,7 +219,7 @@ class ContextProvider(ABC):
 
     async def _stream_from_agent(
         self,
-        agent: "Agent",
+        agent: RunnableLike,
         message: str,
         run_context: RunContext | None,
     ):
@@ -333,7 +333,7 @@ class ContextProvider(ABC):
         return [self._query_tool()]
 
 
-def _sanitize_id(raw: str) -> str:
+def sanitize_id(raw: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "_", raw.lower())
     return s.strip("_") or "context"
 
