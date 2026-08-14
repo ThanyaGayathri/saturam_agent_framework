@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import uuid4
 
 from fastapi import APIRouter, FastAPI, HTTPException
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
@@ -54,6 +55,7 @@ from egpt.os.router import get_base_router, get_info_router, get_websocket_route
 from egpt.os.routers.agents import get_agent_router
 from egpt.os.routers.approvals import get_approval_router
 from egpt.os.routers.components import get_components_router
+from egpt.os.routers.console import get_console_router
 from egpt.os.routers.database import get_database_router
 from egpt.os.routers.evals import get_eval_router
 from egpt.os.routers.health import get_health_router
@@ -243,6 +245,7 @@ class EgptOS:
         settings: Optional[EgptServingSettings] = None,
         lifespan: Optional[Any] = None,
         enable_mcp_server: bool = False,
+        enable_console: bool = False,
         mcp_config: Optional[MCPServerConfig] = None,
         base_app: Optional[FastAPI] = None,
         on_route_conflict: Literal["preserve_agentos", "preserve_base_app", "error"] = "preserve_agentos",
@@ -284,6 +287,11 @@ class EgptOS:
                 ``tools=[...]`` and/or scope the built-in tools via ``enable_builtin_tools`` /
                 ``include_tags`` / ``exclude_tags``. Ignored when ``enable_mcp_server`` is False.
                 When omitted, the MCP server exposes all built-in tools (unchanged behavior).
+            enable_console: Whether to serve the built-in admin console (EGPT-2.9) at
+                ``GET /console``. Off by default and deliberately opt-in: the page itself is
+                served unauthenticated (the operator pastes a bearer token into it, and every
+                call it makes is scope- and tenant-gated normally), so a deployment should choose
+                to expose it. Requires a sync ``BaseDb`` -- the console drives ``/components``.
             base_app: Optional base FastAPI app to use for the EgptOS. All routes and middleware will be added to this app.
             on_route_conflict: What to do when a route conflict is detected in case a custom base_app is provided.
             auto_provision_dbs: Whether to automatically provision databases
@@ -350,8 +358,18 @@ class EgptOS:
         self.tracing = tracing
 
         self.enable_mcp_server = enable_mcp_server
+        self.enable_console = enable_console
         self.mcp_config = mcp_config
         self.lifespan = lifespan
+
+        # Warn at construction rather than let the operator discover it by clicking. Without a
+        # sync BaseDb the /components router is replaced by a disabled-feature stub, so the
+        # console would render and then 503 on every single action.
+        if self.enable_console and not isinstance(db, BaseDb):
+            log_warning(
+                "enable_console=True but no sync db (BaseDb) is configured: the console will load, "
+                "but every action it takes against /components will fail."
+            )
 
         self.registry = registry
 
@@ -602,6 +620,14 @@ class EgptOS:
         self._add_router(app, get_home_router(self))
 
         self._add_router(app, get_health_router(health_endpoint="/health"))
+
+        # Registered here, with the other built-ins, rather than alongside the /components router
+        # it drives: _reprovision_routers clears app.router.routes and then calls this method, so
+        # a /console added anywhere else would survive get_app() and silently vanish on the first
+        # resync(). Explicit routes also win over the root MCP Mount, which is added afterwards in
+        # both assembly paths.
+        if self.enable_console:
+            self._add_router(app, get_console_router())
         self._add_router(app, get_info_router(self))
         self._add_router(app, get_base_router(self, settings=self.settings))
         self._add_router(app, get_agent_router(self, settings=self.settings, registry=self.registry))
@@ -1171,9 +1197,12 @@ class EgptOS:
             @fastapi_app.exception_handler(RequestValidationError)
             async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
                 log_error(f"Validation error (422): {exc.errors()}")
+                # pydantic v2 puts the raised exception object itself into each error's `ctx`
+                # (e.g. a bare ValueError from a @model_validator) -- json.dumps chokes on that
+                # unless it goes through jsonable_encoder first, which stringifies it instead.
                 return JSONResponse(
                     status_code=422,
-                    content={"detail": exc.errors()},
+                    content={"detail": jsonable_encoder(exc.errors())},
                 )
 
             @fastapi_app.exception_handler(HTTPException)
@@ -1289,7 +1318,7 @@ class EgptOS:
         Called whenever any credential is configured: ``authorization=True`` (JWT),
         an ``OS_SECURITY_KEY``, or a service-account verifier (a db is present).
         """
-        from egpt.os.middleware.jwt import AuthMiddleware, JWTValidator
+        from egpt.os.middleware.jwt import DEFAULT_EXCLUDED_ROUTE_PATHS, AuthMiddleware, JWTValidator
         from egpt.os.scopes import AgentOSScope
 
         # The kwargs are a container binding so the validator factory and this call site
@@ -1361,25 +1390,25 @@ class EgptOS:
         # BaseInterface.authenticates_own_requests) are excluded from the central auth
         # layer alongside the public routes. Interfaces that do NOT self-authenticate
         # (e.g. A2A) stay behind AuthMiddleware, so enabling authentication protects them
-        # too. Passing excluded_route_paths replaces the middleware defaults, so the
-        # defaults are repeated here.
+        # too. Passing excluded_route_paths replaces the middleware defaults wholesale, so the
+        # additions below are appended to DEFAULT_EXCLUDED_ROUTE_PATHS rather than to a copy of
+        # the list -- and the kwarg stays None when there are no additions, which is what lets
+        # the middleware keep owning its own defaults.
+        extra_excluded_route_paths: List[str] = [
+            f"{interface.prefix}/*"
+            for interface in self.interfaces
+            if getattr(interface, "authenticates_own_requests", False) and getattr(interface, "prefix", None)
+        ]
+        if self.enable_console:
+            # A browser navigating to the console sends no Authorization header, so the page
+            # would 401 before it could ask the operator for a token. The page itself is an
+            # inert asset carrying no tenant data; every API call it makes goes through the
+            # gated /components routes with the pasted token. See routers/console.py.
+            extra_excluded_route_paths.append("/console")
+
         excluded_route_paths: Optional[List[str]] = None
-        if self.interfaces:
-            interface_prefixes = [
-                f"{interface.prefix}/*"
-                for interface in self.interfaces
-                if getattr(interface, "authenticates_own_requests", False) and getattr(interface, "prefix", None)
-            ]
-            if interface_prefixes:
-                excluded_route_paths = [
-                    "/",
-                    "/health",
-                    "/info",
-                    "/docs",
-                    "/redoc",
-                    "/openapi.json",
-                    "/docs/oauth2-redirect",
-                ] + interface_prefixes
+        if extra_excluded_route_paths:
+            excluded_route_paths = DEFAULT_EXCLUDED_ROUTE_PATHS + extra_excluded_route_paths
 
         middleware_kwargs["excluded_route_paths"] = excluded_route_paths
 

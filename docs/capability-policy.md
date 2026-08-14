@@ -236,6 +236,18 @@ short-circuiting, so one response shows everything wrong:
 
 A policy-rejected config is never dry-run: the capability check runs before hydration is attempted.
 
+### Before write, on request (422)
+
+`POST /components/validate` (EGPT-2.9) evaluates the identical policy against the caller's tenant
+and returns the identical body, but stores nothing. That is what lets an authoring client — the
+admin console, an editor, a CI check — show `capability_not_permitted` and
+`privileged_tool_blocked` while the operator is still typing, instead of after a failed write.
+
+It matters that the dry run is not more permissive than the write: a dry run that green-lit a
+config the write then refused would be worse than no dry run at all. Both call
+`validate_component_config` with the same `resolve_policy(...)` result, resolved once at wiring
+time, and a test asserts the two responses are byte-identical for the same input.
+
 ### At hydration (403)
 
 Every path that turns a stored config into a live component:

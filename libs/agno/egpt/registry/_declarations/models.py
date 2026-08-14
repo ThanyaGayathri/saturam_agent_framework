@@ -18,13 +18,29 @@ Adding a provider here is a one-row change. Adding one from outside this reposit
 no change here at all: declare an ``egpt.models`` entry point in your own package.
 """
 
-from egpt.registry.discovery import SOURCE_BUILTIN, register
+from egpt.registry.discovery import SOURCE_BUILTIN, get, register
 
 # Keys whose class is the default for a display `provider` string shared by several
 # classes. "azure" alone is ambiguous between AzureOpenAI and AzureAIFoundry; "awsbedrock"
 # between AwsBedrock and the Bedrock Claude wrapper. Marking the row rather than keeping a
 # separate lookup means a third-party provider family can declare its own default too.
 _PROVIDER_DEFAULTS = frozenset({"azure-openai", "aws-bedrock"})
+
+# Keys whose server serves multi-LoRA, so a Mode A resolution may render a LoRA adapter onto the
+# request. Declared here rather than hardcoded in `providers/mode_a.py` because it is a capability
+# of the backend, not a fact about its name: a backend registered at runtime with
+# `discovery.register(..., supports_adapters=True)` can opt in, which is the extensibility the
+# discovery seam exists for. An `egpt.models` *entry point* cannot declare this yet -- the entry
+# point spec is a bare `name = module:attr` string with nowhere to carry metadata, so an
+# out-of-tree row registered that way still falls back to this tuple (see the comment on
+# `_ADAPTER_BACKENDS` in `providers/mode_a.py`). Previously an out-of-tree row wrapping a vLLM
+# fork had its adapter silently dropped (aicoe-tracker#165); today that same row can be fixed by
+# a runtime `register()` call, but not by the entry point alone.
+#
+# A key absent from this set has adapters *ignored*, not refused -- an Ollama deployment has no
+# adapter concept, and failing a request that merely mentioned one would make `adapter` unusable
+# in a config shared across backends. `mode_a.py` logs the ignore at debug level.
+_ADAPTER_BACKENDS = frozenset({"vllm", "openai-like"})
 
 _ROWS = {
     "aimlapi": ("egpt.integrations.models.aimlapi", "AIMLAPI", "AIMLAPI", "aimlapi"),
@@ -106,8 +122,20 @@ _ROWS = {
 
 
 def register_all() -> None:
-    """Register every row. Called by the discovery seam, and safe to call again."""
+    """Register every row. Called by the discovery seam, and safe to call again.
+
+    A key a caller already re-registered at runtime (``discovery.register("model", "vllm",
+    supports_adapters=False, override=True)``, say) is left alone rather than clobbered here.
+    Without this check, the *first* call into the registry after that re-registration -- which
+    triggers this bootstrap -- would silently restore the builtin's own metadata with
+    ``override=True``, undoing an explicit opt-out the caller had no reason to think was
+    temporary. ``register_all`` runs once per process by source (see ``_ensure_ready``), so this
+    only ever re-registers a key a second time when a caller's own row is already sitting there.
+    """
     for key, (module, class_name, default_name, provider_display) in _ROWS.items():
+        existing = get("model", key)
+        if existing is not None and existing.source != SOURCE_BUILTIN:
+            continue
         register(
             "model",
             key,
@@ -118,4 +146,5 @@ def register_all() -> None:
             default_name=default_name,
             provider_display=provider_display,
             provider_default=key in _PROVIDER_DEFAULTS,
+            supports_adapters=key in _ADAPTER_BACKENDS,
         )

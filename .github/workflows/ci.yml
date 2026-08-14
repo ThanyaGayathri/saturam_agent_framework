@@ -329,6 +329,7 @@ jobs:
             google-auth-httplib2 \
             google-auth-oauthlib \
             lancedb \
+            neo4j \
             psycopg \
             psycopg-binary \
             psycopg2-binary \

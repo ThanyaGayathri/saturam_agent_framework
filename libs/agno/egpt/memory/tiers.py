@@ -1,43 +1,43 @@
-"""CoALA memory tiers — the *what kind of memory* axis (SM-C1).
+"""CoALA memory tiers and their per-tier policy (SM-C2 #90).
 
-Four tiers, from arXiv:2309.02427 via ``docs/MEMORY-RESEARCH-episodic-and-neurosymbolic.md``
-section 1. ADR 0003 section B.5 makes these names canonical and rules that "tier" is said only
-of these four — "substrate" (vector / graph, see ``egpt.memory.types.Substrate``) is the
-orthogonal *where is it stored* axis. Episodic and semantic each live in **both** substrates,
-which is why the two axes cannot be collapsed.
+Four tiers, from arXiv:2309.02427; ADR 0003 section B.5 makes the names canonical and reserves
+"tier" for these four. "Substrate" (vector / graph) is the orthogonal *where is it stored* axis:
+episodic and semantic each live in both, so the axes cannot be collapsed.
 
-This module deliberately holds the enum and nothing else. **SM-C2 (#90) owns per-tier read/write
-policy and the mapping of the six ``learn`` stores into these tiers** and extends this file; SM-C1
-ships only the mechanism the seam needs (``MemoryQuery.tiers``, ``read_tier`` / ``write_tier``).
+:data:`TIER_POLICY` is the one place every per-tier decision lives, and it **replaces** SM-C1's
+``SUBSTRATES_BY_TIER`` rather than sitting beside it -- two tables holding one decision is the
+divergence this ticket closes.
 
-Tier -> substrate mapping (ADR 0003 section 1, ratified):
-
-===========  ======  =====  ===========================================================
-Tier         Vector  Graph  Notes
-===========  ======  =====  ===========================================================
-working      --      --     Context only; not embedded, not bi-temporal. SM-C6 (#94).
-episodic     yes     (yes)  Raw non-lossy events. Graph presence is a pointer today --
-                            the episode node type is SM-G1's to define.
-semantic     yes     yes    Facts / entities / relations. Relations are the primary
-                            bi-temporal surface and are graph-only.
-procedural   yes     --     Rules / prompt fragments. Retrieved by similarity.
-===========  ======  =====  ===========================================================
+Decay, TTL and retention are deliberately absent (SM-R5 #80, SM-E9 #116), as is which tiers a
+*tenant* gets (SM-C5 #93): no backend stores a tier yet, so either would be config read by nobody.
 """
 
+from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, FrozenSet, Tuple
+from typing import Dict, FrozenSet, Iterable, Optional, Tuple
 
 from egpt.memory.errors import MemoryOperationError
 
-__all__ = ["PERSISTENT_TIERS", "SUBSTRATES_BY_TIER", "MemoryTier", "substrates_for_tier"]
+__all__ = [
+    "CONSOLIDATION_SOURCE",
+    "CONSOLIDATION_TARGET",
+    "DEFAULT_WRITE_TIER",
+    "GraphWriteShape",
+    "PERSISTENT_TIERS",
+    "TIER_POLICY",
+    "MemoryTier",
+    "TierPolicy",
+    "graph_shape_for_tier",
+    "policy_for_tier",
+    "routes_to",
+    "substrates_for_tier",
+]
 
 
 class MemoryTier(str, Enum):
     """Which kind of memory a record, event, or query concerns.
 
-    ``str`` mixin so a config value ("episodic") validates by construction and a serialized
-    record round-trips without a custom encoder -- the same choice ``ProviderMode`` and
-    ``egpt.metrics.ModelType`` make.
+    ``str`` mixin so a config value validates by construction and a serialized record round-trips.
     """
 
     WORKING = "working"
@@ -46,55 +46,183 @@ class MemoryTier(str, Enum):
     PROCEDURAL = "procedural"
 
 
-#: The tiers a provider searches when a query names none.
-#:
-#: ``WORKING`` is excluded because it has no persistent substrate -- it is the in-context buffer
-#: SM-C6 (#94) owns, so a retrieval that silently included it would be reading state the caller
-#: already holds. A caller that wants it must ask for it by name.
-PERSISTENT_TIERS: Tuple[MemoryTier, ...] = (
-    MemoryTier.EPISODIC,
-    MemoryTier.SEMANTIC,
-    MemoryTier.PROCEDURAL,
-)
+class GraphWriteShape(str, Enum):
+    """Which graph port a write to a tier goes through.
+
+    Not a naming difference: ``upsert_fact`` carries SPO and ``source_episode_ids`` provenance that
+    ``upsert_episode`` has nowhere to put, so the wrong one silently drops structure (finding F9).
+    """
+
+    EPISODE = "episode"
+    FACT = "fact"
 
 
-#: Which substrates a tier is written to, from the ratified mapping in ADR 0003 section 1.
-#:
-#: Substrate names are strings here rather than the ``Substrate`` enum, because that enum lives in
-#: ``types``, which imports this module. The provider translates.
-#:
-#: Two rows carry qualifications the ADR states explicitly:
-#:
-#: * ``episodic`` -> graph is **intended, not yet realised**. SM-R12's schema defines no episode
-#:   node; ``graph_node_id`` is an untyped pointer with no referent. SM-G1 (#99) defines the node
-#:   type, or rules that episodes reach the graph only through their entities.
-#: * ``procedural`` -> vector only. SM-R11's map said "rules/prompt, no substrate"; SM-R12 shipped
-#:   ``ProceduralRecord`` as ``Embeddable``. The ADR ratified the shipped schema: procedural rules
-#:   are retrieved by similarity, and the field exists.
-#:
-#: **SM-C2 (#90) turns this into full per-tier read/write policy.** This is the write-routing
-#: subset the seam needs to not guess, encoded once instead of inline in an adapter.
-SUBSTRATES_BY_TIER: Dict[MemoryTier, FrozenSet[str]] = {
-    MemoryTier.WORKING: frozenset(),  # in-context only; nothing persists
-    MemoryTier.EPISODIC: frozenset({"vector", "graph"}),
-    MemoryTier.SEMANTIC: frozenset({"vector", "graph"}),
-    MemoryTier.PROCEDURAL: frozenset({"vector"}),
+@dataclass(frozen=True)
+class TierPolicy:
+    """Everything the seam decides *because of* a record's tier.
+
+    Frozen, and :data:`TIER_POLICY` is the only instantiation site: a policy assembled per call
+    lets two code paths disagree about one tier, which is what this table replaces.
+    """
+
+    tier: MemoryTier
+    #: Where a write to this tier lands; empty means nothing persists it. Substrate *names* rather
+    #: than the ``Substrate`` enum, which lives in ``types`` and imports this module. It is a
+    #: ``str`` enum, so its members still match.
+    substrates: FrozenSet[str]
+    #: Non-``None`` exactly when the tier routes to the graph.
+    graph_shape: Optional[GraphWriteShape]
+    searched_by_default: bool
+    #: Exactly one tier may claim the unnamed write.
+    is_write_default: bool
+    consolidates_from: bool
+    consolidates_into: bool
+    #: The ticket that builds this tier out, quoted in refusals so a caller learns where it went.
+    owner: str
+
+
+#: Every per-tier decision, in one table. The substrate columns are ADR 0003 section 1's ratified
+#: mapping with its two qualifications: ``episodic -> graph`` is intended but not yet realised
+#: (no episode node type exists -- SM-G1 #99 settles it), and ``procedural`` is vector-only
+#: because SM-R12 shipped ``ProceduralRecord`` as ``Embeddable``.
+TIER_POLICY: Dict[MemoryTier, TierPolicy] = {
+    MemoryTier.WORKING: TierPolicy(
+        tier=MemoryTier.WORKING,
+        substrates=frozenset(),
+        graph_shape=None,
+        # Out of the default read set: it is the in-context buffer SM-C6 owns, so including it
+        # would serve the caller back state they already hold.
+        searched_by_default=False,
+        is_write_default=False,
+        consolidates_from=False,
+        consolidates_into=False,
+        owner="SM-C6 (#94)",
+    ),
+    MemoryTier.EPISODIC: TierPolicy(
+        tier=MemoryTier.EPISODIC,
+        substrates=frozenset({"vector", "graph"}),
+        graph_shape=GraphWriteShape.EPISODE,
+        searched_by_default=True,
+        is_write_default=True,  # writes are raw and non-lossy; distilling is `consolidate`'s job
+        consolidates_from=True,
+        consolidates_into=False,
+        owner="SM-E1 (#108)",
+    ),
+    MemoryTier.SEMANTIC: TierPolicy(
+        tier=MemoryTier.SEMANTIC,
+        substrates=frozenset({"vector", "graph"}),
+        graph_shape=GraphWriteShape.FACT,
+        searched_by_default=True,
+        is_write_default=False,
+        consolidates_from=False,
+        consolidates_into=True,
+        owner="SM-S1 (#118)",
+    ),
+    MemoryTier.PROCEDURAL: TierPolicy(
+        tier=MemoryTier.PROCEDURAL,
+        substrates=frozenset({"vector"}),
+        graph_shape=None,
+        searched_by_default=True,
+        is_write_default=False,
+        consolidates_from=False,
+        consolidates_into=False,
+        owner="SM-S2 (#119)",
+    ),
 }
 
 
-def substrates_for_tier(tier: MemoryTier) -> FrozenSet[str]:
-    """The substrate names a write to ``tier`` should reach. Empty for ``WORKING``.
+def _validate_policy(policy: Dict[MemoryTier, TierPolicy]) -> None:
+    """Check the table at import: by the time a bad row reaches a substrate it is a write in the
+    wrong place, three frames down.
 
-    A tier absent from the table raises ``MemoryOperationError`` rather than the bare ``KeyError``
-    a dict lookup gives, because SM-C2 (#90) is chartered to extend this enum -- an unmapped tier
-    is a near-term reality, and it should name itself rather than surfacing as a stray ``KeyError``
-    from three frames down.
+    Plain ``ValueError``, deliberately. ``MemoryOperationError`` is documented as a *per-request*
+    refusal by a correctly configured provider and ``MemoryProviderConfigError`` as a deployment
+    fault; a malformed table literal is neither -- it is a defect in this module, raised before any
+    provider exists. ``policy_for_tier`` below keeps ``MemoryOperationError``, because a caller
+    passing a non-tier **is** a bad request.
     """
+    missing = [tier.value for tier in MemoryTier if tier not in policy]
+    if missing:
+        raise ValueError(
+            f"TIER_POLICY has no row for {missing}. A new tier must be added to the table in the "
+            "same change that adds the enum member."
+        )
+    for tier, row in policy.items():
+        if row.tier is not tier:
+            raise ValueError(f"TIER_POLICY[{tier.value!r}] carries tier {row.tier!r}.")
+        unknown = sorted(row.substrates - {"vector", "graph"})
+        if unknown:
+            raise ValueError(f"TIER_POLICY[{tier.value!r}] routes to unknown substrate(s) {unknown}.")
+        # Both directions: no shape on a graph-routed tier silently writes nothing, and a shape on
+        # a tier the graph does not store is one nobody applies.
+        if (row.graph_shape is not None) != ("graph" in row.substrates):
+            raise ValueError(
+                f"TIER_POLICY[{tier.value!r}] has graph_shape={row.graph_shape!r} but substrates "
+                f"{sorted(row.substrates)}: a tier has a graph shape exactly when it routes to the graph."
+            )
+        if (row.consolidates_from or row.consolidates_into) and not row.substrates:
+            raise ValueError(f"TIER_POLICY[{tier.value!r}] takes part in consolidation but persists nowhere.")
+    defaults = [t.value for t, row in policy.items() if row.is_write_default]
+    if len(defaults) != 1:
+        raise ValueError(f"Exactly one tier is the default write target; the table names {defaults}.")
+    targets = [t.value for t, row in policy.items() if row.consolidates_into]
+    if len(targets) != 1:
+        raise ValueError(f"Exactly one tier is the consolidation target; the table names {targets}.")
+    # Exactly one, not "at least one": two tiers sharing one bounded pass is the scheduler's
+    # question (SM-L1 #122), and a second source added without it starves whichever came second.
+    sources = [t for t, row in policy.items() if row.consolidates_from]
+    if len(sources) != 1:
+        raise ValueError(f"Exactly one tier is the consolidation source; the table names {[t.value for t in sources]}.")
+    # `consolidate` enumerates its source with `VectorSubstrate.scan`, so a source the vector
+    # substrate does not hold has nothing to scan: every pass would report a drained tier while
+    # reading none of it. Checked here rather than discovered as a permanently empty report.
+    if "vector" not in policy[sources[0]].substrates:
+        raise ValueError(
+            f"TIER_POLICY makes {sources[0].value!r} the consolidation source, but it does not route "
+            "to the vector substrate, which is what a pass enumerates from."
+        )
+
+
+_validate_policy(TIER_POLICY)
+
+
+def policy_for_tier(tier: MemoryTier) -> TierPolicy:
+    """The policy row for ``tier``. Validation makes a missing row unreachable for an enum member,
+    so the refusal catches a caller passing something that is not one -- named, not a ``KeyError``
+    three frames down."""
     try:
-        return SUBSTRATES_BY_TIER[tier]
-    except KeyError:
+        return TIER_POLICY[tier]
+    except (KeyError, TypeError):
         raise MemoryOperationError(
-            f"Tier {tier!r} has no entry in SUBSTRATES_BY_TIER, so there is no routing for it. "
-            "A new tier must be added to that table in the same change that adds the enum member.",
+            f"Tier {tier!r} has no entry in TIER_POLICY, so there is no routing for it. A new tier "
+            "must be added to that table in the same change that adds the enum member.",
             field_name="tier",
         ) from None
+
+
+def substrates_for_tier(tier: MemoryTier) -> FrozenSet[str]:
+    """The substrate names a write to ``tier`` should reach. Empty for ``WORKING``."""
+    return policy_for_tier(tier).substrates
+
+
+def graph_shape_for_tier(tier: MemoryTier) -> Optional[GraphWriteShape]:
+    """How a write to ``tier`` is shaped on the graph, or ``None`` if it never reaches one."""
+    return policy_for_tier(tier).graph_shape
+
+
+def routes_to(substrate: str, tiers: Iterable[MemoryTier]) -> bool:
+    """Whether **any** of ``tiers`` reaches ``substrate`` -- the read path's counterpart to
+    :func:`substrates_for_tier`. A leg no requested tier routes to is a guaranteed-empty round
+    trip, and a network hop in Mode B."""
+    return any(substrate in policy_for_tier(tier).substrates for tier in tiers)
+
+
+#: The tiers a provider searches when a query names none.
+PERSISTENT_TIERS: Tuple[MemoryTier, ...] = tuple(t for t, row in TIER_POLICY.items() if row.searched_by_default)
+
+#: Where an event that names no tier lands.
+DEFAULT_WRITE_TIER: MemoryTier = next(t for t, row in TIER_POLICY.items() if row.is_write_default)
+
+#: The tier ``consolidate`` reads, and the tier it writes.
+CONSOLIDATION_SOURCE: MemoryTier = next(t for t, row in TIER_POLICY.items() if row.consolidates_from)
+CONSOLIDATION_TARGET: MemoryTier = next(t for t, row in TIER_POLICY.items() if row.consolidates_into)

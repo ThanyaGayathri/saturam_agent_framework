@@ -115,6 +115,13 @@ class BaseDb(ABC):
         self.approvals_table_name = approvals_table or f"{self.table_prefix}approvals"
         self.auth_tokens_table_name = auth_tokens_table or f"{self.table_prefix}auth_tokens"
         self.service_accounts_table_name = service_accounts_table or f"{self.table_prefix}service_accounts"
+        # Memory tiers (SM-C3 #91). Prefix-derived only -- see MEMORY_TIER_TABLE_TYPES.
+        self.memory_episodic_table_name = f"{self.table_prefix}memory_episodic"
+        self.memory_semantic_fact_table_name = f"{self.table_prefix}memory_semantic_fact"
+        self.memory_entity_table_name = f"{self.table_prefix}memory_entity"
+        self.memory_relation_table_name = f"{self.table_prefix}memory_relation"
+        self.memory_procedural_table_name = f"{self.table_prefix}memory_procedural"
+        self.memory_link_table_name = f"{self.table_prefix}memory_link"
 
     def to_dict(self) -> Dict[str, Any]:
         """
@@ -1577,6 +1584,13 @@ class AsyncBaseDb(ABC):
         self.approvals_table_name = approvals_table or f"{self.table_prefix}approvals"
         self.auth_tokens_table_name = auth_tokens_table or f"{self.table_prefix}auth_tokens"
         self.service_accounts_table_name = service_accounts_table or f"{self.table_prefix}service_accounts"
+        # Memory tiers (SM-C3 #91). Prefix-derived only -- see MEMORY_TIER_TABLE_TYPES.
+        self.memory_episodic_table_name = f"{self.table_prefix}memory_episodic"
+        self.memory_semantic_fact_table_name = f"{self.table_prefix}memory_semantic_fact"
+        self.memory_entity_table_name = f"{self.table_prefix}memory_entity"
+        self.memory_relation_table_name = f"{self.table_prefix}memory_relation"
+        self.memory_procedural_table_name = f"{self.table_prefix}memory_procedural"
+        self.memory_link_table_name = f"{self.table_prefix}memory_link"
 
     def clone_with_table_overrides(self, **overrides: Any) -> Optional["AsyncBaseDb"]:
         """Return a copy of this db that shares its connection but renames tables.

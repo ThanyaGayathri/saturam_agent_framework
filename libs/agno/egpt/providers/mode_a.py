@@ -35,6 +35,7 @@ from egpt.providers.model_provider import (
     ModelResolveResult,
     ProviderMode,
 )
+from egpt.utils.log import log_debug
 
 if TYPE_CHECKING:
     from egpt.models.base import Model
@@ -81,9 +82,27 @@ _PRIVATE_SUFFIXES: Tuple[str, ...] = (
     ".home.arpa",
 )
 
-# Backends whose server-side convention is multi-LoRA. Adapter selection is ignored (not an
-# error) for anything else: an Ollama deployment has no adapter concept, and failing a request
+# In-tree backends whose server-side convention is multi-LoRA. Adapter selection is ignored (not
+# an error) for anything else: an Ollama deployment has no adapter concept, and failing a request
 # that merely *mentioned* one would make `adapter` unusable in a config shared across backends.
+#
+# **A fallback, not the answer.** The question "does this backend do multi-LoRA?" is a capability,
+# and a name is not a capability. A registration declares it with `supports_adapters=True` (see
+# `registry/_declarations/models.py`), and `_supports_adapters` reads that first -- so a backend
+# registered at runtime via `discovery.register(..., supports_adapters=True)` can opt in, which is
+# the extensibility the discovery seam exists to provide. Before that, an out-of-tree row wrapping a
+# vLLM fork had its adapter silently dropped: the request succeeded, `ModelResolveResult.adapter`
+# reported None, and the tenant got base weights with no signal (aicoe-tracker#165).
+#
+# An `egpt.models` *entry point* cannot declare this yet: `_merge_entry_points` builds its
+# `Registration` from nothing but the `name = module:attr` string the entry-point spec allows, so
+# `metadata` is always empty for that source and every entry-point row falls through to this tuple
+# regardless of what its server actually supports. Runtime `register()` is the only opt-in path
+# today. Tracked as a follow-up to extend declaration to entry points.
+#
+# This tuple stays live for exactly that fallback: an entry-point row, or a runtime registration
+# that never named the kwarg, is still answered by name here rather than losing adapter support
+# outright.
 _ADAPTER_BACKENDS: Tuple[str, ...] = ("vllm", "openai-like")
 
 # Which ProviderSettings field carries each backend's own documented credential. Read through
@@ -267,7 +286,14 @@ class LocalModelProvider(BaseModelProvider):
 
         base_url = self._require_base_url()
         adapter = request.adapter if request.adapter is not None else self.default_adapter
-        model_id, config = self._build_config(base_url=base_url, adapter=adapter)
+        # Decided once and threaded through: `_adapter_applies` hits the registry and, when it
+        # says no, logs a debug line. Calling it a second time to build the result below would
+        # look the decision up twice per resolve and emit that log twice for one ignored
+        # adapter -- and, now that the lookup reaches a mutable table, a registration changed
+        # between the two calls could make `_build_config`'s rendering disagree with what the
+        # returned `ModelResolveResult.adapter` reports.
+        applies = self._adapter_applies(adapter)
+        model_id, config = self._build_config(base_url=base_url, adapter=adapter, applies=applies)
 
         model = self._construct(self.backend, model_id, **config)
         self._assert_no_egress(model)
@@ -276,7 +302,7 @@ class LocalModelProvider(BaseModelProvider):
             model=model,
             mode=ProviderMode.LOCAL,
             provider_key=self.backend,
-            adapter=adapter if self._adapter_applies(adapter) else None,
+            adapter=adapter if applies else None,
             reason=f"mode-a: self-hosted {self.backend} at {base_url}",
         )
 
@@ -316,7 +342,7 @@ class LocalModelProvider(BaseModelProvider):
             modes=(ProviderMode.LOCAL,),
             provider_keys=(self.backend,),
             model_ids=(self.model_id,) if self.model_id else (),
-            supports_adapters=self.backend in _ADAPTER_BACKENDS,
+            supports_adapters=self._supports_adapters(),
             supports_escalation=False,
             supports_vision=False,
             egress_free=self._is_egress_free(),
@@ -347,15 +373,56 @@ class LocalModelProvider(BaseModelProvider):
             )
         return self.base_url
 
-    def _adapter_applies(self, adapter: Optional[str]) -> bool:
-        return bool(adapter) and self.backend in _ADAPTER_BACKENDS
+    def _supports_adapters(self) -> bool:
+        """Whether this backend's server serves multi-LoRA, asked of the registry first.
 
-    def _build_config(self, *, base_url: str, adapter: Optional[str]) -> Tuple[str, Dict[str, Any]]:
+        The registration is the authority when it has an opinion: a row declaring
+        ``supports_adapters=True`` at runtime registration gets adapter rendering whatever it is
+        called, so a backend registered via ``discovery.register(..., supports_adapters=True)``
+        works without being named in ``_ADAPTER_BACKENDS``. An ``egpt.models`` entry point cannot
+        declare this yet (see the comment on ``_ADAPTER_BACKENDS``) and falls through to the
+        tuple, same as a runtime registration that omitted the kwarg.
+
+        Read through this one method by both ``capabilities()`` and ``_adapter_applies`` on
+        purpose: the capability reported and the behaviour applied cannot disagree if they cannot
+        be computed differently (aicoe-tracker#165).
+        """
+        from egpt.registry import discovery
+
+        registration = discovery.get("model", self.backend)
+        if registration is not None and "supports_adapters" in registration.metadata:
+            # `is True`, not `bool(...)`: metadata is unvalidated at registration, and a
+            # third party passing the string "false" would otherwise be truthy and silently
+            # *enable* adapter rendering -- the opposite of what they wrote.
+            return registration.metadata["supports_adapters"] is True
+        return self.backend in _ADAPTER_BACKENDS
+
+    def _adapter_applies(self, adapter: Optional[str]) -> bool:
+        if not adapter:
+            return False
+        if self._supports_adapters():
+            return True
+        # Ignored rather than refused -- see the note on `_ADAPTER_BACKENDS`. Logged because
+        # "why did my adapter not apply?" was previously unanswerable without reading this module,
+        # and silence is what let aicoe-tracker#165 go unnoticed. `log_debug`, not a warning: a
+        # config shared across backends mentions `adapter` legitimately on backends that have no
+        # adapter concept, so this is normal on those and would be noise at a higher level.
+        log_debug(
+            f"Mode A: adapter {adapter!r} ignored -- backend {self.backend!r} does not declare "
+            "multi-LoRA support. Register it with supports_adapters=True if its server serves "
+            "adapters."
+        )
+        return False
+
+    def _build_config(self, *, base_url: str, adapter: Optional[str], applies: bool) -> Tuple[str, Dict[str, Any]]:
         """The model id and constructor kwargs for this resolution.
 
         Split out from ``resolve_detailed`` so the adapter-rendering rules are testable without
         constructing anything -- the interesting behavior is which of the two conventions puts
         the adapter where.
+
+        ``applies`` is ``self._adapter_applies(adapter)``, decided once by the caller and passed
+        in rather than recomputed here -- see the comment in ``resolve_detailed``.
         """
         model_id = self.model_id
         config: Dict[str, Any] = {}
@@ -384,7 +451,7 @@ class LocalModelProvider(BaseModelProvider):
             # to explain it because Mode A considered itself fully configured.
             config["api_key"] = self.api_key or self._backend_api_key or "not-provided"
 
-        if self._adapter_applies(adapter):
+        if applies:
             if self.adapter_mode == "model-id":
                 # vLLM's multi-LoRA convention: the adapter *is* the model id.
                 model_id = adapter

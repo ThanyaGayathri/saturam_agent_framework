@@ -258,3 +258,65 @@ class TestTenantReachesEveryDbCall:
     def test_the_principals_tenant_is_passed(self, mock_db, method, path, body, db_method):
         call(build_client(mock_db), method, path, body, OWNER)
         assert getattr(mock_db, db_method).call_args.kwargs["tenant_id"] == OWNER
+
+
+# =============================================================================
+# The dry run is not a cross-tenant oracle (EGPT-2.9)
+# =============================================================================
+#
+# `POST /components/validate` writes nothing, so it cannot leak rows the way a CRUD route can.
+# What it could still leak is *existence*: an unauthenticated-by-tenant read of another tenant's
+# component ids. It does not, and these tests pin the two reasons.
+#
+# Member and step references are checked for shape only -- `_check_members`/`_check_steps` in
+# registry/schema.py never look an id up -- so no amount of crafting a team config turns the
+# validator into a lookup. The one genuinely tenant-varying input is the capability policy, and
+# `test_components_policy.py::TestPolicyOnTheDryRun` covers that the principal's tenant selects
+# it. The `require_tenant_id` gate on this route is covered in `test_components_rbac.py`.
+
+
+class TestTheDryRunIsNotACrossTenantOracle:
+    def test_it_never_looks_a_component_up(self, mock_db):
+        """No component read means no existence oracle, whatever ids the config names."""
+        client = build_client(mock_db)
+
+        for config in (
+            {"component_type": "team", "name": "T", "config": {"members": [{"type": "agent", "agent_id": "agent-1"}]}},
+            {"component_type": "agent", "name": "A", "config": {"model": "openai:gpt-5.5"}},
+            {"component_type": "team", "name": "T", "config": {"members": [{"type": "agent", "agent_id": "agent-1"}]}},
+        ):
+            call(client, "POST", "/components/validate", config, INTRUDER)
+
+        mock_db.get_component.assert_not_called()
+        mock_db.get_config.assert_not_called()
+        mock_db.list_components.assert_not_called()
+
+    def test_the_verdict_does_not_depend_on_the_callers_tenant(self, mock_db):
+        """The owner and an outsider get byte-identical answers for the same config."""
+        client = build_client(mock_db)
+        body = {
+            "component_type": "team",
+            "name": "T",
+            "config": {"members": [{"type": "agent", "agent_id": "agent-1"}]},
+        }
+
+        owner = call(client, "POST", "/components/validate", body, OWNER)
+        intruder = call(client, "POST", "/components/validate", body, INTRUDER)
+
+        assert owner.status_code == intruder.status_code == 200
+        assert owner.json() == intruder.json()
+
+    def test_it_writes_nothing_regardless_of_tenant(self, mock_db):
+        client = build_client(mock_db)
+
+        call(
+            client,
+            "POST",
+            "/components/validate",
+            {"component_type": "agent", "name": "A", "config": {"model": "openai:gpt-5.5"}, "tenant_id": OWNER},
+            INTRUDER,
+        )
+
+        mock_db.create_component_with_config.assert_not_called()
+        mock_db.upsert_config.assert_not_called()
+        mock_db.upsert_component.assert_not_called()

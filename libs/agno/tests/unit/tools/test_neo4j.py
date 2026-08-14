@@ -3,7 +3,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from egpt.integrations.tools.neo4j import Neo4jTools
+# `Neo4jTools` imports the driver at module scope, so this file cannot even be collected without it.
+# Ungated it passed everywhere the driver happened to be installed, and SM-G1 (#99) put `neo4j` on
+# the `unit-drivers-absent` uninstall list -- which is the job that exists to catch exactly this.
+pytest.importorskip("neo4j", reason="Neo4jTools imports the driver at module level")
+
+from egpt.integrations.tools.neo4j import Neo4jTools  # noqa: E402
 
 
 def test_list_labels():

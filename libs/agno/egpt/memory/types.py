@@ -26,7 +26,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence
 
 from egpt.memory.errors import MemoryOperationError
-from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
+from egpt.memory.tiers import DEFAULT_WRITE_TIER, PERSISTENT_TIERS, MemoryTier
 from egpt.utils.dttm import to_epoch_s
 
 __all__ = [
@@ -47,6 +47,8 @@ __all__ = [
     "Scope",
     "Substrate",
     "TemporalBounds",
+    "WRITE_KEYS",
+    "write_details",
     "WriteReceipt",
 ]
 
@@ -67,7 +69,7 @@ class PartialWriteError(RuntimeError):
     The ids matter more than the failure. A provider mints an id for any event lacking one, so a
     naive retry writes *fresh* rows for the same logical memories -- finding F1 arriving through the
     error path. Carrying the receipt lets a caller retry with ``MemoryEvent.id`` set, which is
-    idempotent provided the substrate upserts by id (see ``GraphSubstrate.upsert_episode``).
+    idempotent provided the substrate upserts by id (see ``GraphSubstrate.upsert_episodes``).
 
     **``event_ids`` are the ids a retry must reuse**, and ``accepted`` is how many of them there
     are. That is the one reading true of both adapters and the one the retry advice needs. On
@@ -350,7 +352,7 @@ class MemoryEvent:
 
     content: str
     scope: Scope
-    tier: MemoryTier = MemoryTier.EPISODIC
+    tier: MemoryTier = DEFAULT_WRITE_TIER  # `tiers.TIER_POLICY` decides which one that is
     id: Optional[str] = None
     role: Optional[str] = None  # for message-shaped events (user / assistant / ...)
     topics: Optional[List[str]] = None
@@ -623,17 +625,56 @@ class MemorySlice:
         return "\n".join(lines)
 
 
+#: Keys every provider must put in ``WriteReceipt.details``, the same floor ``FUSION_KEYS`` and
+#: ``CONSOLIDATION_KEYS`` provide for the other two result types.
+#:
+#: ``stores`` exists because ``accepted`` is one number and a tier can be served by several backends
+#: that answer differently. A provider composing substrates has none, and reports ``{}``, which is
+#: honest rather than empty-by-omission.
+WRITE_KEYS = ("stores",)
+
+
+def write_details(stores: Optional[Dict[str, bool]] = None, **extra: Any) -> Dict[str, Any]:
+    """Build a ``WriteReceipt.details`` payload carrying every key in :data:`WRITE_KEYS`.
+
+    ``stores`` maps a backend's own name to whether it took this batch. Extra keys are free; the
+    contract is a floor, not a ceiling.
+    """
+    details: Dict[str, Any] = {"stores": dict(stores or {})}
+    details.update(extra)
+    return details
+
+
 @dataclass
 class WriteReceipt:
     """What a ``write`` accepted and where it landed.
 
     ``event_ids`` are the ids the provider stamped -- the caller needs them to correlate a later
     read, and consolidation needs them for ``source_episode_ids`` provenance.
+
+    ``accepted`` is **tier-level**: how many events this write was taken by, not how many rows
+    exist. A backend may fold a batch into one row, and a tier may be served by several backends.
+    ``details`` (see :data:`WRITE_KEYS`) is where that breakdown lives, so "two of three stores took
+    it" is readable rather than collapsed into the count.
     """
 
     accepted: int = 0
     event_ids: List[str] = field(default_factory=list)
     tiers_written: List[MemoryTier] = field(default_factory=list)
+    details: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # Filled rather than required, so a hand-built receipt in a test or a third-party adapter
+        # still satisfies the floor a consumer reads.
+        #
+        # **Merged on key presence, not on truthiness.** A receipt built as
+        # ``WriteReceipt(details={"rows": 3})`` -- the extra-keys-are-free usage the docstring
+        # invites -- is truthy, so a `not self.details` test skipped the fill and left
+        # ``details["stores"]`` raising `KeyError` at the call site. That is precisely the
+        # divergence the floor exists to prevent, reachable only from out-of-tree adapters, which
+        # are the ones with no test of ours to catch it.
+        if not self.details.keys() >= set(WRITE_KEYS):
+            self.details = write_details(**self.details)
 
 
 @dataclass

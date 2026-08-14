@@ -16,6 +16,7 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
+from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.schemas.service_accounts import (
     resolve_service_account_sort_column,
     validate_service_account_update,
@@ -48,7 +49,7 @@ try:
     from sqlalchemy import Column, ForeignKey, MetaData, String, Table, func, select, text
     from sqlalchemy.dialects import sqlite
     from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
-    from sqlalchemy.schema import Index, UniqueConstraint
+    from sqlalchemy.schema import CheckConstraint, Index, PrimaryKeyConstraint, UniqueConstraint
 except ImportError:
     raise ImportError("`sqlalchemy` not installed. Please install it using `pip install sqlalchemy`")
 
@@ -234,6 +235,11 @@ class AsyncSqliteDb(AsyncBaseDb):
             (self.schedule_runs_table_name, "schedule_runs"),
             (self.approvals_table_name, "approvals"),
             (self.service_accounts_table_name, "service_accounts"),
+            # Memory tiers (SM-C3 #91), derived so a new tier joins auto-provisioning rather than
+            # being remembered. AgentOS calls this on startup with auto_provision_dbs=True and
+            # migrations never run automatically, so a table missing here is a table a fresh
+            # deployment simply never gets.
+            *[(getattr(self, memory_tier_table_attr(tier)), tier) for tier in MEMORY_TIER_TABLE_TYPES],
         ]
 
         for table_name, table_type in tables_to_create:
@@ -264,18 +270,27 @@ class AsyncSqliteDb(AsyncBaseDb):
             indexes: List[str] = []
             unique_constraints: List[str] = []
             schema_unique_constraints = table_schema.pop("_unique_constraints", [])
+            schema_primary_key = table_schema.pop("__primary_key__", None)
             schema_composite_indexes = table_schema.pop("__composite_indexes__", [])
             schema_partial_unique_indexes = table_schema.pop("_partial_unique_indexes", [])
+            schema_partial_indexes = table_schema.pop("__partial_indexes__", [])
+            schema_check_constraints = table_schema.pop("__check_constraints__", [])
 
             # Get the columns, indexes, and unique constraints from the table schema
             for col_name, col_config in table_schema.items():
                 column_args = [col_name, col_config["type"]()]
                 column_kwargs = {}
 
-                if col_config.get("primary_key", False):
+                # Column-level PK only if no composite PK is defined, mirroring the sync builder.
+                if col_config.get("primary_key", False) and schema_primary_key is None:
                     column_kwargs["primary_key"] = True
                 if "nullable" in col_config:
                     column_kwargs["nullable"] = col_config["nullable"]
+                # Mirrors the sync builder. Without it a NOT NULL column with a default is
+                # built NOT NULL with no default, so a partial insert that succeeds against a
+                # sync-built table raises IntegrityError against an async-built one.
+                if "default" in col_config:
+                    column_kwargs["default"] = col_config["default"]
                 if col_config.get("index", False):
                     indexes.append(col_name)
                 if col_config.get("unique", False):
@@ -294,6 +309,15 @@ class AsyncSqliteDb(AsyncBaseDb):
             # Create the table object
             table = Table(table_name, self.metadata, *columns)
 
+            # Composite PK. Without this the async builders would treat ``__primary_key__`` as a
+            # column and build a table with no primary key at all -- the sync builders have
+            # supported it since the component tables landed.
+            if schema_primary_key is not None:
+                missing = [c for c in schema_primary_key if c not in table.c]
+                if missing:
+                    raise ValueError(f"Composite PK references missing columns in {table_name}: {missing}")
+                table.append_constraint(PrimaryKeyConstraint(*schema_primary_key, name=f"{table_name}_pkey"))
+
             # Add multi-column unique constraints with table-specific names
             for constraint in schema_unique_constraints:
                 constraint_name = f"{table_name}_{constraint['name']}"
@@ -302,12 +326,12 @@ class AsyncSqliteDb(AsyncBaseDb):
 
             # Add indexes to the table definition
             for idx_col in indexes:
-                idx_name = f"idx_{table_name}_{idx_col}"
+                idx_name = derive_index_name(table_name, [idx_col])
                 table.append_constraint(Index(idx_name, idx_col))
 
             # Composite indexes
             for idx_config in schema_composite_indexes:
-                idx_name = f"idx_{table_name}_{'_'.join(idx_config['columns'])}"
+                idx_name = derive_index_name(table_name, idx_config["columns"])
                 table.append_constraint(Index(idx_name, *idx_config["columns"]))
 
             # Partial unique indexes (unique only for rows matching the where clause).
@@ -325,6 +349,24 @@ class AsyncSqliteDb(AsyncBaseDb):
                     idx_name,
                     *[table.c[col] for col in idx_config["columns"]],
                     unique=True,
+                    sqlite_where=text(idx_config["where"]),
+                )
+
+            # CHECK constraints. SM-R12's DDL enforces the bi-temporal ordering in the database;
+            # without this key those invariants would hold only in the Python row models, so a
+            # bulk loader or raw SQL could write a row no reader can interpret.
+            for constraint in schema_check_constraints:
+                table.append_constraint(CheckConstraint(constraint["sql"], name=f"{table_name}_{constraint['name']}"))
+
+            # Partial (non-unique) indexes -- the WHERE clause SM-R12 scopes its temporal indexes
+            # with, so a current-belief lookup does not walk expired rows.
+            for idx_config in schema_partial_indexes:
+                missing = [c for c in idx_config["columns"] if c not in table.c]
+                if missing:
+                    raise ValueError(f"Partial index references missing columns in {table_name}: {missing}")
+                Index(
+                    derive_index_name(table_name, idx_config["columns"]),
+                    *[table.c[col] for col in idx_config["columns"]],
                     sqlite_where=text(idx_config["where"]),
                 )
 
@@ -491,6 +533,13 @@ class AsyncSqliteDb(AsyncBaseDb):
                 create_table_if_not_found=create_table_if_not_found,
             )
             return self.service_accounts_table
+
+        elif table_type in MEMORY_TIER_TABLE_TYPES:
+            return await self._get_or_create_table(
+                table_name=getattr(self, memory_tier_table_attr(table_type)),
+                table_type=table_type,
+                create_table_if_not_found=create_table_if_not_found,
+            )
 
         else:
             raise ValueError(f"Unknown table type: '{table_type}'")

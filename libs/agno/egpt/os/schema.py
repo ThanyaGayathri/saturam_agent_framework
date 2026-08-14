@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from egpt.agent import Agent
 from egpt.agent.factory import AgentFactory
@@ -828,7 +828,7 @@ class ComponentType(str, Enum):
 
 
 class ComponentCreate(BaseModel):
-    name: str = Field(..., description="Display name")
+    name: str = Field(..., min_length=1, description="Display name")
     component_id: Optional[str] = Field(
         None, description="Unique identifier for the entity. Auto-generated from name if not provided."
     )
@@ -908,6 +908,60 @@ class ConfigUpdate(BaseModel):
     stage: Optional[str] = None
     notes: Optional[str] = None
     links: Optional[List[Dict[str, Any]]] = None
+
+
+class ComponentValidateRequest(BaseModel):
+    """A component definition to dry-run through the validator without storing it (EGPT-2.9).
+
+    ``config`` is required here although ``ComponentCreate.config`` is optional: a create with no
+    config makes a shell component to hang versions off, but a validate with no config has
+    nothing to say.
+
+    Exactly one of ``component_id`` or ``name`` must be present -- see the validator below.
+    """
+
+    component_type: ComponentType = Field(..., description="Type of entity: agent, team, or workflow")
+    config: Dict[str, Any] = Field(..., description="The configuration to validate")
+    component_id: Optional[str] = Field(
+        None,
+        description="The id this config would be stored under. Supplied so self-references are detected.",
+    )
+    name: Optional[str] = Field(
+        None,
+        description=(
+            "The display name the component would be created with. Used only to derive "
+            "`component_id` when it is omitted, exactly as POST /components does."
+        ),
+    )
+    links: Optional[List[Dict[str, Any]]] = Field(None, description="Optional links to child components")
+
+    @model_validator(mode="after")
+    def _require_an_identity(self) -> "ComponentValidateRequest":
+        """Refuse a request that names no component.
+
+        Self-reference detection is gated on the id being known (``_check_members`` only flags a
+        cycle when ``self_component_id is not None``), so a request carrying neither field would
+        answer 200 for a self-referencing team that the write route rejects -- silently skipping
+        the check rather than performing it.
+
+        Required rather than defaulted because the write route's precondition is the same:
+        ``ComponentCreate.name`` is mandatory, so the create path can never reach this state. A
+        dry run that accepted less input than the write it previews cannot promise the same
+        verdict, which is this endpoint's whole contract.
+        """
+        if not self.component_id and not self.name:
+            raise ValueError(
+                "Either 'component_id' or 'name' is required so self-references can be detected. "
+                "Send the same identity you would send to POST /components."
+            )
+        return self
+
+
+class ComponentValidateResponse(BaseModel):
+    """Returned (200) when a dry-run config validates. Failures use ``ConfigValidationErrorResponse``."""
+
+    valid: bool = Field(True, description="Always true; an invalid config is a 422, not a false here")
+    schema_version: int = Field(..., description="The config schema version this server validates against")
 
 
 class ComponentBundleEntry(BaseModel):

@@ -112,6 +112,18 @@ on for deployments that did not. A deployment running JWT for identity only (env
 `get_resource_context_from_path` recognises, so the GET-listing filtered-access fallback never
 fires: a caller without `components:read` gets a hard 403 rather than an empty list.
 
+`POST /components/validate` (the EGPT-2.9 dry run) sits behind all three dependencies like every
+other component route, and maps to `components:write`. It performs no component reads, so it is
+not an existence oracle for another tenant's ids; the one thing the caller's tenant selects is
+which capability policy applies.
+
+**`GET /console` is the one path under this OS that is deliberately unauthenticated** — and it is
+not a component route. It serves a static HTML asset with no tenant data in it, because a browser
+navigating to the console carries no `Authorization` header and would otherwise be refused before
+it could ask for a token. `EgptOS` adds it to `AuthMiddleware`'s excluded paths only when
+`enable_console=True`, and every API call the page then makes is gated exactly as above. There is
+deliberately no `scopes.py` entry for it.
+
 ### Status codes
 
 | Situation | Code |

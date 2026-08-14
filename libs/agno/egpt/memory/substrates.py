@@ -166,8 +166,8 @@ class GraphSubstrate(Protocol):
     ``invalidate_edge`` / ``retract_edge``.
     """
 
-    def upsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
-        """Insert or replace an episode **by id**, within ``scope``.
+    def upsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
+        """Insert or replace episodes **by id**, within ``scope``.
 
         The provider stamps ``event.id`` before calling this and passes the same id to the vector
         substrate: one logical episode has one id across both, because that id is the
@@ -179,20 +179,36 @@ class GraphSubstrate(Protocol):
         row, and the two substrates end up holding different content under one id, where dedup keeps
         the vector copy and makes the graph row unreachable. The provider's batch-level duplicate
         check cannot help; it spans one call, and this is about repeats across calls.
+
+        **Batched, matching ``VectorSubstrate.upsert``**, so one ``write`` is a bounded number of
+        round trips rather than ``len(events)``. There is deliberately no single-episode verb
+        beside it: two ways to write one object is how an invariant gets applied to one and not the
+        other, and the degenerate batch is a one-element sequence. An **empty** sequence is a no-op,
+        not an error -- the provider skips the call entirely, and a backend that is handed one
+        anyway must not round-trip.
+
+        **A batch is not required to be atomic.** The seam is at-least-once by construction (there
+        is no distributed transaction across two substrates), so a backend that fails partway
+        raises, and the caller retries the whole batch with the same ids -- which is idempotent
+        precisely because this method is by id. A backend whose engine gives it atomicity per batch
+        is welcome to it; nothing above depends on that being true.
         """
         ...
 
-    async def aupsert_episode(self, scope: Scope, event: MemoryEvent) -> None:
-        """Async variant of :meth:`upsert_episode`."""
+    async def aupsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
+        """Async variant of :meth:`upsert_episodes`."""
         ...
 
-    def upsert_fact(self, scope: Scope, fact: FactWrite) -> None:
-        """Record a distilled semantic fact, as an edge when it carries a full triple.
+    def upsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
+        """Record distilled semantic facts, each an edge when it carries a full triple.
 
-        Separate from :meth:`upsert_episode` because a fact is not an episode: it has SPO
+        Separate from :meth:`upsert_episodes` because a fact is not an episode: it has SPO
         structure, a confidence, and provenance back to the episodes it came from. Writing one
         through the episode path produced a flat pseudo-episode instead of the entity/relation
         shape SM-R7 intends (finding F9).
+
+        Batched, empty-is-a-no-op, and not required to be atomic, exactly as
+        :meth:`upsert_episodes` describes.
 
         A fact whose ``is_triple()`` is false is still storable -- SPO is optional structure over
         the statement text, matching SM-R12's ``SemanticFact``. What a backend does with an
@@ -208,11 +224,18 @@ class GraphSubstrate(Protocol):
         ``TemporalBounds`` for an id it knows overwrites that row's ``expired_at``, because the
         graph is the authority (ADR 0003 D8). The overwrite is deliberate; it is only safe while
         this method round-trips the fields.
+
+        **Upsert replaces; only :meth:`invalidate` preserves a predecessor.** Retiring a fact this
+        way overwrites the live row in place, so a caller that changes ``content`` or ``t_valid`` in
+        the same write leaves no trace of the previous version. That is the right shape for a
+        correction and the wrong one for a contradiction, which is what :meth:`invalidate` and its
+        expire-and-reinsert are for. Stated because everything else in this port says "never edit in
+        place", and a reader is entitled to assume that holds here too.
         """
         ...
 
-    async def aupsert_fact(self, scope: Scope, fact: FactWrite) -> None:
-        """Async variant of :meth:`upsert_fact`."""
+    async def aupsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
+        """Async variant of :meth:`upsert_facts`."""
         ...
 
     def traverse(

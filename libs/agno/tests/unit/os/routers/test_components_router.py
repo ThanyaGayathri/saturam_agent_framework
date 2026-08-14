@@ -952,3 +952,217 @@ class TestRepeatedDeleteAgainstARealBackend:
 
         assert first.status_code == 204
         assert second.status_code == 404
+
+
+# =============================================================================
+# POST /components/validate -- the dry run (EGPT-2.9)
+# =============================================================================
+#
+# The endpoint exists so an authoring client can show field-level errors *before* it writes
+# anything. Two properties carry that: it stores nothing, and its 422 is the same body the write
+# routes produce -- otherwise a client would need two error parsers and the console's single
+# `normalizeError` would be a lie.
+
+
+class TestValidateEndpoint:
+    def test_a_valid_agent_config_validates(self, client):
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "agent", "name": "Agent", "config": VALID_AGENT_CONFIG},
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"valid": True, "schema_version": 1}
+
+    def test_it_writes_nothing(self, client, mock_db):
+        """The defining property: a dry run must not touch a single row, valid or not."""
+        client.post(
+            "/components/validate", json={"component_type": "agent", "name": "Agent", "config": VALID_AGENT_CONFIG}
+        )
+        client.post(
+            "/components/validate", json={"component_type": "agent", "name": "Agent", "config": {"instructions": "hi"}}
+        )
+
+        mock_db.create_component_with_config.assert_not_called()
+        mock_db.upsert_component.assert_not_called()
+        mock_db.upsert_config.assert_not_called()
+        mock_db.set_current_version.assert_not_called()
+        mock_db.delete_component.assert_not_called()
+        mock_db.delete_config.assert_not_called()
+
+    def test_an_invalid_config_returns_field_errors(self, client):
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "agent", "name": "Agent", "config": {"instructions": "no model here"}},
+        )
+
+        assert response.status_code == 422
+        body = response.json()
+        assert body["error_code"] == "CONFIG_VALIDATION_ERROR"
+        assert body["schema_version"] == 1
+        assert body["errors"][0]["path"] == "config.model"
+        assert body["errors"][0]["code"] == "missing_required_field"
+
+    def test_its_error_body_matches_the_write_route(self, client):
+        """A client parses one shape. If these ever diverge, that assumption breaks silently."""
+        bad_config = {"instructions": "no model here"}
+
+        dry_run = client.post(
+            "/components/validate", json={"component_type": "agent", "name": "Agent", "config": bad_config}
+        )
+        write = client.post(
+            "/components",
+            json={"name": "Agent", "component_type": "agent", "config": bad_config},
+        )
+
+        assert dry_run.status_code == write.status_code == 422
+        assert dry_run.json() == write.json()
+
+    def test_an_unresolvable_db_reference_is_a_field_error(self, client):
+        """The db reference resolves before validation, so a bad id names its own field."""
+        response = client.post(
+            "/components/validate",
+            json={
+                "component_type": "agent",
+                "name": "Agent",
+                "config": {"model": "openai:gpt-5.5", "db": {"id": "no-such-db"}},
+            },
+        )
+
+        assert response.status_code == 422
+        paths = [error["path"] for error in response.json()["errors"]]
+        assert "config.db.id" in paths
+
+    def test_an_empty_config_validates(self, client):
+        """Mirrors the write path: an empty config is a shell, and there is nothing to reject."""
+        response = client.post("/components/validate", json={"component_type": "agent", "name": "Agent", "config": {}})
+
+        assert response.status_code == 200
+
+    def test_an_unknown_component_type_is_a_request_shape_error(self, client):
+        """FastAPI's own 422, deliberately a different body -- a client must handle both."""
+        response = client.post(
+            "/components/validate", json={"component_type": "sandwich", "name": "Agent", "config": {}}
+        )
+
+        assert response.status_code == 422
+        body = response.json()
+        assert isinstance(body["detail"], list)
+        assert "error_code" not in body
+
+    def test_config_is_required(self, client):
+        response = client.post("/components/validate", json={"component_type": "agent", "name": "Agent"})
+
+        assert response.status_code == 422
+
+    def test_the_caller_body_is_not_mutated_into_the_response(self, client):
+        """The handler copies before resolving; a dry run returns a verdict, not a rewritten config."""
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "agent", "name": "Agent", "config": VALID_AGENT_CONFIG},
+        )
+
+        assert set(response.json()) == {"valid", "schema_version"}
+
+
+# =============================================================================
+# The dry run and the write route must agree on identity (PR #72 review, finding 1)
+# =============================================================================
+#
+# `create_component` derives `component_id` from `name` when the caller omits it, and
+# `component_id` is the *only* input to self-reference detection. A dry run that passed the
+# caller's `component_id` straight through therefore answered 200 for a self-referencing team
+# that the write route then rejected with `cyclic_reference` -- and on the console's default
+# path, where the id box is optional and labelled "derived from name".
+
+
+class TestTheDryRunDerivesTheIdLikeTheWriteRoute:
+    SELF_REFERENCING_TEAM = {"members": [{"type": "team", "team_id": "support-team"}]}
+
+    def test_a_self_reference_is_caught_when_the_id_is_derived_from_the_name(self, client):
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "team", "name": "Support Team", "config": self.SELF_REFERENCING_TEAM},
+        )
+
+        assert response.status_code == 422
+        assert [(e["path"], e["code"]) for e in response.json()["errors"]] == [
+            ("config.members[0].team_id", "cyclic_reference")
+        ]
+
+    def test_it_agrees_with_the_write_route_on_a_derived_id(self, client):
+        """The byte-identity contract, on the path that used to break it."""
+        body = {"name": "Support Team", "component_type": "team", "config": self.SELF_REFERENCING_TEAM}
+
+        dry_run = client.post("/components/validate", json=body)
+        write = client.post("/components", json=body)
+
+        assert dry_run.status_code == write.status_code == 422
+        assert dry_run.json() == write.json()
+
+    def test_an_explicit_id_still_wins_over_the_name(self, client):
+        """`component_id` is authoritative when supplied, exactly as on the write route."""
+        response = client.post(
+            "/components/validate",
+            json={
+                "component_type": "team",
+                "component_id": "something-else",
+                "name": "Support Team",
+                "config": self.SELF_REFERENCING_TEAM,
+            },
+        )
+
+        assert response.status_code == 200
+
+    def test_a_team_that_does_not_reference_itself_is_unaffected(self, client):
+        response = client.post(
+            "/components/validate",
+            json={
+                "component_type": "team",
+                "name": "Support Team",
+                "config": {"members": [{"type": "agent", "agent_id": "faq-agent"}]},
+            },
+        )
+
+        assert response.status_code == 200
+
+    def test_an_explicit_id_alone_is_enough(self, client):
+        """Clients that always send an explicit id must not have to start sending a name too."""
+        response = client.post(
+            "/components/validate",
+            json={"component_id": "support", "component_type": "agent", "config": VALID_AGENT_CONFIG},
+        )
+
+        assert response.status_code == 200
+
+    def test_a_request_naming_no_component_is_refused(self, client):
+        """Neither field means `component_id` stays None, and self-reference detection is gated on
+        it being known -- so the dry run would silently *skip* the check rather than run it, and
+        answer 200 for a config the write route rejects. The write route cannot reach this state
+        at all (`ComponentCreate.name` is required), so accepting less input here than the write
+        it previews is what breaks the verdict-parity contract."""
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "team", "config": self.SELF_REFERENCING_TEAM},
+        )
+
+        assert response.status_code == 422
+        assert "component_id" in str(response.json()["detail"])
+
+    def test_the_refusal_covers_agents_too(self, client):
+        """Required unconditionally rather than only for teams: one precondition is easier to hold
+        than a type-dependent one, and it is the same precondition the write route already has."""
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "agent", "config": VALID_AGENT_CONFIG},
+        )
+
+        assert response.status_code == 422
+
+    def test_a_blank_name_does_not_count_as_an_identity(self, client):
+        response = client.post(
+            "/components/validate",
+            json={"component_type": "team", "name": "", "config": self.SELF_REFERENCING_TEAM},
+        )
+
+        assert response.status_code == 422

@@ -25,12 +25,13 @@ from typing import Any, Dict, List
 
 import pytest
 
-from egpt.memory.config import MemoryProviderConfig, build_memory_provider
+from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, build_memory_provider
 from egpt.memory.provider import MemoryProvider
-from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
+from egpt.memory.tiers import CONSOLIDATION_SOURCE, MemoryTier, substrates_for_tier
 from egpt.memory.types import (
     CONSOLIDATION_KEYS,
     FUSION_KEYS,
+    WRITE_KEYS,
     MemoryEvent,
     MemoryOperationError,
     MemoryQuery,
@@ -144,7 +145,7 @@ ALL_CONFIGS = {
 }
 
 #: Providers that can serve the SEMANTIC tier, which is what the shared workload writes.
-#: `graph_only` cannot: SUBSTRATES_BY_TIER routes procedural to vector, and consolidate needs a
+#: `graph_only` cannot: TIER_POLICY routes procedural to vector, and consolidate needs a
 #: vector leg to enumerate episodes. It still participates in every *refusal* property below.
 WRITABLE_CONFIGS = {k: v for k, v in ALL_CONFIGS.items() if k != "graph_only"}
 
@@ -313,6 +314,21 @@ def test_every_provider_reports_the_full_consolidation_key_contract(name):
 
 
 @pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+def test_every_provider_reports_the_full_write_key_contract(name):
+    """The third diagnostics floor, for the same reason as the other two: a consumer reading
+    `receipt.details["stores"]` must not KeyError on whichever provider it was not written against.
+
+    A provider composing substrates has no stores and reports `{}`, which is the honest answer
+    rather than an absent key.
+    """
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+
+    receipt = provider.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="a customer note", scope=ACME)])
+
+    assert set(WRITE_KEYS) <= set(receipt.details)
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
 def test_every_provider_refuses_duplicate_ids_in_one_batch(name):
     """A duplicate destroys the first event's content behind a receipt claiming both landed."""
     provider = build_memory_provider(WRITABLE_CONFIGS[name]())
@@ -385,7 +401,7 @@ def test_every_provider_raises_partial_write_error_when_a_backend_fails_mid_writ
     def explode(*args, **kwargs):
         raise RuntimeError("backend down")
 
-    for target, attribute in (("vector", "upsert"), ("graph", "upsert_fact"), ("manager", "add_user_memory")):
+    for target, attribute in (("vector", "upsert"), ("graph", "upsert_facts"), ("manager", "add_user_memory")):
         backend = getattr(provider, target, None)
         if backend is not None:
             setattr(backend, attribute, explode)
@@ -408,11 +424,84 @@ def test_reads_of_an_unserved_tier_are_empty_on_every_provider(name, tier):
     # for WORKING on every co-located wiring, so the two cells this rule was written for -- the
     # ones where `co_located.read_tier(WORKING)` used to refuse while `seed` returned `[]` -- were
     # the exact cells that skipped. All 16 now assert.
-    served = tier in getattr(provider, "_served_tiers", lambda: list(PERSISTENT_TIERS))()
-    if served:
+    if provider.tiers()[tier]:
         return
     assert provider.read_tier(ACME, tier, MemoryQuery(text="q")) == []
     assert provider.read(ACME, MemoryQuery(text="q", tiers=[tier])).records == []
+
+
+@pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
+def test_every_provider_reports_a_verdict_for_every_tier(name):
+    """`tiers()` is the tier axis's `substrates()`, and a partial answer is worse than none.
+
+    A provider omitting a tier makes `tiers()[WORKING]` a KeyError on one adapter and `False` on
+    another -- the disjoint-keys divergence `FUSION_KEYS` exists to prevent, one axis over.
+    """
+    verdicts = build_memory_provider(ALL_CONFIGS[name]()).tiers()
+
+    assert set(verdicts) == set(MemoryTier)
+    assert all(isinstance(served, bool) for served in verdicts.values())
+
+
+@pytest.mark.parametrize("name", sorted(ALL_CONFIGS))
+@pytest.mark.parametrize("tier", list(MemoryTier))
+def test_a_tier_a_provider_does_not_serve_refuses_the_write_it_cannot_store(name, tier):
+    """The other half of the read-empty rule, asserted on all 16 cells rather than assumed.
+
+    Reads of an unserved tier report absence; writes must refuse, because writing somewhere
+    nothing will store it loses data behind a success receipt. Stating both halves as one
+    parametrised pair is what stops an adapter implementing one and not the other.
+    """
+    provider = build_memory_provider(ALL_CONFIGS[name]())
+    events = [MemoryEvent(content="x", scope=ACME, tier=tier)]
+
+    if provider.tiers()[tier]:
+        return
+    with pytest.raises(MemoryOperationError):
+        provider.write_tier(ACME, tier, events)
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+def test_a_write_reaches_exactly_the_substrates_the_tier_policy_names(name):
+    """Routing is the table's answer, not the adapter's -- on every wiring, not just the full one.
+
+    The seed has no substrates and is included deliberately: its answer is "neither", which is the
+    same rule read through a provider that composes no ports at all.
+    """
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+    routed = substrates_for_tier(MemoryTier.SEMANTIC)
+
+    provider.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="a customer note", scope=ACME)])
+
+    wired = provider.substrates()
+    for substrate, backend in ((Substrate.VECTOR, "vector"), (Substrate.GRAPH, "graph")):
+        rows = getattr(getattr(provider, backend, None), "rows", {}).get("acme") or []
+        assert bool(rows) == (wired[substrate] and substrate.value in routed)
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+def test_every_provider_refuses_the_same_consolidation_tier_sets(name):
+    """One polarity question, both adapters. `co_located` accepts the source tier and `seed`
+    accepts only `None`, but neither may accept a tier the table does not name a source."""
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+
+    for tier in MemoryTier:
+        if tier is CONSOLIDATION_SOURCE:
+            continue
+        with pytest.raises(MemoryOperationError):
+            provider.consolidate(ACME, tiers=[tier])
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+def test_no_provider_returns_a_tier_the_query_did_not_ask_for(name):
+    """Tier selection is the read half of the model, and a leg that ignores it is invisible in a
+    merged slice -- the failure only shows as a record of the wrong kind reaching a prompt."""
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+    provider.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="a customer note", scope=ACME)])
+
+    for tier in MemoryTier:
+        records = provider.read(ACME, MemoryQuery(text="a customer note", tiers=[tier])).records
+        assert all(r.tier is tier for r in records)
 
 
 @pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
@@ -441,21 +530,37 @@ async def test_the_two_write_halves_persist_the_same_state_when_a_backend_fails(
     """
 
     def wire(provider):
-        """Fail the *second* backend call, so both halves have something committed and something not."""
-        state = {"calls": 0}
-        for target, attribute in (("graph", "upsert_fact"), ("manager", "add_user_memory")):
-            backend = getattr(provider, target, None)
-            if backend is None:
-                continue
-            original = getattr(backend, attribute)
+        """Fail on the *second* item, so both halves have something committed and something not."""
+        state = {"items": 0}
 
-            def failing(*args, _original=original, **kwargs):
-                state["calls"] += 1
-                if state["calls"] == 2:
-                    raise RuntimeError("backend down")
+        def tick():
+            state["items"] += 1
+            if state["items"] == 2:
+                raise RuntimeError("backend down")
+
+        graph = getattr(provider, "graph", None)
+        if graph is not None:
+            original_facts = graph.upsert_facts
+
+            def failing_facts(scope, facts, _original=original_facts):
+                # Item at a time, because `upsert_facts` is now one call: failing the batch as a
+                # whole commits nothing, and "something committed" -- the state this compares --
+                # becomes unreachable. The port allows exactly this partial shape.
+                for fact in facts:
+                    tick()
+                    _original(scope, [fact])
+
+            graph.upsert_facts = failing_facts
+
+        manager = getattr(provider, "manager", None)
+        if manager is not None:
+            original_add = manager.add_user_memory
+
+            def failing_add(*args, _original=original_add, **kwargs):
+                tick()
                 return _original(*args, **kwargs)
 
-            setattr(backend, attribute, failing)
+            manager.add_user_memory = failing_add
         return provider
 
     def committed(provider):
@@ -501,3 +606,26 @@ async def test_every_provider_agrees_between_its_sync_and_async_halves(name):
     assert [r.id for r in provider.read(ACME, query).records] == [
         r.id for r in (await provider.aread(ACME, query)).records
     ]
+
+
+def test_a_backend_that_fails_to_construct_surfaces_as_a_config_error():
+    """`build_memory_provider`'s contract must not depend on which backend the config named.
+
+    A real graph backend opens a connection during construction, so an unreachable host or a
+    rejected password arrives here as a driver exception. Left raw, a caller catching
+    `MemoryProviderConfigError` -- the type every other construction failure in this module uses --
+    would miss it entirely.
+    """
+    from egpt.registry import discovery
+
+    class _Unreachable:
+        def __init__(self, **_kwargs):
+            raise RuntimeError("no route to host")
+
+    discovery.register("graphdb", "unreachable-probe", obj=_Unreachable, override=True)
+    try:
+        config = MemoryProviderConfig(provider="co_located", graph={"backend": "unreachable-probe"})
+        with pytest.raises(MemoryProviderConfigError, match="Could not construct"):
+            build_memory_provider(config)
+    finally:
+        discovery.unregister("graphdb", "unreachable-probe")

@@ -12,7 +12,16 @@ from egpt.db.component_audit import COMPONENT_AUDIT_ACTIONS
 from egpt.db.utils import resolve_db_reference
 from egpt.os.actor import get_actor
 from egpt.os.auth import get_authentication_dependency, require_route_scopes
-from egpt.os.routers.components.validation import config_validation_response, validate_component_config
+
+# Aliased on import, and that is load-bearing rather than cosmetic. `attach_routes` is a closure,
+# so a handler inside it named `validate_component_config` would rebind the validator for every
+# other handler in the closure -- three of them call it. Binding the module-level function to a
+# name no route handler would plausibly take makes that collision structurally impossible instead
+# of merely discouraged, which matters because `/components/validate` carries
+# `operation_id="validate_component_config"`: the dangerous spelling sits a few lines from the
+# handler, inviting a future contributor to "fix the inconsistency".
+from egpt.os.routers.components.validation import config_validation_response
+from egpt.os.routers.components.validation import validate_component_config as _validate_config
 from egpt.os.schema import (
     BadRequestResponse,
     ComponentAuditResponse,
@@ -24,6 +33,8 @@ from egpt.os.schema import (
     ComponentResponse,
     ComponentType,
     ComponentUpdate,
+    ComponentValidateRequest,
+    ComponentValidateResponse,
     ConfigCreate,
     ConfigUpdate,
     ConfigValidationErrorResponse,
@@ -41,7 +52,7 @@ from egpt.registry import Registry
 from egpt.registry.io import ComponentIdConflictError, ComponentIOError, ComponentSoftDeletedError
 from egpt.registry.io import export_component as export_bundle
 from egpt.registry.policy import CapabilityPolicy, resolve_policy
-from egpt.registry.schema import ConfigValidationError
+from egpt.registry.schema import SCHEMA_VERSION, ConfigValidationError
 from egpt.utils.log import log_error
 from egpt.utils.string import generate_id_from_name
 
@@ -230,7 +241,7 @@ def attach_routes(
             # nothing to validate yet. Validation runs after the db reference is resolved, so
             # it sees exactly the bytes that get persisted.
             if config:
-                config = validate_component_config(
+                config = _validate_config(
                     config,
                     body.component_type.value,
                     db=db,
@@ -279,6 +290,83 @@ def attach_routes(
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             log_error(f"Error creating component: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal server error")
+
+    # Declared before the `/components/{component_id}` block on purpose. Starlette scores a full
+    # method+path match above a path-parameter one, so a literal registered later would still
+    # win today -- but only while no `POST /components/{component_id}` route exists. Registering
+    # it here makes that positional rather than incidental.
+    #
+    # The handler is deliberately NOT named `validate_component_config`: `attach_routes` is a
+    # closure, and a local of that name would rebind the module-level validator that
+    # `create_component`, `create_config` and `update_config` call. The operation id carries the
+    # intended name instead.
+    @router.post(
+        "/components/validate",
+        response_model=ComponentValidateResponse,
+        response_model_exclude_none=True,
+        status_code=200,
+        operation_id="validate_component_config",
+        responses={422: {"description": "Config Validation Error", "model": ConfigValidationErrorResponse}},
+        summary="Validate Component Config",
+        description=(
+            "Dry-run a component config through the same validator and capability policy the write "
+            "routes use. Stores nothing. Intended as the pre-flight for an authoring client, so it "
+            "can show field-level errors before creating a draft."
+        ),
+    )
+    async def validate_component_definition(
+        body: ComponentValidateRequest,
+        tenant_id: Optional[str] = Depends(get_tenant_id),
+    ) -> Union[ComponentValidateResponse, JSONResponse]:
+        try:
+            # Copied before resolution: `resolve_db_reference` mutates the mapping in place, and a
+            # dry run has no business editing the caller's parsed body.
+            config = dict(body.config or {})
+            config, unresolved_db_id = _resolve_db_in_config(config, db, registry)
+
+            # The id is derived from `name` exactly as `create_component` derives it, because
+            # `component_id` is the sole input to self-reference detection: a team that lists
+            # itself is only detectable once the id is known. Passing the caller's `component_id`
+            # straight through made the dry run answer 200 for the config the write route then
+            # 422s with `cyclic_reference` -- and on the console's default path, where the id box
+            # is optional. Any divergence between these two lines is a divergence in the verdict.
+            component_id = body.component_id
+            if component_id is None and body.name:
+                component_id = generate_id_from_name(body.name)
+
+            # Resolution runs first for the same reason it does on the write path: a db id nobody
+            # can resolve should surface as a field error at `config.db.id`, not slip through here
+            # and fail on the real write.
+            #
+            # `links` is forwarded because `POST /components/{id}/configs` forwards it too -- that
+            # is the route the console uses for every version after the first, so this is the write
+            # path the dry run has to match. `POST /components` ignores links entirely (its
+            # "TODO: Create links from config" is the standing asymmetry), so a first-version dry
+            # run that sends links previews slightly more than that route would apply. Harmless
+            # today because the console never sends them; noted so the TODO is closed on both
+            # routes together rather than one drifting from the other.
+            if config:
+                _validate_config(
+                    config,
+                    body.component_type.value,
+                    db=db,
+                    registry=registry,
+                    component_id=component_id,
+                    unresolved_db_id=unresolved_db_id,
+                    links=body.links,
+                    policy=policy,
+                    tenant_id=tenant_id,
+                )
+
+            return ComponentValidateResponse(valid=True, schema_version=SCHEMA_VERSION)
+        # Must precede `except ValueError` -- see the note on `create_component`.
+        except ConfigValidationError as e:
+            return config_validation_response(e)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            log_error(f"Error validating component config: {str(e)}")
             raise HTTPException(status_code=500, detail="Internal server error")
 
     @router.get(
@@ -424,7 +512,7 @@ def attach_routes(
             config_data, unresolved_db_id = _resolve_db_in_config(config_data, db, registry)
 
             if config_data:
-                config_data = validate_component_config(
+                config_data = _validate_config(
                     config_data,
                     str(component["component_type"]),
                     db=db,
@@ -488,7 +576,7 @@ def attach_routes(
             if config_data is not None:
                 config_data, unresolved_db_id = _resolve_db_in_config(config_data, db, registry)
                 if config_data:
-                    config_data = validate_component_config(
+                    config_data = _validate_config(
                         config_data,
                         str(component["component_type"]),
                         db=db,
