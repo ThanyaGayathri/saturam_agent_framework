@@ -418,7 +418,8 @@ are implemented at `libs/agno/pyproject.toml` `[tool.importlinter]`, but only fo
 *layer-ordering* cells this sketch's contract #1 (`type = layers`) also covers
 (core→orchestration/services/api, services→orchestration/api, orchestration→api). Encoding those
 against the real tree surfaced ~42 direct violations that are not toolkit/connector debt like the
-known A8/A13 items below, but look like deliberate, undocumented design choices: `egpt.run.*`
+A13 item below (A8 was cleared by EGPT-1.7a/aicoe-tracker#157 while this PR was in flight — see
+its own update to this ADR above), but look like deliberate, undocumented design choices: `egpt.run.*`
 (core) structurally references `egpt.reasoning`/`egpt.workflow` types in its event data models,
 the `Remote*` wrapper classes (`agent.remote`, `team.remote`, `workflow.remote`, plus `_run`/
 `_telemetry`) couple orchestration to `egpt.os`/`egpt.client`/`egpt.remote` for HTTP/telemetry,
@@ -429,12 +430,17 @@ cells is deferred to that follow-up.
 
 For the integrations column that *is* now enforced: contracts use `allow_indirect_imports = true`
 (checking direct imports only, not the whole transitive reachability grimp's default would check
-— see the comment in `pyproject.toml`), and carry **no** `ignore_imports` for the A8/A13 debt or
+— see the comment in `pyproject.toml`), and carry **no** `ignore_imports` for the A13 debt or
 for the toolkit/model-provider files found to reference `egpt.agent`/`egpt.team` directly during
 this work (tracked as [aicoe-tracker#180](https://github.com/Saturam-Inc/aicoe-tracker/issues/180)) — a stakeholder comment on aicoe-tracker#52
 explicitly rejected masking that debt this way. `libs/agno/tests/unit/test_import_linter_contracts.py`
 tracks the exact known set instead, and the `import-linter` CI job is intentionally
-non-required until that set is empty.
+non-required until that set is empty. `egpt.context` itself is excluded from these contracts'
+module lists (like `egpt.db`/`egpt.models`/`egpt.vectordb`/`egpt.knowledge`/`egpt.tools`): EGPT-1.7a
+gave it its own dedicated guard, `tests/unit/context/test_context_layout.py`, which checks the
+same boundary with connector-specific precision — including the `integrations.context.* ->
+egpt.agent/team/workflow` edge, via the `RunnableLike`/`construct_runnable` seam that ticket
+introduced.
 
 ## Consequences
 

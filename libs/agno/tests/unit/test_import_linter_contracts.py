@@ -25,25 +25,12 @@ from importlinter.application import use_cases
 
 from tests.unit._layer_guards import package_root
 
-# A8 (aicoe-tracker#157, EGPT-1.7a): context connectors import a concrete toolkit directly
-# instead of going through egpt.tools.utils.construct_toolkit.
-_A8_CONTEXT_CONNECTORS = {
-    ("egpt.context.calendar.provider", "egpt.integrations.tools.google.auth"),
-    ("egpt.context.calendar.provider", "egpt.integrations.tools.google.calendar"),
-    ("egpt.context.database.provider", "egpt.integrations.tools.sql"),
-    ("egpt.context.fs.provider", "egpt.integrations.tools.file"),
-    ("egpt.context.gdrive.provider", "egpt.integrations.tools.google.drive"),
-    ("egpt.context.gmail.provider", "egpt.integrations.tools.google.auth"),
-    ("egpt.context.gmail.provider", "egpt.integrations.tools.google.gmail"),
-    ("egpt.context.google.utils", "egpt.integrations.tools.google.auth"),
-    ("egpt.context.google.utils", "egpt.integrations.tools.google.auth.tokens"),
-    ("egpt.context.mcp.provider", "egpt.integrations.tools.mcp"),
-    ("egpt.context.mcp.provider", "egpt.integrations.tools.mcp.params"),
-    ("egpt.context.web.exa_mcp", "egpt.integrations.tools.mcp"),
-    ("egpt.context.web.exa_mcp", "egpt.integrations.tools.mcp.params"),
-    ("egpt.context.web.parallel_mcp", "egpt.integrations.tools.mcp"),
-    ("egpt.context.web.parallel_mcp", "egpt.integrations.tools.mcp.params"),
-}
+# A8 (aicoe-tracker#157, EGPT-1.7a) is CLEARED: the context connectors moved to
+# egpt.integrations.context.*, and libs/agno/tests/unit/context/test_context_layout.py now
+# guards that boundary directly (including integrations.context.* -> egpt.agent/team/workflow,
+# via the RunnableLike protocol + construct_runnable seam that PR introduced). egpt.context is
+# excluded from this file's contracts' module lists for the same reason egpt.db/models/etc. are
+# -- see the scope note in pyproject.toml's [tool.importlinter] section.
 
 # A13 (aicoe-tracker#158, EGPT-1.7b): the Slack channel adapter is an api-layer module holding
 # a concrete toolkit until it moves to integrations/channels/slack.
@@ -123,8 +110,7 @@ _NEW_INTEGRATIONS_REFERENCE_SERVICES = {
 }
 
 _KNOWN_VIOLATIONS = (
-    _A8_CONTEXT_CONNECTORS
-    | _A13_SLACK_CHANNEL_ADAPTER
+    _A13_SLACK_CHANNEL_ADAPTER
     | _NEW_INTEGRATIONS_REFERENCE_ORCHESTRATION
     | _NEW_SERVICES_REFERENCE_INTEGRATIONS
     | _NEW_INTEGRATIONS_REFERENCE_SERVICES

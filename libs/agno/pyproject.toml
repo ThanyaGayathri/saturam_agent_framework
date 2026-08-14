@@ -485,15 +485,20 @@ markers = [
 # silently masking or arbitrarily deciding it here. This config sticks to the
 # integrations boundary, which is what aicoe-tracker#52/#157/#158 actually discuss.
 #
-# Further scope note: `egpt.db`, `egpt.models`, `egpt.vectordb`, `egpt.knowledge` and `egpt.tools`
-# mix a stable core interface with dozens of dynamically-added concrete backend/provider/toolkit
-# shim directories (~200 combined, growing with every new extra in
-# [project.optional-dependencies]). Those trees already have dedicated AST-based guards that
-# handle exactly that granularity (libs/agno/tests/unit/{tools/test_toolkit_layout,
+# Further scope note: `egpt.db`, `egpt.models`, `egpt.vectordb`, `egpt.knowledge`, `egpt.tools`,
+# and (since EGPT-1.7a moved the context connectors into `egpt.integrations.context.*`)
+# `egpt.context` all mix a stable core/orchestration interface with dynamically-added concrete
+# backend/provider/toolkit/connector shim packages. Those trees already have dedicated AST-based
+# guards that handle exactly that granularity (libs/agno/tests/unit/{tools/test_toolkit_layout,
 # knowledge/test_knowledge_layout,vectordb/test_backend_layout,db/test_backend_resolution,
-# models/...}.py). Hand-listing every shim subdirectory here would duplicate those guards and go
-# stale on every new extra, so this config's source_modules list the whole orchestration/services/
-# api/core packages that are NOT already covered that way. `egpt.cloud` has no `__init__.py` today
+# context/test_context_layout,models/...}.py) -- `test_context_layout.py` in particular already
+# checks both directions this config would otherwise want to check for `egpt.context`: no
+# non-shim `egpt.context.*` module names a concrete `egpt.integrations.context.*` module, and no
+# `egpt.integrations.context.*` module names `egpt.agent`/`egpt.team`/`egpt.workflow` (the exact
+# edge the `RunnableLike` protocol + `construct_runnable` seam in `egpt/registry/protocols.py` /
+# `egpt/run/utils.py` exists to close). Hand-listing every shim subdirectory here would duplicate
+# those guards and go stale on every new extra or connector, so this config's source_modules list
+# the packages that are NOT already covered that way. `egpt.cloud` has no `__init__.py` today
 # (only `cloud/aws/`, which is provider-specific and arguably belongs in integrations per ADR
 # 0001's own module mapping) and isn't an importable package yet -- out of scope.
 #
@@ -517,12 +522,14 @@ root_package = "egpt"
 # mapping (provider utils "move with their providers" -- extraction prerequisite #3 -- and
 # `tracing/exporter.py` is listed under the integrations layer).
 #
-# No `ignore_imports` here for the known egpt.context.*/egpt.os.interfaces.slack.* violations
-# (A8/A13, owned by aicoe-tracker#157/#158) or the newly-found violations (egpt.guardrails.openai,
-# the toolkit/model files importing Agent/Team directly -- owned by aicoe-tracker#180) -- see
+# No `ignore_imports` here for the known egpt.os.interfaces.slack.* violations (A13, owned by
+# aicoe-tracker#158) or the newly-found violations (egpt.guardrails.openai, the toolkit/model
+# files importing Agent/Team directly -- owned by aicoe-tracker#180) -- see
 # libs/agno/tests/unit/test_import_linter_contracts.py, which tracks them explicitly instead of
 # masking them here. ignore_imports below is reserved for the ADR-ratified composition-root /
-# extraction-prerequisite carve-outs only.
+# extraction-prerequisite carve-outs only. (The A8 context-connector debt this comment used to
+# also cover was cleared by EGPT-1.7a / aicoe-tracker#157 -- see the scope note above for why
+# `egpt.context` is excluded from this contract's module lists now, not tracked-and-clean.)
 #
 # allow_indirect_imports = true: "forbidden" contracts check the whole transitive dependency
 # chain by default, which floods the report with reachability noise unrelated to a real
@@ -559,7 +566,6 @@ source_modules = [
     "egpt.workflow",
     "egpt.reasoning",
     "egpt.hooks",
-    "egpt.context",
     "egpt.components",
     "egpt.eval",
     "egpt.learn",
@@ -614,7 +620,6 @@ forbidden_modules = [
     "egpt.workflow",
     "egpt.reasoning",
     "egpt.hooks",
-    "egpt.context",
     "egpt.components",
     "egpt.eval",
     "egpt.learn",
