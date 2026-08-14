@@ -31,6 +31,7 @@ from egpt.memory.tiers import CONSOLIDATION_SOURCE, MemoryTier, substrates_for_t
 from egpt.memory.types import (
     CONSOLIDATION_KEYS,
     FUSION_KEYS,
+    WRITE_KEYS,
     MemoryEvent,
     MemoryOperationError,
     MemoryQuery,
@@ -310,6 +311,21 @@ def test_every_provider_reports_the_full_consolidation_key_contract(name):
     provider = build_memory_provider(WRITABLE_CONFIGS[name]())
 
     assert set(CONSOLIDATION_KEYS) <= set(provider.consolidate(ACME).details)
+
+
+@pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))
+def test_every_provider_reports_the_full_write_key_contract(name):
+    """The third diagnostics floor, for the same reason as the other two: a consumer reading
+    `receipt.details["stores"]` must not KeyError on whichever provider it was not written against.
+
+    A provider composing substrates has no stores and reports `{}`, which is the honest answer
+    rather than an absent key.
+    """
+    provider = build_memory_provider(WRITABLE_CONFIGS[name]())
+
+    receipt = provider.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="a customer note", scope=ACME)])
+
+    assert set(WRITE_KEYS) <= set(receipt.details)
 
 
 @pytest.mark.parametrize("name", sorted(WRITABLE_CONFIGS))

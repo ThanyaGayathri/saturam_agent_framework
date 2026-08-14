@@ -1,3 +1,4 @@
+import asyncio
 from copy import deepcopy
 from dataclasses import dataclass
 from textwrap import dedent
@@ -154,10 +155,13 @@ class MemoryManager:
                 else:
                     all_memories = await self.db.get_user_memories(user_id=user_id)  # type: ignore
             else:
+                # Off the loop. A synchronous driver blocks for the whole round trip, and on the
+                # async lane that stalls every other task in the process -- which is the failure an
+                # async variant exists to prevent, and the one a caller cannot see in the result.
                 if user_id is None:
-                    all_memories = self.db.get_user_memories()  # type: ignore
+                    all_memories = await asyncio.to_thread(self.db.get_user_memories)  # type: ignore
                 else:
-                    all_memories = self.db.get_user_memories(user_id=user_id)  # type: ignore
+                    all_memories = await asyncio.to_thread(self.db.get_user_memories, user_id=user_id)  # type: ignore
 
             memories: Dict[str, List[UserMemory]] = {}
             for memory in all_memories:
@@ -626,7 +630,10 @@ class MemoryManager:
             if isinstance(self.db, AsyncBaseDb):
                 await self.db.upsert_user_memory(memory=memory)
             else:
-                self.db.upsert_user_memory(memory=memory)
+                # Off the loop, for the reason `aread_from_db` states: the seed bridge used to wrap
+                # this whole path in `asyncio.to_thread`, and awaiting the async verbs instead of
+                # the thread hop must not hand a synchronous driver the event loop.
+                await asyncio.to_thread(self.db.upsert_user_memory, memory=memory)
             return True
         except Exception as e:
             log_warning(f"Error storing memory in db: {str(e)}")

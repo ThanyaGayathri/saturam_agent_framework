@@ -10,18 +10,26 @@ substrates, or an episodic tier, so each of those is rejected at the boundary ra
 and ignored -- an ignored parameter returns a wrong answer that looks right, which is the one
 failure the layer above cannot see.
 
-Which store serves which tier, and which scope slots each one's ``recall`` filters on, is
-:mod:`egpt.memory.learn_stores` (SM-C2 #90). ``Curator.deduplicate`` has no async variant, so
+Which store serves which tier, which scope slots each one's ``recall`` filters on, and which its
+``process`` can record, is :mod:`egpt.memory.learn_stores` (SM-C2 #90) -- reads and writes are both
+refused on a slot the bound store cannot honour. ``Curator.deduplicate`` has no async variant, so
 ``aconsolidate`` hops a thread; giving it one is SM-L4's (#125).
 """
 
 import asyncio
+import threading
 from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, List, NoReturn, Optional, Sequence, Tuple, Union, cast
 from uuid import NAMESPACE_OID, uuid5
 
 from egpt.db.schemas import UserMemory
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, register_provider
-from egpt.memory.learn_stores import SCOPE_SLOTS, stores_by_tier, unhonoured_slots
+from egpt.memory.learn_stores import (
+    SCOPE_SLOTS,
+    filterable_slots,
+    recordable_slots,
+    stores_by_tier,
+    unhonoured_slots,
+)
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.tiers import MemoryTier, policy_for_tier
 from egpt.memory.types import (
@@ -37,6 +45,7 @@ from egpt.memory.types import (
     WriteReceipt,
     consolidation_details,
     fusion_diagnostics,
+    write_details,
 )
 from egpt.memory.validation import reject_duplicate_ids, reject_foreign_scopes
 
@@ -155,6 +164,16 @@ class SeedMemoryProvider(MemoryProvider):
         self.machine = machine
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
         self._store_slots: Dict[str, FrozenSet[str]] = _checked_slots(self.config.options.get("store_slots"))
+        self._reject_undeclarable_slots()
+        #: One lock per bound store, so a write and its `was_updated` read are one critical
+        #: section. Built here because the store set is fixed at construction, which keeps the
+        #: lookup free of its own race.
+        self._write_locks: Dict[int, threading.Lock] = {
+            id(store): threading.Lock() for group in self.stores.values() for store in group
+        }
+        #: The async twin, keyed by ``(loop, store)``: an ``asyncio.Lock`` binds to the loop that
+        #: first awaits it, and one provider may be driven from more than one.
+        self._awrite_locks: Dict[Tuple[int, int], asyncio.Lock] = {}
         self._require_single_tenant_acknowledgement()
         self._tenant: str = self._require_declared_tenant()
 
@@ -199,7 +218,45 @@ class SeedMemoryProvider(MemoryProvider):
                 )
         return bound
 
+    def _awrite_lock(self, store: "LearningStore") -> asyncio.Lock:
+        """This store's lock for the running loop, created on the loop that will await it."""
+        key = (id(asyncio.get_running_loop()), id(store))
+        lock = self._awrite_locks.get(key)
+        if lock is None:
+            lock = self._awrite_locks[key] = asyncio.Lock()
+        return lock
+
     # -- construction guards --------------------------------------------------
+
+    def _reject_undeclarable_slots(self) -> None:
+        """Refuse a ``store_slots`` declaration the bound store's ``recall`` cannot possibly honour.
+
+        The override exists because the table cannot see a store's configuration -- ``entity_memory``
+        filters on ``user_id`` under the ``"user"`` namespace and not otherwise, and only the
+        deployment knows which. It is **not** a way to assert a slot the store never named: a slot
+        that reaches ``recall`` through ``**kwargs`` is ignored by every store in the tree, so
+        declaring ``user_id`` for ``decision_log`` -- which has no such parameter -- would hand back
+        one user's rows under another's scope, which is the exact leak this guard exists to close.
+
+        Checked at construction against the store actually bound, so a deployment that gets it wrong
+        fails at build rather than serving a wide answer under a narrow label.
+        """
+        for tier, group in self.stores.items():
+            for store in group:
+                learning_type = _learning_type(store)
+                declared = self._store_slots.get(learning_type)
+                if declared is None:
+                    continue
+                undeclarable = sorted(declared - filterable_slots(store))
+                if undeclarable:
+                    raise MemoryProviderConfigError(
+                        f"options['store_slots'][{learning_type!r}] declares {undeclarable}, but that "
+                        f"store's recall names no such parameter -- a slot arriving through **kwargs "
+                        f"is ignored, so the declaration would widen the {tier.value!r} tier's reads "
+                        "while they keep carrying the narrower scope. Declare only slots the store "
+                        "takes by name.",
+                        field_name="options.store_slots",
+                    )
 
     def _require_single_tenant_acknowledgement(self) -> None:
         """Refuse to build unless the deployment states it is single-tenant.
@@ -312,12 +369,45 @@ class SeedMemoryProvider(MemoryProvider):
                 field_name=narrowed[0],
             )
 
+    def _guard_store_writes(self, stores: Sequence["LearningStore"], scope: Scope) -> None:
+        """Check every store before **any** of them is written, for the reason :meth:`_guard_stores`
+        gives on the read side -- a refusal partway leaves the tier half written."""
+        for store in stores:
+            self._reject_unrecordable_slots(store, scope)
+
     def _guard_stores(self, stores: Sequence["LearningStore"], scope: Scope) -> None:
         """Check every store in the tier before **any** of them is asked: guarding inside the loop
         has the sync half recall the first and refuse on the second while the gathered async half
         recalls them all -- one refusal, two different sets of backend calls."""
         for store in stores:
             self._reject_unhonoured_slots(store, scope)
+
+    def _reject_unrecordable_slots(self, store: "LearningStore", scope: Scope) -> None:
+        """Refuse a **write** scoped to a slot this store's ``process`` cannot even see.
+
+        The store-path twin of :meth:`_reject_unstorable_scope`, which refuses the same shape on
+        the manager path: ``user_profile.process`` names no ``session_id``, so a session-scoped
+        write was accepted, stored without its session, and could never be read back at that scope
+        -- while the matching *read* was refused. Accepting on one side and refusing on the other
+        is the asymmetry; both sides now refuse.
+
+        Signature-derived, and deliberately the weaker of the two questions: a slot the store names
+        is one it *sees*, not necessarily one it persists. Whether a seen slot survives into the
+        row is a columns question, SM-C3's (#91).
+        """
+        unrecordable = [
+            slot
+            for slot in SCOPE_SLOTS
+            if getattr(scope, slot, None) is not None and slot not in recordable_slots(store)
+        ]
+        if unrecordable:
+            learning_type = _learning_type(store)
+            raise MemoryOperationError(
+                f"The {learning_type!r} store's process takes no {unrecordable}, so this write would "
+                f"be stored without {unrecordable[0]} and could never be read back at that scope. "
+                "Widen the scope, or bind a store that records it.",
+                field_name=unrecordable[0],
+            )
 
     def _reject_unhonoured_slots(self, store: "LearningStore", scope: Scope) -> None:
         """Refuse a read narrowed on a slot this store's ``recall`` will not filter by.
@@ -644,32 +734,28 @@ class SeedMemoryProvider(MemoryProvider):
         return messages
 
     @staticmethod
-    def _store_receipt(updated: bool, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
+    def _store_receipt(took: Dict[str, bool], tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
         """What a ``LearningStore.process`` write can honestly claim.
 
         ``process`` returns ``None`` and mints no per-event id -- it folds a batch of messages into
-        whatever shape the store keeps. So there are no ``event_ids``, and ``accepted`` reflects
-        what the store said about itself via ``was_updated``.
+        whatever shape the store keeps -- so there are no ``event_ids`` and ``accepted`` cannot mean
+        "rows written". It means **events the tier took**: the batch reached memory if any bound
+        store took it. Requiring every store to agree was the alternative and is worse, because a
+        store outside ``LearningMode.ALWAYS`` no-ops by design, so an ordinary mixed-mode tier would
+        receipt a genuine write as zero.
 
-        ``updated`` is captured by the caller *before* any suspension point and defaults to
-        ``False`` for a store that does not expose the flag. Defaulting to ``True`` assumed success
-        from a field whose entire purpose is not assuming it.
-
-        **With several stores in a tier, ``updated`` is their OR, and the number it produces is
-        "events the tier took", never "rows written".** No store-path receipt could mean the
-        latter: ``process`` folds a batch into the store's own shape, so even a single store
-        reporting ``was_updated`` may have written one row for three events. A store that
-        legitimately no-ops -- ``UserProfileStore`` outside ``LearningMode.ALWAYS``, say -- is
-        therefore invisible in the count, which is a real limitation and pinned as one: telling
-        "two of three stores took it" from "all three did" needs per-store granularity the
-        envelope does not have, and adding it is a ``WriteReceipt`` change both adapters share.
-        Requiring *every* store to report updated was the alternative and is worse: the ordinary
-        mixed-mode tier would then receipt a genuine write as ``accepted=0``.
+        Which stores took it is not collapsed into that number: ``details["stores"]`` carries the
+        per-store answer, so "two of three" is readable rather than inferred. Each flag is read
+        under that store's lock, immediately after its own write, and defaults to ``False`` for a
+        store that does not expose one -- assuming ``True`` would take success from the field whose
+        purpose is not assuming it.
         """
+        accepted = any(took.values())
         return WriteReceipt(
-            accepted=len(events) if updated else 0,
+            accepted=len(events) if accepted else 0,
             event_ids=[],  # process() mints none
-            tiers_written=[tier] if updated else [],
+            tiers_written=[tier] if accepted else [],
+            details=write_details(stores=took),
         )
 
     @staticmethod
@@ -740,8 +826,17 @@ class SeedMemoryProvider(MemoryProvider):
 
     @staticmethod
     def _committed(tier: MemoryTier, ids: Sequence[str]) -> WriteReceipt:
-        """A receipt for rows actually persisted -- `accepted` means committed, never attempted."""
-        return WriteReceipt(accepted=len(ids), event_ids=list(ids), tiers_written=[tier] if ids else [])
+        """A receipt for rows actually persisted -- `accepted` means committed, never attempted.
+
+        ``details["stores"]`` is empty: this path is ``MemoryManager``'s CRUD, not a bound store,
+        and reporting a store that took nothing would be inventing one.
+        """
+        return WriteReceipt(
+            accepted=len(ids),
+            event_ids=list(ids),
+            tiers_written=[tier] if ids else [],
+            details=write_details(),
+        )
 
     def write_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
         """A backend failure here raises ``PartialWriteError``, exactly as ``write`` does.
@@ -756,17 +851,23 @@ class SeedMemoryProvider(MemoryProvider):
         stores = self._stores_for(tier)
         if not stores:
             return self._manager_write(scope, tier, events)
-        updated: List[bool] = []
+        self._guard_store_writes(stores, scope)
+        took: Dict[str, bool] = {}
         failures: List[BaseException] = []
         for store in stores:
             try:
-                store.process(self._as_messages(events), **self._recall_kwargs(scope, MemoryQuery(text="")))
+                # The write and the flag read are one critical section. `was_updated` reports the
+                # last operation on the *store*, not on this call, so without the lock a second
+                # writer's `process` lands between them and this receipt describes their write.
+                # It also makes the write itself safe: stores reset their own progress flags on
+                # entry, so two concurrent `process` calls corrupted more than the count.
+                with self._write_locks[id(store)]:
+                    store.process(self._as_messages(events), **self._recall_kwargs(scope, MemoryQuery(text="")))
+                    took[_learning_type(store)] = bool(getattr(store, "was_updated", False))
             except Exception as exc:  # noqa: PERF203 - per-store isolation, as in the co-located fan-out
                 failures.append(exc)
-                continue
-            updated.append(bool(getattr(store, "was_updated", False)))
-        self._shape_store_failures(failures, any(updated), tier, events)
-        return self._store_receipt(any(updated), tier, events)
+        self._shape_store_failures(failures, took, tier, events)
+        return self._store_receipt(took, tier, events)
 
     async def awrite_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
         """Async variant of :meth:`write_tier`, with the same failure type."""
@@ -775,26 +876,28 @@ class SeedMemoryProvider(MemoryProvider):
         stores = self._stores_for(tier)
         if not stores:
             return await self._amanager_write(scope, tier, events)
+        self._guard_store_writes(stores, scope)
 
-        async def process(store: "LearningStore") -> bool:
-            await store.aprocess(self._as_messages(events), **self._recall_kwargs(scope, MemoryQuery(text="")))
-            # Read synchronously, immediately after this store's await returns: `was_updated` is
-            # shared mutable state on a store bound once at construction, so two concurrent writers
-            # interleaving here read each other's flag.
-            return bool(getattr(store, "was_updated", False))
+        async def process(store: "LearningStore") -> Tuple[str, bool]:
+            # Held across the await, exactly as the sync half holds it across the call: the flag
+            # reports the last operation on the *store*, so a sibling writer suspending inside
+            # `aprocess` would otherwise set it between our write and our read.
+            async with self._awrite_lock(store):
+                await store.aprocess(self._as_messages(events), **self._recall_kwargs(scope, MemoryQuery(text="")))
+                return _learning_type(store), bool(getattr(store, "was_updated", False))
 
         # Settled, not short-circuited: the sync half attempts every store, so this one must too,
         # or one identical failure leaves the two halves with different stores written.
         results = await asyncio.gather(*(process(store) for store in stores), return_exceptions=True)
-        updated = any(r is True for r in results)
-        self._shape_store_failures([r for r in results if isinstance(r, BaseException)], updated, tier, events)
-        return self._store_receipt(updated, tier, events)
+        took = {name: flag for name, flag in (r for r in results if not isinstance(r, BaseException))}
+        self._shape_store_failures([r for r in results if isinstance(r, BaseException)], took, tier, events)
+        return self._store_receipt(took, tier, events)
 
     @classmethod
     def _shape_store_failures(
         cls,
         failures: Sequence[BaseException],
-        committed_any: bool,
+        took: Dict[str, bool],
         tier: MemoryTier,
         events: Sequence[MemoryEvent],
     ) -> None:
@@ -814,9 +917,9 @@ class SeedMemoryProvider(MemoryProvider):
         if not failures:
             return
         refusal = next((f for f in failures if isinstance(f, MemoryOperationError)), None)
-        if refusal is not None and not committed_any:
+        if refusal is not None and not any(took.values()):
             raise refusal
-        raise PartialWriteError(cls._store_receipt(committed_any, tier, events)) from (refusal or failures[0])
+        raise PartialWriteError(cls._store_receipt(took, tier, events)) from (refusal or failures[0])
 
     @staticmethod
     def _reject_unstorable_scope(scope: Scope) -> None:  # noqa: D401

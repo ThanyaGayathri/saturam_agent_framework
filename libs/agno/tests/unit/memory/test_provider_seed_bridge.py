@@ -6,6 +6,7 @@ does not claim substrates it has no access to.
 """
 
 import asyncio
+import time
 from typing import Any, Dict, List, Optional
 
 import pytest
@@ -121,11 +122,15 @@ class FakeStore:
     async def arecall(self, **kwargs):
         return self.recall(**kwargs)
 
-    def process(self, messages, **kwargs):
+    # `user_id` / `agent_id` / `team_id` are **named**, as every shipped store's `process` names
+    # them. A slot arriving through `**kwargs` is one the store cannot record, and the bridge
+    # refuses a write scoped to it -- so a double that named nothing would be laxer than any real
+    # store and could not be written to at all.
+    def process(self, messages, user_id=None, agent_id=None, team_id=None, **kwargs):
         self.processed.append(list(messages))
 
-    async def aprocess(self, messages, **kwargs):
-        self.process(messages, **kwargs)
+    async def aprocess(self, messages, user_id=None, agent_id=None, team_id=None, **kwargs):
+        self.process(messages, user_id=user_id, agent_id=agent_id, team_id=team_id, **kwargs)
 
     def build_context(self, data):
         return "" if data is None else f"[{self._type}] {data}"
@@ -135,6 +140,41 @@ class FakeStore:
 
     async def aget_tools(self, **kwargs):
         return []
+
+
+def raises_from_process(error):
+    """A `process` replacement that **names the slots a real store names**, then fails.
+
+    A bare `lambda *a, **k: raise` names none, and the bridge refuses a write scoped to a slot the
+    store cannot record -- so such a patch would exercise the guard rather than the failure the
+    test is about.
+    """
+
+    def process(messages, user_id=None, agent_id=None, team_id=None, **kwargs):
+        raise error
+
+    return process
+
+
+class SlotNamingStore(FakeStore):
+    """A double whose `recall` **names** `user_id`, as `user_profile` / `user_memory` /
+    `entity_memory` / `learned_knowledge` all do.
+
+    `FakeStore.recall` is `(**kwargs)`, which is the honest shape for "filters on nothing" -- and
+    `options['store_slots']` may not declare a slot the store never named, because a slot arriving
+    through `**kwargs` is ignored. A test that needs a *legal* declaration needs a double that
+    could actually honour it.
+    """
+
+    def recall(self, user_id=None, **kwargs):
+        return super().recall(user_id=user_id, **kwargs)
+
+
+class WideStore(FakeStore):
+    """A custom store that names every slot -- the one shape for which declaring all four is true."""
+
+    def recall(self, user_id=None, agent_id=None, team_id=None, session_id=None, **kwargs):
+        return super().recall(user_id=user_id, agent_id=agent_id, team_id=team_id, session_id=session_id, **kwargs)
 
 
 class FakeCurator:
@@ -346,7 +386,7 @@ def test_a_store_recall_receives_the_scope_and_the_query():
     filters on `user_id` alone is now refused -- which is `test_a_bound_store_that_would_ignore_a
     _slot_is_refused` next door, and the reason this one has to say which slots it means.
     """
-    store = FakeStore()
+    store = WideStore()
     SeedMemoryProvider(
         stores={MemoryTier.SEMANTIC: store},
         config=seed_config(store_slots={"user_profile": ["user_id", "agent_id", "team_id", "session_id"]}),
@@ -667,7 +707,7 @@ def test_a_multi_tier_read_does_not_let_the_first_tier_crowd_out_the_rest():
     manager = FakeManager([UserMemory(memory=f"semantic {i}", memory_id=f"m{i}") for i in range(5)])
     bridge = SeedMemoryProvider(
         manager=manager,
-        stores={MemoryTier.PROCEDURAL: FakeStore("learned_knowledge")},
+        stores={MemoryTier.PROCEDURAL: SlotNamingStore("learned_knowledge")},
         config=seed_config(store_slots={"learned_knowledge": ["user_id"]}),
     )
 
@@ -1121,8 +1161,8 @@ class NarrowStore:
     def build_context(self, data):
         return data or ""
 
-    def process(self, messages, **kwargs): ...
-    async def aprocess(self, messages, **kwargs): ...
+    def process(self, messages, agent_id=None, session_id=None, user_id=None, team_id=None, **kwargs): ...
+    async def aprocess(self, messages, agent_id=None, session_id=None, user_id=None, team_id=None, **kwargs): ...
     def get_tools(self, **kwargs):
         return []
 
@@ -1166,8 +1206,12 @@ class SuspendingStore:
     """A store that records `was_updated`, then suspends before returning.
 
     Any real store doing IO after its own bookkeeping has this shape, and it is the shape that
-    opens the window: `awrite_tier` reads the flag with no `await` between it and `aprocess`, so
-    the only way another task can interleave is if `aprocess` itself yields after setting it.
+    opens the window: the flag reports the last operation on the *store*, so a second writer
+    reaching `aprocess` while the first is suspended overwrites the first writer's answer.
+
+    The suspension is a plain `sleep(0)` rather than a gate the other writer must release. A gate
+    would require the two critical sections to overlap, which is precisely what the fix prevents --
+    so the test would deadlock on the fix instead of failing on the defect.
     """
 
     learning_type = "user_profile"
@@ -1175,7 +1219,6 @@ class SuspendingStore:
 
     def __init__(self) -> None:
         self.was_updated = False
-        self.gate = asyncio.Event()
 
     def recall(self, **kwargs):
         return None
@@ -1183,16 +1226,12 @@ class SuspendingStore:
     async def arecall(self, **kwargs):
         return None
 
-    def process(self, messages, **kwargs):
+    def process(self, messages, user_id=None, agent_id=None, team_id=None, **kwargs):
         self.was_updated = True
 
-    async def aprocess(self, messages, **kwargs):
-        changed = "changes" in messages[0]["content"]
-        self.was_updated = changed  # bookkeeping...
-        if changed:
-            await self.gate.wait()  # ...then IO, during which the other writer runs
-        else:
-            self.gate.set()
+    async def aprocess(self, messages, user_id=None, agent_id=None, team_id=None, **kwargs):
+        self.was_updated = "changes" in messages[0]["content"]  # bookkeeping...
+        await asyncio.sleep(0)  # ...then IO, where the other writer used to interleave
 
     def build_context(self, data):
         return data or ""
@@ -1204,25 +1243,16 @@ class SuspendingStore:
         return []
 
 
-async def test_concurrent_store_writes_corrupt_the_accepted_count():
-    """A **known race**, pinned so it is verifiable rather than only described in a comment.
+async def test_concurrent_store_writes_each_get_their_own_answer():
+    """`was_updated` reports the last operation on the *store*, not on your call.
 
-    `was_updated` is shared mutable state on a store bound once at construction, so two concurrent
-    `awrite_tier` calls read each other's flag. The writer whose events *did* land reports
-    `accepted=0` and an empty `tiers_written`.
+    Two concurrent `awrite_tier` calls used to read each other's flag: the writer whose events
+    landed reported `accepted=0` with an empty `tiers_written`, and the no-op reported the other's
+    success. The write and the flag read are now one critical section per store.
 
-    Bounded honestly: `event_ids` and idempotency are unaffected, because
-    `LearningStore.process` mints no ids either way -- so this is a wrong count, not lost data.
-
-    **SM-C2 (#90) looked at this and is not the fix.** The pin previously named this ticket, on the
-    reasoning that per-call store state belongs with the tier-to-store binding. It does not: the
-    binding decides *which* stores a tier has, and this race is in `was_updated` itself, a
-    `LearningStore` protocol property that reports the outcome of the last operation on the store
-    rather than of *your* call. Nothing the bridge can bind changes that. The two fixes available
-    to it are both worse than the defect -- serialising writes per store trades real concurrency
-    for a receipt count, and inferring success from the absence of an exception is what
-    `was_updated` exists to avoid. Closing it properly means `process` returning its own outcome,
-    which is a change to `egpt.learn`'s protocol and needs its own ticket.
+    Serialising them is not only about the count. Stores reset their own progress flags on entry --
+    `SessionContextStore` sets `context_updated = False` before extracting -- so two concurrent
+    `process` calls on one store were corrupting its state, not just this receipt.
     """
     store = SuspendingStore()
     bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: store}, config=seed_config())
@@ -1232,9 +1262,59 @@ async def test_concurrent_store_writes_corrupt_the_accepted_count():
         bridge.awrite_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="no-op", scope=ACME)]),
     )
 
-    assert no_op.accepted == 0, "the genuine no-op is reported correctly"
-    assert landed.accepted == 0, "KNOWN RACE (SM-C2 #90): this writer's events landed; it should be 1"
-    assert landed.tiers_written == [], "...and its tier is missing from the receipt for the same reason"
+    assert landed.accepted == 1 and landed.tiers_written == [MemoryTier.SEMANTIC]
+    assert no_op.accepted == 0 and no_op.tiers_written == []
+    assert landed.details["stores"] == {"user_profile": True}
+    assert no_op.details["stores"] == {"user_profile": False}
+
+
+async def test_two_writers_to_one_store_do_not_overlap():
+    """The lock is what makes the flag attributable, so its holding is asserted directly.
+
+    A store that observed a second writer inside its own `aprocess` would be back to reporting
+    whichever call finished last.
+    """
+    depth = {"now": 0, "max": 0}
+
+    class Counting(SuspendingStore):
+        async def aprocess(self, messages, user_id=None, agent_id=None, team_id=None, **kwargs):
+            depth["now"] += 1
+            depth["max"] = max(depth["max"], depth["now"])
+            await asyncio.sleep(0)
+            depth["now"] -= 1
+
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: Counting()}, config=seed_config())
+
+    await asyncio.gather(
+        *(bridge.awrite_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content=f"n{i}", scope=ACME)]) for i in range(4))
+    )
+
+    assert depth["max"] == 1, "two writers were inside one store's process at the same time"
+
+
+async def test_writes_to_different_stores_still_run_concurrently():
+    """The lock is per store, not per provider: serialising a tier's independent stores would
+    turn a fan-out into a queue for no safety gain."""
+    inside = {"now": 0, "max": 0}
+
+    class Counting(SuspendingStore):
+        def __init__(self, learning_type):
+            super().__init__()
+            self.learning_type = learning_type
+
+        async def aprocess(self, messages, user_id=None, agent_id=None, team_id=None, **kwargs):
+            inside["now"] += 1
+            inside["max"] = max(inside["max"], inside["now"])
+            await asyncio.sleep(0)
+            inside["now"] -= 1
+            self.was_updated = True
+
+    stores = [Counting("user_profile"), Counting("user_memory"), Counting("entity_memory")]
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: stores}, config=seed_config())
+
+    await bridge.awrite_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
+
+    assert inside["max"] == 3, "the three stores in the tier must still be written concurrently"
 
 
 # ---------------------------------------------------------------------------
@@ -1264,9 +1344,9 @@ def test_a_tier_holds_every_machine_store_mapped_to_it():
     """Three stores are semantic, so a read of that tier consults all three, in table order."""
     machine = FakeMachine(
         stores={
-            "user_profile": FakeStore("user_profile", "works at acme"),
-            "user_memory": FakeStore("user_memory", "prefers email"),
-            "entity_memory": FakeStore("entity_memory", "acme is a customer"),
+            "user_profile": SlotNamingStore("user_profile", "works at acme"),
+            "user_memory": SlotNamingStore("user_memory", "prefers email"),
+            "entity_memory": SlotNamingStore("entity_memory", "acme is a customer"),
         }
     )
     bridge = SeedMemoryProvider(
@@ -1369,9 +1449,9 @@ async def test_both_write_halves_reach_every_store_when_one_of_them_fails():
 
     def wire():
         good, bad = FakeStore("user_profile"), FakeStore("user_memory")
-        bad.process = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("store down"))
+        bad.process = raises_from_process(RuntimeError("store down"))
 
-        async def aprocess(*a, **k):
+        async def aprocess(messages, user_id=None, agent_id=None, team_id=None, **kwargs):
             await asyncio.sleep(0)
             raise RuntimeError("store down")
 
@@ -1399,7 +1479,7 @@ def test_a_refusal_after_a_sibling_store_committed_is_a_partial_write():
     same defect `_raise_fanout_failure` fixes one level up, at store granularity.
     """
     committed, refusing = FakeStore("user_profile"), FakeStore("user_memory")
-    refusing.process = lambda *a, **k: (_ for _ in ()).throw(MemoryOperationError("nope", field_name="content"))
+    refusing.process = raises_from_process(MemoryOperationError("nope", field_name="content"))
     bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: [committed, refusing]}, config=seed_config())
 
     with pytest.raises(PartialWriteError):
@@ -1412,7 +1492,7 @@ def test_a_refusal_with_no_sibling_committed_still_propagates_bare():
     """Matching the co-located rule: nothing landed, so there is nothing for a receipt to help
     reconcile, and the caller needs the refusal itself."""
     store = FakeStore("user_profile")
-    store.process = lambda *a, **k: (_ for _ in ()).throw(MemoryOperationError("nope", field_name="content"))
+    store.process = raises_from_process(MemoryOperationError("nope", field_name="content"))
     bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: store}, config=seed_config())
 
     with pytest.raises(MemoryOperationError) as exc:
@@ -1462,36 +1542,72 @@ def test_an_unknown_store_type_is_refused_for_any_narrowed_scope():
     assert bridge.read_tier(Scope(tenant_id="acme"), MemoryTier.PROCEDURAL, MemoryQuery(text="q"))
 
 
-@pytest.mark.parametrize(
-    "slots", [{"user_profile": ["session"]}, {"user_profile": "user_id"}, {5: ["user_id"]}, ["user_id"]]
-)
+@pytest.mark.parametrize("slots", [{"user_profile": "user_id"}, {5: ["user_id"]}, ["user_id"]])
 def test_a_malformed_slot_declaration_is_refused_at_construction(slots):
-    """A misspelled slot silently *widens* what this provider answers, which is the direction that
-    matters -- so it is boundary-checked like every other option rather than absorbed."""
+    """Shape first: a declaration that is not a mapping of learning_type to a collection of slots."""
     with pytest.raises(MemoryProviderConfigError, match="store_slots"):
         SeedMemoryProvider(stores={MemoryTier.SEMANTIC: FakeStore()}, config=seed_config(store_slots=slots))
 
 
-def test_a_write_to_a_store_is_not_slot_guarded_and_the_asymmetry_is_deliberate():
-    """A **pinned gap**, with an owner.
+def test_a_slot_name_no_scope_has_is_refused_with_the_vocabulary():
+    """A misspelled slot silently *widens* what this provider answers, which is the direction that
+    matters.
 
-    The read side refuses a slot the store will not filter on. The write side does not, because
-    whether `process` *persists* a slot is a question about the store's columns -- SM-C3's (#91) --
-    and this ticket declines to guess it. The asymmetry is visible here rather than discovered: a
-    session-scoped write is accepted by the same store whose session-scoped read is refused.
+    Matched on this guard's own wording rather than on `store_slots`: the store cross-check next
+    door would also refuse `"session"`, so a looser assertion passes with this check deleted.
+    """
+    with pytest.raises(MemoryProviderConfigError, match="names unknown slot"):
+        SeedMemoryProvider(
+            stores={MemoryTier.SEMANTIC: FakeStore()},
+            config=seed_config(store_slots={"user_profile": ["session"]}),
+        )
 
-    This fails when a write-side slot table lands, which is the signal to guard both.
+
+def test_a_write_to_a_slot_the_store_cannot_record_is_refused():
+    """The read/write asymmetry, closed.
+
+    A session-scoped write to `user_profile` -- whose `process` names no `session_id` -- used to be
+    accepted, stored without its session, and then refused on the way back out. The manager path
+    has always refused exactly this shape (`_reject_unstorable_scope`); the store path now does too.
     """
     session_scoped = Scope(tenant_id="acme", session_id="s1")
     store = FakeStore("user_profile")
     bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: store}, config=seed_config())
 
     bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content="x", scope=ACME)])
-    bridge.write_tier(session_scoped, MemoryTier.SEMANTIC, [MemoryEvent(content="y", scope=session_scoped)])
+    with pytest.raises(MemoryOperationError, match="takes no"):
+        bridge.write_tier(session_scoped, MemoryTier.SEMANTIC, [MemoryEvent(content="y", scope=session_scoped)])
 
-    assert len(store.processed) == 2, "both writes accepted; the session-scoped one keeps no session"
+    assert len(store.processed) == 1, "refused before the store was asked"
     with pytest.raises(MemoryOperationError, match="does not filter on"):
         bridge.read_tier(session_scoped, MemoryTier.SEMANTIC, MemoryQuery(text="y"))
+
+
+async def test_the_write_slot_guard_applies_to_both_halves():
+    """One rule, both lanes, and refused before any store in the tier is written."""
+    session_scoped = Scope(tenant_id="acme", session_id="s1")
+    store = FakeStore("user_profile")
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: store}, config=seed_config())
+    events = [MemoryEvent(content="y", scope=session_scoped)]
+
+    with pytest.raises(MemoryOperationError, match="takes no"):
+        bridge.write_tier(session_scoped, MemoryTier.SEMANTIC, events)
+    with pytest.raises(MemoryOperationError, match="takes no"):
+        await bridge.awrite_tier(session_scoped, MemoryTier.SEMANTIC, events)
+
+    assert store.processed == []
+
+
+def test_a_store_that_names_the_slot_still_takes_the_write():
+    """The refusal is about this store, not about session scoping: `decision_log.process` names
+    `session_id`, so the same write lands."""
+    session_scoped = Scope(tenant_id="acme", session_id="s1")
+    store = NarrowStore([])
+    bridge = SeedMemoryProvider(stores={MemoryTier.PROCEDURAL: store}, config=seed_config())
+
+    receipt = bridge.write_tier(session_scoped, MemoryTier.PROCEDURAL, [MemoryEvent(content="y", scope=session_scoped)])
+
+    assert receipt.tiers_written == []  # NarrowStore reports no update; the point is it was allowed
 
 
 # ---------------------------------------------------------------------------
@@ -1768,7 +1884,7 @@ def test_a_partial_store_failure_reports_the_tier_the_sibling_committed_to():
     caller nothing landed anywhere, which was false.
     """
     committed, failing = FakeStore("user_profile"), FakeStore("user_memory")
-    failing.process = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("store down"))
+    failing.process = raises_from_process(RuntimeError("store down"))
     bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: [committed, failing]}, config=seed_config())
 
     with pytest.raises(PartialWriteError) as exc:
@@ -1865,3 +1981,74 @@ def test_a_real_entity_memory_store_reads_empty_through_this_bridge():
 
     assert store.recall(user_id="u1") is None, "no entity key, no answer -- before the bridge is involved"
     assert bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="acme")) == []
+
+
+# ---------------------------------------------------------------------------
+# Review findings (PR #68, round 3)
+# ---------------------------------------------------------------------------
+
+
+def test_a_declared_override_may_not_name_a_slot_the_store_never_named():
+    """The escape hatch may not reopen the leak the guard closes.
+
+    `store_slots` exists because the table cannot see a store's configuration -- `entity_memory`
+    filters on `user_id` under the `"user"` namespace and not otherwise. It is not a way to assert
+    a slot the store never named: `decision_log.recall` takes no `user_id`, so the slot lands in
+    `**kwargs` and is ignored, and declaring it handed one user's rows back under another's scope.
+    Checked at construction, against the store actually bound.
+    """
+    with pytest.raises(MemoryProviderConfigError, match="names no such parameter"):
+        SeedMemoryProvider(
+            stores={MemoryTier.PROCEDURAL: NarrowStore([])},
+            config=seed_config(store_slots={"decision_log": ["user_id", "agent_id", "session_id"]}),
+        )
+
+
+def test_the_override_still_works_for_the_case_it_exists_for():
+    """`entity_memory` names `user_id` and honours it under the `"user"` namespace, so a
+    deployment running that namespace can say so -- which is the whole point of the hatch."""
+    bridge = SeedMemoryProvider(
+        stores={MemoryTier.SEMANTIC: SlotNamingStore("entity_memory", "acme is a customer")},
+        config=seed_config(store_slots={"entity_memory": ["user_id"]}),
+    )
+
+    records = bridge.read_tier(ACME, MemoryTier.SEMANTIC, MemoryQuery(text="acme"))
+
+    assert [r.content for r in records] == ["[entity_memory] acme is a customer"]
+
+
+def test_the_declared_slots_a_store_cannot_back_are_named_in_the_refusal():
+    """A deployment that gets it wrong needs to know which slot, not only that something is wrong."""
+    with pytest.raises(MemoryProviderConfigError) as exc:
+        SeedMemoryProvider(
+            stores={MemoryTier.SEMANTIC: SlotNamingStore("user_profile")},
+            config=seed_config(store_slots={"user_profile": ["user_id", "team_id"]}),
+        )
+
+    assert "['team_id']" in str(exc.value)
+    assert exc.value.field_name == "options.store_slots"
+
+
+def test_concurrent_sync_writes_to_one_store_each_get_their_own_answer():
+    """The threaded half of the `was_updated` race. The async half is next door; a lock on one
+    lane only would leave a threaded deployment reading another writer's flag."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    class Slow(SuspendingStore):
+        """`SuspendingStore`'s sync twin. Not a `FakeStore`, whose `was_updated` is a read-only
+        property computed from `processed` and so cannot show one writer clobbering another."""
+
+        def process(self, messages, user_id=None, agent_id=None, team_id=None, **kwargs):
+            self.was_updated = "changes" in messages[0]["content"]  # bookkeeping...
+            time.sleep(0.01)  # ...then IO, where the other writer used to interleave
+
+    bridge = SeedMemoryProvider(stores={MemoryTier.SEMANTIC: Slow()}, config=seed_config())
+
+    def write(content):
+        return bridge.write_tier(ACME, MemoryTier.SEMANTIC, [MemoryEvent(content=content, scope=ACME)])
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        landed, no_op = list(pool.map(write, ["this changes things", "no-op"]))
+
+    assert (landed.accepted, landed.tiers_written) == (1, [MemoryTier.SEMANTIC])
+    assert (no_op.accepted, no_op.tiers_written) == (0, [])

@@ -9,7 +9,8 @@ Here rather than in ``egpt.learn`` because ``memory`` already imports ``learn``;
 risks an import cycle through ``egpt/memory/__init__``.
 """
 
-from typing import TYPE_CHECKING, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple
+import inspect
+from typing import TYPE_CHECKING, Any, Dict, FrozenSet, List, Mapping, Optional, Sequence, Tuple
 
 from egpt.memory.errors import MemoryOperationError
 from egpt.memory.tiers import MemoryTier
@@ -22,6 +23,8 @@ __all__ = [
     "RECALL_SLOTS",
     "SCOPE_SLOTS",
     "STORE_TIERS",
+    "filterable_slots",
+    "recordable_slots",
     "stores_by_tier",
     "tier_for_store",
     "unhonoured_slots",
@@ -53,8 +56,10 @@ STORE_TIERS: Dict[str, MemoryTier] = {
 #: which the default is not. A set true in the minority case reads as a guarantee, so those
 #: deployments declare it via ``options['store_slots']`` instead.
 #:
-#: Read predicate only. Whether ``process`` **persists** a slot is a columns question, SM-C3's
-#: (#91), pinned in ``test_learn_store_mapping.py``.
+#: Read predicate only, and declared because a signature cannot tell you what a store *filters* by.
+#: The write side asks the weaker question -- does ``process`` even name the slot -- which
+#: :func:`recordable_slots` derives. Whether a named slot survives into the row is a columns
+#: question, SM-C3's (#91).
 RECALL_SLOTS: Dict[str, FrozenSet[str]] = {
     "session_context": frozenset({"session_id"}),
     "user_profile": frozenset({"user_id"}),
@@ -94,6 +99,42 @@ def unhonoured_slots(learning_type: str, scope: Scope, declared: Optional[Frozen
     """
     honoured = declared if declared is not None else RECALL_SLOTS.get(learning_type, frozenset())
     return [slot for slot in SCOPE_SLOTS if getattr(scope, slot, None) is not None and slot not in honoured]
+
+
+def filterable_slots(store: Any) -> FrozenSet[str]:
+    """The scope slots this store's ``recall`` could possibly filter by: its **named parameters**.
+
+    ``**kwargs`` does not count, and that is the whole point. Every in-tree store accepts
+    ``**kwargs`` and documents what lands there as *"Additional context (ignored)"* -- so a slot
+    reaching a store through ``**kwargs`` is, by construction, one it does not filter on.
+    ``decision_log`` swallows ``user_id`` exactly that way.
+
+    This is what makes a declared override checkable rather than taken on trust: a deployment may
+    say a store honours a slot the default table leaves out (``entity_memory`` under the ``"user"``
+    namespace), but it cannot say a store honours a slot the store never named.
+    """
+    try:
+        parameters = inspect.signature(store.recall).parameters
+    except (TypeError, ValueError):  # a callable without an introspectable signature
+        return frozenset()
+    return frozenset(name for name in parameters if name in SCOPE_SLOTS)
+
+
+def recordable_slots(store: Any) -> FrozenSet[str]:
+    """The scope slots this store's ``process`` could possibly record: its **named parameters**.
+
+    The write-side twin of :func:`filterable_slots`, and it answers a narrower question than the
+    read side's. Naming a slot means the store *sees* it; whether the row it writes keeps it is a
+    columns question and SM-C3's (#91). What this closes is the case where the store cannot even
+    see it -- ``user_profile.process`` names no ``session_id``, so a session-scoped write to it is
+    accepted, stored without its session, and can never be read back at that scope, which is
+    exactly what ``_reject_unstorable_scope`` refuses on the manager path.
+    """
+    try:
+        parameters = inspect.signature(store.process).parameters
+    except (TypeError, ValueError):  # a callable without an introspectable signature
+        return frozenset()
+    return frozenset(name for name in parameters if name in SCOPE_SLOTS)
 
 
 def stores_by_tier(

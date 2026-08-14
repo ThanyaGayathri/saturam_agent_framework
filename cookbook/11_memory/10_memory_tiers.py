@@ -161,24 +161,36 @@ def provider_and_substrates():
 
 
 class EchoStore:
-    """The smallest thing satisfying LearningStore, so the mapping has something to bind."""
+    """The smallest thing satisfying LearningStore, so the mapping has something to bind.
+
+    `recall` and `process` **name** the scope slots this store honours, exactly as the six shipped
+    stores do. The bridge reads those signatures: a slot arriving through `**kwargs` is one no
+    store in the tree filters or records, so it refuses reads and writes narrowed on it, and it
+    will not accept a `store_slots` declaration naming one either.
+    """
 
     def __init__(self, learning_type: str) -> None:
         self.learning_type = learning_type
         self.schema = dict
         self.was_updated = False
 
-    def recall(self, **kwargs):
+    def recall(self, user_id=None, **kwargs):
         return "acme is a customer"
 
-    async def arecall(self, **kwargs):
-        return self.recall(**kwargs)
+    async def arecall(self, user_id=None, **kwargs):
+        return self.recall(user_id=user_id, **kwargs)
 
-    def process(self, messages, **kwargs) -> None:
+    def process(
+        self, messages, user_id=None, agent_id=None, team_id=None, **kwargs
+    ) -> None:
         self.was_updated = True
 
-    async def aprocess(self, messages, **kwargs) -> None:
-        self.process(messages, **kwargs)
+    async def aprocess(
+        self, messages, user_id=None, agent_id=None, team_id=None, **kwargs
+    ) -> None:
+        self.process(
+            messages, user_id=user_id, agent_id=agent_id, team_id=team_id, **kwargs
+        )
 
     def build_context(self, data) -> str:
         return "" if data is None else f"[{self.learning_type}] {data}"

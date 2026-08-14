@@ -47,6 +47,8 @@ __all__ = [
     "Scope",
     "Substrate",
     "TemporalBounds",
+    "WRITE_KEYS",
+    "write_details",
     "WriteReceipt",
 ]
 
@@ -623,17 +625,49 @@ class MemorySlice:
         return "\n".join(lines)
 
 
+#: Keys every provider must put in ``WriteReceipt.details``, the same floor ``FUSION_KEYS`` and
+#: ``CONSOLIDATION_KEYS`` provide for the other two result types.
+#:
+#: ``stores`` exists because ``accepted`` is one number and a tier can be served by several backends
+#: that answer differently. A provider composing substrates has none, and reports ``{}``, which is
+#: honest rather than empty-by-omission.
+WRITE_KEYS = ("stores",)
+
+
+def write_details(stores: Optional[Dict[str, bool]] = None, **extra: Any) -> Dict[str, Any]:
+    """Build a ``WriteReceipt.details`` payload carrying every key in :data:`WRITE_KEYS`.
+
+    ``stores`` maps a backend's own name to whether it took this batch. Extra keys are free; the
+    contract is a floor, not a ceiling.
+    """
+    details: Dict[str, Any] = {"stores": dict(stores or {})}
+    details.update(extra)
+    return details
+
+
 @dataclass
 class WriteReceipt:
     """What a ``write`` accepted and where it landed.
 
     ``event_ids`` are the ids the provider stamped -- the caller needs them to correlate a later
     read, and consolidation needs them for ``source_episode_ids`` provenance.
+
+    ``accepted`` is **tier-level**: how many events this write was taken by, not how many rows
+    exist. A backend may fold a batch into one row, and a tier may be served by several backends.
+    ``details`` (see :data:`WRITE_KEYS`) is where that breakdown lives, so "two of three stores took
+    it" is readable rather than collapsed into the count.
     """
 
     accepted: int = 0
     event_ids: List[str] = field(default_factory=list)
     tiers_written: List[MemoryTier] = field(default_factory=list)
+    details: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # Defaulted rather than required, so a hand-built receipt in a test or a third-party
+        # adapter still satisfies the floor a consumer reads.
+        if not self.details:
+            self.details = write_details()
 
 
 @dataclass

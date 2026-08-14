@@ -454,3 +454,56 @@ async def test_neither_search_half_reads_the_db_twice_for_one_query(method):
 
     assert sync_db.get_user_memories.call_count == 1
     assert len([c for c in async_db.calls if c[0] == "get_user_memories"]) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verb", ["write", "read"])
+async def test_a_synchronous_db_is_driven_off_the_event_loop(verb):
+    """A sync driver blocks for its whole round trip, and inline on the async lane that stalls
+    every other task in the process -- the failure an async variant exists to prevent.
+
+    Asserted on the **thread**, not on elapsed time: a timing assertion is a flake waiting for a
+    loaded CI box, while "which thread ran the driver" is exactly the question and is exact.
+    """
+    import threading
+    from unittest.mock import MagicMock
+
+    ran_on = {}
+
+    def record(*args, **kwargs):
+        ran_on["thread"] = threading.get_ident()
+        return []
+
+    sync_db = MagicMock()
+    sync_db.upsert_user_memory = record
+    sync_db.get_user_memories = record
+    manager = MemoryManager(db=sync_db)
+    loop_thread = threading.get_ident()
+
+    if verb == "write":
+        await manager.aadd_user_memory(UserMemory(memory="x", memory_id="m1"), user_id="u")
+    else:
+        await manager.asearch_user_memories(retrieval_method="last_n", user_id="u")
+
+    assert ran_on["thread"] != loop_thread, "the synchronous driver ran on the event loop's thread"
+
+
+@pytest.mark.asyncio
+async def test_an_async_db_is_awaited_rather_than_threaded():
+    """The other half of the same rule: an async driver must not pay for a thread it does not need."""
+    import threading
+
+    async_db = DummyAsyncMemoryDb()
+    ran_on = {}
+    original = async_db.upsert_user_memory
+
+    async def record(memory, deserialize=True):
+        ran_on["thread"] = threading.get_ident()
+        return await original(memory, deserialize)
+
+    async_db.upsert_user_memory = record
+    manager = MemoryManager(db=async_db)
+
+    await manager.aadd_user_memory(UserMemory(memory="x", memory_id="m1"), user_id="u")
+
+    assert ran_on["thread"] == threading.get_ident()

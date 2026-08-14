@@ -35,6 +35,8 @@ from egpt.memory.learn_stores import (
     RECALL_SLOTS,
     SCOPE_SLOTS,
     STORE_TIERS,
+    filterable_slots,
+    recordable_slots,
     stores_by_tier,
     tier_for_store,
     unhonoured_slots,
@@ -145,21 +147,49 @@ def test_the_decision_log_takes_no_user_id_at_all():
     assert "user_id" not in inspect.signature(decision_log.recall).parameters
 
 
-def test_the_process_slots_a_store_persists_are_not_modelled_here():
-    """A **pinned gap**, with an owner.
+@pytest.mark.parametrize("store", real_stores(), ids=lambda s: s.learning_type)
+def test_the_write_side_slot_set_is_derived_from_each_store_s_process(store):
+    """`recall` and `process` take different slot sets, and the write guard reads the second.
 
-    `recall` and `process` take different slot sets -- `user_profile.process` accepts `agent_id`
-    and `team_id` "for audit" -- and whether a slot handed to `process` is *persisted* is a
-    question about columns, which is SM-C3's (#91). Guessing it would produce the mirror of the
-    read-side failure: a write accepted at a scope it cannot be read back at.
-
-    This fails when a write-side table lands, which is the signal to guard writes too.
+    Derived rather than declared, and the two questions differ in strength: on the read side the
+    table says which slots a store *filters* by, which a signature cannot tell you; on the write
+    side the question is only whether the store **sees** the slot, which the signature answers
+    exactly. Whether a seen slot survives into the stored row is a columns question -- SM-C3's
+    (#91) -- and is what the guard deliberately does not claim.
     """
-    profile = UserProfileStore(config=UserProfileConfig())
-    process_slots = {name for name in inspect.signature(profile.process).parameters if name in SCOPE_SLOTS}
+    named = {name for name in inspect.signature(store.process).parameters if name in SCOPE_SLOTS}
 
-    assert process_slots > RECALL_SLOTS["user_profile"], "process takes more slots than recall filters on"
-    assert not hasattr(__import__("egpt.memory.learn_stores", fromlist=["x"]), "PROCESS_SLOTS")
+    assert recordable_slots(store) == named
+
+
+def test_no_store_records_a_slot_it_does_not_name():
+    """`user_profile` is the case the write guard exists for: `process` names no `session_id`, so a
+    session-scoped write to it is refused rather than stored without its session."""
+    profile = UserProfileStore(config=UserProfileConfig())
+
+    assert "session_id" not in recordable_slots(profile)
+    assert {"user_id", "agent_id", "team_id"} <= recordable_slots(profile)
+
+
+@pytest.mark.parametrize("store", real_stores(), ids=lambda s: s.learning_type)
+def test_a_declared_override_can_only_name_slots_the_store_takes(store):
+    """`filterable_slots` is what makes `options['store_slots']` checkable rather than trusted.
+
+    A slot arriving through `**kwargs` is ignored by every store in the tree, so a declaration
+    naming one would widen a read while it kept carrying the narrow scope -- the leak the guard
+    exists to close, reopened through its own escape hatch.
+    """
+    named = {name for name in inspect.signature(store.recall).parameters if name in SCOPE_SLOTS}
+
+    assert filterable_slots(store) == named
+    assert RECALL_SLOTS[store.learning_type] <= filterable_slots(store)
+
+
+def test_the_decision_log_cannot_be_declared_to_filter_on_a_user():
+    """The sharpest case: `user_id` reaches `decision_log.recall` only through `**kwargs`."""
+    decision_log = DecisionLogStore(config=DecisionLogConfig())
+
+    assert "user_id" not in filterable_slots(decision_log)
 
 
 # ---------------------------------------------------------------------------
