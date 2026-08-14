@@ -23,8 +23,8 @@ import shutil
 from pathlib import Path
 
 from egpt.agent import Agent
-from egpt.context.web import ExaMCPBackend
 from egpt.context.wiki import FileSystemBackend, WikiContextProvider
+from egpt.integrations.context.web import ExaMCPBackend
 from egpt.models.openai import OpenAIResponses
 
 # ---------------------------------------------------------------------------

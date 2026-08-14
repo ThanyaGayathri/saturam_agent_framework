@@ -24,9 +24,9 @@ import asyncio
 from pathlib import Path
 
 from egpt.agent import Agent
-from egpt.context.slack import SlackContextProvider
-from egpt.context.web import ParallelBackend, WebContextProvider
 from egpt.context.workspace import WorkspaceContextProvider
+from egpt.integrations.context.slack import SlackContextProvider
+from egpt.integrations.context.web import ParallelBackend, WebContextProvider
 from egpt.models.openai import OpenAIResponses
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]

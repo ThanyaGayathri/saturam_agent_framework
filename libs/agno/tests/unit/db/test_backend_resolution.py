@@ -650,17 +650,17 @@ def test_no_test_patches_a_deprecated_shim_path():
     """
     tests_root = package_root() / "tests"
     assert tests_root.is_dir(), f"test root not found: {tests_root}"
-    # Non-vacuity floor. A scan root that stops resolving yields no offenders and reports
-    # PASS, which is how a guard of this shape silently stops guarding anything.
-    scanned = len(list(tests_root.rglob("test_*.py")))
-    assert scanned >= 100, f"only {scanned} test files found under {tests_root}; the scan root is stale"
 
-    offenders = find_shim_path_strings(
+    scanned, offenders = find_shim_path_strings(
         tests_root,
         "egpt.db",
         _MOVED_PACKAGES,
         exclude={Path(__file__).resolve()},  # this file names the paths on purpose
     )
+    # Non-vacuity floor, taken from the helper's own return value: a scan root that stops
+    # resolving would otherwise yield no offenders and report PASS, which is how a guard of
+    # this shape silently stops guarding anything.
+    assert scanned >= 100, f"only {scanned} test files scanned under {tests_root}; the scan root is stale"
 
     assert not offenders, (
         "Tests referencing a deprecated shim path as a string (mock.patch targets patch the "

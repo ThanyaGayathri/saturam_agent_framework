@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 
 from egpt.agent import Agent
-from egpt.context.database import DatabaseContextProvider
+from egpt.integrations.context.database import DatabaseContextProvider
 from egpt.models.openai import OpenAIResponses
 from sqlalchemy import create_engine, text
 

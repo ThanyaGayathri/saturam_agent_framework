@@ -101,6 +101,24 @@ every driver installed, so the test passes locally and in the main CI job; it on
 someone who installed a subset of the extras. The `unit-drivers-absent` CI job runs the unit
 suite with the backend drivers uninstalled specifically to catch this.
 
+### You may see the `import-linter (informational)` check fail — that's expected
+
+This CI job (EGPT-1.11) enforces the integrations-boundary rules of ADR 0001's layering matrix
+(`docs/adr/0001-layered-architecture.md`) with `import-linter`. It currently fails on `main`
+itself, because a handful of pre-existing violations are tracked rather than silently exempted
+— see `libs/agno/tests/unit/test_import_linter_contracts.py` for the exact list and the
+tickets that own fixing them (aicoe-tracker#157, #158, #180). Until those land, **this check
+will show red on every PR**, including ones that don't touch any of the flagged files. That's
+expected and does not block merging: the job is informational only (`continue-on-error: true`,
+not part of the required `ci-success` check).
+
+What you *do* need to worry about: if `import-linter` output mentions a file your PR touches
+that isn't already in `test_import_linter_contracts.py`'s known-violation lists, that's a real,
+new violation — fix the import (route it through `egpt.tools.utils.construct_toolkit`,
+`Registry`, or an equivalent seam) rather than adding it to the tracked list. That pytest test
+*is* part of the required unit suite and will fail the build if a genuinely new violation shows
+up, precisely so this doesn't become a silent way to add more debt.
+
 ## Adding a new Vector Database
 
 1. Setup your local environment by following the [Development setup](#development-setup).

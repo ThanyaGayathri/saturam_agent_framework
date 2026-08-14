@@ -24,9 +24,9 @@ import tempfile
 from pathlib import Path
 
 from egpt.agent import Agent
-from egpt.context.database import DatabaseContextProvider
 from egpt.context.fs import FilesystemContextProvider
-from egpt.context.web import ExaMCPBackend, WebContextProvider
+from egpt.integrations.context.database import DatabaseContextProvider
+from egpt.integrations.context.web import ExaMCPBackend, WebContextProvider
 from egpt.models.openai import OpenAIResponses
 from sqlalchemy import create_engine, text
 

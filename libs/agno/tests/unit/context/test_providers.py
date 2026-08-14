@@ -15,14 +15,14 @@ import pytest
 from sqlalchemy import create_engine
 
 from egpt import __version__ as EGPT_VERSION
-from egpt.context.database import DatabaseContextProvider
 from egpt.context.fs import FilesystemContextProvider
-from egpt.context.google import validate_google_credentials
-from egpt.context.mcp import MCPContextProvider
 from egpt.context.mode import ContextMode
-from egpt.context.slack import SlackContextProvider
-from egpt.context.web import ExaBackend, ExaMCPBackend, ParallelMCPBackend, WebContextProvider
 from egpt.context.workspace import WorkspaceContextProvider
+from egpt.integrations.context.database import DatabaseContextProvider
+from egpt.integrations.context.google import validate_google_credentials
+from egpt.integrations.context.mcp import MCPContextProvider
+from egpt.integrations.context.slack import SlackContextProvider
+from egpt.integrations.context.web import ExaBackend, ExaMCPBackend, ParallelMCPBackend, WebContextProvider
 
 # SlackContextProvider imports cleanly without the SDK; only the tests that build its tool
 # surface (which instantiates SlackTools) need the driver.
@@ -41,7 +41,7 @@ _GOOGLE_API_REASON = "the Google providers import the Google API client at modul
 @pytest.fixture
 def gdrive_provider_cls():
     pytest.importorskip("googleapiclient", reason=_GOOGLE_API_REASON)
-    from egpt.context.gdrive import GoogleDriveContextProvider
+    from egpt.integrations.context.gdrive import GoogleDriveContextProvider
 
     return GoogleDriveContextProvider
 
@@ -49,7 +49,7 @@ def gdrive_provider_cls():
 @pytest.fixture
 def gmail_provider_cls():
     pytest.importorskip("googleapiclient", reason=_GOOGLE_API_REASON)
-    from egpt.context.gmail import GmailContextProvider
+    from egpt.integrations.context.gmail import GmailContextProvider
 
     return GmailContextProvider
 
@@ -57,7 +57,7 @@ def gmail_provider_cls():
 @pytest.fixture
 def calendar_provider_cls():
     pytest.importorskip("googleapiclient", reason=_GOOGLE_API_REASON)
-    from egpt.context.calendar import GoogleCalendarContextProvider
+    from egpt.integrations.context.calendar import GoogleCalendarContextProvider
 
     return GoogleCalendarContextProvider
 
@@ -513,7 +513,7 @@ def test_slack_user_token_enables_search_messages():
 
 @requires_slack_sdk
 def test_slack_read_instructions_override_both_read_agents(monkeypatch):
-    import egpt.context.slack.provider as slack_provider
+    import egpt.integrations.context.slack.provider as slack_provider
 
     captured: dict[str, str] = {}
 
@@ -521,7 +521,7 @@ def test_slack_read_instructions_override_both_read_agents(monkeypatch):
         def __init__(self, *, id: str, instructions: str, **kwargs):
             captured[id] = instructions
 
-    monkeypatch.setattr(slack_provider, "Agent", _StubAgent)
+    monkeypatch.setattr(slack_provider, "construct_runnable", lambda _name, **kwargs: _StubAgent(**kwargs))
 
     p = SlackContextProvider(token="xoxb-x", read_instructions="Custom read policy.")
     _ = p._ensure_bot_read_agent()
@@ -533,7 +533,7 @@ def test_slack_read_instructions_override_both_read_agents(monkeypatch):
 
 @requires_slack_sdk
 def test_slack_default_read_instructions_stay_tool_specific(monkeypatch):
-    import egpt.context.slack.provider as slack_provider
+    import egpt.integrations.context.slack.provider as slack_provider
 
     captured: dict[str, str] = {}
 
@@ -541,7 +541,7 @@ def test_slack_default_read_instructions_stay_tool_specific(monkeypatch):
         def __init__(self, *, id: str, instructions: str, **kwargs):
             captured[id] = instructions
 
-    monkeypatch.setattr(slack_provider, "Agent", _StubAgent)
+    monkeypatch.setattr(slack_provider, "construct_runnable", lambda _name, **kwargs: _StubAgent(**kwargs))
 
     p = SlackContextProvider(token="xoxb-x")
     _ = p._ensure_bot_read_agent()

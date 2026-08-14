@@ -164,21 +164,12 @@ ALLOWED_ENV_ACCESS: Dict[Tuple[str, str], str] = {
     # The branded-env chokepoint itself. get_from_env's `key` argument is caller-supplied
     # (a legacy, non-branded escape hatch), so it is `<dynamic>` to the detector.
     ("utils/env.py", "<dynamic>"): "the deprecated get_from_env escape hatch reads an arbitrary caller-supplied key",
+    # EGPT-1.7a moved the context connectors' provider.py files (gmail, gdrive, calendar,
+    # slack, web, wiki's git backend) into egpt/integrations/context/*, which this scan
+    # already excludes wholesale -- their raw getenv() calls no longer need an entry here,
+    # the same way every other integrations-layer SDK credential read does not.
     # -- third-party provider credentials: SDK/provider convention owns the name, per
     # -- EGPT-1.10 decision 1. Not migrated this PR.
-    ("context/gmail/provider.py", "GOOGLE_SERVICE_ACCOUNT_FILE"): "Google service-account credential path",
-    ("context/gmail/provider.py", "GOOGLE_DELEGATED_USER"): "Google domain-wide-delegation user",
-    ("context/gdrive/provider.py", "GOOGLE_SERVICE_ACCOUNT_FILE"): "Google service-account credential path",
-    ("context/calendar/provider.py", "GOOGLE_SERVICE_ACCOUNT_FILE"): "Google service-account credential path",
-    ("context/calendar/provider.py", "GOOGLE_DELEGATED_USER"): "Google domain-wide-delegation user",
-    ("context/slack/provider.py", "SLACK_BOT_TOKEN"): "Slack API bot token, rotated in the Slack app console",
-    ("context/slack/provider.py", "SLACK_TOKEN"): "Slack API token, rotated in the Slack app console",
-    ("context/slack/provider.py", "SLACK_USER_TOKEN"): "Slack API user token, rotated in the Slack app console",
-    ("context/web/exa.py", "EXA_API_KEY"): "Exa search API key",
-    ("context/web/exa_mcp.py", "EXA_API_KEY"): "Exa search API key",
-    ("context/web/parallel.py", "PARALLEL_API_KEY"): "Parallel search API key",
-    ("context/web/parallel_mcp.py", "PARALLEL_API_KEY"): "Parallel search API key",
-    ("context/wiki/backend.py", "NOTION_API_KEY"): "Notion API key",
     ("knowledge/reader/reader_factory.py", "FIRECRAWL_API_KEY"): "Firecrawl API key",
     ("knowledge/reader/reader_factory.py", "TAVILY_API_KEY"): "Tavily API key",
     ("cloud/aws/base.py", "AWS_REGION"): "AWS credential/region, standard AWS SDK env var",
@@ -196,7 +187,8 @@ ALLOWED_ENV_ACCESS: Dict[Tuple[str, str], str] = {
     ("os/interfaces/whatsapp/helpers.py", "WHATSAPP_PHONE_NUMBER_ID"): "Meta Cloud API phone number id",
     ("os/interfaces/whatsapp/whatsapp.py", "WHATSAPP_ENCRYPTION_KEY"): "data-at-rest key, not a serving-auth setting",
     # -- deliberately raw, not a migration gap --
-    ("context/wiki/git_ops.py", "<environ>"): "os.environ.copy() to build a subprocess env, not a settings read",
+    # egpt/integrations/context/wiki/git_ops.py's os.environ.copy() (EGPT-1.7a moved it there)
+    # needs no entry here for the same reason: the integrations/ exclusion already covers it.
     (
         "os/interfaces/telegram/security.py",
         "APP_ENV",
@@ -216,8 +208,11 @@ def test_no_unaccounted_raw_env_reads_outside_integrations():
 
     # Non-vacuity floors: a scan root that goes stale (renamed/emptied) or a detector
     # that silently stops matching would otherwise report zero offenders and PASS.
+    # Lowered from 20 by EGPT-1.7a: moving the eight context connectors into
+    # egpt/integrations/context/* removed 14 outside-integrations reads at once (they were
+    # never a detector gap -- the scan already excludes egpt/integrations/ wholesale).
     assert checked_files > 900, f"only {checked_files} files scanned; the scan root is probably stale"
-    assert len(found) >= 20, f"only {len(found)} env accesses detected; the detector is probably broken"
+    assert len(found) >= 10, f"only {len(found)} env accesses detected; the detector is probably broken"
 
     unexpected = sorted(found - set(ALLOWED_ENV_ACCESS))
     stale = sorted(set(ALLOWED_ENV_ACCESS) - found)
