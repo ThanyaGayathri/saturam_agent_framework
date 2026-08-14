@@ -27,7 +27,6 @@ from typing import Any, Callable, Dict, List
 
 import pytest
 
-from egpt.integrations.memory.graph.neo4j import cypher
 from egpt.memory.config import MemoryProviderConfig, build_memory_provider
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.tiers import MemoryTier
@@ -46,6 +45,28 @@ from tests.unit.memory._fakes import FakeGraph, FakeVector
 from tests.unit.memory.test_provider_swap import ALL_CONFIGS, WRITABLE_CONFIGS
 
 ACME = Scope(tenant_id="acme", user_id="u1")
+
+
+def cypher_module() -> Any:
+    """The Cypher builders, or a skip when the driver is absent.
+
+    Gated **per test** rather than at module scope, which is what
+    ``test_neo4j_graph_statements`` does: everything else in this file is the seam's own
+    fail-closed contract and needs no driver, and skipping all of it on a partial install would
+    take the core acceptance criterion offline in exactly the job built to notice that.
+
+    The statements themselves import nothing -- they are string builders over
+    ``egpt.memory.types`` -- but the package ``__init__`` eagerly imports the substrate, which
+    imports the driver. So the gate is on the package, not on what these tests use.
+    """
+    # Gated on ``neo4j`` itself, not on the module being imported: the substrate raises a
+    # hand-built ``ImportError`` carrying no ``name``, so ``importorskip`` on the cypher module
+    # cannot match it to a missing dependency and re-raises instead of skipping.
+    pytest.importorskip("neo4j", reason="the graph package __init__ imports the Neo4j driver")
+    from egpt.integrations.memory.graph.neo4j import cypher
+
+    return cypher
+
 
 #: How many public builders in ``cypher`` take a scope. Exact rather than a floor: the point of
 #: the discovery below is that a builder added later is covered, and a floor would equally pass
@@ -322,7 +343,7 @@ def test_the_slot_tuple_is_exactly_the_scope_dataclass():
 
 def test_the_graph_backend_filters_on_the_same_slots_the_seam_declares():
     """Identity, not equality: two tuples that happen to match today are two declarations."""
-    assert cypher.SCOPE_SLOTS is SCOPE_SLOTS
+    assert cypher_module().SCOPE_SLOTS is SCOPE_SLOTS
 
 
 def test_the_scope_key_covers_every_slot():
@@ -348,6 +369,7 @@ def scope_taking_builders() -> List[Callable[..., Any]]:
     anyone remembering to extend a tuple, which is the failure mode SM-R2 section 5.4 counted
     three of.
     """
+    cypher = cypher_module()
     builders = []
     for name in cypher.__all__:
         obj = getattr(cypher, name)
@@ -421,7 +443,7 @@ def test_no_substrate_double_answers_an_unscoped_call(double, shape):
 
 def test_a_scoped_builder_still_emits_the_tenant_predicate():
     """The counterweight: the guard must not be satisfied by refusing everything."""
-    predicate, params = cypher.scope_predicate("e", ACME)
+    predicate, params = cypher_module().scope_predicate("e", ACME)
     assert "e.tenant_id = $tenant_id" in predicate
     assert params["tenant_id"] == "acme"
 
