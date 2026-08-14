@@ -76,6 +76,27 @@ the benchmark's constant.
   A warmup pass would remove it; it is left in rather than tuned away, since the row it appears on
   is not the one the decision rests on.
 
+## One further measurement, from the PR #77 review
+
+The review asked whether the distance expression appearing three times in `search_statement` was
+worth a comment. It was worth a change. Two of the three are inherent — the select list (computed
+once per *returned* row) and the `ORDER BY` the HNSW index answers with. The third was a
+zero-similarity cut written as `AND embedding <=> :q < 1.0`, which the planner puts in `Filter:`, so
+it recomputed the distance for every row the scan **visited**:
+
+| search statement | p50 | mean |
+| --- | --- | --- |
+| with the cut in `WHERE` | 5.23 ms | 7.61 ms |
+| with the cut on the returned page | 3.15 ms | 3.24 ms |
+
+*(100k/tenant partition, 30 queries, `ef_search = 256`, identical select list.)*
+
+The cut now runs on the returned page. The sets are identical because the scan is ordered by that
+same distance, so every row the cut removes ranks strictly below every row it keeps. **Relevant to
+the sweep above:** its p95 column was measured with the `WHERE` form, so the shipped substrate is
+now faster than the table reports, not slower. The recall column is unaffected — the cut removes
+only rows at similarity 0.0, which are never in the true top-k.
+
 ## Still open, and not this ticket's
 
 - **The memory→vector fan-out ratio** (ADR section A.1, "HELD OPEN"): vectors-per-memory on real
