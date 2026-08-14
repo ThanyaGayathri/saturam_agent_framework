@@ -664,10 +664,17 @@ class WriteReceipt:
     details: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # Defaulted rather than required, so a hand-built receipt in a test or a third-party
-        # adapter still satisfies the floor a consumer reads.
-        if not self.details:
-            self.details = write_details()
+        # Filled rather than required, so a hand-built receipt in a test or a third-party adapter
+        # still satisfies the floor a consumer reads.
+        #
+        # **Merged on key presence, not on truthiness.** A receipt built as
+        # ``WriteReceipt(details={"rows": 3})`` -- the extra-keys-are-free usage the docstring
+        # invites -- is truthy, so a `not self.details` test skipped the fill and left
+        # ``details["stores"]`` raising `KeyError` at the call site. That is precisely the
+        # divergence the floor exists to prevent, reachable only from out-of-tree adapters, which
+        # are the ones with no test of ours to catch it.
+        if not self.details.keys() >= set(WRITE_KEYS):
+            self.details = write_details(**self.details)
 
 
 @dataclass

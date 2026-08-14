@@ -396,6 +396,8 @@ owner, not a "later".
   adapter drifted; each one here is paired with a conformance-matrix property.
 - **`FUSION_KEYS` / `CONSOLIDATION_KEYS`** — a floor on the diagnostics every provider reports, so a
   provider-agnostic consumer does not `KeyError` on whichever adapter it was not written against.
+  *(SM-C2 adds `WRITE_KEYS` on `WriteReceipt.details`, the same floor for the write path: a tier
+  served by several backends needs a per-backend breakdown that one `accepted` count cannot hold.)*
 
 ### 11.2b Invariants and where they are proved
 

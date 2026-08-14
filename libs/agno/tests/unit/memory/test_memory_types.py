@@ -13,6 +13,7 @@ import pytest
 from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
 from egpt.memory.types import (
     MAX_LIMIT,
+    WRITE_KEYS,
     ConsolidationReport,
     MemoryEvent,
     MemoryQuery,
@@ -510,3 +511,32 @@ def test_apply_bounds_takes_every_field_from_the_authority():
     record.apply_bounds(TemporalBounds(t_valid=None, t_invalid=400))
     assert record.t_valid == 150, "a graph with no lower bound must not erase the projection's"
     assert (record.t_invalid, record.expired_at, record.superseded_by) == (400, None, None)
+
+
+# ---------------------------------------------------------------------------
+# WriteReceipt.details -- the floor a provider-agnostic consumer reads
+# ---------------------------------------------------------------------------
+
+
+def test_a_receipt_built_with_no_details_still_carries_the_floor():
+    assert set(WRITE_KEYS) <= set(WriteReceipt().details)
+
+
+def test_a_receipt_carrying_only_extra_keys_still_carries_the_floor():
+    """The failure a truthiness test let through.
+
+    `details` is documented as a floor, not a ceiling, so a third-party adapter adding its own key
+    is the invited usage -- and a non-empty dict skipped the fill, leaving `details["stores"]`
+    raising `KeyError` at a call site written against any other provider.
+    """
+    receipt = WriteReceipt(accepted=1, details={"rows_written": 3})
+
+    assert set(WRITE_KEYS) <= set(receipt.details)
+    assert receipt.details["rows_written"] == 3, "the caller's own key survives the fill"
+
+
+def test_a_receipt_that_already_satisfies_the_floor_is_left_alone():
+    """Filling must not overwrite a provider's real answer with the default."""
+    receipt = WriteReceipt(accepted=1, details={"stores": {"user_profile": True}, "rows_written": 3})
+
+    assert receipt.details == {"stores": {"user_profile": True}, "rows_written": 3}

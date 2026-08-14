@@ -23,6 +23,7 @@ The toy substrates are the same shape as 09_memory_provider_seam.py's, kept
 small here because the subject is the tier axis rather than the seam.
 """
 
+import warnings
 from dataclasses import replace
 from typing import Dict, List, Optional, Sequence
 
@@ -333,6 +334,10 @@ if __name__ == "__main__":
     # namespace. Declaring it is one config key, and the refusal names the slot.
     print()
     print("A store that filters on nothing by default refuses a narrowed read:")
+    # This binding also warns, correctly: a real entity_memory store needs an entity key that
+    # MemoryQuery cannot carry, so its reads are structurally empty. The stand-in below answers
+    # anyway, because the subject here is the slot guard rather than entity retrieval.
+    warnings.filterwarnings("ignore", message="The 'entity_memory' store")
     store = EchoStore("entity_memory")
     try:
         build_seed(store).read_tier(

@@ -18,6 +18,7 @@ refused on a slot the bound store cannot honour. ``Curator.deduplicate`` has no 
 
 import asyncio
 import threading
+import warnings
 from typing import TYPE_CHECKING, Any, Dict, FrozenSet, Iterable, List, NoReturn, Optional, Sequence, Tuple, Union, cast
 from uuid import NAMESPACE_OID, uuid5
 from weakref import WeakKeyDictionary
@@ -26,6 +27,7 @@ from egpt.db.schemas import UserMemory
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, register_provider
 from egpt.memory.learn_stores import (
     SCOPE_SLOTS,
+    UNANSWERABLE_STORES,
     filterable_slots,
     recordable_slots,
     stores_by_tier,
@@ -166,6 +168,7 @@ class SeedMemoryProvider(MemoryProvider):
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
         self._store_slots: Dict[str, FrozenSet[str]] = _checked_slots(self.config.options.get("store_slots"))
         self._reject_undeclarable_slots()
+        self._warn_about_unanswerable_stores()
         #: Each bound store's write-side slot set, resolved once. The store set is fixed at
         #: construction and `inspect.signature` is not free, so deriving it per write put signature
         #: introspection on the hot path for an answer that cannot change.
@@ -248,6 +251,35 @@ class SeedMemoryProvider(MemoryProvider):
         return lock
 
     # -- construction guards --------------------------------------------------
+
+    def _warn_about_unanswerable_stores(self) -> None:
+        """Say so, at construction, when a bound store's reads can only ever be empty.
+
+        ``entity_memory.recall`` returns ``None`` without ``entity_id`` **and** ``entity_type``, and
+        :meth:`_recall_kwargs` supplies neither -- there is nowhere in ``MemoryQuery`` to put them.
+        A deployment that enables the store on its ``LearningMachine`` therefore gets a tier that
+        binds, passes every guard, accepts writes, and returns ``[]`` on every read.
+
+        Warned rather than refused: ``process`` works, so refusing the binding would discard
+        writes that do land, and an empty read is what the seam's own rule calls for -- reads
+        report absence. What is wrong is the *silence*: empty-because-structural is
+        indistinguishable from empty-because-new, and only one of those is worth investigating.
+        Not suppressed by ``store_slots`` either, since declaring slots does not supply an entity
+        key; the standard ``warnings`` filters are how a deployment that knows silences it.
+        """
+        for tier, group in self.stores.items():
+            for store in group:
+                needs = UNANSWERABLE_STORES.get(_learning_type(store))
+                if needs is None:
+                    continue
+                warnings.warn(
+                    f"The {_learning_type(store)!r} store is bound to the {tier.value!r} tier, but "
+                    f"its recall needs {needs}, which MemoryQuery cannot carry -- every read of "
+                    "this tier through this provider will be empty at every scope. Writes are "
+                    "unaffected. Retrieval for it needs a query envelope that carries an entity "
+                    "key.",
+                    stacklevel=3,
+                )
 
     def _reject_undeclarable_slots(self) -> None:
         """Refuse a ``store_slots`` declaration the bound store's ``recall`` cannot possibly honour.

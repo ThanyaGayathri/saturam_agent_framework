@@ -23,6 +23,7 @@ __all__ = [
     "RECALL_SLOTS",
     "SCOPE_SLOTS",
     "STORE_TIERS",
+    "UNANSWERABLE_STORES",
     "filterable_slots",
     "recordable_slots",
     "stores_by_tier",
@@ -67,6 +68,20 @@ RECALL_SLOTS: Dict[str, FrozenSet[str]] = {
     "entity_memory": frozenset(),
     "learned_knowledge": frozenset(),
     "decision_log": frozenset({"agent_id", "session_id"}),  # takes no `user_id` parameter at all
+}
+
+
+#: Stores whose ``recall`` needs an argument the seam has nowhere to carry, mapped to what it
+#: needs. A bridge can bind these -- their ``process`` works, so writes land -- but every read
+#: returns empty at every scope, which is indistinguishable from "nothing stored yet".
+#:
+#: Only ``entity_memory``: it returns ``None`` unless given **both** ``entity_id`` and
+#: ``entity_type``, and ``MemoryQuery`` carries neither. Deliberately *not* keyed on an empty
+#: :data:`RECALL_SLOTS` row -- ``learned_knowledge`` has one too and reads perfectly well, because
+#: it searches on the query text the bridge does supply. The two facts are unrelated, and
+#: conflating them would warn about a store that works.
+UNANSWERABLE_STORES: Dict[str, str] = {
+    "entity_memory": "entity_id and entity_type",
 }
 
 

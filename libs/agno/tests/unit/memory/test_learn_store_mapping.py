@@ -283,3 +283,32 @@ def test_a_store_the_caller_already_bound_is_not_refused_for_being_unmapped():
 
 def test_a_machine_with_no_stores_maps_to_nothing():
     assert stores_by_tier({}) == {}
+
+
+def test_the_unanswerable_table_names_only_stores_the_bridge_cannot_supply_for():
+    """Grounded in the store's own signature, not in the slot table.
+
+    A store belongs here when its `recall` takes a parameter it needs and `_recall_kwargs` has
+    nowhere to source -- `entity_id` / `entity_type`. `learned_knowledge` also declares no honoured
+    slots, but everything its `recall` needs is the query text, which the bridge supplies; keying
+    the warning on an empty `RECALL_SLOTS` row would have warned about a store that works.
+    """
+    from egpt.memory.learn_stores import UNANSWERABLE_STORES
+
+    supplied = {"user_id", "session_id", "agent_id", "team_id", "message", "query"}
+    for store in real_stores():
+        needs_unsuppliable = {
+            name
+            for name in inspect.signature(store.recall).parameters
+            if name in {"entity_id", "entity_type"} and name not in supplied
+        }
+        assert bool(needs_unsuppliable) == (store.learning_type in UNANSWERABLE_STORES), store.learning_type
+
+
+def test_an_unanswerable_store_really_does_answer_nothing():
+    """The claim itself, against the real store and the real kwargs the bridge sends."""
+    store = EntityMemoryStore(config=EntityMemoryConfig())
+
+    assert (
+        store.recall(user_id="u1", session_id=None, agent_id=None, team_id=None, message="acme", query="acme") is None
+    )

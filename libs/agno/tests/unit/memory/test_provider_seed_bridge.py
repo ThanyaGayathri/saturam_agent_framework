@@ -1292,6 +1292,7 @@ async def test_two_writers_to_one_store_do_not_overlap():
     assert depth["max"] == 1, "two writers were inside one store's process at the same time"
 
 
+@pytest.mark.filterwarnings("ignore:The 'entity_memory' store")
 async def test_writes_to_different_stores_still_run_concurrently():
     """The lock is per store, not per provider: serialising a tier's independent stores would
     turn a fan-out into a queue for no safety gain."""
@@ -1340,6 +1341,7 @@ def test_a_learning_machine_binds_its_stores_by_the_ratified_mapping():
     }
 
 
+@pytest.mark.filterwarnings("ignore:The 'entity_memory' store")
 def test_a_tier_holds_every_machine_store_mapped_to_it():
     """Three stores are semantic, so a read of that tier consults all three, in table order."""
     machine = FakeMachine(
@@ -1962,6 +1964,7 @@ def test_a_read_failure_is_not_dressed_up_as_a_partial_write():
     assert not isinstance(exc.value, PartialWriteError)
 
 
+@pytest.mark.filterwarnings("ignore:The 'entity_memory' store")
 def test_a_real_entity_memory_store_reads_empty_through_this_bridge():
     """Round-2 Nit 8, pinned as a real trap rather than left as an observation.
 
@@ -2004,6 +2007,7 @@ def test_a_declared_override_may_not_name_a_slot_the_store_never_named():
         )
 
 
+@pytest.mark.filterwarnings("ignore:The 'entity_memory' store")
 def test_the_override_still_works_for_the_case_it_exists_for():
     """`entity_memory` names `user_id` and honours it under the `"user"` namespace, so a
     deployment running that namespace can say so -- which is the whole point of the hatch."""
@@ -2097,3 +2101,45 @@ async def test_a_tier_where_every_store_fails_reports_the_same_on_both_halves():
 
     assert sync_exc.value.receipt.details == async_exc.value.receipt.details == {"stores": {}}
     assert sync_exc.value.receipt.accepted == async_exc.value.receipt.accepted == 0
+
+
+def test_binding_a_store_that_can_never_answer_warns_at_construction():
+    """`entity_memory` binds, accepts writes, and returns `[]` on every read at every scope.
+
+    Empty is what the seam's rule calls for -- reads report absence -- so the defect is the
+    *silence*: empty-because-structural looks exactly like empty-because-new, and only one is worth
+    investigating. Warned at construction, where the deployment can act on it.
+    """
+    from egpt.learn.config import EntityMemoryConfig
+    from egpt.learn.stores import EntityMemoryStore
+
+    with pytest.warns(UserWarning, match="entity_id and entity_type"):
+        bridge = SeedMemoryProvider(
+            stores={MemoryTier.SEMANTIC: EntityMemoryStore(config=EntityMemoryConfig())},
+            config=seed_config(),
+        )
+
+    assert bridge.read_tier(Scope(tenant_id="acme"), MemoryTier.SEMANTIC, MemoryQuery(text="acme")) == []
+
+
+def test_a_slot_override_does_not_silence_a_store_that_still_cannot_answer():
+    """The two facts are unrelated: declaring which slots a store filters by does not hand it an
+    entity key. Silencing on an override would hide a warning that is still true."""
+    from egpt.learn.config import EntityMemoryConfig
+    from egpt.learn.stores import EntityMemoryStore
+
+    with pytest.warns(UserWarning, match="every read of this tier"):
+        SeedMemoryProvider(
+            stores={MemoryTier.SEMANTIC: EntityMemoryStore(config=EntityMemoryConfig())},
+            config=seed_config(store_slots={"entity_memory": ["user_id"]}),
+        )
+
+
+@pytest.mark.parametrize("learning_type", ["user_profile", "user_memory", "learned_knowledge", "decision_log"])
+def test_a_store_that_can_answer_is_not_warned_about(learning_type, recwarn):
+    """`learned_knowledge` also declares no honoured slots, and reads perfectly well -- it searches
+    on the query text the bridge does supply. Keying the warning on an empty slot row would have
+    warned about a working store."""
+    SeedMemoryProvider(stores={MemoryTier.SEMANTIC: SlotNamingStore(learning_type)}, config=seed_config())
+
+    assert [w for w in recwarn if "every read of this tier" in str(w.message)] == []
