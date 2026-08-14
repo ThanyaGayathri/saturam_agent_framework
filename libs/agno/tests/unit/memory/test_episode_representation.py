@@ -5,6 +5,7 @@ seam, and persisting one is SM-V1's (#95). The pinned-limitation tests at the en
 sibling ticket's behaviour arrives in this module, which is where it would go unnoticed.
 """
 
+import importlib.util
 from dataclasses import replace
 
 import pytest
@@ -12,6 +13,7 @@ from egpt.db.schemas.memory import EpisodicRecord as PersistedEpisodicRecord
 from egpt.memory.schemas.episodic import (
     EPISODE_KEYS,
     PROVENANCE_KEYS,
+    TOPICS_KEY,
     EpisodicRecord,
     episode_details,
     episode_from_event,
@@ -19,7 +21,7 @@ from egpt.memory.schemas.episodic import (
     graph_node_id_for,
 )
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryEvent, MemoryOperationError, Scope
+from egpt.memory.types import MemoryEvent, MemoryOperationError, Scope, escape_key_slot
 from egpt.utils.dttm import now_epoch_s
 
 SCOPE = Scope(tenant_id="acme", agent_id="assistant", user_id="ada", team_id="core", session_id="s1")
@@ -65,6 +67,18 @@ def a_full_episode() -> EpisodicRecord:
 def test_the_exported_episode_is_the_persisted_row():
     """A fork would give the seam and the database two episode shapes to drift apart."""
     assert EpisodicRecord is PersistedEpisodicRecord
+
+
+@pytest.mark.parametrize("name", ["EPISODE_KEYS", "PROVENANCE_KEYS", "TOPICS_KEY"])
+def test_the_floor_constants_are_reachable_from_the_package(name):
+    """Exported symmetrically or not at all: a caller who cannot write
+    ``from egpt.memory import TOPICS_KEY`` reaches into ``egpt.memory.schemas`` or hard-codes the
+    string, and a later rename then misses them."""
+    import egpt.memory as memory
+    import egpt.memory.schemas.episodic as episodic
+
+    assert name in memory.__all__
+    assert getattr(memory, name) is getattr(episodic, name)
 
 
 # -- acceptance criteria -----------------------------------------------------------------------
@@ -123,7 +137,9 @@ def test_the_episode_links_to_its_graph_node():
     episode = episode_from_event(an_event())
 
     assert episode.graph_node_id == graph_node_id_for(SCOPE, "ep-1")
-    assert episode.graph_node_id == SCOPE.key() + "/ep-1"  # the scope key plus a sixth slot
+    # Spelled out rather than deferring to the function under test, which would be tautological:
+    # this is the assertion that pins the separator and the sixth-slot encoding.
+    assert episode.graph_node_id == SCOPE.key() + "/" + escape_key_slot("ep-1")
     assert episode_to_record(episode).provenance["graph_node_id"] == episode.graph_node_id
 
 
@@ -140,17 +156,24 @@ def test_the_graph_node_id_separates_slots_that_would_otherwise_collide():
     assert len(second.split("/")) == 6
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("neo4j") is None,
+    reason="the Neo4j package imports its driver at module level",
+)
 def test_the_graph_node_id_matches_the_identity_the_backend_merges_on():
     """The drift guard: SM-G1 addresses an episode node by ``(scope_key, id)``. If that statement
-    changes, this link stops resolving, and nothing else would say so."""
-    pytest.importorskip("neo4j", reason="the Neo4j package imports its driver at module level")
+    changes, this link stops resolving, and nothing else would say so.
+
+    Skipped per test rather than per module: everything else here is pure core and must still run
+    on the ``unit-drivers-absent`` lane."""
     from egpt.integrations.memory.graph.neo4j import cypher
 
     statement, _ = cypher.upsert_episodes_statement(SCOPE)
+    scope_key = cypher.scope_props(SCOPE)["scope_key"]
 
     assert f"MERGE (n:{cypher.EPISODE} " in statement
     assert "scope_key: row.scope_key, id: row.id" in statement
-    assert graph_node_id_for(SCOPE, "ep-1").startswith(cypher.scope_props(SCOPE)["scope_key"])
+    assert graph_node_id_for(SCOPE, "ep-1") == scope_key + "/" + escape_key_slot("ep-1")
 
 
 # -- boundary refusals -------------------------------------------------------------------------
@@ -163,6 +186,13 @@ def test_an_event_without_an_id_is_refused():
         episode_from_event(an_event(id=None))
 
 
+def test_a_whitespace_only_id_is_refused_as_a_missing_id():
+    """Not as a missing graph node, which is what the derivation would have called it: the id is
+    what is absent, and it is the id the caller has to supply."""
+    with pytest.raises(MemoryOperationError, match="dedup key"):
+        episode_from_event(an_event(id="   "))
+
+
 def test_a_non_episodic_event_is_refused():
     with pytest.raises(MemoryOperationError, match="semantic"):
         episode_from_event(an_event(tier=MemoryTier.SEMANTIC))
@@ -171,6 +201,31 @@ def test_a_non_episodic_event_is_refused():
 def test_a_blank_episode_id_has_no_graph_node():
     with pytest.raises(MemoryOperationError, match="episode id is required"):
         graph_node_id_for(SCOPE, "   ")
+
+
+def test_an_episode_id_that_is_not_a_string_has_no_graph_node():
+    """The type guard is live, not dead: without it this is an ``AttributeError`` from inside
+    ``strip()`` rather than a named refusal, and this function is exported from ``egpt.memory``
+    where nothing enforces the annotation at runtime."""
+    with pytest.raises(MemoryOperationError, match="episode id is required"):
+        graph_node_id_for(SCOPE, 123)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "field, episode",
+    [
+        (TOPICS_KEY, replace(episode_from_event(an_event()), metadata={TOPICS_KEY: "deploy"})),
+        ("entity_ids", replace(episode_from_event(an_event()), entity_ids="e1")),
+        ("supersedes", replace(episode_from_event(an_event()), supersedes="ep-0")),
+        ("superseded_by", replace(episode_from_event(an_event()), superseded_by="ep-2")),
+    ],
+)
+def test_a_collection_field_holding_a_string_is_refused(field, episode):
+    """Every list this projection copies, not only the one a caller can set through metadata:
+    ``list("deploy")`` is six one-character entries and raises nothing, and the row model leaves a
+    non-list value alone, so a direct database insert arrives here with a bare string."""
+    with pytest.raises(MemoryOperationError, match=field):
+        episode_to_record(episode)
 
 
 @pytest.mark.parametrize("reserved", ["importance", "occurred_at", "topics"])
@@ -226,14 +281,16 @@ def test_a_split_names_no_single_replacement_and_loses_neither():
 def test_the_projection_hands_out_copies():
     """A record built from a row the store is holding must not let a consumer write back through
     the read path -- the reason ``MemoryRecord.detached`` exists."""
-    episode = a_full_episode()
+    episode = replace(a_full_episode(), superseded_by=["ep-2"])
     record = episode_to_record(episode)
 
     record.provenance["entity_ids"].append("entity-2")
     record.provenance["supersedes"].append("ep-9")
+    record.provenance["superseded_by"].append("ep-9")
 
     assert episode.entity_ids == ["entity-1"]
     assert episode.supersedes == ["ep-0"]
+    assert episode.superseded_by == ["ep-2"]
 
 
 # -- valid time --------------------------------------------------------------------------------

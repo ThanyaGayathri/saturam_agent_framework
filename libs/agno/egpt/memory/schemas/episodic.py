@@ -131,6 +131,23 @@ def episode_details(
     return details
 
 
+def _require_list(value: Any, name: str, episode_id: str) -> List[str]:
+    """Refuse a collection that is not one, rather than copying it into something else.
+
+    ``list("deploy")`` is six one-character topics and raises nothing. Every collection this module
+    copies goes through here, not only the one a caller can set: ``MemoryRow.__post_init__`` copies
+    a value that is already a list and leaves any other alone, so a row inserted straight into the
+    database arrives with a bare string in a list column.
+    """
+    if not isinstance(value, list):
+        raise MemoryOperationError(
+            f"Episode {episode_id!r} carries {name}={value!r}, which is a {type(value).__name__} "
+            "rather than a list. Copying it would split it into characters instead of failing.",
+            field_name=name,
+        )
+    return list(value)
+
+
 def _reject_reserved_metadata(metadata: Dict[str, Any], where: str) -> None:
     """Refuse caller metadata that would collide with an episode field.
 
@@ -163,10 +180,13 @@ def episode_from_event(event: MemoryEvent) -> EpisodicRecord:
             "tier (egpt.memory.tiers) rather than storing it in the wrong shape.",
             field_name="tier",
         )
-    if not event.id:
+    if not event.id or not event.id.strip():
         # The same requirement, and the same reason, as `Neo4jGraphSubstrate._episode_rows`: one
         # logical episode has one id across both substrates, so minting a second one here would
-        # surface the episode twice after fusion (finding F1).
+        # surface the episode twice after fusion (finding F1). Whitespace-only is refused here
+        # rather than left to `graph_node_id_for`, which would name the graph node instead of the
+        # id that is actually missing. It is refused, not stripped: the graph substrate stores
+        # `event.id` verbatim, so normalising here would make the row and the node disagree.
         raise MemoryOperationError(
             "MemoryEvent.id is required here: it is the cross-substrate dedup key, and the row and "
             "the graph node are addressed by it. The provider stamps one before the call.",
@@ -215,7 +235,8 @@ def episode_to_record(episode: EpisodicRecord) -> MemoryRecord:
     full list is always in ``provenance``, so nothing is lost either way.
     """
     metadata = dict(episode.metadata)
-    topics = metadata.pop(TOPICS_KEY, None)
+    raw_topics = metadata.pop(TOPICS_KEY, None)
+    topics: Optional[List[str]] = None if raw_topics is None else _require_list(raw_topics, TOPICS_KEY, episode.id)
     _reject_reserved_metadata(metadata, f"Episode {episode.id!r}")
     if episode.graph_node_id is not None:
         expected = graph_node_id_for(_scope_of(episode), episode.id)
@@ -242,17 +263,17 @@ def episode_to_record(episode: EpisodicRecord) -> MemoryRecord:
             segmenter_version=episode.segmenter_version,
         )
     )
-    superseded_by: List[str] = list(episode.superseded_by)
+    superseded_by = _require_list(episode.superseded_by, "superseded_by", episode.id)
     return MemoryRecord(
         id=episode.id,
         tier=MemoryTier.EPISODIC,
         content=episode.content,
         scope=_scope_of(episode),
-        topics=list(topics) if topics is not None else None,
+        topics=topics,
         provenance={
-            "entity_ids": list(episode.entity_ids),
+            "entity_ids": _require_list(episode.entity_ids, "entity_ids", episode.id),
             "graph_node_id": episode.graph_node_id,
-            "supersedes": list(episode.supersedes),
+            "supersedes": _require_list(episode.supersedes, "supersedes", episode.id),
             "superseded_by": superseded_by,
         },
         t_valid=episode.t_valid,

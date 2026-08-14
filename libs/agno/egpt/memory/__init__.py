@@ -14,6 +14,7 @@ from egpt.memory.provider import MemoryProvider
 from egpt.memory.schemas.episodic import (
     EPISODE_KEYS,
     PROVENANCE_KEYS,
+    TOPICS_KEY,
     EpisodicRecord,
     episode_details,
     episode_from_event,
@@ -122,6 +123,7 @@ __all__ = [
     # The episode representation (SM-E1)
     "EPISODE_KEYS",
     "PROVENANCE_KEYS",
+    "TOPICS_KEY",
     "EpisodicRecord",
     "episode_details",
     "episode_from_event",
