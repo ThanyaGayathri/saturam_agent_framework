@@ -149,8 +149,18 @@ class Neo4jGraphSubstrate:
         """
         if self._adriver is None:
             self._adriver = AsyncGraphDatabase.driver(self.uri, auth=self._auth)
-            self._auth = _SPENT_CREDENTIAL
+            self._forget_credential()
         return self._adriver
+
+    def _forget_credential(self) -> None:
+        """Drop the plaintext credential once nothing left to build needs it.
+
+        One function rather than an assignment at each site, because the first version cleared it
+        in ``_async_driver`` only -- so a substrate used purely through the sync API kept the
+        password for its whole lifetime, which is most substrates. Called from there **and** from
+        both close paths, so no route leaves it behind.
+        """
+        self._auth = _SPENT_CREDENTIAL
 
     @staticmethod
     @contextmanager
@@ -218,10 +228,16 @@ class Neo4jGraphSubstrate:
         return results
 
     def init_schema(self) -> None:
-        """Create the constraints and indexes, idempotently."""
+        """Create the constraints and indexes, idempotently.
+
+        Results are consumed here for the same reason :meth:`ainit_schema` gives, and the reason is
+        no weaker on this half: leaving them to the session's drain-on-close borrows a guarantee
+        from the driver's teardown. Adding it to the async twin alone left the sync path relying on
+        exactly what its own docstring said not to rely on.
+        """
         with self._translated("schema init"), self._driver.session(database=self.database) as session:
             for statement in cypher.SCHEMA_STATEMENTS:
-                session.run(statement)
+                session.run(statement).consume()
         log_debug(f"Neo4jGraphSubstrate schema ready on {self.uri}/{self.database}")
 
     async def ainit_schema(self) -> None:
@@ -260,6 +276,7 @@ class Neo4jGraphSubstrate:
             )
         with self._translated("close"):
             self._driver.close()
+        self._forget_credential()
 
     async def aclose(self) -> None:
         """Closes both halves: the sync driver is opened in ``__init__`` whichever half is used."""
@@ -268,6 +285,7 @@ class Neo4jGraphSubstrate:
                 await self._adriver.close()
                 self._adriver = None
             self._driver.close()
+        self._forget_credential()
 
     # -- row mapping ----------------------------------------------------------
 

@@ -1613,6 +1613,36 @@ async def test_consolidation_refuses_two_facts_sharing_an_id(half, monkeypatch):
     assert "upsert_facts" not in graph.calls and "aupsert_facts" not in graph.calls, "nothing was written"
 
 
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_closing_the_provider_closes_every_substrate_even_if_one_raises(half):
+    """Latent only until SM-V1 (#95) brings a second connection pool.
+
+    A closer that raises must not stop the loop: the substrate that never got closed is the one
+    still holding a pool, and nothing will reopen the provider to try again. The failure is still
+    reported -- closing everything is not the same as swallowing.
+    """
+    closed = []
+
+    class _Raising(FakeVector):
+        def close(self):
+            closed.append("vector")
+            raise RuntimeError("vector closer failed")
+
+    class _Closing(FakeGraph):
+        def close(self):
+            closed.append("graph")
+
+    p = CoLocatedMemoryProvider(vector=_Raising(), graph=_Closing())
+
+    with pytest.raises(RuntimeError, match="vector closer failed"):
+        if half == "sync":
+            p.close()
+        else:
+            await p.aclose()
+
+    assert closed == ["vector", "graph"], f"every substrate must be closed, got {closed}"
+
+
 class _CountingFailureGraph(FakeGraph):
     """Fails on the n-th fact *inside* a batch, having committed the ones before it.
 

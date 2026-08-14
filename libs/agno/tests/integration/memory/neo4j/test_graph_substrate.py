@@ -673,6 +673,40 @@ async def test_the_credential_does_not_outlive_the_drivers_that_need_it(async_gr
     assert _settings()["password"] not in rendered, "the password is still an attribute after both drivers exist"
 
 
+def test_a_sync_only_substrate_also_forgets_its_credential():
+    """The half the first version missed -- and the one most substrates actually are.
+
+    Clearing it when the *async* driver is built covers nothing for a caller that never touches the
+    async API, which is the default path. Both close routes now forget it, so no route leaves the
+    password on the object.
+    """
+    substrate = Neo4jGraphSubstrate(**_settings())
+    substrate.upsert_episodes(ACME, [episode("an episode", "e1")])
+    assert substrate._adriver is None, "this test is only meaningful on a substrate with no async driver"
+
+    substrate.close()
+
+    assert _settings()["password"] not in repr(vars(substrate))
+
+
+def test_init_schema_actually_creates_the_schema(graph):
+    """The sync twin of the async schema test, asserting the effect rather than the calls.
+
+    ``session.run`` is lazy on this half too; the async test existed alone, which is how the sync
+    path ended up relying on the drain-on-close its own twin's docstring warns against.
+    """
+    with graph._driver.session(database=graph.database) as session:
+        for record in list(session.run("SHOW CONSTRAINTS YIELD name RETURN name")):
+            session.run(f"DROP CONSTRAINT {record['name']} IF EXISTS").consume()
+        assert session.run("SHOW CONSTRAINTS YIELD name RETURN count(*) AS n").single()["n"] == 0
+
+    graph.init_schema()
+
+    with graph._driver.session(database=graph.database) as session:
+        created = session.run("SHOW CONSTRAINTS YIELD name RETURN count(*) AS n").single()["n"]
+    assert created > 0, "init_schema issued its statements without them taking effect"
+
+
 # -- known limitations, pinned ----------------------------------------------
 
 

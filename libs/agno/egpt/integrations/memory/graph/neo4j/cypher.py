@@ -231,6 +231,11 @@ def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]
     """The two fact shapes, keyed by which one a batch's rows belong to: a tripled fact is a
     relation between entities, an untripled one a node. Both carry the same envelope.
 
+    **Returns a dict, unlike every other builder here -- iterate it with ``.items()``.** The natural
+    ``for text, params in upsert_facts_statements(scope)`` unpacks the *keys* and fails with a bare
+    ``ValueError``. A dict rather than a list because the caller has to know which batch each
+    statement takes, and pairing them by position would be worse.
+
     Entities are merged on ``(scope_key, name)`` -- the **full** scope, not the tenant. So two users
     of one tenant each get their own ``(:Entity)`` node for the same name, and nothing is shared
     across a scope boundary. That is deliberate: resolving one user's "berlin" against another's is

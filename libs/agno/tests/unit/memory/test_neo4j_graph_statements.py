@@ -55,6 +55,7 @@ def all_statements(scope):
             (f"bounded_copy[{i}]", text, params)
             for i, (text, params) in enumerate(cypher.insert_bounded_copy_statements(scope))
         ],
+        ("episode_probe", *cypher.episode_probe_statement(scope)),
     ]
     return emitted
 
@@ -67,19 +68,19 @@ def test_the_statement_list_covers_every_producer():
     has to appear in :func:`all_statements`, so the coverage is enforced instead of asserted.
     """
     producers = {name for name in cypher.__all__ if name.endswith(("_statement", "_statements"))}
-    covered = {
-        "traverse_statements",
-        "bounds_statements",
-        "live_row_statements",
-        "expire_statements",
-        "insert_bounded_copy_statements",
-        "upsert_episodes_statement",
-        "upsert_facts_statements",
-        "episode_probe_statement",
-    }
 
-    assert producers <= covered, f"cypher.py exports statement producers no guard enumerates: {producers - covered}"
-    assert covered <= producers, f"the guard names producers cypher.py no longer exports: {covered - producers}"
+    # Derived from what `all_statements` *calls*, not from a second list. The literal set this
+    # replaced named `episode_probe_statement` while `all_statements` did not emit it, so the
+    # coverage check passed and the probe sat outside every scope guard -- a list restating the
+    # claim rather than checking it.
+    import inspect
+
+    called = {name for name in producers if f"cypher.{name}(" in inspect.getsource(all_statements)}
+
+    assert producers == called, (
+        f"statement producers `all_statements` never calls: {sorted(producers - called)}; "
+        f"names it calls that cypher.py no longer exports: {sorted(called - producers)}"
+    )
 
 
 def statement_ids(scope):
@@ -507,13 +508,16 @@ def test_every_sync_driver_call_has_an_async_twin_in_the_taxonomy_check():
     assert {f"a{name}" for name in DRIVER_CALLS} == set(ASYNC_DRIVER_CALLS)
 
 
-def test_the_no_op_invalidation_branch_rolls_back_on_both_halves():
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_the_no_op_invalidation_branch_rolls_back(half):
     """A clean exit from the sync transaction *commits*; the async twin rolls back explicitly.
 
     Nothing is written before the check today, so no behavioural test can tell the two apart -- and
     that is exactly why the divergence is worth pinning now rather than after a write appears above
-    it, when the sync half would silently keep what the async half discards. Asserted on the
-    transaction calls rather than on stored state, because the stored state is identical either way.
+    it. Asserted on the transaction calls, because the stored state is identical either way.
+
+    Parametrised because the previous version was named "both halves" and drove only the sync one.
+    When a write does appear above the check, the untested half is the one that silently keeps it.
     """
     calls = []
 
@@ -543,15 +547,51 @@ def test_the_no_op_invalidation_branch_rolls_back_on_both_halves():
         def begin_transaction(self):
             return _Tx()
 
+    class _AResult:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    class _ATx:
+        async def run(self, *_args, **_kwargs):
+            return _AResult()
+
+        async def commit(self):
+            calls.append("commit")
+
+        async def rollback(self):
+            calls.append("rollback")
+
+    class _ASession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        async def begin_transaction(self):
+            return _ATx()
+
     class _Driver:
         def session(self, **_kwargs):
             return _Session()
+
+    class _ADriver:
+        def session(self, **_kwargs):
+            return _ASession()
 
     substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
     substrate.database, substrate.uri, substrate._adriver = "neo4j", "bolt://x", None
     substrate._driver = _Driver()
 
     # No live row for this id, so `_invalidation_params` returns None and the branch is taken.
-    substrate.invalidate(FULL, "never-written", t_invalid=300, at=310)
+    if half == "sync":
+        substrate.invalidate(FULL, "never-written", t_invalid=300, at=310)
+    else:
+        substrate._adriver = _ADriver()
+        substrate._async_driver = lambda: substrate._adriver
+        await substrate.ainvalidate(FULL, "never-written", t_invalid=300, at=310)
 
     assert calls == ["rollback"], f"the no-op branch must roll back and not commit, got {calls}"

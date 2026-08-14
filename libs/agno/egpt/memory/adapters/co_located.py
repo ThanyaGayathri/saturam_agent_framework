@@ -14,6 +14,7 @@ the report names what it does not do.
 """
 
 import asyncio
+import inspect
 from dataclasses import replace
 from typing import Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple
 from uuid import NAMESPACE_OID, uuid4, uuid5
@@ -171,20 +172,40 @@ class CoLocatedMemoryProvider(MemoryProvider):
         double implement an empty method to satisfy a Protocol, so a backend that has nothing to
         release simply does not have the attribute.
         """
+        failures: List[BaseException] = []
         for substrate in (self.vector, self.graph):
             closer = getattr(substrate, "close", None)
             if callable(closer):
-                closer()
+                try:
+                    closer()
+                except Exception as exc:  # noqa: PERF203 - every substrate gets closed regardless
+                    failures.append(exc)
+        self._raise_close_failure(failures)
+
+    @staticmethod
+    def _raise_close_failure(failures: Sequence[BaseException]) -> None:
+        """Close everything, then report. Shared so neither half can stop at the first failure.
+
+        Latent while the vector substrate holds nothing, and exactly the kind of latent that stops
+        being latent: SM-V1 (#95) brings a second connection pool, and a raising vector closer would
+        otherwise leave the graph pool open with nothing to reopen it.
+        """
+        if failures:
+            raise failures[0]
 
     async def aclose(self) -> None:
+        failures: List[BaseException] = []
         for substrate in (self.vector, self.graph):
-            closer = getattr(substrate, "aclose", None)
-            if callable(closer):
-                await closer()
-            else:
-                sync_closer = getattr(substrate, "close", None)
-                if callable(sync_closer):
-                    sync_closer()
+            closer = getattr(substrate, "aclose", None) or getattr(substrate, "close", None)
+            if not callable(closer):
+                continue
+            try:
+                result = closer()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:  # noqa: PERF203 - as above
+                failures.append(exc)
+        self._raise_close_failure(failures)
 
     # -- guards ---------------------------------------------------------------
 
