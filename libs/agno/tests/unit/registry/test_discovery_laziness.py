@@ -44,6 +44,7 @@ _VENDOR_SDKS = [
     "groq",
     "lancedb",
     "mistralai",
+    "neo4j",
     "ollama",
     "openai",
     "pinecone",
