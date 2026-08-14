@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from egpt.context._utils import answer_from_run
 from egpt.context.mode import ContextMode
-from egpt.context.provider import Answer, ContextProvider, Status, _sanitize_id
+from egpt.context.provider import Answer, ContextProvider, Status, sanitize_id
 from egpt.integrations.tools.mcp import MCPTools
 from egpt.registry.protocols import RunnableLike
 from egpt.run import RunContext
@@ -71,7 +71,7 @@ class MCPContextProvider(ContextProvider):
         mode: ContextMode = ContextMode.default,
         model: Model | None = None,
     ) -> None:
-        resolved_id = id or f"mcp_{_sanitize_id(server_name)}"
+        resolved_id = id or f"mcp_{sanitize_id(server_name)}"
         super().__init__(id=resolved_id, name=name or server_name, mode=mode, model=model)
         self.server_name = server_name
         self.transport: Transport = transport

@@ -35,6 +35,13 @@ __all__ = [
 # integrations, and eager resolution would warn on every unrelated import too.
 _MOVED = {"GitBackend", "NotionDatabaseBackend", "NotionPageBackend"}
 
+# CPython's IMPORT_FROM opcode probes a module with hasattr() before getattr(), so
+# `from egpt.context.wiki import GitBackend` would otherwise hit __getattr__ -- and warn --
+# twice per import. Track names already warned so each fires once per process, matching the
+# eager shim packages (their warnings.warn() runs at module-exec time, which sys.modules
+# caching already limits to once).
+_warned: set = set()
+
 
 def __dir__():
     return sorted(set(globals()) | set(__all__))
@@ -42,12 +49,14 @@ def __dir__():
 
 def __getattr__(name: str):
     if name in _MOVED:
-        _warnings.warn(
-            f"egpt.context.wiki.{name} is deprecated; import from egpt.integrations.context.wiki instead. "
-            "This shim will be removed in a future release.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
+        if name not in _warned:
+            _warned.add(name)
+            _warnings.warn(
+                f"egpt.context.wiki.{name} is deprecated; import from egpt.integrations.context.wiki instead. "
+                "This shim will be removed in a future release.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         import egpt.integrations.context.wiki as _target
 
         return getattr(_target, name)

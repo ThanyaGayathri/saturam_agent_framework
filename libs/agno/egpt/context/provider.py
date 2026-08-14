@@ -106,8 +106,8 @@ class ContextProvider(ABC):
         # reaching for `mode=tools` / `mode=agent`.
         self.read = read
         self.write = write
-        self.query_tool_name = query_tool_name or f"query_{_sanitize_id(id)}"
-        self.update_tool_name = update_tool_name or f"update_{_sanitize_id(id)}"
+        self.query_tool_name = query_tool_name or f"query_{sanitize_id(id)}"
+        self.update_tool_name = update_tool_name or f"update_{sanitize_id(id)}"
         self.stream_sub_agent_events = stream_sub_agent_events
 
     @abstractmethod
@@ -333,7 +333,7 @@ class ContextProvider(ABC):
         return [self._query_tool()]
 
 
-def _sanitize_id(raw: str) -> str:
+def sanitize_id(raw: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "_", raw.lower())
     return s.strip("_") or "context"
 

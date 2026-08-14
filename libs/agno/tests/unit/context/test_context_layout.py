@@ -1,8 +1,10 @@
 """Mechanical guards on the EGPT-1.7a core/integrations split for context connectors.
 
-Every check is AST-based and imports nothing under test, matching the pattern EGPT-1.4
-through 1.8 established (`tests/unit/_layer_guards.py`, reused verbatim here). Two boundaries
-are new with this ticket and have no precedent elsewhere in the codebase:
+Most checks are AST-based and import nothing under test, matching the pattern EGPT-1.4
+through 1.8 established (`tests/unit/_layer_guards.py`, reused verbatim here). The shim
+identity tests below are the exception -- they import both sides of each shim/target pair to
+catch a name bound to the *wrong* object, which a static `__all__` comparison cannot see.
+Two boundaries are new with this ticket and have no precedent elsewhere in the codebase:
 
 - No `egpt.context.*` module outside a shim package may name a concrete
   `egpt.integrations.context.*` module -- the mirror image of
@@ -20,10 +22,16 @@ shim is a `__getattr__` proxy for exactly those three names, covered separately 
 """
 
 import ast
+import importlib
+import warnings
+from pathlib import Path
+
+import pytest
 
 from tests.unit._layer_guards import (
     check_shim_parity,
     check_submodule_shims,
+    find_shim_path_strings,
     imported_modules,
     module_name,
     package_root,
@@ -119,8 +127,6 @@ def test_every_moved_module_has_a_submodule_shim():
 
 def test_wiki_shim_proxies_the_three_moved_backends():
     """`context/wiki/__init__.py`'s lazy shim must still resolve the moved classes."""
-    import warnings
-
     import egpt.integrations.context.wiki as target
 
     wiki_init = _context_root() / "wiki" / "__init__.py"
@@ -222,4 +228,68 @@ def test_context_core_modules_do_not_import_orchestration():
         "Core context modules importing orchestration:\n"
         + "\n".join(offenders)
         + "\nUse egpt.registry.protocols.RunnableLike for typing and construct_runnable to build one."
+    )
+
+
+@pytest.mark.parametrize("package", sorted(_MOVED_CONNECTOR_PACKAGES))
+def test_eager_shim_binds_correct_objects_and_warns(package):
+    """Runtime counterpart to `test_every_shim_mirrors_its_target`'s static check.
+
+    Static AST parity only confirms a shim *declares* and *binds* every name its target
+    declares -- it cannot catch a copy-paste bug that binds the right name to the wrong
+    object (e.g. one package's shim accidentally importing another package's provider class
+    under its own `__all__` entry). `importlib.reload` forces the module-level
+    `_warnings.warn()` call to re-run; without it, `sys.modules` caching means only the first
+    import anywhere in the whole test session would ever observe the warning.
+    """
+    shim_module = importlib.import_module(f"egpt.context.{package}")
+    target_module = importlib.import_module(f"egpt.integrations.context.{package}")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        shim_module = importlib.reload(shim_module)
+
+    assert any(issubclass(w.category, DeprecationWarning) for w in caught), (
+        f"reloading egpt.context.{package} did not warn."
+    )
+    assert shim_module.__all__, f"egpt.context.{package}.__all__ is empty"
+    for name in shim_module.__all__:
+        shim_value = getattr(shim_module, name)
+        target_value = getattr(target_module, name)
+        assert shim_value is target_value, (
+            f"egpt.context.{package}.{name} resolves to a different object than "
+            f"egpt.integrations.context.{package}.{name}."
+        )
+
+
+def test_no_test_patches_a_deprecated_connector_shim_path():
+    """No test may aim `mock.patch` at an `egpt.context.<moved>` path.
+
+    A whole-package shim re-exports names eagerly, so patching a name on the shim rebinds the
+    shim's own copy while the implementation keeps reading its module globals. The patch
+    silently no-ops -- a patched network client would let the test make a real call instead of
+    failing loudly about a bad target. `egpt/context/slack/__init__.py`'s docstring calls this
+    footgun out explicitly; this guard is what actually catches it. Mirrors
+    `test_knowledge_layout.py::test_no_test_patches_a_deprecated_shim_path`.
+    """
+    tests_root = package_root() / "tests"
+    assert tests_root.is_dir(), f"test root not found: {tests_root}"
+    # Non-vacuity floor: an empty or stale scan root would silently report PASS.
+    assert len(list(tests_root.rglob("test_*.py"))) >= 100, (
+        f"only {len(list(tests_root.rglob('test_*.py')))} test files found under {tests_root}; "
+        "the scan root is stale, which makes this guard vacuous."
+    )
+
+    offenders = find_shim_path_strings(
+        tests_root,
+        "egpt.context",
+        _MOVED_CONNECTOR_PACKAGES,
+        exclude={Path(__file__).resolve()},  # this file names the paths on purpose
+    )
+
+    assert not offenders, (
+        "Tests referencing a deprecated connector shim path as a string (mock.patch targets "
+        "patch the shim's binding, not the implementation):\n"
+        + "\n".join(offenders)
+        + "\nPoint them at egpt.integrations.context.* instead."
     )

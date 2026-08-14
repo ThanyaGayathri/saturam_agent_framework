@@ -13,7 +13,7 @@ import json
 import pytest
 
 from egpt.context import Answer, ContextMode, ContextProvider, Status
-from egpt.context.provider import _sanitize_id
+from egpt.context.provider import sanitize_id
 from egpt.run import RunContext
 
 
@@ -64,16 +64,16 @@ class _RaisingWritableProvider(_EchoProvider):
 
 
 # ---------------------------------------------------------------------------
-# _sanitize_id
+# sanitize_id
 # ---------------------------------------------------------------------------
 
 
 def test_sanitize_id_normalizes_case_and_punctuation():
-    assert _sanitize_id("My-Provider.2") == "my_provider_2"
+    assert sanitize_id("My-Provider.2") == "my_provider_2"
 
 
 def test_sanitize_id_empty_input_defaults():
-    assert _sanitize_id("!!!") == "context"
+    assert sanitize_id("!!!") == "context"
 
 
 # ---------------------------------------------------------------------------
