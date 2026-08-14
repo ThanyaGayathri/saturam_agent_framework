@@ -13,8 +13,13 @@ import os
 import tempfile
 
 import pytest
-from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+
+# The db layer imports sqlalchemy unconditionally, so this only fires if it ever joins
+# ci.yml's uninstall list -- a clean skip then, rather than a collection error.
+pytest.importorskip("sqlalchemy")
+
+from sqlalchemy import text  # noqa: E402
+from sqlalchemy.exc import IntegrityError  # noqa: E402
 
 from egpt.db.migrations.manager import MigrationManager
 from egpt.db.migrations.versions.v2_8_0 import (
@@ -316,6 +321,24 @@ class TestTierTables:
         migrate_down(db)
 
         assert f"egpt_{table_type}" not in table_names(db)
+
+    def test_a_table_dropped_underneath_the_migration_is_treated_as_already_gone(self, db):
+        """The revert probes and drops inside one transaction, so a table that disappears
+        concurrently is "already done", not an error.
+
+        Simulated by dropping the table out from under the migration -- the same end state a
+        racing operator or a second migration run produces. Probing in one session and dropping
+        in another turned this into a raised error mid-run, with some tables stamped and others
+        not.
+        """
+        migrate_up(db)
+        with db.Session() as sess, sess.begin():
+            sess.execute(text("DROP TABLE egpt_memory_link"))
+
+        migrate_down(db)
+
+        assert "egpt_memory_link" not in table_names(db)
+        assert not [name for name in table_names(db) if name.startswith("egpt_memory_")]
 
     def test_up_down_up_leaves_the_same_schema(self, db):
         migrate_up(db)

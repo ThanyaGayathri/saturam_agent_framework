@@ -14,7 +14,10 @@ import asyncio
 
 import pytest
 
-from egpt.db.base import AsyncBaseDb, BaseDb
+# See the note in test_memory_migration.py: SqliteDb pulls in sqlalchemy transitively.
+pytest.importorskip("sqlalchemy")
+
+from egpt.db.base import AsyncBaseDb, BaseDb  # noqa: E402
 from egpt.db.migrations.manager import MigrationManager
 
 from egpt.integrations.db.sqlite.sqlite import SqliteDb

@@ -227,30 +227,46 @@ def _tenant_column_sync(db: BaseDb, db_type: str, table_name: str, revert: bool)
 
 
 def _tier_table_sync(db: BaseDb, db_type: str, table_type: str, table_name: str, revert: bool) -> bool:
-    exists = _table_exists_sync(db, db_type, table_name)
     if revert:
-        if not exists:
-            return False
-        full_table = _qualified_table(db_type, getattr(db, "db_schema", None), table_name)
-        with db.Session() as sess, sess.begin():  # type: ignore[attr-defined]
-            dropped = _run(sess, [f"DROP TABLE {full_table}"], table_name)
-        _forget_table(db, table_name)
-        return dropped
-    if exists:
+        return _drop_tier_table_sync(db, db_type, table_name)
+    if _table_exists_sync(db, db_type, table_name):
         log_info(f"Table {table_name} already exists, skipping creation")
         return False
     log_info(f"-- Creating memory tier table {table_name}")
+    # The builder re-checks and creates with checkfirst, so a table appearing between the probe
+    # above and this call is absorbed rather than raced.
     db._get_table(table_type=table_type, create_table_if_not_found=True)  # type: ignore[attr-defined]
     return True
 
 
-def _table_exists_sync(db: BaseDb, db_type: str, table_name: str) -> bool:
+def _drop_tier_table_sync(db: BaseDb, db_type: str, table_name: str) -> bool:
+    """Check and drop inside one transaction.
+
+    Probing in one session and dropping in another leaves a window where a concurrent DDL turns
+    "already gone" into a raised error mid-migration, with some tables stamped and others not.
+    ``IF EXISTS`` covers the same ground a second time, because SQLite takes no DDL lock that
+    would make the transaction alone sufficient.
+    """
+    full_table = _qualified_table(db_type, getattr(db, "db_schema", None), table_name)
+    with db.Session() as sess, sess.begin():  # type: ignore[attr-defined]
+        if not _exists_in_session(sess, db_type, db, table_name):
+            return False
+        _run(sess, [f"DROP TABLE IF EXISTS {full_table}"], table_name)
+    _forget_table(db, table_name)
+    return True
+
+
+def _exists_in_session(sess: Any, db_type: str, db: Any, table_name: str) -> bool:
+    """The existence predicate, run on a caller-supplied session so it can share a transaction."""
     if db_type in _POSTGRES_DB_TYPES:
         _, table_params, _, _ = _pg_params(db, table_name)
-        with db.Session() as sess:  # type: ignore[attr-defined]
-            return bool(sess.execute(_PG_TABLE_EXISTS, table_params).scalar())
+        return bool(sess.execute(_PG_TABLE_EXISTS, table_params).scalar())
+    return bool(sess.execute(_SQLITE_TABLE_EXISTS, {"table_name": table_name}).scalar())
+
+
+def _table_exists_sync(db: BaseDb, db_type: str, table_name: str) -> bool:
     with db.Session() as sess:  # type: ignore[attr-defined]
-        return bool(sess.execute(_SQLITE_TABLE_EXISTS, {"table_name": table_name}).scalar())
+        return _exists_in_session(sess, db_type, db, table_name)
 
 
 # ---------------------------------------------------------------------------
@@ -308,26 +324,34 @@ async def _tenant_column_async(db: AsyncBaseDb, db_type: str, table_name: str, r
         return await _run_async(sess, statements, table_name)
 
 
-async def _table_exists_async(db: AsyncBaseDb, db_type: str, table_name: str) -> bool:
+async def _exists_in_session_async(sess: Any, db_type: str, db: Any, table_name: str) -> bool:
+    """The async twin of :func:`_exists_in_session` -- same predicate, same sharing."""
     if db_type in _POSTGRES_DB_TYPES:
         _, table_params, _, _ = _pg_params(db, table_name)
-        async with db.async_session_factory() as sess:  # type: ignore[attr-defined]
-            return bool((await sess.execute(_PG_TABLE_EXISTS, table_params)).scalar())
+        return bool((await sess.execute(_PG_TABLE_EXISTS, table_params)).scalar())
+    return bool((await sess.execute(_SQLITE_TABLE_EXISTS, {"table_name": table_name})).scalar())
+
+
+async def _table_exists_async(db: AsyncBaseDb, db_type: str, table_name: str) -> bool:
     async with db.async_session_factory() as sess:  # type: ignore[attr-defined]
-        return bool((await sess.execute(_SQLITE_TABLE_EXISTS, {"table_name": table_name})).scalar())
+        return await _exists_in_session_async(sess, db_type, db, table_name)
+
+
+async def _drop_tier_table_async(db: AsyncBaseDb, db_type: str, table_name: str) -> bool:
+    """The async twin of :func:`_drop_tier_table_sync`, down to the single transaction."""
+    full_table = _qualified_table(db_type, getattr(db, "db_schema", None), table_name)
+    async with db.async_session_factory() as sess, sess.begin():  # type: ignore[attr-defined]
+        if not await _exists_in_session_async(sess, db_type, db, table_name):
+            return False
+        await _run_async(sess, [f"DROP TABLE IF EXISTS {full_table}"], table_name)
+    _forget_table(db, table_name)
+    return True
 
 
 async def _tier_table_async(db: AsyncBaseDb, db_type: str, table_type: str, table_name: str, revert: bool) -> bool:
-    exists = await _table_exists_async(db, db_type, table_name)
     if revert:
-        if not exists:
-            return False
-        full_table = _qualified_table(db_type, getattr(db, "db_schema", None), table_name)
-        async with db.async_session_factory() as sess, sess.begin():  # type: ignore[attr-defined]
-            dropped = await _run_async(sess, [f"DROP TABLE {full_table}"], table_name)
-        _forget_table(db, table_name)
-        return dropped
-    if exists:
+        return await _drop_tier_table_async(db, db_type, table_name)
+    if await _table_exists_async(db, db_type, table_name):
         log_info(f"Table {table_name} already exists, skipping creation")
         return False
     log_info(f"-- Creating memory tier table {table_name}")
