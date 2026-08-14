@@ -18,7 +18,14 @@ from egpt.integrations.memory.graph.neo4j import cypher  # noqa: E402
 from egpt.integrations.memory.graph.neo4j.neo4j import Neo4jGraphSubstrate  # noqa: E402
 from egpt.memory.substrates import GraphSubstrate  # noqa: E402
 from egpt.memory.tiers import MemoryTier  # noqa: E402
-from egpt.memory.types import FactWrite, MemoryEvent, MemoryRecord, Scope  # noqa: E402
+from egpt.memory.types import (  # noqa: E402
+    FactWrite,
+    MemoryEvent,
+    MemoryOperationError,
+    MemoryQuery,
+    MemoryRecord,
+    Scope,
+)
 
 #: Every slot set, so a statement that drops one is visible. A scope with only a tenant would make
 #: "the tenant predicate is present" the only assertion this file could make.
@@ -313,3 +320,238 @@ def test_query_terms_are_deduplicated_before_scoring():
 
     assert _terms("ada ada moved") == ["ada", "moved"]
     assert _terms("   ") == []
+
+
+# ---------------------------------------------------------------------------
+# Error taxonomy at the driver boundary
+# ---------------------------------------------------------------------------
+
+#: Every public method that reaches the driver, with a call that gets there. Enumerated so the
+#: property below covers the whole surface rather than the two methods a review happened to name --
+#: a translation that covers four of six call sites is the same gap wearing a smaller number.
+DRIVER_CALLS = {
+    "upsert_episodes": lambda g: g.upsert_episodes(FULL, [MemoryEvent(content="x", scope=FULL, id="e1")]),
+    "upsert_facts": lambda g: g.upsert_facts(
+        FULL, [FactWrite(record=MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=FULL))]
+    ),
+    "traverse": lambda g: g.traverse(FULL, MemoryQuery(text="x")),
+    "bounds_for_ids": lambda g: g.bounds_for_ids(FULL, ["f1"]),
+    "invalidate": lambda g: g.invalidate(FULL, "f1", t_invalid=300, at=310),
+    "init_schema": lambda g: g.init_schema(),
+    "close": lambda g: g.close(),
+}
+
+
+def _substrate_whose_driver_raises(exc):
+    """A substrate wired to a driver that fails on any statement, without touching a database."""
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    substrate.database = "neo4j"
+    substrate.uri = "bolt://localhost:7687"
+    substrate._adriver = None
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def run(self, *_args, **_kwargs):
+            raise exc
+
+        def begin_transaction(self):
+            return self
+
+        def commit(self):
+            raise exc
+
+        def rollback(self):
+            return None
+
+    class _Driver:
+        def session(self, **_kwargs):
+            return _Session()
+
+        def close(self):
+            raise exc
+
+    substrate._driver = _Driver()
+    return substrate
+
+
+@pytest.mark.parametrize("method", sorted(DRIVER_CALLS))
+def test_a_deterministic_driver_error_becomes_this_modules_refusal(method):
+    """Bad Cypher, a constraint violation, a rejected password: identical on every retry.
+
+    Left raw, the seam's contract would depend on which backend the config named -- a caller
+    catching `MemoryOperationError` would see a `neo4j.exceptions.ClientError` instead.
+    """
+    from neo4j.exceptions import ClientError
+
+    substrate = _substrate_whose_driver_raises(ClientError("bad cypher"))
+
+    with pytest.raises(MemoryOperationError):
+        DRIVER_CALLS[method](substrate)
+
+
+@pytest.mark.parametrize("method", sorted(DRIVER_CALLS))
+def test_a_transient_driver_error_is_left_alone(method):
+    """The other half, and the reason this is not a blanket wrap.
+
+    `co_located._raise_write_failure` reads `MemoryOperationError` as "this will never work" and
+    prefers it as the cause of a failed fan-out. Translating an unreachable database into one would
+    tell a caller to give up on a network blip -- and the same batch would report differently
+    depending on which failure it happened to hit.
+    """
+    from neo4j.exceptions import ServiceUnavailable
+
+    substrate = _substrate_whose_driver_raises(ServiceUnavailable("no route to host"))
+
+    with pytest.raises(ServiceUnavailable):
+        DRIVER_CALLS[method](substrate)
+
+
+def test_the_driver_call_list_covers_every_public_method():
+    """Non-vacuity: the two properties above are only as broad as this list.
+
+    Compared against the port so a method added to `GraphSubstrate` cannot quietly sit outside the
+    taxonomy, and against the module's own lifecycle methods, which the port does not name.
+    """
+    from egpt.memory.substrates import GraphSubstrate
+
+    port_methods = {name for name in vars(GraphSubstrate) if not name.startswith("_")}
+    sync_port_methods = {name for name in port_methods if not name.startswith("a")}
+    lifecycle = {"init_schema", "close"}
+
+    assert sync_port_methods <= set(DRIVER_CALLS), (
+        f"port methods outside the taxonomy check: {sync_port_methods - set(DRIVER_CALLS)}"
+    )
+    assert lifecycle <= set(DRIVER_CALLS)
+
+
+#: The async twin of every entry in ``DRIVER_CALLS``. Spelled out rather than derived by prefixing
+#: an ``a``: the divergences this PR shipped were all *behavioural* while the names matched, so a
+#: list built from the sync names would assert the one thing that was never in doubt.
+ASYNC_DRIVER_CALLS = {
+    "aupsert_episodes": lambda g: g.aupsert_episodes(FULL, [MemoryEvent(content="x", scope=FULL, id="e1")]),
+    "aupsert_facts": lambda g: g.aupsert_facts(
+        FULL, [FactWrite(record=MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=FULL))]
+    ),
+    "atraverse": lambda g: g.atraverse(FULL, MemoryQuery(text="x")),
+    "abounds_for_ids": lambda g: g.abounds_for_ids(FULL, ["f1"]),
+    "ainvalidate": lambda g: g.ainvalidate(FULL, "f1", t_invalid=300, at=310),
+    "ainit_schema": lambda g: g.ainit_schema(),
+    "aclose": lambda g: g.aclose(),
+}
+
+
+def _async_substrate_whose_driver_raises(exc):
+    class _Result:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        async def run(self, *_args, **_kwargs):
+            raise exc
+
+        async def begin_transaction(self):
+            return self
+
+        async def commit(self):
+            raise exc
+
+        async def rollback(self):
+            return None
+
+    class _Driver:
+        def session(self, **_kwargs):
+            return _Session()
+
+        async def close(self):
+            raise exc
+
+    substrate = _substrate_whose_driver_raises(exc)
+    substrate._adriver = _Driver()
+    substrate._async_driver = lambda: substrate._adriver
+    return substrate
+
+
+@pytest.mark.parametrize("method", sorted(ASYNC_DRIVER_CALLS))
+async def test_the_async_half_translates_errors_identically(method):
+    """The same taxonomy, asserted on the async half rather than assumed from it.
+
+    Three defects in this PR were an async twin that shared a name and not a behaviour -- a
+    `traverse` that never bound its `tiers` parameter, a `consolidate` missing its duplicate guard,
+    and an `invalidate` that rolled back where its twin committed. Symmetry gets asserted here.
+    """
+    from neo4j.exceptions import ClientError, ServiceUnavailable
+
+    with pytest.raises(MemoryOperationError):
+        await ASYNC_DRIVER_CALLS[method](_async_substrate_whose_driver_raises(ClientError("bad cypher")))
+
+    with pytest.raises(ServiceUnavailable):
+        await ASYNC_DRIVER_CALLS[method](_async_substrate_whose_driver_raises(ServiceUnavailable("no route")))
+
+
+def test_every_sync_driver_call_has_an_async_twin_in_the_taxonomy_check():
+    """Non-vacuity for the pair above: a method covered on one side only is the gap itself."""
+    assert {f"a{name}" for name in DRIVER_CALLS} == set(ASYNC_DRIVER_CALLS)
+
+
+def test_the_no_op_invalidation_branch_rolls_back_on_both_halves():
+    """A clean exit from the sync transaction *commits*; the async twin rolls back explicitly.
+
+    Nothing is written before the check today, so no behavioural test can tell the two apart -- and
+    that is exactly why the divergence is worth pinning now rather than after a write appears above
+    it, when the sync half would silently keep what the async half discards. Asserted on the
+    transaction calls rather than on stored state, because the stored state is identical either way.
+    """
+    calls = []
+
+    class _Tx:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def run(self, *_args, **_kwargs):
+            return []
+
+        def commit(self):
+            calls.append("commit")
+
+        def rollback(self):
+            calls.append("rollback")
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def begin_transaction(self):
+            return _Tx()
+
+    class _Driver:
+        def session(self, **_kwargs):
+            return _Session()
+
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    substrate.database, substrate.uri, substrate._adriver = "neo4j", "bolt://x", None
+    substrate._driver = _Driver()
+
+    # No live row for this id, so `_invalidation_params` returns None and the branch is taken.
+    substrate.invalidate(FULL, "never-written", t_invalid=300, at=310)
+
+    assert calls == ["rollback"], f"the no-op branch must roll back and not commit, got {calls}"

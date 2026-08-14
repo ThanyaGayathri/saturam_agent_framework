@@ -219,11 +219,15 @@ def _upsert_node(label: str) -> Tuple[str, Dict[str, Any]]:
     return (f"UNWIND $rows AS row MERGE (n:{label} {_IDENTITY}) SET n = row"), _WRITE_BINDS
 
 
-def upsert_episodes_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:  # noqa: ARG001 - symmetry
+# `scope` is unused by both builders below, and deliberately kept: a write carries its scope on each
+# row (see `_WRITE_BINDS`), so there is nothing to bind -- but dropping the parameter would make
+# these two the only statement builders a caller invokes differently, which is how the scope stops
+# being passed at all. The `noqa` says "unused"; this says "and that is the point".
+def upsert_episodes_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:  # noqa: ARG001 - see above
     return _upsert_node(EPISODE)
 
 
-def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]]]:  # noqa: ARG001
+def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]]]:  # noqa: ARG001 - as above
     """The two fact shapes, keyed by which one a batch's rows belong to: a tripled fact is a
     relation between entities, an untripled one a node. Both carry the same envelope."""
     triple = (

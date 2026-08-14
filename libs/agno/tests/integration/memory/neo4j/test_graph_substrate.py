@@ -18,7 +18,7 @@ import pytest
 
 pytest.importorskip("neo4j", reason="the Neo4j graph substrate imports its driver at module level")
 
-from egpt.integrations.memory.graph.neo4j import Neo4jGraphSubstrate  # noqa: E402
+from egpt.integrations.memory.graph.neo4j import Neo4jGraphSubstrate, cypher  # noqa: E402
 from egpt.memory.substrates import GraphSubstrate  # noqa: E402
 from egpt.memory.tiers import MemoryTier  # noqa: E402
 from egpt.memory.types import (  # noqa: E402
@@ -365,6 +365,39 @@ def test_concurrent_invalidation_never_leaves_two_current_beliefs(graph):
 
     assert len(live) == 1, f"one logical fact must have one current belief, got {live} (errors: {errors})"
     assert live[0]["t_invalid"] in (300, 400), "the surviving row must carry a bound one caller asked for"
+
+
+def test_a_bounded_copy_is_pinned_to_the_expiry_its_own_call_performed(graph):
+    """The loser of an invalidation race must not copy the row the winner expired.
+
+    Both halves of an invalidation run in one transaction, so within a call the row this copies is
+    always the row this call just expired -- which is why the guard reads as redundant. It is not:
+    a second caller whose expire found nothing (the winner already did it) would otherwise still
+    match the winner's row by ``row_id`` and insert a second successor, leaving two rows claiming
+    current belief. The uniqueness constraint would catch that, but as a hard error rather than the
+    no-op it should be.
+
+    Driven by issuing the loser's statement directly with its own ``at``, because a threaded race
+    cannot be made to land on that interleaving on demand.
+    """
+    graph.upsert_facts(ACME, [fact("f1", "ada lives in berlin", t_valid=100)])
+    graph.invalidate(ACME, "f1", t_invalid=300, at=310)
+
+    with graph._driver.session(database=graph.database) as session:
+        winner_row_id = session.run(
+            "MATCH (n:Fact {id:'f1'}) WHERE n.expired_at = 310 RETURN n.row_id AS row_id"
+        ).single()["row_id"]
+
+        # The losing caller: same row, a different transaction time, its own expire a no-op.
+        for text, binds in cypher.insert_bounded_copy_statements(ACME):
+            session.run(text, **binds, live_row_id=winner_row_id, at=320, t_invalid=250, row_id="loser-row")
+
+        live = [
+            dict(r) for r in session.run("MATCH (n:Fact {id:'f1'}) WHERE n.expired_at IS NULL RETURN n.row_id AS r")
+        ]
+
+    assert len(live) == 1, f"the loser must not add a second current belief, got {live}"
+    assert live[0]["r"] != "loser-row"
 
 
 def test_the_bounded_copy_keeps_the_logical_id(graph):

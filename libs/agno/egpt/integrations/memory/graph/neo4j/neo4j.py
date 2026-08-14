@@ -26,8 +26,9 @@ enumeration (SM-G9 #107), PPR over a GDS projection (SM-H4 #134), episode-to-ent
 
 import json
 import os
+from contextlib import contextmanager
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Tuple
 from uuid import uuid4
 
 from egpt.integrations.memory.graph.neo4j import cypher
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
 
 try:
     from neo4j import AsyncGraphDatabase, GraphDatabase
+    from neo4j.exceptions import DriverError, Neo4jError, ServiceUnavailable, SessionExpired, TransientError
 except ImportError:
     raise ImportError("`neo4j` not installed. Please install using `pip install neo4j`")
 
@@ -139,6 +141,34 @@ class Neo4jGraphSubstrate:
             self._adriver = AsyncGraphDatabase.driver(self.uri, auth=self._auth)
         return self._adriver
 
+    @staticmethod
+    @contextmanager
+    def _translated(operation: str) -> Iterator[None]:
+        """The one place a driver failure becomes this module's error, or deliberately does not.
+
+        **Not a blanket wrap, because the distinction it would erase is load-bearing.** The provider
+        reads ``MemoryOperationError`` as "this will never work" and prefers it as the cause of a
+        failed fan-out (``co_located._raise_write_failure``); anything else it reads as "retry me".
+        Translating a ``ServiceUnavailable`` into a refusal would tell a caller to give up on a
+        network blip, and the same batch would report differently depending on which failure it hit.
+
+        So the split follows retryability, not the exception's origin:
+
+        * deterministic server-side errors -- bad Cypher, a constraint violation, a rejected auth --
+          fail identically on every retry, and become ``MemoryOperationError``;
+        * transient and transport errors propagate **unchanged**, so the layers above can still tell
+          a broken query from an unreachable database.
+
+        Applied at every driver interaction rather than the two the review named: a translation that
+        covers four of six call sites is the same gap wearing a smaller number.
+        """
+        try:
+            yield
+        except (TransientError, ServiceUnavailable, SessionExpired):
+            raise
+        except (Neo4jError, DriverError) as exc:
+            raise MemoryOperationError(f"The graph backend refused {operation}: {exc}", field_name=operation) from exc
+
     def _run(self, statements: Sequence[Tuple[str, Dict[str, Any]]], **params: Any) -> List[List[Dict[str, Any]]]:
         """Run statements in **one** transaction, returning each one's rows.
 
@@ -146,7 +176,7 @@ class Neo4jGraphSubstrate:
         expire half applied and the reinsert half not -- the state SM-R10 section 6 calls
         unreconstructable.
         """
-        with self._driver.session(database=self.database) as session:
+        with self._translated("read/write"), self._driver.session(database=self.database) as session:
             with session.begin_transaction() as tx:
                 results = [
                     [dict(record) for record in tx.run(text, **{**bound, **params})] for text, bound in statements
@@ -162,31 +192,33 @@ class Neo4jGraphSubstrate:
         self, statements: Sequence[Tuple[str, Dict[str, Any]]], **params: Any
     ) -> List[List[Dict[str, Any]]]:
         """Async twin of :meth:`_run`, with the same one-transaction rule."""
-        async with self._async_driver().session(database=self.database) as session:
-            tx = await session.begin_transaction()
-            try:
-                results = []
-                for text, bound in statements:
-                    result = await tx.run(text, **{**bound, **params})
-                    results.append([dict(record) async for record in result])
-                await tx.commit()
-            except BaseException:
-                await tx.rollback()
-                raise
+        with self._translated("read/write"):
+            async with self._async_driver().session(database=self.database) as session:
+                tx = await session.begin_transaction()
+                try:
+                    results = []
+                    for text, bound in statements:
+                        result = await tx.run(text, **{**bound, **params})
+                        results.append([dict(record) async for record in result])
+                    await tx.commit()
+                except BaseException:
+                    await tx.rollback()
+                    raise
         return results
 
     def init_schema(self) -> None:
         """Create the constraints and indexes, idempotently."""
-        with self._driver.session(database=self.database) as session:
+        with self._translated("schema init"), self._driver.session(database=self.database) as session:
             for statement in cypher.SCHEMA_STATEMENTS:
                 session.run(statement)
         log_debug(f"Neo4jGraphSubstrate schema ready on {self.uri}/{self.database}")
 
     async def ainit_schema(self) -> None:
         """Async twin of :meth:`init_schema`."""
-        async with self._async_driver().session(database=self.database) as session:
-            for statement in cypher.SCHEMA_STATEMENTS:
-                await session.run(statement)
+        with self._translated("schema init"):
+            async with self._async_driver().session(database=self.database) as session:
+                for statement in cypher.SCHEMA_STATEMENTS:
+                    await session.run(statement)
 
     def close(self) -> None:
         """Close the sync driver, and **refuse** when an async one is still open.
@@ -207,14 +239,16 @@ class Neo4jGraphSubstrate:
                 "nor drive that loop. Call aclose() from the same async context; it closes both.",
                 field_name="close",
             )
-        self._driver.close()
+        with self._translated("close"):
+            self._driver.close()
 
     async def aclose(self) -> None:
         """Closes both halves: the sync driver is opened in ``__init__`` whichever half is used."""
-        if self._adriver is not None:
-            await self._adriver.close()
-            self._adriver = None
-        self._driver.close()
+        with self._translated("close"):
+            if self._adriver is not None:
+                await self._adriver.close()
+                self._adriver = None
+            self._driver.close()
 
     # -- row mapping ----------------------------------------------------------
 
@@ -248,8 +282,13 @@ class Neo4jGraphSubstrate:
         """
         return {
             **cypher.scope_props(scope),
-            # Paired with `expired_at` in exactly two places -- here (a new row is live) and
-            # `expire_statements` (which removes both). See `cypher.LIVE` for why it exists.
+            # One of **four** writers of the live/`expired_at` pairing, counted rather than
+            # guessed: here (a new row is live), `_pair_live_marker` (a row written back retired
+            # is not), `cypher.expire_statements` (removes both together) and
+            # `cypher.insert_bounded_copy_statements` (the successor is live again). The invariant
+            # they must jointly maintain is asserted in
+            # `test_the_live_marker_and_expired_at_never_disagree`, which is what makes four
+            # writers safe. See `cypher.LIVE` for why the marker exists at all.
             cypher.LIVE: True,
             "row_id": str(uuid4()),
             "id": record_id,
@@ -534,7 +573,7 @@ class Neo4jGraphSubstrate:
         An id in another scope is a no-op, logged at debug.
         """
         recorded_at = now_epoch_s() if at is None else at
-        with self._driver.session(database=self.database) as session:
+        with self._translated("invalidate"), self._driver.session(database=self.database) as session:
             with session.begin_transaction() as tx:
                 probe_text, probe_binds = cypher.episode_probe_statement(scope)
                 self._reject_episode(edge_id, [dict(r) for r in tx.run(probe_text, **probe_binds, edge_id=edge_id)])
@@ -544,6 +583,11 @@ class Neo4jGraphSubstrate:
                 ]
                 params = self._invalidation_params(rows, edge_id, t_invalid, recorded_at)
                 if params is None:
+                    # Explicit, matching `ainvalidate`. A clean exit from the context manager
+                    # *commits*, so the two halves would diverge the moment a write appeared above
+                    # this check -- the sync one keeping it, the async one discarding it. Nothing is
+                    # written here today, which is exactly why it is free to fix now.
+                    tx.rollback()
                     return
                 for text, binds in (*cypher.expire_statements(scope), *cypher.insert_bounded_copy_statements(scope)):
                     tx.run(text, **{**binds, **params})
@@ -552,23 +596,27 @@ class Neo4jGraphSubstrate:
     async def ainvalidate(self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None) -> None:
         """Async twin of :meth:`invalidate`, with the same one-transaction rule."""
         recorded_at = now_epoch_s() if at is None else at
-        async with self._async_driver().session(database=self.database) as session:
-            tx = await session.begin_transaction()
-            try:
-                probe_text, probe_binds = cypher.episode_probe_statement(scope)
-                probe = await tx.run(probe_text, **probe_binds, edge_id=edge_id)
-                self._reject_episode(edge_id, [dict(record) async for record in probe])
-                rows = []
-                for text, binds in cypher.live_row_statements(scope):
-                    result = await tx.run(text, **binds, edge_id=edge_id)
-                    rows.append([dict(record) async for record in result])
-                params = self._invalidation_params(rows, edge_id, t_invalid, recorded_at)
-                if params is None:
+        with self._translated("invalidate"):
+            async with self._async_driver().session(database=self.database) as session:
+                tx = await session.begin_transaction()
+                try:
+                    probe_text, probe_binds = cypher.episode_probe_statement(scope)
+                    probe = await tx.run(probe_text, **probe_binds, edge_id=edge_id)
+                    self._reject_episode(edge_id, [dict(record) async for record in probe])
+                    rows = []
+                    for text, binds in cypher.live_row_statements(scope):
+                        result = await tx.run(text, **binds, edge_id=edge_id)
+                        rows.append([dict(record) async for record in result])
+                    params = self._invalidation_params(rows, edge_id, t_invalid, recorded_at)
+                    if params is None:
+                        await tx.rollback()
+                        return
+                    for text, binds in (
+                        *cypher.expire_statements(scope),
+                        *cypher.insert_bounded_copy_statements(scope),
+                    ):
+                        await tx.run(text, **{**binds, **params})
+                    await tx.commit()
+                except BaseException:
                     await tx.rollback()
-                    return
-                for text, binds in (*cypher.expire_statements(scope), *cypher.insert_bounded_copy_statements(scope)):
-                    await tx.run(text, **{**binds, **params})
-                await tx.commit()
-            except BaseException:
-                await tx.rollback()
-                raise
+                    raise

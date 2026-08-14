@@ -25,7 +25,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from egpt.memory.config import MemoryProviderConfig, build_memory_provider
+from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, build_memory_provider
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.tiers import PERSISTENT_TIERS, MemoryTier
 from egpt.memory.types import (
@@ -517,3 +517,26 @@ async def test_every_provider_agrees_between_its_sync_and_async_halves(name):
     assert [r.id for r in provider.read(ACME, query).records] == [
         r.id for r in (await provider.aread(ACME, query)).records
     ]
+
+
+def test_a_backend_that_fails_to_construct_surfaces_as_a_config_error():
+    """`build_memory_provider`'s contract must not depend on which backend the config named.
+
+    A real graph backend opens a connection during construction, so an unreachable host or a
+    rejected password arrives here as a driver exception. Left raw, a caller catching
+    `MemoryProviderConfigError` -- the type every other construction failure in this module uses --
+    would miss it entirely.
+    """
+    from egpt.registry import discovery
+
+    class _Unreachable:
+        def __init__(self, **_kwargs):
+            raise RuntimeError("no route to host")
+
+    discovery.register("graphdb", "unreachable-probe", obj=_Unreachable, override=True)
+    try:
+        config = MemoryProviderConfig(provider="co_located", graph={"backend": "unreachable-probe"})
+        with pytest.raises(MemoryProviderConfigError, match="Could not construct"):
+            build_memory_provider(config)
+    finally:
+        discovery.unregister("graphdb", "unreachable-probe")

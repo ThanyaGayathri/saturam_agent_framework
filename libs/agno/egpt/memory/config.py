@@ -164,7 +164,19 @@ def resolve_substrate(
         )
     # An ImportError from a missing SDK is deliberately left to propagate: the integration's own
     # "pip install neo4j" message is more useful than anything this frame could add.
-    constructed = discovery.construct(kind, backend.strip(), **rest)
+    try:
+        constructed = discovery.construct(kind, backend.strip(), **rest)
+    except (ImportError, MemoryProviderConfigError):
+        raise
+    except Exception as exc:
+        # Anything else a backend's constructor raises -- an unreachable host, a rejected password,
+        # a bad DSN -- is a failure to *build* this provider, whatever its type. Callers of
+        # `build_memory_provider` assert on `MemoryProviderConfigError`; leaving a raw
+        # `ServiceUnavailable` here makes the seam's construction contract depend on which backend
+        # the config happened to name.
+        raise MemoryProviderConfigError(
+            f"Could not construct the {kind} backend {backend.strip()!r}: {exc}", field_name=field
+        ) from exc
     return check(constructed, option)
 
 
