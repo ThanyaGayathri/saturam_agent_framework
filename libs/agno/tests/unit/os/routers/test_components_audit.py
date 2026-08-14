@@ -173,6 +173,28 @@ class TestAuditEndpoint:
         assert response.status_code == 404
         mock_db.list_component_audit.assert_not_called()
 
+    def test_include_deleted_reaches_history_with_no_row_left(self, client, mock_db):
+        """A hard delete leaves no components row at all -- unlike a soft delete, no value of
+        include_deleted on get_component can uncover it. Existence is proven by the audit trail
+        itself instead: get_component still returns None, but the history is there."""
+        mock_db.get_component.return_value = None
+
+        response = client.get("/components/agent-1/audit?include_deleted=true")
+
+        assert response.status_code == 200
+        assert response.json()["data"][0]["action"] == ComponentAuditAction.CONFIG_PUBLISH.value
+        assert mock_db.get_component.call_args.kwargs["include_deleted"] is True
+
+    def test_include_deleted_still_404s_with_no_history_either(self, client, mock_db):
+        """Opting in does not widen a component that never existed -- or belongs to another
+        tenant -- into a 200."""
+        mock_db.get_component.return_value = None
+        mock_db.list_component_audit.return_value = ([], 0)
+
+        response = client.get("/components/agent-1/audit?include_deleted=true")
+
+        assert response.status_code == 404
+
     def test_the_component_lookup_is_tenant_scoped(self, client, mock_db):
         """The 404 gate is what makes another tenant's component indistinguishable from an
         absent one here, exactly as on every sibling route."""
