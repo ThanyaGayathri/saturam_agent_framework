@@ -69,16 +69,27 @@ def test_the_exported_episode_is_the_persisted_row():
     assert EpisodicRecord is PersistedEpisodicRecord
 
 
-@pytest.mark.parametrize("name", ["EPISODE_KEYS", "PROVENANCE_KEYS", "TOPICS_KEY"])
-def test_the_floor_constants_are_reachable_from_the_package(name):
+@pytest.mark.parametrize(
+    "name, module",
+    [
+        ("EPISODE_KEYS", "egpt.memory.schemas.episodic"),
+        ("PROVENANCE_KEYS", "egpt.memory.schemas.episodic"),
+        ("TOPICS_KEY", "egpt.memory.schemas.episodic"),
+        # Promoted from `types._escape` by this PR, and half of the pair `graph_node_id_for`
+        # exports: a caller extending the slot encoding needs both from the same boundary.
+        ("escape_key_slot", "egpt.memory.types"),
+    ],
+)
+def test_the_episode_surface_is_reachable_from_the_package(name, module):
     """Exported symmetrically or not at all: a caller who cannot write
-    ``from egpt.memory import TOPICS_KEY`` reaches into ``egpt.memory.schemas`` or hard-codes the
-    string, and a later rename then misses them."""
+    ``from egpt.memory import TOPICS_KEY`` reaches into a submodule or hard-codes the string, and a
+    later rename then misses them."""
+    import importlib
+
     import egpt.memory as memory
-    import egpt.memory.schemas.episodic as episodic
 
     assert name in memory.__all__
-    assert getattr(memory, name) is getattr(episodic, name)
+    assert getattr(memory, name) is getattr(importlib.import_module(module), name)
 
 
 # -- acceptance criteria -----------------------------------------------------------------------
@@ -171,8 +182,11 @@ def test_the_graph_node_id_matches_the_identity_the_backend_merges_on():
     statement, _ = cypher.upsert_episodes_statement(SCOPE)
     scope_key = cypher.scope_props(SCOPE)["scope_key"]
 
-    assert f"MERGE (n:{cypher.EPISODE} " in statement
-    assert "scope_key: row.scope_key, id: row.id" in statement
+    # The whole merge key, not a substring of it. The live marker is what confines the MERGE to the
+    # currently-believed row, and dropping it would leave the id and scope assertions passing while
+    # by-id upsert quietly stopped being idempotent. Built from `cypher.LIVE` rather than the
+    # literal, because renaming the marker is fine and removing it is not.
+    assert f"MERGE (n:{cypher.EPISODE} {{scope_key: row.scope_key, id: row.id, {cypher.LIVE}: true}})" in statement
     assert graph_node_id_for(SCOPE, "ep-1") == scope_key + "/" + escape_key_slot("ep-1")
 
 
@@ -226,6 +240,26 @@ def test_a_collection_field_holding_a_string_is_refused(field, episode):
     non-list value alone, so a direct database insert arrives here with a bare string."""
     with pytest.raises(MemoryOperationError, match=field):
         episode_to_record(episode)
+
+
+@pytest.mark.parametrize("topics", ["deploy", 42])
+def test_non_list_topics_are_refused_on_the_way_in(topics):
+    """The write path, which the read-path cases above cannot reach: a string copied in becomes a
+    list of characters, and the read guard then accepts it as a well-formed list, so the corruption
+    survives the round trip undetected. A non-iterable is a bare ``TypeError`` without this."""
+    with pytest.raises(MemoryOperationError, match=TOPICS_KEY):
+        episode_from_event(an_event(topics=topics))
+
+
+def test_topics_survive_the_write_path_as_a_copy():
+    """The guard must still copy: sharing the caller's list lets a later append reach the stored
+    episode through an event the caller still holds."""
+    event = an_event(topics=["deploy"])
+    episode = episode_from_event(event)
+
+    event.topics.append("rollback")
+
+    assert episode.metadata[TOPICS_KEY] == ["deploy"]
 
 
 @pytest.mark.parametrize("reserved", ["importance", "occurred_at", "topics"])
@@ -338,7 +372,8 @@ def test_no_boundary_metadata_is_assigned_here():
 
 def test_the_graph_link_is_derived_and_not_resolved():
     """Pins SM-E10 (#117) and SM-G6 (#104). The link addresses the node SM-G1 would write; nothing
-    here writes it, reads it back, or propagates valid time to it."""
+    here writes it, reads it back, or propagates valid time to it. Delete this test when SM-E10 /
+    SM-G6 lands."""
     episode = episode_from_event(an_event())
 
     assert episode.graph_node_id == graph_node_id_for(episode_to_record(episode).scope, episode.id)

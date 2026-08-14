@@ -132,12 +132,14 @@ def episode_details(
 
 
 def _require_list(value: Any, name: str, episode_id: str) -> List[str]:
-    """Refuse a collection that is not one, rather than copying it into something else.
+    """Refuse a list that is not one, rather than copying it into something else.
 
-    ``list("deploy")`` is six one-character topics and raises nothing. Every collection this module
-    copies goes through here, not only the one a caller can set: ``MemoryRow.__post_init__`` copies
-    a value that is already a list and leaves any other alone, so a row inserted straight into the
-    database arrives with a bare string in a list column.
+    ``list("deploy")`` is six one-character topics and raises nothing. **Every list this module
+    copies goes through here, on both projections** -- a string reaching the write path is copied
+    into a list of characters, which the read path then accepts as a well-formed list, so the
+    corruption survives a round trip with nothing to detect it. On the read side the same value
+    arrives from ``MemoryRow.__post_init__``, which copies a value that is already a list and
+    leaves any other alone, so a row inserted straight into the database keeps its bare string.
     """
     if not isinstance(value, list):
         raise MemoryOperationError(
@@ -198,7 +200,7 @@ def episode_from_event(event: MemoryEvent) -> EpisodicRecord:
     occurred_at = event.occurred_at if event.occurred_at is not None else now
     metadata = dict(event.metadata)
     if event.topics is not None:
-        metadata[TOPICS_KEY] = list(event.topics)
+        metadata[TOPICS_KEY] = _require_list(event.topics, TOPICS_KEY, event.id)
     scope = event.scope
     return EpisodicRecord(
         id=event.id,

@@ -60,6 +60,7 @@ from egpt.memory.types import (
     TemporalBounds,
     WriteReceipt,
     consolidation_details,
+    escape_key_slot,
     fusion_diagnostics,
 )
 
@@ -104,6 +105,7 @@ __all__ = [
     "checked_graph",
     "checked_vector",
     "consolidation_details",
+    "escape_key_slot",
     "fusion_diagnostics",
     "substrates_for_tier",
     # The seam and its construction path (SM-C1)
