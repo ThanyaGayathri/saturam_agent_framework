@@ -365,6 +365,30 @@ forbidden_modules =
 
 EGPT-1.11 must expand the `…` placeholders to the full post-move module inventory and keep the matrix cells unchanged.
 
+**Status after EGPT-1.11 (aicoe-tracker#52): partially discharged, scoped down.** The contracts
+are implemented at `libs/agno/pyproject.toml` `[tool.importlinter]`, but only for the
+*integrations column* of the matrix (core/orchestration/services/api ↔ integrations) — not the
+*layer-ordering* cells this sketch's contract #1 (`type = layers`) also covers
+(core→orchestration/services/api, services→orchestration/api, orchestration→api). Encoding those
+against the real tree surfaced ~42 direct violations that are not toolkit/connector debt like the
+known A8/A13 items below, but look like deliberate, undocumented design choices: `egpt.run.*`
+(core) structurally references `egpt.reasoning`/`egpt.workflow` types in its event data models,
+the `Remote*` wrapper classes (`agent.remote`, `team.remote`, `workflow.remote`, plus `_run`/
+`_telemetry`) couple orchestration to `egpt.os`/`egpt.client`/`egpt.remote` for HTTP/telemetry,
+and `egpt.eval.*` couples services to `egpt.api.evals`. None of that is owned by an existing
+ticket, and reconciling it needs a design decision (an ADR amendment, most likely), not a lint
+rule — see [aicoe-tracker#180](https://github.com/Saturam-Inc/aicoe-tracker/issues/180) for tracking. Encoding the layer-ordering
+cells is deferred to that follow-up.
+
+For the integrations column that *is* now enforced: contracts use `allow_indirect_imports = true`
+(checking direct imports only, not the whole transitive reachability grimp's default would check
+— see the comment in `pyproject.toml`), and carry **no** `ignore_imports` for the A8/A13 debt or
+for the toolkit/model-provider files found to reference `egpt.agent`/`egpt.team` directly during
+this work (tracked as [aicoe-tracker#180](https://github.com/Saturam-Inc/aicoe-tracker/issues/180)) — a stakeholder comment on aicoe-tracker#52
+explicitly rejected masking that debt this way. `libs/agno/tests/unit/test_import_linter_contracts.py`
+tracks the exact known set instead, and the `import-linter` CI job is intentionally
+non-required until that set is empty.
+
 ## Consequences
 
 ### Positive
@@ -383,6 +407,11 @@ EGPT-1.11 must expand the `…` placeholders to the full post-move module invent
 - `context/` and `utils/` are mixed packages; extraction must follow the split table.
 - `knowledge/knowledge.py`, `models/utils.py` (constructor registration), provider utils, `tracing/setup.py`, memory backend wiring, and Registry↔Agent/Team typing are explicit prerequisites (see above).
 - Private `docs/` symlink workflow: this repo tracks only `docs/adr/` (see `.gitignore`). Prefer not to replace `docs/` with a full external symlink that would shadow the tracked ADR tree; keep private docs elsewhere or nest them beside `adr/`.
+- The layer-ordering cells of the matrix (core/services/orchestration relative to each other, as
+  opposed to the integrations column) are not yet CI-enforced — see the EGPT-1.11 status note
+  above. `egpt.run.*`'s coupling to `egpt.reasoning`/`egpt.workflow` and the `Remote*` wrapper
+  classes' coupling to `egpt.os`/`egpt.client`/`egpt.remote` in particular look like they need
+  this ADR amended (a seam or a reclassification), not just code moves.
 
 ### Out of scope for this ADR
 

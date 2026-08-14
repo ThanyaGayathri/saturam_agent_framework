@@ -235,6 +235,49 @@ jobs:
           source ../../.venv/bin/activate
           python -m build
 
+  import-linter:
+    # EGPT-1.11 (aicoe-tracker#52): encodes the integrations-boundary cells of ADR 0001's
+    # allowed-import matrix (docs/adr/0001-layered-architecture.md) as import-linter contracts
+    # in libs/agno/pyproject.toml. Deliberately NOT in ci-success's `needs` (and not required by
+    # branch protection) yet: the contracts have no `ignore_imports` for the known debt tracked
+    # in libs/agno/tests/unit/test_import_linter_contracts.py (aicoe-tracker#157, #158, #180),
+    # so `lint-imports` genuinely fails against `main` today.
+    # That test IS part of the required `test-and-build` job and fails on any violation outside
+    # the tracked set, so regressions are still caught; this job exists to make the raw contract
+    # state visible on every PR. Once the tracked set is empty, promote this to ci-success's
+    # `needs` list -- at that point `lint-imports` and the tracked-set test both go green
+    # together and this job becomes the literal "CI fails on any cross-layer import violation"
+    # gate the issue's acceptance criteria ask for.
+    name: import-linter (informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install dependencies
+        working-directory: libs/agno
+        run: |
+          set -e
+          uv venv ../../.venv --python 3.12
+          source ../../.venv/bin/activate
+          uv pip install -e .[dev]
+
+      - name: Run lint-imports
+        working-directory: libs/agno
+        run: |
+          set -e
+          source ../../.venv/bin/activate
+          lint-imports
+
   unit-drivers-absent:
     # A unit test that needs an optional driver must gate on it (pytest.importorskip) so it
     # SKIPS where the driver is absent. `test-and-build` structurally cannot catch a missed

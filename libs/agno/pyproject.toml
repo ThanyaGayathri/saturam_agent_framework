@@ -40,6 +40,7 @@ dependencies = [
 dev = [
   "mypy==2.1.0",
   "ruff==0.15.20",
+  "import-linter==2.13",
   "pytest==9.1.1",
   "pytest-asyncio==1.4.0",
   "pytest-cov==7.1.0",
@@ -462,6 +463,163 @@ markers = [
     "integration: tests requiring external services or API keys",
     "system: tests requiring Docker-compose environment",
 ]
+
+[tool.importlinter]
+# Encodes the *integrations boundary* of the allowed-import matrix from
+# docs/adr/0001-layered-architecture.md (EGPT-1.1): the matrix's N cells between
+# core/orchestration/services/api and integrations. ADR 0001 is authoritative for the matrix
+# cells; this config is the enforcement mechanism EGPT-1.11 (aicoe-tracker#52) adds on top of it.
+#
+# Scope note (deliberately narrower than the full matrix): a first attempt at also encoding the
+# matrix's *layer-ordering* cells (core-/services-/orchestration-must-not-import-upward) surfaced
+# ~42 additional direct violations that are not toolkit/connector debt like A8/A13, but look like
+# deliberate design choices nobody has reconciled with ADR 0001 yet -- e.g. `egpt.run.{agent,base,
+# team,workflow}` (core) structurally referencing `egpt.reasoning`/`egpt.workflow` types, the
+# `Remote*` wrapper classes (`agent.remote`, `team.remote`, `workflow.remote`, plus `_run`/
+# `_telemetry`) coupling orchestration to `egpt.os`/`egpt.client`/`egpt.remote` for HTTP/telemetry,
+# and `egpt.eval.*` coupling services to `egpt.api.evals`. Enforcing those cells needs a real
+# design decision (or an ADR amendment), not a lint rule -- see aicoe-tracker#180 instead of
+# silently masking or arbitrarily deciding it here. This config sticks to the
+# integrations boundary, which is what aicoe-tracker#52/#157/#158 actually discuss.
+#
+# Further scope note: `egpt.db`, `egpt.models`, `egpt.vectordb`, `egpt.knowledge` and `egpt.tools`
+# mix a stable core interface with dozens of dynamically-added concrete backend/provider/toolkit
+# shim directories (~200 combined, growing with every new extra in
+# [project.optional-dependencies]). Those trees already have dedicated AST-based guards that
+# handle exactly that granularity (libs/agno/tests/unit/{tools/test_toolkit_layout,
+# knowledge/test_knowledge_layout,vectordb/test_backend_layout,db/test_backend_resolution,
+# models/...}.py). Hand-listing every shim subdirectory here would duplicate those guards and go
+# stale on every new extra, so this config's source_modules list the whole orchestration/services/
+# api/core packages that are NOT already covered that way. `egpt.container`, `egpt.providers`,
+# `egpt.settings` postdate ADR 0001's inventory and are not yet classified in the matrix -- out of
+# scope here pending an ADR update. `egpt.cloud` has no `__init__.py` today (only `cloud/aws/`,
+# which is provider-specific and arguably belongs in integrations per ADR 0001's own module
+# mapping) and isn't an importable package yet -- also out of scope.
+root_package = "egpt"
+
+# --- Integrations column (matrix's N cells for core/orchestration/services/api -> integrations) ---
+# `egpt.integrations` is a single entry that covers the whole tree regardless of how many backend/
+# provider/toolkit shim subdirectories it grows. The handful of still-loose modules below are
+# physically outside `egpt/integrations/` but are integrations-layer code per ADR 0001's module
+# mapping (provider utils "move with their providers" -- extraction prerequisite #3 -- and
+# `tracing/exporter.py` is listed under the integrations layer).
+#
+# No `ignore_imports` here for the known egpt.context.*/egpt.os.interfaces.slack.* violations
+# (A8/A13, owned by aicoe-tracker#157/#158) or the newly-found violations (egpt.guardrails.openai,
+# the toolkit/model files importing Agent/Team directly -- owned by aicoe-tracker#180) -- see
+# libs/agno/tests/unit/test_import_linter_contracts.py, which tracks them explicitly instead of
+# masking them here. ignore_imports below is reserved for the ADR-ratified composition-root /
+# extraction-prerequisite carve-outs only.
+#
+# allow_indirect_imports = true: "forbidden" contracts check the whole transitive dependency
+# chain by default, which floods the report with reachability noise unrelated to a real
+# violation here -- e.g. `egpt.exceptions` (a single-file core module) transitively "reaches"
+# `egpt.integrations` only because something several hops away happens to import a concrete
+# provider, with nothing at any single hop being a real ADR 0001 violation on its own. Scoping to
+# direct imports matches how this repo's existing layout guards already check this
+# (libs/agno/tests/unit/_layer_guards.py's `imported_modules()` walks each file's own AST for its
+# own import statements, not the whole reachable graph).
+[[tool.importlinter.contracts]]
+name = "core, orchestration, services, and api must not import integrations"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "egpt.run",
+    "egpt.session",
+    "egpt.approval",
+    "egpt.registry",
+    "egpt.exceptions",
+    "egpt.filters",
+    "egpt.media",
+    "egpt.metrics",
+    "egpt.brand",
+    "egpt.debug",
+    "egpt.agent",
+    "egpt.agents",
+    "egpt.team",
+    "egpt.workflow",
+    "egpt.reasoning",
+    "egpt.hooks",
+    "egpt.context",
+    "egpt.components",
+    "egpt.eval",
+    "egpt.learn",
+    "egpt.memory",
+    "egpt.culture",
+    "egpt.skills",
+    "egpt.scheduler",
+    "egpt.compression",
+    "egpt.factory",
+    "egpt.guardrails",
+    "egpt.os",
+    "egpt.api",
+    "egpt.client",
+    "egpt.remote",
+]
+forbidden_modules = [
+    "egpt.integrations",
+    "egpt.utils.gemini",
+    "egpt.utils.openai",
+    "egpt.utils.mcp",
+    "egpt.utils.streamlit",
+    "egpt.utils.models",
+    "egpt.tracing.exporter",
+]
+ignore_imports = [
+    # A12: os/mcp.py owns the built-in MCP tool surface and wires the extracted registrar --
+    # the composition root ADR 0001 rule 4 carves out. Ratified; tracked in
+    # tests/unit/tools/test_toolkit_layout.py's _INTEGRATION_IMPORT_ALLOWLIST.
+    "egpt.os.mcp -> egpt.integrations.tools.mcp.server",
+    # Rule 4 composition root: the AgentOS knowledge router builds remote-content configs
+    # straight from request payloads, for every supported remote-content backend. Ratified;
+    # tracked in tests/unit/knowledge/test_knowledge_layout.py's _INTEGRATION_IMPORT_ALLOWLIST.
+    "egpt.os.routers.knowledge.knowledge -> egpt.integrations.knowledge.remote_content.s3",
+    "egpt.os.routers.knowledge.knowledge -> egpt.integrations.knowledge.remote_content.github",
+]
+
+# --- Integrations depend only on core (matrix: integrations -> orchestration/services/api = N) ---
+[[tool.importlinter.contracts]]
+name = "integrations must not import orchestration, services, or api"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "egpt.integrations",
+]
+forbidden_modules = [
+    "egpt.agent",
+    "egpt.agents",
+    "egpt.team",
+    "egpt.workflow",
+    "egpt.reasoning",
+    "egpt.hooks",
+    "egpt.context",
+    "egpt.components",
+    "egpt.eval",
+    "egpt.learn",
+    "egpt.memory",
+    "egpt.culture",
+    "egpt.skills",
+    "egpt.scheduler",
+    "egpt.compression",
+    "egpt.factory",
+    "egpt.guardrails",
+    "egpt.os",
+    "egpt.api",
+    "egpt.client",
+    "egpt.remote",
+]
+# No ignore_imports: egpt.integrations.discord.client currently violates this contract by
+# importing egpt.agent/egpt.team. Left in scope deliberately -- see
+# libs/agno/tests/unit/test_import_linter_contracts.py.
+
+# --- No import cycles across the integrations boundary (ADR 0001 Rule 7, scoped to this config) ---
+# Not encoded as a separate "independence" contract: that type enforces *mutual* exclusion in
+# both directions, which would also forbid the matrix's legitimate inward imports (e.g.
+# integrations -> core). Instead, cycle-freedom across the integrations boundary falls out of the
+# two "forbidden" contracts above: core/orchestration/services/api -> integrations and
+# integrations -> orchestration/services/api are both forbidden, so no directed cycle crossing
+# that boundary can form. This config does not attempt Rule 7 for the layer-ordering cells
+# (core/orchestration/services/api relative to each other) -- see the scope note above.
 
 [tool.ruff]
 line-length = 120
