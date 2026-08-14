@@ -864,3 +864,283 @@ def test_the_placeholder_still_applies_when_nothing_is_configured(monkeypatch):
     result = provider.resolve_detailed(ModelResolveRequest())
 
     assert result.model.api_key == "not-provided"
+
+
+# --------------------------------------------------------------------------- #
+# Adapter support is a declared capability, not a name (aicoe-tracker#165)
+# --------------------------------------------------------------------------- #
+
+
+class TestAdapterSupportIsDeclaredNotHardcoded:
+    """`supports_adapters` comes from the registration, so an out-of-tree backend can opt in.
+
+    Before this, `_ADAPTER_BACKENDS = ("vllm", "openai-like")` decided it by name. An out-of-tree
+    row wrapping a vLLM fork had its adapter **silently dropped** even though the server behind it
+    served multi-LoRA identically. The request succeeded and `ModelResolveResult.adapter` reported
+    None, so the result was self-consistent and the deployment's intent was lost with no signal.
+
+    Runtime registration (`discovery.register(..., supports_adapters=True)`) is the opt-in path
+    this fixes today -- see `test_an_out_of_tree_backend_declaring_support_gets_its_adapter`
+    below. An `egpt.models` *entry point* -- a package installed from outside this repository,
+    which is the seam's stated extensibility mechanism -- cannot declare this yet, because an
+    entry point is a bare `name = module:attr` string with nowhere to carry it. See
+    `test_an_entry_point_registration_cannot_declare_it_yet` below, which pins that gap rather
+    than leaving it implicit.
+    """
+
+    def test_an_out_of_tree_backend_declaring_support_gets_its_adapter(self):
+        """The bug from the issue, inverted. Same fake server, a name Mode A has never heard of.
+
+        Registered at runtime, not through an entry point -- see the class docstring and
+        `test_an_entry_point_registration_cannot_declare_it_yet` for why that distinction matters.
+        """
+        discovery.register(
+            "model",
+            "acme-lora-server",
+            obj=_FakeOpenAISchemaBackend,
+            override=True,
+            supports_adapters=True,
+        )
+        provider = LocalModelProvider(
+            settings=_settings(mode_a_base_url=VPC_URL, mode_a_model_id="qwen"),
+            backend="acme-lora-server",
+        )
+
+        result = provider.resolve_detailed(ModelResolveRequest(adapter="support-v3"))
+
+        assert result.adapter == "support-v3", "a declared capability must be honoured"
+        assert result.model.id == "support-v3", "model-id convention renders the adapter as the id"
+
+    def test_an_entry_point_registration_cannot_declare_it_yet(self, monkeypatch):
+        """The gap the fix above does not close: an `egpt.models` entry point has nowhere to
+        carry `supports_adapters`, and this is the actual pre-image of the original bug report --
+        an out-of-tree *package*, not a runtime `register()` call.
+
+        `_merge_entry_points` builds its `Registration` from nothing but the entry point's own
+        `name = module:attr` string (the packaging spec has no field for extra metadata), so
+        `metadata` is always `{}` for a `SOURCE_ENTRY_POINT` row and it falls through to
+        `_ADAPTER_BACKENDS` regardless of what the backend actually supports. This is the state
+        of the world today, pinned so a future change that closes it (see the tracked follow-up
+        named in the module docstring) fails this test loudly rather than going unnoticed.
+        """
+        from importlib.metadata import EntryPoint
+
+        from egpt.registry import discovery as discovery_module
+
+        group = discovery.entry_point_group("model")
+        entry_point = EntryPoint(
+            name="acme-entry-point-server",
+            value="tests.unit.providers.test_mode_a:_FakeOpenAISchemaBackend",
+            group=group,
+        )
+        monkeypatch.setattr(discovery_module, "_all_entry_points", lambda: {group: [entry_point]})
+        discovery_module._READY.discard("model")
+
+        registration = discovery.get("model", "acme-entry-point-server")
+        assert registration is not None, "the entry point itself must resolve"
+        assert registration.source == discovery.SOURCE_ENTRY_POINT
+        assert registration.metadata == {}, "an entry point carries no metadata today"
+
+        provider = LocalModelProvider(
+            settings=_settings(mode_a_base_url=VPC_URL, mode_a_model_id="qwen"),
+            backend="acme-entry-point-server",
+        )
+
+        result = provider.resolve_detailed(ModelResolveRequest(adapter="support-v3"))
+
+        assert result.adapter is None, (
+            "the entry point cannot say supports_adapters=True yet, so this falls back to the "
+            "tuple and the adapter is ignored -- exactly the original bug report's shape"
+        )
+        assert result.model.id == "qwen"
+
+    def test_an_out_of_tree_backend_without_the_declaration_still_ignores_it(self):
+        """The documented behaviour that must survive the fix.
+
+        An adapter on a backend with no adapter concept is *ignored*, not refused -- failing a
+        request that merely mentioned one would make `adapter` unusable in a config shared across
+        backends. The point of the fix is that the decision is declarable, not that it changed.
+        """
+        discovery.register("model", "acme-plain-server", obj=_FakeOpenAISchemaBackend, override=True)
+        provider = LocalModelProvider(
+            settings=_settings(mode_a_base_url=VPC_URL, mode_a_model_id="qwen"),
+            backend="acme-plain-server",
+        )
+
+        result = provider.resolve_detailed(ModelResolveRequest(adapter="support-v3"))
+
+        assert result.adapter is None
+        assert result.model.id == "qwen", "the base weights, not the adapter"
+
+    def test_an_unvalidated_truthy_string_does_not_enable_adapters(self):
+        """Metadata is unvalidated at registration -- a stray string must not read as True.
+
+        `supports_adapters="false"` is a third party's mistake (the flag wants a bool), but
+        `bool("false")` is `True` in Python: a `bool(...)` coercion here would silently enable
+        adapter rendering for exactly the row whose author wrote the opposite. Only the literal
+        `True` counts.
+        """
+        discovery.register(
+            "model",
+            "acme-stringly-typed",
+            obj=_FakeOpenAISchemaBackend,
+            override=True,
+            supports_adapters="false",
+        )
+        provider = LocalModelProvider(
+            settings=_settings(mode_a_base_url=VPC_URL, mode_a_model_id="qwen"),
+            backend="acme-stringly-typed",
+        )
+
+        assert provider.capabilities().supports_adapters is False
+        assert provider.resolve_detailed(ModelResolveRequest(adapter="support-v3")).adapter is None
+
+    def test_an_explicit_false_declaration_overrides_the_in_tree_default(self):
+        """A row may opt *out* as well as in.
+
+        This is what makes the metadata the authority rather than a supplement: re-registering
+        `vllm` with `supports_adapters=False` must be believed, or the tuple is still in charge.
+        """
+        # `discovery.get` first, so the lazy table is populated before the override -- this is no
+        # longer required for correctness (see the un-warmed test below, which re-registers
+        # *before* anything has touched the "model" kind and still passes), but it is left in to
+        # keep this test isolated from the un-warmed ordering case it does not intend to cover.
+        discovery.get("model", "vllm")
+        discovery.register("model", "vllm", obj=_FakeOpenAISchemaBackend, override=True, supports_adapters=False)
+        provider = LocalModelProvider(settings=_settings(mode_a_base_url=VPC_URL, mode_a_model_id="qwen"))
+
+        assert provider.capabilities().supports_adapters is False
+        assert provider.resolve_detailed(ModelResolveRequest(adapter="support-v3")).adapter is None
+
+    def test_an_explicit_false_declaration_survives_the_builtins_first_bootstrap(self):
+        """The ordering hazard the previous test's `discovery.get` warm-up sidesteps.
+
+        A caller may register `vllm` with `supports_adapters=False` *before* anything else has
+        touched the "model" kind -- there is no requirement to warm the table first, and the
+        public API gives no indication that order matters. The first read after that (here,
+        constructing `LocalModelProvider`, which calls `discovery.get` in its own validation)
+        triggers `_ensure_ready`, which imports `registry/_declarations/models.py` and calls
+        `register_all()`. Before the fix, `register_all()` re-registered every row with
+        `override=True` unconditionally, silently reverting the caller's opt-out back to the
+        builtin's `True` with no warning. `register_all()` now skips a key that is already
+        registered by a non-builtin source.
+        """
+        # Forced rather than assumed: whether "model" is already warm here depends on what other
+        # tests ran first in this session, and the property under test is about registration
+        # *order*, not suite order. Discarding it (this fixture's own teardown restores whatever
+        # was true before this test regardless) reproduces the un-warmed state deterministically.
+        discovery._READY.discard("model")
+        discovery.register("model", "vllm", obj=_FakeOpenAISchemaBackend, override=True, supports_adapters=False)
+
+        provider = LocalModelProvider(settings=_settings(mode_a_base_url=VPC_URL, mode_a_model_id="qwen"))
+
+        assert provider.capabilities().supports_adapters is False
+        assert provider.resolve_detailed(ModelResolveRequest(adapter="support-v3")).adapter is None
+
+    def test_a_registration_removed_after_construction_falls_back_to_the_in_tree_tuple(self):
+        """The fallback path -- reachable by a row disappearing mid-process, not by never existing.
+
+        `LocalModelProvider.__init__` already raises `ModelProviderConfigError` for a backend
+        `discovery.get` cannot answer for, so a *never*-registered name never reaches
+        `_supports_adapters` at all. What the tuple actually guards against is a row present at
+        construction time (as it must be, to pass validation) and gone by resolve time --
+        `unregister("model", ...)`, a test fixture tearing down a fake, or (in principle) a
+        plugin removed at runtime. The behaviour must be the same either way: keep resolving,
+        using the tuple as the last word once the registry has none.
+        """
+        provider = LocalModelProvider(
+            settings=_settings(mode_a_base_url=VPC_URL, mode_a_model_id="qwen"),
+            backend="openai-like",
+        )
+        discovery._TABLE["model"].pop("openai-like", None)
+
+        assert provider.capabilities().supports_adapters is True, "the tuple still answers"
+
+    def test_the_capability_and_the_behaviour_cannot_disagree(self, fake_vllm):
+        """Both read `_supports_adapters`, so a future edit cannot move one without the other.
+
+        The issue called this out specifically: `capabilities().supports_adapters` and the applied
+        behaviour were computed from the same tuple in two places, and two places is one too many.
+        """
+        for declared in (True, False):
+            discovery.register(
+                "model",
+                "either-way",
+                obj=_FakeOpenAISchemaBackend,
+                override=True,
+                supports_adapters=declared,
+            )
+            provider = LocalModelProvider(
+                settings=_settings(mode_a_base_url=VPC_URL, mode_a_model_id="qwen"),
+                backend="either-way",
+            )
+            reported = provider.capabilities().supports_adapters
+            applied = provider.resolve_detailed(ModelResolveRequest(adapter="a1")).adapter is not None
+            assert reported is applied is declared, f"reported={reported} applied={applied} declared={declared}"
+
+    def test_an_ignored_adapter_is_logged_so_the_question_is_answerable(self, caplog):
+        """ "Why did my adapter not apply?" was previously unanswerable without reading the module.
+
+        Debug rather than warning on purpose: a config shared across backends mentions `adapter`
+        legitimately on backends that have no adapter concept, so this is normal there and would be
+        noise at a higher level.
+        """
+        import logging
+
+        discovery.register("model", "quiet-server", obj=_FakeOpenAISchemaBackend, override=True)
+        provider = LocalModelProvider(
+            settings=_settings(mode_a_base_url=VPC_URL, mode_a_model_id="qwen"),
+            backend="quiet-server",
+        )
+
+        # Two things are needed, and neither is `caplog.at_level` alone.
+        #
+        # `log_debug` is gated on the framework's own `debug_on` flag rather than on the logger
+        # level, so without `set_log_level_to_debug()` the call is skipped before logging is
+        # reached. And the `egpt` logger sets `propagate = False` with its own handler, so pytest's
+        # root handler never sees the record -- it has to be attached directly.
+        from egpt.utils import log as egpt_log
+
+        egpt_logger = logging.getLogger("egpt")
+        previous_level = egpt_logger.level
+        previous_debug_on = egpt_log.debug_on
+        egpt_logger.addHandler(caplog.handler)
+        egpt_logger.setLevel(logging.DEBUG)
+        egpt_log.set_log_level_to_debug()
+        try:
+            provider.resolve_detailed(ModelResolveRequest(adapter="support-v3"))
+        finally:
+            egpt_logger.removeHandler(caplog.handler)
+            egpt_logger.setLevel(previous_level)
+            egpt_log.debug_on = previous_debug_on
+
+        messages = " ".join(record.getMessage() for record in caplog.records)
+        assert "support-v3" in messages and "quiet-server" in messages, (
+            "the log must name both the adapter and the backend to be actionable"
+        )
+        assert "supports_adapters=True" in messages, "and must say how to fix it"
+        # `_adapter_applies` is called once by `resolve_detailed` and once by `_build_config`;
+        # if it recomputed its own decision instead of receiving one, one ignored adapter would
+        # log this line twice per resolution.
+        assert len(caplog.records) == 1, "one ignored adapter must log once, not once per call site"
+
+
+class TestTheInTreeDeclarationsCarryTheCapability:
+    """The two in-tree rows that serve multi-LoRA declare it, and the rest do not.
+
+    Asserted against the real declarations rather than the fakes: if `models.py` stops passing
+    `supports_adapters`, every test above still passes on its own fake registrations while the
+    shipped backends silently lose adapter support.
+    """
+
+    @pytest.mark.parametrize("key", ["vllm", "openai-like"])
+    def test_the_multi_lora_backends_declare_support(self, key):
+        registration = discovery.get("model", key)
+        assert registration is not None
+        assert registration.metadata.get("supports_adapters") is True
+
+    @pytest.mark.parametrize("key", ["ollama", "anthropic", "openai"])
+    def test_backends_without_an_adapter_concept_do_not(self, key):
+        registration = discovery.get("model", key)
+        assert registration is not None
+        assert registration.metadata.get("supports_adapters") is False
