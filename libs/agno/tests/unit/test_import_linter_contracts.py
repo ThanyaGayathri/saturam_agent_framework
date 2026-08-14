@@ -110,11 +110,24 @@ _NEW_SERVICES_REFERENCE_INTEGRATIONS = {
     ("egpt.guardrails.openai", "egpt.integrations.models._utils.openai"),
 }
 
+# Landed on main (feat/SM-G1, the neo4j graph-memory substrate) after aicoe-tracker#180 was
+# filed, while this PR was in flight -- same class of problem (an integrations-layer module
+# needs a higher-layer module's domain types/config), just integrations -> services instead of
+# integrations -> orchestration. Tracked here rather than filing a fourth ticket; noted on #180
+# as an additional instance of the same seam decision.
+_NEW_INTEGRATIONS_REFERENCE_SERVICES = {
+    ("egpt.integrations.memory.graph.neo4j.cypher", "egpt.memory.types"),
+    ("egpt.integrations.memory.graph.neo4j.neo4j", "egpt.memory.config"),
+    ("egpt.integrations.memory.graph.neo4j.neo4j", "egpt.memory.tiers"),
+    ("egpt.integrations.memory.graph.neo4j.neo4j", "egpt.memory.types"),
+}
+
 _KNOWN_VIOLATIONS = (
     _A8_CONTEXT_CONNECTORS
     | _A13_SLACK_CHANNEL_ADAPTER
     | _NEW_INTEGRATIONS_REFERENCE_ORCHESTRATION
     | _NEW_SERVICES_REFERENCE_INTEGRATIONS
+    | _NEW_INTEGRATIONS_REFERENCE_SERVICES
 )
 
 
