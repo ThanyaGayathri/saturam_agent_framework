@@ -46,11 +46,32 @@ def _settings():
 
 @pytest.fixture
 def graph():
+    """A substrate for the sync tests. Teardown is sync, so nothing here may open the async half.
+
+    `close()` refuses while an async driver is open -- correctly, since it cannot release one -- so a
+    test that touched the async half and then failed before its own `aclose()` would have that
+    refusal raised in teardown, masking the real failure. Async tests take `async_graph` instead.
+    """
     substrate = Neo4jGraphSubstrate(**_settings())
     with substrate._driver.session(database=substrate.database) as session:
         session.run("MATCH (n) DETACH DELETE n")
     yield substrate
     substrate.close()
+
+
+@pytest.fixture
+async def async_graph():
+    """The same substrate for tests that drive the async half, with teardown that can await.
+
+    Separate rather than making `graph` async: around thirty sync tests consume it, and an async
+    fixture cannot be handed to a sync test function.
+    """
+    substrate = Neo4jGraphSubstrate(**_settings())
+    async with substrate._async_driver().session(database=substrate.database) as session:
+        result = await session.run("MATCH (n) DETACH DELETE n")
+        await result.consume()
+    yield substrate
+    await substrate.aclose()
 
 
 @pytest.fixture(params=["neo4j", "double"])
@@ -124,20 +145,31 @@ def test_an_untripled_fact_is_still_storable(graph):
     assert ids(graph.traverse(ACME, MemoryQuery(text="ada thoughtful", tiers=[MemoryTier.SEMANTIC]))) == ["f2"]
 
 
-@pytest.mark.parametrize("other", [GLOBEX, ACME_BOB], ids=["across-tenants", "within-a-tenant"])
-def test_a_scope_that_did_not_write_a_row_cannot_read_it(graph, other):
-    """AC 2. Both directions matter: the within-tenant one is the leak a tenant filter alone misses.
+@pytest.mark.parametrize(
+    "writer,reader",
+    [(ACME, GLOBEX), (ACME, ACME_BOB), (ACME_BOB, ACME)],
+    ids=["across-tenants", "within-tenant-forward", "within-tenant-reverse"],
+)
+def test_a_scope_that_did_not_write_a_row_cannot_read_it(graph, writer, reader):
+    """AC 2, in **both** directions between the same two users.
+
+    Reversing the pair is not symmetry for its own sake: the two scopes are not interchangeable to
+    the predicate builder, which emits a clause per slot the *reader* sets. A ``user_id`` dropped
+    from one branch leaks only in the direction that branch serves, so testing one direction proves
+    the other only by assuming the thing under test.
 
     SM-R2 section 5.4 ruled the isolation model is a property filter, because Community denies
-    ``CREATE DATABASE``. That makes this assertion the isolation guarantee itself, not a detail of
-    it.
+    ``CREATE DATABASE``. That makes this assertion the isolation guarantee itself, not a detail of it.
     """
-    graph.upsert_episodes(ACME, [episode("ada salary is 200k", "e1")])
-    graph.upsert_facts(ACME, [fact("f1", "ada salary is 200k", subject="ada", predicate="earns", object="200k")])
+    graph.upsert_episodes(writer, [episode("ada salary is 200k", "e1", scope=writer)])
+    graph.upsert_facts(
+        writer,
+        [fact("f1", "ada salary is 200k", scope=writer, subject="ada", predicate="earns", object="200k")],
+    )
 
     query = MemoryQuery(text="ada salary 200k")
-    assert graph.traverse(other, query) == []
-    assert graph.bounds_for_ids(other, ["e1", "f1"]) == {}
+    assert graph.traverse(reader, query) == []
+    assert graph.bounds_for_ids(reader, ["e1", "f1"]) == {}
 
 
 def test_a_wider_scope_reads_what_a_narrower_one_wrote(graph):
@@ -498,7 +530,7 @@ def test_a_write_under_a_foreign_scope_is_refused(graph):
 # -- sync and async agree ---------------------------------------------------
 
 
-async def test_both_halves_leave_the_same_durable_state(graph):
+async def test_both_halves_leave_the_same_durable_state(async_graph):
     """Not "an async variant exists": the same decisions and the same rows.
 
     SM-C1 shipped ``write``/``awrite`` persisting different rows for one identical failure, twice,
@@ -506,7 +538,7 @@ async def test_both_halves_leave_the_same_durable_state(graph):
     """
 
     def snapshot():
-        with graph._driver.session(database=graph.database) as session:
+        with async_graph._driver.session(database=async_graph.database) as session:
             # Sorted by `repr`, because the rows carry nulls and tuple ordering compares an int
             # against None the moment two rows differ on a bound.
             return sorted(
@@ -521,31 +553,31 @@ async def test_both_halves_leave_the_same_durable_state(graph):
                 )
             )
 
-    graph.upsert_episodes(ACME, [episode("ada moved to berlin", "e1")])
-    graph.upsert_facts(ACME, [fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin")])
-    graph.invalidate(ACME, "f1", t_invalid=300, at=310)
-    sync_state = snapshot()
-
-    with graph._driver.session(database=graph.database) as session:
-        session.run("MATCH (n) DETACH DELETE n")
-
-    await graph.aupsert_episodes(ACME, [episode("ada moved to berlin", "e1")])
-    await graph.aupsert_facts(
+    async_graph.upsert_episodes(ACME, [episode("ada moved to berlin", "e1")])
+    async_graph.upsert_facts(
         ACME, [fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin")]
     )
-    await graph.ainvalidate(ACME, "f1", t_invalid=300, at=310)
+    async_graph.invalidate(ACME, "f1", t_invalid=300, at=310)
+    sync_state = snapshot()
+
+    with async_graph._driver.session(database=async_graph.database) as session:
+        session.run("MATCH (n) DETACH DELETE n")
+
+    await async_graph.aupsert_episodes(ACME, [episode("ada moved to berlin", "e1")])
+    await async_graph.aupsert_facts(
+        ACME, [fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin")]
+    )
+    await async_graph.ainvalidate(ACME, "f1", t_invalid=300, at=310)
 
     assert snapshot() == sync_state
-    await graph.aclose()
 
 
-async def test_the_async_reads_agree_with_the_sync_ones(graph):
-    graph.upsert_episodes(ACME, [episode("ada moved to berlin", "e1")])
+async def test_the_async_reads_agree_with_the_sync_ones(async_graph):
+    async_graph.upsert_episodes(ACME, [episode("ada moved to berlin", "e1")])
     query = MemoryQuery(text="ada moved")
 
-    assert ids(await graph.atraverse(ACME, query)) == ids(graph.traverse(ACME, query))
-    assert await graph.abounds_for_ids(ACME, ["e1"]) == graph.bounds_for_ids(ACME, ["e1"])
-    await graph.aclose()
+    assert ids(await async_graph.atraverse(ACME, query)) == ids(async_graph.traverse(ACME, query))
+    assert await async_graph.abounds_for_ids(ACME, ["e1"]) == async_graph.bounds_for_ids(ACME, ["e1"])
 
 
 # -- lifecycle --------------------------------------------------------------
@@ -597,6 +629,48 @@ def test_the_provider_closes_its_substrates_through_the_seam(graph):
 
     with pytest.raises(Exception):
         graph.traverse(ACME, MemoryQuery(text="anything"))
+
+
+async def test_ainit_schema_actually_creates_the_schema(async_graph):
+    """The async half's statements must land, not merely be issued.
+
+    ``session.run`` is lazy: an unconsumed result leaves the statement's completion up to whatever
+    the session does on close. It does land today -- which is why no leak warning reproduces -- but
+    the assertion here is on the constraints existing, not on the calls being made.
+    """
+    with async_graph._driver.session(database=async_graph.database) as session:
+        for record in list(session.run("SHOW CONSTRAINTS YIELD name RETURN name")):
+            session.run(f"DROP CONSTRAINT {record['name']} IF EXISTS").consume()
+        assert session.run("SHOW CONSTRAINTS YIELD name RETURN count(*) AS n").single()["n"] == 0
+
+    await async_graph.ainit_schema()
+
+    with async_graph._driver.session(database=async_graph.database) as session:
+        created = session.run("SHOW CONSTRAINTS YIELD name RETURN count(*) AS n").single()["n"]
+    assert created > 0, "ainit_schema issued its statements without them taking effect"
+
+
+def test_a_row_whose_json_was_written_out_of_band_is_refused_not_crashed(graph):
+    """The read path's half of the error taxonomy the write path already had.
+
+    Reachable only by something other than this backend writing the row, which is exactly when a
+    raw ``JSONDecodeError`` three frames inside a read is least useful.
+    """
+    graph.upsert_episodes(ACME, [episode("ada moved to berlin", "e1")])
+    with graph._driver.session(database=graph.database) as session:
+        session.run("MATCH (n:Episode {id:'e1'}) SET n.metadata = 'not json at all'").consume()
+
+    with pytest.raises(MemoryOperationError, match="not readable JSON"):
+        graph.traverse(ACME, MemoryQuery(text="ada moved"))
+
+
+async def test_the_credential_does_not_outlive_the_drivers_that_need_it(async_graph):
+    """A substrate reaches logs and crash dumps through ``vars()`` more often than anyone intends."""
+    await async_graph.aupsert_episodes(ACME, [episode("an episode", "e1")])
+
+    rendered = repr(vars(async_graph))
+
+    assert _settings()["password"] not in rendered, "the password is still an attribute after both drivers exist"
 
 
 # -- known limitations, pinned ----------------------------------------------

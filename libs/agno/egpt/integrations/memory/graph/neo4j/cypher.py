@@ -229,7 +229,14 @@ def upsert_episodes_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:  # no
 
 def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]]]:  # noqa: ARG001 - as above
     """The two fact shapes, keyed by which one a batch's rows belong to: a tripled fact is a
-    relation between entities, an untripled one a node. Both carry the same envelope."""
+    relation between entities, an untripled one a node. Both carry the same envelope.
+
+    Entities are merged on ``(scope_key, name)`` -- the **full** scope, not the tenant. So two users
+    of one tenant each get their own ``(:Entity)`` node for the same name, and nothing is shared
+    across a scope boundary. That is deliberate: resolving one user's "berlin" against another's is
+    entity resolution, which is SM-G8's (#106), and a backend that pre-emptively shared them would
+    have made the isolation guarantee depend on a dedup policy nobody has written yet.
+    """
     triple = (
         "UNWIND $rows AS row "
         "MERGE (s:Entity {scope_key: row.scope_key, name: row.subject}) "
@@ -272,7 +279,14 @@ def _read_live(match: str, alias: str, scope: Scope) -> Tuple[str, Dict[str, Any
 
 
 def episode_probe_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
-    """Is this id an episode? Asked before an invalidation, so the refusal names the right owner.
+    """The **live** episode with this id in this scope, or nothing.
+
+    "Live" is load-bearing and the name does not carry it: an already-archived episode does not
+    match, so ``invalidate`` treats it as absent and no-ops rather than refusing. That is the right
+    terminal behaviour -- an archived row has already left current belief, and there is nothing to
+    expire-and-reinsert -- but it is the kind of thing a reader assumes is an existence check.
+
+    Asked before an invalidation, so the refusal names the right owner.
 
     ADR 0003 section B.6 gives episodic rows a different lifecycle from graph edges, so an
     ``invalidate`` aimed at one is a routing mistake rather than a no-op -- and a no-op here would

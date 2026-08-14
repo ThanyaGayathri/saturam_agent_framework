@@ -59,6 +59,11 @@ except ImportError:
 __all__ = ["Neo4jGraphSubstrate"]
 
 
+#: What ``_auth`` becomes once both drivers hold their own copy. A tuple rather than ``None`` so a
+#: later read fails as an auth error rather than a ``TypeError`` three frames into the driver.
+_SPENT_CREDENTIAL = ("", "")
+
+
 def _as_json(value: Optional[Dict[str, Any]], field: str) -> str:
     """Serialize a nested value, in this module's error envelope rather than the stdlib's.
 
@@ -136,9 +141,15 @@ class Neo4jGraphSubstrate:
     # -- plumbing -------------------------------------------------------------
 
     def _async_driver(self) -> "AsyncDriver":
-        """Built on first use, not in ``__init__``: an async driver binds to the running loop."""
+        """Built on first use, not in ``__init__``: an async driver binds to the running loop.
+
+        Building it is also the last thing that needs the credential, so this is where it stops
+        being an attribute: a substrate reaches logs and crash dumps through ``vars()`` and
+        ``repr()`` far more often than anyone intends, and both drivers hold their own copy.
+        """
         if self._adriver is None:
             self._adriver = AsyncGraphDatabase.driver(self.uri, auth=self._auth)
+            self._auth = _SPENT_CREDENTIAL
         return self._adriver
 
     @staticmethod
@@ -214,11 +225,19 @@ class Neo4jGraphSubstrate:
         log_debug(f"Neo4jGraphSubstrate schema ready on {self.uri}/{self.database}")
 
     async def ainit_schema(self) -> None:
-        """Async twin of :meth:`init_schema`."""
+        """Async twin of :meth:`init_schema`.
+
+        Each result is consumed rather than left to the session's drain-on-close. The schema does
+        land either way -- verified against the engine -- but "the statement ran because closing the
+        session happened to flush it" is a guarantee borrowed from the driver's teardown, and the
+        first statement to need its result would have no way to ask for one.
+        """
         with self._translated("schema init"):
             async with self._async_driver().session(database=self.database) as session:
                 for statement in cypher.SCHEMA_STATEMENTS:
-                    await session.run(statement)
+                    result = await session.run(statement)
+                    await result.consume()
+        log_debug(f"Neo4jGraphSubstrate schema ready on {self.uri}/{self.database}")
 
     def close(self) -> None:
         """Close the sync driver, and **refuse** when an async one is still open.
@@ -316,6 +335,24 @@ class Neo4jGraphSubstrate:
             row.pop(cypher.LIVE, None)
         return row
 
+    @staticmethod
+    def _from_json(value: Optional[str], field: str, record_id: Any) -> Dict[str, Any]:
+        """Decode a stored nested value, in this module's envelope rather than the stdlib's.
+
+        The mirror of :func:`_as_json`. A row whose JSON does not parse is out-of-band -- written by
+        something other than this backend -- and the read path had the one unshaped failure left in
+        the module after the write path was covered.
+        """
+        try:
+            return dict(json.loads(value or "{}"))
+        except (TypeError, ValueError) as exc:
+            raise MemoryOperationError(
+                f"{field} on record {record_id!r} is not readable JSON ({exc}). A graph property "
+                "holds primitives and arrays, so this backend stores nested values as JSON; a row "
+                "written outside it will not round-trip.",
+                field_name=field,
+            ) from exc
+
     def _record(self, row: Dict[str, Any], scope: Scope) -> MemoryRecord:
         return MemoryRecord(
             id=row["id"],
@@ -325,13 +362,13 @@ class Neo4jGraphSubstrate:
             score=row.get("score"),
             substrate=Substrate.GRAPH,
             topics=list(row["topics"]) if row.get("topics") is not None else None,
-            provenance=json.loads(row.get("provenance") or "{}"),
+            provenance=self._from_json(row.get("provenance"), "provenance", row.get("id")),
             t_valid=row.get("t_valid"),
             t_invalid=row.get("t_invalid"),
             created_at=row.get("created_at"),
             expired_at=row.get("expired_at"),
             superseded_by=row.get("superseded_by"),
-            metadata=json.loads(row.get("metadata") or "{}"),
+            metadata=self._from_json(row.get("metadata"), "metadata", row.get("id")),
         )
 
     # -- writes ---------------------------------------------------------------
@@ -587,6 +624,13 @@ class Neo4jGraphSubstrate:
                     # *commits*, so the two halves would diverge the moment a write appeared above
                     # this check -- the sync one keeping it, the async one discarding it. Nothing is
                     # written here today, which is exactly why it is free to fix now.
+                    #
+                    # `__exit__` still runs after this `return` and checks the transaction's state
+                    # before committing, so the rollback stands. That is driver behaviour rather
+                    # than something this code can assert inline: it is pinned by
+                    # `test_the_no_op_invalidation_branch_rolls_back_on_both_halves`, which asserts
+                    # on the transaction calls, and exercised end-to-end by
+                    # `test_an_invalidation_under_a_foreign_scope_does_nothing`.
                     tx.rollback()
                     return
                 for text, binds in (*cypher.expire_statements(scope), *cypher.insert_bounded_copy_statements(scope)):

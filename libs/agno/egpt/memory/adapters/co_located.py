@@ -865,6 +865,15 @@ class CoLocatedMemoryProvider(MemoryProvider):
     def _graph_fact_batch(self, fact_scope: Scope, batch: Sequence[FactWrite], receipt: WriteReceipt) -> None:
         """The sync counterpart of ``_gather_writes`` for one batch of facts.
 
+        **A batched write reports one failure, not the best of several.** The per-fact loop this
+        replaced could collect a transport error *and* a refusal from one batch and let
+        ``_raise_write_failure`` pick the refusal as the cause; a single call raises once, so that
+        selection has nothing to choose between here. The trade is deliberate -- one round trip per
+        scope group was the point -- and the selection still matters on the `write` path, where the
+        two verbs fan out and can fail differently
+        (`test_a_refusal_among_concurrent_failures_wins_over_a_transport_error`). The consolidate
+        test's own "mixed" case was dropped for exactly this reason, which its docstring records.
+
         Both halves now make **one** call, so they cannot diverge on how many facts they attempted.
         What still has to be shared is how a failure is *shaped*: ``upsert_facts`` is explicitly not
         required to be atomic, so a batch that raises may have committed part of itself. That is a
