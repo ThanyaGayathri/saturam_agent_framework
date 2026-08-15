@@ -59,8 +59,8 @@ def _build_app():
     # Slack hasn't moved yet (EGPT-1.7b phase 2) -- these are its current, still-valid module
     # paths. Update to egpt.integrations.channels.slack.{router,event_handler} once it does.
     with (
-        patch("egpt.os.interfaces.slack.router.SlackTools", return_value=mock_slack_tools),
-        patch("egpt.os.interfaces.slack.event_handler.AsyncWebClient", return_value=mock_async_web_client),
+        patch("egpt.integrations.channels.slack.router.SlackTools", return_value=mock_slack_tools),
+        patch("egpt.integrations.channels.slack.event_handler.AsyncWebClient", return_value=mock_async_web_client),
     ):
         agent_os = EgptOS(
             agents=[agent],

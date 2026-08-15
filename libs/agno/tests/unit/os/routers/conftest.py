@@ -28,7 +28,7 @@ def make_signed_request(client: TestClient, body: dict, signing_secret: str = SI
 
 
 def build_app(agent_mock: Mock, **kwargs) -> FastAPI:
-    from egpt.os.interfaces.slack.router import attach_routes
+    from egpt.integrations.channels.slack.router import attach_routes
 
     kwargs.setdefault("streaming", False)
     app = FastAPI()

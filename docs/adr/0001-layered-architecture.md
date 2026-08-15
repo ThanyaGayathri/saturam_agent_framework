@@ -210,7 +210,7 @@ Packages marked **split** keep interfaces/types in **core** and move concrete im
 
 | Module | Notes |
 |--------|-------|
-| `integrations/` | Existing package; destination for channel and other external adapters — `discord/` (pre-existing, separately tracked as aicoe-tracker#180 debt) and, since EGPT-1.7b, `channels/whatsapp/` (and `channels/slack/` in its follow-up PR) |
+| `integrations/` | Existing package; destination for channel and other external adapters — `discord/` (pre-existing, separately tracked as aicoe-tracker#180 debt) and, since EGPT-1.7b, `channels/whatsapp/` and `channels/slack/` |
 | `models/<providers>/` | All concrete providers (`openai/`, `anthropic/`, `ollama/`, …) |
 | `models/utils.py` | Provider construction table (`_PROVIDERS` → concrete module paths). **Must not stay in core.** Becomes the integrations-side source that **registers constructors** into the core Registry seam at startup. |
 | `db/<backends>/` | Concrete DB backends (`postgres/`, `sqlite/`, `mongo/`, …) |
