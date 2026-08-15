@@ -33,12 +33,13 @@ for this: ``RemoteAgent``/``RemoteTeam``/``RemoteWorkflow`` (``egpt.remote.base.
 subclasses) implement only ``arun``, not a sync ``run``, so they do not structurally satisfy
 ``RunnableLike``. Every channel-adapter call site only ever does ``await entity.arun(...)`` or
 ``async for event in entity.arun(..., stream=True)`` -- never ``.run()`` -- so the protocol drops
-``run`` (and ``deep_copy``, which these callers never need either). ``id`` is declared as a
-read-only ``@property`` rather than a plain attribute (unlike ``AgentLike``/``TeamLike``/
-``RunnableLike`` above): those three are only ever satisfied by ``Agent``/``Team`` (a mutable
-``id`` field), but a channel-adapter caller also has to accept ``RemoteAgent``/``RemoteTeam``/
-``RemoteWorkflow``, whose ``id`` is a read-only property -- mypy rejects a read-only property
-against a plain (implicitly settable) protocol attribute.
+``run`` (and ``deep_copy``, which these callers never need either). It also drops ``id``, unlike
+``AgentLike``/``TeamLike``/``RunnableLike`` above: no channel-adapter call site reads
+``entity.id`` as an attribute (they only ever do ``getattr(entity, "id", None)``, which needs no
+protocol membership), so a member with no consumer would just be unused surface -- add it back,
+with a read-only ``@property`` (not a plain attribute: ``RemoteAgent``/``RemoteTeam``/
+``RemoteWorkflow``'s ``id`` is read-only, and mypy rejects that against a plain, implicitly
+settable protocol attribute), if and when a caller actually needs it.
 
 This module must keep importing nothing but ``typing`` -- that is the whole point of it.
 """
@@ -90,12 +91,7 @@ class RunnableLike(Protocol):
 
 @runtime_checkable
 class AsyncRunnableLike(Protocol):
-    """The part of an entity a channel adapter depends on: id it, run it async, get output."""
-
-    @property
-    def id(self) -> Optional[str]:
-        """Read-only: see the module docstring for why this is a property, not an attribute."""
-        ...
+    """The part of an entity a channel adapter depends on: run it async, get output."""
 
     def arun(self, *args: Any, **kwargs: Any) -> Any:
         """Run with the caller's ``input`` (and whatever else it passes); callers always
