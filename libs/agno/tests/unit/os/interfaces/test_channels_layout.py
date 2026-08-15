@@ -106,6 +106,15 @@ def test_every_moved_module_has_a_submodule_shim():
     assert checked >= expected, f"Only {checked} submodule shims verified; expected at least {expected}."
 
 
+# slack/__init__.py re-exports attach_routes from router.py, and os/interfaces/slack/__init__.py
+# eagerly imports Slack (which imports router.py too) -- so importing ANY slack submodule, shim
+# or target, first runs its parent package's __init__.py and transitively needs slack_sdk, even
+# for a submodule with no slack_sdk import of its own (e.g. builders.py). Same shape as
+# test_context_layout.py's _REQUIRES_GOOGLE_API.
+_REQUIRES_SLACK_SDK = {"slack"}
+_SLACK_SDK_REASON = "importing any slack submodule transitively imports router.py via __init__.py"
+
+
 @pytest.mark.parametrize("package,filename", _moved_submodule_pairs())
 def test_eager_shim_binds_correct_objects_and_warns(package, filename):
     """Runtime counterpart to `test_every_moved_module_has_a_submodule_shim`'s static check.
@@ -116,6 +125,9 @@ def test_eager_shim_binds_correct_objects_and_warns(package, filename):
     caching means only the first import anywhere in the whole test session would ever observe
     the warning.
     """
+    if package in _REQUIRES_SLACK_SDK:
+        pytest.importorskip("slack_sdk", reason=_SLACK_SDK_REASON)
+
     submodule = filename[: -len(".py")]
     shim_path = f"egpt.os.interfaces.{package}.{submodule}"
     target_path = f"egpt.integrations.channels.{package}.{submodule}"
