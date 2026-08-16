@@ -81,19 +81,38 @@ TABLE_PREFIX_MAX_LENGTH = 32
 MAX_IDENTIFIER_LENGTH = 63
 
 
+def _bounded_identifier(full: str) -> str:
+    """Truncate ``full`` to :data:`MAX_IDENTIFIER_LENGTH`, hashing beyond the limit.
+
+    Keeps the name stable across runs and distinct between identifiers that share a truncated
+    prefix -- the collision silent database-side truncation would otherwise produce.
+    """
+    if len(full) <= MAX_IDENTIFIER_LENGTH:
+        return full
+    digest = sha1(full.encode("utf-8")).hexdigest()[:8]
+    return f"{full[: MAX_IDENTIFIER_LENGTH - len(digest) - 1]}_{digest}"
+
+
 def derive_index_name(table_name: str, columns: Sequence[str]) -> str:
     """Return the index name for ``columns`` on ``table_name``, bounded to a safe length.
 
     ``idx_{table}_{columns}`` while that fits, which is every table at the default prefix, so
     existing deployments see no rename. Beyond the limit the name is truncated and given a hash
-    of the full name, which keeps it stable across runs and distinct between indexes that share a
-    truncated prefix -- the collision the silent truncation would otherwise produce.
+    of the full name (see :func:`_bounded_identifier`).
     """
-    full = f"idx_{table_name}_{'_'.join(columns)}"
-    if len(full) <= MAX_IDENTIFIER_LENGTH:
-        return full
-    digest = sha1(full.encode("utf-8")).hexdigest()[:8]
-    return f"{full[: MAX_IDENTIFIER_LENGTH - len(digest) - 1]}_{digest}"
+    return _bounded_identifier(f"idx_{table_name}_{'_'.join(columns)}")
+
+
+def derive_constraint_name(table_name: str, columns: Sequence[str], suffix: str) -> str:
+    """Return a constraint name for ``columns`` on ``table_name``, bounded to a safe length.
+
+    ``{table}_{columns}_{suffix}`` while that fits, mirroring :func:`derive_index_name` so both
+    stay under Postgres's 63-character identifier limit -- a long ``table_prefix`` can otherwise
+    push a foreign-key constraint name (e.g. ``..._parent_component_id_parent_version_fkey``)
+    past it, where Postgres errors rather than silently truncating as it does for identifiers
+    that aren't part of a CREATE statement's own length check.
+    """
+    return _bounded_identifier(f"{table_name}_{'_'.join(columns)}_{suffix}")
 
 
 _TABLE_PREFIX_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")

@@ -36,6 +36,7 @@ __all__ = [
     "NO_SUPERSEDE",
     "consolidation_details",
     "ConsolidationReport",
+    "escape_key_slot",
     "FactWrite",
     "fusion_diagnostics",
     "MemoryEvent",
@@ -133,10 +134,17 @@ def _epoch_or_none(value: Any) -> Optional[int]:
     return to_epoch_s(value)
 
 
-def _escape(value: Optional[str]) -> str:
+def escape_key_slot(value: Optional[str]) -> str:
     """One slot of :meth:`Scope.key`, with the separator made unambiguous.
 
-    ``%`` first, or escaping ``/`` would itself be escapable into a collision.
+    Three characters are escaped. ``%`` first, or escaping the others would itself be escapable
+    into a collision; ``/`` because it separates slots; and ``*`` because it is the unset-slot
+    sentinel -- ``agent_id="*"`` must not produce the same slot as an unset ``agent_id``, so it
+    becomes ``%2A``.
+
+    Public because :func:`egpt.memory.schemas.episodic.graph_node_id_for` extends a scope key with
+    a sixth slot and must escape it the same way; two implementations of one escaping rule is how
+    the two keys start disagreeing about which characters are separators.
     """
     if value is None:
         return "*"
@@ -219,7 +227,7 @@ class Scope:
         Built from :data:`SCOPE_SLOTS` rather than a hand-written list, so a slot added to this
         dataclass widens the key instead of colliding with the scopes that lack it.
         """
-        return "/".join(_escape(getattr(self, slot)) for slot in SCOPE_SLOTS)
+        return "/".join(escape_key_slot(getattr(self, slot)) for slot in SCOPE_SLOTS)
 
 
 def require_scope(scope: Any, *, method: str) -> Scope:
