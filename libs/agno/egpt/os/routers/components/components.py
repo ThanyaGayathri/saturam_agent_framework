@@ -766,9 +766,22 @@ def attach_routes(
             # by the audit trail itself, which is exactly what a hard delete leaves behind. Every
             # other route still calls _require_component with include_deleted defaulted to
             # False, so their 404 semantics are unaffected.
-            component = db.get_component(component_id, tenant_id=tenant_id, include_deleted=include_deleted)
+            # include_deleted is passed only when set, so the default call stays byte-identical
+            # to base and no BaseDb implementation is forced to absorb the new kwarg.
+            if include_deleted:
+                component = db.get_component(component_id, tenant_id=tenant_id, include_deleted=True)
+            else:
+                component = db.get_component(component_id, tenant_id=tenant_id)
             if component is None and not include_deleted:
                 raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
+
+            if component is None:
+                # Existence must not depend on the caller's filters, which total_count below
+                # already applies: a valid action/version matching no rows is an empty page, not
+                # a component that never existed. Probe unfiltered, on its own page.
+                _, any_history = db.list_component_audit(component_id, limit=1, offset=0, tenant_id=tenant_id)
+                if any_history == 0:
+                    raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
 
             if action is not None and action not in COMPONENT_AUDIT_ACTIONS:
                 # Rejected rather than answered with an empty page, so a typo'd filter is not
@@ -786,11 +799,6 @@ def attach_routes(
                 offset=(page - 1) * limit,
                 tenant_id=tenant_id,
             )
-
-            if component is None and total_count == 0:
-                # include_deleted was set but there is truly nothing: the component never
-                # existed (or belongs to another tenant), not merely deleted.
-                raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
 
             total_pages = (total_count + limit - 1) // limit if limit > 0 else 0
 
