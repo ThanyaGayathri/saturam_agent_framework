@@ -25,6 +25,7 @@ pytest.importorskip("psycopg", reason="the pgvector memory substrate connects th
 from sqlalchemy import text  # noqa: E402
 
 from egpt.integrations.memory.vector.pgvector import PgVectorMemorySubstrate, sql  # noqa: E402
+from egpt.memory.config import MemoryProviderConfigError  # noqa: E402
 from egpt.memory.substrates import VectorSubstrate  # noqa: E402
 from egpt.memory.tiers import MemoryTier  # noqa: E402
 from egpt.memory.types import MemoryOperationError, MemoryQuery, MemoryRecord, Scope, Substrate  # noqa: E402
@@ -437,3 +438,54 @@ def test_the_vector_projection_is_not_re_synced_when_the_graph_bounds_a_fact(any
     any_store.upsert(ACME, [record("e1", "the cat sat on the mat", t_valid=10)])
     stored = any_store.search(ACME, MemoryQuery(text="cat mat", limit=5))[0]
     assert stored.t_invalid is None and stored.expired_at is None
+
+
+# -- schema drift: what the DDL kept from a previous run -----------------------
+
+
+class _NarrowEmbedder(TokenEmbedder):
+    """Half the width of the fixture's embedder, to stand for a deployment changing models."""
+
+    dimensions = DIM // 2
+
+    def get_embedding(self, text_):
+        return super().get_embedding(text_)[: self.dimensions]
+
+    async def async_get_embedding(self, text_):
+        await asyncio.sleep(0)
+        return self.get_embedding(text_)
+
+
+def test_a_dimension_change_is_refused_at_schema_init_not_at_the_first_write(store):
+    """``CREATE TABLE IF NOT EXISTS`` does not reconcile an existing table with the DDL just
+    submitted, so before this check a deployment that changed its embedder started up **clean** and
+    then failed on every write with Postgres' own ``expected 8 dimensions, not 768`` -- raised from
+    a write, naming a column, layers below the setting that caused it.
+
+    ``store`` has already created the table at ``DIM``; this asks for half of it.
+    """
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        PgVectorMemorySubstrate(db_url=_url(), embedder=_NarrowEmbedder(), table=TABLE)
+    assert raised.value.field_name == "dim"
+    assert f"vector({DIM})" in str(raised.value)
+
+
+async def test_the_async_half_refuses_the_same_drift(store):
+    """The twin reads the same rows and reaches the same decision -- asserted rather than assumed,
+    since a check added to one half only is this module's most repeated defect."""
+    substrate = PgVectorMemorySubstrate(db_url=_url(), embedder=_NarrowEmbedder(), table=TABLE, auto_init_schema=False)
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        await substrate.ainit_schema()
+    assert raised.value.field_name == "dim"
+    await substrate.aclose()
+
+
+def test_changed_index_options_are_reported_and_not_refused(store, caplog):
+    """A stale ``m`` is not the same failure as a stale width: the index still answers correctly, at
+    a different recall/latency point. Refusing would brick a running deployment over a tuning
+    parameter, and silently accepting would leave a configured setting that never applied -- so it
+    is reported. Rebuilding the index would lock the table, which this backend does not do."""
+    with caplog.at_level("WARNING"):
+        rebuilt = PgVectorMemorySubstrate(db_url=_url(), embedder=TokenEmbedder(), table=TABLE, m=32)
+    rebuilt.close()
+    assert any("m=16" in record.message and "m=32" in record.message for record in caplog.records), caplog.text

@@ -31,7 +31,7 @@ from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryOperationError, MemoryQuery, MemoryRecord, Scope, Substrate
 from egpt.utils.dttm import now_epoch_s
-from egpt.utils.log import log_debug
+from egpt.utils.log import log_debug, log_warning
 from egpt.vectordb.distance import Distance
 from egpt.vectordb.score import normalize_score
 
@@ -219,12 +219,14 @@ class PgVectorMemorySubstrate:
         # wrapper: `ef_search` reaches a statement as a literal and the rest reach DDL, so this is
         # where a bad value is cheap -- and a refusal that arrives as a bare `ValueError` is one a
         # caller narrowing to `MemoryProviderConfigError` never sees.
+        self._index_options = (m, ef_construction)
         with self._settings_checked():
             self.schema = sql.identifier(schema, "schema")
             self.table = sql.table_identifier(table)
             self.dim = self._resolved_dim(dim, self.embedder)
             sql.ef_search_statement(ef_search)
             self._schema_statements = sql.schema_statements(self.schema, self.table, self.dim, m, ef_construction)
+            self._live_schema = sql.live_schema_statements(self.schema, self.table)
         self._engine: Engine = create_engine(self.db_url, pool_pre_ping=True, pool_recycle=3600)
         self._aengine: Optional["AsyncEngine"] = None
         #: Tenants whose partition this process has already created. A cache, never an authority:
@@ -405,11 +407,53 @@ class PgVectorMemorySubstrate:
             async with self._async_engine().begin() as connection:
                 await connection.execute(text(statement), rows)
 
+    def _reject_schema_drift(self, read_back: List[List[Dict[str, Any]]]) -> None:
+        """Compare what the DDL asked for against what the table actually is.
+
+        ``CREATE TABLE IF NOT EXISTS`` does not reconcile an existing table with the definition
+        just submitted, so a deployment that changes its embedder and restarts came up **clean**
+        and then failed on every write with Postgres' own ``expected 8 dimensions, not 768`` --
+        raised from a write, naming a column, three layers below the setting that caused it. This
+        is the same "refuse at construction, not at first use" rule the rest of ``__init__``
+        follows; the width just happens to live in the database rather than in an argument.
+
+        **The dimension is refused and the index options are only reported**, which is a real
+        distinction rather than a hedge: a stale ``vector(n)`` makes every write fail, while a
+        stale ``m`` or ``ef_construction`` still answers correctly at a different recall/latency
+        point. Refusing the second would brick a running deployment over a tuning parameter.
+        Rebuilding an index is a maintenance operation this backend deliberately does not perform
+        -- it would lock the table for the duration -- so the honest thing is to say the setting is
+        not live rather than to imply it was applied.
+        """
+        stored = read_back[0][0]["dim"] if read_back[0] else None
+        # -1 is Postgres' "no typmod": a `vector` column with no declared width, which nothing here
+        # creates but a hand-rolled table might.
+        if stored is not None and stored != -1 and stored != self.dim:
+            raise MemoryProviderConfigError(
+                f"{self.schema}.{self.table} holds vector({stored}) and this substrate is configured "
+                f"for {self.dim}. CREATE TABLE IF NOT EXISTS leaves an existing table as it is, so "
+                "starting up would succeed and every write would then fail. Moving to a new "
+                "dimension is a re-embedding migration (SM-V2 #96), not a restart.",
+                field_name="dim",
+            )
+        wanted = {f"m={self._index_options[0]}", f"ef_construction={self._index_options[1]}"}
+        for row in read_back[1]:
+            live = set(row["options"] or ())
+            if live and live != wanted:
+                log_warning(
+                    f"{row['name']} was built with {sorted(live)} and this substrate is configured "
+                    f"for {sorted(wanted)}. The existing index is used as it stands -- these "
+                    "settings apply only when the index is first created, and rebuilding one is a "
+                    "locking operation this backend does not perform."
+                )
+
     def init_schema(self) -> None:
         """Create the extension, the partitioned parent and its indexes, idempotently."""
         with self._translated("schema init"), self._engine.begin() as connection:
             for statement in self._schema_statements:
                 connection.execute(text(statement))
+            read_back = [_rows(connection.execute(text(body), binds)) for body, binds in self._live_schema]
+        self._reject_schema_drift(read_back)
         log_debug(f"PgVectorMemorySubstrate schema ready on {self.schema}.{self.table}")
 
     async def ainit_schema(self) -> None:
@@ -418,6 +462,8 @@ class PgVectorMemorySubstrate:
             async with self._async_engine().begin() as connection:
                 for statement in self._schema_statements:
                     await connection.execute(text(statement))
+                read_back = [_rows(await connection.execute(text(body), binds)) for body, binds in self._live_schema]
+        self._reject_schema_drift(read_back)
         log_debug(f"PgVectorMemorySubstrate schema ready on {self.schema}.{self.table}")
 
     def _partition_binds(self, tenant_id: str) -> Dict[str, Any]:

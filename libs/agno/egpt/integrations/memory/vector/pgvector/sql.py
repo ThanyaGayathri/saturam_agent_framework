@@ -33,6 +33,7 @@ __all__ = [
     "create_partition_statement",
     "ef_search_statement",
     "identifier",
+    "live_schema_statements",
     "partition_name",
     "qualified",
     "table_identifier",
@@ -292,6 +293,34 @@ def schema_statements(schema: str, table: str, dim: int, m: int, ef_construction
         # `scan` is ordered by `(created_at, id)` and filtered by tier, and it is the read
         # consolidation drains a tier with -- an unindexed one is a full partition scan per pass.
         f"CREATE INDEX IF NOT EXISTS {identifier(f'{table}_scan', 'index')} ON {parent} (tier, created_at, id)",
+    ]
+
+
+def live_schema_statements(schema: str, table: str) -> List[Tuple[str, Dict[str, Any]]]:
+    """Read back what the database **actually** holds: the vector width, and the HNSW options.
+
+    ``CREATE TABLE IF NOT EXISTS`` and ``CREATE INDEX IF NOT EXISTS`` are no-ops against an existing
+    object -- they do not reconcile it with the DDL just submitted. So a deployment that changes a
+    setting and restarts gets a clean, silent startup on the *old* shape. Reading it back is the
+    only way to know which one is live.
+
+    The table is addressed through ``to_regclass(:qualified)`` rather than interpolated into a
+    ``::regclass`` literal, so the one identifier that reaches this query is still a bind parameter.
+    """
+    qualified_name = {"qualified": f"{identifier(schema, 'schema')}.{table_identifier(table)}"}
+    return [
+        (
+            "SELECT a.atttypmod AS dim FROM pg_attribute a "
+            "WHERE a.attrelid = to_regclass(:qualified) AND a.attname = 'embedding' AND NOT a.attisdropped",
+            qualified_name,
+        ),
+        (
+            "SELECT c.relname AS name, c.reloptions AS options FROM pg_class c "
+            "JOIN pg_index i ON i.indexrelid = c.oid "
+            "WHERE i.indrelid = to_regclass(:qualified) "
+            "AND c.relam = (SELECT oid FROM pg_am WHERE amname = 'hnsw')",
+            qualified_name,
+        ),
     ]
 
 
