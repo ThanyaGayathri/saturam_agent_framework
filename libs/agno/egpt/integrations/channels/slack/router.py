@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from ssl import SSLContext
-from typing import Dict, List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional, Union, cast
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -25,7 +25,7 @@ from egpt.integrations.channels.slack.ids import (
 )
 from egpt.integrations.channels.slack.security import verify_slack_signature
 from egpt.integrations.tools.slack import SlackTools
-from egpt.registry.protocols import AsyncRunnableLike
+from egpt.registry.protocols import AsyncRunnableLike, HitlRunnableLike
 
 # Slack sends lifecycle events for bots with these subtypes. Without this
 # filter the router would try to process its own messages, causing infinite loops.
@@ -91,10 +91,31 @@ def attach_routes(
     bot_name_resolver = BotNameResolver()
     if entity is None:
         raise ValueError("attach_routes requires agent, team, or workflow")
+    # HITL is wired unconditionally for every mount (no opt-out below), so the entity must
+    # support resuming a paused run and refetching its output, not just arun -- RemoteAgent/
+    # RemoteTeam/RemoteWorkflow satisfy AsyncRunnableLike but lack aget_run_output, and would
+    # otherwise only fail once a user clicks Approve/Reject/Submit (aicoe-tracker#158, PR #82
+    # round-2 review). hasattr/callable, not isinstance(entity, HitlRunnableLike): a
+    # runtime_checkable Protocol whose members are all methods resolves isinstance via
+    # issubclass(type(entity), ...), which walks the *class's* __dict__ -- it ignores
+    # instance-level attributes, so it misclassifies real duck-typed objects (and every
+    # Mock/AsyncMock-based test double) as non-conforming even when the method is genuinely
+    # callable on the instance. Same hasattr-based pattern as `store_member_responses` above.
+    if not (callable(getattr(entity, "acontinue_run", None)) and callable(getattr(entity, "aget_run_output", None))):
+        raise ValueError(
+            f"Slack requires an entity that supports resuming a paused run (acontinue_run) and "
+            f"refetching its output (aget_run_output) for interactive HITL button clicks, but "
+            f"{type(entity).__name__!r} only implements arun. RemoteAgent/RemoteTeam/"
+            f"RemoteWorkflow do not implement aget_run_output -- pass a local Agent/Team/"
+            f"Workflow instead."
+        )
+    # cast, not a plain re-annotation: the check above is a hasattr/callable capability check,
+    # not something mypy can narrow AsyncRunnableLike -> HitlRunnableLike from on its own.
+    hitl_entity = cast(HitlRunnableLike, entity)
     hitl = HITLHandler(
         slack_tools=slack_tools,
         ssl=ssl,
-        entity=entity,
+        entity=hitl_entity,
         entity_id=entity_id,
         entity_name=entity_name,
         entity_type=entity_type,

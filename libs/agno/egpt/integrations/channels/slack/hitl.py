@@ -27,7 +27,7 @@ from egpt.integrations.channels.slack.interactions import (
 from egpt.integrations.channels.slack.state import StreamState, TaskStatus
 from egpt.integrations.channels.slack.types import SubmitContext, tool_args, tool_name, truncate
 from egpt.integrations.tools.slack import SlackTools
-from egpt.registry.protocols import AsyncRunnableLike
+from egpt.registry.protocols import HitlRunnableLike
 from egpt.run.approval import aresolve_approval
 from egpt.utils.log import log_error, log_info
 
@@ -38,7 +38,7 @@ _STREAM_CHAR_LIMIT = 3900
 class HITLHandler:
     slack_tools: SlackTools
     ssl: Optional[SSLContext]
-    entity: AsyncRunnableLike
+    entity: HitlRunnableLike
     entity_id: str
     entity_name: str
     entity_type: Literal["agent", "team", "workflow"]
@@ -140,7 +140,7 @@ class HITLHandler:
     ) -> StreamState:
         state = StreamState(entity_name=self.entity_name, entity_type=self.entity_type)
         try:
-            response_stream: Any = self.entity.acontinue_run(  # type: ignore[union-attr, call-arg, call-overload, attr-defined]
+            response_stream: Any = self.entity.acontinue_run(
                 run_id=ctx.run_id,
                 requirements=requirements,
                 session_id=ctx.session_id,
@@ -276,7 +276,7 @@ class HITLHandler:
         session_id = f"{self.entity_id}:{thread_ts}"
 
         try:
-            run_output = await self.entity.aget_run_output(run_id=run_id, session_id=session_id)  # type: ignore[union-attr, attr-defined]
+            run_output = await self.entity.aget_run_output(run_id=run_id, session_id=session_id)
         except Exception as exc:
             log_error(f"[HITL] aget_run_output failed for run={run_id}: {exc}")
             return
@@ -427,7 +427,7 @@ class HITLHandler:
         await self.delete_awaiting_indicator(ctx.channel, ctx.awaiting_ts)
 
         try:
-            run_output = await self.entity.aget_run_output(run_id=ctx.run_id, session_id=ctx.session_id)  # type: ignore[union-attr, attr-defined]
+            run_output = await self.entity.aget_run_output(run_id=ctx.run_id, session_id=ctx.session_id)
         except Exception as exc:
             log_error(f"[HITL] aget_run_output failed for run={ctx.run_id}: {exc}")
             run_output = None

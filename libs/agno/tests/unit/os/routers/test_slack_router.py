@@ -523,6 +523,26 @@ class TestRouterWiring:
         op_ids = [op.get("operationId") for path_ops in openapi["paths"].values() for op in path_ops.values()]
         assert len(op_ids) == len(set(op_ids))
 
+    def test_arun_only_entity_rejected_for_interactive_hitl(self):
+        """attach_routes wires HITL unconditionally, so an entity that only implements arun
+        (satisfies AsyncRunnableLike but not the HITL surface -- e.g. RemoteAgent, which has no
+        aget_run_output) must be rejected at setup, not left to fail on the first approval click.
+
+        A plain class with no acontinue_run/aget_run_output, unlike Mock()/AsyncMock(): those
+        auto-vivify any attribute access, so a bare mock always satisfies a hasattr/callable
+        capability check and would not exercise this rejection path.
+        """
+        from egpt.integrations.channels.slack.router import attach_routes
+
+        class ArunOnlyRunner:
+            async def arun(self, *args, **kwargs):
+                return Mock(status="OK", content="done")
+
+        with patch("egpt.integrations.channels.slack.router.SlackTools"):
+            router = APIRouter()
+            with pytest.raises(ValueError, match="aget_run_output"):
+                attach_routes(router, agent=ArunOnlyRunner())
+
     def test_bot_subtype_blocked(self):
         agent_mock = make_agent_mock()
         mock_slack = make_slack_mock(token="xoxb-test")

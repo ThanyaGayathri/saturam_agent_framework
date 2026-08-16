@@ -144,6 +144,24 @@ leaves `egpt.os` either. What EGPT-1.7b added instead is a fourth, narrower prot
 `.id` as an attribute, only via `getattr(entity, "id", None)`, which needs no protocol
 membership.
 
+**Round-2 review addendum (PR #82).** `AsyncRunnableLike` alone turned out to be insufficient for
+Slack's `HITLHandler`, which unconditionally calls `entity.acontinue_run(...)` and
+`await entity.aget_run_output(...)` to resume a paused run after an approval/rejection click.
+`RemoteAgent`/`RemoteTeam`/`RemoteWorkflow` implement `acontinue_run` (via `BaseRemote`) but none
+implement `aget_run_output`, so they satisfy `AsyncRunnableLike` but would raise `AttributeError`
+on the first interactive click -- and `Slack.__init__`'s public signature explicitly allows
+`Remote*` types, so this wasn't hypothetical. Fixed with a fifth protocol,
+`egpt.registry.protocols.HitlRunnableLike` (extends `AsyncRunnableLike` with `acontinue_run` and
+`aget_run_output`, for `hitl.py`'s own typing) and a `hasattr`/`callable` capability check in
+`attach_routes` that rejects a non-conforming entity at setup time with an actionable error,
+rather than at first use. The setup check deliberately does not use
+`isinstance(entity, HitlRunnableLike)`: a `runtime_checkable` `Protocol` whose members are all
+methods resolves `isinstance` via `issubclass(type(entity), ...)` on Python 3.12, which inspects
+the *class's* `__dict__` and ignores instance-level attributes -- it misclassifies genuine
+duck-typed objects and every `Mock`/`AsyncMock`-based test double as non-conforming even when the
+method is callable on the instance. WhatsApp's router and Slack's own `event_handler.py` never
+call the two HITL-only members, so they keep using plain `AsyncRunnableLike`.
+
 ### Design decisions
 
 | # | Decision | Rationale | Alternatives considered |
@@ -155,6 +173,7 @@ membership.
 | 5 | Split interface from implementation in `models/`, `db/`, `vectordb/`, `knowledge/`, `tools/`, `utils/`, `tracing/` | Concrete mechanism that decouples core from integrations | Move whole packages wholesale (rejected: drags interfaces out of core) |
 | 6 | (EGPT-1.7a) A narrow `RunnableLike` protocol + `construct_runnable` seam in core, so integrations can run a sub-agent without importing `egpt.agent` | Only option that also resolves the live `integrations/discord/client.py` breach and the upcoming channel-adapter move (#158) with one rule; a provider/backend split (keep the provider, and its `Agent` construction, in orchestration) does not survive #158, where whole adapters including routers must move | Provider/backend split per connector, generalizing the existing `wiki/`/`web/` shape (rejected: fewer files move for this ticket alone, but does not generalize to #158's whole-adapter moves); `ignore_imports` exemption on the layout guard (rejected: writes the violation into the gate EGPT-1.11 exists to enforce) |
 | 6a | (EGPT-1.7b) #158's channel-adapter move is discharged with a fourth protocol, `AsyncRunnableLike` (`arun` only), not by extending `construct_runnable` — verified for both the WhatsApp and Slack moves | The adapters only ever receive an already-built entity from their composition-root caller — they never construct one — so `construct_runnable` does not apply; `RunnableLike` cannot be reused since `RemoteAgent`/`RemoteTeam`/`RemoteWorkflow` implement only `arun`, not `RunnableLike`'s required sync `run`; `id` was dropped from the protocol too — no channel-adapter call site reads it as an attribute | Extending `construct_runnable`'s `_ROWS` with a `"team"`/`"workflow"` row, as row 6 anticipated (rejected once implementation showed nothing here constructs an entity — would have added an unused seam); reusing `RunnableLike` as-is (rejected: fails structurally for the `Remote*` classes) |
+| 6b | (EGPT-1.7b, PR #82 round-2 review) Slack's HITL handler needs a fifth, narrower protocol, `HitlRunnableLike` (extends `AsyncRunnableLike` with `acontinue_run`/`aget_run_output`, for static typing), checked at `attach_routes` setup time with an explicit `hasattr`/`callable` capability check, not `isinstance` | `RemoteAgent`/`RemoteTeam`/`RemoteWorkflow` satisfy `AsyncRunnableLike` but lack `aget_run_output`, and `Slack.__init__`'s public signature explicitly allows `Remote*` types — a non-conforming entity would otherwise pass setup and only fail on the first approval/rejection click; `isinstance` against a callable-only `runtime_checkable` protocol resolves via class-level `issubclass` on Python 3.12, which misclassifies duck-typed objects and `Mock`/`AsyncMock` test doubles regardless of their actual instance attributes | Widening `attach_routes`'s `agent`/`team`/`workflow` param types to `HitlRunnableLike` directly (rejected: would statically break `Slack.__init__`'s existing, documented `Optional[Union[X, RemoteX]]` signature — a bigger API decision than this fix calls for); `isinstance(entity, HitlRunnableLike)` (rejected: verified it raises `ValueError` for every `Mock`/`AsyncMock`-based test entity in the existing Slack router test suite, not just genuinely non-conforming ones); leaving the `# type: ignore` suppressions in place (rejected: exactly what the review flagged — hides a real runtime gap) |
 
 ## Layer → module mapping
 
