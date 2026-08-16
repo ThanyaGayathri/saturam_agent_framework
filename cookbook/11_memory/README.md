@@ -11,14 +11,19 @@ This section demonstrates how EGPT agents persist and use user memories across r
 - `10_graph_substrate_neo4j.py`: The same seam over a **real** temporal knowledge graph (SM-G1) --
   tenant partitioning, bi-temporal invalidation, and point-in-time reads against Neo4j. Needs
   `./cookbook/scripts/run_neo4j.sh`; no API key.
-- `12_vector_substrate_pgvector.py`: The same seam over a **real** vector store (SM-V1) -- one
+
+- `11_memory_tiers.py`: The CoALA tier model (SM-C2) -- what the framework decides because of a
+  record's tier: write routing, graph write shape, read tier-selection, which tiers a deployment
+  serves, and how the six `learn` stores map in. Also runs with no database and no API key.
+- `12_episode_representation.py`: The unit of episodic memory (SM-E1) -- how a write-back event
+  becomes the stored episode row, how that row's link to its graph episode node is derived rather
+  than chosen, and what a reader gets back. Runs with no database and no API key.
+- `13_vector_substrate_pgvector.py`: The same seam over a **real** vector store (SM-V1) -- one
   partition and one HNSW index per tenant, scope isolation down to the user slot, and similarity
   scores in `[0.0, 1.0]` against Postgres + pgvector. Needs `./cookbook/scripts/run_pgvector.sh`;
   no API key (the embedder is the offline `bge-base` ADR 0003 ratifies for Mode A, downloaded on
   first run).
-- `11_memory_tiers.py`: The CoALA tier model (SM-C2) -- what the framework decides because of a
-  record's tier: write routing, graph write shape, read tier-selection, which tiers a deployment
-  serves, and how the six `learn` stores map in. Also runs with no database and no API key.
+
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
 

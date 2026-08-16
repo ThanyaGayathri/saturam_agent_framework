@@ -11,6 +11,16 @@ from egpt.memory.config import (
 from egpt.memory.learn_stores import RECALL_SLOTS, STORE_TIERS, stores_by_tier, tier_for_store
 from egpt.memory.manager import MemoryManager, UserMemory
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.schemas.episodic import (
+    EPISODE_KEYS,
+    PROVENANCE_KEYS,
+    TOPICS_KEY,
+    EpisodicRecord,
+    episode_details,
+    episode_from_event,
+    episode_to_record,
+    graph_node_id_for,
+)
 from egpt.memory.strategies import (
     MemoryOptimizationStrategy,
     MemoryOptimizationStrategyFactory,
@@ -50,6 +60,7 @@ from egpt.memory.types import (
     TemporalBounds,
     WriteReceipt,
     consolidation_details,
+    escape_key_slot,
     fusion_diagnostics,
 )
 
@@ -94,6 +105,7 @@ __all__ = [
     "checked_graph",
     "checked_vector",
     "consolidation_details",
+    "escape_key_slot",
     "fusion_diagnostics",
     "substrates_for_tier",
     # The seam and its construction path (SM-C1)
@@ -110,4 +122,13 @@ __all__ = [
     "build_memory_provider",
     "register_provider",
     "registered_providers",
+    # The episode representation (SM-E1)
+    "EPISODE_KEYS",
+    "PROVENANCE_KEYS",
+    "TOPICS_KEY",
+    "EpisodicRecord",
+    "episode_details",
+    "episode_from_event",
+    "episode_to_record",
+    "graph_node_id_for",
 ]
