@@ -1049,9 +1049,16 @@ def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
             config.options.get("vector_substrate"),
             "vector_substrate",
             checked_vector,
+            config.mode,
         ),
         graph=resolve_substrate(
-            "graph", "graphdb", config.graph, config.options.get("graph_substrate"), "graph_substrate", checked_graph
+            "graph",
+            "graphdb",
+            config.graph,
+            config.options.get("graph_substrate"),
+            "graph_substrate",
+            checked_graph,
+            config.mode,
         ),
         config=config,
         max_episodes_per_pass=config.options.get("max_episodes_per_pass", _MAX_EPISODES_PER_PASS),

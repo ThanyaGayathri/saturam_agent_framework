@@ -26,6 +26,7 @@ a direction ADR 0001 does not sanction. The *backends* a provider composes are a
 constructor registry" refers to.
 """
 
+import inspect
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
@@ -106,6 +107,7 @@ def resolve_substrate(
     injected: Any,
     option: str,
     check: Callable[[Any, str], Any],
+    mode: Optional[ProviderMode] = None,
 ) -> Any:
     """Build a substrate from ``config.vector`` / ``config.graph``, or take the injected one.
 
@@ -115,6 +117,13 @@ def resolve_substrate(
     ``settings`` names its backend under ``"backend"`` and passes every other key to the
     constructor, so a DSN or a Bolt URI never reaches a call site. The backend itself is an
     integration resolved by registry key -- ``egpt/memory/`` imports no concrete engine (ADR 0001).
+
+    ``mode`` is forwarded to any backend whose constructor **names** a ``mode`` parameter, and
+    withheld from every other (SM-V2 #96). A backend needs it because Mode A and Mode B are not the
+    same deployment: the vector store's embedder is chosen per mode and Mode A refuses one that
+    reaches the network (ADR 0003 A.3c). Opt-in by signature rather than passed to everything,
+    because most constructors take no ``**kwargs`` and would simply fail; and forwarded on **both**
+    legs by the same rule, so an external graph engine picks it up without this function changing.
 
     Supplying **both** a config and an injected instance is refused rather than ranked. Either
     precedence is defensible, so a caller cannot tell which one it got, and the losing side is
@@ -139,6 +148,15 @@ def resolve_substrate(
     from egpt.registry import discovery
 
     rest = {key: value for key, value in settings.items() if key != "backend"}
+    if "mode" in rest:
+        # Refused rather than ranked, like the config-plus-instance case above. `config.mode` is the
+        # deployment's one answer to "which mode am I in"; a second one here means a backend could
+        # be air-gap-checked against a mode the rest of the deployment is not running in.
+        raise MemoryProviderConfigError(
+            f"config.{field} sets 'mode', which is already config.mode ({mode.value if mode else None!r}). "
+            "One deployment has one mode; a second copy here drifts from the first.",
+            field_name=field,
+        )
     known = set(discovery.names(kind))
     if backend.strip() not in known:
         # Checked rather than caught. `discovery.resolve` signals an unknown name with `ValueError`,
@@ -149,6 +167,8 @@ def resolve_substrate(
             f"Unknown {kind} backend {backend.strip()!r}. Registered: {', '.join(sorted(known)) or '<none>'}.",
             field_name=field,
         )
+    if mode is not None and _accepts_mode(discovery.resolve(kind, backend.strip())):
+        rest["mode"] = mode
     # An ImportError from a missing SDK is deliberately left to propagate: the integration's own
     # "pip install neo4j" message is more useful than anything this frame could add.
     try:
@@ -165,6 +185,21 @@ def resolve_substrate(
             f"Could not construct the {kind} backend {backend.strip()!r}: {exc}", field_name=field
         ) from exc
     return check(constructed, option)
+
+
+def _accepts_mode(constructor: Any) -> bool:
+    """Whether ``constructor`` names a ``mode`` parameter, or takes ``**kwargs`` that would absorb one.
+
+    A backend opts into the deployment mode by declaring it. A constructor that cannot be
+    introspected at all -- a C extension, an exotic callable -- is treated as not accepting it,
+    because guessing wrong here raises ``TypeError`` from a frame that names neither the backend nor
+    the setting.
+    """
+    try:
+        parameters = inspect.signature(constructor).parameters
+    except (TypeError, ValueError):
+        return False
+    return "mode" in parameters or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values())
 
 
 #: An adapter factory: takes a config, returns a ready provider.
