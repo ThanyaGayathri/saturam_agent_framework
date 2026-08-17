@@ -456,3 +456,165 @@ def test_a_ranked_row_without_a_distance_is_refused_rather_than_ranked_first():
     float; refused by name so a future caller finds the contract instead of the misranking."""
     with pytest.raises(MemoryOperationError, match="carries no distance"):
         module._similar({"id": "e1"})
+
+
+# -- the hybrid candidate legs (SM-V3 #97) ------------------------------------
+
+
+def test_the_class_carries_every_method_the_hybrid_port_names():
+    """``HybridSearchSubstrate`` is how SM-H1's (#131) orchestrator will feature-detect two legs
+    from one leg, so a method renamed in a refactor would demote this store to vector-only with
+    nothing raising."""
+    from egpt.memory.substrates import HybridSearchSubstrate
+
+    assert isinstance(
+        PgVectorMemorySubstrate.__new__(PgVectorMemorySubstrate), HybridSearchSubstrate
+    ), sorted(name for name in vars(HybridSearchSubstrate) if not name.startswith("_"))
+
+
+@pytest.mark.parametrize("rank", [0.0, 0.001, 0.05, 0.1, 1.0, 12.5, 1e6])
+def test_a_lexical_rank_becomes_a_similarity_in_the_unit_interval(rank):
+    """``ts_rank_cd`` is unbounded and the port requires a similarity in ``[0.0, 1.0]``, higher
+    better. A leg handing over its raw measure would dominate any weighted sum it entered."""
+    assert 0.0 <= module._lexical_similarity(rank) < 1.0
+
+
+def test_the_lexical_normalisation_cannot_reorder_its_own_list():
+    """**The load-bearing property.** Rank-based fusion reads position and weighted fusion reads
+    magnitude, so a non-monotone squash would make the two read different orderings from one list.
+
+    Mutation-checked: replacing ``r / (r + k)`` with anything non-increasing fails here.
+    """
+    ranks = [0.0, 0.0001, 0.01, 0.1, 0.5, 2.0, 40.0, 1e5]
+    scores = [module._lexical_similarity(r) for r in ranks]
+    assert scores == sorted(scores)
+    assert len(set(scores)) == len(scores), "distinct ranks collapsed to one score"
+
+
+def test_a_negative_rank_cannot_divide_by_zero_or_score_below_the_floor():
+    """``ts_rank_cd`` never returns one, so this is the clamp removing a question rather than
+    handling a case: at ``r = -k`` the unclamped form divides by zero."""
+    assert module._lexical_similarity(-module._RANK_SATURATION) == 0.0
+    assert module._lexical_similarity(-5.0) == 0.0
+
+
+def test_both_legs_break_ties_the_same_way(substrate):
+    """Two legs that order equally-scored records differently hand fusion two orderings for one
+    corpus -- and rank-based fusion reads position, so the disagreement becomes a scoring
+    difference rather than a cosmetic one."""
+    records = [record("a", "beta", created_at=2), record("b", "alpha", created_at=1)]
+    by_vector = substrate._ranked([{"distance": 0.5}, {"distance": 0.5}], list(records))
+    by_lexical = substrate._lexically_ranked([{"rank": 0.5}, {"rank": 0.5}], list(records))
+    assert [r.content for r in by_vector] == [r.content for r in by_lexical] == ["alpha", "beta"]
+
+
+def test_the_lexical_page_is_ordered_by_rank_descending(substrate):
+    """Higher ``ts_rank_cd`` is a better match, the opposite direction from cosine distance. A
+    ranker that inherited the vector leg's ascending sort would return the worst matches first."""
+    rows = [{"rank": 0.01}, {"rank": 0.9}, {"rank": 0.2}]
+    records = [record("a", "weak"), record("b", "strong"), record("c", "middling")]
+    assert [r.content for r in substrate._lexically_ranked(rows, records)] == ["strong", "middling", "weak"]
+
+
+def test_each_leg_scores_from_its_own_measure_and_a_scan_row_scores_nothing(substrate):
+    """One of the two is ever selected -- ``distance`` by the vector statement, ``rank`` by the
+    lexical one. ``scan`` selects ``distance`` as NULL and must land on ``None``: ``0.0`` would
+    read as a *perfect* cosine match and lead the page."""
+    assert module._score({"rank": 0.1}) == pytest.approx(0.5)
+    assert module._score({"distance": 0.0}) == pytest.approx(1.0)
+    assert module._score({"distance": None}) is None
+    assert module._score({}) is None
+
+
+def test_a_lexical_row_maps_to_a_record_scored_on_its_rank(substrate):
+    """The end-to-end of the two above: a row off the lexical statement becomes a record carrying
+    a unit-interval score and the vector substrate label."""
+    mapped = substrate._record(
+        {
+            "id": "e1",
+            "tier": "episodic",
+            "content": "shipment ORD-99417-XZ",
+            "tenant_id": "acme",
+            "agent_id": None,
+            "user_id": "ada",
+            "team_id": None,
+            "session_id": None,
+            "topics": None,
+            "provenance": None,
+            "metadata": None,
+            "t_valid": None,
+            "t_invalid": None,
+            "created_at": 1,
+            "expired_at": None,
+            "superseded_by": None,
+            "rank": 0.1,
+        }
+    )
+    assert mapped.score == pytest.approx(0.5)
+    assert mapped.substrate is Substrate.VECTOR
+
+
+def test_an_unanswerable_query_returns_two_empty_legs_and_costs_no_round_trip(substrate):
+    """An empty list is an answer -- "no lexical hits" -- and a fusion stage must be able to tell
+    it from a leg that did not run. The short-circuit is shared with ``search``, so the two cannot
+    come to disagree about which queries are worth a round trip."""
+    from egpt.memory.types import MemoryQuery, RetrievalCandidates
+
+    for query in (MemoryQuery(text="  ", limit=5), MemoryQuery(text="cats", limit=0)):
+        candidates = substrate.search_candidates(ACME, query)
+        assert candidates == RetrievalCandidates(vector=[], lexical=[])
+        assert candidates.legs() == {"vector": [], "lexical": []}
+
+
+def test_the_legs_are_named_rather_than_positional():
+    """SM-R8 requires the fusion implementations to be N-leg-capable rather than hardcoded to two,
+    and a consumer reading ``.vector``/``.lexical`` by name is hardcoded to two whatever the fusion
+    function can take. The graph leg (SM-G9 #107) is the third already scheduled to arrive."""
+    from egpt.memory.types import RetrievalCandidates
+
+    candidates = RetrievalCandidates(vector=[record("a")], lexical=[record("b")])
+    assert list(candidates.legs()) == ["vector", "lexical"]
+    assert [r.id for r in candidates.legs()["lexical"]] == ["b"]
+
+
+@pytest.mark.parametrize(
+    "expression, expected",
+    [
+        ("to_tsvector('english'::regconfig, content)", "english"),
+        ("to_tsvector('simple'::regconfig, content)", "simple"),
+        ("to_tsvector('english', content)", "english"),
+        ("(metadata -> 'tags'::text)", None),
+        (None, None),
+        ("", None),
+    ],
+)
+def test_the_indexed_text_search_config_is_read_by_name_not_by_rendering(expression, expected):
+    """Postgres renders the literal in its own normalized form, so comparing the rendered text
+    warned on **every clean startup** -- an always-on warning is one nobody reads when it finally
+    means something. A non-text GIN index is not this index and is left alone."""
+    assert module._indexed_ts_config(expression) == expected
+
+
+def test_an_unknown_text_search_config_is_a_setting_fault_not_an_operation_one(substrate):
+    """Asserted on the narrow class and its ``field_name``: the ``CREATE INDEX`` this replaces
+    reports an ``undefined_object`` from the middle of schema init, arriving as a
+    ``MemoryOperationError`` that a caller narrowing to ``MemoryProviderConfigError`` never sees."""
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        substrate._reject_unknown_text_search_config([{"present": False}])
+    assert raised.value.field_name == "text_search_config"
+
+    with pytest.raises(MemoryProviderConfigError):
+        substrate._reject_unknown_text_search_config([])
+    # The clean case must not raise, or the probe rejects every startup.
+    substrate._reject_unknown_text_search_config([{"present": True}])
+
+
+def test_a_text_search_config_that_could_break_out_of_its_literal_is_refused_at_construction():
+    """The construction-time twin of the statement-layer check: it must arrive through
+    ``_settings_checked`` as a config error naming its field, like every sibling setting."""
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        PgVectorMemorySubstrate(
+            db_url=URL, embedder=StubEmbedder(), text_search_config="eng'lish", auto_init_schema=False
+        )
+    assert raised.value.field_name == "text_search_config"

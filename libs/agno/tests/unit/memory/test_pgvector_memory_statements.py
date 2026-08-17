@@ -15,7 +15,7 @@ from dataclasses import fields
 import pytest
 
 from egpt.integrations.memory.vector.pgvector import sql
-from egpt.memory.types import Scope
+from egpt.memory.types import MemoryScopeRequiredError, Scope
 
 FULL = Scope(tenant_id="acme", agent_id="ag", user_id="ada", team_id="tm", session_id="se")
 TENANT_ONLY = Scope(tenant_id="acme")
@@ -304,3 +304,94 @@ def test_the_slot_list_matches_the_scope_it_filters_on():
     stated once and compared, and adding a slot fails here until the migration is decided.
     """
     assert sql.SCOPE_SLOTS == tuple(f.name for f in fields(Scope))
+
+
+# -- the lexical leg (SM-V3 #97) ----------------------------------------------
+
+
+def test_the_lexical_leg_indexes_and_queries_the_same_expression():
+    """A functional index is only used when the query repeats its expression **exactly**.
+
+    Spelled apart, the DDL and the query drift on the first edit and the symptom is not an error:
+    the GIN index is silently skipped and every lexical read becomes a sequential scan of the
+    partition. So both are built from ``ts_vector_expression`` and this asserts they agree.
+    """
+    expression = sql.ts_vector_expression("english")
+    ddl = [s for s in sql.schema_statements("ai", "memory_vectors", 8, 16, 200, "english") if "gin" in s]
+    statement = sql.lexical_search_statement("ai", "memory_vectors", FULL, "english")[0]
+
+    assert len(ddl) == 1, ddl
+    assert expression in ddl[0]
+    assert expression in statement
+
+
+def test_the_lexical_leg_filters_to_current_belief_like_the_vector_leg():
+    """Two legs that disagree about which rows exist do not produce a ranking discrepancy, they
+    produce a leak: a superseded row the vector leg correctly withholds re-enters the merged
+    result through this one."""
+    statement = sql.lexical_search_statement("ai", "memory_vectors", FULL, "english")[0]
+    assert "expired_at IS NULL" in statement
+
+
+def test_the_lexical_leg_filters_on_the_tier_set_and_bounds_the_page():
+    """The tier filter and the ``LIMIT`` are the other two eligibility rules the vector leg
+    applies; a leg that dropped either would hand fusion a differently-shaped candidate set."""
+    statement = sql.lexical_search_statement("ai", "memory_vectors", FULL, "english")[0]
+    assert "tier = ANY(CAST(:tiers AS text[]))" in statement
+    assert "LIMIT :limit" in statement
+
+
+def test_the_lexical_leg_carries_a_match_predicate_so_the_index_can_answer():
+    """``@@`` is what makes the GIN index usable at all -- without it Postgres computes
+    ``to_tsvector`` per row over the whole partition -- and it removes exactly the rows
+    ``ts_rank_cd`` would score 0.0, which are non-matches occupying a page slot."""
+    statement = sql.lexical_search_statement("ai", "memory_vectors", FULL, "english")[0]
+    assert "@@" in statement
+    assert "ORDER BY rank DESC" in statement
+
+
+def test_the_query_text_is_a_bind_parameter_and_never_statement_text():
+    """Memory query text is whatever a user said to the agent. It reaches the statement as a bind
+    on both of its appearances -- the rank expression and the match predicate -- or one of them is
+    an injection point that the other's parameterisation hides."""
+    statement = sql.lexical_search_statement("ai", "memory_vectors", FULL, "english")[0]
+    assert statement.count(":query_text") == 2
+    # Every `to_tsquery(` is a `websearch_to_tsquery(`. Bare `to_tsquery` raises a syntax error on
+    # ordinary punctuation, so one left anywhere in the statement turns a user typing "what's up?"
+    # into a failed read rather than an empty one.
+    assert statement.count("websearch_to_tsquery(") == 2
+    assert statement.count("to_tsquery(") == statement.count("websearch_to_tsquery(")
+
+
+@pytest.mark.parametrize(
+    "bad", ["not a config", "english; DROP TABLE x", "eng'lish", "", "0english", "a" * 64, None]
+)
+def test_a_text_search_config_that_could_break_out_of_its_literal_is_refused(bad):
+    """The value lands as a **literal** inside ``to_tsvector('...', content)``, and this module
+    contains no escaper of its own by design. What makes interpolating it safe is that the
+    identifier rules forbid a quote character -- so the rules are the escaping."""
+    with pytest.raises(sql.SettingError) as raised:
+        sql.text_search_config(bad)
+    assert raised.value.field == "text_search_config"
+
+
+def test_the_text_search_config_probe_resolves_the_way_the_ddl_will():
+    """A bare ``pg_ts_config.cfgname`` lookup answers "some schema has one", which is a different
+    question from "the DDL and the query will resolve it". They disagree exactly when a config is
+    defined outside the connection's ``search_path``."""
+    statement, binds = sql.text_search_config_statement("english")
+    assert "pg_ts_config_is_visible" in statement
+    assert binds == {"ts_config": "english"}
+    # Cast, because a bare bind is `unknown` to the planner and it cannot pick an overload for one.
+    assert "CAST(:ts_config AS text)" in statement
+
+
+@pytest.mark.parametrize("builder", ["search_statement", "lexical_search_statement", "scan_statement"])
+def test_no_row_reading_statement_can_be_built_without_a_scope(builder):
+    """SM-C4 (#92): a forgotten scope must error, never be read as "no predicate". Guarded inside
+    ``scope_predicate`` -- which every row-reading statement here is built from -- so a statement
+    added later inherits it without anyone remembering to."""
+    args = {"search_statement": ("ai", "v"), "lexical_search_statement": ("ai", "v"), "scan_statement": ("ai", "v")}
+    extra = {"lexical_search_statement": ("english",), "scan_statement": (10,)}.get(builder, ())
+    with pytest.raises(MemoryScopeRequiredError):
+        getattr(sql, builder)(*args[builder], None, *extra)

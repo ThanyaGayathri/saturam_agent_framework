@@ -489,3 +489,217 @@ def test_changed_index_options_are_reported_and_not_refused(store, caplog):
         rebuilt = PgVectorMemorySubstrate(db_url=_url(), embedder=TokenEmbedder(), table=TABLE, m=32)
     rebuilt.close()
     assert any("m=16" in record.message and "m=32" in record.message for record in caplog.records), caplog.text
+
+
+# -- acceptance criteria: vector + lexical candidates for fusion (SM-V3 #97) --
+
+#: A corpus built so the two legs genuinely disagree. ``DECOY`` repeats the query's ordinary words
+#: without carrying the identifier; ``CARRIER`` carries it once inside a longer sentence, so a
+#: bag-of-tokens cosine ranks the decoy **above** the record the caller actually wants.
+IDENTIFIER = "ORD-99417-XZ"
+CARRIER = f"Order {IDENTIFIER} status confirmed, shipped from the Rotterdam depot"
+DECOY = "Order status page shows every order status update for each order"
+
+
+def _seed_hybrid_corpus(store):
+    store.upsert(
+        ACME,
+        [
+            record("carrier", CARRIER),
+            record("decoy", DECOY),
+            record("cats", "the cat sat on the mat"),
+            record("physics", "quantum tunnelling through a barrier"),
+        ],
+    )
+
+
+def test_a_lexical_query_surfaces_the_exact_identifier_the_vector_leg_ranks_below_a_decoy(store):
+    """**Acceptance criterion 3, the lexical half.** The ticket's own testing note: query an exact
+    ID and assert the lexical leg surfaces it where the vector leg does not.
+
+    This is why the store returns both lists rather than one blended ranking. The identifier is a
+    rare token, so full-text matches it exactly; a dense embedding of an unseen identifier carries
+    almost no signal, and the record that merely *repeats the query's ordinary words* wins the
+    cosine. A weighted blend computed in SQL -- what ``PgVector.hybrid_search`` returns -- would
+    hand the caller one number and no way to see that the two legs disagreed.
+    """
+    _seed_hybrid_corpus(store)
+    candidates = store.search_candidates(ACME, MemoryQuery(text=f"order {IDENTIFIER} status", limit=5))
+
+    # The lexical leg matches conjunctively, so only the record carrying the identifier qualifies.
+    assert [r.id for r in candidates.lexical] == ["carrier"]
+    # ...while the vector leg puts the decoy first, which is the disagreement the two lists exist
+    # to expose. `carrier` is present in it, just not where a caller would find it.
+    assert candidates.vector[0].id == "decoy"
+    assert "carrier" in {r.id for r in candidates.vector}
+
+
+def test_a_semantic_query_survives_a_term_the_lexical_leg_cannot_match(store):
+    """**Acceptance criterion 3, the semantic half.** The complementarity in the other direction.
+
+    ``websearch_to_tsquery`` is **conjunctive**: one unmatched term empties the lexical leg
+    entirely, however well the rest of the query fits. The vector leg degrades gracefully and still
+    ranks the best partial match. A caller with only the lexical leg gets nothing back and reads it
+    as an empty corpus.
+    """
+    _seed_hybrid_corpus(store)
+    candidates = store.search_candidates(ACME, MemoryQuery(text="cat sat mat quantum", limit=5))
+
+    assert candidates.lexical == []
+    assert candidates.vector[0].id == "cats"
+
+
+def test_both_legs_are_returned_for_one_query(store):
+    """**Acceptance criteria 1 and 2.** Two ranked lists, kept apart, each honouring ``limit``
+    independently -- a shared budget would let one leg's hits displace the other's before anything
+    had compared them, which is a fusion decision the store is not entitled to make."""
+    _seed_hybrid_corpus(store)
+    candidates = store.search_candidates(ACME, MemoryQuery(text="order status", limit=2))
+
+    assert candidates.legs().keys() == {"vector", "lexical"}
+    assert len(candidates.vector) <= 2 and len(candidates.lexical) <= 2
+    assert candidates.lexical, "the lexical leg matched nothing on a query whose terms are present"
+    assert all(0.0 <= r.score <= 1.0 for r in candidates.vector + candidates.lexical)
+    assert all(r.substrate is Substrate.VECTOR for r in candidates.vector + candidates.lexical)
+
+
+def test_the_lexical_leg_is_ranked_highest_first(store):
+    """Higher ``ts_rank_cd`` is a better match -- the opposite direction from cosine distance, so a
+    leg that inherited the vector sort would hand fusion its worst candidates first."""
+    _seed_hybrid_corpus(store)
+    candidates = store.search_candidates(ACME, MemoryQuery(text="order status", limit=5))
+    scores = [r.score for r in candidates.lexical]
+    assert scores == sorted(scores, reverse=True), scores
+
+
+def test_the_lexical_leg_cannot_reach_another_tenant(store):
+    """The scope predicate is built by the same ``scope_predicate`` helper as the vector leg's, and
+    this is the property that would fail if it were not: a second retrieval path is a second chance
+    to forget the predicate, and a single-tenant test passes cleanly either way."""
+    store.upsert(ACME, [record("mine", CARRIER)])
+    store.upsert(GLOBEX, [record("theirs", CARRIER, scope=GLOBEX)])
+
+    candidates = store.search_candidates(ACME, MemoryQuery(text=f"order {IDENTIFIER}", limit=10))
+    assert [r.id for r in candidates.lexical] == ["mine"]
+
+
+def test_the_lexical_leg_cannot_reach_another_user_inside_one_tenant(store):
+    """Partitioning covers ``tenant_id`` and nothing else, so the other four slots are ordinary
+    predicates a second statement can simply omit."""
+    store.upsert(ACME, [record("ada", CARRIER)])
+    store.upsert(ACME_BOB, [record("bob", CARRIER, scope=ACME_BOB)])
+
+    candidates = store.search_candidates(ACME, MemoryQuery(text=f"order {IDENTIFIER}", limit=10))
+    assert [r.id for r in candidates.lexical] == ["ada"]
+
+
+def test_the_lexical_leg_returns_current_belief_only(store):
+    """Legs that disagree about which rows exist do not produce a ranking discrepancy, they produce
+    a leak: a superseded row the vector leg correctly withholds would re-enter the merged result
+    through this one."""
+    store.upsert(ACME, [record("live", CARRIER), record("retired", CARRIER, expired_at=1_700_000_000)])
+
+    candidates = store.search_candidates(ACME, MemoryQuery(text=f"order {IDENTIFIER}", limit=10))
+    assert [r.id for r in candidates.lexical] == ["live"]
+    assert [r.id for r in candidates.vector] == ["live"]
+
+
+def test_the_lexical_leg_honours_the_tier_the_query_asked_for(store):
+    """Resolved exactly as ``MemoryQuery.resolved_tiers`` does. When one leg honoured the tier
+    filter and the other did not, the leakage surfaced only in the merged result (finding F3)."""
+    store.upsert(ACME, [record("ep", CARRIER), record("sem", CARRIER, tier=MemoryTier.SEMANTIC)])
+
+    query = MemoryQuery(text=f"order {IDENTIFIER}", tiers=[MemoryTier.SEMANTIC], limit=10)
+    candidates = store.search_candidates(ACME, query)
+    assert [r.id for r in candidates.lexical] == ["sem"]
+    assert [r.id for r in candidates.vector] == ["sem"]
+
+
+def test_a_query_of_pure_punctuation_returns_empty_rather_than_failing(store):
+    """``to_tsquery`` raises a syntax error on ordinary punctuation and ``websearch_to_tsquery``
+    does not. Memory query text is whatever a user said to the agent, so the difference is between
+    an empty answer and a failed read."""
+    _seed_hybrid_corpus(store)
+    candidates = store.search_candidates(ACME, MemoryQuery(text="!@#$ %^&* ???", limit=5))
+    assert candidates.lexical == []
+
+
+def test_the_full_text_index_exists_on_every_partition_including_later_ones(store):
+    """Created on the **parent**, so a tenant whose first write lands at 3am inherits it without
+    anything remembering to build one -- the same property the HNSW index needs and for the same
+    reason."""
+    store.upsert(ACME, [record("e1", CARRIER)])
+    store.upsert(GLOBEX, [record("e2", CARRIER, scope=GLOBEX)])
+
+    with store._engine.begin() as connection:
+        indexed = {
+            row.tablename
+            for row in connection.execute(
+                text(
+                    "SELECT c.relname AS tablename FROM pg_class c "
+                    "JOIN pg_index i ON i.indrelid = c.oid "
+                    "JOIN pg_class ic ON ic.oid = i.indexrelid "
+                    "WHERE ic.relam = (SELECT oid FROM pg_am WHERE amname = 'gin')"
+                )
+            )
+        }
+    for scope in (ACME, GLOBEX):
+        assert sql.partition_name(TABLE, scope.tenant_id) in indexed
+
+
+async def test_the_async_half_returns_the_same_candidates_as_the_sync_one(async_store):
+    """Not "an async twin exists" -- that a twin exists is easy to confirm and is not the thing
+    that breaks. Both halves must make the same decisions and return the same two lists in the
+    same order."""
+    await async_store.aupsert(
+        ACME,
+        [record("carrier", CARRIER), record("decoy", DECOY), record("cats", "the cat sat on the mat")],
+    )
+    query = MemoryQuery(text=f"order {IDENTIFIER} status", limit=5)
+
+    asynchronous = await async_store.asearch_candidates(ACME, query)
+    synchronous = async_store.search_candidates(ACME, query)
+
+    assert [r.id for r in asynchronous.lexical] == [r.id for r in synchronous.lexical] == ["carrier"]
+    assert [r.id for r in asynchronous.vector] == [r.id for r in synchronous.vector]
+    assert [r.score for r in asynchronous.lexical] == [r.score for r in synchronous.lexical]
+
+
+async def test_the_async_half_scopes_the_lexical_leg_exactly_as_the_sync_half_does(async_store):
+    """The scoping property, on the half a sync-only test cannot see."""
+    await async_store.aupsert(ACME, [record("mine", CARRIER)])
+    await async_store.aupsert(GLOBEX, [record("theirs", CARRIER, scope=GLOBEX)])
+
+    candidates = await async_store.asearch_candidates(ACME, MemoryQuery(text=f"order {IDENTIFIER}", limit=10))
+    assert [r.id for r in candidates.lexical] == ["mine"]
+
+
+def test_the_sync_half_does_not_answer_an_unscoped_call(store):
+    """SM-C4 (#92) on the new entry point. Guarded **first**, before the embedder is called: a
+    refusal that arrives after an embedding round trip has already spent the API call it was
+    supposed to prevent."""
+    from egpt.memory.types import MemoryScopeRequiredError
+
+    with pytest.raises(MemoryScopeRequiredError):
+        store.search_candidates(None, MemoryQuery(text="anything", limit=5))
+
+
+async def test_the_async_half_does_not_answer_an_unscoped_call(async_store):
+    """The same refusal on the half a sync-only test cannot see. Written as a real coroutine rather
+    than by driving the sync test's loop, because the guard is inside the coroutine body -- calling
+    an ``async def`` returns without executing a line of it, so a ``pytest.raises`` around the call
+    alone passes whether or not the guard is there."""
+    from egpt.memory.types import MemoryScopeRequiredError
+
+    with pytest.raises(MemoryScopeRequiredError):
+        await async_store.asearch_candidates(None, MemoryQuery(text="anything", limit=5))
+
+
+def test_a_vector_only_double_is_not_mistaken_for_a_hybrid_store():
+    """``HybridSearchSubstrate`` is an **optional** extension, and SM-H1's (#131) orchestrator will
+    run one leg or two on the strength of this check. A store that cannot rank lexically must be
+    detectable as such, or the optionality is decorative."""
+    from egpt.memory.substrates import HybridSearchSubstrate
+
+    assert isinstance(FakeVector(), VectorSubstrate)
+    assert not isinstance(FakeVector(), HybridSearchSubstrate)
