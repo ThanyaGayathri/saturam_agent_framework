@@ -759,6 +759,15 @@ def attach_routes(
         try:
             start_time_ms = time.time() * 1000
 
+            if action is not None and action not in COMPONENT_AUDIT_ACTIONS:
+                # Rejected rather than answered with an empty page, so a typo'd filter is not
+                # mistaken for a component that nothing ever happened to. Validated before any
+                # db call, so malformed input never costs a round trip.
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Unknown action {action!r}. Valid actions: {sorted(COMPONENT_AUDIT_ACTIONS)}",
+                )
+
             # Not the shared _require_component gate: a hard delete removes the components row
             # outright (no tombstone), so no value of include_deleted on get_component can find
             # it -- unlike a soft delete, where the row survives and include_deleted uncovers it.
@@ -775,22 +784,6 @@ def attach_routes(
             if component is None and not include_deleted:
                 raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
 
-            if component is None:
-                # Existence must not depend on the caller's filters, which total_count below
-                # already applies: a valid action/version matching no rows is an empty page, not
-                # a component that never existed. Probe unfiltered, on its own page.
-                _, any_history = db.list_component_audit(component_id, limit=1, offset=0, tenant_id=tenant_id)
-                if any_history == 0:
-                    raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
-
-            if action is not None and action not in COMPONENT_AUDIT_ACTIONS:
-                # Rejected rather than answered with an empty page, so a typo'd filter is not
-                # mistaken for a component that nothing ever happened to.
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Unknown action {action!r}. Valid actions: {sorted(COMPONENT_AUDIT_ACTIONS)}",
-                )
-
             records, total_count = db.list_component_audit(
                 component_id,
                 version=version,
@@ -799,6 +792,19 @@ def attach_routes(
                 offset=(page - 1) * limit,
                 tenant_id=tenant_id,
             )
+
+            if component is None and total_count == 0:
+                # No row and no rows on this page's query: either the component never existed
+                # (404) or a valid action/version legitimately matched nothing (empty 200).
+                # Existence must not depend on the caller's filters, which total_count above
+                # already applies -- so when a filter is in play, settle it with an unfiltered
+                # probe. Unfiltered requests already answered the question: total_count == 0
+                # IS the probe result, no second query needed.
+                if action is None and version is None:
+                    raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
+                _, any_history = db.list_component_audit(component_id, limit=1, offset=0, tenant_id=tenant_id)
+                if any_history == 0:
+                    raise HTTPException(status_code=404, detail=f"Component {component_id} not found")
 
             total_pages = (total_count + limit - 1) // limit if limit > 0 else 0
 

@@ -163,6 +163,8 @@ class TestAuditEndpoint:
         response = client.get("/components/agent-1/audit?action=config.publishh")
 
         assert response.status_code == 422
+        # Malformed input is rejected before any db work, not after.
+        mock_db.get_component.assert_not_called()
         mock_db.list_component_audit.assert_not_called()
 
     def test_a_missing_component_is_a_404(self, client, mock_db):
@@ -184,6 +186,8 @@ class TestAuditEndpoint:
         assert response.status_code == 200
         assert response.json()["data"][0]["action"] == ComponentAuditAction.CONFIG_PUBLISH.value
         assert mock_db.get_component.call_args.kwargs["include_deleted"] is True
+        # The page query itself proves existence -- no separate probe on the common path.
+        assert mock_db.list_component_audit.call_count == 1
 
     def test_include_deleted_still_404s_with_no_history_either(self, client, mock_db):
         """Opting in does not widen a component that never existed -- or belongs to another
@@ -207,8 +211,8 @@ class TestAuditEndpoint:
         existed"."""
         mock_db.get_component.return_value = None
         mock_db.list_component_audit.side_effect = [
-            ([AUDIT_ROW], 1),  # the unfiltered existence probe: history exists
-            ([], 0),  # the actual filtered page: this action matches nothing
+            ([], 0),  # the actual filtered page runs first: this action matches nothing
+            ([AUDIT_ROW], 1),  # the unfiltered existence probe, only reached as a fallback
         ]
 
         response = client.get(
@@ -220,7 +224,8 @@ class TestAuditEndpoint:
         assert body["data"] == []
         assert body["meta"]["total_count"] == 0
 
-        probe_kwargs = mock_db.list_component_audit.call_args_list[0].kwargs
+        assert mock_db.list_component_audit.call_count == 2
+        probe_kwargs = mock_db.list_component_audit.call_args_list[1].kwargs
         assert probe_kwargs["limit"] == 1
         assert probe_kwargs["offset"] == 0
         assert "action" not in probe_kwargs
