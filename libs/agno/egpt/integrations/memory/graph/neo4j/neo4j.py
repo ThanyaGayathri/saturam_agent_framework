@@ -375,16 +375,33 @@ class Neo4jGraphSubstrate:
 
     def _record(self, row: Dict[str, Any], scope: Scope) -> MemoryRecord:
         provenance = self._from_json(row.get("provenance"), "provenance", row.get("id"))
+        record_scope = scope
         if "mentions" in row:
-            # The mention names come from the edges; the ids are derived from them here rather than
-            # stored on the edge, so this list and `EpisodicRecord.entity_ids` are the same function
-            # of the same names and cannot drift into two answers.
-            provenance["entity_ids"] = [entity_node_id_for(scope, name) for name in row["mentions"]]
+            # `recall_episodes` rows carry the episode's own **write** scope in the columns
+            # `_RECALL_RETURN` selects -- not the call scope `traverse` uses `scope` for. The
+            # distinction matters here specifically because `entity_ids` is *derived* from scope:
+            # under a tenant-wide call (`Scope(tenant_id="acme")`), deriving it from the call scope
+            # produced an id like `acme/*/*/*/*/entity/berlin` against a node actually merged at
+            # `acme/*/ada/*/*/entity/berlin` -- pointing at nothing (round-1 review, PR #90). The
+            # entity node was `MERGE`d under the episode's write scope (`link_mentions_statement`),
+            # so reconstructing that same scope here is what makes the two agree.
+            #
+            # `record.scope` is set from the same reconstructed value, not left as the call scope:
+            # a caller deriving further ids from `record.scope` after this call would reproduce the
+            # identical bug the entity_ids fix above closes.
+            record_scope = Scope(
+                tenant_id=row["tenant_id"],
+                agent_id=row.get("agent_id"),
+                user_id=row.get("user_id"),
+                team_id=row.get("team_id"),
+                session_id=row.get("session_id"),
+            )
+            provenance["entity_ids"] = [entity_node_id_for(record_scope, name) for name in row["mentions"]]
         return MemoryRecord(
             id=row["id"],
             tier=MemoryTier(row["tier"]),
             content=row["content"],
-            scope=scope,
+            scope=record_scope,
             score=row.get("score"),
             substrate=Substrate.GRAPH,
             topics=list(row["topics"]) if row.get("topics") is not None else None,

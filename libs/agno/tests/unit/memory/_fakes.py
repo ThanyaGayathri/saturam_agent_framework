@@ -266,7 +266,14 @@ class FakeGraph:
         )
         bucket = self._bucket(scope)
         for index, existing in enumerate(bucket):
-            if existing.id == row.id and existing.is_current_belief():
+            # `existing.scope`, not only `existing.id`: `_bucket` keys on `tenant_id` alone, so two
+            # users of one tenant share a bucket, and an id collision between them (unlikely with
+            # uuid4 stamping, but valid per the port -- `upsert_episodes` is by id, not by (id,
+            # scope)) silently overwrote the first with the second. Neo4j's MERGE key is
+            # `(scope_key, id, LIVE)`; a double weaker than that is a double every provider test
+            # written against it would pass on a bug the engine does not have (round-1 review, PR
+            # #90).
+            if existing.id == row.id and existing.scope == row.scope and existing.is_current_belief():
                 bucket[index] = row
                 return
         bucket.append(row)
@@ -294,7 +301,10 @@ class FakeGraph:
         bucket = self._bucket(scope)
         row = replace(fact.record, substrate=Substrate.GRAPH)
         for index, existing in enumerate(bucket):
-            if existing.id == row.id and existing.is_current_belief():
+            # Same class of defect as `_upsert_episode`'s dedup, and the same fix: `existing.scope`
+            # must join `existing.id`, or two users' facts sharing an id collapse into one inside
+            # the shared per-tenant bucket.
+            if existing.id == row.id and existing.scope == row.scope and existing.is_current_belief():
                 bucket[index] = row
                 return
         bucket.append(row)

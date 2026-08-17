@@ -284,6 +284,25 @@ def test_recall_never_crosses_a_scope_boundary(any_graph):
     assert sorted(ids(any_graph.recall_episodes(TENANT_WIDE, entities=["berlin"]))) == ["e1", "e2"]
 
 
+def test_the_tenant_wide_read_still_names_each_episodes_own_write_scope(any_graph):
+    """The regression test for round-1 review finding 1: under a tenant-wide call, deriving
+    ``entity_ids`` (or ``record.scope``) from the *call* scope rather than each episode's *write*
+    scope produced an id like ``acme/*/*/*/*/entity/berlin`` -- addressing a node that was never
+    written, because the real one was merged at ``acme/*/ada/*/*/entity/berlin``.
+    ``test_recall_never_crosses_a_scope_boundary`` asserted only ``ids()`` and could not see this;
+    this asserts ``linked()`` and ``.scope`` on the same tenant-wide read that test already makes,
+    which is exactly the read the bug needed."""
+    any_graph.upsert_episodes(ACME, [episode("e1", entities=["berlin"])])
+    any_graph.upsert_episodes(ACME_BOB, [episode("e2", scope=ACME_BOB, entities=["berlin"])])
+
+    records = {r.id: r for r in any_graph.recall_episodes(TENANT_WIDE, entities=["berlin"])}
+
+    assert records["e1"].scope == ACME
+    assert records["e2"].scope == ACME_BOB
+    assert linked(records["e1"]) == [entity_node_id_for(ACME, "berlin")]
+    assert linked(records["e2"]) == [entity_node_id_for(ACME_BOB, "berlin")]
+
+
 def test_recall_returns_facts_from_neither_shape(any_graph):
     """The episodic subgraph is episodes. A recall that also matched ``(:Fact)`` or a relation would
     put distilled semantics into a verb whose whole claim is that it is non-lossy."""

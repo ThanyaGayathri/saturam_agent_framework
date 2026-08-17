@@ -162,10 +162,31 @@ _RETURN = (
     "row.provenance AS provenance, row.metadata AS metadata, score"
 )
 
-#: The same columns without ``score``, plus the episode's mention names. ``recall_episodes`` is
-#: ordered by time and not ranked, so a score column would be a null the caller has to know to
-#: ignore -- and ``MemoryRecord.score`` left unset says that better than 0.0 does.
-_RECALL_RETURN = _RETURN.replace(", score", "") + ", mentions"
+#: The same columns without ``score``, plus the episode's own scope slots and its mention names.
+#: Spelled out rather than built from ``_RETURN`` by string surgery -- a ``.replace(", score", "")``
+#: silently produces the wrong text the day ``_RETURN`` gains a second occurrence of that substring
+#: or renames the column, and nothing would catch it.
+#:
+#: ``recall_episodes`` is ordered by time and not ranked, so a score column would be a null the
+#: caller has to know to ignore -- and ``MemoryRecord.score`` left unset says that better than 0.0
+#: does.
+#:
+#: The scope slots are the episode's **own write scope**, not the caller's -- and that distinction
+#: is load-bearing here in a way it is not for ``traverse``: this is the only read whose
+#: ``MemoryRecord`` carries a **derived** field (``entity_ids``) computed from ``scope``. Returning
+#: the call scope under a tenant-wide read produced ids like ``acme/*/*/*/*/entity/berlin`` against a
+#: node actually merged at ``acme/*/ada/*/*/entity/berlin`` -- entity ids that addressed nothing
+#: (round-1 review, PR #90). ``_record`` reconstructs the write ``Scope`` from these columns rather
+#: than parsing it back out of the ``MENTIONS`` edge's ``scope_key`` string, which has no inverse of
+#: :func:`~egpt.memory.types.escape_key_slot` to parse it with.
+_RECALL_RETURN = (
+    "RETURN row.id AS id, row.tier AS tier, row.content AS content, row.topics AS topics, "
+    "row.t_valid AS t_valid, row.t_invalid AS t_invalid, row.created_at AS created_at, "
+    "row.expired_at AS expired_at, row.superseded_by AS superseded_by, "
+    "row.provenance AS provenance, row.metadata AS metadata, "
+    + ", ".join(f"row.{slot} AS {slot}" for slot in SCOPE_SLOTS)
+    + ", mentions"
+)
 
 
 def _traverse(match: str, alias: str, scope: Scope, method: str) -> Tuple[str, Dict[str, Any]]:
@@ -604,6 +625,10 @@ SCHEMA_STATEMENTS = (
     f"CREATE CONSTRAINT egpt_{EPISODE.lower()}_row_id IF NOT EXISTS FOR (n:{EPISODE}) REQUIRE n.row_id IS UNIQUE",
     f"CREATE CONSTRAINT egpt_{FACT.lower()}_row_id IF NOT EXISTS FOR (n:{FACT}) REQUIRE n.row_id IS UNIQUE",
     f"CREATE INDEX egpt_{EPISODE.lower()}_scope IF NOT EXISTS FOR (n:{EPISODE}) ON (n.tenant_id, n.id)",
+    # Backs `recall_episodes_statement`'s `t_valid` window predicate. The id-equality index above
+    # does not help it -- that statement never mentions `id` -- so within one tenant a time-window
+    # read was a sequential scan over every episode (round-1 review, PR #90).
+    f"CREATE INDEX egpt_{EPISODE.lower()}_t_valid IF NOT EXISTS FOR (n:{EPISODE}) ON (n.tenant_id, n.t_valid)",
     f"CREATE INDEX egpt_{FACT.lower()}_scope IF NOT EXISTS FOR (n:{FACT}) ON (n.tenant_id, n.id)",
     f"CREATE INDEX egpt_rel_scope IF NOT EXISTS FOR ()-[r:{REL}]-() ON (r.tenant_id, r.id)",
     "CREATE INDEX egpt_entity_scope IF NOT EXISTS FOR (n:Entity) ON (n.scope_key, n.name)",

@@ -21,7 +21,15 @@ from egpt.memory.graph.episodic import (
 )
 from egpt.memory.schemas.episodic import episode_from_event, episode_to_record, graph_node_id_for
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MAX_LIMIT, MemoryEvent, MemoryOperationError, Scope
+from egpt.memory.types import (
+    MAX_LIMIT,
+    FactWrite,
+    MemoryEvent,
+    MemoryOperationError,
+    MemoryQuery,
+    MemoryRecord,
+    Scope,
+)
 from tests.unit.memory._fakes import FakeGraph
 
 ACME = Scope(tenant_id="acme", user_id="ada")
@@ -300,6 +308,59 @@ def test_the_double_never_leaks_a_mention_across_a_tenant():
     graph.upsert_episodes(GLOBEX, [episode("e2", scope=GLOBEX, entities=["berlin"])])
 
     assert [r.id for r in graph.recall_episodes(GLOBEX, entities=["berlin"])] == ["e2"]
+
+
+def test_two_users_episodes_sharing_an_id_do_not_collide_in_the_double():
+    """The regression test for round-1 review finding 2: ``_bucket`` keys on ``tenant_id`` alone, so
+    ada's and bob's episodes sharing one ``id`` land in one bucket, and the dedup check that follows
+    used to compare only ``id`` -- silently keeping the second write and discarding the first. Real
+    ids are uuid4-stamped so this needs an explicit id, but the port allows it: ``upsert_episodes``
+    is by id, not by ``(id, scope)``, and Neo4j's ``MERGE`` key is
+    ``(scope_key, id, live)`` -- it would have kept both."""
+    ada = Scope(tenant_id="acme", user_id="ada")
+    bob = Scope(tenant_id="acme", user_id="bob")
+    graph = FakeGraph()
+    graph.upsert_episodes(ada, [episode("shared-id", content="ada's note", scope=ada)])
+    graph.upsert_episodes(bob, [episode("shared-id", content="bob's note", scope=bob)])
+
+    tenant_wide = Scope(tenant_id="acme")
+    hits = {r.scope: r.content for r in graph.recall_episodes(tenant_wide, since=0)}
+
+    assert hits == {ada: "ada's note", bob: "bob's note"}
+
+
+def test_two_users_facts_sharing_an_id_do_not_collide_in_the_double():
+    """The same class of defect as the episode dedup above, at ``_upsert_fact``'s identical
+    check -- found by grepping every other dedup site rather than fixing only the one the review
+    named. Neo4j's fact write is `MERGE`d on `(scope_key, id, live)` too, so it would keep both."""
+    ada = Scope(tenant_id="acme", user_id="ada")
+    bob = Scope(tenant_id="acme", user_id="bob")
+    graph = FakeGraph()
+    graph.upsert_facts(
+        ada,
+        [
+            FactWrite(
+                record=MemoryRecord(
+                    id="shared-fact", tier=MemoryTier.SEMANTIC, content="ada earns 200k", scope=ada, t_valid=100
+                )
+            )
+        ],
+    )
+    graph.upsert_facts(
+        bob,
+        [
+            FactWrite(
+                record=MemoryRecord(
+                    id="shared-fact", tier=MemoryTier.SEMANTIC, content="bob earns 150k", scope=bob, t_valid=100
+                )
+            )
+        ],
+    )
+
+    tenant_wide = Scope(tenant_id="acme")
+    contents = {r.scope: r.content for r in graph.traverse(tenant_wide, MemoryQuery(text="earns"))}
+
+    assert contents == {ada: "ada earns 200k", bob: "bob earns 150k"}
 
 
 def test_the_edge_type_is_declared_once():
