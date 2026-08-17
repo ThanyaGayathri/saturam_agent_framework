@@ -4,16 +4,22 @@ import json
 from unittest.mock import MagicMock, patch
 
 import pytest
-from atlassian import Confluence
 
 from egpt.integrations.tools.confluence import ConfluenceTools
 
 
 @pytest.fixture
 def mock_confluence():
-    """Create a mock Confluence client."""
+    """Create a mock Confluence client.
+
+    Unspecced: atlassian-python-api 5.x turned ``Confluence`` into a URL-based factory that
+    delegates to a Cloud/Server implementation via ``__getattr__`` at the instance level, so
+    ``dir(Confluence)`` on the class no longer lists methods like ``get_all_spaces`` -- a
+    ``spec=Confluence`` mock would reject them even though the real client (built by
+    ``ConfluenceTools.__init__`` calling ``Confluence(...)``) has them at runtime.
+    """
     with patch("egpt.integrations.tools.confluence.confluence.Confluence") as mock_confluence_class:
-        mock_client = MagicMock(spec=Confluence)
+        mock_client = MagicMock()
         mock_client.get_all_spaces.return_value = {"results": []}
         mock_confluence_class.return_value = mock_client
         yield mock_client
@@ -51,7 +57,7 @@ def test_init_with_environment_variables():
         ),
         patch("egpt.integrations.tools.confluence.confluence.Confluence") as mock_confluence_class,
     ):
-        mock_client = MagicMock(spec=Confluence)
+        mock_client = MagicMock()
         mock_client.get_all_spaces.return_value = {"results": []}
         mock_confluence_class.return_value = mock_client
 
