@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from os import getenv
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union
 
 from typing_extensions import Literal
 
@@ -33,6 +33,16 @@ class AzureOpenAIEmbedder(Embedder):
     client_params: Optional[Dict[str, Any]] = None
     openai_client: Optional[AzureOpenAIClient] = None
     async_client: Optional[AsyncAzureOpenAIClient] = None
+    #: The Azure/OpenAI embeddings endpoint takes a list of inputs in one request natively (see
+    #: `async_get_embeddings_batch_and_usage` below, which already relies on this), so
+    #: `get_embedding` accepting a list costs nothing extra over the network -- unlike
+    #: `SentenceTransformerEmbedder`'s in-process batching, there is no separate capability being
+    #: claimed here, only that the existing single-text path also accepts the plural form.
+    #:
+    #: `ClassVar`, not a dataclass field: this is a declared capability of the class, and a plain
+    #: field would let `AzureOpenAIEmbedder(accepts_text_batches=False)` silently turn it off per
+    #: instance with nothing downstream able to tell the difference from a real refusal.
+    accepts_text_batches: ClassVar[bool] = True
 
     def __post_init__(self):
         if self.dimensions is None and self.id.startswith("text-embedding-3"):
@@ -110,12 +120,41 @@ class AzureOpenAIEmbedder(Embedder):
 
         return self.client.embeddings.create(**_request_params)
 
-    def get_embedding(self, text: str) -> List[float]:
-        response: CreateEmbeddingResponse = self._response(text=text)
+    def _batch_response(self, texts: List[str]) -> CreateEmbeddingResponse:
+        """One request for many texts -- the same endpoint `_response` calls, given a list."""
+        _request_params: Dict[str, Any] = {
+            "input": texts,
+            "model": self.id,
+            "encoding_format": self.encoding_format,
+        }
+        if self.user is not None:
+            _request_params["user"] = self.user
+        if self.dimensions is not None:
+            _request_params["dimensions"] = self.dimensions
+        if self.request_params:
+            _request_params.update(self.request_params)
+
+        return self.client.embeddings.create(**_request_params)
+
+    def get_embedding(self, text: Union[str, List[str]]) -> List[float]:
+        """One vector for a single text, or one vector per text, in order, for a list.
+
+        The plural form is one request, not one per text -- the endpoint natively accepts a list
+        of inputs (`async_get_embeddings_batch_and_usage` below already relies on this), and
+        `response.data` returns in the same order it was given.
+        """
+        if isinstance(text, str):
+            response: CreateEmbeddingResponse = self._response(text=text)
+            try:
+                return response.data[0].embedding
+            except Exception as e:
+                log_warning(f"Failed to get embedding: {str(e)}")
+                return []
+        response = self._batch_response(list(text))
         try:
-            return response.data[0].embedding
+            return [item.embedding for item in response.data]  # type: ignore  # List[List[float]] for the plural form, matching SentenceTransformerEmbedder
         except Exception as e:
-            log_warning(f"Failed to get embedding: {str(e)}")
+            log_warning(f"Failed to get batch embeddings: {str(e)}")
             return []
 
     def get_embedding_and_usage(self, text: str) -> Tuple[List[float], Optional[Dict]]:
@@ -141,13 +180,36 @@ class AzureOpenAIEmbedder(Embedder):
 
         return await self.aclient.embeddings.create(**_request_params)
 
-    async def async_get_embedding(self, text: str) -> List[float]:
-        """Async version of get_embedding using the native Azure OpenAI async client."""
-        response: CreateEmbeddingResponse = await self._aresponse(text=text)
+    async def _abatch_response(self, texts: List[str]) -> CreateEmbeddingResponse:
+        """Async twin of :meth:`_batch_response`."""
+        _request_params: Dict[str, Any] = {
+            "input": texts,
+            "model": self.id,
+            "encoding_format": self.encoding_format,
+        }
+        if self.user is not None:
+            _request_params["user"] = self.user
+        if self.dimensions is not None:
+            _request_params["dimensions"] = self.dimensions
+        if self.request_params:
+            _request_params.update(self.request_params)
+
+        return await self.aclient.embeddings.create(**_request_params)
+
+    async def async_get_embedding(self, text: Union[str, List[str]]) -> List[float]:
+        """Async twin of :meth:`get_embedding`, same call shape, same ordering guarantee."""
+        if isinstance(text, str):
+            response: CreateEmbeddingResponse = await self._aresponse(text=text)
+            try:
+                return response.data[0].embedding
+            except Exception as e:
+                log_warning(f"Failed to get embedding: {str(e)}")
+                return []
+        response = await self._abatch_response(list(text))
         try:
-            return response.data[0].embedding
+            return [item.embedding for item in response.data]  # type: ignore  # List[List[float]] for the plural form, matching SentenceTransformerEmbedder
         except Exception as e:
-            log_warning(f"Failed to get embedding: {str(e)}")
+            log_warning(f"Failed to get batch embeddings: {str(e)}")
             return []
 
     async def async_get_embedding_and_usage(self, text: str) -> Tuple[List[float], Optional[Dict]]:

@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from egpt.knowledge.embedder import Embedder
 from egpt.memory.config import MemoryProviderConfigError
 from egpt.providers.model_provider import ProviderMode
+from egpt.utils.log import log_warning
 
 __all__ = [
     "MODE_DEFAULTS",
@@ -65,6 +66,13 @@ OFFLINE_CAPABLE = frozenset({"sentence_transformer", "fastembed", "vllm", "ollam
 #: Mode B is Azure ``text-embedding-3-large`` truncated to 1024 -- a statistical tie with Mode A
 #: rather than an upgrade (Holm n.s.), and truncated because the full 3072 exceeds pgvector's
 #: 2000-dim ``vector`` limit while 1024 ties it (p=0.82).
+#:
+#: **1024 is a constraint, not this class's own default.** ``AzureOpenAIEmbedder.__post_init__``
+#: sets ``dimensions=1536`` for any ``text-embedding-3-*`` id when none is given, so an
+#: already-built instance passed to ``embedder=`` without an explicit ``dimensions=1024`` resolves
+#: to 1536 and fails the dimension-agreement check with a number that names neither pgvector's
+#: limit nor SM-R4's choice. Going through this default, or passing ``dimensions=1024`` alongside
+#: an injected instance, avoids it.
 MODE_DEFAULTS: Dict[ProviderMode, Dict[str, Any]] = {
     ProviderMode.LOCAL: {"backend": "sentence_transformer", "id": "BAAI/bge-base-en-v1.5", "dimensions": 768},
     ProviderMode.FRONTIER: {"backend": "azure_openai", "id": "text-embedding-3-large", "dimensions": 1024},
@@ -74,6 +82,11 @@ MODE_DEFAULTS: Dict[ProviderMode, Dict[str, Any]] = {
 #: not take from the embedder. Cosine because every candidate was evaluated normalized, and the
 #: substrate's own score normalization assumes it.
 _METRIC = "cos"
+#: Bump when the metric, a truncation strategy, or query preprocessing changes -- anything that
+#: makes a vector stored under this tag no longer comparable to one embedded fresh. The
+#: re-embedding migration in SPEC §11.3 keys its cutover on this value; an unbumped revision after
+#: such a change makes stale and fresh vectors indistinguishable by tag, silently invalidating
+#: retrieval rather than triggering a migration.
 _REVISION = "v1"
 
 #: Field separator for :data:`MemoryEmbedder.embedding_version`.
@@ -201,6 +214,13 @@ class MemoryEmbedder:
         declared = getattr(self.embedder, "batch_size", None)
         if isinstance(declared, int) and not isinstance(declared, bool) and declared > 0:
             return declared
+        if self._accepts_batches():
+            # Only worth a log for an embedder that actually batches -- a non-batching one is
+            # every call at size 1 regardless, so the fallback is not silently costing anything.
+            log_warning(
+                f"{type(self.embedder).__name__} declares batching but batch_size is "
+                f"{declared!r}, not a positive int; falling back to one text per call."
+            )
         return 1
 
     def _accepts_batches(self) -> bool:
@@ -308,6 +328,11 @@ class MemoryEmbedder:
         Checked here rather than only at the substrate: an embedder whose ``dimensions`` disagrees
         with what it actually returns otherwise reaches Postgres as ``expected 768 dimensions, not
         384`` on the first write, naming the column instead of the model that caused it.
+
+        **Called per chunk, not once over the whole batch** -- both loops below check each chunk's
+        vectors before asking the embedder for the next one, so a wrong-dimension embedder is
+        refused after the first API call it makes, not after every chunk in a large batch has
+        already been paid for and only the last one's result is inspected.
         """
         for vector in vectors:
             if len(vector) != self.dimensions:
@@ -323,8 +348,9 @@ class MemoryEmbedder:
         """Embed a batch, in order, one vector per text."""
         vectors: List[List[float]] = []
         for chunk in self._chunks(texts):
-            vectors.extend(self._as_vectors(self.embedder.get_embedding(self._call_arg(chunk)), len(chunk)))
-        return self._checked(vectors)
+            result = self._as_vectors(self.embedder.get_embedding(self._call_arg(chunk)), len(chunk))
+            vectors.extend(self._checked(result))
+        return vectors
 
     async def aembed_texts(self, texts: Sequence[str]) -> List[List[float]]:
         """Async variant of :meth:`embed_texts`, chunked identically.
@@ -337,8 +363,9 @@ class MemoryEmbedder:
         vectors: List[List[float]] = []
         for chunk in self._chunks(texts):
             result = await self.embedder.async_get_embedding(self._call_arg(chunk))
-            vectors.extend(self._as_vectors(result, len(chunk)))
-        return self._checked(vectors)
+            checked = self._checked(self._as_vectors(result, len(chunk)))
+            vectors.extend(checked)
+        return vectors
 
     def embed_query(self, text: str) -> List[float]:
         """Embed a query with the **same** embedder the write path used (SM-R4 decision 2)."""
@@ -352,7 +379,7 @@ class MemoryEmbedder:
 def resolve_memory_embedder(
     mode: ProviderMode,
     embedder: Any = None,
-    options: Optional[Dict[str, Any]] = None,
+    embedder_options: Optional[Dict[str, Any]] = None,
     dimensions: Optional[int] = None,
     dimensions_field: str = "dimensions",
 ) -> MemoryEmbedder:
@@ -366,9 +393,12 @@ def resolve_memory_embedder(
     * ``embedder=<instance>`` takes an already-built one, which is how a test injects a double and
       how a deployment passes constructor arguments the registry row does not carry.
 
-    ``options`` are constructor keyword arguments and apply only to the first two -- an instance is
-    configured by whoever built it, so silently dropping them would leave a deployment's ``device``
-    or ``trust_remote_code`` setting inert with nothing to show for it.
+    ``embedder_options`` are constructor keyword arguments and apply only to the first two -- an
+    instance is configured by whoever built it, so silently dropping them would leave a
+    deployment's ``device`` or ``trust_remote_code`` setting inert with nothing to show for it.
+    Named to match the ``field_name`` a refusal about it carries, rather than the shorter
+    ``options`` this parameter used to be -- a caller reading that refusal to fix their config
+    looked for a parameter with that exact name.
 
     ``dimensions_field`` is the caller's own name for the width, carried onto ``field_name`` of any
     refusal about it -- the same reason ``resolve_substrate`` takes a ``field``. The vector store
@@ -398,22 +428,23 @@ def resolve_memory_embedder(
             )
         key = str(default["backend"])
         # Both the id **and** the dimension are constructor arguments, and the caller's own
-        # `options` win over the default's -- a deployment pinning a different bge revision should
-        # not have to stop using the mode default to do it.
+        # `embedder_options` win over the default's -- a deployment pinning a different bge
+        # revision should not have to stop using the mode default to do it.
         #
         # `dimensions` is passed rather than only recorded because an embedder does not infer it
         # from the model: `SentenceTransformerEmbedder.dimensions` is 384 whatever it loads, so the
         # Mode A default resolved to a 768-model declaring 384 and the pipeline refused its own
         # default. Found by running the cookbook, not by a unit test -- every double declares the
         # width it returns, which is the one thing the real class does not do.
-        options = {"id": default["id"], "dimensions": int(default["dimensions"]), **(options or {})}
+        embedder_options = {"id": default["id"], "dimensions": int(default["dimensions"]), **(embedder_options or {})}
         if declared_dim is None:
             # From the **merged** options, not the mode default. These are the same value until a
-            # caller passes `options={"dimensions": N}`, at which point the constructed embedder is
-            # N wide and taking the default here refuses the caller's own setting while quoting a
-            # number they never passed -- "dimensions is 768 but Embedder.dimensions is 512", where
-            # 768 came from this line. One source of truth: whatever the embedder is being built at.
-            declared_dim = options["dimensions"]
+            # caller passes `embedder_options={"dimensions": N}`, at which point the constructed
+            # embedder is N wide and taking the default here refuses the caller's own setting while
+            # quoting a number they never passed -- "dimensions is 768 but Embedder.dimensions is
+            # 512", where 768 came from this line. One source of truth: whatever the embedder is
+            # being built at.
+            declared_dim = embedder_options["dimensions"]
     elif isinstance(embedder, str):
         key = embedder.strip()
         if not key:
@@ -422,7 +453,7 @@ def resolve_memory_embedder(
                 "or None to take the mode default.",
                 field_name="embedder",
             )
-    elif options:
+    elif embedder_options:
         raise MemoryProviderConfigError(
             "embedder_options applies only when 'embedder' names a registered embedder to build or is "
             "unset; an already-built instance is configured by its own constructor, so these would be "
@@ -436,7 +467,7 @@ def resolve_memory_embedder(
     if mode is ProviderMode.LOCAL and key is not None:
         _reject_online_for_local(key, None)
 
-    resolved = _construct(key, options) if key is not None else embedder
+    resolved = _construct(key, embedder_options) if key is not None else embedder
 
     if mode is ProviderMode.LOCAL and key is None:
         _reject_online_for_local(None, resolved)

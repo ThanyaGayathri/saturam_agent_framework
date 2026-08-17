@@ -140,12 +140,12 @@ def test_a_caller_option_beats_the_mode_default(monkeypatch):
 
     seen = {}
     monkeypatch.setattr(embedding, "_construct", lambda key, options: seen.update(options) or Recorder())
-    resolve_memory_embedder(ProviderMode.LOCAL, options={"id": "BAAI/bge-base-en-v1.0"}, dimensions=DIM)
+    resolve_memory_embedder(ProviderMode.LOCAL, embedder_options={"id": "BAAI/bge-base-en-v1.0"}, dimensions=DIM)
     assert seen["id"] == "BAAI/bge-base-en-v1.0"
 
 
 def test_a_caller_dimension_option_is_the_width_the_pipeline_resolves_to(monkeypatch):
-    """``options={"dimensions": N}`` builds the embedder at N, so N is the width -- not the mode
+    """``embedder_options={"dimensions": N}`` builds the embedder at N, so N is the width -- not the mode
     default. Taking the default here refused the caller's own setting while quoting a number they
     never passed ("dimensions is 768 but ... is 512"), leaving them nothing to map back to an
     argument.
@@ -163,7 +163,7 @@ def test_a_caller_dimension_option_is_the_width_the_pipeline_resolves_to(monkeyp
             return [0.0] * self.dimensions
 
     monkeypatch.setattr(embedding, "_construct", lambda key, options: Sized(**options))
-    resolved = resolve_memory_embedder(ProviderMode.LOCAL, options={"dimensions": 512, "id": "x"})
+    resolved = resolve_memory_embedder(ProviderMode.LOCAL, embedder_options={"dimensions": 512, "id": "x"})
     assert resolved.dimensions == 512
     assert "|d512|" in resolved.embedding_version
 
@@ -348,6 +348,16 @@ def test_the_mode_a_default_embedder_declares_the_capability_so_criterion_4_is_r
     assert SentenceTransformerEmbedder.accepts_text_batches is True
 
 
+def test_the_mode_b_default_embedder_declares_the_capability_too():
+    """Round-2 review finding: the ticket's AC4 has no Mode-only qualifier, and this was unmet for
+    Mode B -- ``AzureOpenAIEmbedder`` had no capability declared and no way to accept a list. Fixed
+    in ``azure_openai.py`` alongside this test, mirroring the Mode A shape rather than scoping the
+    criterion down to exclude Mode B."""
+    from egpt.integrations.knowledge.embedder.azure_openai import AzureOpenAIEmbedder
+
+    assert AzureOpenAIEmbedder.accepts_text_batches is True
+
+
 def test_a_batching_embedder_gets_a_list_even_for_a_single_text():
     """Every ``embed_query`` is one text. Unwrapping by chunk length rather than by declared shape
     sent a bare string to a batch-only embedder on every read while writes batched fine -- so the
@@ -444,6 +454,44 @@ def test_a_batch_size_of_zero_does_not_spin():
     assert len(pipeline(ZeroBatch()).embed_texts(["a", "b", "c"])) == 3
 
 
+def test_the_batch_size_fallback_logs_a_warning(monkeypatch):
+    """The fallback above is silent to a caller with nothing watching stderr. A batching embedder
+    with a bad ``batch_size`` degrading to per-text calls with no observable signal is a real
+    deployment surprise -- pinned here so the log is not quietly dropped later."""
+    from egpt.memory import embedding
+
+    class ZeroBatch(BatchRecorder):
+        batch_size = 0
+
+    seen = []
+    monkeypatch.setattr(embedding, "log_warning", lambda msg: seen.append(msg))
+    resolved = pipeline(ZeroBatch())
+    assert resolved._batch_size() == 1
+    assert len(seen) == 1
+    assert "ZeroBatch" in seen[0]
+
+
+def test_a_non_batching_embedders_batch_size_fallback_logs_nothing():
+    """The log is conditioned on ``_accepts_batches()``: a non-batching embedder is always one text
+    per call regardless of ``batch_size``, so a log there would fire on every deployment that never
+    declared the capability at all -- noise, not a signal. ``_batch_size`` is never even reached
+    through ``_chunks`` for such an embedder; called directly here to test the guard in isolation."""
+    from egpt.memory import embedding
+
+    class ZeroBatchNonBatching(Recorder):
+        batch_size = 0
+
+    seen = []
+    embedding_module_warning = embedding.log_warning
+    try:
+        embedding.log_warning = lambda msg: seen.append(msg)
+        resolved = pipeline(ZeroBatchNonBatching())
+        assert resolved._batch_size() == 1
+    finally:
+        embedding.log_warning = embedding_module_warning
+    assert seen == []
+
+
 # -- criterion 3: the dimension matches the vector store -----------------------
 
 
@@ -509,6 +557,40 @@ def test_the_async_half_refuses_a_wrong_width_too():
 
     with pytest.raises(MemoryProviderConfigError):
         asyncio.run(pipeline(Lying()).aembed_texts(["a"]))
+
+
+def test_a_wrong_width_batch_is_refused_after_its_own_chunk_not_after_the_whole_call():
+    """Checked per chunk, not once over the accumulated batch -- a wrong-dimension embedder is
+    refused as soon as its own first chunk comes back, not after every later chunk has also paid
+    for a call whose result is then discarded. Two chunks of size 2 (``batch_size``); the second
+    embedder call must never happen."""
+
+    class LyingAfterFirstChunk(BatchRecorder):
+        def get_embedding(self, text):
+            if isinstance(text, str):
+                raise TypeError("batch-only")
+            self.calls.append(list(text))
+            return [[0.0, 0.0] for _ in text]  # wrong width on every call, including the first
+
+    recorder = LyingAfterFirstChunk()
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        pipeline(recorder).embed_texts(["a", "b", "c", "d"])
+    assert raised.value.field_name == "dimensions"
+    assert len(recorder.calls) == 1  # refused after the first chunk, never asked for the second
+
+
+def test_the_async_half_is_also_checked_per_chunk():
+    class LyingAfterFirstChunk(BatchRecorder):
+        def get_embedding(self, text):
+            if isinstance(text, str):
+                raise TypeError("batch-only")
+            self.calls.append(list(text))
+            return [[0.0, 0.0] for _ in text]
+
+    recorder = LyingAfterFirstChunk()
+    with pytest.raises(MemoryProviderConfigError):
+        asyncio.run(pipeline(recorder).aembed_texts(["a", "b", "c", "d"]))
+    assert len(recorder.calls) == 1
 
 
 # -- the version tag (D8) ------------------------------------------------------
@@ -582,8 +664,19 @@ def test_options_beside_a_built_instance_are_refused():
     """Silently dropping them leaves a deployment's ``device`` or ``trust_remote_code`` inert with
     nothing to show for it."""
     with pytest.raises(MemoryProviderConfigError) as raised:
-        resolve_memory_embedder(ProviderMode.FRONTIER, Recorder(), options={"id": "x"})
+        resolve_memory_embedder(ProviderMode.FRONTIER, Recorder(), embedder_options={"id": "x"})
     assert raised.value.field_name == "embedder_options"
+
+
+def test_the_parameter_name_matches_its_own_error_message():
+    """The refusal above names ``embedder_options`` -- so does the parameter, not a shorter
+    ``options`` a caller reading that message would not find. A keyword-only call with the wrong
+    name raises ``TypeError`` from Python itself, which is the regression this pins."""
+    import inspect
+
+    params = inspect.signature(resolve_memory_embedder).parameters
+    assert "embedder_options" in params
+    assert "options" not in params
 
 
 def test_an_empty_embedder_name_is_refused():

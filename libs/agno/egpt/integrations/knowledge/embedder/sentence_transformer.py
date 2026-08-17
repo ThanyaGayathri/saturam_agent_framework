@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Union
+from typing import ClassVar, Dict, List, Optional, Tuple, Union
 
 from egpt.knowledge.embedder.base import Embedder
 from egpt.utils.log import log_warning
@@ -31,7 +31,12 @@ class SentenceTransformerEmbedder(Embedder):
     #: API this class does not implement; that flag is left alone, so no knowledge-pipeline call
     #: site changes behaviour. Read by ``egpt.memory.embedding`` (SM-V2 #96), which batches through
     #: ``get_embedding`` because the batch API is async-only and would split the sync/async twins.
-    accepts_text_batches: bool = True
+    #:
+    #: ``ClassVar``, not a dataclass field: this declares a capability of the class, and a plain
+    #: field would make ``SentenceTransformerEmbedder(accepts_text_batches=False)`` a valid call
+    #: that silently turns batching off on the one embedder that supports it, with nothing
+    #: downstream able to tell that from a real refusal.
+    accepts_text_batches: ClassVar[bool] = True
 
     def __post_init__(self):
         # Initialize the SentenceTransformer model eagerly to avoid race conditions in async contexts
