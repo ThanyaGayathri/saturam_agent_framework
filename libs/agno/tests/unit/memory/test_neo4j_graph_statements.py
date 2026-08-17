@@ -56,6 +56,19 @@ def all_statements(scope):
             for i, (text, params) in enumerate(cypher.insert_bounded_copy_statements(scope))
         ],
         ("episode_probe", *cypher.episode_probe_statement(scope)),
+        ("clear_mentions", *cypher.clear_mentions_statement(scope)),
+        ("link_mentions", *cypher.link_mentions_statement(scope)),
+        # Every filter combination, because each one appends its own clause to the predicate and a
+        # scope guard that only held for the fully-filtered form would be the "one wiring" gap.
+        *[
+            (f"recall_episodes[{label}]", *cypher.recall_episodes_statement(scope, **kwargs))
+            for label, kwargs in (
+                ("entities", {"entities": ["berlin"], "since": None, "until": None, "limit": None}),
+                ("window", {"entities": None, "since": 10, "until": 20, "limit": 5}),
+                ("since", {"entities": None, "since": 10, "until": None, "limit": 0}),
+                ("until", {"entities": None, "since": None, "until": 20, "limit": None}),
+            )
+        ],
     ]
     return emitted
 
@@ -90,7 +103,16 @@ def statement_ids(scope):
 #: Statements that carry their scope **on each row** rather than in bound parameters. A write always
 #: has a fully-specified scope, so it matches `scope_key` exactly; a read's unset slot means "any",
 #: which an equality on the composite key could not express.
-WRITE_STATEMENTS = ("upsert_episodes", "upsert_facts[triple]", "upsert_facts[node]")
+#: The two mention statements are here for the same reason: both address the live episode by its
+#: exact ``scope_key``, so an episode written under one scope is unreachable from another whichever
+#: end the statement starts at.
+WRITE_STATEMENTS = (
+    "upsert_episodes",
+    "upsert_facts[triple]",
+    "upsert_facts[node]",
+    "clear_mentions",
+    "link_mentions",
+)
 
 
 @pytest.mark.parametrize("label", [name for name in statement_ids(FULL) if name not in WRITE_STATEMENTS])
@@ -221,15 +243,48 @@ def test_the_live_identity_is_constrained_but_the_logical_id_alone_is_not():
     assert len(live_identity) == 3, f"every row shape needs the live-identity constraint, got {live_identity}"
 
 
+#: What each write statement's ``MERGE`` is keyed on, and the constraint fragment backing that key.
+#: A pair per statement rather than one rule for all, because the mention statements key on the
+#: episode's live identity to *match* and on their own keys to *merge* -- and a check that only
+#: knew the node shape would have passed them vacuously by never looking at their MERGE at all.
+MERGE_KEYS = {
+    "upsert_episodes": (f"id: row.id, {cypher.LIVE}: true", f"id, n.{cypher.LIVE}) IS UNIQUE"),
+    "upsert_facts[node]": (f"id: row.id, {cypher.LIVE}: true", f"id, n.{cypher.LIVE}) IS UNIQUE"),
+    "upsert_facts[triple]": (f"id: row.id, {cypher.LIVE}: true", f"id, r.{cypher.LIVE}) IS UNIQUE"),
+    "link_mentions": ("link_id: row.props.link_id", "r.link_id IS UNIQUE"),
+    # Deletes what it matched; it merges nothing, so there is no key to back.
+    "clear_mentions": (None, None),
+}
+
+
 def test_the_merge_key_and_the_constraint_are_the_same_key():
     """A constraint on a different key than ``MERGE`` uses protects nothing.
 
     This is the whole mechanism: Neo4j documents ``MERGE`` as concurrency-safe only when a
     uniqueness constraint backs the pattern it merges on.
     """
+    assert set(MERGE_KEYS) == set(WRITE_STATEMENTS), "a write statement outside the merge-key map"
     for label in WRITE_STATEMENTS:
+        merge_key, constraint = MERGE_KEYS[label]
+        if merge_key is None:
+            continue
         text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
-        assert f"id: row.id, {cypher.LIVE}: true" in text, f"{label} does not merge on the live identity"
+        assert "MERGE" in text and merge_key in text, f"{label} does not merge on {merge_key}"
+        assert any(constraint in s for s in cypher.SCHEMA_STATEMENTS), f"nothing constrains {label}'s merge key"
+
+
+def test_the_entity_merge_is_backed_by_its_own_constraint():
+    """Both statements that ``MERGE`` an entity node key on the same pair, so one constraint covers
+    them -- and a shape that keyed on the tenant instead would share one user's entities with
+    another (entity resolution is SM-G8's call, not a side effect of a merge key)."""
+    for label in ("upsert_facts[triple]", "link_mentions"):
+        text, _ = next((t, p) for name, t, p in all_statements(FULL) if name == label)
+        assert "MERGE (n:Entity {scope_key: row.scope_key, name: row." in text or (
+            "MERGE (s:Entity {scope_key: row.scope_key, name: row." in text
+        ), f"{label} does not merge entities on the full scope"
+    assert any("(n.scope_key, n.name) IS UNIQUE" in s for s in cypher.SCHEMA_STATEMENTS), (
+        "nothing constrains the entity identity"
+    )
 
 
 def test_the_substrate_satisfies_the_port_without_connecting():
@@ -336,6 +391,7 @@ DRIVER_CALLS = {
         FULL, [FactWrite(record=MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=FULL))]
     ),
     "traverse": lambda g: g.traverse(FULL, MemoryQuery(text="x")),
+    "recall_episodes": lambda g: g.recall_episodes(FULL, since=10),
     "bounds_for_ids": lambda g: g.bounds_for_ids(FULL, ["f1"]),
     "invalidate": lambda g: g.invalidate(FULL, "f1", t_invalid=300, at=310),
     "init_schema": lambda g: g.init_schema(),
@@ -439,6 +495,7 @@ ASYNC_DRIVER_CALLS = {
         FULL, [FactWrite(record=MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=FULL))]
     ),
     "atraverse": lambda g: g.atraverse(FULL, MemoryQuery(text="x")),
+    "arecall_episodes": lambda g: g.arecall_episodes(FULL, since=10),
     "abounds_for_ids": lambda g: g.abounds_for_ids(FULL, ["f1"]),
     "ainvalidate": lambda g: g.ainvalidate(FULL, "f1", t_invalid=300, at=310),
     "ainit_schema": lambda g: g.ainit_schema(),

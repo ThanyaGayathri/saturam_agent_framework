@@ -219,3 +219,34 @@ rather than documented.
 
 **Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
 key; the embedder is local and downloads its weights on first run.
+
+---
+
+### 14_episodic_subgraph.py
+
+**Status:** PASS
+
+**Description:** Exercises SM-G6's episodic subgraph against a real Neo4j 5 Community. Writes four
+episodes across two users of one tenant, each carrying the entity names it mentions, then reads them
+back three ways: by mention link, by half-open valid-time window, and by both together.
+
+**Result:** Success, and all three acceptance criteria are visible in the output. The link read
+returns the two berlin episodes oldest-first and skips the scheduler one; the window read
+`[MARCH, JUNE)` returns march and april and excludes june, which is the half-open bound; the two
+filters together narrow to the single march episode, so they conjoin rather than union. "Store an
+episode, traverse to its entities" prints the three entity node ids read off the `MENTIONS` edges --
+`acme/*/ada/*/*/entity/{ada,berlin,platform team}` -- in the order the episode named them. Ada's
+`berlin` and bob's `berlin` print as different node ids and bob's link read returns only his own
+episode, so entities are keyed on the full scope rather than the tenant. The unfiltered recall is
+**refused** naming SM-G9 (#107) rather than answered, because every episode in scope is an
+enumeration and what that means over a temporal graph is not this ticket's to define.
+
+Run **twice in a row and the output is identical**: the four events carry explicit ids and
+`upsert_episodes` replaces by id, so a re-run replaces the same four episodes and their mention
+edges rather than accumulating a fresh set.
+
+**Requires:** a running Neo4j (`./cookbook/scripts/run_neo4j.sh`). No model API key.
+
+**Environment note:** run with `.venv`, not `.venvs/demo` -- `demo_setup.sh` does not install the
+`neo4j` driver, so `10_graph_substrate_neo4j.py` has the same constraint. Pre-existing, not
+introduced here.

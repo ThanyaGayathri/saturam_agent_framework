@@ -116,6 +116,14 @@ _NEW_INTEGRATIONS_REFERENCE_SERVICES = {
     ("egpt.integrations.memory.vector.pgvector.pgvector", "egpt.memory.tiers"),
     ("egpt.integrations.memory.vector.pgvector.pgvector", "egpt.memory.types"),
     ("egpt.integrations.memory.vector.pgvector.sql", "egpt.memory.types"),
+    # SM-G6 (aicoe-tracker#104), the episodic subgraph: same decision again, one module further
+    # in. `egpt.memory.graph.episodic` holds the rules a `MENTIONS` edge has to satisfy -- the
+    # entity node id, the mention order, and what a recall may filter on -- and they live there
+    # precisely so every graph backend applies one copy. A backend that reimplemented them to
+    # stay inside the boundary would be the drift the shared module exists to prevent, so this is
+    # the same debt as the four rows above rather than a new one.
+    ("egpt.integrations.memory.graph.neo4j.cypher", "egpt.memory.graph.episodic"),
+    ("egpt.integrations.memory.graph.neo4j.neo4j", "egpt.memory.graph.episodic"),
 }
 
 _KNOWN_VIOLATIONS = (

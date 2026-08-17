@@ -20,8 +20,9 @@ Deliberately **not** here, each with an owner: entity and relation extraction (S
 SM-G3 #101), contradiction *detection* (SM-G5 #103 -- this ships the primitive, not the decision to
 call it), valid-time extraction from content (SM-G4 #102), append-only enforcement via APOC trigger
 or scheduled audit (SM-G4 #102, options in SM-R10 section 6.1), multi-hop traversal and graph
-enumeration (SM-G9 #107), PPR over a GDS projection (SM-H4 #134), episode-to-entity mention links
-(SM-G6 #104), and entity resolution (SM-G8 #106).
+enumeration (SM-G9 #107), PPR over a GDS projection (SM-H4 #134), and entity resolution (SM-G8
+#106). Episode-to-entity mention links arrived with SM-G6 (#104); the entity names they link are
+supplied on the event, not extracted here.
 """
 
 import json
@@ -33,6 +34,7 @@ from uuid import uuid4
 
 from egpt.integrations.memory.graph.neo4j import cypher
 from egpt.memory.config import MemoryProviderConfigError
+from egpt.memory.graph.episodic import entity_node_id_for, mention_rows
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     FactWrite,
@@ -372,6 +374,12 @@ class Neo4jGraphSubstrate:
             ) from exc
 
     def _record(self, row: Dict[str, Any], scope: Scope) -> MemoryRecord:
+        provenance = self._from_json(row.get("provenance"), "provenance", row.get("id"))
+        if "mentions" in row:
+            # The mention names come from the edges; the ids are derived from them here rather than
+            # stored on the edge, so this list and `EpisodicRecord.entity_ids` are the same function
+            # of the same names and cannot drift into two answers.
+            provenance["entity_ids"] = [entity_node_id_for(scope, name) for name in row["mentions"]]
         return MemoryRecord(
             id=row["id"],
             tier=MemoryTier(row["tier"]),
@@ -380,7 +388,7 @@ class Neo4jGraphSubstrate:
             score=row.get("score"),
             substrate=Substrate.GRAPH,
             topics=list(row["topics"]) if row.get("topics") is not None else None,
-            provenance=self._from_json(row.get("provenance"), "provenance", row.get("id")),
+            provenance=provenance,
             t_valid=row.get("t_valid"),
             t_invalid=row.get("t_invalid"),
             created_at=row.get("created_at"),
@@ -391,20 +399,31 @@ class Neo4jGraphSubstrate:
 
     # -- writes ---------------------------------------------------------------
 
+    @staticmethod
+    def _require_event_id(event: MemoryEvent) -> str:
+        """The episode id, or a refusal naming it.
+
+        One helper rather than a check in the row builder, because the mention rows address the
+        episode by the same id: a guard that only the node write ran would let a batch with a
+        missing id build a mention edge keyed on the empty string, which is one edge shared by
+        every such episode.
+        """
+        if not event.id:
+            raise MemoryOperationError(
+                "MemoryEvent.id is required here: it is the cross-substrate dedup key, and "
+                "upsert is by id. The provider stamps one before the call.",
+                field_name="id",
+            )
+        return event.id
+
     def _episode_rows(self, scope: Scope, events: Sequence[MemoryEvent]) -> List[Dict[str, Any]]:
         rows = []
         for event in events:
             self._reject_foreign_scope(scope, event.scope)
-            if not event.id:
-                raise MemoryOperationError(
-                    "MemoryEvent.id is required here: it is the cross-substrate dedup key, and "
-                    "upsert is by id. The provider stamps one before the call.",
-                    field_name="id",
-                )
             rows.append(
                 self._row(
                     scope,
-                    event.id,
+                    self._require_event_id(event),
                     event.tier,
                     event.content,
                     topics=event.topics,
@@ -415,15 +434,53 @@ class Neo4jGraphSubstrate:
             )
         return rows
 
+    def _mention_rows(self, scope: Scope, events: Sequence[MemoryEvent], created_at: int) -> List[Dict[str, Any]]:
+        """The ``MENTIONS`` edges for a batch, in the shape :func:`cypher.link_mentions_statement`
+        binds. What each episode mentions is decided by ``memory.graph.episodic.mention_rows`` and
+        not here, so a second backend links the same set.
+        """
+        entity = cypher.scope_props(scope)
+        return [
+            {
+                "scope_key": row["scope_key"],
+                "episode_id": row["episode_id"],
+                "name": row["name"],
+                "entity": entity,
+                "props": {**row, **entity, "created_at": created_at},
+            }
+            for event in events
+            for row in mention_rows(scope, self._require_event_id(event), event.entities)
+        ]
+
+    def _episode_statements(self, scope: Scope, events: Sequence[MemoryEvent]) -> List[Tuple[str, Dict[str, Any]]]:
+        """The node write and its mention edges, as one ordered unit.
+
+        Three statements in **one** transaction (:meth:`_run`), and the order is load-bearing:
+        ``link`` matches the live episode the first statement just merged, and ``clear`` has to run
+        before it or a re-upsert would union the old mention set with the new one instead of
+        replacing it. The link statement is omitted when the batch mentions nothing, because
+        ``UNWIND []`` ends the pipeline and would make it a round trip that cannot match.
+        """
+        rows = self._episode_rows(scope, events)
+        mentions = self._mention_rows(scope, events, now_epoch_s())
+        statements = [
+            (text, {**bound, "rows": rows})
+            for text, bound in (cypher.upsert_episodes_statement(scope), cypher.clear_mentions_statement(scope))
+        ]
+        if mentions:
+            text, bound = cypher.link_mentions_statement(scope)
+            statements.append((text, {**bound, "mentions": mentions}))
+        return statements
+
     def upsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
         if not events:
             return
-        self._run([cypher.upsert_episodes_statement(scope)], rows=self._episode_rows(scope, events))
+        self._run(self._episode_statements(scope, events))
 
     async def aupsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
         if not events:
             return
-        await self._arun([cypher.upsert_episodes_statement(scope)], rows=self._episode_rows(scope, events))
+        await self._arun(self._episode_statements(scope, events))
 
     def _fact_batches(self, scope: Scope, facts: Sequence[FactWrite]) -> Dict[str, List[Dict[str, Any]]]:
         """Split facts by shape: a full triple is a relation, anything else is a node."""
@@ -524,6 +581,30 @@ class Neo4jGraphSubstrate:
             cypher.traverse_statements(scope), terms=_terms(query.text), limit=query.limit, tiers=_tiers(query)
         )
         return self._merge_hits(rows, scope, query)
+
+    def recall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        # The port's refusals -- unscoped, unfiltered, inverted window -- are the statement
+        # builder's, so both halves here get them from one place and so does a direct caller.
+        statement = cypher.recall_episodes_statement(scope, entities=entities, since=since, until=until, limit=limit)
+        return [self._record(row, scope) for row in self._run([statement])[0]]
+
+    async def arecall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        statement = cypher.recall_episodes_statement(scope, entities=entities, since=since, until=until, limit=limit)
+        return [self._record(row, scope) for row in (await self._arun([statement]))[0]]
 
     @staticmethod
     def _fold_bounds(rows: List[List[Dict[str, Any]]]) -> Dict[str, TemporalBounds]:

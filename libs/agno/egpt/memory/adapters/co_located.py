@@ -28,6 +28,7 @@ from egpt.memory.config import (
     register_provider,
     resolve_substrate,
 )
+from egpt.memory.graph.episodic import entity_node_id_for, normalized_mentions
 from egpt.memory.provider import MemoryProvider
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
 from egpt.memory.tiers import (
@@ -50,11 +51,11 @@ from egpt.memory.types import (
     MemorySlice,
     PartialWriteError,
     Scope,
-    require_scope,
     Substrate,
     WriteReceipt,
     consolidation_details,
     fusion_diagnostics,
+    require_scope,
 )
 from egpt.memory.validation import assert_scope_isolation, reject_duplicate_ids, reject_foreign_scopes
 from egpt.utils.dttm import now_epoch_s
@@ -387,12 +388,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
             self._require_writable(target)
             occurred_at = event.occurred_at if event.occurred_at is not None else now
             event_id = event.id or str(uuid4())
+            # Validated here rather than only in the graph leg (SM-G6 #104): a vector-only tenant
+            # (SM-C5 #93) would otherwise accept a malformed `entities` in silence, and the same
+            # batch would be refused or not depending on which substrates happen to be wired.
+            entities = normalized_mentions(event.entities, episode_id=event_id)
             prepared = replace(
                 event,
                 id=event_id,
                 tier=target,
                 occurred_at=occurred_at,
                 topics=list(event.topics) if event.topics is not None else None,
+                entities=entities if event.entities is not None else None,
                 metadata=dict(event.metadata),
             )
             stamped.append(prepared)
@@ -403,6 +409,10 @@ class CoLocatedMemoryProvider(MemoryProvider):
                     content=prepared.content,
                     scope=scope,
                     topics=list(prepared.topics) if prepared.topics is not None else None,
+                    # The same derivation the graph's `MENTIONS` edges use, so the vector row does
+                    # not drop the caller's entities on a deployment with no graph leg. Whether the
+                    # two stay in step as the graph changes is SM-E10's (#117).
+                    provenance={"entity_ids": [entity_node_id_for(scope, name) for name in entities]},
                     t_valid=occurred_at,
                     created_at=now,
                     metadata=dict(prepared.metadata),

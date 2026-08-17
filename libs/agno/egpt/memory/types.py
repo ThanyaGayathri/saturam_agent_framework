@@ -434,6 +434,12 @@ class MemoryEvent:
     ``occurred_at`` is **valid time** -- when it happened, not when it was recorded. It is left
     unstamped here on purpose: an event may be constructed well before it is written, and the
     write path is what knows the recording time.
+
+    ``entities`` are the entity names this event mentions, and the graph substrate links the
+    episode node to each of them (SM-G6 #104). They are **supplied, not derived**: deciding which
+    entities a piece of content names is extraction, which is SM-G2's (#100), so this field is the
+    carrier and nothing here reads ``content`` to fill it. ``None`` means the caller said nothing,
+    which is not the same as an episode that mentions nobody.
     """
 
     content: str
@@ -442,6 +448,7 @@ class MemoryEvent:
     id: Optional[str] = None
     role: Optional[str] = None  # for message-shaped events (user / assistant / ...)
     topics: Optional[List[str]] = None
+    entities: Optional[List[str]] = None
     occurred_at: Optional[int] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
 

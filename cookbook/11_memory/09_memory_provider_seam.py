@@ -22,8 +22,8 @@ this file needs no model, no API key, and no network.
 """
 
 from dataclasses import replace
-from uuid import uuid4
 from typing import Dict, List, Optional, Sequence
+from uuid import uuid4
 
 from egpt.memory import (
     SCOPE_SLOTS,
@@ -41,6 +41,13 @@ from egpt.memory import (
     require_scope,
 )
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
+from egpt.memory.graph.episodic import (
+    entity_node_id_for,
+    normalized_mentions,
+    require_recall_filters,
+    require_recall_limit,
+    require_time_window,
+)
 from egpt.providers.model_provider import ProviderMode
 
 # ---------------------------------------------------------------------------
@@ -166,6 +173,16 @@ class InMemoryGraph:
                     scope=scope,
                     substrate=Substrate.GRAPH,
                     t_valid=event.occurred_at,
+                    # The episode's mention links (SM-G6). Replaced with the episode, not unioned
+                    # into it -- the real backend clears the MENTIONS edges before relinking.
+                    provenance={
+                        "entity_ids": [
+                            entity_node_id_for(scope, name)
+                            for name in normalized_mentions(
+                                event.entities, episode_id=event.id or ""
+                            )
+                        ]
+                    },
                 ),
             )
 
@@ -219,6 +236,63 @@ class InMemoryGraph:
     ) -> List[MemoryRecord]:
         require_scope(scope, method="atraverse")
         return self.traverse(scope, query, tier)
+
+    def recall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        # Episodes by valid-time window and mention link, oldest first (SM-G6). The guards are the
+        # port's, imported rather than restated, so this double refuses exactly what Neo4j refuses.
+        require_scope(scope, method="recall_episodes")
+        require_recall_filters(entities, since, until)
+        require_time_window(since, until)
+        require_recall_limit(limit)
+        wanted = None if entities is None else set(entities)
+        hits = [
+            replace(row)
+            for row in self._bucket(scope)
+            if row.tier is MemoryTier.EPISODIC
+            and row.is_current_belief()
+            and scoped(row.scope, scope)
+            and (since is None or (row.t_valid is not None and row.t_valid >= since))
+            and (until is None or (row.t_valid is not None and row.t_valid < until))
+            and (
+                wanted is None
+                or any(
+                    entity_node_id_for(row.scope, name)
+                    in set(row.provenance.get("entity_ids") or [])
+                    for name in wanted
+                )
+            )
+        ]
+        # Oldest first, with a null valid time last -- the order Neo4j returns. Ties never break on
+        # the uuid before content, so identical episodes do not reorder between runs.
+        hits.sort(
+            key=lambda r: (
+                r.t_valid is None,
+                r.t_valid or 0,
+                r.created_at or 0,
+                r.content,
+                r.id,
+            )
+        )
+        # `limit=0` means zero rows, not "unlimited".
+        return hits if limit is None else hits[:limit]
+
+    async def arecall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        require_scope(scope, method="arecall_episodes")
+        return self.recall_episodes(scope, entities, since, until, limit)
 
     def bounds_for_ids(
         self, scope: Scope, ids: Sequence[str]

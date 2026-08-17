@@ -111,7 +111,9 @@ class InMemoryGraph:
         self.calls.append("upsert_episodes")
         self.episodes.extend(events)
 
-    async def aupsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
+    async def aupsert_episodes(
+        self, scope: Scope, events: Sequence[MemoryEvent]
+    ) -> None:
         require_scope(scope, method="aupsert_episodes")
         self.upsert_episodes(scope, events)
 
@@ -136,6 +138,31 @@ class InMemoryGraph:
     ) -> List[MemoryRecord]:
         require_scope(scope, method="atraverse")
         return self.traverse(scope, query, tier)
+
+    def recall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        # The episodic subgraph's read (SM-G6). This example is about tier routing, so it records
+        # the call and returns nothing; 14_episodic_subgraph.py exercises it for real.
+        require_scope(scope, method="recall_episodes")
+        self.calls.append("recall_episodes")
+        return []
+
+    async def arecall_episodes(
+        self,
+        scope: Scope,
+        entities: Optional[Sequence[str]] = None,
+        since: Optional[int] = None,
+        until: Optional[int] = None,
+        limit: Optional[int] = None,
+    ) -> List[MemoryRecord]:
+        require_scope(scope, method="arecall_episodes")
+        return self.recall_episodes(scope, entities, since, until, limit)
 
     def bounds_for_ids(
         self, scope: Scope, ids: Sequence[str]
