@@ -219,3 +219,40 @@ rather than documented.
 
 **Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
 key; the embedder is local and downloads its weights on first run.
+
+---
+
+### 14_entity_extraction_graph.py
+
+**Status:** PASS
+
+**Description:** Entity extraction from episodes into temporal-graph nodes (SM-G2 #100), against a
+real Neo4j 5 Community and a real Postgres 18 + pgvector, with the ADR-ratified Mode A embedder
+(`BAAI/bge-base-en-v1.5` @768). Writes three episodes across two users in one tenant, reads once to
+show the read path costs no model call, then drives `provider.consolidate()` for each user and
+prints the entity nodes with their type, normalised key, vector width and source episodes.
+
+**Result:** Success. Extraction runs only on the consolidation lane -- the read before it returns
+its two episodes without a model call, and `details["entities"]` reports the extractor and the
+embedding version only after `consolidate`. Provenance unions across interactions: `NorthStar
+Analytics` and `Sarah Chen` each come back with **both** of ada's episode ids, having been mentioned
+in each. Every node carries `dims=768`, so the candidates are dedup-ready for SM-G8 (#106).
+
+The SM-G8 boundary shows up in the output rather than only in a docstring: ada's `NorthStar
+Analytics` and bob's `NorthStar` are **two nodes**, and they are also under two scopes, which is two
+separate reasons this ticket does not merge them. That is the intended state -- entity resolution is
+#106's.
+
+**Model note:** the file uses `OpenAIResponses(id="gpt-5.5")` per CLAUDE.md. This machine carries
+only Azure credentials, so the run above was performed with the model swapped for
+`AzureOpenAI(id="gpt-5.4")` and everything else identical; the OpenAI path itself is unexercised
+here and reaches a `ModelAuthenticationError` without a key, as expected.
+
+**Requires:** `./cookbook/scripts/run_neo4j.sh`, `./cookbook/scripts/run_pgvector.sh`, and an
+`OPENAI_API_KEY`. Extraction is **one model call per interaction**, so the cost scales with the
+episode count rather than with the run.
+
+**Note:** the file writes to its own `memory_vectors_sm_g2` table. `consolidate` reads every episode
+in the scope, so on the shared default table it extracted entities from
+`13_vector_substrate_pgvector.py`'s memories and printed a node list that matched none of its own
+writes -- corrected here rather than documented.
