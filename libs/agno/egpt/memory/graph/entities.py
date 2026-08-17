@@ -1,20 +1,19 @@
 """Entity extraction from episodes into temporal-graph nodes (SM-G2 #100).
 
-Entities are the nodes of the semantic subgraph and the anchors for multi-hop retrieval. This
-module turns episodes into :class:`~egpt.memory.types.EntityWrite` candidates and lands them on
+Episodes in, embedded :class:`~egpt.memory.types.EntityWrite` candidates out, landed on
 :meth:`~egpt.memory.substrates.GraphSubstrate.upsert_entities`.
 
-Three boundaries, because each has a different owner:
+Three boundaries, each with a different owner:
 
-* **Candidates, not resolved entities.** Two spellings of one entity stay two nodes here. Matching
-  and merging them is SM-G8 (#106); this produces the embedded candidates it matches over.
+* **Candidates, not resolved entities.** Two spellings of one entity stay two nodes; merging them
+  is SM-G8 (#106), which matches over what this produces.
 * **Nodes, not edges.** A typed relation between entities is SM-G3 (#101).
-* **Called by the consolidation lane, never the read path.** The lane's entry point today is
-  ``MemoryProvider.consolidate``; the worker that schedules it is SM-L1 (#122).
+* **Driven by the consolidation lane, never the read path** -- ``MemoryProvider.consolidate``
+  today, SM-L1's (#122) worker later.
 
-The extraction *prompt* is the seed's, imported from ``learn/stores/entity_memory.py`` rather than
-restated, so an entity the learn store keeps and the graph does not cannot arise from two texts
-drifting apart.
+The prompt is the seed's, imported from ``learn/stores/entity_memory.py``: two texts for one job
+drift, and an entity the learn store keeps while the graph does not is a node missing from every
+multi-hop path.
 """
 
 from copy import deepcopy
@@ -54,11 +53,9 @@ __all__ = [
 #: Stamped on every candidate's ``derived_by``, so a row's producer is readable off the node.
 EXTRACTOR_ID = "sm_g2.entity_extraction"
 
-#: How many episodes one pass extracts from. A cap rather than a page: each episode is one model
-#: call, and SM-R9 sizes graph extraction at ~$220 per tenant per 100k memories, so an uncapped pass
-#: over a drained tier is a bill rather than a long wait. The tail is deferred, not dropped -- and
-#: nothing marks an episode consumed, so it is the same tail ``consolidate`` re-reads until SM-L1
-#: (#122) brings a cursor.
+#: How many episodes one pass extracts from. Each is one model call and SM-R9 sizes graph
+#: extraction at ~$220/tenant per 100k memories, so an uncapped pass is a bill rather than a wait.
+#: The tail is re-read rather than resumed until SM-L1 (#122) brings a cursor.
 DEFAULT_MAX_EPISODES_PER_PASS = 200
 
 #: Keys every :class:`EntityExtractionReport` carries, the floor
@@ -75,11 +72,8 @@ _RESPONSE_INSTRUCTION = (
 
 
 class ExtractedEntity(BaseModel):
-    """One entity as the model reports it: no scope, no provenance, no embedding.
-
-    Those three are the pipeline's to attach -- an extractor that reported its own would be
-    reporting the scope it was handed, which cannot be checked against anything.
-    """
+    """One entity as the model reports it. Scope, provenance and embedding are the pipeline's to
+    attach: an extractor reporting its own scope would be echoing the one it was handed."""
 
     name: str = Field(description="The entity's display name, as written in the interaction")
     entity_type: str = Field(description="person, company, project, product, system, or concept")
@@ -99,10 +93,8 @@ class ExtractedEntities(BaseModel):
 class EntityExtractor(Protocol):
     """Turns one episode into the entities it mentions.
 
-    One episode per call rather than a batch: ``source_episode_ids`` is populated from the episode
-    the call was made for, and an extractor handed several would have to attribute each entity back
-    itself -- which is provenance SM-R7 section 7 makes load-bearing being decided by the component
-    least able to check it.
+    One episode per call, not a batch: an extractor handed several would have to attribute each
+    entity back itself, and SM-R7 section 7 makes that trail load-bearing.
     """
 
     def extract(self, episode: MemoryRecord) -> Sequence[ExtractedEntity]:
@@ -117,10 +109,8 @@ class EntityExtractor(Protocol):
 class LLMEntityExtractor:
     """The default :class:`EntityExtractor`: the seed's prompt, answered as structured output.
 
-    Args:
-        model: The extraction model. Deep-copied per call, as ``EntityMemoryStore`` does, because
-            ``response`` mutates model state and this runs concurrently under :meth:`arun`.
-        instructions: Appended to the shared prompt, matching ``EntityMemoryConfig.instructions``.
+    ``model`` is deep-copied per call, as ``EntityMemoryStore`` does, because ``response`` mutates
+    model state. ``instructions`` is appended, matching ``EntityMemoryConfig.instructions``.
     """
 
     def __init__(self, model: "Model", instructions: Optional[str] = None) -> None:
@@ -183,12 +173,9 @@ class LLMEntityExtractor:
 
 
 def embedding_text(entity: EntityWrite) -> str:
-    """What an entity is embedded as -- the same string on both halves, hence a function.
-
-    Name, type and description, in that order: SM-G8 (#106) matches candidates that
-    :func:`~egpt.memory.types.normalize_entity_name` did not already collapse, and a bare name gives
-    it "atlas" the project and "atlas" the person at cosine 1.0.
-    """
+    """What an entity is embedded as. More than the name, because SM-G8 (#106) matches what
+    :func:`~egpt.memory.types.normalize_entity_name` did not collapse -- and a bare name puts
+    "atlas" the project and "atlas" the person at cosine 1.0."""
     parts = [entity.name, entity.entity_type]
     if entity.description:
         parts.append(entity.description)
@@ -201,11 +188,8 @@ def entity_details(
     complete: bool = True,
     **extra: Any,
 ) -> Dict[str, Any]:
-    """Build a report payload carrying every key in :data:`ENTITY_KEYS`.
-
-    ``complete`` is what a scheduler needs: whether the pass reached the end of what it was given.
-    Extra keys are free; the contract is a floor, not a ceiling.
-    """
+    """Build a report payload carrying every key in :data:`ENTITY_KEYS`. ``complete`` is what a
+    scheduler needs: whether the pass reached the end of what it was given. Extra keys are free."""
     details: Dict[str, Any] = {
         "extractor": extractor,
         "embedding_version": embedding_version,
@@ -217,12 +201,9 @@ def entity_details(
 
 @dataclass
 class EntityExtractionReport:
-    """What one extraction pass read and wrote.
-
-    ``candidates`` counts what the extractor returned and ``entities_written`` what survived the
-    same-name merge below, so a pass that folded ten mentions into one entity is readable rather
-    than looking like nine losses.
-    """
+    """What one extraction pass read and wrote. ``candidates`` is what the extractor returned and
+    ``entities_written`` what survived the same-name merge, so folding ten mentions into one entity
+    reads as a fold rather than as nine losses."""
 
     scope: Scope
     episodes_read: int = 0
@@ -238,14 +219,9 @@ class EntityExtractionReport:
 class EntityExtractionPipeline:
     """Episodes in, embedded entity nodes out -- on the consolidation lane (SM-G2 #100).
 
-    Args:
-        graph: Where the nodes land. Must satisfy :class:`~egpt.memory.substrates.GraphSubstrate`.
-        extractor: What reads the episodes. :class:`LLMEntityExtractor` by default.
-        embedder: What embeds the candidates. Required, because "dedup-ready" is what SM-G8 (#106)
-            consumes and an unembedded candidate is not.
-        embedding_version: Recorded on every node. Derived from the embedder when unset. The
-            canonical ``model/dim/metric/rev`` spelling is SM-V2's (#96).
-        max_episodes_per_pass: See :data:`DEFAULT_MAX_EPISODES_PER_PASS`.
+    ``embedder`` is required rather than optional: "dedup-ready" is what SM-G8 (#106) consumes, and
+    an unembedded candidate is not. ``embedding_version`` is derived from the embedder when unset;
+    the canonical ``model/dim/metric/rev`` spelling is SM-V2's (#96).
     """
 
     def __init__(
@@ -256,9 +232,9 @@ class EntityExtractionPipeline:
         embedding_version: Optional[str] = None,
         max_episodes_per_pass: int = DEFAULT_MAX_EPISODES_PER_PASS,
     ) -> None:
-        # All three checked by one loop at construction, so a deployment missing a leg fails when it
-        # is built rather than on the first pass that happened to find an episode -- and so a
-        # collaborator added later cannot be the one nobody remembered to check.
+        # One loop over all three, so a deployment missing a leg fails when it is built rather than
+        # on the first pass that happened to find an episode -- and so a collaborator added later
+        # cannot be the one nobody remembered to check.
         for name, candidate, verbs in (
             ("graph", graph, ("upsert_entities", "aupsert_entities")),
             ("extractor", extractor, ("extract", "aextract")),
@@ -294,11 +270,10 @@ class EntityExtractionPipeline:
     # -- shared decisions -----------------------------------------------------
 
     def _selected(self, episodes: Sequence[MemoryRecord]) -> Tuple[List[MemoryRecord], bool]:
-        """The episodes this pass extracts from, and whether it left any unread.
+        """The episodes this pass extracts from, and whether it left any **unread**.
 
-        ``truncated`` is about episodes never **looked at**, not episodes skipped: a superseded row
-        was examined and deliberately passed over, so reporting the pass incomplete because of one
-        would tell a scheduler to re-run a pass that has nothing left to do.
+        Unread, not skipped: a superseded row was examined and passed over, so reporting the pass
+        incomplete for one would tell a scheduler to re-run a pass with nothing left to do.
         """
         chosen: List[MemoryRecord] = []
         for index, episode in enumerate(episodes):
@@ -342,14 +317,10 @@ class EntityExtractionPipeline:
     def _merged(candidates: Sequence[EntityWrite]) -> List[EntityWrite]:
         """Fold candidates sharing a ``(scope, name)`` into one node's worth of write.
 
-        The graph merges on that pair anyway, so folding here is what turns N mentions into one
-        round trip -- and it is where the union happens for the fields the statement unions, so the
-        two agree.
-
         The head is the highest-confidence candidate, ties broken on content: no uuid reaches an
         ordering path, so one corpus produces one description rather than a different one per run.
-        Candidates sharing a normalised ``key`` but not a ``name`` are **left apart**; merging those
-        is SM-G8's (#106).
+        Candidates sharing a normalised ``key`` but not a ``name`` are **left apart** -- merging
+        those is SM-G8's (#106).
         """
         groups: Dict[Tuple[str, str], List[EntityWrite]] = {}
         for candidate in candidates:
@@ -377,11 +348,9 @@ class EntityExtractionPipeline:
         return merged
 
     def _embedded(self, entity: EntityWrite, vector: Sequence[float], expected_dim: Optional[int]) -> EntityWrite:
-        """A copy carrying ``vector``, refusing a dimension that disagrees with the pass's.
-
-        Mixed dimensions in one column family cannot be searched together, and left alone the
-        failure surfaces at SM-G8's (#106) match rather than at the write that caused it.
-        """
+        """A copy carrying ``vector``, refusing a dimension that disagrees with the pass's: mixed
+        dimensions in one column family cannot be searched together, and left alone the failure
+        surfaces at SM-G8's (#106) match rather than at the write that caused it."""
         values = list(vector)
         if expected_dim is not None and len(values) != expected_dim:
             raise MemoryOperationError(
@@ -393,12 +362,9 @@ class EntityExtractionPipeline:
         return entity.with_embedding(values, self._embedding_version(len(values)))
 
     def _embedding_version(self, dim: int) -> str:
-        """The recorded provenance of an entity's vector.
-
-        Derived from the embedder when the caller did not name one, so a node never carries a
-        vector with no record of what produced it. The canonical ``model/dim/metric/rev`` spelling
-        is SM-V2's (#96); this is the honest subset available here.
-        """
+        """Derived from the embedder when the caller named none, so no node carries a vector with
+        no record of what produced it. ``model/dim/metric/rev`` is SM-V2's (#96); this is the
+        honest subset available here."""
         if self.embedding_version is not None:
             return self.embedding_version
         return f"{getattr(self.embedder, 'id', type(self.embedder).__name__)}/d{dim}"
