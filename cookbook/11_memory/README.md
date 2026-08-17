@@ -23,6 +23,10 @@ This section demonstrates how EGPT agents persist and use user memories across r
   scores in `[0.0, 1.0]` against Postgres + pgvector. Needs `./cookbook/scripts/run_pgvector.sh`;
   no API key (the embedder is the offline `bge-base` ADR 0003 ratifies for Mode A, downloaded on
   first run).
+- `14_scoped_and_windowed_recall.py`: Scoped, time-windowed recall over the same store (SM-V4) --
+  tenant, user, tier and a valid-time window all applied **inside** the search rather than to the
+  page it returns, and why a window is not a created-at filter: an open-ended memory keeps
+  answering until something bounds it. Same requirements as `13_`.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
