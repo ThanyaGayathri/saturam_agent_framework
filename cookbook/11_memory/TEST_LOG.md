@@ -99,6 +99,16 @@ fix: `vector row IS graph row -> False`, and two invalidations leave one current
 Note that `scan` here takes no cursor. The `since` / `after_id` pair it used to model was removed
 along with the consolidation resumption protocol; a resumable walk is SM-L1's (#122).
 
+Re-run under SM-C4 (#92): unchanged output, byte for byte. The fail-closed entry guard refuses a
+call that carries no `Scope`, and every call here carries one, so a cookbook that had to change
+would have meant the guard was refusing legitimate traffic.
+
+The two stand-in substrates now call `require_scope` first, matching the obligation the
+`VectorSubstrate` / `GraphSubstrate` docstrings place on an implementor. Reference code gets
+copied, so a template that skipped the guard would teach the one shape those docstrings forbid.
+Output is unchanged by it, which is the point: the guard fires on scopes a caller should never
+have built, and this file builds none of them.
+
 ---
 
 ### 10_graph_substrate_neo4j.py
@@ -151,6 +161,11 @@ memory as a fact, via the two different ports; the procedural rule reaches the v
 only and appears in neither graph list. The procedural read reports `consulted the graph: False`
 and the semantic read `True`. The graph-only provider serves `episodic, semantic` and returns `[]`
 for a procedural read rather than refusing it. Requires no database, no model, and no API key.
+
+Re-run under SM-C4 (#92): output unchanged, byte for byte, and its two stand-in substrates gained
+the same `require_scope` guard as `09_memory_provider_seam.py`'s. Both files were fixed together
+rather than only the one a review named -- a reader copying either gets the same template, so
+guarding one would have left the other teaching the shape the port docstrings forbid.
 
 ---
 

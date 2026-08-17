@@ -25,7 +25,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Sequence
 
-from egpt.memory.errors import MemoryOperationError
+from egpt.memory.errors import MemoryOperationError, MemoryScopeRequiredError
 from egpt.memory.tiers import DEFAULT_WRITE_TIER, PERSISTENT_TIERS, MemoryTier
 from egpt.utils.dttm import to_epoch_s
 
@@ -43,8 +43,11 @@ __all__ = [
     "MemoryOperationError",
     "MemoryQuery",
     "MemoryRecord",
+    "MemoryScopeRequiredError",
     "MemorySlice",
     "PartialWriteError",
+    "require_scope",
+    "SCOPE_SLOTS",
     "Scope",
     "Substrate",
     "TemporalBounds",
@@ -151,6 +154,17 @@ def escape_key_slot(value: Optional[str]) -> str:
     return value.replace("%", "%25").replace("/", "%2F").replace("*", "%2A")
 
 
+#: Every partition slot a memory row carries, in :meth:`Scope.key` order.
+#:
+#: One declaration because four sites had written the tuple out by hand -- the normalisation loop
+#: below, the co-located provider's isolation guard, the Neo4j statement builders, and the seed's
+#: narrowing check -- and a slot added to :class:`Scope` reaches a predicate only in the copies
+#: someone remembered. ``tenant_id`` is not special-cased in any of them: a backend that honours
+#: the tenant and drops ``user_id`` serves one user's memory to another, which is the same leak one
+#: boundary in.
+SCOPE_SLOTS = ("tenant_id", "agent_id", "user_id", "team_id", "session_id")
+
+
 @dataclass(frozen=True)
 class Scope:
     """Isolation and addressing. Present on **every** read, write, and consolidate call.
@@ -185,7 +199,7 @@ class Scope:
         #
         # Note this is a different argument from requiring `tenant_id`: that one is about unscoped
         # being the *widest* tenancy. The others fail closed, so they are a partitioning bug.
-        for slot in ("tenant_id", "agent_id", "user_id", "team_id", "session_id"):
+        for slot in SCOPE_SLOTS:
             value = getattr(self, slot)
             if value is None:
                 continue
@@ -209,16 +223,80 @@ class Scope:
         ``/`` inside a tenant-supplied identifier merged two adjacent slots --
         ``agent_id="b/c", user_id="d"`` and ``agent_id="b", user_id="c/d"`` produced one key -- and
         any code that groups by this string then files one scope's data under the other.
+
+        Built from :data:`SCOPE_SLOTS` rather than a hand-written list, so a slot added to this
+        dataclass widens the key instead of colliding with the scopes that lack it.
         """
-        return "/".join(
-            [
-                escape_key_slot(self.tenant_id),
-                escape_key_slot(self.agent_id),
-                escape_key_slot(self.user_id),
-                escape_key_slot(self.team_id),
-                escape_key_slot(self.session_id),
-            ]
+        return "/".join(escape_key_slot(getattr(self, slot)) for slot in SCOPE_SLOTS)
+
+
+def require_scope(scope: Any, *, method: str) -> Scope:
+    """Refuse a memory data-access call that carries no usable tenant scope.
+
+    ``Scope.__post_init__`` rejects a blank tenant, so a well-formed :class:`Scope` is already
+    proof of scoping. What it cannot rule out is a caller that never constructed one: ``None``,
+    an object that merely has the right attribute names, or a subclass whose ``__post_init__``
+    does not run the tenant check. Each of those reaches a backend as whatever it is -- and the
+    two that carry a ``tenant_id`` at all reach it **unnormalised**, so a stray ``"acme "``
+    becomes a distinct tenant to any equality predicate, writing rows no trimmed caller can name
+    again.
+
+    Fails at the seam rather than in the backend so the refusal names the method the caller used.
+    Without it the same mistake surfaced as an ``AttributeError`` from inside a driver's statement
+    builder, several frames from anything the caller controls, and on a lenient backend it would
+    surface as a wide answer instead.
+
+    Args:
+        scope: What the caller passed. Deliberately typed ``Any``: annotations are the thing being
+            checked, so narrowing it here would state the assumption instead of testing it.
+        method: The calling method's name, for the error message.
+
+    Returns:
+        The same :class:`Scope`. Callers use it as a bare statement rather than rebinding, because
+        it validates in place and returns the identical object -- there is nothing to rebind. The
+        return exists for a caller holding a loosely-typed value who wants the narrowing.
+
+    Raises:
+        MemoryScopeRequiredError: If ``scope`` is not a ``Scope``, carries a blank tenant, or
+            carries any slot ``Scope.__post_init__`` would have rejected or normalised.
+    """
+    if not isinstance(scope, Scope):
+        raise MemoryScopeRequiredError(
+            f"{method}() requires a Scope and got {type(scope).__name__}. Memory is tenant-"
+            "partitioned at the data layer, and an unscoped call reads and writes every tenant's "
+            "rows. Construct egpt.memory.Scope(tenant_id=...), which normalises every slot; an "
+            "object that merely looks like one reaches the backend untrimmed.",
+            field_name="scope",
+            verb=method,
         )
+    # A subclass may define its own `__post_init__` and never reach `Scope`'s, so re-assert what
+    # that method guarantees. **Every slot, not just the tenant**: the tenant is the one that
+    # crosses a trust boundary, but `user_id="  u1  "` reaches a predicate unnormalised and
+    # matches no row written under `"u1"` -- a partition split on incidental whitespace, which is
+    # the hazard `Scope.__post_init__` normalises away and the reason it normalises all five.
+    #
+    # Validated, not normalised. `Scope` is frozen, and rewriting a caller's object here would
+    # make the fix invisible at the call site while `Scope` itself stayed the only place that
+    # normalises -- two places doing it differently is what this whole module exists to prevent.
+    if not isinstance(scope.tenant_id, str) or not scope.tenant_id.strip():
+        raise MemoryScopeRequiredError(
+            f"{method}() was called with Scope.tenant_id={scope.tenant_id!r}. A blank tenant is "
+            "unscoped, and unscoped is the widest tenancy rather than the narrowest.",
+            field_name="tenant_id",
+            verb=method,
+        )
+    for slot in SCOPE_SLOTS:
+        value = getattr(scope, slot, None)
+        if value is None or (isinstance(value, str) and value == value.strip() and value):
+            continue
+        raise MemoryScopeRequiredError(
+            f"{method}() was called with Scope.{slot}={value!r}, which Scope.__post_init__ would "
+            "have rejected or trimmed. Pass None to leave a slot unset; a blank or padded slot "
+            "partitions on whitespace and matches no row written under the trimmed value.",
+            field_name=slot,
+            verb=method,
+        )
+    return scope
 
 
 @dataclass(frozen=True)

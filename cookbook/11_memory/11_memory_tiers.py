@@ -42,6 +42,7 @@ from egpt.memory import (
     TemporalBounds,
     build_memory_provider,
     policy_for_tier,
+    require_scope,
 )
 from egpt.memory.learn_stores import RECALL_SLOTS, STORE_TIERS
 
@@ -56,16 +57,19 @@ class InMemoryVector:
         self.calls: List[str] = []
 
     def upsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        require_scope(scope, method="upsert")
         self.calls.append("upsert")
         for record in records:
             self.rows[record.id] = replace(record, substrate=Substrate.VECTOR)
 
     async def aupsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        require_scope(scope, method="aupsert")
         self.upsert(scope, records)
 
     def search(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> List[MemoryRecord]:
+        require_scope(scope, method="search")
         self.calls.append("search")
         wanted = {tier} if tier else set(query.resolved_tiers())
         hits = [
@@ -78,11 +82,13 @@ class InMemoryVector:
     async def asearch(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> List[MemoryRecord]:
+        require_scope(scope, method="asearch")
         return self.search(scope, query, tier)
 
     def scan(
         self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None
     ) -> List[MemoryRecord]:
+        require_scope(scope, method="scan")
         self.calls.append("scan")
         rows = [replace(r) for r in self.rows.values() if r.tier is tier]
         return rows if limit is None else rows[:limit]
@@ -90,6 +96,7 @@ class InMemoryVector:
     async def ascan(
         self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None
     ) -> List[MemoryRecord]:
+        require_scope(scope, method="ascan")
         return self.scan(scope, tier, limit)
 
 
@@ -100,49 +107,59 @@ class InMemoryGraph:
         self.calls: List[str] = []
 
     def upsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
+        require_scope(scope, method="upsert_episodes")
         self.calls.append("upsert_episodes")
         self.episodes.extend(events)
 
     async def aupsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:
+        require_scope(scope, method="aupsert_episodes")
         self.upsert_episodes(scope, events)
 
     def upsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
+        require_scope(scope, method="upsert_facts")
         self.calls.append("upsert_facts")
         self.facts.extend(facts)
 
     async def aupsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
+        require_scope(scope, method="aupsert_facts")
         self.upsert_facts(scope, facts)
 
     def traverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> List[MemoryRecord]:
+        require_scope(scope, method="traverse")
         self.calls.append("traverse")
         return []
 
     async def atraverse(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> List[MemoryRecord]:
+        require_scope(scope, method="atraverse")
         return self.traverse(scope, query, tier)
 
     def bounds_for_ids(
         self, scope: Scope, ids: Sequence[str]
     ) -> Dict[str, TemporalBounds]:
+        require_scope(scope, method="bounds_for_ids")
         self.calls.append("bounds_for_ids")
         return {}
 
     async def abounds_for_ids(
         self, scope: Scope, ids: Sequence[str]
     ) -> Dict[str, TemporalBounds]:
+        require_scope(scope, method="abounds_for_ids")
         return self.bounds_for_ids(scope, ids)
 
     def invalidate(
         self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None
     ) -> None:
+        require_scope(scope, method="invalidate")
         self.calls.append("invalidate")
 
     async def ainvalidate(
         self, scope: Scope, edge_id: str, t_invalid: int, at: Optional[int] = None
     ) -> None:
+        require_scope(scope, method="ainvalidate")
         self.invalidate(scope, edge_id, t_invalid, at)
 
 
