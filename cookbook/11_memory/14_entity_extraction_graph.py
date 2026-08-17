@@ -61,7 +61,9 @@ provider = build_memory_provider(
         mode=ProviderMode.LOCAL,
         vector={
             "backend": "pgvector",
-            "db_url": os.getenv("EGPT_MEMORY_PG_URL", "postgresql+psycopg://ai:ai@localhost:5532/ai"),
+            "db_url": os.getenv(
+                "EGPT_MEMORY_PG_URL", "postgresql+psycopg://ai:ai@localhost:5532/ai"
+            ),
             "embedder": embedder,
             # Its own table, because `consolidate` reads **every** episode in the scope: sharing the
             # default with 13_vector_substrate_pgvector.py made this file extract entities from that
@@ -105,7 +107,9 @@ provider.write(
 )
 
 print("A read costs no model call -- extraction is not on this path:")
-slice_ = provider.read(ACME_ADA, MemoryQuery(text="northstar", tiers=[MemoryTier.EPISODIC]))
+slice_ = provider.read(
+    ACME_ADA, MemoryQuery(text="northstar", tiers=[MemoryTier.EPISODIC])
+)
 print(f"  {len(slice_.records)} episode(s) for acme/ada")
 
 print("\nConsolidating acme/ada -- this is where extraction runs:")
@@ -137,16 +141,22 @@ def entity_nodes(scope):
 
 print("\nEntity nodes for acme/ada:")
 for node in entity_nodes(ACME_ADA):
-    print(f"  {node['name']} ({node['type']}) key={node['key']} dims={node['dims']} from={node['episodes']}")
+    print(
+        f"  {node['name']} ({node['type']}) key={node['key']} dims={node['dims']} from={node['episodes']}"
+    )
 
 # Both users mentioned the same company. The nodes are separate, because entity identity is scoped
 # to the full scope and not the tenant -- sharing them would make isolation depend on a dedup
 # policy nobody has written yet.
 print("\nEntity nodes for acme/bob (a separate node for the same company):")
 for node in entity_nodes(ACME_BOB):
-    print(f"  {node['name']} ({node['type']}) key={node['key']} from={node['episodes']}")
+    print(
+        f"  {node['name']} ({node['type']}) key={node['key']} from={node['episodes']}"
+    )
 
-print("\nWhat SM-G8 (#106) inherits: candidates sharing no key that a human would still merge,")
+print(
+    "\nWhat SM-G8 (#106) inherits: candidates sharing no key that a human would still merge,"
+)
 print("each embedded so a similarity match can find them.")
 
 provider.close()
