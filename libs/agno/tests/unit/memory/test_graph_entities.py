@@ -16,6 +16,7 @@ import pytest
 
 from egpt.learn.curate import Curator
 from egpt.memory.adapters.co_located import CoLocatedMemoryProvider
+from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError
 from egpt.memory.graph.entities import (
     ENTITY_KEYS,
     EXTRACTOR_ID,
@@ -26,7 +27,6 @@ from egpt.memory.graph.entities import (
     LLMEntityExtractor,
     embedding_text,
 )
-from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     CONSOLIDATION_KEYS,
@@ -40,6 +40,7 @@ from egpt.memory.types import (
     Scope,
     normalize_entity_name,
 )
+from egpt.utils.dttm import now_epoch_s
 from tests.unit.memory._fakes import FakeGraph, FakeVector
 
 ACME = Scope(tenant_id="acme", user_id="ada")
@@ -119,7 +120,9 @@ def test_an_entity_reaches_the_graph_as_a_node(is_async):
     """The criterion itself. Without ``upsert_entities`` an entity can only reach the graph as the
     endpoint of a relation, which is SM-G3's (#101) verb and carries no type or embedding."""
     pipe, graph = pipeline()
-    call = pipe.arun(ACME, [episode("Acme ships things")]) if is_async else pipe.run(ACME, [episode("Acme ships things")])
+    call = (
+        pipe.arun(ACME, [episode("Acme ships things")]) if is_async else pipe.run(ACME, [episode("Acme ships things")])
+    )
     report = asyncio.run(call) if is_async else call
 
     assert report.entities_written == 1
@@ -247,7 +250,7 @@ def test_the_pipeline_refuses_an_unscoped_pass():
 
 
 def test_every_written_entity_carries_a_vector_and_what_produced_it():
-    """"Dedup-ready" is what SM-G8 (#106) matches over, and an unembedded candidate is not."""
+    """ "Dedup-ready" is what SM-G8 (#106) matches over, and an unembedded candidate is not."""
     pipe, graph = pipeline()
 
     pipe.run(ACME, [episode("x")])
@@ -278,6 +281,37 @@ def test_the_key_is_the_normalised_name_and_is_derived_not_accepted():
     assert write.key == "acme corp"
 
 
+def test_the_two_set_valued_fields_are_sorted_and_deduplicated():
+    """Both are sets by meaning, and an extractor's ordering is whatever the model emitted.
+
+    Left as-is, two identical candidates compare unequal and rewrite the node for nothing -- and
+    the graph's own union then stores the duplicate the comprehension was supposed to drop.
+    """
+    write = EntityWrite(
+        name="Acme",
+        entity_type="company",
+        scope=ACME,
+        aliases=["zeta", "  alpha  ", "zeta", "", "   "],
+        source_episode_ids=["e2", "e1", "e2"],
+    )
+
+    assert write.aliases == ["alpha", "zeta"]
+    assert write.source_episode_ids == ["e1", "e2"]
+
+
+def test_the_double_refuses_an_entity_written_under_a_foreign_scope():
+    """The double must be **stricter than the loosest real backend**, and the Neo4j one refuses.
+
+    Nothing in the pipeline can reach this -- ``_batches`` writes each entity under its own scope --
+    which is exactly why it is asserted directly: an unexercised guard in the double is a guard
+    that quietly stops holding, and every provider test here rests on the double.
+    """
+    graph = FakeGraph()
+
+    with pytest.raises(ValueError, match="Batch per scope"):
+        graph.upsert_entities(ACME, [EntityWrite(name="Acme", entity_type="company", scope=BOB)])
+
+
 def test_two_spellings_stay_two_candidates():
     """The SM-G8 (#106) boundary, pinned so it is noticed when it moves.
 
@@ -286,9 +320,7 @@ def test_two_spellings_stay_two_candidates():
     Making them one node is entity resolution, and doing it on the write path would decide that
     policy where nothing can measure it.
     """
-    pipe, graph = pipeline(
-        extractor=StubExtractor(default=[entity(name="Acme"), entity(name="Acme Corporation")])
-    )
+    pipe, graph = pipeline(extractor=StubExtractor(default=[entity(name="Acme"), entity(name="Acme Corporation")]))
 
     pipe.run(ACME, [episode("x")])
 
@@ -307,6 +339,48 @@ def test_one_spelling_seen_twice_is_one_node_with_both_episodes():
     (stored,) = list(graph.entities.values())
     assert stored.source_episode_ids == ["e1", "e2"]
     assert stored.aliases == ["ACME", "acme"]
+
+
+def test_a_second_pass_adds_to_the_provenance_the_first_one_wrote():
+    """The union has to hold **across** passes, not only within one.
+
+    Within a pass ``_merged`` folds the mentions before the write, so a store that replaced
+    provenance would still look right. It is the next pass -- a scheduler re-running the lane over
+    newer episodes -- that erases the first one's trail, and the double has to model that or no
+    provider test can see it.
+    """
+    graph = FakeGraph()
+    pipe, _ = pipeline(graph=graph, extractor=StubExtractor(default=[entity(aliases=["Acme"])]))
+
+    pipe.run(ACME, [episode("first", "e1")])
+    pipe.run(ACME, [episode("second", "e2")])
+
+    (stored,) = list(graph.entities.values())
+    assert stored.source_episode_ids == ["e1", "e2"]
+    assert stored.aliases == ["Acme"], "a re-sighting must not duplicate an alias it already had"
+
+
+def test_the_head_of_a_merged_group_is_the_most_confident():
+    """One corpus produces one description, not a different one per run.
+
+    Something has to decide which mention's description the node keeps. Insertion order is the
+    tempting answer and is scan order, which is driven by uuid ids -- so the same episodes would
+    describe the entity differently on each pass.
+    """
+    pipe, graph = pipeline(
+        extractor=StubExtractor(
+            by_content={
+                "a": [entity(description="a guess", confidence=0.2)],
+                "b": [entity(description="what it actually is", confidence=0.9)],
+            }
+        )
+    )
+
+    pipe.run(ACME, [episode("a", "e1"), episode("b", "e2")])
+
+    (stored,) = list(graph.entities.values())
+    assert stored.description == "what it actually is"
+    assert stored.confidence == 0.9
 
 
 def test_entity_normalization_matches_the_curator():
@@ -420,12 +494,37 @@ def test_consolidate_runs_the_pass_and_reports_it(is_async):
     assert set(report.details["entities"]) >= set(ENTITY_KEYS)
 
 
+def test_consolidate_extracts_from_what_it_kept_rather_than_from_what_it_scanned():
+    """``_visible_episodes`` drops episodes that are not valid at the pass instant.
+
+    Extraction runs over the survivors. Handing it the raw scan instead would put nodes in the
+    graph sourced from a row no read returns -- and ``_selected``'s own current-belief check cannot
+    see it, because a future-dated episode is current belief and simply not true yet.
+    """
+    extractor = StubExtractor(default=[entity()])
+    memory, vector, _ = provider(extractor=extractor)
+    later = now_epoch_s() + 3600
+    vector.upsert(
+        ACME,
+        [MemoryRecord(id="e1", tier=MemoryTier.EPISODIC, content="Acme will ship", scope=ACME, t_valid=later)],
+    )
+
+    report = memory.consolidate(ACME)
+
+    assert report.episodic_scanned == 1
+    assert extractor.seen == [], "an episode not yet valid is not an interaction to extract from"
+
+
 def test_a_provider_with_no_pipeline_says_so_rather_than_omitting_the_key():
     """The diagnostics floor. Without the key a scheduler cannot tell "extracted nothing" from
     "never ran", and only one of those needs a pipeline wiring."""
     memory, _, _ = provider()
     memory.write(ACME, [MemoryEvent(content="Acme ships things", scope=ACME)])
 
+    # Named literally as well as through the tuple: `set(details) >= set(KEYS)` still passes when
+    # the key is dropped from the tuple *and* from the payload together, which is the way a floor
+    # is usually lowered.
+    assert "entities" in CONSOLIDATION_KEYS
     for report in (memory.consolidate(ACME), asyncio.run(memory.aconsolidate(ACME))):
         assert set(report.details) >= set(CONSOLIDATION_KEYS)
         assert report.details["entities"] == NO_ENTITIES

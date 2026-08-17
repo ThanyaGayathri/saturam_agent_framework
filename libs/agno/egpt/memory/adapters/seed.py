@@ -44,11 +44,11 @@ from egpt.memory.types import (
     MemorySlice,
     PartialWriteError,
     Scope,
-    require_scope,
     Substrate,
     WriteReceipt,
     consolidation_details,
     fusion_diagnostics,
+    require_scope,
     write_details,
 )
 from egpt.memory.validation import reject_duplicate_ids, reject_foreign_scopes

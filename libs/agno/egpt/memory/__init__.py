@@ -28,12 +28,6 @@ from egpt.memory.strategies import (
     SummarizeStrategy,
 )
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
-from egpt.memory.validation import (
-    MEMORY_DATA_ACCESS_METHODS,
-    assert_scope_isolation,
-    reject_duplicate_ids,
-    reject_foreign_scopes,
-)
 from egpt.memory.tiers import (
     CONSOLIDATION_SOURCE,
     CONSOLIDATION_TARGET,
@@ -71,6 +65,12 @@ from egpt.memory.types import (
     escape_key_slot,
     fusion_diagnostics,
     require_scope,
+)
+from egpt.memory.validation import (
+    MEMORY_DATA_ACCESS_METHODS,
+    assert_scope_isolation,
+    reject_duplicate_ids,
+    reject_foreign_scopes,
 )
 
 __all__ = [

@@ -172,9 +172,7 @@ class LLMEntityExtractor:
         )
 
     def extract(self, episode: MemoryRecord) -> Sequence[ExtractedEntity]:
-        response = deepcopy(self.model).response(
-            messages=self._messages(episode), response_format=ExtractedEntities
-        )
+        response = deepcopy(self.model).response(messages=self._messages(episode), response_format=ExtractedEntities)
         return self._parse(response, episode.id)
 
     async def aextract(self, episode: MemoryRecord) -> Sequence[ExtractedEntity]:

@@ -217,9 +217,7 @@ def test_the_entity_row_builder_writes_nothing_outside_the_declared_properties()
     (row,) = substrate._entity_rows(FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)])
 
     written = {key for key in row if key != "props"} | set(row["props"])
-    assert written <= set(cypher.ENTITY_PROPERTIES), (
-        f"undeclared: {sorted(written - set(cypher.ENTITY_PROPERTIES))}"
-    )
+    assert written <= set(cypher.ENTITY_PROPERTIES), f"undeclared: {sorted(written - set(cypher.ENTITY_PROPERTIES))}"
 
 
 def test_an_entity_node_carries_no_bi_temporal_field():
@@ -438,9 +436,7 @@ DRIVER_CALLS = {
     "upsert_facts": lambda g: g.upsert_facts(
         FULL, [FactWrite(record=MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=FULL))]
     ),
-    "upsert_entities": lambda g: g.upsert_entities(
-        FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)]
-    ),
+    "upsert_entities": lambda g: g.upsert_entities(FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)]),
     "traverse": lambda g: g.traverse(FULL, MemoryQuery(text="x")),
     "bounds_for_ids": lambda g: g.bounds_for_ids(FULL, ["f1"]),
     "invalidate": lambda g: g.invalidate(FULL, "f1", t_invalid=300, at=310),

@@ -308,6 +308,7 @@ ENTITY_PROPERTIES = (
     *SCOPE_SLOTS,
 )
 
+
 def _union(name: str) -> str:
     """Append what the batch adds to what the node already has, without duplicating.
 

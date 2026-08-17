@@ -41,6 +41,7 @@ from egpt.memory.tiers import (
     substrates_for_tier,
 )
 from egpt.memory.types import (
+    NO_ENTITIES,
     ConsolidationReport,
     FactWrite,
     MemoryEvent,
@@ -48,14 +49,13 @@ from egpt.memory.types import (
     MemoryQuery,
     MemoryRecord,
     MemorySlice,
-    NO_ENTITIES,
     PartialWriteError,
     Scope,
-    require_scope,
     Substrate,
     WriteReceipt,
     consolidation_details,
     fusion_diagnostics,
+    require_scope,
 )
 from egpt.memory.validation import assert_scope_isolation, reject_duplicate_ids, reject_foreign_scopes
 from egpt.utils.dttm import now_epoch_s

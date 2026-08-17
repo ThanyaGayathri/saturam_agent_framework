@@ -34,9 +34,9 @@ from egpt.memory.types import (
     MemoryQuery,
     MemoryRecord,
     Scope,
-    require_scope,
     Substrate,
     TemporalBounds,
+    require_scope,
 )
 
 
@@ -315,8 +315,7 @@ class FakeGraph:
             description=entity.description,
             aliases=list(entity.aliases) + (list(stored.aliases) if stored else []),
             properties=dict(entity.properties),
-            source_episode_ids=list(entity.source_episode_ids)
-            + (list(stored.source_episode_ids) if stored else []),
+            source_episode_ids=list(entity.source_episode_ids) + (list(stored.source_episode_ids) if stored else []),
             embedding=list(entity.embedding) if entity.embedding is not None else None,
             embedding_version=entity.embedding_version,
             confidence=entity.confidence,

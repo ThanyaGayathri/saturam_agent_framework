@@ -756,14 +756,18 @@ def read_entity(graph, name, scope=ACME):
     """
     if isinstance(graph, FakeGraph):
         stored = graph.entities.get((scope.key(), name))
-        return None if stored is None else {
-            "entity_type": stored.entity_type,
-            "description": stored.description,
-            "key": stored.key,
-            "embedding": stored.embedding,
-            "source_episode_ids": stored.source_episode_ids,
-            "aliases": stored.aliases,
-        }
+        return (
+            None
+            if stored is None
+            else {
+                "entity_type": stored.entity_type,
+                "description": stored.description,
+                "key": stored.key,
+                "embedding": stored.embedding,
+                "source_episode_ids": stored.source_episode_ids,
+                "aliases": stored.aliases,
+            }
+        )
     with graph._driver.session(database=graph.database) as session:
         row = session.run(
             "MATCH (n:Entity {scope_key: $scope_key, name: $name}) RETURN properties(n) AS props",
@@ -861,13 +865,21 @@ def test_an_entity_node_carries_no_bi_temporal_field_in_the_store(graph):
     assert not {"t_valid", "t_invalid", "expired_at", "superseded_by", cypher.LIVE, "tier"} & set(props)
 
 
-def test_an_empty_entity_batch_is_a_no_op_rather_than_a_round_trip(any_graph):
-    """The port's empty-is-a-no-op rule, held for the new verb as for the other two."""
-    any_graph.upsert_entities(ACME, [])
+async def test_an_empty_entity_batch_is_a_no_op_rather_than_a_round_trip(async_graph, monkeypatch):
+    """The port's empty-is-a-no-op rule, held for the new verb as for the other two.
 
-    if not isinstance(any_graph, FakeGraph):
-        with any_graph._driver.session(database=any_graph.database) as session:
-            assert session.run("MATCH (n:Entity) RETURN count(n) AS n").single()["n"] == 0
+    Asserted on whether the driver was **asked**, not on the row count: ``UNWIND [] AS row`` writes
+    nothing either way, so a count-only assertion passes against a backend that opens a session and
+    runs a statement per empty batch -- which over a drained tier is one round trip per pass.
+    """
+    calls = []
+    monkeypatch.setattr(async_graph, "_run", lambda *a, **k: calls.append("sync"))
+    monkeypatch.setattr(async_graph, "_arun", lambda *a, **k: calls.append("async"))
+
+    async_graph.upsert_entities(ACME, [])
+    await async_graph.aupsert_entities(ACME, [])
+
+    assert calls == []
 
 
 def test_an_entity_write_under_a_foreign_scope_is_refused(graph):
