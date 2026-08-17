@@ -217,6 +217,10 @@ upserts by id, so a re-run replaces the same three rows instead of accumulating 
 first version of this file left the ids unset, and each run added three more rows -- corrected here
 rather than documented.
 
+**Re-verified after SM-V2 (#96)** with the embedder no longer named in the file: `mode` now selects
+it, and the same query returns the same top score of **0.799**, confirming the Mode A default
+resolves to the model this entry was originally recorded against.
+
 **Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
 key; the embedder is local and downloads its weights on first run.
 
