@@ -472,7 +472,7 @@ def test_a_ranked_row_without_a_distance_is_refused_rather_than_ranked_first():
 class _BatchStub(StubEmbedder):
     """Declares batching and records each call, so a per-record loop is visible as a call count."""
 
-    enable_batch = True
+    accepts_text_batches = True
     batch_size = 100
 
     def __init__(self):
@@ -577,7 +577,7 @@ def test_every_row_is_stamped_with_the_pipelines_version_tag(batching):
     unconverted ones."""
     row = batching._row(ACME, record("e1", "alpha"), [0.0] * DIM)
     assert row["embedding_version"] == batching.pipeline.embedding_version
-    assert row["embedding_version"].endswith(f"/d{DIM}/cos/v1")
+    assert row["embedding_version"].endswith(f"|d{DIM}|cos|v1")
 
 
 def test_an_explicit_version_tag_still_wins():
@@ -588,6 +588,16 @@ def test_an_explicit_version_tag_still_wins():
         db_url=URL, embedder=StubEmbedder(), embedding_version="pinned/v0", auto_init_schema=False
     )
     assert store.embedding_version == "pinned/v0"
+
+
+def test_an_explicitly_empty_version_tag_is_kept_not_replaced_by_the_derived_one():
+    """``""`` is a deliberate instruction to stamp nothing, and the only caller who passes it is a
+    migration tool that is being precise about this field. A falsy test makes it indistinguishable
+    from "not supplied" and silently stamps the current model instead -- so rows the tool asked to
+    leave unmarked come back marked, and its cutover query returns the wrong set."""
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+    store = PgVectorMemorySubstrate(db_url=URL, embedder=StubEmbedder(), embedding_version="", auto_init_schema=False)
+    assert store.embedding_version == ""
 
 
 def test_the_store_defaults_to_mode_A_so_the_air_gap_is_the_default():

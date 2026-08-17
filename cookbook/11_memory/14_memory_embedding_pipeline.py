@@ -25,6 +25,9 @@ The Mode A default downloads bge-base (~440 MB) the first time. The stub below i
 behaviour that does not need a real model, so the download happens once, at the end.
 """
 
+from egpt.integrations.knowledge.embedder.sentence_transformer import (
+    SentenceTransformerEmbedder,
+)
 from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.embedding import (
     MODE_DEFAULTS,
@@ -98,11 +101,16 @@ print(
     f"Embedded {len(stored)} memories on write and 1 query on read, all at {pipeline.dimensions}d"
 )
 
-# A batching embedder is called once per chunk rather than once per memory. `LocalStub` does not
-# declare `enable_batch`, so it is called one text at a time -- an embedder that takes a string and
-# is handed a list returns one vector for the concatenation, which is silently wrong.
+# A batching embedder is called once per chunk rather than once per memory. The capability is
+# declared as `accepts_text_batches` on the embedder -- deliberately not `Embedder.enable_batch`,
+# which gates a different (async-only) batch API used by the knowledge pipeline. `LocalStub` does
+# not declare it, so it is called one text at a time; an embedder that takes a string and is handed
+# a list returns one vector for the concatenation, which is silently wrong.
 print(
-    f"Batch size honoured from the embedder's own setting: enable_batch={getattr(LocalStub, 'enable_batch', False)}"
+    f"Batches accepted by this embedder: {getattr(LocalStub, 'accepts_text_batches', False)}"
+)
+print(
+    f"The shipped Mode A embedder declares it: {SentenceTransformerEmbedder.accepts_text_batches}"
 )
 
 # The real Mode A default, last because it downloads the model.

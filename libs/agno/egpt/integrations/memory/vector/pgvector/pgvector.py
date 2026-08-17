@@ -231,7 +231,13 @@ class PgVectorMemorySubstrate:
         # model that actually produced it and a re-embedding migration has a real value to key its
         # cutover on (SM-R4 section 7, D8). An explicit argument still wins: a deployment mid-
         # migration needs to pin the tag it writes under.
-        self.embedding_version = embedding_version or self.pipeline.embedding_version
+        #
+        # `is not None`, not `or`: those differ on exactly the caller who is most deliberate about
+        # this field. A migration tool passing `""` to clear the tag is the one case where the
+        # falsy test silently substitutes the derived value -- writing rows stamped with the current
+        # model under a tool that asked for no stamp at all, which is the opposite of what it
+        # requested and invisible until the cutover query returns the wrong set.
+        self.embedding_version = embedding_version if embedding_version is not None else self.pipeline.embedding_version
         # Every setting is checked here rather than at first use, and all of them inside one
         # wrapper: `ef_search` reaches a statement as a literal and the rest reach DDL, so this is
         # where a bad value is cheap -- and a refusal that arrives as a bare `ValueError` is one a

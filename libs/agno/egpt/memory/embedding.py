@@ -76,6 +76,33 @@ MODE_DEFAULTS: Dict[ProviderMode, Dict[str, Any]] = {
 _METRIC = "cos"
 _REVISION = "v1"
 
+#: Field separator for :data:`MemoryEmbedder.embedding_version`.
+#:
+#: **Not ``/``**, which SM-R4 section 7's example uses. That example writes the model as
+#: ``bge-base-en-v1.5``, but the id an embedder actually carries is the canonical HF
+#: ``BAAI/bge-base-en-v1.5`` -- so a ``/`` separator yields five fields where the migration keying on
+#: this tag expects four, and no amount of care at the parsing end recovers which ``/`` was which.
+_TAG_SEPARATOR = "|"
+
+
+def _version_tag(model_id: str, dimensions: int) -> str:
+    """``<model>|d<dim>|<metric>|<rev>`` -- four fields, and the separator cannot appear inside one.
+
+    Refused rather than escaped or silently joined. This tag is the key a re-embedding migration
+    cuts over on, so a model id carrying the separator would split into a field count that does not
+    match the format, and the migration would mis-key rather than fail -- reading some other field
+    as the dimension. No shipped id contains ``|``; the check is here so that stays a fact rather
+    than an assumption about ids nobody has published yet.
+    """
+    if _TAG_SEPARATOR in model_id:
+        raise MemoryProviderConfigError(
+            f"Embedder id {model_id!r} contains {_TAG_SEPARATOR!r}, which separates the fields of the "
+            f"embedding version tag, so the tag would not parse back into four fields. A re-embedding "
+            "migration keys its cutover on that tag (SM-R4 section 7). Rename the model id.",
+            field_name="embedder",
+        )
+    return _TAG_SEPARATOR.join((model_id, f"d{dimensions}", _METRIC, _REVISION))
+
 
 def _model_id(embedder: Any) -> str:
     """The embedder's model identifier, for the version tag.
@@ -105,6 +132,16 @@ def _reject_online_for_local(key: Optional[str], embedder: Any) -> None:
     to the proxy alone the rule refuses correct deployments, which is how a safety check gets an
     ``if`` around it a release later. What A.3c actually forbids is the air gap breaking *silently*,
     and an explicit attribute on the object is the opposite of silent -- somebody asserted it.
+
+    **The module-path arm is a convenience for the four in-tree embedders, not a security boundary,
+    and nothing here is one.** It matches on the last dotted segment, so a third-party
+    ``anything.sentence_transformer`` passes without being offline in any sense; and the
+    ``offline_capable`` arm above it is an unverified self-assertion by design. Neither can be
+    tightened into a guarantee -- no check available in this process can prove a Python object will
+    not open a socket. What this rule buys is that reaching the network under Mode A takes a
+    deliberate act (naming a module that looks in-tree, or declaring an attribute that says so)
+    rather than being the default outcome of a config typo, which is the silent breakage A.3c is
+    about. Deployments that need the guarantee enforce it at the network layer.
     """
     if key is not None:
         if key in OFFLINE_CAPABLE:
@@ -167,20 +204,50 @@ class MemoryEmbedder:
         return 1
 
     def _accepts_batches(self) -> bool:
-        """Whether this embedder's ``get_embedding`` takes a list of texts.
+        """Whether this embedder's ``get_embedding`` takes a **list** of texts and returns one
+        vector per element.
 
-        ``Embedder.enable_batch`` is the seed's own flag for exactly this, and it is off by default
-        -- so an embedder that has not opted in is called one text at a time. Guessing the other
-        way is not a performance question: an embedder that takes a ``str`` and is handed a ``list``
-        returns one vector for the concatenation, which is silently wrong rather than an error.
+        **Deliberately not ``Embedder.enable_batch``**, which is a different proposition. Everywhere
+        else in this tree that flag gates a *separate* batch API -- every vectordb reads it as
+        ``enable_batch and hasattr(embedder, "async_get_embeddings_batch_and_usage")`` -- and eight
+        embedders implement that API. ``get_embedding`` taking a list is an unrelated property that
+        exactly one shipped embedder has. Reading ``enable_batch`` for it inverts the meaning where
+        the two disagree: ``AzureOpenAIEmbedder`` has the batch API and would legitimately carry
+        ``enable_batch=True``, but its ``get_embedding`` returns ``data[0].embedding`` -- one vector
+        for N texts.
+
+        That batch API is not the mechanism here either, for a reason that outlives this class: it
+        is **async-only** (zero sync implementations in the tree). Routing through it would batch
+        the async half and leave the sync half calling per text, and a twin that makes a different
+        decision is the defect class this package guards hardest. ``get_embedding(list)`` keeps both
+        halves identical, because a batching embedder's ``async_get_embedding`` delegates to the
+        sync one.
+
+        So the capability is **declared**, like ``offline_capable`` above it and for the same
+        reason: a flag that means something adjacent is a proxy for the property, not the property.
+        Undeclared means per-text, which is always correct and sometimes slower -- the safe default,
+        since an embedder that takes a ``str`` and is handed a ``list`` embeds the concatenation and
+        returns one vector, and only the count check downstream would notice.
         """
-        return bool(getattr(self.embedder, "enable_batch", False))
+        return getattr(self.embedder, "accepts_text_batches", False) is True
 
     def _chunks(self, texts: Sequence[str]) -> List[Sequence[str]]:
         if not self._accepts_batches():
             return [[text] for text in texts]
         size = self._batch_size()
         return [texts[start : start + size] for start in range(0, len(texts), size)]
+
+    def _call_arg(self, chunk: Sequence[str]) -> Any:
+        """What one chunk is passed as -- **decided by the embedder's declared shape, not the chunk's
+        length.**
+
+        A batching embedder always gets a list, including a one-element list, and a non-batching one
+        always gets the bare text. Length-based unwrapping looks equivalent and is not: it makes
+        every ``embed_query`` -- always exactly one text -- take the bare-string branch regardless of
+        what the embedder declared, so a strict batch-only embedder works on write and fails on
+        read. One call shape per embedder, whatever the batch happens to contain.
+        """
+        return list(chunk) if self._accepts_batches() else chunk[0]
 
     def _as_vectors(self, result: Any, count: int) -> List[List[float]]:
         """Normalize one embedder call's return into ``count`` vectors, refusing a mismatch.
@@ -189,8 +256,43 @@ class MemoryEmbedder:
         both arrive here. The count check is what stops a batched call that silently returned one
         vector for the concatenation from being zipped against the wrong records -- which files
         every record's content under its neighbour's vector, and nothing downstream can see it.
+
+        **Everything this inspects is refused rather than assumed**, because the input is a
+        third-party return value and every shortcut here raises something that is not this seam's
+        error type. ``if result`` on a 2D numpy array raises ``ValueError: truth value ... is
+        ambiguous`` from numpy; iterating ``None`` raises ``TypeError``. Both escaped a seam whose
+        contract is that a bad embedder arrives as ``MemoryProviderConfigError`` naming the
+        embedder, so a caller narrowing to that type saw an unrelated exception type instead.
+
+        Nesting is decided by whether the first element is **iterable**, not by whether it is a
+        ``list`` or ``tuple``: a row of a 2D numpy array is an ``ndarray``, which is neither, so the
+        stricter test read a batch of N vectors as one very wide vector and reported a dimension
+        mismatch pointing at the model. ``str`` is excluded because it is iterable and is never a
+        vector element.
         """
-        vectors = [list(result)] if result and not isinstance(result[0], (list, tuple)) else [list(v) for v in result]
+        # One guard, not a `None` arm beside it: `len(None)` raises `TypeError` and lands here
+        # already, so a separate `result is None` branch changed the message and nothing else. A
+        # branch no test can distinguish is one that rots, and `None` is named in the message
+        # instead -- it is the case that actually happens, from an embedder swallowing its own
+        # failure.
+        try:
+            length = len(result)
+        except TypeError:
+            raise MemoryProviderConfigError(
+                f"{type(self.embedder).__name__}.get_embedding returned {type(result).__name__} for "
+                f"{count} text(s), which has no length, so it is neither a vector nor a sequence of "
+                "them. An embedder that swallows its own failure returns None here, and the record "
+                "would otherwise be stored with no usable embedding.",
+                field_name="embedder",
+            ) from None
+        if length == 0:
+            raise MemoryProviderConfigError(
+                f"{type(self.embedder).__name__}.get_embedding returned an empty result for {count} text(s).",
+                field_name="embedder",
+            )
+        first = result[0]
+        nested = not isinstance(first, (str, bytes)) and hasattr(first, "__iter__")
+        vectors = [list(v) for v in result] if nested else [list(result)]
         if len(vectors) != count:
             raise MemoryProviderConfigError(
                 f"{type(self.embedder).__name__} returned {len(vectors)} embedding(s) for {count} text(s). "
@@ -221,7 +323,7 @@ class MemoryEmbedder:
         """Embed a batch, in order, one vector per text."""
         vectors: List[List[float]] = []
         for chunk in self._chunks(texts):
-            vectors.extend(self._as_vectors(self.embedder.get_embedding(_call_arg(chunk)), len(chunk)))
+            vectors.extend(self._as_vectors(self.embedder.get_embedding(self._call_arg(chunk)), len(chunk)))
         return self._checked(vectors)
 
     async def aembed_texts(self, texts: Sequence[str]) -> List[List[float]]:
@@ -234,7 +336,7 @@ class MemoryEmbedder:
         """
         vectors: List[List[float]] = []
         for chunk in self._chunks(texts):
-            result = await self.embedder.async_get_embedding(_call_arg(chunk))
+            result = await self.embedder.async_get_embedding(self._call_arg(chunk))
             vectors.extend(self._as_vectors(result, len(chunk)))
         return self._checked(vectors)
 
@@ -245,15 +347,6 @@ class MemoryEmbedder:
     async def aembed_query(self, text: str) -> List[float]:
         """Async variant of :meth:`embed_query`."""
         return (await self.aembed_texts([text]))[0]
-
-
-def _call_arg(chunk: Sequence[str]) -> Any:
-    """What one chunk is passed as: the bare text for a single, the list for a batch.
-
-    A one-element chunk is a single call, not a batch of one -- an embedder that does not declare
-    ``enable_batch`` takes a ``str``, and every chunk is one element in that case.
-    """
-    return chunk[0] if len(chunk) == 1 else list(chunk)
 
 
 def resolve_memory_embedder(
@@ -315,7 +408,12 @@ def resolve_memory_embedder(
         # width it returns, which is the one thing the real class does not do.
         options = {"id": default["id"], "dimensions": int(default["dimensions"]), **(options or {})}
         if declared_dim is None:
-            declared_dim = int(default["dimensions"])
+            # From the **merged** options, not the mode default. These are the same value until a
+            # caller passes `options={"dimensions": N}`, at which point the constructed embedder is
+            # N wide and taking the default here refuses the caller's own setting while quoting a
+            # number they never passed -- "dimensions is 768 but Embedder.dimensions is 512", where
+            # 768 came from this line. One source of truth: whatever the embedder is being built at.
+            declared_dim = options["dimensions"]
     elif isinstance(embedder, str):
         key = embedder.strip()
         if not key:
@@ -355,7 +453,7 @@ def resolve_memory_embedder(
     return MemoryEmbedder(
         embedder=resolved,
         dimensions=resolved_dim,
-        embedding_version=f"{_model_id(resolved)}/d{resolved_dim}/{_METRIC}/{_REVISION}",
+        embedding_version=_version_tag(_model_id(resolved), resolved_dim),
     )
 
 

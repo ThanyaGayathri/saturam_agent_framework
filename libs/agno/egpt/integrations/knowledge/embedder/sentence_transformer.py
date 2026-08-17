@@ -24,6 +24,14 @@ class SentenceTransformerEmbedder(Embedder):
     sentence_transformer_client: Optional[SentenceTransformer] = None
     prompt: Optional[str] = None
     normalize_embeddings: bool = False
+    #: ``get_embedding`` accepts a list of texts and returns one vector per element -- see its
+    #: ``Union[str, List[str]]`` signature below, where ``encode`` returns a 2D array.
+    #:
+    #: Distinct from ``Embedder.enable_batch``, which gates the ``*_get_embeddings_batch_and_usage``
+    #: API this class does not implement; that flag is left alone, so no knowledge-pipeline call
+    #: site changes behaviour. Read by ``egpt.memory.embedding`` (SM-V2 #96), which batches through
+    #: ``get_embedding`` because the batch API is async-only and would split the sync/async twins.
+    accepts_text_batches: bool = True
 
     def __post_init__(self):
         # Initialize the SentenceTransformer model eagerly to avoid race conditions in async contexts

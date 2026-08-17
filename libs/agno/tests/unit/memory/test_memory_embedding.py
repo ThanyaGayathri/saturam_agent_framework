@@ -5,8 +5,9 @@ No model and no database: every candidate embedder is a double, because what thi
 with -- none of which needs a real model, and all of which a real model would make slow and
 non-deterministic to assert.
 
-The doubles are stricter than the loosest real embedder: they record how they were called, refuse a
-list unless they declared ``enable_batch``, and the async half genuinely suspends.
+The doubles are stricter than the loosest real embedder: they record how they were called, refuse
+whichever call shape they did not declare -- a list if they are single-text, a bare string if they
+are batch-only -- and the async half genuinely suspends.
 """
 
 import asyncio
@@ -23,15 +24,20 @@ DIM = 4
 class Recorder:
     """A single-text embedder that records every call it received.
 
-    ``enable_batch`` is false, matching ``Embedder``'s own default, and ``get_embedding`` **refuses
-    a list** rather than quietly embedding its repr. A real single-text embedder handed a list
-    returns one vector for the concatenation, which is silently wrong -- a double that tolerated it
-    could not tell the pipeline's chunking from a bug in it.
+    It declares no ``accepts_text_batches``, matching every embedder in the tree but one, and
+    ``get_embedding`` **refuses a list** rather than quietly embedding its repr. A real single-text
+    embedder handed a list returns one vector for the concatenation, which is silently wrong -- a
+    double that tolerated it could not tell the pipeline's chunking from a bug in it.
+
+    ``enable_batch`` is set here precisely because it must **not** be what the pipeline reads: this
+    is the ``AzureOpenAIEmbedder`` shape, which carries the flag for the separate async batch API
+    while its ``get_embedding`` still takes one string. A pipeline reading the flag would hand this
+    double a list and get a ``TypeError``.
     """
 
     id = "recorder-v1"
     dimensions = DIM
-    enable_batch = False
+    enable_batch = True
     batch_size = 100
     offline_capable = True
 
@@ -53,14 +59,22 @@ class Recorder:
 
 
 class BatchRecorder(Recorder):
-    """A batching embedder: takes a list, returns one vector per element, in order."""
+    """A batching embedder: takes a list, returns one vector per element, in order.
+
+    **Strictly list-only** -- a bare string is refused. Real batch-only clients are, and a double
+    that accepted both could not distinguish "the pipeline always sends a list" from "the pipeline
+    sends a string whenever the chunk happens to hold one item", which is the shape that made
+    ``embed_query`` take the wrong branch for every batching embedder.
+    """
 
     id = "batch-recorder-v1"
-    enable_batch = True
+    accepts_text_batches = True
     batch_size = 2
 
     def get_embedding(self, text):
-        texts = [text] if isinstance(text, str) else list(text)
+        if isinstance(text, str):
+            raise TypeError(f"{type(self).__name__} takes a list of strings; got a bare str.")
+        texts = list(text)
         self.calls.append(list(texts))
         return [self._vector(one) for one in texts]
 
@@ -128,6 +142,30 @@ def test_a_caller_option_beats_the_mode_default(monkeypatch):
     monkeypatch.setattr(embedding, "_construct", lambda key, options: seen.update(options) or Recorder())
     resolve_memory_embedder(ProviderMode.LOCAL, options={"id": "BAAI/bge-base-en-v1.0"}, dimensions=DIM)
     assert seen["id"] == "BAAI/bge-base-en-v1.0"
+
+
+def test_a_caller_dimension_option_is_the_width_the_pipeline_resolves_to(monkeypatch):
+    """``options={"dimensions": N}`` builds the embedder at N, so N is the width -- not the mode
+    default. Taking the default here refused the caller's own setting while quoting a number they
+    never passed ("dimensions is 768 but ... is 512"), leaving them nothing to map back to an
+    argument.
+
+    The double reports whatever it was constructed with, so it stands in for a real embedder that
+    honours the option."""
+    from egpt.memory import embedding
+
+    class Sized(Recorder):
+        def __init__(self, dimensions, **rest):
+            super().__init__()
+            self.dimensions = dimensions
+
+        def _vector(self, text):
+            return [0.0] * self.dimensions
+
+    monkeypatch.setattr(embedding, "_construct", lambda key, options: Sized(**options))
+    resolved = resolve_memory_embedder(ProviderMode.LOCAL, options={"dimensions": 512, "id": "x"})
+    assert resolved.dimensions == 512
+    assert "|d512|" in resolved.embedding_version
 
 
 def test_a_mode_that_is_not_a_ProviderMode_is_refused():
@@ -276,13 +314,53 @@ def test_the_async_half_batches_identically():
     assert recorder.calls == [["a", "b"], ["c", "d"], ["e"]]
 
 
-def test_an_embedder_that_did_not_opt_into_batching_gets_one_text_per_call():
-    """``Embedder.enable_batch`` is off by default and the base's ``get_embedding`` takes a ``str``.
-    Handing such an embedder a list gets one vector for the concatenation -- silently wrong, and
-    attached to whichever record happened to be first."""
+def test_an_embedder_that_did_not_declare_batching_gets_one_text_per_call():
+    """Undeclared means per-text. Handing such an embedder a list gets one vector for the
+    concatenation -- silently wrong, and attached to whichever record happened to be first."""
     recorder = Recorder()
     pipeline(recorder).embed_texts(["a", "b", "c"])
     assert recorder.calls == ["a", "b", "c"]
+
+
+def test_batching_is_not_read_from_enable_batch():
+    """``enable_batch`` gates a *separate* async batch API everywhere else in this tree -- every
+    vectordb reads it as ``enable_batch and hasattr(..., 'async_get_embeddings_batch_and_usage')``.
+    ``AzureOpenAIEmbedder`` carries it while its ``get_embedding`` still takes one string and
+    returns ``data[0].embedding``, so a pipeline reading the flag would send Mode B a list and get
+    one vector for N texts.
+
+    ``Recorder`` is that shape: ``enable_batch = True``, no ``accepts_text_batches``, and a
+    ``get_embedding`` that refuses a list. Reverting the pipeline to the flag raises ``TypeError``
+    here."""
+    recorder = Recorder()
+    assert recorder.enable_batch is True
+    pipeline(recorder).embed_texts(["a", "b", "c"])
+    assert recorder.calls == ["a", "b", "c"]
+
+
+def test_the_mode_a_default_embedder_declares_the_capability_so_criterion_4_is_reachable():
+    """Criterion 4 is 'batch embedding on write-back', and it is only met if the embedder a default
+    Mode A deployment actually gets declares the capability the pipeline reads. Asserted on the
+    shipped class rather than on a double, because a double declaring it proves nothing about what
+    a deployment runs -- which is exactly how this shipped unreachable."""
+    from egpt.integrations.knowledge.embedder.sentence_transformer import SentenceTransformerEmbedder
+
+    assert SentenceTransformerEmbedder.accepts_text_batches is True
+
+
+def test_a_batching_embedder_gets_a_list_even_for_a_single_text():
+    """Every ``embed_query`` is one text. Unwrapping by chunk length rather than by declared shape
+    sent a bare string to a batch-only embedder on every read while writes batched fine -- so the
+    query path failed for exactly the embedders the write path worked for."""
+    recorder = BatchRecorder()
+    pipeline(recorder).embed_query("alone")
+    assert recorder.calls == [["alone"]]
+
+
+def test_the_async_query_path_uses_the_same_call_shape():
+    recorder = BatchRecorder()
+    asyncio.run(pipeline(recorder).aembed_query("alone"))
+    assert recorder.calls == [["alone"]]
 
 
 def test_the_batch_comes_back_in_order():
@@ -305,6 +383,48 @@ def test_an_embedder_returning_the_wrong_count_for_a_batch_is_refused():
 
     with pytest.raises(MemoryProviderConfigError) as raised:
         pipeline(Miscounting()).embed_texts(["a", "b"])
+    assert raised.value.field_name == "embedder"
+
+
+def test_a_2d_numpy_return_is_read_as_a_batch_not_as_one_wide_vector():
+    """A numpy row is an ``ndarray`` -- neither ``list`` nor ``tuple`` -- so an isinstance-only test
+    read N vectors as one very wide one. And the guard never got that far: ``if result`` on a 2D
+    array raises numpy's ``truth value ... is ambiguous`` first, escaping a seam whose refusals are
+    ``MemoryProviderConfigError``. Both shipped embedders call ``.tolist()``; a custom one need
+    not."""
+    numpy = pytest.importorskip("numpy", reason="the 2D-array shape under test is numpy's")
+
+    class NumpyBatch(BatchRecorder):
+        def get_embedding(self, text):
+            return numpy.zeros((len(list(text)), DIM))
+
+    assert pipeline(NumpyBatch()).embed_texts(["a", "b", "c"]) == [[0.0] * DIM] * 3
+
+
+def test_an_embedder_returning_none_is_refused_as_a_config_error_not_a_typeerror():
+    """An embedder swallowing its own failure returns ``None``. Iterating it raised a bare
+    ``TypeError`` through a seam that documents ``MemoryProviderConfigError``, so a caller narrowing
+    to this seam's type never saw it."""
+
+    class ReturnsNone(Recorder):
+        def get_embedding(self, text):
+            return None
+
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        pipeline(ReturnsNone()).embed_texts(["a"])
+    assert raised.value.field_name == "embedder"
+
+
+def test_an_embedder_returning_a_lengthless_object_is_refused():
+    """The sibling of the ``None`` case: anything with no ``len`` is neither a vector nor a batch of
+    them, and reaching ``result[0]`` on it raises whatever that object raises."""
+
+    class Lengthless(Recorder):
+        def get_embedding(self, text):
+            return object()
+
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        pipeline(Lengthless()).embed_texts(["a"])
     assert raised.value.field_name == "embedder"
 
 
@@ -397,7 +517,33 @@ def test_the_async_half_refuses_a_wrong_width_too():
 def test_the_version_tag_carries_model_dimension_metric_and_revision():
     """SM-R4 section 7's shape. It is what a re-embedding migration keys its cutover on, so a tag
     missing the dimension cannot distinguish the two columns a migration runs across."""
-    assert pipeline().embedding_version == "recorder-v1/d4/cos/v1"
+    assert pipeline().embedding_version == "recorder-v1|d4|cos|v1"
+
+
+def test_the_tag_splits_into_four_fields_for_a_huggingface_model_id():
+    """The tag is a parsed value, and every Mode A id is ``org/name`` -- so a ``/`` separator gives
+    five fields for the one model family this ticket actually ships, and a migration splitting it
+    reads ``'bge-base-en-v1.5'`` as the dimension. Asserted on the id that caused it rather than on
+    the double's flat ``recorder-v1``, which cannot fail this way and so cannot catch it."""
+
+    class HuggingFaceId(Recorder):
+        id = "BAAI/bge-base-en-v1.5"
+
+    tag = resolve_memory_embedder(ProviderMode.FRONTIER, HuggingFaceId()).embedding_version
+    assert tag.split("|") == ["BAAI/bge-base-en-v1.5", "d4", "cos", "v1"]
+
+
+def test_a_model_id_containing_the_separator_is_refused_not_silently_joined():
+    """Closing the class rather than the case: the tag parses into four fields only while no field
+    contains the separator. Refused at construction, since a mis-split tag makes a migration
+    mis-key rather than fail -- it reads some other field as the dimension and proceeds."""
+
+    class Pipey(Recorder):
+        id = "org|weird/name"
+
+    with pytest.raises(MemoryProviderConfigError) as caught:
+        resolve_memory_embedder(ProviderMode.FRONTIER, Pipey())
+    assert caught.value.field_name == "embedder"
 
 
 def test_the_tag_moves_with_the_dimension():
@@ -407,7 +553,7 @@ def test_the_tag_moves_with_the_dimension():
     class Wide(Recorder):
         dimensions = 768
 
-    assert "/d768/" in resolve_memory_embedder(ProviderMode.FRONTIER, Wide()).embedding_version
+    assert "|d768|" in resolve_memory_embedder(ProviderMode.FRONTIER, Wide()).embedding_version
 
 
 def test_an_embedder_without_an_id_is_tagged_by_its_class_not_a_shared_placeholder():
@@ -417,7 +563,7 @@ def test_an_embedder_without_an_id_is_tagged_by_its_class_not_a_shared_placehold
     class Anonymous(Recorder):
         id = None
 
-    assert resolve_memory_embedder(ProviderMode.FRONTIER, Anonymous()).embedding_version.startswith("Anonymous/")
+    assert resolve_memory_embedder(ProviderMode.FRONTIER, Anonymous()).embedding_version.startswith("Anonymous|")
 
 
 # -- resolution refusals -------------------------------------------------------
@@ -494,4 +640,4 @@ def test_a_missing_sdk_propagates_as_an_ImportError(monkeypatch):
 def test_the_wrapper_is_constructible_directly():
     """``MemoryEmbedder`` is public: SM-V4's Qdrant substrate (#98) takes one rather than
     re-resolving, so it must be usable without going through the resolver."""
-    assert MemoryEmbedder(embedder=Recorder(), dimensions=DIM, embedding_version="x/d4/cos/v1").embed_query("a")
+    assert MemoryEmbedder(embedder=Recorder(), dimensions=DIM, embedding_version="x|d4|cos|v1").embed_query("a")
