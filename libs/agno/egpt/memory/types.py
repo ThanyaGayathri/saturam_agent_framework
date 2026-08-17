@@ -47,6 +47,7 @@ __all__ = [
     "MemoryRecord",
     "MemoryScopeRequiredError",
     "MemorySlice",
+    "NO_ENTITIES",
     "normalize_entity_name",
     "PartialWriteError",
     "require_scope",
@@ -609,6 +610,15 @@ class EntityWrite:
         self.source_episode_ids = sorted(set(self.source_episode_ids))
         self.properties = dict(self.properties or {})
 
+    def with_embedding(self, vector: Sequence[float], version: Optional[str]) -> "EntityWrite":
+        """A copy carrying ``vector``, validated by the same ``__post_init__`` as any other write.
+
+        A method rather than an assignment at the call site, because assigning the field directly
+        skips every check above -- and an embedder returning strings then stores a vector no
+        similarity can read, surfacing at SM-G8's (#106) match rather than at this write.
+        """
+        return replace(self, embedding=list(vector), embedding_version=version)
+
 
 @dataclass
 class MemoryQuery:
@@ -768,27 +778,39 @@ def fusion_diagnostics(
 #: no SM-C1 provider retires the rows it subsumes, and a scheduler must not have to infer that.
 NO_SUPERSEDE = "not implemented in SM-C1 -- SM-L3 (#124)"
 
+#: The honest default for ``entities``: a pass with no entity pipeline extracted none, which a
+#: scheduler cannot tell from an episode set that mentioned none.
+NO_ENTITIES = "not extracted -- no entity pipeline wired (SM-G2 #100)"
+
 #: The same floor ``FUSION_KEYS`` provides, for the scheduler SM-L1 (#122) will write. A provider
 #: with nothing to report says so rather than omitting the key.
-CONSOLIDATION_KEYS = ("derived_by", "complete", "supersede")
+CONSOLIDATION_KEYS = ("derived_by", "complete", "supersede", "entities")
 
 
 def consolidation_details(
     derived_by: Optional[str],
     complete: bool = True,
     supersede: str = NO_SUPERSEDE,
+    entities: Any = NO_ENTITIES,
     **extra: Any,
 ) -> Dict[str, Any]:
     """Build a ``ConsolidationReport.details`` payload carrying every :data:`CONSOLIDATION_KEYS`.
 
     ``complete`` is what a scheduler actually needs: whether the tier was drained. ``supersede``
-    is the other thing it cannot infer -- whether the pass retires the rows it subsumes. In the
-    floor rather than an adapter extra, because one provider silently leaving duplicates while
-    another claims a retirement is exactly the divergence the floor exists to prevent.
+    is the other thing it cannot infer -- whether the pass retires the rows it subsumes.
+    ``entities`` is the third: whether the pass populated the graph's nodes (SM-G2 #100), which a
+    provider with no extractor did not, and which reads identically to "nothing to extract" unless
+    it is said. All three in the floor rather than as adapter extras, because one provider silently
+    doing less than another is exactly the divergence the floor exists to prevent.
 
     Extra keys are free; the contract is a floor, not a ceiling.
     """
-    details: Dict[str, Any] = {"derived_by": derived_by, "complete": complete, "supersede": supersede}
+    details: Dict[str, Any] = {
+        "derived_by": derived_by,
+        "complete": complete,
+        "supersede": supersede,
+        "entities": entities,
+    }
     details.update(extra)
     return details
 

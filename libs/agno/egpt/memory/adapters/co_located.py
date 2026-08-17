@@ -19,7 +19,7 @@ an episode or a fact, which tier consolidation reads and which it writes -- is r
 import asyncio
 import inspect
 from dataclasses import replace
-from typing import Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple
 from uuid import NAMESPACE_OID, uuid4, uuid5
 
 from egpt.memory.config import (
@@ -48,6 +48,7 @@ from egpt.memory.types import (
     MemoryQuery,
     MemoryRecord,
     MemorySlice,
+    NO_ENTITIES,
     PartialWriteError,
     Scope,
     require_scope,
@@ -58,6 +59,9 @@ from egpt.memory.types import (
 )
 from egpt.memory.validation import assert_scope_isolation, reject_duplicate_ids, reject_foreign_scopes
 from egpt.utils.dttm import now_epoch_s
+
+if TYPE_CHECKING:
+    from egpt.memory.graph.entities import EntityExtractionPipeline
 
 __all__ = ["CoLocatedMemoryProvider"]
 
@@ -92,6 +96,27 @@ def _positive_int(value: Any, option: str) -> int:
             field_name=f"options.{option}",
         )
     return value
+
+
+def _checked_pipeline(candidate: Any) -> Optional["EntityExtractionPipeline"]:
+    """Verify an injected entity pipeline carries both halves, at construction time.
+
+    The same bargain :func:`egpt.memory.substrates.checked_graph` strikes: names only, but it turns
+    "consolidate mysteriously stopped extracting" or an ``AttributeError`` deep inside a pass into a
+    build-time error. ``None`` passes through -- a provider without entity extraction is the
+    default, not a misconfiguration.
+    """
+    if candidate is None:
+        return None
+    missing = [verb for verb in ("run", "arun") if not callable(getattr(candidate, verb, None))]
+    if missing:
+        raise MemoryProviderConfigError(
+            f"options['entity_pipeline'] is a {type(candidate).__name__}, which is missing "
+            f"{missing}. consolidate and aconsolidate each drive one half; a pipeline with only "
+            "the sync verb blocks the async lane's event loop.",
+            field_name="options.entity_pipeline",
+        )
+    return candidate
 
 
 def _tokens(text: str) -> Set[str]:
@@ -160,6 +185,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         config: Optional[MemoryProviderConfig] = None,
         max_episodes_per_pass: int = _MAX_EPISODES_PER_PASS,
         max_concurrent_writes: int = _MAX_CONCURRENT_WRITES,
+        entity_pipeline: Optional["EntityExtractionPipeline"] = None,
     ) -> None:
         if vector is None and graph is None:
             raise MemoryProviderConfigError(
@@ -168,6 +194,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
             )
         self.vector = vector
         self.graph = graph
+        #: SM-G2's (#100) entity extraction, run by ``consolidate`` and by nothing on the read path.
+        #: ``None`` by default: extraction is an LLM pass per episode, so a provider must be asked
+        #: for it rather than start paying for it on an upgrade.
+        #:
+        #: Duck-typed for the same reason ``close`` is -- the type lives in ``memory.graph``, which
+        #: pulls in the model and learn stacks, and every ``import egpt.memory`` would pay for it.
+        self.entity_pipeline = _checked_pipeline(entity_pipeline)
         self.config = config or MemoryProviderConfig(provider=self.provider_key)
         #: Ceiling on one consolidation pass. Adjustable because the default is a safety bound, not
         #: a policy: a tier larger than this has its tail consolidated *never*, not later.
@@ -824,6 +857,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         episodes: Sequence[MemoryRecord],
         facts: Sequence[FactWrite],
         merged: int,
+        entities: Any,
     ) -> ConsolidationReport:
         hit_cap = len(scanned) >= self.max_episodes_per_pass
         return ConsolidationReport(
@@ -847,10 +881,33 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # cap is reported as truncated when it was drained -- the false positive costs one
                 # unnecessary cap increase, the false negative costs silent loss of the tail.
                 complete=not hit_cap,
+                entities=entities,
                 episodes_skipped_as_invalid=len(scanned) - len(episodes),
                 tail_unreachable=hit_cap,
             ),
         )
+
+    def _entities(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Any:
+        """Run SM-G2's (#100) entity extraction over the episodes this pass kept.
+
+        Over ``episodes`` rather than ``scanned``: an episode the graph has recorded as false is one
+        ``_visible_episodes`` already dropped from distillation, and extracting entities from it
+        would put nodes in the graph sourced from a row no read returns.
+
+        **After** the fact write, deliberately. Extraction is an LLM pass and the flakiest step in
+        the lane; running it first would let a provider timeout cost the deterministic dedup that
+        had nothing to do with it. A failure here still propagates -- it is not swallowed into a
+        report that claims a clean run.
+        """
+        if self.entity_pipeline is None or not episodes:
+            return NO_ENTITIES
+        return self.entity_pipeline.run(scope, episodes).details
+
+    async def _aentities(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Any:
+        """Async variant of :meth:`_entities`, making the same decisions."""
+        if self.entity_pipeline is None or not episodes:
+            return NO_ENTITIES
+        return (await self.entity_pipeline.arun(scope, episodes)).details
 
     @staticmethod
     def _by_scope(facts: Sequence[FactWrite]) -> List[Tuple[Scope, List[FactWrite]]]:
@@ -986,7 +1043,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 raise PartialWriteError(receipt) from None
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
-        return self._report(scope, scanned, episodes, facts, merged)
+        return self._report(scope, scanned, episodes, facts, merged, self._entities(scope, episodes))
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="aconsolidate")
@@ -1026,7 +1083,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 raise PartialWriteError(receipt) from None
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
-        return self._report(scope, scanned, episodes, facts, merged)
+        return self._report(scope, scanned, episodes, facts, merged, await self._aentities(scope, episodes))
 
 
 @register_provider("co_located")
@@ -1056,4 +1113,7 @@ def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
         config=config,
         max_episodes_per_pass=config.options.get("max_episodes_per_pass", _MAX_EPISODES_PER_PASS),
         max_concurrent_writes=config.options.get("max_concurrent_writes", _MAX_CONCURRENT_WRITES),
+        # Injected, not resolved by registry key: the pipeline needs a model and an embedder, and
+        # naming those in provider config would put SM-V2's (#96) embedder selection here.
+        entity_pipeline=config.options.get("entity_pipeline"),
     )

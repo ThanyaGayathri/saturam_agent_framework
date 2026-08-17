@@ -72,7 +72,7 @@ def cypher_module() -> Any:
 #: How many public builders in ``cypher`` take a scope. Exact rather than a floor: the point of
 #: the discovery below is that a builder added later is covered, and a floor would equally pass
 #: when one is removed or renamed out of the sweep.
-SCOPE_TAKING_BUILDERS = 10
+SCOPE_TAKING_BUILDERS = 11
 
 
 def build(config_name: str) -> MemoryProvider:
@@ -463,6 +463,7 @@ def test_no_substrate_double_answers_an_unscoped_call(double, shape):
         "scan": (MemoryTier.SEMANTIC,),
         "upsert_episodes": ([],),
         "upsert_facts": ([],),
+        "upsert_entities": ([],),
         "traverse": (query,),
         "bounds_for_ids": ([],),
         "invalidate": ("edge-1", 100),
