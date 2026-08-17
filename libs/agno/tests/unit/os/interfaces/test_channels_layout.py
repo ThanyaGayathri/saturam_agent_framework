@@ -9,10 +9,12 @@ became a pure shim comparable name-for-name against its target's `__init__.py`
 `BaseInterface` subclass) do NOT move -- only the router/handler submodules do -- so this file
 only exercises `check_submodule_shims`, never a package-level parity check.
 
-`_MOVED_CHANNEL_PACKAGES` grows across the two EGPT-1.7b PRs: WhatsApp lands first (this file's
-initial state), Slack second. Every check here discovers packages/modules from what actually
-exists on disk under `egpt/integrations/channels/`, so Slack's rows populate automatically once
-its PR lands -- nothing here needs editing for that, only `_MOVED_CHANNEL_PACKAGES` itself.
+`_MOVED_CHANNEL_PACKAGES` holds both channels moved under EGPT-1.7b, WhatsApp and Slack, which
+land together in the same PR (aicoe-tracker#158's originally planned "1/2, 2/2" split was
+abandoned when PR #83 was merged into PR #82's own branch rather than into `main` -- see PR #82's
+round-3 review). Every check here discovers packages/modules from what actually exists on disk
+under `egpt/integrations/channels/`, so a future third channel's rows would populate
+automatically -- nothing here needs editing for that, only `_MOVED_CHANNEL_PACKAGES` itself.
 """
 
 import ast
@@ -28,6 +30,7 @@ from tests.unit._layer_guards import (
     imported_modules,
     module_name,
     package_root,
+    star_import_targets,
 )
 
 # Packages moved into egpt.integrations.channels.* under EGPT-1.7b. Closed set -- every name
@@ -90,6 +93,24 @@ def test_all_moved_channel_packages_exist_under_integrations():
     found = {p.name for p in root.iterdir() if p.is_dir() and p.name != "__pycache__"}
     missing = sorted(_MOVED_CHANNEL_PACKAGES - found)
     assert not missing, f"Expected channel packages not found under {root}: {missing}"
+
+
+def test_composition_roots_are_not_shims():
+    """`egpt/os/interfaces/<name>/__init__.py` and `<name>.py` (the `BaseInterface` subclass)
+    never move -- only the router/handler submodules do (see the module docstring). Nothing else
+    here would notice if a future "completes the move" PR turned one of these into a shim too,
+    since `_moved_submodule_pairs` only ever looks at what already exists under
+    `egpt/integrations/channels/`. This is a positive pin for that: the composition roots must
+    stay real modules, not `from <target> import *` shims, unlike their router/handler
+    submodules."""
+    for package in sorted(_MOVED_CHANNEL_PACKAGES):
+        composition_root = _os_interfaces_root() / package / f"{package}.py"
+        assert composition_root.is_file(), f"composition root missing: {composition_root}"
+        targets = star_import_targets(composition_root)
+        assert not targets, (
+            f"{composition_root} star-imports from {targets} -- composition roots must stay real "
+            "modules, not deprecation shims."
+        )
 
 
 def test_every_moved_module_has_a_submodule_shim():

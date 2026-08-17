@@ -49,13 +49,14 @@ settable protocol attribute), if and when a caller actually needs it.
 ``aget_run_output``, so they satisfy ``AsyncRunnableLike`` but not this narrower protocol.
 Slack's ``attach_routes`` rejects a non-conforming entity at setup time with a ``hasattr``/
 ``callable`` capability check, rather than letting HITL fail with an ``AttributeError`` on the
-first interactive click -- deliberately not ``isinstance(entity, HitlRunnableLike)``: this
-protocol has only callable members, and Python 3.12's runtime-checkable ``isinstance`` for a
-callable-only protocol resolves via ``issubclass(type(entity), ...)``, which inspects the
-*class's* ``__dict__`` and ignores instance-level attributes -- it misclassifies genuine
-duck-typed objects and every ``Mock``/``AsyncMock``-based test double as non-conforming
-regardless of what the instance actually exposes. This protocol still exists for ``hitl.py``'s
-own static typing (see ``HITLHandler.entity``), just not for the runtime setup check. WhatsApp's
+first interactive click -- deliberately not ``isinstance(entity, HitlRunnableLike)``: for a
+callable-only ``runtime_checkable`` protocol, ``isinstance`` resolves per-attribute via
+``inspect.getattr_static`` (CPython's ``_ProtocolMeta.__instancecheck__``), which bypasses
+``Mock``/``AsyncMock``'s dynamic ``__getattr__`` -- so mock-based test doubles fail the check even
+though genuine duck-typed objects with real instance attributes pass fine. (It also never raises;
+a non-conforming instance just makes the check return ``False``.) This protocol still exists for
+``hitl.py``'s own static typing (see ``HITLHandler.entity``), just not for the runtime setup
+check. WhatsApp's
 router and Slack's own ``event_handler.py`` only ever call ``entity.arun(...)`` -- never the two
 HITL-only members -- so they keep using plain ``AsyncRunnableLike``.
 

@@ -1,13 +1,13 @@
 from ssl import SSLContext
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 from fastapi.routing import APIRouter
 
-from egpt.agent import Agent, RemoteAgent
+from egpt.agent import Agent
 from egpt.integrations.channels.slack.router import attach_routes
 from egpt.os.interfaces.base import BaseInterface
-from egpt.team import RemoteTeam, Team
-from egpt.workflow import RemoteWorkflow, Workflow
+from egpt.team import Team
+from egpt.workflow import Workflow
 
 
 class Slack(BaseInterface):
@@ -21,9 +21,12 @@ class Slack(BaseInterface):
 
     def __init__(
         self,
-        agent: Optional[Union[Agent, RemoteAgent]] = None,
-        team: Optional[Union[Team, RemoteTeam]] = None,
-        workflow: Optional[Union[Workflow, RemoteWorkflow]] = None,
+        # RemoteAgent/RemoteTeam/RemoteWorkflow are not accepted: Slack's HITL handler is wired
+        # unconditionally for every mount and requires aget_run_output, which none of the
+        # Remote* classes implement (aicoe-tracker#158, PR #82 round-3 review).
+        agent: Optional[Agent] = None,
+        team: Optional[Team] = None,
+        workflow: Optional[Workflow] = None,
         prefix: str = "/slack",
         tags: Optional[List[str]] = None,
         reply_to_mentions_only: bool = True,

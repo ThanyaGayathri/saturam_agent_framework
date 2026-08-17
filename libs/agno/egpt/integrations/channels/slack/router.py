@@ -95,19 +95,19 @@ def attach_routes(
     # support resuming a paused run and refetching its output, not just arun -- RemoteAgent/
     # RemoteTeam/RemoteWorkflow satisfy AsyncRunnableLike but lack aget_run_output, and would
     # otherwise only fail once a user clicks Approve/Reject/Submit (aicoe-tracker#158, PR #82
-    # round-2 review). hasattr/callable, not isinstance(entity, HitlRunnableLike): a
-    # runtime_checkable Protocol whose members are all methods resolves isinstance via
-    # issubclass(type(entity), ...), which walks the *class's* __dict__ -- it ignores
-    # instance-level attributes, so it misclassifies real duck-typed objects (and every
-    # Mock/AsyncMock-based test double) as non-conforming even when the method is genuinely
-    # callable on the instance. Same hasattr-based pattern as `store_member_responses` above.
+    # round-2 review). hasattr/callable, not isinstance(entity, HitlRunnableLike): for a
+    # callable-only runtime_checkable Protocol, isinstance resolves per-attribute via
+    # inspect.getattr_static, which bypasses Mock/AsyncMock's dynamic __getattr__ -- so
+    # mock-based test doubles fail the check even though genuine duck-typed objects with real
+    # instance attributes pass fine. Same hasattr-based pattern as `store_member_responses`
+    # above.
     if not (callable(getattr(entity, "acontinue_run", None)) and callable(getattr(entity, "aget_run_output", None))):
         raise ValueError(
-            f"Slack requires an entity that supports resuming a paused run (acontinue_run) and "
-            f"refetching its output (aget_run_output) for interactive HITL button clicks, but "
-            f"{type(entity).__name__!r} only implements arun. RemoteAgent/RemoteTeam/"
-            f"RemoteWorkflow do not implement aget_run_output -- pass a local Agent/Team/"
-            f"Workflow instead."
+            "Slack requires an entity that supports resuming a paused run (acontinue_run) and "
+            "refetching its output (aget_run_output) for interactive HITL button clicks, but "
+            f"{type(entity).__name__!r} does not. RemoteAgent/RemoteTeam/RemoteWorkflow "
+            "implement arun but not aget_run_output -- pass a local Agent/Team/Workflow "
+            "instead."
         )
     # cast, not a plain re-annotation: the check above is a hasattr/callable capability check,
     # not something mypy can narrow AsyncRunnableLike -> HitlRunnableLike from on its own.

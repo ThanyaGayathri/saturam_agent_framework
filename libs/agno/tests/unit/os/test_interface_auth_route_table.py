@@ -28,6 +28,14 @@ JWT-constraint guards.
 Before/after: run this file's `test_route_table_snapshot` (or a manual `os.get_routes()` +
 `_auth_middleware(app).kwargs` capture) against a `main` worktree and against the branch under
 review; the two should be identical. See the PR description for that diff's output.
+
+What's mechanically enforced going forward (PR #82 round-3 review): `excluded_route_paths` is
+checked for exact list equality against `DEFAULT_EXCLUDED_ROUTE_PATHS` plus the channel prefixes,
+not just membership -- so an unexpected addition or removal fails the test, not only a missing
+expected entry. The route-table check is exact-set equality scoped to the channel adapters' own
+path prefixes (`/whatsapp/*`, `/slack/*`), not the full ~110-route `EgptOS` table -- asserting
+equality on the full table would make this test brittle to unrelated route changes elsewhere in
+`EgptOS`, so it deliberately stays scoped to what this ticket's move can actually affect.
 """
 
 from unittest.mock import AsyncMock, Mock, patch
@@ -38,6 +46,7 @@ from egpt.agent import Agent
 from egpt.os.app import EgptOS
 from egpt.os.config import AuthorizationConfig
 from egpt.os.interfaces.whatsapp import Whatsapp
+from egpt.os.middleware.jwt import DEFAULT_EXCLUDED_ROUTE_PATHS
 
 SIGNING_SECRET = "test-signing-secret"
 
@@ -116,11 +125,14 @@ def _route_table(agent_os: EgptOS):
 
 def test_self_authenticating_prefixes_are_excluded_from_auth():
     """WhatsApp verifies its own webhook signature, so its prefix must be appended to
-    AuthMiddleware's excluded_route_paths -- unchanged by the module move."""
+    AuthMiddleware's excluded_route_paths -- unchanged by the module move. Exact-list equality,
+    not membership: a silently-added, wrongly-exempted route on this auth-exclusion table is
+    exactly the failure mode this guard exists to catch (PR #82 round-3 review)."""
     _, app = _build_whatsapp_only_app()
     mw = _auth_middleware(app)
     excluded = mw.kwargs.get("excluded_route_paths") or []
-    assert "/whatsapp/*" in excluded, f"expected /whatsapp/* in excluded_route_paths, got {excluded}"
+    expected_excluded = DEFAULT_EXCLUDED_ROUTE_PATHS + ["/whatsapp/*"]
+    assert excluded == expected_excluded, f"expected {expected_excluded}, got {excluded}"
 
 
 def test_self_authenticating_interfaces_carry_no_scope_mappings():
@@ -143,9 +155,12 @@ def test_route_table_snapshot():
     table = _route_table(agent_os)
     paths = {path for path, _methods in table}
 
+    # Exact-set equality on the channel's own path prefix, not membership: an unexpected extra
+    # `/whatsapp/*` route would otherwise slip past this guard undetected (PR #82 round-3
+    # review). Full-table equality is deliberately not used -- see the module docstring.
     expected_whatsapp = {"/whatsapp/status", "/whatsapp/webhook"}
-    missing = expected_whatsapp - paths
-    assert not missing, f"expected routes missing from route table: {missing}\nfull table: {table}"
+    whatsapp_paths = {p for p in paths if p.startswith("/whatsapp")}
+    assert whatsapp_paths == expected_whatsapp, f"expected {expected_whatsapp}, got {whatsapp_paths}"
 
     # /whatsapp/webhook registers a GET (verification) and a POST (message intake) as two
     # separate FastAPI routes on the same path, not one route with both methods.
@@ -161,11 +176,12 @@ def test_slack_prefix_also_excluded_when_configured():
     agent_os, app = _build_whatsapp_and_slack_app()
     mw = _auth_middleware(app)
     excluded = mw.kwargs.get("excluded_route_paths") or []
-    assert "/whatsapp/*" in excluded and "/slack/*" in excluded, excluded
+    expected_excluded = DEFAULT_EXCLUDED_ROUTE_PATHS + ["/whatsapp/*", "/slack/*"]
+    assert excluded == expected_excluded, f"expected {expected_excluded}, got {excluded}"
     assert not mw.kwargs.get("scope_mappings"), mw.kwargs.get("scope_mappings")
 
     table = _route_table(agent_os)
     paths = {path for path, _methods in table}
     expected = {"/whatsapp/status", "/whatsapp/webhook", "/slack/events", "/slack/interactions"}
-    missing = expected - paths
-    assert not missing, f"expected routes missing from route table: {missing}\nfull table: {table}"
+    channel_paths = {p for p in paths if p.startswith("/whatsapp") or p.startswith("/slack")}
+    assert channel_paths == expected, f"expected {expected}, got {channel_paths}"

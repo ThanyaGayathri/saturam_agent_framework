@@ -4,6 +4,11 @@ from typing import Optional
 
 from fastapi import HTTPException
 
+# First direct egpt.settings import from egpt/integrations/* (PR #82 review) -- egpt.settings is
+# a dependency-free config leaf with no upward layer imports, so this is not a layering breach;
+# it's only in forbidden_modules as an indirect-chain safeguard (see pyproject.toml's
+# ignore_imports entry for this file). A new precedent, not an existing pattern to copy blindly --
+# future integration authors should confirm the same reasoning applies before following it.
 from egpt.settings import resolve, resolve_bool
 from egpt.utils.log import log_warning
 
