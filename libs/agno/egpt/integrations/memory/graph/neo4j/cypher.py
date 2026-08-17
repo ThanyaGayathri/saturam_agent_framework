@@ -21,7 +21,7 @@ to a node and a relationship alike.
 
 from typing import Any, Dict, List, Tuple
 
-from egpt.memory.types import Scope
+from egpt.memory.types import SCOPE_SLOTS, Scope, require_scope
 
 __all__ = [
     "EPISODE",
@@ -47,32 +47,49 @@ EPISODE = "Episode"
 FACT = "Fact"
 REL = "REL"
 
-#: The scope slots every row carries and every read filters on. ``tenant_id`` is not special-cased
-#: anywhere below: a backend that honours the tenant and ignores the user serves one user's memory
-#: to another inside the same tenant, which is the same leak one boundary in.
-SCOPE_SLOTS = ("tenant_id", "agent_id", "user_id", "team_id", "session_id")
 
-
-def scope_props(scope: Scope) -> Dict[str, Any]:
+def scope_props(scope: Scope, *, method: str = "scope_props") -> Dict[str, Any]:
     """The scope columns to store on a row, plus the merge identity.
 
     ``scope_key`` (:meth:`Scope.key`) is the *write* identity -- fixed-arity and percent-escaped, so
     two scopes cannot collide. The individual slots are what *reads* filter on, because an unset
     slot means "any" and an equality on the composite key could not express that.
+
+    Fail-closed (SM-C4 #92): see :func:`scope_predicate`, including why ``method`` is threaded.
+    A caller reaching this directly on a write path gets its own name in the refusal rather than
+    this function's.
     """
+    require_scope(scope, method=method)
     return {
         "scope_key": scope.key(),
         **{slot: getattr(scope, slot) for slot in SCOPE_SLOTS},
     }
 
 
-def scope_predicate(alias: str, scope: Scope) -> Tuple[str, Dict[str, Any]]:
+def scope_predicate(alias: str, scope: Scope, *, method: str = "scope_predicate") -> Tuple[str, Dict[str, Any]]:
     """The conjunctive scope filter for ``alias``, and the parameters it binds.
 
     Every slot the *call* scope sets becomes an equality; a slot left ``None`` means "any" and
     contributes no clause. ``tenant_id`` is mandatory on :class:`Scope`, so there is always at
     least one.
+
+    **This is where the graph substrate fails closed (SM-C4 #92).** Every read predicate is built
+    here and every stored row's scope columns come from :func:`scope_props`, so refusing an
+    unscoped call at these two points means no Cypher can filter, and no row can be written,
+    without a tenant. The two write-statement builders bind no scope at all and validate it
+    directly, which closes the module: no public builder here accepts an unscoped call.
+
+    Guarded at the data layer and not only at the seam because the ticket's Decision 1 rejects
+    API-only scoping as bypassable -- and ``CoLocatedMemoryProvider.graph`` is a public attribute,
+    so the seam's guard is genuinely not the last line.
+
+    ``method`` is the builder the caller actually invoked, threaded down so the refusal names it.
+    Six of the ten public builders reach this function through a private helper, and reporting
+    ``scope_predicate`` for all of them sends a reader to a frame they never called -- the same
+    misdirection the adapters avoid by guarding each entry point under its own verb. The default
+    covers a direct call.
     """
+    require_scope(scope, method=method)
     clauses: List[str] = []
     params: Dict[str, Any] = {}
     for slot in SCOPE_SLOTS:
@@ -102,9 +119,9 @@ def _live(alias: str) -> str:
     return f"{alias}.expired_at IS NULL"
 
 
-def _scoped_live(alias: str, scope: Scope) -> Tuple[str, Dict[str, Any]]:
+def _scoped_live(alias: str, scope: Scope, method: str) -> Tuple[str, Dict[str, Any]]:
     """The two predicates that guard every read: in scope, and currently believed."""
-    predicate, params = scope_predicate(alias, scope)
+    predicate, params = scope_predicate(alias, scope, method=method)
     return f"{predicate} AND {_live(alias)}", params
 
 
@@ -132,10 +149,10 @@ _RETURN = (
 )
 
 
-def _traverse(match: str, alias: str, scope: Scope) -> Tuple[str, Dict[str, Any]]:
+def _traverse(match: str, alias: str, scope: Scope, method: str) -> Tuple[str, Dict[str, Any]]:
     # The tier predicate belongs here, beside the scope and current-belief ones, because `LIMIT` is
     # applied by this statement: a tier filtered after the fact cuts rows the limit already spent.
-    predicate, params = _scoped_live(alias, scope)
+    predicate, params = _scoped_live(alias, scope, method)
     predicate = f"{predicate} AND {alias}.tier IN $tiers"
     return (
         f"{match} WHERE {predicate} "
@@ -160,9 +177,9 @@ def traverse_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
     unmeasured question as the graph-side isolation benchmark SM-R2 section 5.4 asks for.
     """
     return [
-        _traverse(f"MATCH (e:{EPISODE})", "e", scope),
-        _traverse(f"MATCH (f:{FACT})", "f", scope),
-        _traverse(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope),
+        _traverse(f"MATCH (e:{EPISODE})", "e", scope, "traverse_statements"),
+        _traverse(f"MATCH (f:{FACT})", "f", scope, "traverse_statements"),
+        _traverse(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope, "traverse_statements"),
     ]
 
 
@@ -172,19 +189,19 @@ _BOUNDS_RETURN = (
 )
 
 
-def _bounds(match: str, alias: str, scope: Scope) -> Tuple[str, Dict[str, Any]]:
+def _bounds(match: str, alias: str, scope: Scope, method: str) -> Tuple[str, Dict[str, Any]]:
     # Scoped but **not** filtered to current belief, and unranked and unlimited: the whole point is
     # to see the bound that ranking hid, and under SCD-2 that bound may sit on an expired revision.
-    predicate, params = scope_predicate(alias, scope)
+    predicate, params = scope_predicate(alias, scope, method=method)
     return (f"{match} WHERE {predicate} AND {alias}.id IN $ids WITH {alias} AS row {_BOUNDS_RETURN}"), params
 
 
 def bounds_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
     """Direct lookup by id across all three shapes -- the authority query, not a second read path."""
     return [
-        _bounds(f"MATCH (e:{EPISODE})", "e", scope),
-        _bounds(f"MATCH (f:{FACT})", "f", scope),
-        _bounds(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope),
+        _bounds(f"MATCH (e:{EPISODE})", "e", scope, "bounds_statements"),
+        _bounds(f"MATCH (f:{FACT})", "f", scope, "bounds_statements"),
+        _bounds(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope, "bounds_statements"),
     ]
 
 
@@ -219,15 +236,17 @@ def _upsert_node(label: str) -> Tuple[str, Dict[str, Any]]:
     return (f"UNWIND $rows AS row MERGE (n:{label} {_IDENTITY}) SET n = row"), _WRITE_BINDS
 
 
-# `scope` is unused by both builders below, and deliberately kept: a write carries its scope on each
-# row (see `_WRITE_BINDS`), so there is nothing to bind -- but dropping the parameter would make
-# these two the only statement builders a caller invokes differently, which is how the scope stops
-# being passed at all. The `noqa` says "unused"; this says "and that is the point".
-def upsert_episodes_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:  # noqa: ARG001 - see above
+# `scope` binds no parameter in either builder below, and is deliberately kept: a write carries its
+# scope on each row (see `_WRITE_BINDS`), so there is nothing to bind -- but dropping the parameter
+# would make these two the only statement builders a caller invokes differently, which is how the
+# scope stops being passed at all. Since SM-C4 they validate it rather than ignore it, so the
+# fail-closed property holds over *every* public builder here and not only the ones that filter.
+def upsert_episodes_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
+    require_scope(scope, method="upsert_episodes_statement")
     return _upsert_node(EPISODE)
 
 
-def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]]]:  # noqa: ARG001 - as above
+def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]]]:
     """The two fact shapes, keyed by which one a batch's rows belong to: a tripled fact is a
     relation between entities, an untripled one a node. Both carry the same envelope.
 
@@ -242,6 +261,7 @@ def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]
     entity resolution, which is SM-G8's (#106), and a backend that pre-emptively shared them would
     have made the isolation guarantee depend on a dedup policy nobody has written yet.
     """
+    require_scope(scope, method="upsert_facts_statements")
     triple = (
         "UNWIND $rows AS row "
         "MERGE (s:Entity {scope_key: row.scope_key, name: row.subject}) "
@@ -270,13 +290,13 @@ def live_row_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
     no instant, and its ``t_invalid`` to keep the tighter of the two.
     """
     return [
-        _read_live(f"MATCH (f:{FACT})", "f", scope),
-        _read_live(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope),
+        _read_live(f"MATCH (f:{FACT})", "f", scope, "live_row_statements"),
+        _read_live(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope, "live_row_statements"),
     ]
 
 
-def _read_live(match: str, alias: str, scope: Scope) -> Tuple[str, Dict[str, Any]]:
-    predicate, params = _scoped_live(alias, scope)
+def _read_live(match: str, alias: str, scope: Scope, method: str) -> Tuple[str, Dict[str, Any]]:
+    predicate, params = _scoped_live(alias, scope, method)
     return (
         f"{match} WHERE {predicate} AND {alias}.id = $edge_id "
         f"RETURN {alias}.row_id AS row_id, {alias}.t_valid AS t_valid, {alias}.t_invalid AS t_invalid"
@@ -297,7 +317,7 @@ def episode_probe_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
     ``invalidate`` aimed at one is a routing mistake rather than a no-op -- and a no-op here would
     look exactly like "the id is in another tenant".
     """
-    predicate, params = _scoped_live("e", scope)
+    predicate, params = _scoped_live("e", scope, "episode_probe_statement")
     return (f"MATCH (e:{EPISODE}) WHERE {predicate} AND e.id = $edge_id RETURN e.id AS id LIMIT 1"), params
 
 
@@ -313,13 +333,13 @@ def expire_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
     matched -- which is exactly never, since one id lives in one shape.
     """
     return [
-        _expire(f"MATCH (f:{FACT})", "f", scope),
-        _expire(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope),
+        _expire(f"MATCH (f:{FACT})", "f", scope, "expire_statements"),
+        _expire(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope, "expire_statements"),
     ]
 
 
-def _expire(match: str, alias: str, scope: Scope) -> Tuple[str, Dict[str, Any]]:
-    predicate, params = _scoped_live(alias, scope)
+def _expire(match: str, alias: str, scope: Scope, method: str) -> Tuple[str, Dict[str, Any]]:
+    predicate, params = _scoped_live(alias, scope, method)
     return (
         f"{match} WHERE {predicate} AND {alias}.row_id = $live_row_id "
         f"SET {alias}.expired_at = $at REMOVE {alias}.{LIVE}"
@@ -345,21 +365,24 @@ def insert_bounded_copy_statements(scope: Scope) -> List[Tuple[str, Dict[str, An
     # exempt from the uniqueness constraint, which is the guarantee this whole shape rests on.
     overrides = "{.*, row_id: $row_id, t_invalid: $t_invalid, expired_at: null, created_at: $at, " + LIVE + ": true}"
     return [
-        _bounded_copy(f"MATCH (f:{FACT})", "f", f"CREATE (m:{FACT}) SET m = f{overrides}", scope),
+        _bounded_copy(
+            f"MATCH (f:{FACT})", "f", f"CREATE (m:{FACT}) SET m = f{overrides}", scope, "insert_bounded_copy_statements"
+        ),
         _bounded_copy(
             f"MATCH (s:Entity)-[r:{REL}]->(o:Entity)",
             "r",
             f"CREATE (s)-[n:{REL}]->(o) SET n = r{overrides}",
             scope,
+            "insert_bounded_copy_statements",
         ),
     ]
 
 
-def _bounded_copy(match: str, alias: str, create: str, scope: Scope) -> Tuple[str, Dict[str, Any]]:
+def _bounded_copy(match: str, alias: str, create: str, scope: Scope, method: str) -> Tuple[str, Dict[str, Any]]:
     # `expired_at = $at` as well as the row id: it pins the copy to the row **this call** expired.
     # Matching on `row_id` alone would let a second invalidation that lost the race to the expire
     # still copy the row, leaving two successors both claiming to be current belief.
-    predicate, params = scope_predicate(alias, scope)
+    predicate, params = scope_predicate(alias, scope, method=method)
     return (
         f"{match} WHERE {predicate} AND {alias}.row_id = $live_row_id AND {alias}.expired_at = $at {create}"
     ), params

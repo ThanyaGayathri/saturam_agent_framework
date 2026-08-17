@@ -11,6 +11,16 @@ from egpt.memory.config import (
 from egpt.memory.learn_stores import RECALL_SLOTS, STORE_TIERS, stores_by_tier, tier_for_store
 from egpt.memory.manager import MemoryManager, UserMemory
 from egpt.memory.provider import MemoryProvider
+from egpt.memory.schemas.episodic import (
+    EPISODE_KEYS,
+    PROVENANCE_KEYS,
+    TOPICS_KEY,
+    EpisodicRecord,
+    episode_details,
+    episode_from_event,
+    episode_to_record,
+    graph_node_id_for,
+)
 from egpt.memory.strategies import (
     MemoryOptimizationStrategy,
     MemoryOptimizationStrategyFactory,
@@ -18,6 +28,12 @@ from egpt.memory.strategies import (
     SummarizeStrategy,
 )
 from egpt.memory.substrates import GraphSubstrate, VectorSubstrate, checked_graph, checked_vector
+from egpt.memory.validation import (
+    MEMORY_DATA_ACCESS_METHODS,
+    assert_scope_isolation,
+    reject_duplicate_ids,
+    reject_foreign_scopes,
+)
 from egpt.memory.tiers import (
     CONSOLIDATION_SOURCE,
     CONSOLIDATION_TARGET,
@@ -37,12 +53,14 @@ from egpt.memory.types import (
     FUSION_KEYS,
     MAX_LIMIT,
     NO_SUPERSEDE,
+    SCOPE_SLOTS,
     ConsolidationReport,
     FactWrite,
     MemoryEvent,
     MemoryOperationError,
     MemoryQuery,
     MemoryRecord,
+    MemoryScopeRequiredError,
     MemorySlice,
     PartialWriteError,
     Scope,
@@ -50,7 +68,9 @@ from egpt.memory.types import (
     TemporalBounds,
     WriteReceipt,
     consolidation_details,
+    escape_key_slot,
     fusion_diagnostics,
+    require_scope,
 )
 
 __all__ = [
@@ -82,18 +102,26 @@ __all__ = [
     "MemoryOperationError",
     "MemoryQuery",
     "MemoryRecord",
+    "MemoryScopeRequiredError",
     "MemorySlice",
     "MemoryTier",
+    "SCOPE_SLOTS",
     "Scope",
     "Substrate",
     "TemporalBounds",
     "WriteReceipt",
-    # Substrate ports and the helpers a third-party adapter needs (SM-C1)
+    # Substrate ports and the helpers a third-party adapter needs (SM-C1, SM-C4)
     "GraphSubstrate",
+    "MEMORY_DATA_ACCESS_METHODS",
     "VectorSubstrate",
+    "assert_scope_isolation",
     "checked_graph",
     "checked_vector",
+    "reject_duplicate_ids",
+    "reject_foreign_scopes",
+    "require_scope",
     "consolidation_details",
+    "escape_key_slot",
     "fusion_diagnostics",
     "substrates_for_tier",
     # The seam and its construction path (SM-C1)
@@ -110,4 +138,13 @@ __all__ = [
     "build_memory_provider",
     "register_provider",
     "registered_providers",
+    # The episode representation (SM-E1)
+    "EPISODE_KEYS",
+    "PROVENANCE_KEYS",
+    "TOPICS_KEY",
+    "EpisodicRecord",
+    "episode_details",
+    "episode_from_event",
+    "episode_to_record",
+    "graph_node_id_for",
 ]

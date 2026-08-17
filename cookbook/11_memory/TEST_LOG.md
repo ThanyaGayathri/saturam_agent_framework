@@ -99,6 +99,16 @@ fix: `vector row IS graph row -> False`, and two invalidations leave one current
 Note that `scan` here takes no cursor. The `since` / `after_id` pair it used to model was removed
 along with the consolidation resumption protocol; a resumable walk is SM-L1's (#122).
 
+Re-run under SM-C4 (#92): unchanged output, byte for byte. The fail-closed entry guard refuses a
+call that carries no `Scope`, and every call here carries one, so a cookbook that had to change
+would have meant the guard was refusing legitimate traffic.
+
+The two stand-in substrates now call `require_scope` first, matching the obligation the
+`VectorSubstrate` / `GraphSubstrate` docstrings place on an implementor. Reference code gets
+copied, so a template that skipped the guard would teach the one shape those docstrings forbid.
+Output is unchanged by it, which is the point: the guard fires on scopes a caller should never
+have built, and this file builds none of them.
+
 ---
 
 ### 10_graph_substrate_neo4j.py
@@ -151,3 +161,61 @@ memory as a fact, via the two different ports; the procedural rule reaches the v
 only and appears in neither graph list. The procedural read reports `consulted the graph: False`
 and the semantic read `True`. The graph-only provider serves `episodic, semantic` and returns `[]`
 for a procedural read rather than refusing it. Requires no database, no model, and no API key.
+
+Re-run under SM-C4 (#92): output unchanged, byte for byte, and its two stand-in substrates gained
+the same `require_scope` guard as `09_memory_provider_seam.py`'s. Both files were fixed together
+rather than only the one a review named -- a reader copying either gets the same template, so
+guarding one would have left the other teaching the shape the port docstrings forbid.
+
+---
+
+### 12_episode_representation.py
+
+**Status:** PASS
+
+**Description:** Exercises the SM-E1 episode representation with no substrates at all, because the
+subject is the record rather than a store. Builds an episode from a write-back event and prints
+what the row carries (identity, tenant, raw content, `occurred_at`, `t_valid`, `created_at`,
+default `importance`), shows `graph_node_id` derived from the scope key and the episode id, reads
+the episode back as a `MemoryRecord` and prints the provenance references, the `EPISODE_KEYS`
+metadata floor and the caller's own metadata surviving beside it, shows a re-segmentation split
+naming no single replacement while keeping both, and prints the four boundary refusals (missing
+id, wrong tier, metadata that would shadow an episode field, a link addressing another episode).
+
+**Result:** Success. Output is identical across 3 executions apart from the one `created_at` line,
+which is this run's transaction time -- verified by hashing with that line masked (same digest for
+all three) and by diffing raw (that line the only difference). Observed: valid time comes from
+`occurred_at` (1700000000) while `created_at` is the run clock, so the two axes are visibly
+independent; `graph_node_id` is `acme/assistant/ada/*/deploy-42/ep-1`, the scope key with the
+episode id as a sixth slot; `importance` stays at the 0.5 default because scoring it is SM-E5's;
+the split prints `superseded_by on record: None` with `['ep-2', 'ep-3']` in provenance. Each
+refusal names the field and, where one exists, the ticket that owns the behaviour. Requires no
+database, no model, and no API key.
+
+---
+
+### 13_vector_substrate_pgvector.py
+
+**Status:** PASS
+
+**Description:** Exercises the SM-V1 pgvector memory vector store through the seam against a real
+Postgres 18 + pgvector, with the ADR-ratified Mode A embedder (`BAAI/bge-base-en-v1.5` @768).
+Selects the backend by config alone (`config.vector = {"backend": "pgvector", ...}`), writes one
+memory for each of three scopes -- two users inside one tenant, plus a second tenant -- and reads
+them back with a query that **shares no words** with any stored memory.
+
+**Result:** Success. Semantic recall works: "which city did ada relocate to" retrieves "ada moved to
+berlin in march" at a similarity of **0.799**, so the ranking is embedding-driven and not lexical.
+Isolation holds on the slot that matters: `acme/bob` reads bob's memory and never ada's, though the
+two differ only in the user slot inside one tenant. The top score prints in `[0.0, 1.0]` with higher
+better, which is the port's contract and not pgvector's native `<=>` distance. A point-in-time read
+is **refused** rather than answered, because the graph leg is not wired and the vector projection
+carries no authoritative bounds.
+
+Run **twice in a row and the output is identical**: events carry explicit ids and the substrate
+upserts by id, so a re-run replaces the same three rows instead of accumulating a fresh set. The
+first version of this file left the ids unset, and each run added three more rows -- corrected here
+rather than documented.
+
+**Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
+key; the embedder is local and downloads its weights on first run.

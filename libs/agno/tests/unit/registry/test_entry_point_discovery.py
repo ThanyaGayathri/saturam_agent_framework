@@ -51,6 +51,7 @@ def test_entry_point_group_names_are_stable():
         "model": "egpt.models",
         "db": "egpt.dbs",
         "vectordb": "egpt.vectordbs",
+        "vectorstore": "egpt.vectorstores",
         "graphdb": "egpt.graphdbs",
         "tool": "egpt.tools",
         "embedder": "egpt.embedders",

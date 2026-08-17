@@ -37,9 +37,19 @@ class VectorSubstrate(Protocol):
 
     Every slot is spelled out because "tenant predicate" alone leaves four of them to a backend
     author's judgement, and a backend that honours the tenant and ignores the user serves one
-    user's memory to another inside the same tenant. SM-C4 (#92) makes this fail-closed at the data
-    layer; the provider re-checks the tenant slot as a post-condition, because that one leaks
-    across a trust boundary.
+    user's memory to another inside the same tenant. The provider re-checks the tenant slot as a
+    post-condition, because that one leaks across a trust boundary.
+
+    **An implementation must call** ``require_scope(scope, method=<verb>)``
+    (:mod:`egpt.memory.validation`) **as the first statement of every method here** -- SM-C4's
+    (#92) rule that a forgotten scope errors at the data layer rather than being read as "no
+    predicate". The seam guards its own entry points, but ``CoLocatedMemoryProvider.vector`` is a
+    public attribute, so the seam is not the last line. The graph substrate does this inside
+    ``cypher.scope_predicate`` / ``scope_props``, which every statement it emits routes through;
+    a store whose predicates are built by a driver rather than by its own code should guard the
+    port method instead. Stated here rather than left to a reviewer because this port has no
+    production implementor yet (SM-V1 #95) and a Protocol is free to change today and breaking
+    tomorrow.
 
     A backend must resolve the tier set exactly as ``MemoryQuery.resolved_tiers`` does. When one
     leg honoured the tier filter and the other did not, the leakage surfaced only in the merged
@@ -79,8 +89,8 @@ class VectorSubstrate(Protocol):
         while a graph traversal returns a path or PPR score on an unrelated range. Mixed unchecked,
         whichever leg has the larger magnitude decides the ranking and a distance-valued leg
         inverts it. **A backend whose native metric is a distance or an unbounded score is
-        responsible for converting.** Stated here because these ports have no implementors yet, so
-        it costs a docstring today and a breaking Protocol change once SM-V1 (#95) ships one.
+        responsible for converting.** ``PgVectorMemorySubstrate`` (SM-V1 #95) is the first backend
+        held to it, and converts ``<=>`` through ``vectordb.score.normalize_score``.
 
         **Return current belief only** (``expired_at IS NULL``), filtered *before* ranking. That
         is a transaction-time property every row carries locally, so both substrates can apply it
@@ -102,8 +112,12 @@ class VectorSubstrate(Protocol):
         them. That is a recall shortfall, not a precision one -- nothing false is returned, and
         ``MemorySlice.fusion["dropped_by_validity"]`` reports how many went. Over-fetching by a
         fixed multiplier does not fix it: no multiplier is correct, and it taxes every read. The
-        fix is for the vector projection not to be stale (re-sync on invalidation, or carry the
-        bounds), which is SM-V1 (#95) / SM-G1 (#99) work. Recorded in SPEC section 11.3.
+        fix is for the vector projection not to be stale -- re-synced when the graph bounds a fact
+        -- and it is **still open after SM-V1**, for a reason that is not the backend's: nothing
+        calls ``GraphSubstrate.invalidate`` through the seam. ``MemoryProvider`` deliberately does
+        not expose the verb, and deciding that a contradiction happened is SM-G5's (#103), so a
+        re-sync hook added here today would have no caller and no test that could observe it.
+        Recorded in SPEC section 11.3.
         """
         ...
 
@@ -164,6 +178,10 @@ class GraphSubstrate(Protocol):
     section 6 proved in-place wrong: a later fact clobbers an already-set bound, and belief
     evolution stops reconstructing. A production backend delegates to SM-R10's ``upsert_edge`` /
     ``invalidate_edge`` / ``retract_edge``.
+
+    The fail-closed obligation :class:`VectorSubstrate` states applies here identically. The
+    shipped backend discharges it in ``cypher.scope_predicate`` / ``scope_props`` rather than per
+    method, because every statement it emits is built by one of those two.
     """
 
     def upsert_episodes(self, scope: Scope, events: Sequence[MemoryEvent]) -> None:

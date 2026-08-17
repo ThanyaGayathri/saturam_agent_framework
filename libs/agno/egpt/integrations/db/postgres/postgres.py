@@ -18,10 +18,15 @@ from egpt.db.schemas.culture import CulturalKnowledge
 from egpt.db.schemas.evals import EvalFilterType, EvalRunRecord, EvalType
 from egpt.db.schemas.knowledge import KnowledgeRow
 from egpt.db.schemas.memory import UserMemory
-from egpt.db.table_names import MEMORY_TIER_TABLE_TYPES, derive_index_name, memory_tier_table_attr
 from egpt.db.schemas.service_accounts import (
     resolve_service_account_sort_column,
     validate_service_account_update,
+)
+from egpt.db.table_names import (
+    MEMORY_TIER_TABLE_TYPES,
+    derive_constraint_name,
+    derive_index_name,
+    memory_tier_table_attr,
 )
 from egpt.db.utils import deserialize_session, deserialize_sessions, json_serializer
 from egpt.integrations.db.postgres.schemas import get_table_schema_definition
@@ -397,7 +402,7 @@ class PostgresDb(BaseDb):
                     raise ValueError(f"Composite FK references missing columns in {table_name}: {missing}")
 
                 resolved_ref_table = self._resolve_table_name(ref_table_logical)
-                fk_constraint_name = f"{table_name}_{'_'.join(fk_columns)}_fkey"
+                fk_constraint_name = derive_constraint_name(table_name, fk_columns, "fkey")
 
                 # IMPORTANT: since Table(schema=self.db_schema) is used, do NOT schema-qualify these targets.
                 ref_column_strings = [f"{resolved_ref_table}.{col}" for col in ref_columns]
