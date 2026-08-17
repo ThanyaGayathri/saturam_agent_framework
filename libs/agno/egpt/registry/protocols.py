@@ -25,6 +25,41 @@ no caller here needs; every context provider just does ``await runnable.arun(que
 single ``Any`` return -- an ``async def`` here would make the real method's ``@overload``
 between "returns a coroutine" and "returns an async iterator" collapse to just the former.
 
+``AsyncRunnableLike`` is a third, narrower variant (EGPT-1.7b): the channel adapters moved into
+``egpt.integrations.channels.*`` never construct an entity themselves (their composition-root
+caller in ``egpt.os`` always passes one in already built), so ``construct_runnable`` does not
+apply -- they only need to type the entity they were handed. ``RunnableLike`` cannot be reused
+for this: ``RemoteAgent``/``RemoteTeam``/``RemoteWorkflow`` (``egpt.remote.base.BaseRemote``
+subclasses) implement only ``arun``, not a sync ``run``, so they do not structurally satisfy
+``RunnableLike``. Every channel-adapter call site only ever does ``await entity.arun(...)`` or
+``async for event in entity.arun(..., stream=True)`` -- never ``.run()`` -- so the protocol drops
+``run`` (and ``deep_copy``, which these callers never need either). It also drops ``id``, unlike
+``AgentLike``/``TeamLike``/``RunnableLike`` above: no channel-adapter call site reads
+``entity.id`` as an attribute (they only ever do ``getattr(entity, "id", None)``, which needs no
+protocol membership), so a member with no consumer would just be unused surface -- add it back,
+with a read-only ``@property`` (not a plain attribute: ``RemoteAgent``/``RemoteTeam``/
+``RemoteWorkflow``'s ``id`` is read-only, and mypy rejects that against a plain, implicitly
+settable protocol attribute), if and when a caller actually needs it.
+
+``HitlRunnableLike`` is a fourth variant (EGPT-1.7b, PR #82 round-2 review): Slack's
+``HITLHandler`` needs strictly more than ``AsyncRunnableLike`` -- resuming a paused run
+(``acontinue_run``) and refetching a run's persisted output (``aget_run_output``), to read back
+``active_requirements`` after an approval/rejection click. ``RemoteAgent``/``RemoteTeam``/
+``RemoteWorkflow`` implement ``acontinue_run`` (via ``BaseRemote``) but none of them implement
+``aget_run_output``, so they satisfy ``AsyncRunnableLike`` but not this narrower protocol.
+Slack's ``attach_routes`` rejects a non-conforming entity at setup time with a ``hasattr``/
+``callable`` capability check, rather than letting HITL fail with an ``AttributeError`` on the
+first interactive click -- deliberately not ``isinstance(entity, HitlRunnableLike)``: for a
+callable-only ``runtime_checkable`` protocol, ``isinstance`` resolves per-attribute via
+``inspect.getattr_static`` (CPython's ``_ProtocolMeta.__instancecheck__``), which bypasses
+``Mock``/``AsyncMock``'s dynamic ``__getattr__`` -- so mock-based test doubles fail the check even
+though genuine duck-typed objects with real instance attributes pass fine. (It also never raises;
+a non-conforming instance just makes the check return ``False``.) This protocol still exists for
+``hitl.py``'s own static typing (see ``HITLHandler.entity``), just not for the runtime setup
+check. WhatsApp's
+router and Slack's own ``event_handler.py`` only ever call ``entity.arun(...)`` -- never the two
+HITL-only members -- so they keep using plain ``AsyncRunnableLike``.
+
 This module must keep importing nothing but ``typing`` -- that is the whole point of it.
 """
 
@@ -69,5 +104,43 @@ class RunnableLike(Protocol):
         Callers ``await`` this for a single run output, or ``async for`` it when
         ``stream=True`` -- see the module docstring for why the return type is ``Any``
         rather than ``Coroutine``.
+        """
+        ...
+
+
+@runtime_checkable
+class AsyncRunnableLike(Protocol):
+    """The part of an entity a channel adapter depends on: run it async, get output."""
+
+    def arun(self, *args: Any, **kwargs: Any) -> Any:
+        """Run with the caller's ``input`` (and whatever else it passes); callers always
+        ``await`` or ``async for`` this -- see the module docstring for why ``RunnableLike``
+        (which also requires a sync ``run``) cannot be reused here. ``*args``/``**kwargs``
+        rather than a named ``input`` parameter: ``Workflow.arun``'s overloads default
+        ``input`` to ``None`` (``Agent.arun``/``Team.arun`` require it), and mypy's protocol
+        conformance check for overloaded methods does not treat that as compatible with a
+        single required-``input`` signature. A fully permissive signature sidesteps matching
+        each concrete class's overload set individually.
+        """
+        ...
+
+
+@runtime_checkable
+class HitlRunnableLike(AsyncRunnableLike, Protocol):
+    """The part of an entity Slack's HITL handler depends on: resume a paused run, refetch its
+    output. A strict superset of ``AsyncRunnableLike`` -- see the module docstring for why
+    ``RemoteAgent``/``RemoteTeam``/``RemoteWorkflow`` satisfy ``AsyncRunnableLike`` but not this.
+    """
+
+    def acontinue_run(self, *args: Any, **kwargs: Any) -> Any:
+        """Resume a paused run with resolved approvals; ``*args``/``**kwargs`` for the same
+        reason as ``AsyncRunnableLike.arun`` -- concrete signatures vary by entity type.
+        """
+        ...
+
+    async def aget_run_output(self, *args: Any, **kwargs: Any) -> Any:
+        """Refetch a run's persisted output. Declared ``async def``, unlike ``arun``/
+        ``acontinue_run``: every concrete implementation is a plain coroutine, never a streaming
+        iterator, so callers always ``await`` it -- no dual call-shape to preserve.
         """
         ...

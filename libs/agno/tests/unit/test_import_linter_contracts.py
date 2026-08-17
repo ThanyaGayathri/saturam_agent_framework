@@ -32,13 +32,10 @@ from tests.unit._layer_guards import package_root
 # excluded from this file's contracts' module lists for the same reason egpt.db/models/etc. are
 # -- see the scope note in pyproject.toml's [tool.importlinter] section.
 
-# A13 (aicoe-tracker#158, EGPT-1.7b): the Slack channel adapter is an api-layer module holding
-# a concrete toolkit until it moves to integrations/channels/slack.
-_A13_SLACK_CHANNEL_ADAPTER = {
-    ("egpt.os.interfaces.slack.event_handler", "egpt.integrations.tools.slack"),
-    ("egpt.os.interfaces.slack.hitl", "egpt.integrations.tools.slack"),
-    ("egpt.os.interfaces.slack.router", "egpt.integrations.tools.slack"),
-}
+# A13 (aicoe-tracker#158, EGPT-1.7b) is CLEARED: the Slack channel adapter moved to
+# egpt.integrations.channels.slack.*, and libs/agno/tests/unit/os/interfaces/test_channels_layout.py
+# now guards that boundary directly (shim parity + integrations.channels.* -> egpt.agent/team/
+# workflow, via the AsyncRunnableLike protocol this ticket introduced).
 
 # Newly found while implementing EGPT-1.11 -- not owned by any existing ticket. Filed as
 # aicoe-tracker#180 (EGPT-1.7c: integrations reference orchestration types directly): ~20
@@ -119,8 +116,7 @@ _NEW_INTEGRATIONS_REFERENCE_SERVICES = {
 }
 
 _KNOWN_VIOLATIONS = (
-    _A13_SLACK_CHANNEL_ADAPTER
-    | _NEW_INTEGRATIONS_REFERENCE_ORCHESTRATION
+    _NEW_INTEGRATIONS_REFERENCE_ORCHESTRATION
     | _NEW_SERVICES_REFERENCE_INTEGRATIONS
     | _NEW_INTEGRATIONS_REFERENCE_SERVICES
 )

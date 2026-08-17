@@ -4,9 +4,8 @@ import pytest
 
 pytest.importorskip("slack_sdk", reason="the Slack interface needs the Slack SDK")
 
-from egpt.models.response import ToolExecution  # noqa: E402
-from egpt.os.interfaces.slack.builders import build_pause_message  # noqa: E402
-from egpt.os.interfaces.slack.ids import (  # noqa: E402
+from egpt.integrations.channels.slack.builders import build_pause_message  # noqa: E402
+from egpt.integrations.channels.slack.ids import (  # noqa: E402
     ACTION_EXTERNAL_RESULT,
     ACTION_FEEDBACK_SELECT,
     ACTION_INPUT_FIELD_PREFIX,
@@ -17,7 +16,8 @@ from egpt.os.interfaces.slack.ids import (  # noqa: E402
     pause_block_id,
     row_block_id,
 )
-from egpt.os.interfaces.slack.interactions import parse_submit_payload  # noqa: E402
+from egpt.integrations.channels.slack.interactions import parse_submit_payload  # noqa: E402
+from egpt.models.response import ToolExecution  # noqa: E402
 from egpt.run.requirement import RunRequirement, UserFeedbackQuestion  # noqa: E402
 from egpt.tools.function import UserFeedbackOption, UserInputField  # noqa: E402
 
@@ -422,7 +422,7 @@ class TestParseSubmitPayload:
 
 class TestBuildConfirmationToggleCard:
     def test_approve_selected_has_primary_style(self):
-        from egpt.os.interfaces.slack.builders import build_confirmation_toggle_card
+        from egpt.integrations.channels.slack.builders import build_confirmation_toggle_card
 
         card = build_confirmation_toggle_card(
             req_id="r1",
@@ -438,7 +438,7 @@ class TestBuildConfirmationToggleCard:
         assert approve_btn.style == "primary"
 
     def test_deny_selected_has_danger_style(self):
-        from egpt.os.interfaces.slack.builders import build_confirmation_toggle_card
+        from egpt.integrations.channels.slack.builders import build_confirmation_toggle_card
 
         card = build_confirmation_toggle_card(
             req_id="r1",
@@ -454,7 +454,7 @@ class TestBuildConfirmationToggleCard:
         assert deny_btn.style == "danger"
 
     def test_preserves_tool_name_and_body(self):
-        from egpt.os.interfaces.slack.builders import build_confirmation_toggle_card
+        from egpt.integrations.channels.slack.builders import build_confirmation_toggle_card
 
         card = build_confirmation_toggle_card(
             req_id="r1",
@@ -468,7 +468,7 @@ class TestBuildConfirmationToggleCard:
         assert card.body.text == "• customer_id: `C-42`"
 
     def test_long_body_truncated_to_200_chars(self):
-        from egpt.os.interfaces.slack.builders import build_confirmation_toggle_card
+        from egpt.integrations.channels.slack.builders import build_confirmation_toggle_card
 
         long_body = "• body: `" + "x" * 300 + "`"
         card = build_confirmation_toggle_card(
@@ -488,14 +488,14 @@ class TestBuildConfirmationToggleCard:
 
 class TestResponseBlocks:
     def test_strips_actions_from_cards(self):
-        from egpt.os.interfaces.slack.builders import response_blocks
+        from egpt.integrations.channels.slack.builders import response_blocks
 
         original = [{"type": "card", "block_id": "rowact:r1:confirmation", "actions": [{"type": "button"}]}]
         result = response_blocks(original, {}, [])
         assert "actions" not in result[0]
 
     def test_converts_selected_approve_to_approved_title(self):
-        from egpt.os.interfaces.slack.builders import response_blocks
+        from egpt.integrations.channels.slack.builders import response_blocks
 
         original = [
             {
@@ -509,7 +509,7 @@ class TestResponseBlocks:
         assert result[0]["title"]["text"] == "*Approved:* delete_file"
 
     def test_converts_selected_deny_to_denied_title(self):
-        from egpt.os.interfaces.slack.builders import response_blocks
+        from egpt.integrations.channels.slack.builders import response_blocks
 
         original = [
             {
@@ -523,7 +523,7 @@ class TestResponseBlocks:
         assert result[0]["title"]["text"] == "*Denied:* delete_file"
 
     def test_skips_actions_blocks(self):
-        from egpt.os.interfaces.slack.builders import response_blocks
+        from egpt.integrations.channels.slack.builders import response_blocks
 
         original = [
             {"type": "card", "block_id": "x", "actions": []},
@@ -534,7 +534,7 @@ class TestResponseBlocks:
         assert result[0]["type"] == "card"
 
     def test_skips_reject_reason_inputs(self):
-        from egpt.os.interfaces.slack.builders import response_blocks
+        from egpt.integrations.channels.slack.builders import response_blocks
 
         original = [
             {"type": "input", "block_id": "reject_reason:r1"},
@@ -545,7 +545,7 @@ class TestResponseBlocks:
         assert result[0]["type"] == "card"
 
     def test_builds_submitted_card_from_input_values(self):
-        from egpt.os.interfaces.slack.builders import response_blocks
+        from egpt.integrations.channels.slack.builders import response_blocks
 
         original = [
             {
@@ -568,7 +568,7 @@ class TestResponseBlocks:
         assert "test@example.com" in submitted_card["body"]["text"]
 
     def test_truncates_body_over_200_chars(self):
-        from egpt.os.interfaces.slack.builders import response_blocks
+        from egpt.integrations.channels.slack.builders import response_blocks
 
         original = [
             {

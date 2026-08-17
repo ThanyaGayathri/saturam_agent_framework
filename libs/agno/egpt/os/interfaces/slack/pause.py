@@ -1,84 +1,28 @@
-from __future__ import annotations
+"""Deprecated compatibility shim (EGPT-1.7b, aicoe-tracker#158).
 
-from typing import TYPE_CHECKING, Any, List, Optional
+Import from ``egpt.integrations.channels.slack.pause`` instead; this module will be removed.
 
-from egpt.os.interfaces.slack.builders import build_pause_message
-from egpt.os.interfaces.slack.helpers import slack_error_code
-from egpt.os.interfaces.slack.types import block_to_dict, tool_name
-from egpt.utils.log import log_error
+Names are re-exported via a wildcard star-import against the target module (not proxied
+through ``__getattr__`` alone), so star-imports, ``dir()`` and static type checking keep
+working on this path.
 
-if TYPE_CHECKING:
-    from slack_sdk.web.async_client import AsyncWebClient
+Known limitation: ``mock.patch`` against this module patches the shim's binding, not the
+implementation in the target module. Patch the target path instead.
+"""
 
-    from egpt.run.requirement import RunRequirement
+import warnings as _warnings
 
-PAUSE_LABELS = {
-    "confirmation": "⏸ *Awaiting approval of* `{tool}`…",
-    "user_input": "⏸ *Awaiting input for* `{tool}`…",
-    "user_feedback": "⏸ *Awaiting feedback*…",
-    "external_execution": "⏸ *Awaiting output for* `{tool}`…",
-}
+import egpt.integrations.channels.slack.pause as _target
+from egpt.integrations.channels.slack.pause import *  # noqa: F401,F403
 
-
-async def finalize_pause(
-    *,
-    client: "AsyncWebClient",
-    stream: Any,
-    state: Any,
-    run_id: str,
-    channel: str,
-    thread_ts: str,
-    requirements: List["RunRequirement"],
-    log_prefix: str = "",
-) -> Optional[str]:
-    # 1. Stop the stream with accumulated content
-    stop_kwargs = {}
-    if state.has_content():
-        stop_kwargs["markdown_text"] = state.flush()
-    if state.task_cards:
-        chunks = state.resolve_all_pending("pending")
-        if chunks:
-            stop_kwargs["chunks"] = chunks
-
-    try:
-        await stream.stop(**stop_kwargs)
-    except Exception as exc:
-        log_error(f"[HITL] stream.stop failed: run_id={run_id} err={slack_error_code(exc)!r} | {exc}")
-
-    # 2. Post awaiting indicator
-    labels = [PAUSE_LABELS[r.pause_type].format(tool=tool_name(r)) for r in requirements]
-    if not labels:
-        return None
-
-    try:
-        resp = await client.chat_postMessage(channel=channel, thread_ts=thread_ts, text="\n".join(labels))
-        return resp.get("ts")
-    except Exception as exc:
-        log_error(f"[HITL] awaiting indicator failed: {exc}")
-        return None
+_warnings.warn(
+    "egpt.os.interfaces.slack.pause is deprecated; import from "
+    "egpt.integrations.channels.slack.pause instead. This shim will be removed in a "
+    "future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
-async def post_pause_card(
-    client: "AsyncWebClient",
-    paused_event: Any,
-    channel: str,
-    thread_ts: str,
-    awaiting_ts: Optional[str] = None,
-) -> Optional[str]:
-    run_id = getattr(paused_event, "run_id", None)
-    requirements = list(getattr(paused_event, "active_requirements", None) or [])
-    if not run_id or not requirements:
-        return None
-
-    try:
-        blocks = build_pause_message(run_id, requirements, awaiting_ts)
-        resp = await client.chat_postMessage(
-            channel=channel,
-            thread_ts=thread_ts,
-            text="Run paused — please resolve below",
-            blocks=[block_to_dict(b) for b in blocks],
-        )
-        return resp.get("ts")
-    except Exception as exc:
-        log_error(f"[HITL] post_pause_card failed: run_id={run_id} | {exc}")
-        return None
+def __getattr__(name: str):
+    return getattr(_target, name)

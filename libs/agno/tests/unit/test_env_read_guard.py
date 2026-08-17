@@ -183,12 +183,13 @@ ALLOWED_ENV_ACCESS: Dict[Tuple[str, str], str] = {
     # -- own console (BotFather, Meta), not "ours" in the sense EGPT-1.10 decision 1 draws
     # -- the line -- see the inbound-vs-outbound split in the plan.
     ("os/interfaces/telegram/router.py", "TELEGRAM_TOKEN"): "outbound Telegram bot token, rotated in BotFather",
-    ("os/interfaces/whatsapp/helpers.py", "WHATSAPP_ACCESS_TOKEN"): "outbound Meta Cloud API token",
-    ("os/interfaces/whatsapp/helpers.py", "WHATSAPP_PHONE_NUMBER_ID"): "Meta Cloud API phone number id",
     ("os/interfaces/whatsapp/whatsapp.py", "WHATSAPP_ENCRYPTION_KEY"): "data-at-rest key, not a serving-auth setting",
     # -- deliberately raw, not a migration gap --
     # egpt/integrations/context/wiki/git_ops.py's os.environ.copy() (EGPT-1.7a moved it there)
     # needs no entry here for the same reason: the integrations/ exclusion already covers it.
+    # WHATSAPP_ACCESS_TOKEN/WHATSAPP_PHONE_NUMBER_ID's raw reads (formerly
+    # os/interfaces/whatsapp/helpers.py) moved the same way under EGPT-1.7b, to
+    # egpt/integrations/channels/whatsapp/helpers.py.
     (
         "os/interfaces/telegram/security.py",
         "APP_ENV",
