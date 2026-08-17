@@ -26,7 +26,7 @@ from weakref import WeakKeyDictionary
 from egpt.db.schemas import UserMemory
 from egpt.memory.config import MemoryProviderConfig, MemoryProviderConfigError, register_provider
 from egpt.memory.learn_stores import (
-    SCOPE_SLOTS,
+    STORE_FILTERABLE_SLOTS,
     UNANSWERABLE_STORES,
     filterable_slots,
     recordable_slots,
@@ -44,6 +44,7 @@ from egpt.memory.types import (
     MemorySlice,
     PartialWriteError,
     Scope,
+    require_scope,
     Substrate,
     WriteReceipt,
     consolidation_details,
@@ -461,7 +462,7 @@ class SeedMemoryProvider(MemoryProvider):
         # can reach -- and an unreachable branch is one no test can hold to account.
         recordable = self._recordable[id(store)]
         unrecordable = [
-            slot for slot in SCOPE_SLOTS if getattr(scope, slot, None) is not None and slot not in recordable
+            slot for slot in STORE_FILTERABLE_SLOTS if getattr(scope, slot, None) is not None and slot not in recordable
         ]
         if unrecordable:
             learning_type = _learning_type(store)
@@ -641,6 +642,7 @@ class SeedMemoryProvider(MemoryProvider):
         return [_record_from_user_memory(memory, scope) for memory in memories or []]
 
     def read_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
+        require_scope(scope, method="read_tier")
         self._guard_read(scope, query)
         if not query.limit:
             # Short-circuited *before* the fetch. `MemoryManager` truncates only when `limit > 0`,
@@ -668,6 +670,7 @@ class SeedMemoryProvider(MemoryProvider):
         return records[: query.limit] if query.limit else []
 
     async def aread_tier(self, scope: Scope, tier: MemoryTier, query: MemoryQuery) -> List[MemoryRecord]:
+        require_scope(scope, method="aread_tier")
         self._guard_read(scope, query)
         if not query.limit:
             return []
@@ -757,6 +760,7 @@ class SeedMemoryProvider(MemoryProvider):
         return [tier for tier in query.resolved_tiers() if tier in served]
 
     def read(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
+        require_scope(scope, method="read")
         self._guard_read(scope, query)
         per_tier: List[List[MemoryRecord]] = []
         failures: List[BaseException] = []
@@ -769,6 +773,7 @@ class SeedMemoryProvider(MemoryProvider):
         return self._slice(scope, query, self._interleave(per_tier))
 
     async def aread(self, scope: Scope, query: MemoryQuery) -> MemorySlice:
+        require_scope(scope, method="aread")
         self._guard_read(scope, query)
         # Gathered: the tiers are independent, and a manager without an async search still pays a
         # thread hop per tier. Settled like the store-level fan-out inside `aread_tier`, and like
@@ -914,6 +919,7 @@ class SeedMemoryProvider(MemoryProvider):
         used -- and `PartialWriteError`'s docstring is explicit that both adapters must fail the
         same way or there is no portable retry.
         """
+        require_scope(scope, method="write_tier")
         self._validate_write(scope, events)
         self._reject_unserved(tier)
         stores = self._stores_for(tier)
@@ -939,6 +945,7 @@ class SeedMemoryProvider(MemoryProvider):
 
     async def awrite_tier(self, scope: Scope, tier: MemoryTier, events: Sequence[MemoryEvent]) -> WriteReceipt:
         """Async variant of :meth:`write_tier`, with the same failure type."""
+        require_scope(scope, method="awrite_tier")
         self._validate_write(scope, events)
         self._reject_unserved(tier)
         stores = self._stores_for(tier)
@@ -1078,6 +1085,7 @@ class SeedMemoryProvider(MemoryProvider):
         Grouping by tier is what lets ``_reject_unserved`` do its job: a default ``MemoryEvent`` is
         ``EPISODIC``, and the seed must refuse that rather than rewrite it as semantic.
         """
+        require_scope(scope, method="write")
         groups = self._validated_groups(scope, events)
         receipts: List[WriteReceipt] = []
         try:
@@ -1089,6 +1097,7 @@ class SeedMemoryProvider(MemoryProvider):
 
     async def awrite(self, scope: Scope, events: Sequence[MemoryEvent]) -> WriteReceipt:
         """Async variant of :meth:`write`, with the same per-tier routing."""
+        require_scope(scope, method="awrite")
         groups = self._validated_groups(scope, events)
         receipts: List[WriteReceipt] = []
         try:
@@ -1111,6 +1120,7 @@ class SeedMemoryProvider(MemoryProvider):
         The real loop -- extract, merge, resolve contradictions, write both substrates -- needs an
         episodic tier to read from and a graph to write to. It is SM-L1's (#122) onward.
         """
+        require_scope(scope, method="consolidate")
         self._guard_tenant(scope)
         # `deduplicate` filters on user_id alone, exactly like `search_user_memories`, so a scope
         # narrowed below it is accepted and silently ignored -- on a *write* path, which is worse
@@ -1152,6 +1162,9 @@ class SeedMemoryProvider(MemoryProvider):
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         """Async variant. ``Curator.deduplicate`` is sync-only, so this hops a thread."""
+        # Before the hop, so an unscoped call is refused on the caller's stack rather than
+        # surfacing from a worker thread, and does not spend one to be refused.
+        require_scope(scope, method="aconsolidate")
         return await asyncio.to_thread(self.consolidate, scope, tiers)
 
 
@@ -1211,11 +1224,11 @@ def _checked_slots(raw: Any) -> Dict[str, FrozenSet[str]]:
                 f"config.options['store_slots'][{learning_type!r}] must be a collection of slot names.",
                 field_name="options.store_slots",
             )
-        unknown = sorted(set(slots) - set(SCOPE_SLOTS))
+        unknown = sorted(set(slots) - set(STORE_FILTERABLE_SLOTS))
         if unknown:
             raise MemoryProviderConfigError(
                 f"config.options['store_slots'][{learning_type!r}] names unknown slot(s) {unknown}; "
-                f"a scope slot is one of {list(SCOPE_SLOTS)}. A misspelled slot silently widens what "
+                f"a scope slot is one of {list(STORE_FILTERABLE_SLOTS)}. A misspelled slot silently widens what "
                 "this provider will answer.",
                 field_name="options.store_slots",
             )

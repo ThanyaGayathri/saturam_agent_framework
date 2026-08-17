@@ -107,6 +107,15 @@ _NEW_INTEGRATIONS_REFERENCE_SERVICES = {
     ("egpt.integrations.memory.graph.neo4j.neo4j", "egpt.memory.config"),
     ("egpt.integrations.memory.graph.neo4j.neo4j", "egpt.memory.tiers"),
     ("egpt.integrations.memory.graph.neo4j.neo4j", "egpt.memory.types"),
+    # The vector half of the same seam (feat/SM-V1, aicoe-tracker#95), landing after this file
+    # did and for the identical reason: a `VectorSubstrate` backend is addressed through
+    # `egpt.memory`'s ports, so it needs that package's envelope types, its tier policy and its
+    # config error to implement them at all. One decision, two backends -- listing only the graph
+    # one would make the debt look narrower than it is.
+    ("egpt.integrations.memory.vector.pgvector.pgvector", "egpt.memory.config"),
+    ("egpt.integrations.memory.vector.pgvector.pgvector", "egpt.memory.tiers"),
+    ("egpt.integrations.memory.vector.pgvector.pgvector", "egpt.memory.types"),
+    ("egpt.integrations.memory.vector.pgvector.sql", "egpt.memory.types"),
 }
 
 _KNOWN_VIOLATIONS = (

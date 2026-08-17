@@ -33,7 +33,7 @@ from egpt.learn.stores import (
 from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.learn_stores import (
     RECALL_SLOTS,
-    SCOPE_SLOTS,
+    STORE_FILTERABLE_SLOTS,
     STORE_TIERS,
     filterable_slots,
     recordable_slots,
@@ -106,7 +106,7 @@ def test_an_unmapped_store_is_refused_rather_than_guessed_into_a_tier():
 
 
 def recall_slots_in_signature(store):
-    return {name for name in inspect.signature(store.recall).parameters if name in SCOPE_SLOTS}
+    return {name for name in inspect.signature(store.recall).parameters if name in STORE_FILTERABLE_SLOTS}
 
 
 @pytest.mark.parametrize("store", real_stores(), ids=lambda s: s.learning_type)
@@ -157,7 +157,7 @@ def test_the_write_side_slot_set_is_derived_from_each_store_s_process(store):
     exactly. Whether a seen slot survives into the stored row is a columns question -- SM-C3's
     (#91) -- and is what the guard deliberately does not claim.
     """
-    named = {name for name in inspect.signature(store.process).parameters if name in SCOPE_SLOTS}
+    named = {name for name in inspect.signature(store.process).parameters if name in STORE_FILTERABLE_SLOTS}
 
     assert recordable_slots(store) == named
 
@@ -179,7 +179,7 @@ def test_a_declared_override_can_only_name_slots_the_store_takes(store):
     naming one would widen a read while it kept carrying the narrow scope -- the leak the guard
     exists to close, reopened through its own escape hatch.
     """
-    named = {name for name in inspect.signature(store.recall).parameters if name in SCOPE_SLOTS}
+    named = {name for name in inspect.signature(store.recall).parameters if name in STORE_FILTERABLE_SLOTS}
 
     assert filterable_slots(store) == named
     assert RECALL_SLOTS[store.learning_type] <= filterable_slots(store)
@@ -215,7 +215,7 @@ def test_an_unset_slot_is_never_reported():
 
 def test_the_tenant_is_not_a_store_slot():
     """No store takes a tenant. The seed bridge pins one instance to one tenant instead."""
-    assert "tenant_id" not in SCOPE_SLOTS
+    assert "tenant_id" not in STORE_FILTERABLE_SLOTS
     assert unhonoured_slots("user_profile", Scope(tenant_id="acme")) == []
 
 

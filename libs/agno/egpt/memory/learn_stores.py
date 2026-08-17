@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "RECALL_SLOTS",
-    "SCOPE_SLOTS",
+    "STORE_FILTERABLE_SLOTS",
     "STORE_TIERS",
     "UNANSWERABLE_STORES",
     "filterable_slots",
@@ -32,8 +32,13 @@ __all__ = [
 ]
 
 #: The slots a ``LearningStore`` could narrow a read by. No store takes a ``tenant_id``; the seed
-#: bridge pins one instance to one tenant instead (SM-C3 #91 adds the column).
-SCOPE_SLOTS: Tuple[str, ...] = ("user_id", "agent_id", "team_id", "session_id")
+#: bridge pins one instance to one tenant instead.
+#:
+#: Deliberately **not** named ``SCOPE_SLOTS``: ``memory/types.py`` declares a tuple by that name
+#: holding every slot a row is partitioned by, tenant included. Two same-named constants of
+#: different length one import apart is the confusion a shared declaration exists to remove, and
+#: the subset that silently omits the tenant is the worse one to reach for by muscle memory.
+STORE_FILTERABLE_SLOTS: Tuple[str, ...] = ("user_id", "agent_id", "team_id", "session_id")
 
 
 #: ADR 0003 section 2.2, ratified. Declaration order is the order stores are consulted within a
@@ -107,7 +112,7 @@ def tier_for_store(learning_type: str) -> MemoryTier:
 
 
 def unhonoured_slots(learning_type: str, scope: Scope, declared: Optional[FrozenSet[str]] = None) -> List[str]:
-    """The slots ``scope`` sets that this store will not filter on, in :data:`SCOPE_SLOTS` order.
+    """The slots ``scope`` sets that this store will not filter on, in :data:`STORE_FILTERABLE_SLOTS` order.
 
     Empty means the store can answer the scope exactly. ``declared`` overrides the table for a
     store configured to honour more, or less, than the default.
@@ -117,7 +122,7 @@ def unhonoured_slots(learning_type: str, scope: Scope, declared: Optional[Frozen
     label.
     """
     honoured = declared if declared is not None else RECALL_SLOTS.get(learning_type, frozenset())
-    return [slot for slot in SCOPE_SLOTS if getattr(scope, slot, None) is not None and slot not in honoured]
+    return [slot for slot in STORE_FILTERABLE_SLOTS if getattr(scope, slot, None) is not None and slot not in honoured]
 
 
 def filterable_slots(store: Any) -> FrozenSet[str]:
@@ -136,7 +141,7 @@ def filterable_slots(store: Any) -> FrozenSet[str]:
         parameters = inspect.signature(store.recall).parameters
     except (TypeError, ValueError):  # a callable without an introspectable signature
         return frozenset()
-    return frozenset(name for name in parameters if name in SCOPE_SLOTS)
+    return frozenset(name for name in parameters if name in STORE_FILTERABLE_SLOTS)
 
 
 def recordable_slots(store: Any) -> FrozenSet[str]:
@@ -153,7 +158,7 @@ def recordable_slots(store: Any) -> FrozenSet[str]:
         parameters = inspect.signature(store.process).parameters
     except (TypeError, ValueError):  # a callable without an introspectable signature
         return frozenset()
-    return frozenset(name for name in parameters if name in SCOPE_SLOTS)
+    return frozenset(name for name in parameters if name in STORE_FILTERABLE_SLOTS)
 
 
 def stores_by_tier(
