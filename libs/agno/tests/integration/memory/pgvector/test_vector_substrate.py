@@ -518,10 +518,17 @@ def test_a_lexical_query_surfaces_the_exact_identifier_the_vector_leg_ranks_belo
     ID and assert the lexical leg surfaces it where the vector leg does not.
 
     This is why the store returns both lists rather than one blended ranking. The identifier is a
-    rare token, so full-text matches it exactly; a dense embedding of an unseen identifier carries
-    almost no signal, and the record that merely *repeats the query's ordinary words* wins the
+    rare token, so full-text matches it exactly and returns nothing else; the dense leg ranks the
+    whole corpus, and here the record that merely *repeats the query's ordinary words* wins the
     cosine. A weighted blend computed in SQL -- what ``PgVector.hybrid_search`` returns -- would
     hand the caller one number and no way to see that the two legs disagreed.
+
+    **The decoy winning the cosine is a property of ``TokenEmbedder``, not a claim about dense
+    retrieval.** This file embeds with a deterministic bag-of-tokens projection so the ranking
+    assertions depend on the store rather than on a model's weights; a real embedder may well rank
+    the carrier first, and ``cookbook/11_memory/14_hybrid_candidates_pgvector.py`` shows
+    ``bge-base-en-v1.5`` doing exactly that. What is asserted here is the mechanism -- two legs,
+    two independently-ranked lists -- which is what this ticket ships.
     """
     _seed_hybrid_corpus(store)
     candidates = store.search_candidates(ACME, MemoryQuery(text=f"order {IDENTIFIER} status", limit=5))
