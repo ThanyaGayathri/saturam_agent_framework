@@ -576,7 +576,11 @@ def test_an_unanswerable_query_returns_two_empty_legs_and_costs_no_round_trip(su
 def test_the_legs_are_named_rather_than_positional():
     """SM-R8 requires the fusion implementations to be N-leg-capable rather than hardcoded to two,
     and a consumer reading ``.vector``/``.lexical`` by name is hardcoded to two whatever the fusion
-    function can take. The graph leg (SM-G9 #107) is the third already scheduled to arrive."""
+    function can take.
+
+    The assertion is that this store reports **exactly** its two legs -- not that the container
+    grows a third. The graph leg (SM-G9 #107) comes from a different substrate and arrives as a
+    separate result the orchestrator fuses alongside this one."""
     from egpt.memory.types import RetrievalCandidates
 
     candidates = RetrievalCandidates(vector=[record("a")], lexical=[record("b")])
@@ -677,3 +681,74 @@ def test_an_unscoped_call_is_refused_before_the_embedder_is_ever_called(method, 
         if asyncio.iscoroutine(result):
             asyncio.run(result)
     assert embedder.calls == 0, f"{method} embedded before refusing an unscoped call"
+
+
+def test_each_candidate_statement_is_tagged_with_the_leg_it_answers_for(substrate):
+    """The vector page used to be read as ``results[-2]``, counting back from the end.
+
+    That is correct only while ``_search_call`` emits exactly two statements. Its first is
+    ``SET LOCAL hnsw.ef_search``, which returns no rows and which ``_rows`` maps to ``[]`` -- so a
+    third statement added there would not mis-*rank* the vector leg, it would make it come back
+    **empty**, with nothing raising and no way for a caller to tell that from a corpus with no
+    matches.
+    """
+    query = MemoryQuery(text="order status", limit=5)
+    calls = substrate._candidate_calls(ACME, query, ["episodic"], [0.0] * DIM)
+
+    assert [leg for leg, _ in calls] == [None, "vector", "lexical"]
+    # The untagged one is the tuning statement, which returns no rows -- which is exactly why
+    # position is not a safe key for the pages that do.
+    assert calls[0][1][0].startswith("SET LOCAL hnsw.ef_search")
+
+
+def test_a_grown_search_call_fails_loudly_rather_than_emptying_a_leg(substrate, monkeypatch):
+    """The guard for the above: adding a statement to ``_search_call`` must break at the line that
+    has to change, not silently produce an empty vector list two frames later.
+
+    Mutation-checked: with the old ``results[-2]`` indexing this returned
+    ``RetrievalCandidates(vector=[], lexical=[...])`` and raised nothing.
+    """
+    original = substrate._search_call
+
+    def grown(*args, **kwargs):
+        return [("SET LOCAL enable_seqscan = off", {}), *original(*args, **kwargs)]
+
+    monkeypatch.setattr(substrate, "_search_call", grown)
+    with pytest.raises(ValueError):
+        substrate._candidate_calls(ACME, MemoryQuery(text="order status", limit=5), ["episodic"], [0.0] * DIM)
+
+
+def test_the_two_legs_are_assembled_from_labels_not_positions(substrate):
+    """``_candidates`` is shared by both halves, so the sync and async reads cannot come to disagree
+    about which page is which -- the divergence this ticket's own async parity test exists to catch."""
+
+    def row(id_, **measure):
+        stored = {
+            "id": id_,
+            "tier": "episodic",
+            "content": id_,
+            "tenant_id": "acme",
+            "agent_id": None,
+            "user_id": "ada",
+            "team_id": None,
+            "session_id": None,
+            "topics": None,
+            "provenance": None,
+            "metadata": None,
+            "t_valid": None,
+            "t_invalid": None,
+            "created_at": 1,
+            "expired_at": None,
+            "superseded_by": None,
+        }
+        return {**stored, **measure}
+
+    # The labels are deliberately **not** in the order `_candidate_calls` emits them, and the
+    # untagged tuning statement sits between the two legs rather than in front of them. Counting
+    # back from the end (`results[-2]`, `results[-1]`) gets the right answer for the current
+    # arrangement and the wrong one here, which is the whole difference between assembling by label
+    # and assembling by position. With positional indexing this returns `vector=[]`.
+    calls = [("vector", ("...", {})), (None, ("SET LOCAL x = 1", {})), ("lexical", ("...", {}))]
+    candidates = substrate._candidates(calls, [[row("v", distance=0.2)], [], [row("l", rank=0.3)]])
+    assert [r.id for r in candidates.vector] == ["v"]
+    assert [r.id for r in candidates.lexical] == ["l"]

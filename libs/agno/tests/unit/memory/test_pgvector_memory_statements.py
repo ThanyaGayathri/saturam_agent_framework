@@ -393,3 +393,19 @@ def test_no_row_reading_statement_can_be_built_without_a_scope(builder):
     extra = {"lexical_search_statement": ("english",), "scan_statement": (10,)}.get(builder, ())
     with pytest.raises(MemoryScopeRequiredError):
         getattr(sql, builder)(*args[builder], None, *extra)
+
+
+@pytest.mark.parametrize("spelling", ["english", "English", "ENGLISH", "EngLish"])
+def test_a_text_search_config_is_normalised_the_way_postgres_normalises_it(spelling):
+    """``'English'::regconfig`` resolves to ``english``: the regconfig input function parses its
+    argument as an identifier, and an unquoted identifier is down-cased.
+
+    Passing the caller's spelling through broke in two directions at once -- the existence probe
+    matches ``pg_ts_config.cfgname`` exactly and **refused a configuration the server accepts**, and
+    the index renders ``'english'::regconfig`` while the setting still read ``English``, so the
+    drift check would have warned on every clean startup. Normalising once is what makes those two
+    sites agree by construction.
+    """
+    assert sql.text_search_config(spelling) == "english"
+    assert sql.text_search_config_statement(spelling)[1] == {"ts_config": "english"}
+    assert sql.ts_vector_expression(spelling) == "to_tsvector('english', content)"

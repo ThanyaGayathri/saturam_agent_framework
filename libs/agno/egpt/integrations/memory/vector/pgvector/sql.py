@@ -212,15 +212,27 @@ def qualified(schema: str, table: str) -> str:
 
 
 def text_search_config(name: str, field: str = "text_search_config") -> str:
-    """A Postgres text-search configuration name (``english``, ``simple``, a custom one).
+    """A Postgres text-search configuration name (``english``, ``simple``, a custom one), **lowered**.
 
     Held to :func:`identifier`'s rules even though the value lands as a **literal** rather than an
     identifier -- ``to_tsvector('english', content)``. That is deliberate: the rules forbid a quote
     character, which is what makes interpolating the result into a literal safe without an escaper
     of this module's own. Whether the config exists is a database fact, checked at schema init
     (:func:`text_search_config_statement`) rather than guessed at here.
+
+    **Lower-cased because that is what Postgres does with it**, not as a convenience.
+    ``'English'::regconfig`` resolves to ``english`` -- the regconfig input function parses its
+    argument as an identifier, and an unquoted identifier is down-cased. Passing the caller's
+    spelling through unchanged therefore broke in two directions at once: the existence probe
+    matched ``pg_ts_config.cfgname`` exactly and **refused a configuration the server accepts**, and
+    had it got past that, the index renders ``'english'::regconfig`` while the setting still read
+    ``English``, so the drift check would have warned on every clean startup.
+
+    Normalising here rather than at each of those two sites is what makes them agree by
+    construction. A configuration that would need quoting to be found is unreachable through this
+    API anyway, since :func:`identifier` rejects a quote.
     """
-    return identifier(name, field)
+    return identifier(name, field).lower()
 
 
 def ts_vector_expression(ts_config: str) -> str:

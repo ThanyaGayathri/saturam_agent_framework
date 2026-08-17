@@ -25,6 +25,7 @@ pytest.importorskip("psycopg", reason="the pgvector memory substrate connects th
 from sqlalchemy import text  # noqa: E402
 
 from egpt.integrations.memory.vector.pgvector import PgVectorMemorySubstrate, sql  # noqa: E402
+from egpt.integrations.memory.vector.pgvector import pgvector as module  # noqa: E402
 from egpt.memory.config import MemoryProviderConfigError  # noqa: E402
 from egpt.memory.substrates import VectorSubstrate  # noqa: E402
 from egpt.memory.tiers import MemoryTier  # noqa: E402
@@ -634,24 +635,46 @@ def test_a_query_of_pure_punctuation_returns_empty_rather_than_failing(store):
 def test_the_full_text_index_exists_on_every_partition_including_later_ones(store):
     """Created on the **parent**, so a tenant whose first write lands at 3am inherits it without
     anything remembering to build one -- the same property the HNSW index needs and for the same
-    reason."""
+    reason.
+
+    Scoped to this table's partitions, and asserted on the **indexed expression** rather than on
+    "some GIN index exists". Both matter: the first version searched every GIN index in the
+    database, and neither version could tell the full-text index from a GIN index on the ``metadata``
+    jsonb column -- so a test named for the full-text index would have passed with the full-text
+    index missing and something else in its place. That is a claim of coverage rather than coverage.
+    """
     store.upsert(ACME, [record("e1", CARRIER)])
     store.upsert(GLOBEX, [record("e2", CARRIER, scope=GLOBEX)])
 
     with store._engine.begin() as connection:
         indexed = {
-            row.tablename
+            row.partition: row.expression
             for row in connection.execute(
                 text(
-                    "SELECT c.relname AS tablename FROM pg_class c "
+                    "SELECT c.relname AS partition, pg_get_expr(i.indexprs, i.indrelid) AS expression "
+                    "FROM pg_inherits h "
+                    "JOIN pg_class c ON c.oid = h.inhrelid "
                     "JOIN pg_index i ON i.indrelid = c.oid "
                     "JOIN pg_class ic ON ic.oid = i.indexrelid "
-                    "WHERE ic.relam = (SELECT oid FROM pg_am WHERE amname = 'gin')"
-                )
+                    # `CAST(...)`, not `:parent::regclass` -- SQLAlchemy's `text()` does not treat a
+                    # bind followed by a colon as a parameter at all, which `sql.cast_param`
+                    # documents and this test reintroduced.
+                    "WHERE h.inhparent = CAST(:parent AS regclass) "
+                    "AND ic.relam = (SELECT oid FROM pg_am WHERE amname = 'gin')"
+                ),
+                {"parent": f"ai.{TABLE}"},
             )
         }
+    assert len(indexed) == 2, indexed
     for scope in (ACME, GLOBEX):
-        assert sql.partition_name(TABLE, scope.tenant_id) in indexed
+        partition = sql.partition_name(TABLE, scope.tenant_id)
+        assert partition in indexed, indexed
+        # `to_tsvector`, on `content`, under the configured search config -- the expression the
+        # lexical statement repeats. Postgres renders the literal as `'english'::regconfig`, so the
+        # config is read by name rather than by matching this module's spelling.
+        expression = indexed[partition]
+        assert "to_tsvector" in expression and "content" in expression, (partition, expression)
+        assert module._indexed_ts_config(expression) == store.text_search_config, (partition, expression)
 
 
 async def test_the_async_half_returns_the_same_candidates_as_the_sync_one(async_store):
@@ -710,3 +733,109 @@ def test_a_vector_only_double_is_not_mistaken_for_a_hybrid_store():
 
     assert isinstance(FakeVector(), VectorSubstrate)
     assert not isinstance(FakeVector(), HybridSearchSubstrate)
+
+
+def _commit_between_legs(substrate, runner_name):
+    """Wrap a statement runner so another session commits a row between the two legs.
+
+    The interleave has to happen *inside* the candidates transaction, which is the only place the
+    snapshot question is decidable -- so this wraps the runner rather than racing two threads and
+    hoping. A second substrate on its own engine does the write, because a commit on the reading
+    connection would be that transaction's own and always visible to it.
+    """
+    original = getattr(substrate, runner_name)
+
+    def interleave(statements, isolation=None):
+        with substrate._translated("read/write"), substrate._read_transaction(isolation) as connection:
+            pages = []
+            for index, (body, binds) in enumerate(statements):
+                result = connection.execute(text(body), binds)
+                pages.append(_rows_of(result))
+                if index == 1:  # after the vector statement, before the lexical one
+                    writer = PgVectorMemorySubstrate(
+                        db_url=_url(), embedder=TokenEmbedder(), table=TABLE, auto_init_schema=False
+                    )
+                    writer.upsert(ACME, [record("interloper", CARRIER)])
+                    writer.close()
+            return pages
+
+    return original, interleave
+
+
+def _rows_of(result):
+    return [dict(row) for row in result.mappings()] if result.returns_rows else []
+
+
+def test_the_two_legs_read_one_snapshot(store):
+    """Both legs must answer the same question about which rows exist.
+
+    One transaction is not enough. Postgres defaults to READ COMMITTED, under which every
+    *statement* takes a fresh snapshot even inside one transaction -- so a row committed between the
+    legs is invisible to the first and visible to the second, and the store returns a vector list
+    and a lexical list describing different corpora from a single call.
+
+    That is not a ranking discrepancy, it is a leak: the port states the property, and a fusion
+    stage handed two inconsistent lists cannot detect the inconsistency. Mutation-checked -- dropping
+    the isolation level reproduces `vector=['first'] lexical=['first', 'interloper']`.
+    """
+    store.upsert(ACME, [record("first", CARRIER)])
+    original, interleave = _commit_between_legs(store, "_statements")
+    store._statements = interleave
+    try:
+        candidates = store.search_candidates(ACME, MemoryQuery(text=f"order {IDENTIFIER} status", limit=10))
+    finally:
+        store._statements = original
+
+    assert sorted(r.id for r in candidates.vector) == sorted(r.id for r in candidates.lexical)
+
+
+async def test_the_async_half_also_reads_one_snapshot(async_store):
+    """The same property on the half a sync-only test cannot observe -- and the half where the
+    isolation plumbing is a separate code path, because SQLAlchemy's async engine sets the level
+    through an awaited `execution_options` rather than a chained one."""
+    await async_store.aupsert(ACME, [record("first", CARRIER)])
+    original = async_store._astatements
+
+    async def interleave(statements, isolation=None):
+        with async_store._translated("read/write"):
+            async with async_store._async_engine().connect() as connection:
+                if isolation is not None:
+                    await connection.execution_options(isolation_level=isolation)
+                async with connection.begin():
+                    pages = []
+                    for index, (body, binds) in enumerate(statements):
+                        pages.append(_rows_of(await connection.execute(text(body), binds)))
+                        if index == 1:
+                            writer = PgVectorMemorySubstrate(
+                                db_url=_url(), embedder=TokenEmbedder(), table=TABLE, auto_init_schema=False
+                            )
+                            writer.upsert(ACME, [record("interloper", CARRIER)])
+                            writer.close()
+                    return pages
+
+    async_store._astatements = interleave
+    try:
+        candidates = await async_store.asearch_candidates(
+            ACME, MemoryQuery(text=f"order {IDENTIFIER} status", limit=10)
+        )
+    finally:
+        async_store._astatements = original
+
+    assert sorted(r.id for r in candidates.vector) == sorted(r.id for r in candidates.lexical)
+
+
+async def test_the_async_half_honours_the_tier_on_both_legs(async_store):
+    """Tier resolution on the async half, which the parity test could not see: it compares the two
+    halves against each other, so a filter both drop is invisible to it.
+
+    Both legs, because the tier predicate is written into two separate statements -- one leg
+    honouring it and the other not is the cross-tier leakage finding F3 describes, and it surfaces
+    only after fusion has already merged the two lists."""
+    await async_store.aupsert(ACME, [record("ep", CARRIER), record("sem", CARRIER, tier=MemoryTier.SEMANTIC)])
+
+    query = MemoryQuery(text=f"order {IDENTIFIER}", tiers=[MemoryTier.SEMANTIC], limit=10)
+    candidates = await async_store.asearch_candidates(ACME, query)
+
+    assert [r.id for r in candidates.lexical] == ["sem"]
+    assert [r.id for r in candidates.vector] == ["sem"]
+    assert all(r.tier is MemoryTier.SEMANTIC for r in candidates.vector + candidates.lexical)

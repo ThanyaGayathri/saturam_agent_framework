@@ -90,6 +90,21 @@ _DEFAULT_TEXT_SEARCH_CONFIG = "english"
 #: SM-H2's (#132).
 _RANK_SATURATION = 0.1
 
+#: Isolation level for a read whose several statements must describe **one** corpus (SM-V3 #97).
+#:
+#: Postgres defaults to READ COMMITTED, under which each *statement* takes a fresh snapshot even
+#: inside one transaction -- so a row committed between the vector leg and the lexical leg is
+#: invisible to the first and visible to the second. Measured, driving ``search_candidates`` with a
+#: concurrent commit landing between them: one leg returned one row, the other two. The port
+#: requires every leg to answer the same question about which rows exist, because legs that disagree
+#: do not produce a ranking discrepancy, they produce a leak.
+#:
+#: Free here, and that is worth stating because REPEATABLE READ usually is not: its serialization
+#: failures are raised on **write** conflicts, and nothing that reaches this level writes. A
+#: read-only snapshot simply holds, so the cost is the snapshot's lifetime -- microseconds, for two
+#: indexed statements.
+_ONE_SNAPSHOT = "REPEATABLE READ"
+
 #: Deterministic, server-side failures: the same statement fails the same way on every retry, so
 #: the layers above should stop rather than retry. Transient and transport errors -- a dropped
 #: connection, a serialization failure, an unreachable host -- are **not** here and propagate
@@ -473,20 +488,46 @@ class PgVectorMemorySubstrate:
         except _DETERMINISTIC as exc:
             raise MemoryOperationError(f"The vector backend refused {operation}: {exc}", field_name=operation) from exc
 
-    def _statements(self, statements: Sequence[Tuple[str, Dict[str, Any]]]) -> List[List[Dict[str, Any]]]:
+    def _statements(
+        self, statements: Sequence[Tuple[str, Dict[str, Any]]], isolation: Optional[str] = None
+    ) -> List[List[Dict[str, Any]]]:
         """Run statements in **one** transaction, returning each one's rows.
 
         One transaction rather than one per statement, so the ``SET LOCAL hnsw.ef_search`` that
         precedes a search is still in force when the search runs, and cannot leak into another.
+
+        ``isolation`` pins the snapshot when more than one statement here has to describe the *same*
+        corpus -- see :data:`_ONE_SNAPSHOT`. It is a parameter rather than a blanket setting because
+        only the multi-leg read needs it: a single row-returning statement is atomic against its own
+        snapshot whatever the level, so raising it there would buy nothing and hold a snapshot open
+        for longer than the read needs.
         """
-        with self._translated("read/write"), self._engine.begin() as connection:
+        with self._translated("read/write"), self._read_transaction(isolation) as connection:
             return [_rows(connection.execute(text(body), binds)) for body, binds in statements]
 
-    async def _astatements(self, statements: Sequence[Tuple[str, Dict[str, Any]]]) -> List[List[Dict[str, Any]]]:
-        """Async twin of :meth:`_statements`, with the same one-transaction rule."""
+    @contextmanager
+    def _read_transaction(self, isolation: Optional[str]) -> Iterator[Any]:
+        """One transaction, at the default isolation or an explicit one."""
+        if isolation is None:
+            with self._engine.begin() as connection:
+                yield connection
+            return
+        with self._engine.connect().execution_options(isolation_level=isolation) as connection:
+            with connection.begin():
+                yield connection
+
+    async def _astatements(
+        self, statements: Sequence[Tuple[str, Dict[str, Any]]], isolation: Optional[str] = None
+    ) -> List[List[Dict[str, Any]]]:
+        """Async twin of :meth:`_statements`, with the same one-transaction and snapshot rules."""
         with self._translated("read/write"):
-            async with self._async_engine().begin() as connection:
-                return [_rows(await connection.execute(text(body), binds)) for body, binds in statements]
+            if isolation is None:
+                async with self._async_engine().begin() as connection:
+                    return [_rows(await connection.execute(text(body), binds)) for body, binds in statements]
+            async with self._async_engine().connect() as connection:
+                await connection.execution_options(isolation_level=isolation)
+                async with connection.begin():
+                    return [_rows(await connection.execute(text(body), binds)) for body, binds in statements]
 
     def _write(self, statement: str, rows: List[Dict[str, Any]]) -> None:
         """Apply one statement to every row, in **one** transaction and one round trip.
@@ -944,6 +985,40 @@ class PgVectorMemorySubstrate:
     def _lexical(self, rows: List[Dict[str, Any]]) -> List[MemoryRecord]:
         return self._lexically_ranked(rows, [self._record(row) for row in rows])
 
+    def _candidate_calls(
+        self, scope: Scope, query: MemoryQuery, tiers: List[str], embedding: Sequence[float]
+    ) -> List[Tuple[Optional[str], Tuple[str, Dict[str, Any]]]]:
+        """Every statement one candidate read issues, each **tagged with the leg it answers for**.
+
+        Tagged rather than indexed. Reading the vector page as ``results[-2]`` counted back from the
+        end, which is correct only while :meth:`_search_call` emits exactly two statements. Its first
+        is ``SET LOCAL hnsw.ef_search``, which returns no rows and which ``_rows`` maps to ``[]`` --
+        so a third statement added there would not mis-*rank* the vector leg, it would make it come
+        back **empty**, with nothing raising and no way for a caller to tell that from a corpus with
+        no matches.
+
+        The unpacking below is the guard that makes the failure loud: ``_search_call`` growing a
+        statement raises here, at the line that has to change, instead of silently emptying a leg.
+        """
+        tuning, vector = self._search_call(scope, query, tiers, embedding)
+        return [(None, tuning), ("vector", vector), ("lexical", self._lexical_call(scope, query, tiers))]
+
+    def _candidates(
+        self,
+        calls: Sequence[Tuple[Optional[str], Tuple[str, Dict[str, Any]]]],
+        results: Sequence[List[Dict[str, Any]]],
+    ) -> RetrievalCandidates:
+        """Assemble the two lists from labelled results, so neither half indexes by position.
+
+        Shared by both halves rather than written twice: the sync and async candidate reads drifting
+        is precisely the defect this ticket's own tests exist to catch.
+        """
+        pages = {leg: page for (leg, _), page in zip(calls, results) if leg is not None}
+        return RetrievalCandidates(
+            vector=self._ranked(pages["vector"], [self._record(row) for row in pages["vector"]]),
+            lexical=self._lexical(pages["lexical"]),
+        )
+
     def search_candidates(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> RetrievalCandidates:
@@ -954,6 +1029,14 @@ class PgVectorMemorySubstrate:
         whichever it picked would make the other leg's ``LIMIT`` mean "the top N by the wrong
         measure" -- which is how a hybrid query silently becomes a filtered version of one leg.
 
+        **One transaction is not enough to make the legs agree, so the snapshot is pinned.** Postgres
+        defaults to READ COMMITTED, under which every *statement* takes a fresh snapshot even inside
+        one transaction -- so a row committed between the two legs is invisible to the first and
+        visible to the second. Measured, driving this method with a concurrent commit landing between
+        them: the vector leg returned one row and the lexical leg two, from a single call. The port
+        requires every leg to answer the same question about which rows exist, because legs that
+        disagree do not produce a ranking discrepancy, they produce a leak.
+
         ``query.limit`` bounds each leg independently; over-fetching to give fusion more depth is
         SM-H2's (#132) policy, not this store's.
         """
@@ -962,30 +1045,23 @@ class PgVectorMemorySubstrate:
         if tiers is None:
             return RetrievalCandidates()
         embedding = self.embedder.get_embedding(query.text)
-        results = self._statements(
-            [*self._search_call(scope, query, tiers, embedding), self._lexical_call(scope, query, tiers)]
-        )
-        return RetrievalCandidates(
-            vector=self._ranked(results[-2], [self._record(row) for row in results[-2]]),
-            lexical=self._lexical(results[-1]),
-        )
+        calls = self._candidate_calls(scope, query, tiers, embedding)
+        results = self._statements([call for _, call in calls], isolation=_ONE_SNAPSHOT)
+        return self._candidates(calls, results)
 
     async def asearch_candidates(
         self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
     ) -> RetrievalCandidates:
-        """Async twin of :meth:`search_candidates`, making the same decisions in the same order."""
+        """Async twin of :meth:`search_candidates`, making the same decisions in the same order --
+        including the pinned snapshot, which is the half a sync-only test cannot observe."""
         require_scope(scope, method="asearch_candidates")
         tiers = self._searchable(query, tier)
         if tiers is None:
             return RetrievalCandidates()
         embedding = await self.embedder.async_get_embedding(query.text)
-        results = await self._astatements(
-            [*self._search_call(scope, query, tiers, embedding), self._lexical_call(scope, query, tiers)]
-        )
-        return RetrievalCandidates(
-            vector=self._ranked(results[-2], [self._record(row) for row in results[-2]]),
-            lexical=self._lexical(results[-1]),
-        )
+        calls = self._candidate_calls(scope, query, tiers, embedding)
+        results = await self._astatements([call for _, call in calls], isolation=_ONE_SNAPSHOT)
+        return self._candidates(calls, results)
 
     @staticmethod
     def _scan_call(
