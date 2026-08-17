@@ -29,7 +29,15 @@ from egpt.integrations.memory.vector.pgvector import sql
 from egpt.knowledge.embedder import Embedder
 from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryOperationError, MemoryQuery, MemoryRecord, Scope, Substrate
+from egpt.memory.types import (
+    MemoryOperationError,
+    MemoryQuery,
+    MemoryRecord,
+    RetrievalCandidates,
+    Scope,
+    Substrate,
+    require_scope,
+)
 from egpt.utils.dttm import now_epoch_s
 from egpt.utils.log import log_debug, log_warning
 from egpt.vectordb.distance import Distance
@@ -61,6 +69,25 @@ _DRIVER = "postgresql+psycopg"
 #: inside the 50 ms budget. So 256 is the default, and it stays a per-deployment parameter because
 #: the trade it sits on moves with corpus, dimension and hardware.
 _DEFAULT_EF_SEARCH = 256
+
+#: The Postgres text-search configuration the lexical leg indexes and queries with (SM-V3 #97).
+#: ``english`` rather than ``simple`` because stemming is what makes a lexical leg answer a
+#: paraphrase at all, and the exact-identifier case the ticket is written around survives it: the
+#: default parser emits a hyphenated token *and* its parts, so ``ORD-99417-XZ`` is findable whole
+#: and by fragment. Per-deployment, because the right answer is the corpus' language.
+_DEFAULT_TEXT_SEARCH_CONFIG = "english"
+
+#: Saturation constant turning ``ts_rank_cd``'s unbounded output into the ``[0.0, 1.0]`` similarity
+#: the port requires, as ``r / (r + k)``.
+#:
+#: **Strictly increasing in ``r``, which is the load-bearing property** -- it cannot reorder the
+#: list it is applied to, so the ranks a rank-based fusion reads and the magnitudes a weighted one
+#: reads describe the same ordering. ``0.1`` matches the existing convention in
+#: ``PgVector.hybrid_search`` and puts a typical short-document ``ts_rank_cd`` near the middle of
+#: the range. It is **not** a fusion weight: what a fused ranking does with these magnitudes,
+#: including whether they need recalibrating away from a real BM25 leg's distribution, is
+#: SM-H2's (#132).
+_RANK_SATURATION = 0.1
 
 #: Deterministic, server-side failures: the same statement fails the same way on every retry, so
 #: the layers above should stop rather than retry. Transient and transport errors -- a dropped
@@ -160,6 +187,47 @@ def _similar(row: Dict[str, Any]) -> bool:
     return float(distance) < 1.0
 
 
+def _lexical_similarity(rank: float) -> float:
+    """``ts_rank_cd``'s unbounded output as the ``[0.0, 1.0]`` similarity the port requires.
+
+    ``r / (r + k)`` is **strictly increasing**, so it cannot reorder the list it is applied to --
+    see :data:`_RANK_SATURATION`. A negative rank would break that (it maps below zero and, at
+    ``r = -k``, divides by zero), and ``ts_rank_cd`` never returns one, so the clamp costs a
+    comparison and removes the question.
+    """
+    bounded = max(0.0, rank)
+    return bounded / (bounded + _RANK_SATURATION)
+
+
+def _score(row: Dict[str, Any]) -> Optional[float]:
+    """The port's similarity for whichever leg's raw measure this row carries.
+
+    Exactly one of the two is ever selected -- ``distance`` by the vector statement, ``rank`` by the
+    lexical one -- so this is a dispatch, not a merge. ``scan`` selects ``distance`` as ``NULL`` and
+    lands on ``None``, which is the honest answer for an unranked read rather than the ``0.0`` that
+    would read as a perfect match.
+    """
+    rank = row.get("rank")
+    if rank is not None:
+        return _lexical_similarity(float(rank))
+    distance = row.get("distance")
+    return None if distance is None else normalize_score(float(distance), Distance.cosine)
+
+
+def _tiebreak(record: MemoryRecord) -> Tuple[int, str, str]:
+    """How **either** leg orders records its primary measure scores equally.
+
+    One function rather than the same tuple in each ranker, because two legs that break ties
+    differently hand the fusion stage two orderings for one corpus -- and a rank-based fusion reads
+    position, so the disagreement becomes a scoring difference rather than a cosmetic one.
+
+    Never on a UUID: record ids are minted with ``uuid4``, so ordering on one makes two
+    equally-matching memories rank differently per process. ``id`` is last only as the final
+    total-order guarantee, after two content-derived keys have almost always decided it.
+    """
+    return (record.created_at or 0, record.content, record.id)
+
+
 def _vector_literal(embedding: Sequence[float], dim: int, record_id: str) -> str:
     """The pgvector text form, with the width checked **before** the round trip.
 
@@ -197,6 +265,7 @@ class PgVectorMemorySubstrate:
         ef_construction: int = 200,
         ef_search: int = _DEFAULT_EF_SEARCH,
         embedding_version: Optional[str] = None,
+        text_search_config: str = _DEFAULT_TEXT_SEARCH_CONFIG,
         auto_init_schema: bool = True,
     ) -> None:
         resolved_url = db_url or os.getenv("EGPT_MEMORY_PG_URL")
@@ -224,9 +293,13 @@ class PgVectorMemorySubstrate:
             self.schema = sql.identifier(schema, "schema")
             self.table = sql.table_identifier(table)
             self.dim = self._resolved_dim(dim, self.embedder)
+            self.text_search_config = sql.text_search_config(text_search_config)
             sql.ef_search_statement(ef_search)
-            self._schema_statements = sql.schema_statements(self.schema, self.table, self.dim, m, ef_construction)
+            self._schema_statements = sql.schema_statements(
+                self.schema, self.table, self.dim, m, ef_construction, self.text_search_config
+            )
             self._live_schema = sql.live_schema_statements(self.schema, self.table)
+            self._ts_config_probe = sql.text_search_config_probe(self.text_search_config)
         self._engine: Engine = create_engine(self.db_url, pool_pre_ping=True, pool_recycle=3600)
         self._aengine: Optional["AsyncEngine"] = None
         #: Tenants whose partition this process has already created. A cache, never an authority:
@@ -446,10 +519,46 @@ class PgVectorMemorySubstrate:
                     "settings apply only when the index is first created, and rebuilding one is a "
                     "locking operation this backend does not perform."
                 )
+        # Reported, not refused, for the reason the docstring gives: a stale text-search config
+        # still answers correctly, because `to_tsvector` is evaluated at query time either way. What
+        # it stops doing is *matching the index expression*, so the GIN index is skipped and every
+        # lexical read becomes a sequential scan -- a latency cliff with no error anywhere, which is
+        # exactly the kind of silence a readback exists to break.
+        expression = sql.ts_vector_expression(self.text_search_config)
+        for row in read_back[2]:
+            definition = row["definition"] or ""
+            if expression not in definition:
+                log_warning(
+                    f"{row['name']} does not index {expression}; this substrate is configured for "
+                    f"text_search_config={self.text_search_config!r}. Lexical reads stay correct "
+                    "but fall back to a sequential scan, because a functional index is only used "
+                    "when the query repeats its expression exactly. Rebuilding it is a locking "
+                    "operation this backend does not perform."
+                )
+
+    def _reject_unknown_text_search_config(self, probe: List[Dict[str, Any]]) -> None:
+        """Refuse a text-search configuration Postgres does not resolve, **before** the DDL uses it.
+
+        Asked as its own question rather than left to ``CREATE INDEX`` because the two failures are
+        different kinds. This one is a deployment **setting** fault and says so, naming the option;
+        the index creation it would otherwise break reports an ``undefined_object`` from the middle
+        of schema init, mentioning a text-search configuration but not which argument supplied it --
+        and arriving as a ``MemoryOperationError``, which a caller narrowing to
+        ``MemoryProviderConfigError`` for ``field_name`` never sees.
+        """
+        if not probe or not probe[0].get("present"):
+            raise MemoryProviderConfigError(
+                f"text_search_config={self.text_search_config!r} is not a text-search configuration "
+                "this server resolves. 'english' and 'simple' ship with Postgres; a custom one must "
+                "exist and be reachable on the connection's search_path before it can be indexed.",
+                field_name="text_search_config",
+            )
 
     def init_schema(self) -> None:
         """Create the extension, the partitioned parent and its indexes, idempotently."""
+        probe_body, probe_binds = self._ts_config_probe
         with self._translated("schema init"), self._engine.begin() as connection:
+            self._reject_unknown_text_search_config(_rows(connection.execute(text(probe_body), probe_binds)))
             for statement in self._schema_statements:
                 connection.execute(text(statement))
             read_back = [_rows(connection.execute(text(body), binds)) for body, binds in self._live_schema]
@@ -458,8 +567,10 @@ class PgVectorMemorySubstrate:
 
     async def ainit_schema(self) -> None:
         """Async twin of :meth:`init_schema`."""
+        probe_body, probe_binds = self._ts_config_probe
         with self._translated("schema init"):
             async with self._async_engine().begin() as connection:
+                self._reject_unknown_text_search_config(_rows(await connection.execute(text(probe_body), probe_binds)))
                 for statement in self._schema_statements:
                     await connection.execute(text(statement))
                 read_back = [_rows(await connection.execute(text(body), binds)) for body, binds in self._live_schema]
@@ -641,7 +752,6 @@ class PgVectorMemorySubstrate:
         }
 
     def _record(self, row: Dict[str, Any]) -> MemoryRecord:
-        distance = row.get("distance")
         return MemoryRecord(
             id=row["id"],
             tier=MemoryTier(row["tier"]),
@@ -656,8 +766,9 @@ class PgVectorMemorySubstrate:
             # The port's contract is a similarity in [0.0, 1.0], higher better, because the provider
             # *adds* the legs' scores: pgvector's `<=>` is a cosine **distance** where lower is
             # better, so handing it over raw would invert this leg's contribution to the ranking.
-            # `scan` does not rank, and reports no score rather than a fabricated one.
-            score=None if distance is None else normalize_score(float(distance), Distance.cosine),
+            # `_score` dispatches on which leg produced the row; `scan` does not rank, and reports
+            # no score rather than a fabricated one.
+            score=_score(row),
             substrate=Substrate.VECTOR,
             topics=_topics(row.get("topics"), row.get("id")),
             provenance=_from_json(row.get("provenance"), "provenance", row.get("id")),
@@ -689,13 +800,25 @@ class PgVectorMemorySubstrate:
         """
         paired = sorted(
             (pair for pair in zip(rows, records) if _similar(pair[0])),
-            key=lambda pair: (
-                float(pair[0]["distance"]),
-                pair[1].created_at or 0,
-                pair[1].content,
-                pair[1].id,
-            ),
+            key=lambda pair: (float(pair[0]["distance"]), *_tiebreak(pair[1])),
         )
+        return [record for _, record in paired]
+
+    @staticmethod
+    def _lexically_ranked(rows: List[Dict[str, Any]], records: List[MemoryRecord]) -> List[MemoryRecord]:
+        """Order the lexical page deterministically, highest rank first (SM-V3 #97).
+
+        The server already ordered by ``ts_rank_cd`` and applied the ``LIMIT``; this settles ties
+        *inside* the returned page through the same :func:`_tiebreak` the vector leg uses, so the
+        two lists a fusion stage receives cannot disagree about the order of two records neither
+        leg distinguishes.
+
+        **There is no zero-rank cut here, unlike** :meth:`_ranked`. The lexical statement's ``@@``
+        predicate has already removed every non-match -- it has to, because that predicate is what
+        makes the GIN index usable -- so the rows that arrive are matches by construction and a
+        second filter would only be able to remove ones the server said matched.
+        """
+        paired = sorted(zip(rows, records), key=lambda pair: (-float(pair[0]["rank"]), *_tiebreak(pair[1])))
         return [record for _, record in paired]
 
     # -- writes ---------------------------------------------------------------
@@ -708,6 +831,7 @@ class PgVectorMemorySubstrate:
         return checked
 
     def upsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        require_scope(scope, method="upsert")
         if not records:
             return
         checked = self._checked(scope, records)
@@ -717,6 +841,7 @@ class PgVectorMemorySubstrate:
         self._write(sql.upsert_statement(self.schema, self.table), rows)
 
     async def aupsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        require_scope(scope, method="aupsert")
         if not records:
             return
         checked = self._checked(scope, records)
@@ -766,6 +891,7 @@ class PgVectorMemorySubstrate:
         return [(sql.ef_search_statement(self.ef_search), {}), (statement, binds)]
 
     def search(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="search")
         tiers = self._searchable(query, tier)
         if tiers is None:
             return []
@@ -774,12 +900,68 @@ class PgVectorMemorySubstrate:
         return self._ranked(rows, [self._record(row) for row in rows])
 
     async def asearch(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="asearch")
         tiers = self._searchable(query, tier)
         if tiers is None:
             return []
         embedding = await self.embedder.async_get_embedding(query.text)
         rows = (await self._astatements(self._search_call(scope, query, tiers, embedding)))[-1]
         return self._ranked(rows, [self._record(row) for row in rows])
+
+    # -- hybrid candidates (SM-V3 #97) ----------------------------------------
+
+    def _lexical_call(self, scope: Scope, query: MemoryQuery, tiers: List[str]) -> Tuple[str, Dict[str, Any]]:
+        """The lexical statement and its binds. No ``SET LOCAL`` precedes it -- ``hnsw.ef_search``
+        tunes the vector index and means nothing to GIN."""
+        statement, binds = sql.lexical_search_statement(self.schema, self.table, scope, self.text_search_config)
+        binds.update({"tiers": tiers, "limit": query.limit, "query_text": query.text})
+        return statement, binds
+
+    def _lexical(self, rows: List[Dict[str, Any]]) -> List[MemoryRecord]:
+        return self._lexically_ranked(rows, [self._record(row) for row in rows])
+
+    def search_candidates(
+        self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
+    ) -> RetrievalCandidates:
+        """Both ranked legs, unfused -- :class:`~egpt.memory.substrates.HybridSearchSubstrate`.
+
+        The legs are issued as **separate statements in one transaction**, not as a single query
+        with two ranking expressions. A combined statement would have to pick one ``ORDER BY``, and
+        whichever it picked would make the other leg's ``LIMIT`` mean "the top N by the wrong
+        measure" -- which is how a hybrid query silently becomes a filtered version of one leg.
+
+        ``query.limit`` bounds each leg independently; over-fetching to give fusion more depth is
+        SM-H2's (#132) policy, not this store's.
+        """
+        require_scope(scope, method="search_candidates")
+        tiers = self._searchable(query, tier)
+        if tiers is None:
+            return RetrievalCandidates()
+        embedding = self.embedder.get_embedding(query.text)
+        results = self._statements(
+            [*self._search_call(scope, query, tiers, embedding), self._lexical_call(scope, query, tiers)]
+        )
+        return RetrievalCandidates(
+            vector=self._ranked(results[-2], [self._record(row) for row in results[-2]]),
+            lexical=self._lexical(results[-1]),
+        )
+
+    async def asearch_candidates(
+        self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None
+    ) -> RetrievalCandidates:
+        """Async twin of :meth:`search_candidates`, making the same decisions in the same order."""
+        require_scope(scope, method="asearch_candidates")
+        tiers = self._searchable(query, tier)
+        if tiers is None:
+            return RetrievalCandidates()
+        embedding = await self.embedder.async_get_embedding(query.text)
+        results = await self._astatements(
+            [*self._search_call(scope, query, tiers, embedding), self._lexical_call(scope, query, tiers)]
+        )
+        return RetrievalCandidates(
+            vector=self._ranked(results[-2], [self._record(row) for row in results[-2]]),
+            lexical=self._lexical(results[-1]),
+        )
 
     @staticmethod
     def _scan_call(
@@ -797,12 +979,14 @@ class PgVectorMemorySubstrate:
         return statement, binds
 
     def scan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="scan")
         call = self._scan_call(self.schema, self.table, scope, tier, limit)
         if call is None:
             return []
         return [self._record(row) for row in self._statements([call])[0]]
 
     async def ascan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="ascan")
         call = self._scan_call(self.schema, self.table, scope, tier, limit)
         if call is None:
             return []

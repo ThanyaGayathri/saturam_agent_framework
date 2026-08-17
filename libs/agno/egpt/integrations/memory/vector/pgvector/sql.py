@@ -23,7 +23,7 @@ interpolated unescaped; hand-rolled quoting is one review round from being right
 from hashlib import md5
 from typing import Any, Dict, List, Optional, Tuple
 
-from egpt.memory.types import Scope
+from egpt.memory.types import Scope, require_scope
 
 __all__ = [
     "COLUMNS",
@@ -268,7 +268,15 @@ def scope_predicate(scope: Scope, alias: str = "") -> Tuple[str, Dict[str, Any]]
     ``tenant_id`` always, plus every other slot the scope **sets**; an unset slot means "any" and
     contributes no predicate. Returned as a fragment plus binds rather than as formatted SQL, so a
     slot value can never reach the statement text.
+
+    The SM-C4 (#92) guard runs here as well as at the port methods, and the redundancy is the
+    point: the port methods guard *early*, before an embedding call is spent, while this one is
+    what a **statement added later** inherits without anyone remembering. Every row-reading
+    statement in this module is built from this function -- that is the module docstring's stated
+    invariant -- so a guard here cannot be routed around by a new one. ``require_scope`` returns
+    the same object and is idempotent, so paying for it twice costs a type check.
     """
+    require_scope(scope, method="scope_predicate")
     prefix = f"{alias}." if alias else ""
     clauses = [f"{prefix}tenant_id = :tenant_id"]
     binds: Dict[str, Any] = {"tenant_id": scope.tenant_id}

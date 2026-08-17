@@ -47,6 +47,7 @@ __all__ = [
     "MemorySlice",
     "PartialWriteError",
     "require_scope",
+    "RetrievalCandidates",
     "SCOPE_SLOTS",
     "Scope",
     "Substrate",
@@ -584,6 +585,42 @@ class MemoryQuery:
         that looks like a miss.
         """
         return PERSISTENT_TIERS if self.tiers is None else tuple(self.tiers)
+
+
+@dataclass(frozen=True)
+class RetrievalCandidates:
+    """One store's ranked candidate lists, **one list per retrieval leg and deliberately unfused**
+    (SM-V3 #97).
+
+    Why the lists stay apart. Fusing them inside the store would hand the fusion stage a single
+    ranking and no way to reconstruct the per-leg ranks it needs -- which is the whole complaint
+    against ``PgVector.hybrid_search``, whose weighted blend is computed in SQL and returned as one
+    ``similarity_score``. Rank-based fusion cannot be recovered from a blended score, and neither
+    can a *re-weighted* blend, so a caller that wanted either had to re-run both searches.
+
+    Which method fuses these is **not decided here and not decided by the store**. ADR 0003 section
+    A.6 ratifies weighted / relative-score fusion for this two-leg case and holds the three-leg
+    (+graph) choice open, gated on SM-G9 (#107); implementing either is SM-H2's (#132).
+
+    Every record's ``score`` obeys the same contract as ``VectorSubstrate.search`` -- a similarity
+    in ``[0.0, 1.0]``, higher is better. A leg whose native measure is a distance or an unbounded
+    rank converts it, and must do so **monotonically**, so that the conversion cannot reorder its
+    own list: rank-based fusion reads position and score-based fusion reads magnitude, and a
+    non-monotone squash would quietly disagree with itself between the two.
+    """
+
+    vector: List[MemoryRecord] = field(default_factory=list)
+    lexical: List[MemoryRecord] = field(default_factory=list)
+
+    def legs(self) -> Dict[str, List[MemoryRecord]]:
+        """The lists keyed by leg name, so a consumer iterates legs rather than field names.
+
+        SM-R8 requires the fusion implementations to be N-leg-capable rather than hardcoded to two
+        (its ``RRFFusion`` / ``WeightedFusion`` already are). A consumer written against ``.vector``
+        and ``.lexical`` by name is hardcoded to two whatever the fusion function can take, and the
+        graph leg (SM-G9 #107) is the third that is already scheduled to arrive.
+        """
+        return {"vector": self.vector, "lexical": self.lexical}
 
 
 #: Keys every provider must put in ``MemorySlice.fusion``, whatever it does internally.
