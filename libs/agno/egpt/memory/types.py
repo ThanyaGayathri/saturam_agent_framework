@@ -51,6 +51,7 @@ __all__ = [
     "Scope",
     "Substrate",
     "TemporalBounds",
+    "ValidWindow",
     "WRITE_KEYS",
     "write_details",
     "WriteReceipt",
@@ -314,6 +315,43 @@ class TemporalBounds:
     superseded_by: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class ValidWindow:
+    """A half-open valid-time window ``[valid_from, valid_to)``, and the overlap rule for it.
+
+    The rule lives here, once, because SM-V4 (#98) applies it in two encodings: the vector
+    substrate pushes it into SQL so it narrows *before* ``LIMIT``, and the provider re-applies it
+    to the merged set after the graph's authoritative bounds land. Two encodings of one rule is
+    how a filter comes to mean different things per leg, so
+    ``tests/unit/memory/test_valid_window.py`` drives both over the same case table.
+
+    ``None`` is open at that end, on the window and on the record alike -- the same convention the
+    point predicate already used, so a point read is the degenerate window ``[at, at + 1)`` rather
+    than a second rule that happens to agree.
+    """
+
+    valid_from: Optional[int] = None
+    valid_to: Optional[int] = None
+
+    @classmethod
+    def at(cls, instant: int) -> "ValidWindow":
+        """The window a point-in-time read is: ``[instant, instant + 1)``."""
+        return cls(valid_from=instant, valid_to=instant + 1)
+
+    def overlaps(self, t_valid: Optional[int], t_invalid: Optional[int]) -> bool:
+        """Whether record interval ``[t_valid, t_invalid)`` intersects this window.
+
+        Both ends are checked. Testing only ``t_invalid`` lets a future-dated record answer about
+        the past, which is the defect the point predicate carried a comment about before this
+        generalised it.
+        """
+        if self.valid_to is not None and t_valid is not None and t_valid >= self.valid_to:
+            return False
+        if self.valid_from is not None and t_invalid is not None and t_invalid <= self.valid_from:
+            return False
+        return True
+
+
 @dataclass
 class MemoryRecord:
     """One memory item as the seam returns it -- a read-projection, not a schema.
@@ -498,6 +536,13 @@ class MemoryQuery:
     has wired. ``as_of`` requests a point-in-time read and is enforced on the **fused** result set,
     not per-substrate -- the vector substrate has no notion of validity, so filtering it there
     lets an invalidated fact leak back in through the other leg (finding F2).
+
+    ``valid_from`` / ``valid_to`` narrow to records whose valid time **overlaps** the half-open
+    window (SM-V4 #98), and are a different question from ``as_of``. ``as_of`` asks what was
+    believed true at one instant and is answered on the merged set because only the graph is
+    authoritative about it; a window asks which records are candidates at all, so a substrate
+    applies it in its own ``WHERE`` clause. Applying it after ``limit`` would return a short page
+    for the same reason over-fetching cannot fix the ``as_of`` residual -- SM-V4 decision D1.
     """
 
     text: str
@@ -505,8 +550,16 @@ class MemoryQuery:
     substrates: Optional[Sequence[Substrate]] = None
     limit: int = 10
     as_of: Optional[int] = None  # point-in-time read (epoch s, SM-R10)
+    valid_from: Optional[int] = None  # inclusive epoch s, SM-V4
+    valid_to: Optional[int] = None  # exclusive epoch s, SM-V4
     #: Reserved. See ``__post_init__`` -- a non-empty value is refused rather than ignored.
     filters: Optional[Dict[str, Any]] = None
+
+    def window(self) -> Optional["ValidWindow"]:
+        """The requested valid-time window, or ``None`` when neither bound is set."""
+        if self.valid_from is None and self.valid_to is None:
+            return None
+        return ValidWindow(valid_from=self.valid_from, valid_to=self.valid_to)
 
     def __post_init__(self) -> None:
         self.as_of = _epoch_or_none(self.as_of)
@@ -530,6 +583,33 @@ class MemoryQuery:
         # question, it is one no record can satisfy, so the read returns empty and looks like a miss.
         if self.as_of is not None and self.as_of < 0:
             raise ValueError(f"MemoryQuery.as_of must be a non-negative epoch second, got {self.as_of!r}.")
+
+        self.valid_from = _epoch_or_none(self.valid_from)
+        self.valid_to = _epoch_or_none(self.valid_to)
+        for bound_name, bound in (("valid_from", self.valid_from), ("valid_to", self.valid_to)):
+            if bound is not None and bound < 0:
+                raise ValueError(f"MemoryQuery.{bound_name} must be a non-negative epoch second, got {bound!r}.")
+        # Half-open, so an empty window is `valid_from == valid_to` and not merely `>`. A caller
+        # computing both ends from one timestamp lands on it, and an empty window overlaps nothing:
+        # the read comes back empty and reads as "no such memories" rather than as a bad request.
+        if self.valid_from is not None and self.valid_to is not None and self.valid_from >= self.valid_to:
+            raise ValueError(
+                f"MemoryQuery valid-time window [{self.valid_from}, {self.valid_to}) is empty, so no "
+                "record can overlap it and the read would return nothing rather than fail. The "
+                "window is half-open: valid_to must be strictly greater than valid_from."
+            )
+        # One valid-time question per read. A provider applies whichever is set as *the* valid-time
+        # filter, so accepting both would mean intersecting them -- and a caller who wanted the
+        # intersection can write it as one window. Refused rather than intersected because the two
+        # read as independent knobs: `as_of=<last year>` with a window around today looks like two
+        # narrowings and is in fact empty, which would come back as a plain miss.
+        if self.as_of is not None and (self.valid_from is not None or self.valid_to is not None):
+            raise ValueError(
+                f"MemoryQuery sets both as_of ({self.as_of}) and a valid-time window "
+                f"[{self.valid_from}, {self.valid_to}). Both filter valid time, so a provider would "
+                "have to intersect them and an empty intersection returns a plain miss. Ask one "
+                "question: as_of for a point in time, valid_from/valid_to for a range."
+            )
 
         # Element types, for the same reason `MemoryRecord` checks `tier` and `scope`: a bad member
         # otherwise dies three frames down, and the two collections failed *differently* --
@@ -600,6 +680,7 @@ FUSION_KEYS = (
     "returned",
     "dropped_by_validity",
     "dropped_as_superseded",
+    "dropped_outside_window",
     "bounds_reconciled",
 )
 
@@ -612,6 +693,7 @@ def fusion_diagnostics(
     returned: int = 0,
     dropped_by_validity: int = 0,
     dropped_as_superseded: int = 0,
+    dropped_outside_window: int = 0,
     bounds_reconciled: bool = False,
     **extra: Any,
 ) -> Dict[str, Any]:
@@ -635,6 +717,9 @@ def fusion_diagnostics(
         # vector projection had. A provider with no graph reports False and zeros, which is honest.
         "dropped_by_validity": dropped_by_validity,
         "dropped_as_superseded": dropped_as_superseded,
+        # In the floor for the same reason as its two neighbours: a provider that cannot honour a
+        # valid-time window refuses the read, so a zero here is a real zero and never "unknown".
+        "dropped_outside_window": dropped_outside_window,
         "bounds_reconciled": bounds_reconciled,
     }
     diagnostics.update(extra)

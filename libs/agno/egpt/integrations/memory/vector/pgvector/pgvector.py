@@ -29,7 +29,7 @@ from egpt.integrations.memory.vector.pgvector import sql
 from egpt.knowledge.embedder import Embedder
 from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryOperationError, MemoryQuery, MemoryRecord, Scope, Substrate
+from egpt.memory.types import MemoryOperationError, MemoryQuery, MemoryRecord, Scope, Substrate, require_scope
 from egpt.utils.dttm import now_epoch_s
 from egpt.utils.log import log_debug, log_warning
 from egpt.vectordb.distance import Distance
@@ -708,6 +708,7 @@ class PgVectorMemorySubstrate:
         return checked
 
     def upsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        require_scope(scope, method="upsert")
         if not records:
             return
         checked = self._checked(scope, records)
@@ -717,6 +718,7 @@ class PgVectorMemorySubstrate:
         self._write(sql.upsert_statement(self.schema, self.table), rows)
 
     async def aupsert(self, scope: Scope, records: Sequence[MemoryRecord]) -> None:
+        require_scope(scope, method="aupsert")
         if not records:
             return
         checked = self._checked(scope, records)
@@ -755,7 +757,7 @@ class PgVectorMemorySubstrate:
         reporting recall and p95 together, because SM-R3 shows only that a higher ``ef`` narrows
         the gap at some latency cost -- not that it closes.
         """
-        statement, binds = sql.search_statement(self.schema, self.table, scope)
+        statement, binds = sql.search_statement(self.schema, self.table, scope, query.window())
         binds.update(
             {
                 "tiers": tiers,
@@ -766,6 +768,7 @@ class PgVectorMemorySubstrate:
         return [(sql.ef_search_statement(self.ef_search), {}), (statement, binds)]
 
     def search(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="search")
         tiers = self._searchable(query, tier)
         if tiers is None:
             return []
@@ -774,6 +777,7 @@ class PgVectorMemorySubstrate:
         return self._ranked(rows, [self._record(row) for row in rows])
 
     async def asearch(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="asearch")
         tiers = self._searchable(query, tier)
         if tiers is None:
             return []
@@ -797,12 +801,14 @@ class PgVectorMemorySubstrate:
         return statement, binds
 
     def scan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="scan")
         call = self._scan_call(self.schema, self.table, scope, tier, limit)
         if call is None:
             return []
         return [self._record(row) for row in self._statements([call])[0]]
 
     async def ascan(self, scope: Scope, tier: MemoryTier, limit: Optional[int] = None) -> List[MemoryRecord]:
+        require_scope(scope, method="ascan")
         call = self._scan_call(self.schema, self.table, scope, tier, limit)
         if call is None:
             return []

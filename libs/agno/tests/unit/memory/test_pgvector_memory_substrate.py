@@ -22,7 +22,14 @@ from egpt.integrations.memory.vector.pgvector import pgvector as module
 from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.substrates import VectorSubstrate
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryOperationError, MemoryRecord, Scope, Substrate
+from egpt.memory.types import (
+    MemoryOperationError,
+    MemoryQuery,
+    MemoryRecord,
+    MemoryScopeRequiredError,
+    Scope,
+    Substrate,
+)
 
 DIM = 8
 URL = "postgresql+psycopg://ai:secret@localhost:5532/ai"
@@ -456,3 +463,95 @@ def test_a_ranked_row_without_a_distance_is_refused_rather_than_ranked_first():
     float; refused by name so a future caller finds the contract instead of the misranking."""
     with pytest.raises(MemoryOperationError, match="carries no distance"):
         module._similar({"id": "e1"})
+
+
+# -- the entry guard, and the valid-time window (SM-V4 #98) -------------------
+
+
+#: The port methods that reach stored rows. ``ensure_partition`` takes a tenant id rather than a
+#: ``Scope``, so it is not one of these.
+SCOPED_METHODS = ("upsert", "aupsert", "search", "asearch", "scan", "ascan")
+
+
+def _invoke(substrate, name, scope):
+    query = MemoryQuery(text="a memory")
+    if name.endswith("upsert"):
+        args = (scope, [record()])
+    elif name.endswith("scan"):
+        args = (scope, MemoryTier.EPISODIC)
+    else:
+        args = (scope, query)
+    call = getattr(substrate, name)(*args)
+    return asyncio.run(call) if name.startswith("a") else call
+
+
+@pytest.mark.parametrize("name", SCOPED_METHODS)
+@pytest.mark.parametrize("unscoped", [None, "acme", {"tenant_id": "acme"}, object()])
+def test_every_scoped_port_method_refuses_an_unscoped_call(substrate, name, unscoped):
+    """SM-C4's rule, discharged here rather than left to ``sql.scope_predicate`` (SM-V4 #98, AC 2).
+
+    The port states this as "the first statement of every method", and until now this backend
+    relied on the predicate builder alone -- which is enough only while every method routes through
+    it. ``CoLocatedMemoryProvider.vector`` is a public attribute, so the seam is not the last line,
+    and ``search`` returns ``[]`` before touching SQL for an empty query or a zero limit: on that
+    path a bad scope reached no builder at all and the call succeeded.
+    """
+    with pytest.raises(MemoryScopeRequiredError) as excinfo:
+        _invoke(substrate, name, unscoped)
+    assert excinfo.value.verb == name
+
+
+@pytest.mark.parametrize("half", ["search", "asearch"])
+def test_the_guard_runs_before_the_short_circuit_that_costs_no_round_trip(substrate, half):
+    """The guard must not sit behind an early return.
+
+    ``search`` answers a blank query or a zero limit without touching SQL, so on that path a bad
+    scope reaches no predicate builder. A guard placed after the check would let through exactly
+    the calls that never see one.
+    """
+    blank = MemoryQuery(text="   ", limit=0)
+    with pytest.raises(MemoryScopeRequiredError):
+        call = getattr(substrate, half)(None, blank)
+        asyncio.run(call) if half.startswith("a") else call
+
+
+@pytest.mark.parametrize("name", ["upsert", "aupsert"])
+def test_an_empty_batch_is_still_scope_checked(substrate, name):
+    """Same shape on the write half: ``upsert`` returns early for an empty batch, and a caller
+    passing a bad scope should hear about it then rather than on the first non-empty call."""
+    with pytest.raises(MemoryScopeRequiredError):
+        call = getattr(substrate, name)(None, [])
+        asyncio.run(call) if name.startswith("a") else call
+
+
+@pytest.mark.parametrize("half", ["search", "asearch"])
+def test_both_halves_send_the_window_to_the_same_statement(substrate, half):
+    """The async twin must build the same SQL, not merely exist. Captured at the statement layer,
+    because the two halves reach the database through different engines."""
+    captured = []
+    substrate._statements = lambda statements: captured.append(statements) or [[]]
+
+    async def _acapture(statements):
+        captured.append(statements)
+        return [[]]
+
+    substrate._astatements = _acapture
+
+    query = MemoryQuery(text="a memory", valid_from=400, valid_to=600)
+    call = getattr(substrate, half)(ACME, query)
+    asyncio.run(call) if half.startswith("a") else call
+
+    statement, binds = captured[0][-1]
+    assert "(t_valid IS NULL OR t_valid < :valid_to)" in statement
+    assert "(t_invalid IS NULL OR t_invalid > :valid_from)" in statement
+    assert binds["valid_from"] == 400 and binds["valid_to"] == 600
+
+
+def test_an_unwindowed_search_sends_no_window_binds(substrate):
+    """A window synthesised from ``now`` would narrow every plain read to the present."""
+    captured = []
+    substrate._statements = lambda statements: captured.append(statements) or [[]]
+    substrate.search(ACME, MemoryQuery(text="a memory"))
+    statement, binds = captured[0][-1]
+    assert ":valid_from" not in statement and ":valid_to" not in statement
+    assert "valid_from" not in binds and "valid_to" not in binds

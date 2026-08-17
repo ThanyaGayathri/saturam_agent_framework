@@ -44,11 +44,11 @@ from egpt.memory.types import (
     MemorySlice,
     PartialWriteError,
     Scope,
-    require_scope,
     Substrate,
     WriteReceipt,
     consolidation_details,
     fusion_diagnostics,
+    require_scope,
     write_details,
 )
 from egpt.memory.validation import reject_duplicate_ids, reject_foreign_scopes
@@ -524,6 +524,22 @@ class SeedMemoryProvider(MemoryProvider):
                 field_name="as_of",
             )
 
+    def _reject_window(self, query: MemoryQuery) -> None:
+        """Refuse a valid-time window, for the reason ``as_of`` is refused (SM-V4 #98).
+
+        Separate from :meth:`_reject_as_of` so the error names the field the caller actually set;
+        a message about ``as_of`` sends someone reading it to the wrong argument.
+        """
+        if query.window() is None:
+            return
+        field = "valid_from" if query.valid_from is not None else "valid_to"
+        raise MemoryOperationError(
+            "The seed provider cannot narrow a read to a valid-time window: UserMemory and the "
+            "learn stores carry no valid-time columns, so the window would be ignored and the "
+            "whole store returned as if it fell inside. Bi-temporal storage is SM-C3's (#91).",
+            field_name=field,
+        )
+
     def _guard_read(self, scope: Scope, query: MemoryQuery) -> None:
         """Every read guard, up front -- so they apply even when no tier is served.
 
@@ -532,6 +548,7 @@ class SeedMemoryProvider(MemoryProvider):
         """
         self._guard_tenant(scope)
         self._reject_as_of(query)
+        self._reject_window(query)
         self._reject_unservable_substrates(query)
 
     def _reject_unserved(self, tier: MemoryTier) -> None:

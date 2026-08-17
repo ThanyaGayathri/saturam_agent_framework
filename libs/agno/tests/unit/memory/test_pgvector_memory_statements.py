@@ -15,12 +15,13 @@ from dataclasses import fields
 import pytest
 
 from egpt.integrations.memory.vector.pgvector import sql
-from egpt.memory.types import Scope
+from egpt.memory.types import Scope, ValidWindow
 
 FULL = Scope(tenant_id="acme", agent_id="ag", user_id="ada", team_id="tm", session_id="se")
 TENANT_ONLY = Scope(tenant_id="acme")
 #: Values that cannot appear inside a column name. ``agent_id`` contains ``ag`` and ``session_id``
 #: contains ``se``, so a leak test written against :data:`FULL` passes on the column list alone.
+WINDOW = ValidWindow(valid_from=100, valid_to=900)
 UNMISTAKABLE = Scope(
     tenant_id="zztenantzz",
     agent_id="zzagentzz",
@@ -38,7 +39,14 @@ def row_reading_statements(scope):
     ``test_every_row_reading_builder_is_covered``.
     """
     return {
-        "search": sql.search_statement("ai", "memory_vectors", scope)[0],
+        "search": sql.search_statement("ai", "memory_vectors", scope, None)[0],
+        # The windowed spelling is a separate entry rather than a replacement: SM-V4 (#98) adds a
+        # second `WHERE` shape to the same builder, and a scope predicate dropped on only one of
+        # them is exactly the "missing on the statement nobody exercised" defect this file exists
+        # for.
+        "search_windowed": sql.search_statement("ai", "memory_vectors", scope, WINDOW)[0],
+        "search_open_start": sql.search_statement("ai", "memory_vectors", scope, ValidWindow(valid_to=900))[0],
+        "search_open_end": sql.search_statement("ai", "memory_vectors", scope, ValidWindow(valid_from=100))[0],
         "scan": sql.scan_statement("ai", "memory_vectors", scope, 10)[0],
         "scan_unlimited": sql.scan_statement("ai", "memory_vectors", scope, None)[0],
     }
@@ -111,7 +119,7 @@ def test_search_filters_current_belief_before_the_limit():
     Filtering afterwards lets a page of superseded rows consume the whole limit and return a short
     page of nothing -- the port states it for exactly this reason.
     """
-    statement, _ = sql.search_statement("ai", "memory_vectors", FULL)
+    statement, _ = sql.search_statement("ai", "memory_vectors", FULL, None)
     where, order = statement.split("ORDER BY")
     assert "expired_at IS NULL" in where
     assert "LIMIT" in order and "expired_at" not in order
@@ -136,7 +144,7 @@ def test_search_orders_by_the_distance_operator_alone():
     sequential scan -- SM-R3 Finding 3's failure, arriving through the ``ORDER BY``. Determinism is
     applied to the returned page instead, where it costs nothing.
     """
-    _, order = sql.search_statement("ai", "memory_vectors", FULL)[0].split("ORDER BY")
+    _, order = sql.search_statement("ai", "memory_vectors", FULL, None)[0].split("ORDER BY")
     assert order.strip().startswith("embedding <=> CAST(:query_embedding AS vector)")
     assert "," not in order.split("LIMIT")[0]
 
@@ -299,3 +307,86 @@ def test_the_slot_list_matches_the_scope_it_filters_on():
     stated once and compared, and adding a slot fails here until the migration is decided.
     """
     assert sql.SCOPE_SLOTS == tuple(f.name for f in fields(Scope))
+
+
+# -- the valid-time window (SM-V4 #98) ----------------------------------------
+
+
+def test_the_window_narrows_inside_the_where_clause_and_not_after_the_limit():
+    """SM-V4 decision D1: a window applied after ``LIMIT`` returns a short page, not a filtered one.
+
+    Same argument as ``expired_at IS NULL`` above -- out-of-window rows would consume the whole
+    limit, and no over-fetch multiplier is correct.
+    """
+    statement, _ = sql.search_statement("ai", "memory_vectors", FULL, WINDOW)
+    where, order = statement.split("ORDER BY")
+    assert "(t_valid IS NULL OR t_valid < :valid_to)" in where
+    assert "(t_invalid IS NULL OR t_invalid > :valid_from)" in where
+    assert "t_valid" not in order and "t_invalid" not in order
+
+
+def test_a_search_with_no_window_emits_no_window_clause_and_binds_nothing_for_it():
+    """A bind the statement does not name is dead weight, and a clause the caller did not ask for
+    narrows a read that should be wide."""
+    statement, binds = sql.search_statement("ai", "memory_vectors", FULL, None)
+    assert ":valid_from" not in statement and ":valid_to" not in statement
+    assert "valid_from" not in binds and "valid_to" not in binds
+
+
+@pytest.mark.parametrize(
+    ("window", "expected"),
+    [
+        (ValidWindow(valid_from=100), {"valid_from"}),
+        (ValidWindow(valid_to=900), {"valid_to"}),
+        (ValidWindow(valid_from=100, valid_to=900), {"valid_from", "valid_to"}),
+        (None, set()),
+    ],
+)
+def test_the_window_predicate_binds_exactly_the_bounds_it_names(window, expected):
+    """An open end contributes no predicate, for the same reason an unset scope slot does not:
+    ``t_invalid IS NULL`` as a filter would hide every still-valid record."""
+    clause, binds = sql.window_predicate(window)
+    assert set(binds) == expected
+    for bound in expected:
+        assert f":{bound}" in clause
+    for absent in {"valid_from", "valid_to"} - expected:
+        assert f":{absent}" not in clause
+
+
+def test_an_unset_record_bound_passes_the_window():
+    """``NULL`` is open at that end, matching ``ValidWindow.overlaps``. Excluding it instead would
+    silently drop every record whose valid time was never stamped."""
+    clause, _ = sql.window_predicate(WINDOW)
+    assert "t_valid IS NULL OR" in clause
+    assert "t_invalid IS NULL OR" in clause
+
+
+def test_the_search_where_clause_is_exactly_what_search_predicate_builds():
+    """SM-V3 (#97) adds a BM25 leg and a fused one to this module. A statement that assembles its
+    own ``WHERE`` is filtered correctly the day it is written and one slot short the next time a
+    slot is added, so composing is the thing under test -- not the resulting string.
+    """
+    predicate, predicate_binds = sql.search_predicate(FULL, WINDOW)
+    statement, binds = sql.search_statement("ai", "memory_vectors", FULL, WINDOW)
+    where = statement.split("WHERE", 1)[1].split("ORDER BY")[0].strip()
+    assert where == predicate
+    assert binds == predicate_binds
+
+
+def test_the_search_predicate_carries_scope_tier_and_current_belief_even_with_no_window():
+    """The composed predicate is the floor for a ranked read; a window is the only optional part."""
+    predicate, _ = sql.search_predicate(FULL, None)
+    for slot in sql.SCOPE_SLOTS:
+        assert f"{slot} = :{slot}" in predicate, slot
+    assert "tier = ANY(CAST(:tiers AS text[]))" in predicate
+    assert "expired_at IS NULL" in predicate
+
+
+def test_scan_takes_no_window_because_an_enumeration_is_not_narrowed():
+    """The same asymmetry ``scan`` already has with current belief: a consolidation pass that
+    silently skipped out-of-window episodes would report a drained tier it never fully read."""
+    from inspect import signature
+
+    assert "window" not in signature(sql.scan_statement).parameters
+    statement, _ = sql.scan_statement("ai", "memory_vectors", FULL, 10)
+    assert ":valid_from" not in statement and ":valid_to" not in statement

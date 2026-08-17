@@ -28,7 +28,14 @@ from egpt.integrations.memory.vector.pgvector import PgVectorMemorySubstrate, sq
 from egpt.memory.config import MemoryProviderConfigError  # noqa: E402
 from egpt.memory.substrates import VectorSubstrate  # noqa: E402
 from egpt.memory.tiers import MemoryTier  # noqa: E402
-from egpt.memory.types import MemoryOperationError, MemoryQuery, MemoryRecord, Scope, Substrate  # noqa: E402
+from egpt.memory.types import (  # noqa: E402
+    MemoryOperationError,
+    MemoryQuery,
+    MemoryRecord,
+    MemoryScopeRequiredError,
+    Scope,
+    Substrate,
+)
 from tests.unit.memory._fakes import FakeVector  # noqa: E402
 
 DIM = 64
@@ -489,3 +496,63 @@ def test_changed_index_options_are_reported_and_not_refused(store, caplog):
         rebuilt = PgVectorMemorySubstrate(db_url=_url(), embedder=TokenEmbedder(), table=TABLE, m=32)
     rebuilt.close()
     assert any("m=16" in record.message and "m=32" in record.message for record in caplog.records), caplog.text
+
+
+# -- SM-V4 (#98): the valid-time window, against a real engine ----------------
+
+
+def test_the_window_narrows_against_a_real_engine(any_store):
+    """AC 1, proved by Postgres rather than by the emitted string.
+
+    The unit suite checks the SQL text and the Python rule agree; only a real engine confirms the
+    predicate means what both think it does once psycopg has bound the parameters.
+    """
+    any_store.upsert(
+        ACME,
+        [
+            record("old", "the cat sat on the mat", t_valid=100, t_invalid=200),
+            record("new", "the cat sat on the mat", t_valid=500),
+        ],
+    )
+    hits = any_store.search(ACME, MemoryQuery(text="cat mat", limit=5, valid_from=400, valid_to=600))
+    assert [hit.id for hit in hits] == ["new"]
+
+
+def test_the_window_is_applied_before_the_limit(any_store):
+    """SM-V4 decision D1, the property post-filtering fails.
+
+    Five out-of-window rows share the in-window row's content, so any of them may rank first. With
+    ``limit=1`` a backend that filtered after the page came back returns nothing at least five
+    times in six; one that filters in the ``WHERE`` clause returns the wanted row every time.
+    """
+    any_store.upsert(
+        ACME,
+        [record(f"old{n}", "the cat sat on the mat", t_valid=100, t_invalid=200) for n in range(5)]
+        + [record("wanted", "the cat sat on the mat", t_valid=500)],
+    )
+    hits = any_store.search(ACME, MemoryQuery(text="cat mat", limit=1, valid_from=400, valid_to=600))
+    assert [hit.id for hit in hits] == ["wanted"]
+
+
+def test_a_null_valid_time_passes_the_window(any_store):
+    """``NULL`` is open at that end, matching ``ValidWindow.overlaps``. Three-valued logic is the
+    one place the SQL could disagree with the Python rule, so it is asserted on the engine."""
+    any_store.upsert(ACME, [record("unstamped", "the cat sat on the mat")])
+    hits = any_store.search(ACME, MemoryQuery(text="cat mat", limit=5, valid_from=400, valid_to=600))
+    assert [hit.id for hit in hits] == ["unstamped"]
+
+
+def test_a_windowed_search_cannot_reach_another_tenant(any_store):
+    """AC 2. The window is an additional predicate; a backend that replaced the scope clause with it
+    would pass every single-tenant window test in this file."""
+    any_store.upsert(GLOBEX, [record("theirs", "the cat sat on the mat", scope=GLOBEX, t_valid=500)])
+    any_store.upsert(ACME, [record("ours", "the cat sat on the mat", t_valid=500)])
+    hits = any_store.search(ACME, MemoryQuery(text="cat mat", limit=5, valid_from=400, valid_to=600))
+    assert [hit.id for hit in hits] == ["ours"]
+
+
+def test_an_unscoped_search_is_refused_before_it_reaches_the_engine(any_store):
+    """AC 2 at the source. ``CoLocatedMemoryProvider.vector`` is public, so the seam's guard is not
+    the last line -- the port asks a backend to guard its own entry points."""
+    with pytest.raises(MemoryScopeRequiredError):
+        any_store.search(None, MemoryQuery(text="cat mat", limit=5))

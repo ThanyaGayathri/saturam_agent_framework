@@ -50,11 +50,12 @@ from egpt.memory.types import (
     MemorySlice,
     PartialWriteError,
     Scope,
-    require_scope,
     Substrate,
+    ValidWindow,
     WriteReceipt,
     consolidation_details,
     fusion_diagnostics,
+    require_scope,
 )
 from egpt.memory.validation import assert_scope_isolation, reject_duplicate_ids, reject_foreign_scopes
 from egpt.utils.dttm import now_epoch_s
@@ -103,15 +104,19 @@ def _jaccard(left: Set[str], right: Set[str]) -> float:
 
 
 def _valid_at(record: MemoryRecord, at: int) -> bool:
-    """``t_valid <= at < t_invalid``, with ``None`` open at either end.
+    """``t_valid <= at < t_invalid``, with ``None`` open at either end."""
+    return _overlaps(record, ValidWindow.at(at))
 
-    Both bounds: checking only ``t_invalid`` lets a future-dated record answer about the past.
+
+def _overlaps(record: MemoryRecord, window: ValidWindow) -> bool:
+    """Whether the record's valid time meets ``window``.
+
+    The rule itself is :meth:`ValidWindow.overlaps`, shared with the SQL the vector substrate
+    emits (SM-V4 #98). It runs again here because the substrate filtered on its own **stale**
+    projection of the bounds: ``_reconcile_bounds`` overwrites them from the graph immediately
+    before this, and a window decided on pre-reconciliation bounds is decided on the wrong ones.
     """
-    if record.t_valid is not None and record.t_valid > at:
-        return False
-    if record.t_invalid is not None and record.t_invalid <= at:
-        return False
-    return True
+    return window.overlaps(record.t_valid, record.t_invalid)
 
 
 def _merge(legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
@@ -577,7 +582,17 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # the successor row carries a past `t_invalid` with `expired_at = None` -- so checking only
         # current belief let `read()` and `read(as_of=now)` disagree at the same instant.
         current = [r for r in merged if r.is_current_belief()]
-        visible = [r for r in current if _valid_at(r, instant)]
+        # A window **replaces** the point predicate rather than stacking with it: they are two
+        # spellings of one axis, and intersecting them empties every read about the past, since
+        # `instant` is the present whenever `as_of` is unset. `MemoryQuery` refuses both at once,
+        # so this is a choice between two given filters and never a merge of them (SM-V4 #98).
+        #
+        # Re-run here on the reconciled bounds even though the substrate already narrowed: the
+        # substrate filtered its own projection, and the graph is the authority. Its pass is what
+        # makes this a full page rather than the remains of one.
+        requested_window = query.window()
+        window = requested_window or ValidWindow.at(instant)
+        visible = [r for r in current if _overlaps(r, window)]
         records = visible[: query.limit] if query.limit else []
 
         by_tier: Dict[MemoryTier, List[MemoryRecord]] = {}
@@ -603,8 +618,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # conflated "the world moved on" with "a newer revision exists", which are
                 # different diagnoses -- and `bounds_for_ids` is explicitly allowed to report
                 # expired rows, so a conforming backend makes the difference observable.
-                dropped_by_validity=len(current) - len(visible),
+                dropped_by_validity=0 if requested_window else len(current) - len(visible),
                 dropped_as_superseded=len(merged) - len(current),
+                # The same drop, attributed to the question that was actually asked. One filter
+                # runs, so one of these two is always zero -- reporting the count under both would
+                # double it, and reporting it only under `dropped_by_validity` would say "the world
+                # moved on" about rows the caller deliberately excluded. Non-zero here after the
+                # substrate already narrowed means reconciliation tightened a bound.
+                dropped_outside_window=len(current) - len(visible) if requested_window else 0,
                 # Reported by the reconciliation itself, not inferred from the wiring. Inferring
                 # it claimed `True` for a procedural slice, where `_graph_backed` correctly makes
                 # no call at all -- the flag would have said a graph vouched for bounds no graph

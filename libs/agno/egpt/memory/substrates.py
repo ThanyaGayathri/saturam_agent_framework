@@ -103,6 +103,15 @@ class VectorSubstrate(Protocol):
         projection of the same id is how an invalidated fact is caught (finding F2). A substrate
         that filtered ``as_of`` itself would withhold exactly the row that carries the evidence.
 
+        **Do apply ``query.window()``** (SM-V4 #98), before ranking and before ``limit``, using
+        :meth:`~egpt.memory.types.ValidWindow.overlaps` semantics -- an unset record bound is open
+        at that end. The two rules do not contradict: ``as_of`` asks which of two revisions is
+        currently believed, which only the graph can answer, while a window asks whether a row is a
+        candidate at all, which every row answers about itself. Deferring the window would spend the
+        whole ``limit`` on out-of-window rows, the same argument that puts ``expired_at IS NULL``
+        in the ``WHERE`` clause. The provider re-applies it after reconciliation, so a backend is
+        responsible for **recall** here and not for the final precision.
+
         The provider does not rely on this leg's bounds being fresh. It reconciles every merged id
         against :meth:`GraphSubstrate.bounds_for_ids` before filtering, because ranking cannot be
         trusted to surface a bound -- see that method for why.
@@ -271,6 +280,14 @@ class GraphSubstrate(Protocol):
         Tier resolution matches ``MemoryQuery.resolved_tiers`` exactly (finding F3), and ``score``
         obeys the same similarity contract as :meth:`VectorSubstrate.search` -- a similarity in
         ``[0.0, 1.0]``, higher is better, converted by the backend if its native metric is not.
+
+        ``query.window()`` is **not** applied here either, and unlike ``as_of`` that is a gap rather
+        than a decision: this port holds the authoritative bounds and could filter on them, but
+        pushing a predicate into a traversal is a change to how the traversal is *shaped*, which is
+        SM-G9's (#107). Until then a windowed read narrows the vector leg in-search and the merged
+        set afterwards, so the answer is precise and the graph leg's contribution can come back
+        short -- reported as ``MemorySlice.fusion["dropped_outside_window"]`` and pinned by
+        ``test_the_graph_leg_does_not_narrow_to_the_valid_time_window``.
         """
         ...
 
