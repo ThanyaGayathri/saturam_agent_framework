@@ -202,8 +202,65 @@ def test_the_row_builder_writes_nothing_outside_the_declared_properties():
 
 
 def test_the_schema_probe_covers_every_declared_property():
-    for name in cypher.ROW_PROPERTIES:
+    for name in (*cypher.ROW_PROPERTIES, *cypher.ENTITY_PROPERTIES):
         assert f"{name}: " in cypher.SCHEMA_STATEMENTS[0], f"{name} is declared but not registered by the probe"
+
+
+def test_the_entity_row_builder_writes_nothing_outside_the_declared_properties():
+    """The :data:`ROW_PROPERTIES` guard, applied to the other shape (SM-G2 #100).
+
+    An entity node's properties are a different set, so the row guard above could not have covered
+    them -- and an undeclared key warns on every read that names it, which is the same signal a
+    typo raises.
+    """
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    (row,) = substrate._entity_rows(FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)])
+
+    written = {key for key in row if key != "props"} | set(row["props"])
+    assert written <= set(cypher.ENTITY_PROPERTIES), (
+        f"undeclared: {sorted(written - set(cypher.ENTITY_PROPERTIES))}"
+    )
+
+
+def test_an_entity_node_carries_no_bi_temporal_field():
+    """ADR 0003 section 1 ratifies ``SemanticEntity`` as embeddable but **not** bi-temporal.
+
+    An entity existing is not a claim about the world that can become false, so a node carrying
+    ``t_invalid`` would invite an invalidation the port has no verb for -- and a ``live`` marker
+    would put it under the SCD-2 constraint, where a second sighting is a duplicate current belief.
+    """
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    (row,) = substrate._entity_rows(FULL, [EntityWrite(name="Acme", entity_type="company", scope=FULL)])
+
+    written = {key for key in row if key != "props"} | set(row["props"])
+    assert written.isdisjoint({"t_valid", "t_invalid", "expired_at", "superseded_by", cypher.LIVE, "tier"})
+
+
+def test_the_entity_statement_unions_provenance_rather_than_replacing_it():
+    """SM-R7 section 7's trail. Every other write on this backend replaces by id; this one must
+    not, or the second episode to mention an entity erases the first as its provenance.
+
+    ``coalesce`` matters as much as the union: an ``(:Entity)`` created as the endpoint of a triple
+    write has no list at all, and appending to null in Cypher yields null.
+    """
+    text, _ = cypher.upsert_entities_statement(FULL)
+
+    for name in ("source_episode_ids", "aliases"):
+        assert f"coalesce(n.{name}, [])" in text, f"{name} is not unioned against a possibly-absent list"
+        assert f"WHERE NOT x IN row.{name}] + row.{name}" in text, f"{name} accumulates duplicates on a re-run"
+    assert "SET n += row.props" in text, "everything outside the two lists is last-write"
+
+
+def test_only_an_entitys_first_sighting_sets_created_at():
+    """``created_at`` is when the entity entered the graph; ``updated_at`` is the last mention.
+
+    Both from ``SET n += row.props`` would make the two the same number on every write, and the
+    first-seen ordering SM-G8 (#106) reads would be lost.
+    """
+    text, _ = cypher.upsert_entities_statement(FULL)
+
+    assert "ON CREATE SET n.created_at = row.created_at" in text
+    assert text.index("ON CREATE SET") < text.index("SET n += row.props")
 
 
 def test_the_live_identity_is_constrained_but_the_logical_id_alone_is_not():
