@@ -19,6 +19,7 @@ Spec: ``benchmarks/memory_provider_spec/SPEC.md`` section 5.2 (SM-R11 #86).
 Ratified by ``docs/adr/0003-symbiotic-memory.md``.
 """
 
+import re
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import datetime
@@ -36,6 +37,7 @@ __all__ = [
     "NO_SUPERSEDE",
     "consolidation_details",
     "ConsolidationReport",
+    "EntityWrite",
     "escape_key_slot",
     "FactWrite",
     "fusion_diagnostics",
@@ -45,6 +47,7 @@ __all__ = [
     "MemoryRecord",
     "MemoryScopeRequiredError",
     "MemorySlice",
+    "normalize_entity_name",
     "PartialWriteError",
     "require_scope",
     "SCOPE_SLOTS",
@@ -152,6 +155,37 @@ def escape_key_slot(value: Optional[str]) -> str:
     # because it is the unset sentinel: without it `agent_id="*"` and an unset agent_id produce the
     # same key, which is the injectivity this function exists for.
     return value.replace("%", "%25").replace("/", "%2F").replace("*", "%2A")
+
+
+#: Non-word, non-space characters, which :func:`normalize_entity_name` drops.
+_ENTITY_PUNCTUATION = re.compile(r"[^\w\s]")
+_ENTITY_WHITESPACE = re.compile(r"\s+")
+
+
+def normalize_entity_name(name: str) -> str:
+    """The comparison form of an entity's surface name -- lowercased, unpunctuated, single-spaced.
+
+    This is :class:`EntityWrite`'s ``key``: the *exact-match* grouping SM-G8 (#106) starts from, not
+    the resolution itself. "Acme Corp." and "acme corp" collapse here; "Acme" and "Acme Corporation"
+    do not, and merging those is SM-G8's embedding match.
+
+    The rule is ``Curator._normalize``'s (``learn/curate.py``), which SM-G8 is assigned to reuse.
+    Restated rather than imported because that one is a private method on a class needing a wired
+    ``LearningMachine``, and ``test_entity_normalization_matches_the_curator`` fails if the two ever
+    disagree -- a second rule for one concept is how two entities that should have merged stop.
+    """
+    if not isinstance(name, str):
+        raise MemoryOperationError(f"An entity name must be a string, got {name!r}.", field_name="name")
+    collapsed = _ENTITY_WHITESPACE.sub(" ", _ENTITY_PUNCTUATION.sub("", name.lower().strip())).strip()
+    if not collapsed:
+        # A name that is entirely punctuation normalises to "", which would make every such entity
+        # one candidate and file unrelated facts under it. Refused here rather than at the write,
+        # so an extractor's junk output cannot reach the graph under a shared empty key.
+        raise MemoryOperationError(
+            f"Entity name {name!r} normalises to empty, so it cannot identify an entity.",
+            field_name="name",
+        )
+    return collapsed
 
 
 #: Every partition slot a memory row carries, in :meth:`Scope.key` order.
@@ -487,6 +521,93 @@ class FactWrite:
     def is_triple(self) -> bool:
         """Whether this fact carries the full SPO structure a graph edge requires."""
         return bool(self.subject and self.predicate and self.object)
+
+
+@dataclass
+class EntityWrite:
+    """One extracted entity, as :meth:`GraphSubstrate.upsert_entities` takes it (SM-G2 #100).
+
+    **Flat, where :class:`FactWrite` composes a** :class:`MemoryRecord`. ADR 0003 section 1 makes
+    ``SemanticEntity`` embeddable but **not** bi-temporal -- an entity's identity is stable, so it
+    has no valid-time interval -- and wrapping a record here would hand every caller four temporal
+    fields the graph must then refuse to store.
+
+    Field names mirror SM-C3's ``SemanticEntity`` so the projection is 1:1. ``key`` is derived from
+    ``name`` rather than accepted, because a caller-chosen grouping key is a caller-chosen
+    duplicate: two writers spelling the same normalisation differently produce two candidates that
+    SM-G8 (#106) then has to re-merge.
+
+    ``source_episode_ids`` is the provenance SM-R7 section 7 makes load-bearing, and it is
+    **unioned** rather than replaced when an entity is seen again -- see
+    ``cypher.upsert_entities_statement``.
+    """
+
+    name: str
+    entity_type: str
+    scope: Scope
+    key: str = field(init=False)
+    description: Optional[str] = None
+    #: Other surface forms seen for this entity. Retaining them across a merge is SM-G8's (#106)
+    #: acceptance criterion; carrying them is this ticket's.
+    aliases: List[str] = field(default_factory=list)
+    properties: Dict[str, Any] = field(default_factory=dict)
+    source_episode_ids: List[str] = field(default_factory=list)
+    embedding: Optional[List[float]] = None
+    embedding_version: Optional[str] = None
+    confidence: float = 1.0
+    derived_by: Optional[str] = None  # the extractor that produced it
+
+    def __post_init__(self) -> None:
+        for field_name in ("name", "entity_type"):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise MemoryOperationError(
+                    f"EntityWrite.{field_name} must be a non-empty string; the graph node is "
+                    f"addressed by it. Got {value!r}.",
+                    field_name=field_name,
+                )
+            setattr(self, field_name, value.strip())
+        if not isinstance(self.scope, Scope):
+            raise MemoryOperationError(
+                f"EntityWrite.scope must be a Scope; the isolation check reads it. Got {self.scope!r}.",
+                field_name="scope",
+            )
+        # Derived after `name` is stripped, so trailing whitespace cannot produce a second key.
+        self.key = normalize_entity_name(self.name)
+        if isinstance(self.confidence, bool) or not isinstance(self.confidence, (int, float)):
+            raise MemoryOperationError(
+                f"EntityWrite.confidence must be a number in [0.0, 1.0], got {self.confidence!r}.",
+                field_name="confidence",
+            )
+        if not 0.0 <= float(self.confidence) <= 1.0:
+            raise MemoryOperationError(
+                f"EntityWrite.confidence is {self.confidence}, outside [0.0, 1.0]. A ranking that "
+                "mixes it with a similarity would be decided by whichever scale is larger.",
+                field_name="confidence",
+            )
+        self.confidence = float(self.confidence)
+        if self.embedding is not None:
+            if not isinstance(self.embedding, list) or not self.embedding:
+                raise MemoryOperationError(
+                    "EntityWrite.embedding must be a non-empty list of floats, or None when the "
+                    f"candidate is not embedded. Got {self.embedding!r}.",
+                    field_name="embedding",
+                )
+            # An embedder returning strings stores a vector no similarity can read, and the failure
+            # surfaces at SM-G8's match rather than at the write that caused it.
+            if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in self.embedding):
+                raise MemoryOperationError(
+                    "EntityWrite.embedding contains a non-numeric component, so no similarity can "
+                    "be computed against it.",
+                    field_name="embedding",
+                )
+            self.embedding = [float(value) for value in self.embedding]
+        # Sorted, not merely copied: these two are sets by meaning, and an extractor's ordering is
+        # whatever the model emitted, so an unsorted copy makes two identical candidates compare
+        # unequal and re-write the node for nothing.
+        self.aliases = sorted({alias.strip() for alias in self.aliases if isinstance(alias, str) and alias.strip()})
+        self.source_episode_ids = sorted(set(self.source_episode_ids))
+        self.properties = dict(self.properties or {})
 
 
 @dataclass

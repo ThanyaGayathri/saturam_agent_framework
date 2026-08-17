@@ -24,6 +24,8 @@ from typing import Any, Dict, List, Tuple
 from egpt.memory.types import SCOPE_SLOTS, Scope, require_scope
 
 __all__ = [
+    "ENTITY",
+    "ENTITY_PROPERTIES",
     "EPISODE",
     "FACT",
     "REL",
@@ -38,13 +40,15 @@ __all__ = [
     "scope_predicate",
     "scope_props",
     "traverse_statements",
+    "upsert_entities_statement",
     "upsert_episodes_statement",
     "upsert_facts_statements",
 ]
 
-#: Labels. ``REL`` is a relationship type; the other two are node labels.
+#: Labels. ``REL`` is a relationship type; the other three are node labels.
 EPISODE = "Episode"
 FACT = "Fact"
+ENTITY = "Entity"
 REL = "REL"
 
 
@@ -179,7 +183,7 @@ def traverse_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
     return [
         _traverse(f"MATCH (e:{EPISODE})", "e", scope, "traverse_statements"),
         _traverse(f"MATCH (f:{FACT})", "f", scope, "traverse_statements"),
-        _traverse(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope, "traverse_statements"),
+        _traverse(f"MATCH (:{ENTITY})-[r:{REL}]->(:{ENTITY})", "r", scope, "traverse_statements"),
     ]
 
 
@@ -201,7 +205,7 @@ def bounds_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
     return [
         _bounds(f"MATCH (e:{EPISODE})", "e", scope, "bounds_statements"),
         _bounds(f"MATCH (f:{FACT})", "f", scope, "bounds_statements"),
-        _bounds(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope, "bounds_statements"),
+        _bounds(f"MATCH (:{ENTITY})-[r:{REL}]->(:{ENTITY})", "r", scope, "bounds_statements"),
     ]
 
 
@@ -264,9 +268,9 @@ def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]
     require_scope(scope, method="upsert_facts_statements")
     triple = (
         "UNWIND $rows AS row "
-        "MERGE (s:Entity {scope_key: row.scope_key, name: row.subject}) "
+        f"MERGE (s:{ENTITY} {{scope_key: row.scope_key, name: row.subject}}) "
         "ON CREATE SET s += row.entity "
-        "MERGE (o:Entity {scope_key: row.scope_key, name: row.object}) "
+        f"MERGE (o:{ENTITY} {{scope_key: row.scope_key, name: row.object}}) "
         "ON CREATE SET o += row.entity "
         "WITH row, s, o "
         # The same MERGE-not-check-then-act rule as `_upsert_node`, spelled again here rather than
@@ -275,6 +279,64 @@ def upsert_facts_statements(scope: Scope) -> Dict[str, Tuple[str, Dict[str, Any]
         f"MERGE (s)-[r:{REL} {_IDENTITY}]->(o) SET r = row.props"
     )
     return {"triple": (triple, _WRITE_BINDS), "node": _upsert_node(FACT)}
+
+
+#: The entity node's identity: the scope and the **surface** name, which is the same key the triple
+#: leg above merges its endpoints on. Two spellings of one entity are two nodes; resolving them is
+#: SM-G8's (#106), and a write path that merged on the normalised ``key`` instead would have decided
+#: that policy here -- and would then disagree with every endpoint ``upsert_facts`` creates.
+_ENTITY_IDENTITY = "{scope_key: row.scope_key, name: row.name}"
+
+#: Every property an ``(:Entity)`` node can carry, for the same anti-drift reason as
+#: :data:`ROW_PROPERTIES`. It is a **different** set: an entity is not bi-temporal (ADR 0003
+#: section 1), so none of the four timestamps or the live marker appear here.
+ENTITY_PROPERTIES = (
+    "scope_key",
+    "name",
+    "key",
+    "entity_type",
+    "description",
+    "properties",
+    "aliases",
+    "source_episode_ids",
+    "embedding",
+    "embedding_version",
+    "confidence",
+    "derived_by",
+    "created_at",
+    "updated_at",
+    *SCOPE_SLOTS,
+)
+
+def _union(name: str) -> str:
+    """Append what the batch adds to what the node already has, without duplicating.
+
+    ``coalesce`` covers the node an endpoint ``MERGE`` in :func:`upsert_facts_statements` created
+    with no list at all, and the comprehension drops what the incoming batch already carries, so a
+    re-extraction of the same episode is idempotent rather than accumulating copies.
+    """
+    return f"n.{name} = [x IN coalesce(n.{name}, []) WHERE NOT x IN row.{name}] + row.{name}"
+
+
+def upsert_entities_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
+    """Merge extracted entity nodes, unioning provenance and aliases (SM-G2 #100).
+
+    ``source_episode_ids`` and ``aliases`` accumulate where every other write on this backend
+    replaces by id. Replacing them would make the second episode to mention an entity erase the
+    first as its provenance, which is the fact -> episode audit trail SM-R7 section 7 makes
+    load-bearing. Everything else is last-write: a description is a summary, not a running total.
+
+    ``created_at`` is ``ON CREATE`` only, so the first sighting of an entity is when it entered the
+    graph rather than when it was last mentioned; ``updated_at`` carries the latter.
+    """
+    require_scope(scope, method="upsert_entities_statement")
+    return (
+        "UNWIND $rows AS row "
+        f"MERGE (n:{ENTITY} {_ENTITY_IDENTITY}) "
+        "ON CREATE SET n.created_at = row.created_at "
+        "SET n += row.props "
+        f"SET {_union('source_episode_ids')}, {_union('aliases')}"
+    ), _WRITE_BINDS
 
 
 def live_row_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
@@ -291,7 +353,7 @@ def live_row_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
     """
     return [
         _read_live(f"MATCH (f:{FACT})", "f", scope, "live_row_statements"),
-        _read_live(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope, "live_row_statements"),
+        _read_live(f"MATCH (:{ENTITY})-[r:{REL}]->(:{ENTITY})", "r", scope, "live_row_statements"),
     ]
 
 
@@ -334,7 +396,7 @@ def expire_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
     """
     return [
         _expire(f"MATCH (f:{FACT})", "f", scope, "expire_statements"),
-        _expire(f"MATCH (:Entity)-[r:{REL}]->(:Entity)", "r", scope, "expire_statements"),
+        _expire(f"MATCH (:{ENTITY})-[r:{REL}]->(:{ENTITY})", "r", scope, "expire_statements"),
     ]
 
 
@@ -369,7 +431,7 @@ def insert_bounded_copy_statements(scope: Scope) -> List[Tuple[str, Dict[str, An
             f"MATCH (f:{FACT})", "f", f"CREATE (m:{FACT}) SET m = f{overrides}", scope, "insert_bounded_copy_statements"
         ),
         _bounded_copy(
-            f"MATCH (s:Entity)-[r:{REL}]->(o:Entity)",
+            f"MATCH (s:{ENTITY})-[r:{REL}]->(o:{ENTITY})",
             "r",
             f"CREATE (s)-[n:{REL}]->(o) SET n = r{overrides}",
             scope,
@@ -416,13 +478,26 @@ ROW_PROPERTIES = (
 #: fix is to silence the ``UNRECOGNIZED`` notification class, but that is the same signal that
 #: catches a **typo** in a property name, where the query silently returns null. Registering the
 #: keys removes the false positives and leaves the true ones. Tokens survive the delete.
+#: Probe values have to be list-typed for these, because a token registered against a scalar still
+#: warns when a query indexes it as a list.
+_LIST_PROPERTIES = frozenset({"topics", "aliases", "source_episode_ids", "embedding"})
+
+
+def _probe_value(name: str) -> str:
+    if name in _LIST_PROPERTIES:
+        return "[]"
+    return "true" if name == LIVE else "''"
+
+
+#: Both shapes, deduplicated in declaration order: an entity node shares ``scope_key``, ``name``,
+#: ``created_at`` and the scope slots with a row, and a repeated key is a Cypher syntax error rather
+#: than a duplicate.
+_PROBE_PROPERTIES = tuple(dict.fromkeys((*ROW_PROPERTIES, *ENTITY_PROPERTIES)))
+
 _PROBE = (
     "CREATE (p:_EgptSchemaProbe {"
-    + ", ".join(
-        f"{name}: []" if name == "topics" else f"{name}: true" if name == LIVE else f"{name}: ''"
-        for name in ROW_PROPERTIES
-    )
-    + ", name: ''}) DELETE p"
+    + ", ".join(f"{name}: {_probe_value(name)}" for name in _PROBE_PROPERTIES)
+    + "}) DELETE p"
 )
 
 #: Idempotent schema. Uniqueness is on ``row_id`` and not on ``id``: under SCD-2 one logical id has
@@ -450,11 +525,12 @@ SCHEMA_STATEMENTS = (
     f"REQUIRE (r.scope_key, r.id, r.{LIVE}) IS UNIQUE",
     f"CREATE CONSTRAINT egpt_rel_row_id IF NOT EXISTS FOR ()-[r:{REL}]-() REQUIRE r.row_id IS UNIQUE",
     # Entities are MERGEd by (scope_key, name) on every triple write, so they need the same backing.
-    "CREATE CONSTRAINT egpt_entity_identity IF NOT EXISTS FOR (n:Entity) REQUIRE (n.scope_key, n.name) IS UNIQUE",
+    f"CREATE CONSTRAINT egpt_{ENTITY.lower()}_identity IF NOT EXISTS FOR (n:{ENTITY}) "
+    "REQUIRE (n.scope_key, n.name) IS UNIQUE",
     f"CREATE CONSTRAINT egpt_{EPISODE.lower()}_row_id IF NOT EXISTS FOR (n:{EPISODE}) REQUIRE n.row_id IS UNIQUE",
     f"CREATE CONSTRAINT egpt_{FACT.lower()}_row_id IF NOT EXISTS FOR (n:{FACT}) REQUIRE n.row_id IS UNIQUE",
     f"CREATE INDEX egpt_{EPISODE.lower()}_scope IF NOT EXISTS FOR (n:{EPISODE}) ON (n.tenant_id, n.id)",
     f"CREATE INDEX egpt_{FACT.lower()}_scope IF NOT EXISTS FOR (n:{FACT}) ON (n.tenant_id, n.id)",
     f"CREATE INDEX egpt_rel_scope IF NOT EXISTS FOR ()-[r:{REL}]-() ON (r.tenant_id, r.id)",
-    "CREATE INDEX egpt_entity_scope IF NOT EXISTS FOR (n:Entity) ON (n.scope_key, n.name)",
+    f"CREATE INDEX egpt_{ENTITY.lower()}_scope IF NOT EXISTS FOR (n:{ENTITY}) ON (n.scope_key, n.name)",
 )

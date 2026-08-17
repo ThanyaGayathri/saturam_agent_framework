@@ -21,7 +21,15 @@ resolved by registry key.
 from typing import Any, Dict, List, Optional, Protocol, Sequence, runtime_checkable
 
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import FactWrite, MemoryEvent, MemoryQuery, MemoryRecord, Scope, TemporalBounds
+from egpt.memory.types import (
+    EntityWrite,
+    FactWrite,
+    MemoryEvent,
+    MemoryQuery,
+    MemoryRecord,
+    Scope,
+    TemporalBounds,
+)
 
 __all__ = ["GraphSubstrate", "VectorSubstrate", "checked_graph", "checked_vector"]
 
@@ -254,6 +262,40 @@ class GraphSubstrate(Protocol):
 
     async def aupsert_facts(self, scope: Scope, facts: Sequence[FactWrite]) -> None:
         """Async variant of :meth:`upsert_facts`."""
+        ...
+
+    def upsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None:
+        """Record extracted entities as graph **nodes**, within ``scope`` (SM-G2 #100).
+
+        Separate from :meth:`upsert_facts` for the reason that method is separate from
+        :meth:`upsert_episodes`: a triple write creates its endpoint nodes as a side effect and has
+        nowhere to put an entity's type, description or embedding. Without a verb of its own, an
+        entity could only reach the graph by being one end of a relation -- which is SM-G3's (#101),
+        so entity extraction would have no way to land at all.
+
+        **Identity is ``(scope, name)``, on the surface form**, matching the endpoint nodes
+        :meth:`upsert_facts` merges so the two cannot produce competing nodes for one name.
+        ``EntityWrite.key`` -- the normalised form -- is stored beside it and is what SM-G8 (#106)
+        groups on: two spellings of one entity are **two nodes** after this method, deliberately, and
+        merging them is entity resolution rather than a write-path decision.
+
+        **Not bi-temporal.** ADR 0003 section 1 ratifies ``SemanticEntity`` as embeddable but not
+        bi-temporal, so nothing here carries ``t_valid`` / ``expired_at`` and a node is never
+        expired. Contradiction lives on the relation (:meth:`invalidate`), which is where a claim
+        about the world can become false; an entity existing is not such a claim.
+
+        **A re-extraction unions ``source_episode_ids``, it does not replace them** (SM-R7
+        section 7). Every other write on this port replaces by id; this one must not, or the second
+        episode to mention an entity erases the first as its provenance. Other fields are last-write
+        -- an entity's description is a summary, not an accumulation.
+
+        Batched, empty-is-a-no-op, and not required to be atomic, exactly as
+        :meth:`upsert_episodes` describes.
+        """
+        ...
+
+    async def aupsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None:
+        """Async variant of :meth:`upsert_entities`."""
         ...
 
     def traverse(

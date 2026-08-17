@@ -35,6 +35,7 @@ from egpt.integrations.memory.graph.neo4j import cypher
 from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
+    EntityWrite,
     FactWrite,
     MemoryEvent,
     MemoryOperationError,
@@ -482,6 +483,59 @@ class Neo4jGraphSubstrate:
         if not facts:
             return
         await self._arun(self._fact_statements(scope, facts))
+
+    def _entity_rows(self, scope: Scope, entities: Sequence[EntityWrite]) -> List[Dict[str, Any]]:
+        """One row per entity node (SM-G2 #100), split into merge keys, unioned lists, and ``props``.
+
+        The split is what the statement needs: ``name`` and ``scope_key`` address the node,
+        ``created_at`` is set only on creation, the two lists are unioned into whatever the node
+        already holds, and everything in ``props`` is last-write.
+
+        Deliberately **not** :meth:`_row`. That builds a bi-temporal, tiered, SCD-2 row with a
+        surrogate key and a live marker, and an entity node is none of those (ADR 0003 section 1) --
+        reusing it would put four timestamps and a ``tier`` on a node whose validity is not a claim
+        anything can contradict.
+        """
+        now = now_epoch_s()
+        rows = []
+        for entity in entities:
+            self._reject_foreign_scope(scope, entity.scope)
+            scope_props = cypher.scope_props(scope)
+            rows.append(
+                {
+                    "scope_key": scope_props["scope_key"],
+                    "name": entity.name,
+                    "created_at": now,
+                    "source_episode_ids": list(entity.source_episode_ids),
+                    # The entity's own surface form is never its own alias: it is already the merge
+                    # key, and carrying it in both places makes a candidate look like it was seen
+                    # under two spellings when it was seen under one.
+                    "aliases": [alias for alias in entity.aliases if alias != entity.name],
+                    "props": {
+                        **scope_props,
+                        "key": entity.key,
+                        "entity_type": entity.entity_type,
+                        "description": entity.description,
+                        "properties": _as_json(entity.properties, "properties"),
+                        "embedding": entity.embedding,
+                        "embedding_version": entity.embedding_version,
+                        "confidence": entity.confidence,
+                        "derived_by": entity.derived_by,
+                        "updated_at": now,
+                    },
+                }
+            )
+        return rows
+
+    def upsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None:
+        if not entities:
+            return
+        self._run([cypher.upsert_entities_statement(scope)], rows=self._entity_rows(scope, entities))
+
+    async def aupsert_entities(self, scope: Scope, entities: Sequence[EntityWrite]) -> None:
+        if not entities:
+            return
+        await self._arun([cypher.upsert_entities_statement(scope)], rows=self._entity_rows(scope, entities))
 
     # -- reads ----------------------------------------------------------------
 
