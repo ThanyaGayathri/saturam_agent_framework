@@ -1033,17 +1033,22 @@ class CoLocatedMemoryProvider(MemoryProvider):
 def _build_co_located(config: MemoryProviderConfig) -> MemoryProvider:
     """The only construction call site, for a real backend and an injected double alike.
 
-    ``config.graph`` resolves through ``egpt.registry.discovery.construct`` (SM-G1 #99);
-    ``config.vector`` will do the same once SM-V1 (#95) registers a ``vectordb``-backed substrate,
-    and takes the identical path today so the two cannot diverge. ``options`` keeps carrying an
-    already-built substrate, which is how a test injects a double.
+    Both ``config.vector`` and ``config.graph`` resolve through ``egpt.registry.discovery.construct``
+    -- ``vectorstore`` for one (SM-V1 #95) and ``graphdb`` for the other (SM-G1 #99) -- along the
+    identical path, so the two legs cannot diverge. ``options`` keeps carrying an already-built
+    substrate, which is how a test injects a double.
     """
     return CoLocatedMemoryProvider(
-        # `vector` has no registry kind yet: no registered `vectordb` satisfies `VectorSubstrate`,
-        # whose async methods carry the `a` prefix rather than `VectorDb`'s `async_`. SM-V1 (#95)
-        # owns that bridge; until then the field is refused rather than quietly dropped.
+        # A `vectorstore` rather than a `vectordb`: the latter's backends answer `VectorDb`, whose
+        # async methods carry the `async_` prefix rather than this seam's `a`, and which knows
+        # nothing of a scope or a tier.
         vector=resolve_substrate(
-            "vector", None, config.vector, config.options.get("vector_substrate"), "vector_substrate", checked_vector
+            "vector",
+            "vectorstore",
+            config.vector,
+            config.options.get("vector_substrate"),
+            "vector_substrate",
+            checked_vector,
         ),
         graph=resolve_substrate(
             "graph", "graphdb", config.graph, config.options.get("graph_substrate"), "graph_substrate", checked_graph

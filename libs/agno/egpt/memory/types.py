@@ -552,16 +552,20 @@ class MemoryQuery:
                     ) from None
             setattr(self, field_name, tuple(coerced))
 
-        # `filters` is declared but nothing reads it: no substrate port states a contract for it,
-        # so even a future backend has nothing to conform to. In a seam whose threat model is
-        # over-broad reads, a filter that silently does not apply returns an unfiltered slice that
-        # *looks* filtered -- the failure class this package rejects at the boundary everywhere
-        # else. Refused until SM-V1 (#95) defines the predicate semantics on the ports.
+        # `filters` is declared but nothing reads it, and it stays that way after SM-V1 (#95) --
+        # which stores metadata on every vector but does not filter on it. A read is merged from
+        # two legs, so honouring a predicate on one alone returns a half-filtered page that looks
+        # filtered; and the graph leg stores metadata as a JSON *string* property, so it could only
+        # filter after `LIMIT`, which returns a short page for the same reason. Both are the
+        # silently-wrong-answer class this package refuses at the boundary. Applying it needs a
+        # predicate contract on both ports and a storage change on the graph side, which is its own
+        # ticket rather than a line here.
         if self.filters:
             raise ValueError(
-                "MemoryQuery.filters is reserved and not yet applied by any substrate, so passing "
-                "it would return an unfiltered result that looks filtered. Metadata filtering is "
-                f"SM-V1's (#95). Got {self.filters!r}."
+                "MemoryQuery.filters is reserved and not applied by any substrate, so passing it "
+                "would return an unfiltered result that looks filtered. Metadata is stored on "
+                "vectors (SM-V1 #95); filtering on it needs a predicate contract on the graph port "
+                f"too, and has no owning ticket yet. Got {self.filters!r}."
             )
 
     def resolved_tiers(self) -> Sequence[MemoryTier]:

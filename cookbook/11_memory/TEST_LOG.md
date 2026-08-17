@@ -191,3 +191,31 @@ episode id as a sixth slot; `importance` stays at the 0.5 default because scorin
 the split prints `superseded_by on record: None` with `['ep-2', 'ep-3']` in provenance. Each
 refusal names the field and, where one exists, the ticket that owns the behaviour. Requires no
 database, no model, and no API key.
+
+---
+
+### 13_vector_substrate_pgvector.py
+
+**Status:** PASS
+
+**Description:** Exercises the SM-V1 pgvector memory vector store through the seam against a real
+Postgres 18 + pgvector, with the ADR-ratified Mode A embedder (`BAAI/bge-base-en-v1.5` @768).
+Selects the backend by config alone (`config.vector = {"backend": "pgvector", ...}`), writes one
+memory for each of three scopes -- two users inside one tenant, plus a second tenant -- and reads
+them back with a query that **shares no words** with any stored memory.
+
+**Result:** Success. Semantic recall works: "which city did ada relocate to" retrieves "ada moved to
+berlin in march" at a similarity of **0.799**, so the ranking is embedding-driven and not lexical.
+Isolation holds on the slot that matters: `acme/bob` reads bob's memory and never ada's, though the
+two differ only in the user slot inside one tenant. The top score prints in `[0.0, 1.0]` with higher
+better, which is the port's contract and not pgvector's native `<=>` distance. A point-in-time read
+is **refused** rather than answered, because the graph leg is not wired and the vector projection
+carries no authoritative bounds.
+
+Run **twice in a row and the output is identical**: events carry explicit ids and the substrate
+upserts by id, so a re-run replaces the same three rows instead of accumulating a fresh set. The
+first version of this file left the ids unset, and each run added three more rows -- corrected here
+rather than documented.
+
+**Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
+key; the embedder is local and downloads its weights on first run.
