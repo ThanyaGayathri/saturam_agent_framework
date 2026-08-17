@@ -33,6 +33,7 @@ __all__ = [
     "create_partition_statement",
     "ef_search_statement",
     "identifier",
+    "lexical_search_statement",
     "live_schema_statements",
     "partition_name",
     "qualified",
@@ -42,6 +43,9 @@ __all__ = [
     "scope_predicate",
     "SettingError",
     "search_statement",
+    "text_search_config",
+    "text_search_config_probe",
+    "ts_vector_expression",
     "upsert_statement",
 ]
 
@@ -207,6 +211,44 @@ def qualified(schema: str, table: str) -> str:
     return f"{identifier(schema, 'schema')}.{identifier(table, 'table')}"
 
 
+def text_search_config(name: str, field: str = "text_search_config") -> str:
+    """A Postgres text-search configuration name (``english``, ``simple``, a custom one).
+
+    Held to :func:`identifier`'s rules even though the value lands as a **literal** rather than an
+    identifier -- ``to_tsvector('english', content)``. That is deliberate: the rules forbid a quote
+    character, which is what makes interpolating the result into a literal safe without an escaper
+    of this module's own. Whether the config exists is a database fact, checked at schema init
+    (:func:`text_search_config_probe`) rather than guessed at here.
+    """
+    return identifier(name, field)
+
+
+def ts_vector_expression(ts_config: str) -> str:
+    """The indexed document expression, written **once**.
+
+    A functional index is only used when the query repeats its expression exactly, so the DDL in
+    :func:`schema_statements` and the predicate in :func:`lexical_search_statement` must be the same
+    text. Spelled apart they drift on the first edit, and the symptom is not an error -- the GIN
+    index is silently skipped and every lexical read becomes a sequential scan of the partition.
+    """
+    return f"to_tsvector('{text_search_config(ts_config)}', content)"
+
+
+def text_search_config_probe(ts_config: str) -> Tuple[str, Dict[str, Any]]:
+    """Ask Postgres whether this configuration resolves, before any DDL uses it.
+
+    ``to_regconfig`` applies the same ``search_path`` resolution the index DDL and the query will,
+    so a name that passes here is a name both of those can use -- which a ``pg_ts_config.cfgname``
+    lookup would not guarantee for a schema-qualified or shadowed config.
+
+    Probed rather than left to the DDL because the two failures are different kinds: an
+    unrecognised config is a **deployment setting** fault that should name the setting, while the
+    ``CREATE INDEX`` it would otherwise break reports an ``undefined_object`` from the middle of
+    schema init with no mention of which option caused it.
+    """
+    return "SELECT to_regconfig(:ts_config) IS NOT NULL AS present", {"ts_config": text_search_config(ts_config)}
+
+
 def partition_name(table: str, tenant_id: str) -> str:
     """The partition holding ``tenant_id``, named by digest rather than by the tenant itself.
 
@@ -238,7 +280,7 @@ def scope_predicate(scope: Scope, alias: str = "") -> Tuple[str, Dict[str, Any]]
     return " AND ".join(clauses), binds
 
 
-def schema_statements(schema: str, table: str, dim: int, m: int, ef_construction: int) -> List[str]:
+def schema_statements(schema: str, table: str, dim: int, m: int, ef_construction: int, ts_config: str) -> List[str]:
     """Create the extension, the partitioned parent, and the indexes every partition inherits.
 
     Idempotent, so a repeat costs latency and not correctness.
@@ -293,6 +335,11 @@ def schema_statements(schema: str, table: str, dim: int, m: int, ef_construction
         # `scan` is ordered by `(created_at, id)` and filtered by tier, and it is the read
         # consolidation drains a tier with -- an unindexed one is a full partition scan per pass.
         f"CREATE INDEX IF NOT EXISTS {identifier(f'{table}_scan', 'index')} ON {parent} (tier, created_at, id)",
+        # The lexical leg (SM-V3 #97). Partitioned like the HNSW index above, so a tenant created
+        # later inherits it; GIN is what makes `@@` an index lookup rather than a per-row
+        # `to_tsvector` over the partition.
+        f"CREATE INDEX IF NOT EXISTS {identifier(f'{table}_fts', 'index')} ON {parent} "
+        f"USING gin ({ts_vector_expression(ts_config)})",
     ]
 
 
@@ -319,6 +366,19 @@ def live_schema_statements(schema: str, table: str) -> List[Tuple[str, Dict[str,
             "JOIN pg_index i ON i.indexrelid = c.oid "
             "WHERE i.indrelid = to_regclass(:qualified) "
             "AND c.relam = (SELECT oid FROM pg_am WHERE amname = 'hnsw')",
+            qualified_name,
+        ),
+        # The GIN index's own definition, because the text-search configuration is baked into the
+        # indexed expression and `CREATE INDEX IF NOT EXISTS` will not rebuild it for a changed
+        # setting. Reported rather than refused, matching the HNSW options above and for the same
+        # reason: a stale config still answers *correctly* -- `to_tsvector` is evaluated at query
+        # time either way -- it just stops matching the index expression, so every lexical read
+        # silently drops to a sequential scan.
+        (
+            "SELECT c.relname AS name, pg_get_indexdef(i.indexrelid) AS definition FROM pg_class c "
+            "JOIN pg_index i ON i.indexrelid = c.oid "
+            "WHERE i.indrelid = to_regclass(:qualified) "
+            "AND c.relam = (SELECT oid FROM pg_am WHERE amname = 'gin')",
             qualified_name,
         ),
     ]
@@ -388,6 +448,45 @@ def search_statement(schema: str, table: str, scope: Scope) -> Tuple[str, Dict[s
         f"FROM {qualified(schema, table)} "
         f"WHERE {predicate} AND tier = ANY({cast_param('tiers', 'text[]')}) AND {_CURRENT_BELIEF} "
         f"ORDER BY embedding <=> {_QUERY_VECTOR} "
+        "LIMIT :limit"
+    )
+    return statement, binds
+
+
+def lexical_search_statement(schema: str, table: str, scope: Scope, ts_config: str) -> Tuple[str, Dict[str, Any]]:
+    """Rank by full-text relevance -- the lexical leg SM-H2's fusion consumes (SM-V3 #97).
+
+    **Same scope, tier and current-belief predicate as** :func:`search_statement`, from the same
+    :func:`scope_predicate` helper. Two retrieval legs that disagree about which rows exist do not
+    produce a fusion problem, they produce a leak: a row the vector leg is correctly denied would
+    re-enter the merged result through this one.
+
+    ``websearch_to_tsquery`` rather than ``to_tsquery``: the query text is whatever a user said to
+    the agent, and ``to_tsquery`` raises a syntax error on ordinary punctuation. ``websearch_``
+    never raises -- an unparseable query yields an empty tsquery, which matches nothing, which is
+    the honest answer.
+
+    **The match predicate is in the ``WHERE`` clause here, and that is the opposite of the vector
+    leg's decision** -- see :func:`search_statement`, where the zero-similarity cut is deliberately
+    kept out of it. The reason they differ: ``@@`` is what makes the GIN index usable at all, so
+    here the predicate *is* the index lookup rather than a second computation layered over one. It
+    also removes exactly the rows ``ts_rank_cd`` would score 0.0, which are non-matches occupying a
+    page slot.
+
+    ``ts_rank_cd`` is a coverage-density rank, **not Okapi BM25** -- Postgres has no native BM25.
+    It ranks lexically, which is what the leg is for, but SM-R8 calibrated
+    ``vector_weight ~ 0.4-0.5`` against a real ``rank_bm25`` leg, so that weight does not transfer
+    unexamined. Recalibrating it is SM-H2's (#132), which owns the fusion.
+    """
+    predicate, binds = scope_predicate(scope)
+    document = ts_vector_expression(ts_config)
+    query = f"websearch_to_tsquery('{text_search_config(ts_config)}', :query_text)"
+    statement = (
+        f"SELECT {_READ_COLUMNS}, ts_rank_cd({document}, {query}) AS rank "
+        f"FROM {qualified(schema, table)} "
+        f"WHERE {predicate} AND tier = ANY({cast_param('tiers', 'text[]')}) AND {_CURRENT_BELIEF} "
+        f"AND {document} @@ {query} "
+        f"ORDER BY rank DESC "
         "LIMIT :limit"
     )
     return statement, binds
