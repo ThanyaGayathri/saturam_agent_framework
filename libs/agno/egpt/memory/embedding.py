@@ -213,7 +213,7 @@ class MemoryEmbedder:
                     f"{type(self.embedder).__name__} returned a {len(vector)}-dimension vector but this "
                     f"pipeline is configured for {self.dimensions} ({self.embedding_version}). Changing "
                     "dimension is a re-embedding migration, not a restart.",
-                    field_name=field,
+                    field_name="dimensions",
                 )
         return vectors
 

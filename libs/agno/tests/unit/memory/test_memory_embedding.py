@@ -1,0 +1,479 @@
+"""The memory embedding pipeline (SM-V2 #96).
+
+No model and no database: every candidate embedder is a double, because what this ticket decides is
+*which* embedder a mode gets, *how many* calls a batch costs, and *what* a stored vector is tagged
+with -- none of which needs a real model, and all of which a real model would make slow and
+non-deterministic to assert.
+
+The doubles are stricter than the loosest real embedder: they record how they were called, refuse a
+list unless they declared ``enable_batch``, and the async half genuinely suspends.
+"""
+
+import asyncio
+
+import pytest
+
+from egpt.memory.config import MemoryProviderConfigError
+from egpt.memory.embedding import MODE_DEFAULTS, OFFLINE_CAPABLE, MemoryEmbedder, resolve_memory_embedder
+from egpt.providers.model_provider import ProviderMode
+
+DIM = 4
+
+
+class Recorder:
+    """A single-text embedder that records every call it received.
+
+    ``enable_batch`` is false, matching ``Embedder``'s own default, and ``get_embedding`` **refuses
+    a list** rather than quietly embedding its repr. A real single-text embedder handed a list
+    returns one vector for the concatenation, which is silently wrong -- a double that tolerated it
+    could not tell the pipeline's chunking from a bug in it.
+    """
+
+    id = "recorder-v1"
+    dimensions = DIM
+    enable_batch = False
+    batch_size = 100
+    offline_capable = True
+
+    def __init__(self):
+        self.calls = []
+
+    def _vector(self, text):
+        return [float(len(text)), 0.0, 0.0, 0.0]
+
+    def get_embedding(self, text):
+        if not isinstance(text, str):
+            raise TypeError(f"{type(self).__name__} takes one string; got {type(text).__name__}.")
+        self.calls.append(text)
+        return self._vector(text)
+
+    async def async_get_embedding(self, text):
+        await asyncio.sleep(0)
+        return self.get_embedding(text)
+
+
+class BatchRecorder(Recorder):
+    """A batching embedder: takes a list, returns one vector per element, in order."""
+
+    id = "batch-recorder-v1"
+    enable_batch = True
+    batch_size = 2
+
+    def get_embedding(self, text):
+        texts = [text] if isinstance(text, str) else list(text)
+        self.calls.append(list(texts))
+        return [self._vector(one) for one in texts]
+
+
+def pipeline(embedder=None, mode=ProviderMode.FRONTIER, **kwargs):
+    return resolve_memory_embedder(mode, embedder if embedder is not None else Recorder(), **kwargs)
+
+
+# -- criterion 2: the embedder is selectable per mode --------------------------
+
+
+def test_each_mode_has_the_embedder_SM_R4_chose(monkeypatch):
+    """Asserted against ``DECISION.md`` section 1, which is the artifact of record -- the SM-R4 PR
+    body still says ``gte-base`` for Mode A and ADR 0003's Context section flags that discrepancy."""
+    from egpt.memory import embedding
+
+    seen = {}
+
+    def _fake(key, options):
+        seen["key"], seen["options"] = key, options
+        return Recorder()
+
+    monkeypatch.setattr(embedding, "_construct", _fake)
+
+    resolve_memory_embedder(ProviderMode.LOCAL, dimensions=DIM)
+    assert seen["key"] == "sentence_transformer"
+    assert seen["options"]["id"] == "BAAI/bge-base-en-v1.5"
+
+    resolve_memory_embedder(ProviderMode.FRONTIER, dimensions=DIM)
+    assert seen["key"] == "azure_openai"
+    assert seen["options"]["id"] == "text-embedding-3-large"
+
+
+def test_the_mode_defaults_carry_the_dimension_SM_R4_sized_the_column_for():
+    """768 for Mode A and 1024 for Mode B, both inside pgvector's 2000-dim ``vector`` limit -- which
+    is why Mode B is the truncated 3-large and not its native 3072 (DECISION.md section 4)."""
+    assert MODE_DEFAULTS[ProviderMode.LOCAL]["dimensions"] == 768
+    assert MODE_DEFAULTS[ProviderMode.FRONTIER]["dimensions"] == 1024
+    assert all(default["dimensions"] <= 2000 for default in MODE_DEFAULTS.values())
+
+
+def test_a_caller_option_beats_the_mode_default(monkeypatch):
+    """Pinning a different revision must not mean giving up the mode default's other choices."""
+    from egpt.memory import embedding
+
+    seen = {}
+    monkeypatch.setattr(embedding, "_construct", lambda key, options: seen.update(options) or Recorder())
+    resolve_memory_embedder(ProviderMode.LOCAL, options={"id": "BAAI/bge-base-en-v1.0"}, dimensions=DIM)
+    assert seen["id"] == "BAAI/bge-base-en-v1.0"
+
+
+def test_a_mode_that_is_not_a_ProviderMode_is_refused():
+    """Coerced nowhere: ``config.mode`` is already coerced at the boundary, so a raw string here
+    means a caller bypassed it, and Mode A's air-gap check keys on identity."""
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        resolve_memory_embedder("local", Recorder())
+    assert raised.value.field_name == "mode"
+
+
+# -- criterion 2 (carried forward from SM-C1): Mode A refuses a remote embedder --
+
+
+def test_huggingface_is_refused_under_mode_A():
+    """The named trap: ``HuggingfaceCustomEmbedder`` is a remote HF Inference API client despite
+    sitting in the self-hostable list, so selecting it in an air-gapped deployment breaks the air
+    gap silently (ADR 0003 A.3c). Refused at config validation, which is what A.3c asks for over
+    documenting it."""
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        resolve_memory_embedder(ProviderMode.LOCAL, "huggingface")
+    assert raised.value.field_name == "embedder"
+    assert "huggingface" in str(raised.value).lower()
+
+
+@pytest.mark.parametrize("key", ["openai", "azure_openai", "cohere", "jina", "voyageai"])
+def test_every_other_remote_embedder_is_refused_under_mode_A_too(key):
+    """The reason this is parametrised over five siblings rather than asserting ``huggingface``
+    alone: a check that rejects only the one name in the ADR leaves every equally-remote embedder
+    accepted, which is the same defect with a different name in the message. The rule is the
+    property A.3c states -- offline capability -- and ``huggingface`` is one instance of it."""
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        resolve_memory_embedder(ProviderMode.LOCAL, key)
+    assert raised.value.field_name == "embedder"
+
+
+@pytest.mark.parametrize("key", sorted(OFFLINE_CAPABLE))
+def test_the_offline_capable_embedders_pass_mode_A(key, monkeypatch):
+    """The complement of the refusal. Without this the allow-list could be empty and every test
+    above would still pass, which would refuse Mode A entirely."""
+    from egpt.memory import embedding
+
+    monkeypatch.setattr(embedding, "_construct", lambda k, o: Recorder())
+    assert resolve_memory_embedder(ProviderMode.LOCAL, key).dimensions == DIM
+
+
+def test_a_remote_embedder_is_not_constructed_before_being_refused(monkeypatch):
+    """Refused **before** construction, not after. Building a remote client to then reject it reads
+    a token off the environment and can open a connection -- which is the thing the air gap forbids,
+    so a refusal that happens afterwards has already done the damage it exists to prevent."""
+    from egpt.memory import embedding
+
+    def _explode(key, options):
+        raise AssertionError(f"constructed {key!r} before the air-gap check")
+
+    monkeypatch.setattr(embedding, "_construct", _explode)
+    with pytest.raises(MemoryProviderConfigError):
+        resolve_memory_embedder(ProviderMode.LOCAL, "openai")
+
+
+def test_an_injected_instance_is_checked_too():
+    """Passing an instance is a supported path -- it is how a deployment supplies ``device`` or
+    ``trust_remote_code``, which SM-R4 section 5 records ``SentenceTransformerEmbedder`` cannot take
+    from the registry. A rule that held only for the spelling naming a key would leave the trap open
+    on the path a deployment actually uses."""
+
+    class Remote:
+        dimensions = DIM
+
+        def get_embedding(self, text):
+            return [0.0] * DIM
+
+        async def async_get_embedding(self, text):
+            return [0.0] * DIM
+
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        resolve_memory_embedder(ProviderMode.LOCAL, Remote())
+    assert raised.value.field_name == "embedder"
+
+
+def test_an_instance_declaring_itself_offline_is_accepted():
+    """A private in-process model outside this tree is genuinely offline and no module path can tell.
+    The declaration is explicit, which is the opposite of the silence A.3c actually forbids."""
+    assert resolve_memory_embedder(ProviderMode.LOCAL, Recorder()).dimensions == DIM
+
+
+def test_mode_B_accepts_a_remote_embedder():
+    """Mode B is the deployment where reaching a provider is the point. A check that fired in both
+    modes would be a check nothing could satisfy."""
+
+    class Remote(Recorder):
+        offline_capable = False
+
+    assert resolve_memory_embedder(ProviderMode.FRONTIER, Remote()).dimensions == DIM
+
+
+# -- criterion 1: the same embedder serves write and read ----------------------
+
+
+def test_write_and_query_go_through_the_one_resolved_embedder():
+    """SM-R4 decision 2. Vectors from two models are not comparable, and the failure is silent --
+    nothing raises, retrieval just gets worse -- so the seam is that both call the same object."""
+    recorder = Recorder()
+    resolved = pipeline(recorder)
+    resolved.embed_texts(["stored one", "stored two"])
+    resolved.embed_query("a question")
+    assert recorder.calls == ["stored one", "stored two", "a question"]
+
+
+def test_the_async_half_uses_the_same_embedder_as_the_sync_half():
+    recorder = Recorder()
+    resolved = pipeline(recorder)
+    asyncio.run(resolved.aembed_texts(["stored"]))
+    asyncio.run(resolved.aembed_query("asked"))
+    assert recorder.calls == ["stored", "asked"]
+
+
+def test_a_query_vector_equals_the_write_vector_for_the_same_text():
+    """The property that makes similarity meaningful: one text, one vector, whichever path took it."""
+    resolved = pipeline()
+    assert resolved.embed_query("same text") == resolved.embed_texts(["same text"])[0]
+
+
+def test_the_two_halves_agree_vector_for_vector():
+    """Asserted on the values, not on both paths merely returning something the right shape."""
+    resolved = pipeline()
+    assert asyncio.run(resolved.aembed_texts(["a", "bb"])) == resolved.embed_texts(["a", "bb"])
+
+
+# -- criterion 4: batch embedding on write-back --------------------------------
+
+
+def test_a_batching_embedder_is_called_once_per_chunk_not_once_per_record():
+    """The criterion, asserted on what the embedder was **asked for** rather than on the vectors
+    that came back -- which are identical either way, so a per-record loop would pass a
+    result-only assertion while making one API call per memory."""
+    recorder = BatchRecorder()
+    pipeline(recorder).embed_texts(["a", "b", "c", "d", "e"])
+    assert recorder.calls == [["a", "b"], ["c", "d"], ["e"]]
+
+
+def test_the_async_half_batches_identically():
+    """The one that matters most: SM-V1's async upsert embedded sequentially and said so, so a
+    batching sync half beside a per-record async half is the exact divergence to expect here."""
+    recorder = BatchRecorder()
+    asyncio.run(pipeline(recorder).aembed_texts(["a", "b", "c", "d", "e"]))
+    assert recorder.calls == [["a", "b"], ["c", "d"], ["e"]]
+
+
+def test_an_embedder_that_did_not_opt_into_batching_gets_one_text_per_call():
+    """``Embedder.enable_batch`` is off by default and the base's ``get_embedding`` takes a ``str``.
+    Handing such an embedder a list gets one vector for the concatenation -- silently wrong, and
+    attached to whichever record happened to be first."""
+    recorder = Recorder()
+    pipeline(recorder).embed_texts(["a", "b", "c"])
+    assert recorder.calls == ["a", "b", "c"]
+
+
+def test_the_batch_comes_back_in_order():
+    """Order is the whole contract: vectors are zipped against records positionally, so a shuffled
+    batch files every memory under its neighbour's vector with nothing downstream able to see it."""
+    assert pipeline(BatchRecorder()).embed_texts(["a", "bb", "cccc"]) == [
+        [1.0, 0.0, 0.0, 0.0],
+        [2.0, 0.0, 0.0, 0.0],
+        [4.0, 0.0, 0.0, 0.0],
+    ]
+
+
+def test_an_embedder_returning_the_wrong_count_for_a_batch_is_refused():
+    """A batching embedder that returns one vector for the concatenation is the failure this guards.
+    Left unchecked, ``zip`` truncates silently and the surviving records get the wrong vectors."""
+
+    class Miscounting(BatchRecorder):
+        def get_embedding(self, text):
+            return [self._vector("only one")]
+
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        pipeline(Miscounting()).embed_texts(["a", "b"])
+    assert raised.value.field_name == "embedder"
+
+
+def test_an_empty_batch_costs_no_call():
+    recorder = Recorder()
+    assert pipeline(recorder).embed_texts([]) == []
+    assert recorder.calls == []
+
+
+def test_a_batch_size_of_zero_does_not_spin():
+    """A non-positive ``batch_size`` makes the chunk loop either spin forever or send everything at
+    once. Falling back is what stops a misconfigured embedder from hanging a write."""
+
+    class ZeroBatch(BatchRecorder):
+        batch_size = 0
+
+    assert len(pipeline(ZeroBatch()).embed_texts(["a", "b", "c"])) == 3
+
+
+# -- criterion 3: the dimension matches the vector store -----------------------
+
+
+def test_an_unstated_dimension_is_taken_from_the_embedder():
+    assert pipeline().dimensions == DIM
+
+
+def test_a_stated_dimension_disagreeing_with_the_embedder_is_refused():
+    """Caught here rather than by Postgres on the first insert: by then the table exists at the
+    wrong width and every write fails until it is dropped."""
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        pipeline(dimensions=DIM + 1)
+    assert raised.value.field_name == "dimensions"
+
+
+def test_an_embedder_declaring_no_dimension_needs_an_explicit_one():
+    class NoDim(Recorder):
+        dimensions = None
+
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        resolve_memory_embedder(ProviderMode.FRONTIER, NoDim())
+    assert raised.value.field_name == "dimensions"
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, 3.5, "4"])
+def test_a_dimension_that_is_not_a_positive_integer_is_refused(bad):
+    """``True`` is in the list because ``bool`` is an ``int`` subclass, so ``dimensions=True``
+    otherwise builds a ``vector(1)`` column."""
+
+    class NoDim(Recorder):
+        dimensions = None
+
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        resolve_memory_embedder(ProviderMode.FRONTIER, NoDim(), dimensions=bad)
+    assert raised.value.field_name == "dimensions"
+
+
+def test_the_refusal_names_the_field_the_caller_actually_passed():
+    """The vector store spells this ``dim``. A caller who passed ``dim=`` and is told ``dimensions``
+    cannot map the refusal back to the argument that caused it."""
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        pipeline(dimensions=DIM + 1, dimensions_field="dim")
+    assert raised.value.field_name == "dim"
+
+
+def test_a_vector_of_the_wrong_width_is_refused_at_the_pipeline():
+    """An embedder whose ``dimensions`` disagrees with what it actually returns otherwise reaches
+    Postgres as ``expected 4 dimensions, not 2`` -- naming the column instead of the model."""
+
+    class Lying(Recorder):
+        def _vector(self, text):
+            return [0.0, 0.0]
+
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        pipeline(Lying()).embed_texts(["a"])
+    assert raised.value.field_name == "dimensions"
+
+
+def test_the_async_half_refuses_a_wrong_width_too():
+    class Lying(Recorder):
+        def _vector(self, text):
+            return [0.0, 0.0]
+
+    with pytest.raises(MemoryProviderConfigError):
+        asyncio.run(pipeline(Lying()).aembed_texts(["a"]))
+
+
+# -- the version tag (D8) ------------------------------------------------------
+
+
+def test_the_version_tag_carries_model_dimension_metric_and_revision():
+    """SM-R4 section 7's shape. It is what a re-embedding migration keys its cutover on, so a tag
+    missing the dimension cannot distinguish the two columns a migration runs across."""
+    assert pipeline().embedding_version == "recorder-v1/d4/cos/v1"
+
+
+def test_the_tag_moves_with_the_dimension():
+    """Derived, not restated. A tag written beside the dimension rather than from it drifts the
+    first time the model changes, and the migration keyed on it then cuts over to itself."""
+
+    class Wide(Recorder):
+        dimensions = 768
+
+    assert "/d768/" in resolve_memory_embedder(ProviderMode.FRONTIER, Wide()).embedding_version
+
+
+def test_an_embedder_without_an_id_is_tagged_by_its_class_not_a_shared_placeholder():
+    """Two different embedders must not tag their vectors alike -- a migration would then read one
+    model's vectors as already converted."""
+
+    class Anonymous(Recorder):
+        id = None
+
+    assert resolve_memory_embedder(ProviderMode.FRONTIER, Anonymous()).embedding_version.startswith("Anonymous/")
+
+
+# -- resolution refusals -------------------------------------------------------
+
+
+def test_an_unknown_embedder_name_is_refused_as_a_config_fault():
+    """Checked against the registry rather than caught from ``construct``: that signals an unknown
+    name with ``ValueError``, and so does any embedder validating its own constructor arguments, so
+    catching would relabel a bad ``device`` as a bad embedder name."""
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        resolve_memory_embedder(ProviderMode.FRONTIER, "not-an-embedder")
+    assert raised.value.field_name == "embedder"
+
+
+def test_options_beside_a_built_instance_are_refused():
+    """Silently dropping them leaves a deployment's ``device`` or ``trust_remote_code`` inert with
+    nothing to show for it."""
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        resolve_memory_embedder(ProviderMode.FRONTIER, Recorder(), options={"id": "x"})
+    assert raised.value.field_name == "embedder_options"
+
+
+def test_an_empty_embedder_name_is_refused():
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        resolve_memory_embedder(ProviderMode.FRONTIER, "   ")
+    assert raised.value.field_name == "embedder"
+
+
+@pytest.mark.parametrize("missing", ["get_embedding", "async_get_embedding"])
+def test_an_embedder_missing_either_half_is_refused(missing):
+    """Both halves of the memory path embed, so one missing leaves the other half broken -- and it
+    surfaces on the first async read rather than at construction."""
+
+    class Half(Recorder):
+        pass
+
+    setattr(Half, missing, None)
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        resolve_memory_embedder(ProviderMode.FRONTIER, Half())
+    assert raised.value.field_name == "embedder"
+
+
+def test_a_construction_failure_arrives_as_a_config_error(monkeypatch):
+    """Callers of ``build_memory_provider`` assert on ``MemoryProviderConfigError``; an embedder's
+    raw ``RuntimeError`` would make the seam's contract depend on which model was named."""
+    from egpt.registry import discovery
+
+    monkeypatch.setattr(discovery, "names", lambda kind: ["ollama"])
+
+    def _boom(kind, name, **config):
+        raise RuntimeError("no such model on the server")
+
+    monkeypatch.setattr(discovery, "construct", _boom)
+    with pytest.raises(MemoryProviderConfigError) as raised:
+        resolve_memory_embedder(ProviderMode.LOCAL, "ollama")
+    assert raised.value.field_name == "embedder"
+
+
+def test_a_missing_sdk_propagates_as_an_ImportError(monkeypatch):
+    """The embedder's own "pip install sentence-transformers" is more useful than anything this
+    frame could add, and re-labelling it a config fault sends an operator to the wrong file."""
+    from egpt.registry import discovery
+
+    monkeypatch.setattr(discovery, "names", lambda kind: ["ollama"])
+
+    def _boom(kind, name, **config):
+        raise ImportError("`ollama` not installed")
+
+    monkeypatch.setattr(discovery, "construct", _boom)
+    with pytest.raises(ImportError):
+        resolve_memory_embedder(ProviderMode.LOCAL, "ollama")
+
+
+def test_the_wrapper_is_constructible_directly():
+    """``MemoryEmbedder`` is public: SM-V4's Qdrant substrate (#98) takes one rather than
+    re-resolving, so it must be usable without going through the resolver."""
+    assert MemoryEmbedder(embedder=Recorder(), dimensions=DIM, embedding_version="x/d4/cos/v1").embed_query("a")
