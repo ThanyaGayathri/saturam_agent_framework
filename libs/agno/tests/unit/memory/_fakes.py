@@ -33,9 +33,9 @@ from egpt.memory.types import (
     MemoryQuery,
     MemoryRecord,
     Scope,
+    require_scope,
     Substrate,
     TemporalBounds,
-    require_scope,
 )
 
 
