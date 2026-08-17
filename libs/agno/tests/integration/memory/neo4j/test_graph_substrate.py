@@ -22,6 +22,7 @@ from egpt.integrations.memory.graph.neo4j import Neo4jGraphSubstrate, cypher  # 
 from egpt.memory.substrates import GraphSubstrate  # noqa: E402
 from egpt.memory.tiers import MemoryTier  # noqa: E402
 from egpt.memory.types import (  # noqa: E402
+    EntityWrite,
     FactWrite,
     MemoryEvent,
     MemoryOperationError,
@@ -735,3 +736,157 @@ def test_the_graph_is_not_enumerable(graph):
     """``scan`` is deliberately absent from ``GraphSubstrate``: what enumeration means over a
     temporal graph (current belief? every revision? edges or nodes?) is SM-G9's (#107) to define."""
     assert not hasattr(graph, "scan")
+
+
+# -- entity nodes (SM-G2 #100) ----------------------------------------------
+
+
+def entity_write(name="acme corp", scope=ACME, **kwargs):
+    kwargs.setdefault("entity_type", "company")
+    return EntityWrite(name=name, scope=scope, **kwargs)
+
+
+def read_entity(graph, name, scope=ACME):
+    """Read an entity node back, from the real store or the double, as one dict.
+
+    There is no read verb for entity nodes on the port: what a graph read returns is
+    ``traverse``'s, and querying the semantic subgraph is SM-G7 (#105) / SM-G9 (#107). Raw Cypher
+    is what keeps this test from depending on a verb this ticket did not add, and the double's
+    branch is what lets a property be asserted against **both**, which is this file's whole bargain.
+    """
+    if isinstance(graph, FakeGraph):
+        stored = graph.entities.get((scope.key(), name))
+        return None if stored is None else {
+            "entity_type": stored.entity_type,
+            "description": stored.description,
+            "key": stored.key,
+            "embedding": stored.embedding,
+            "source_episode_ids": stored.source_episode_ids,
+            "aliases": stored.aliases,
+        }
+    with graph._driver.session(database=graph.database) as session:
+        row = session.run(
+            "MATCH (n:Entity {scope_key: $scope_key, name: $name}) RETURN properties(n) AS props",
+            scope_key=scope.key(),
+            name=name,
+        ).single()
+    return dict(row["props"]) if row else None
+
+
+def test_an_entity_is_written_and_read_back_as_a_node(any_graph):
+    """SM-G2's first criterion, against the engine as well as the double."""
+    any_graph.upsert_entities(
+        ACME,
+        [entity_write(description="a company", aliases=["Acme"], source_episode_ids=["e1"], embedding=[0.1, 0.2])],
+    )
+
+    props = read_entity(any_graph, "acme corp")
+    assert props["entity_type"] == "company"
+    assert props["description"] == "a company"
+    assert props["key"] == "acme corp"
+    assert props["embedding"] == [0.1, 0.2]
+    assert props["source_episode_ids"] == ["e1"]
+
+
+def test_a_second_sighting_unions_provenance_rather_than_replacing_it(graph):
+    """SM-R7 section 7's audit trail, which every other write on this backend would overwrite."""
+    graph.upsert_entities(ACME, [entity_write(source_episode_ids=["e1"], aliases=["Acme"])])
+    graph.upsert_entities(ACME, [entity_write(source_episode_ids=["e2"], aliases=["ACME"])])
+
+    props = read_entity(graph, "acme corp")
+    assert sorted(props["source_episode_ids"]) == ["e1", "e2"]
+    assert sorted(props["aliases"]) == ["ACME", "Acme"]
+
+
+def test_re_extracting_the_same_episode_adds_nothing(graph):
+    """The union has to be idempotent, or a scheduler re-running a pass grows the list forever.
+
+    Nothing marks an episode consumed until SM-L1 (#122), so a re-run is the expected case rather
+    than an unlucky one.
+    """
+    for _ in range(3):
+        graph.upsert_entities(ACME, [entity_write(source_episode_ids=["e1"], aliases=["Acme"])])
+
+    props = read_entity(graph, "acme corp")
+    assert props["source_episode_ids"] == ["e1"]
+    assert props["aliases"] == ["Acme"]
+
+
+def test_the_first_sighting_keeps_created_at_while_updated_at_moves(graph):
+    graph.upsert_entities(ACME, [entity_write(source_episode_ids=["e1"])])
+    first = read_entity(graph, "acme corp")
+
+    graph.upsert_entities(ACME, [entity_write(source_episode_ids=["e2"], description="later")])
+    second = read_entity(graph, "acme corp")
+
+    assert second["created_at"] == first["created_at"]
+    assert second["updated_at"] >= first["updated_at"]
+    assert second["description"] == "later", "everything outside the two unioned lists is last-write"
+
+
+def test_an_entity_write_and_a_triple_endpoint_are_the_same_node(graph):
+    """The identity claim in the port's docstring, checked rather than asserted in prose.
+
+    ``upsert_facts`` merges its endpoints on ``(scope_key, name)``. If ``upsert_entities`` used a
+    different key -- the normalised one, say -- every triple would create a second, propertyless
+    node for the same entity and SM-G8 (#106) would inherit duplicates this ticket manufactured.
+    """
+    graph.upsert_facts(ACME, [fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin")])
+    graph.upsert_entities(ACME, [entity_write(name="ada", entity_type="person", source_episode_ids=["e1"])])
+
+    with graph._driver.session(database=graph.database) as session:
+        count = session.run(
+            "MATCH (n:Entity {scope_key: $scope_key, name: 'ada'}) RETURN count(n) AS n", scope_key=ACME.key()
+        ).single()["n"]
+    assert count == 1
+    assert read_entity(graph, "ada")["entity_type"] == "person"
+
+
+def test_two_scopes_holding_one_name_are_two_nodes(graph):
+    """Resolving one user's "berlin" against another's is not dedup, it is a cross-scope leak."""
+    graph.upsert_entities(ACME, [entity_write(name="berlin", entity_type="city", description="ada's")])
+    graph.upsert_entities(
+        ACME_BOB, [entity_write(name="berlin", entity_type="city", description="bob's", scope=ACME_BOB)]
+    )
+
+    assert read_entity(graph, "berlin", ACME)["description"] == "ada's"
+    assert read_entity(graph, "berlin", ACME_BOB)["description"] == "bob's"
+
+
+def test_an_entity_node_carries_no_bi_temporal_field_in_the_store(graph):
+    """ADR 0003 section 1: ``SemanticEntity`` is embeddable, not bi-temporal."""
+    graph.upsert_entities(ACME, [entity_write(source_episode_ids=["e1"])])
+
+    props = read_entity(graph, "acme corp")
+    assert not {"t_valid", "t_invalid", "expired_at", "superseded_by", cypher.LIVE, "tier"} & set(props)
+
+
+def test_an_empty_entity_batch_is_a_no_op_rather_than_a_round_trip(any_graph):
+    """The port's empty-is-a-no-op rule, held for the new verb as for the other two."""
+    any_graph.upsert_entities(ACME, [])
+
+    if not isinstance(any_graph, FakeGraph):
+        with any_graph._driver.session(database=any_graph.database) as session:
+            assert session.run("MATCH (n:Entity) RETURN count(n) AS n").single()["n"] == 0
+
+
+def test_an_entity_write_under_a_foreign_scope_is_refused(graph):
+    with pytest.raises(MemoryOperationError, match="does not match the write scope"):
+        graph.upsert_entities(ACME, [entity_write(scope=GLOBEX)])
+
+
+async def test_both_entity_halves_leave_the_same_durable_state(async_graph):
+    """Parity on committed rows, not on the two verbs existing."""
+    async_graph.upsert_entities(ACME, [entity_write(source_episode_ids=["e1"], aliases=["Acme"])])
+    sync_props = read_entity(async_graph, "acme corp")
+
+    with async_graph._driver.session(database=async_graph.database) as session:
+        session.run("MATCH (n) DETACH DELETE n")
+
+    await async_graph.aupsert_entities(ACME, [entity_write(source_episode_ids=["e1"], aliases=["Acme"])])
+    async_props = read_entity(async_graph, "acme corp")
+
+    assert async_props and sync_props
+    assert {k: v for k, v in async_props.items() if k not in ("created_at", "updated_at")} == {
+        k: v for k, v in sync_props.items() if k not in ("created_at", "updated_at")
+    }
