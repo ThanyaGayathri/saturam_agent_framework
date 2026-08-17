@@ -390,3 +390,25 @@ def test_scan_takes_no_window_because_an_enumeration_is_not_narrowed():
     assert "window" not in signature(sql.scan_statement).parameters
     statement, _ = sql.scan_statement("ai", "memory_vectors", FULL, 10)
     assert ":valid_from" not in statement and ":valid_to" not in statement
+
+
+@pytest.mark.parametrize("alias", ["", "m"])
+def test_the_composed_predicate_qualifies_every_column_with_the_alias(alias):
+    """SM-V3 (#97) joins legs, and a joined statement needs its columns table-qualified.
+
+    ``search_predicate`` forwards ``alias`` to three builders. Forgetting to forward it to one --
+    ``window_predicate`` is the newest and the easiest to miss -- emits an unqualified column that
+    Postgres rejects as ambiguous only once a second table is in the ``FROM``. There is no such
+    statement yet, so nothing else in this suite would notice.
+    """
+    predicate, _ = sql.search_predicate(FULL, WINDOW, alias)
+    prefix = f"{alias}." if alias else ""
+    for column in ("tier", "expired_at", "t_valid", "t_invalid", *sql.SCOPE_SLOTS):
+        assert f"{prefix}{column}" in predicate, column
+    if alias:
+        # The qualification has to be on every occurrence, not merely present somewhere: a
+        # predicate that qualified the scope slots and left the window bare would pass a check
+        # that only asked whether the alias appeared at all.
+        for column in ("tier", "expired_at", "t_valid", "t_invalid", *sql.SCOPE_SLOTS):
+            bare = predicate.replace(f"{prefix}{column}", "")
+            assert column not in bare.replace(f":{column}", ""), column

@@ -154,3 +154,26 @@ def test_an_aware_datetime_bound_is_normalised_to_epoch_seconds(field):
     value = getattr(query, field)
     assert isinstance(value, int) and not isinstance(value, bool)
     assert value == int(moment.timestamp())
+
+
+@pytest.mark.parametrize(("valid_from", "valid_to"), [(200, 50), (100, 100)])
+def test_an_inverted_window_is_refused_at_construction(valid_from, valid_to):
+    """``ValidWindow`` is exported and constructed directly, so ``MemoryQuery``'s guard is not the
+    only entry -- SM-V3's legs will assemble one without going through a query.
+
+    An inverted window is not merely empty, which would at least be uniform. ``overlaps`` checks
+    each end independently, so ``[200, 50)`` still admits a record with unset bounds while
+    rejecting its neighbours: a wrong answer rather than no answer.
+    """
+    with pytest.raises(ValueError, match="empty or inverted"):
+        ValidWindow(valid_from=valid_from, valid_to=valid_to)
+
+
+def test_the_point_window_and_every_single_sided_window_still_construct():
+    """The guard must not catch the shapes the code actually builds -- a point read is
+    ``[at, at + 1)``, and either bound alone is a legitimate half-open window."""
+    assert ValidWindow.at(0).valid_to == 1
+    assert ValidWindow.at(1_700_000_000).valid_from == 1_700_000_000
+    assert ValidWindow(valid_from=100).valid_to is None
+    assert ValidWindow(valid_to=100).valid_from is None
+    assert ValidWindow() == ValidWindow(None, None)

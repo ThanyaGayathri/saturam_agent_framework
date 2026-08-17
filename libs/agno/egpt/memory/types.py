@@ -333,6 +333,18 @@ class ValidWindow:
     valid_from: Optional[int] = None
     valid_to: Optional[int] = None
 
+    def __post_init__(self) -> None:
+        # `MemoryQuery` rejects the same shape, but this type is exported and constructed directly
+        # -- by the tests here, and by whatever assembles a window for SM-V3's legs. An inverted
+        # window does not merely match nothing, which would at least be uniform: `overlaps` checks
+        # each end independently, so `[200, 50)` still admits a record with unset bounds and
+        # rejects its neighbours. That is a wrong answer, not an empty one.
+        if self.valid_from is not None and self.valid_to is not None and self.valid_from >= self.valid_to:
+            raise ValueError(
+                f"ValidWindow [{self.valid_from}, {self.valid_to}) is empty or inverted. The window "
+                "is half-open, so valid_to must be strictly greater than valid_from."
+            )
+
     @classmethod
     def at(cls, instant: int) -> "ValidWindow":
         """The window a point-in-time read is: ``[instant, instant + 1)``."""
@@ -591,7 +603,8 @@ class MemoryQuery:
                 raise ValueError(f"MemoryQuery.{bound_name} must be a non-negative epoch second, got {bound!r}.")
         # Half-open, so an empty window is `valid_from == valid_to` and not merely `>`. A caller
         # computing both ends from one timestamp lands on it, and an empty window overlaps nothing:
-        # the read comes back empty and reads as "no such memories" rather than as a bad request.
+        # unrefused, the read *would* come back empty and read as "no such memories" rather than as
+        # the bad request it is. Hence the raise below.
         if self.valid_from is not None and self.valid_to is not None and self.valid_from >= self.valid_to:
             raise ValueError(
                 f"MemoryQuery valid-time window [{self.valid_from}, {self.valid_to}) is empty, so no "

@@ -266,14 +266,29 @@ def test_the_graph_leg_does_not_narrow_to_the_valid_time_window():
     **This test fails when SM-G9 pushes the predicate into the traversal**, which is the point: a
     comment recording the gap rots, a failing test does not. When it does fail, delete it and
     assert the graph leg narrows like the vector one.
+
+    Pinned on **behaviour** rather than on a sentinel attribute. An earlier version asserted that
+    ``FakeGraph`` had grown no ``traverse_windows`` attribute, which needed SM-G9 to pick that
+    exact name a ticket away and would have passed vacuously forever otherwise. What the traversal
+    returns needs no such agreement.
     """
-    prov, vector, graph = provider()
+    prov, _, graph = provider()
     inside = record("inside", 500, content="alpha beta gamma")
     outside = record("outside", 100, 200, content="alpha beta gamma")
-    graph.rows["inside"] = [inside]
-    graph.rows["outside"] = [outside]
+    # `FakeGraph._bucket` keys by tenant, like every real backend partitions by it. Keying by
+    # record id instead leaves the graph leg empty and the test asserting nothing -- which is what
+    # the first version of this setup did.
+    graph.rows.setdefault(ACME.tenant_id, []).extend([inside, outside])
 
-    prov.read(ACME, MemoryQuery(text="alpha beta gamma", valid_from=400, valid_to=600, limit=5))
-    # The graph double filters current belief and tier, and nothing else -- exactly like the real
-    # backend's Cypher. If this attribute ever appears, the gap is closed.
-    assert not hasattr(graph, "traverse_windows")
+    windowed = MemoryQuery(text="alpha beta gamma", valid_from=400, valid_to=600, limit=5)
+
+    # The gap itself: the traversal is handed the window and returns the out-of-window row anyway.
+    traversed = graph.traverse(ACME, windowed)
+    assert {r.id for r in traversed} == {"inside", "outside"}
+
+    # And the consequence is bounded: the provider drops it, so the answer is precise and only the
+    # graph leg's recall suffers. Precision is what a caller sees; recall is what the diagnostic
+    # reports.
+    result = prov.read(ACME, windowed)
+    assert [r.id for r in result.records] == ["inside"]
+    assert result.fusion["dropped_outside_window"] == 1

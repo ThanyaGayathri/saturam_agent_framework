@@ -105,18 +105,7 @@ def _jaccard(left: Set[str], right: Set[str]) -> float:
 
 def _valid_at(record: MemoryRecord, at: int) -> bool:
     """``t_valid <= at < t_invalid``, with ``None`` open at either end."""
-    return _overlaps(record, ValidWindow.at(at))
-
-
-def _overlaps(record: MemoryRecord, window: ValidWindow) -> bool:
-    """Whether the record's valid time meets ``window``.
-
-    The rule itself is :meth:`ValidWindow.overlaps`, shared with the SQL the vector substrate
-    emits (SM-V4 #98). It runs again here because the substrate filtered on its own **stale**
-    projection of the bounds: ``_reconcile_bounds`` overwrites them from the graph immediately
-    before this, and a window decided on pre-reconciliation bounds is decided on the wrong ones.
-    """
-    return window.overlaps(record.t_valid, record.t_invalid)
+    return ValidWindow.at(at).overlaps(record.t_valid, record.t_invalid)
 
 
 def _merge(legs: Sequence[Sequence[MemoryRecord]]) -> List[MemoryRecord]:
@@ -587,12 +576,14 @@ class CoLocatedMemoryProvider(MemoryProvider):
         # `instant` is the present whenever `as_of` is unset. `MemoryQuery` refuses both at once,
         # so this is a choice between two given filters and never a merge of them (SM-V4 #98).
         #
-        # Re-run here on the reconciled bounds even though the substrate already narrowed: the
-        # substrate filtered its own projection, and the graph is the authority. Its pass is what
-        # makes this a full page rather than the remains of one.
+        # The rule runs again here even though the substrate already narrowed, because the
+        # substrate filtered its own **stale** projection: `_reconcile_bounds` has just overwritten
+        # these bounds from the graph, which is the authority, and a window decided before that was
+        # decided on the wrong ones. The substrate's pass is what makes this a full page rather
+        # than the remains of one; this pass is what makes it correct.
         requested_window = query.window()
         window = requested_window or ValidWindow.at(instant)
-        visible = [r for r in current if _overlaps(r, window)]
+        visible = [r for r in current if window.overlaps(r.t_valid, r.t_invalid)]
         records = visible[: query.limit] if query.limit else []
 
         by_tier: Dict[MemoryTier, List[MemoryRecord]] = {}

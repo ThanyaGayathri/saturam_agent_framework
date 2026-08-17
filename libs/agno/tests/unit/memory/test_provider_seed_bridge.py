@@ -646,14 +646,17 @@ def test_a_point_in_time_read_is_refused_rather_than_answered_from_present_day_m
 @pytest.mark.parametrize(
     ("bounds", "field"),
     [
-        ({"valid_from": 100, "valid_to": 200}, "valid_from"),
+        # Both set names both. Naming only the lower bound sends a caller who got the *upper* one
+        # wrong to inspect the argument that was fine -- and the first version of this test froze
+        # that behaviour by asserting it.
+        ({"valid_from": 100, "valid_to": 200}, "valid_from/valid_to"),
         ({"valid_from": 100}, "valid_from"),
         ({"valid_to": 200}, "valid_to"),
     ],
 )
 def test_a_valid_time_window_is_refused_rather_than_ignored(bounds, field):
-    """SM-V4 (#98), for the reason ``as_of`` is refused: no valid-time columns here, so an ignored
-    window returns the whole store as if every row fell inside it.
+    """SM-V4 (#98): no valid-time columns here, so an ignored window returns the whole store as if
+    every row fell inside it.
 
     ``field_name`` must name the bound the caller actually set -- a message about ``as_of``, or
     about ``valid_from`` when only ``valid_to`` was given, sends a reader to the wrong argument.
