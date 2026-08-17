@@ -87,6 +87,10 @@ provider.write(
     ],
 )
 
+assert provider.graph is not None, (
+    "This cookbook needs a graph backend -- check NEO4J_URI / NEO4J_USERNAME / NEO4J_PASSWORD "
+    "and that ./cookbook/scripts/run_neo4j.sh is running."
+)
 graph = provider.graph
 
 print("--- by mention link: everything about berlin, oldest first ---")

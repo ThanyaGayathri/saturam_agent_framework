@@ -234,9 +234,12 @@ def require_recall_filters(entities: Optional[Sequence[str]], since: Optional[in
             field_name="entities",
         )
     if entities is None and since is None and until is None:
+        # No single field, unlike the refusal above: supplying `since` or `until` resolves this
+        # equally well, so naming `entities` would send a caller narrowing that one field when any
+        # of the three would do.
         raise MemoryOperationError(
             "recall_episodes needs at least one of entities, since or until. With none of them "
             "this enumerates every episode in scope, and graph enumeration semantics are SM-G9's "
             "(#107) to define.",
-            field_name="entities",
+            field_name=None,
         )

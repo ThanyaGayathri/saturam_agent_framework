@@ -188,6 +188,10 @@ def test_a_recall_with_no_filter_at_all_is_refused_as_enumeration():
     with pytest.raises(MemoryOperationError) as excinfo:
         require_recall_filters(None, None, None)
     assert "SM-G9" in str(excinfo.value)
+    # No single field, unlike the empty-list refusal below: `since` or `until` resolves this
+    # equally well, so naming `entities` would send a caller narrowing one field when any of the
+    # three would do (round-2 review, PR #90).
+    assert excinfo.value.field_name is None
 
 
 def test_an_empty_entity_filter_is_refused_rather_than_read_as_any_or_none():

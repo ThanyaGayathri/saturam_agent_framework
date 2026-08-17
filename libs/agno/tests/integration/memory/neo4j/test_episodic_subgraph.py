@@ -176,6 +176,18 @@ def test_re_upserting_an_episode_replaces_its_mentions_rather_than_unioning_them
     assert linked(any_graph.recall_episodes(ACME, since=0)[0]) == [entity_node_id_for(ACME, "paris")]
 
 
+def test_re_upserting_with_no_entities_removes_the_previous_mentions(any_graph):
+    """The non-empty-to-non-empty transition above exercises `link_mentions`, which is skipped
+    entirely when the new batch mentions nothing (`_episode_statements`'s `if mentions:` guard) --
+    a mutation that skipped `clear_mentions` too in that branch would survive the test above and
+    still leave the previous mention edges live (round-2 review, PR #90)."""
+    any_graph.upsert_episodes(ACME, [episode("e1", entities=["berlin"])])
+    any_graph.upsert_episodes(ACME, [episode("e1", content="ada's plans changed", entities=None)])
+
+    assert any_graph.recall_episodes(ACME, entities=["berlin"]) == []
+    assert linked(any_graph.recall_episodes(ACME, since=0)[0]) == []
+
+
 def test_re_upserting_the_same_mentions_does_not_duplicate_the_edges(graph):
     """The uniqueness constraint behind the merge key, exercised. Without it the second write adds
     a parallel edge and every recall returns the entity twice."""

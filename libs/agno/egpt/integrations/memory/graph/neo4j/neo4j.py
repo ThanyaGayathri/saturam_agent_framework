@@ -374,6 +374,11 @@ class Neo4jGraphSubstrate:
             ) from exc
 
     def _record(self, row: Dict[str, Any], scope: Scope) -> MemoryRecord:
+        # `scope` is the call scope every caller passes -- load-bearing for `traverse`'s Fact/REL
+        # rows, which carry no scope columns of their own and so use it as-is. It is overwritten
+        # below for a `recall_episodes` row (one that carries `"mentions"`), which is why it looks
+        # unused from `recall_episodes`'s own call site: that reconstruction is what round-1 review
+        # asked for, not a sign the parameter is dead on the shared signature.
         provenance = self._from_json(row.get("provenance"), "provenance", row.get("id"))
         record_scope = scope
         if "mentions" in row:
@@ -433,7 +438,7 @@ class Neo4jGraphSubstrate:
             )
         return event.id
 
-    def _episode_rows(self, scope: Scope, events: Sequence[MemoryEvent]) -> List[Dict[str, Any]]:
+    def _episode_rows(self, scope: Scope, events: Sequence[MemoryEvent], created_at: int) -> List[Dict[str, Any]]:
         rows = []
         for event in events:
             self._reject_foreign_scope(scope, event.scope)
@@ -445,7 +450,7 @@ class Neo4jGraphSubstrate:
                     event.content,
                     topics=event.topics,
                     t_valid=event.occurred_at,
-                    created_at=now_epoch_s(),
+                    created_at=created_at,
                     metadata=event.metadata,
                 )
             )
@@ -456,6 +461,9 @@ class Neo4jGraphSubstrate:
         binds. What each episode mentions is decided by ``memory.graph.episodic.mention_rows`` and
         not here, so a second backend links the same set.
         """
+        rows = [row for event in events for row in mention_rows(scope, self._require_event_id(event), event.entities)]
+        if not rows:
+            return []
         entity = cypher.scope_props(scope)
         return [
             {
@@ -465,8 +473,7 @@ class Neo4jGraphSubstrate:
                 "entity": entity,
                 "props": {**row, **entity, "created_at": created_at},
             }
-            for event in events
-            for row in mention_rows(scope, self._require_event_id(event), event.entities)
+            for row in rows
         ]
 
     def _episode_statements(self, scope: Scope, events: Sequence[MemoryEvent]) -> List[Tuple[str, Dict[str, Any]]]:
@@ -478,8 +485,12 @@ class Neo4jGraphSubstrate:
         replacing it. The link statement is omitted when the batch mentions nothing, because
         ``UNWIND []`` ends the pipeline and would make it a round trip that cannot match.
         """
-        rows = self._episode_rows(scope, events)
-        mentions = self._mention_rows(scope, events, now_epoch_s())
+        # One shared timestamp, not one per call: the node and its mention edges are written in
+        # the same transaction, so they should carry the same `created_at` rather than one that
+        # happens to be a microsecond ahead of the other (round-2 review, PR #90).
+        now = now_epoch_s()
+        rows = self._episode_rows(scope, events, now)
+        mentions = self._mention_rows(scope, events, now)
         statements = [
             (text, {**bound, "rows": rows})
             for text, bound in (cypher.upsert_episodes_statement(scope), cypher.clear_mentions_statement(scope))

@@ -149,6 +149,11 @@ class InMemoryGraph:
     ) -> List[MemoryRecord]:
         # The episodic subgraph's read (SM-G6). This example is about tier routing, so it records
         # the call and returns nothing; 14_episodic_subgraph.py exercises it for real.
+        #
+        # Minimal stub -- for the full guard contract see 09_memory_provider_seam.py's
+        # `InMemoryGraph.recall_episodes`. Missing here: require_recall_filters,
+        # require_time_window, require_recall_limit -- a real backend refuses an unfiltered call,
+        # a negative limit, and an inverted window; this one accepts all three.
         require_scope(scope, method="recall_episodes")
         self.calls.append("recall_episodes")
         return []

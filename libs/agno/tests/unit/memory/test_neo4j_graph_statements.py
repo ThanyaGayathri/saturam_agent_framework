@@ -307,7 +307,7 @@ def test_a_write_under_a_foreign_scope_is_refused():
     other = Scope(tenant_id="acme", user_id="bob")
 
     with pytest.raises(MemoryOperationError, match="does not match the write scope"):
-        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=other, id="e1")])
+        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=other, id="e1")], 100)
 
     record = MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="x", scope=other)
     with pytest.raises(MemoryOperationError, match="does not match the write scope"):
@@ -321,7 +321,7 @@ def test_an_episode_without_an_id_is_refused_rather_than_given_one():
     substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
 
     with pytest.raises(MemoryOperationError, match="dedup key"):
-        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=FULL)])
+        substrate._episode_rows(FULL, [MemoryEvent(content="x", scope=FULL)], 100)
 
 
 def test_a_tripled_fact_becomes_a_relation_and_an_untripled_one_a_node():

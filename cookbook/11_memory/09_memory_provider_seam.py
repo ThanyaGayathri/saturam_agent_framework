@@ -189,7 +189,15 @@ class InMemoryGraph:
     def _upsert(self, scope: Scope, row: MemoryRecord) -> None:
         bucket = self._bucket(scope)
         for index, existing in enumerate(bucket):
-            if existing.id == row.id and existing.is_current_belief():
+            # `existing.scope`, not only `existing.id`: `_bucket` keys on `tenant_id` alone, so two
+            # users of one tenant share a bucket, and an id collision between them silently
+            # overwrote the first write with the second (round-2 review, PR #90 -- the same defect
+            # round 1 fixed in `tests/unit/memory/_fakes.py`, missed here in the sibling double).
+            if (
+                existing.id == row.id
+                and existing.scope == row.scope
+                and existing.is_current_belief()
+            ):
                 bucket[index] = row
                 return
         bucket.append(row)
