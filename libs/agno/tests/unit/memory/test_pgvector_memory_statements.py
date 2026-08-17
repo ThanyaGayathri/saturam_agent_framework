@@ -39,6 +39,7 @@ def row_reading_statements(scope):
     """
     return {
         "search": sql.search_statement("ai", "memory_vectors", scope)[0],
+        "lexical_search": sql.lexical_search_statement("ai", "memory_vectors", scope, "english")[0],
         "scan": sql.scan_statement("ai", "memory_vectors", scope, 10)[0],
         "scan_unlimited": sql.scan_statement("ai", "memory_vectors", scope, None)[0],
     }
@@ -53,10 +54,14 @@ def test_every_row_reading_builder_is_covered():
     readers = {name for name in dir(sql) if name.endswith("_statement") and not name.startswith("_")}
     assert readers == {
         "search_statement",
+        "lexical_search_statement",
         "scan_statement",
         "create_partition_statement",
         "upsert_statement",
         "ef_search_statement",
+        # Reads `pg_catalog`, not stored rows, so it carries no scope and is absent from
+        # `row_reading_statements` -- like `ef_search_statement` and `create_partition_statement`.
+        "text_search_config_statement",
     }, readers
 
 
@@ -193,7 +198,7 @@ def test_the_schema_creates_a_list_partitioned_table_with_an_hnsw_index():
     The index is created on the parent, so every future partition inherits one -- an index that has
     to be asked for later is the index that is missing in production (Finding 3).
     """
-    statements = sql.schema_statements("ai", "memory_vectors", 768, 16, 200)
+    statements = sql.schema_statements("ai", "memory_vectors", 768, 16, 200, "english")
     joined = "\n".join(statements)
     assert "CREATE EXTENSION IF NOT EXISTS vector" in joined
     assert "PARTITION BY LIST (tenant_id)" in joined
@@ -207,7 +212,7 @@ def test_the_shared_table_tenant_filter_layout_is_not_what_is_built():
     lives in a metadata JSON blob. This pins that ``tenant_id`` is a real column and the partition
     key, so a future "simplification" back to the rejected shape fails here rather than in a
     benchmark nobody re-runs."""
-    statements = sql.schema_statements("ai", "memory_vectors", 768, 16, 200)
+    statements = sql.schema_statements("ai", "memory_vectors", 768, 16, 200, "english")
     create = next(s for s in statements if "CREATE TABLE" in s)
     assert "tenant_id TEXT NOT NULL" in create
     assert create.rstrip().endswith("PARTITION BY LIST (tenant_id)")
@@ -220,14 +225,14 @@ def test_a_dimension_hnsw_cannot_index_is_refused(dim):
     missing index -- and ``True`` is an ``int`` subclass, so ``vector(True)`` would be ``vector(1)``.
     """
     with pytest.raises(ValueError, match="dim"):
-        sql.schema_statements("ai", "memory_vectors", dim, 16, 200)
+        sql.schema_statements("ai", "memory_vectors", dim, 16, 200, "english")
 
 
 @pytest.mark.parametrize("m,ef", [(0, 200), (16, 0), (-1, 200), (True, 200)])
 def test_non_positive_index_parameters_are_refused(m, ef):
     """These reach DDL as literals, so the range check is what makes the "it is an int" claim true."""
     with pytest.raises(ValueError):
-        sql.schema_statements("ai", "memory_vectors", 768, m, ef)
+        sql.schema_statements("ai", "memory_vectors", 768, m, ef, "english")
 
 
 @pytest.mark.parametrize(

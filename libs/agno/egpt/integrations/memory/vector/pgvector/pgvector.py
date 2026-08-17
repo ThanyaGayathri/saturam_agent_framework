@@ -22,6 +22,7 @@ graph invalidates a fact, which has no call site until contradiction *detection*
 
 import json
 import os
+import re
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Sequence, Set, Tuple
 
@@ -187,6 +188,30 @@ def _similar(row: Dict[str, Any]) -> bool:
     return float(distance) < 1.0
 
 
+#: The text-search configuration inside a stored ``to_tsvector(...)`` index expression.
+#:
+#: Postgres renders the literal in its own normalized form -- ``to_tsvector('english'::regconfig,
+#: content)`` for the ``to_tsvector('english', content)`` this module submitted -- so the config is
+#: parsed out and compared by **name**. Comparing the rendered text instead warned on every clean
+#: startup, which is worse than not checking: an always-on warning is one nobody reads when it
+#: finally means something.
+_INDEXED_TS_CONFIG = re.compile(r"to_tsvector\(\s*'([^']*)'")
+
+
+def _indexed_ts_config(expression: Optional[str]) -> Optional[str]:
+    """The configuration a GIN index's expression uses, or ``None`` when it is not a text index.
+
+    ``None`` for anything that is not a ``to_tsvector`` expression, because a deployment is free to
+    have other GIN indexes on this table -- one on a ``jsonb`` column, say -- and warning that a
+    ``metadata`` index does not use the configured text-search config would be noise about
+    something working exactly as intended.
+    """
+    if not expression:
+        return None
+    found = _INDEXED_TS_CONFIG.search(expression)
+    return found.group(1) if found else None
+
+
 def _lexical_similarity(rank: float) -> float:
     """``ts_rank_cd``'s unbounded output as the ``[0.0, 1.0]`` similarity the port requires.
 
@@ -299,7 +324,7 @@ class PgVectorMemorySubstrate:
                 self.schema, self.table, self.dim, m, ef_construction, self.text_search_config
             )
             self._live_schema = sql.live_schema_statements(self.schema, self.table)
-            self._ts_config_probe = sql.text_search_config_probe(self.text_search_config)
+            self._ts_config_probe = sql.text_search_config_statement(self.text_search_config)
         self._engine: Engine = create_engine(self.db_url, pool_pre_ping=True, pool_recycle=3600)
         self._aengine: Optional["AsyncEngine"] = None
         #: Tenants whose partition this process has already created. A cache, never an authority:
@@ -524,15 +549,14 @@ class PgVectorMemorySubstrate:
         # it stops doing is *matching the index expression*, so the GIN index is skipped and every
         # lexical read becomes a sequential scan -- a latency cliff with no error anywhere, which is
         # exactly the kind of silence a readback exists to break.
-        expression = sql.ts_vector_expression(self.text_search_config)
         for row in read_back[2]:
-            definition = row["definition"] or ""
-            if expression not in definition:
+            indexed = _indexed_ts_config(row["expression"])
+            if indexed is not None and indexed != self.text_search_config:
                 log_warning(
-                    f"{row['name']} does not index {expression}; this substrate is configured for "
-                    f"text_search_config={self.text_search_config!r}. Lexical reads stay correct "
-                    "but fall back to a sequential scan, because a functional index is only used "
-                    "when the query repeats its expression exactly. Rebuilding it is a locking "
+                    f"{row['name']} indexes text_search_config={indexed!r} and this substrate is "
+                    f"configured for {self.text_search_config!r}. Lexical reads stay correct but "
+                    "fall back to a sequential scan, because a functional index is only used when "
+                    "the query repeats its expression exactly. Rebuilding it is a locking "
                     "operation this backend does not perform."
                 )
 

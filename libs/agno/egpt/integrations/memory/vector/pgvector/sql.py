@@ -44,7 +44,7 @@ __all__ = [
     "SettingError",
     "search_statement",
     "text_search_config",
-    "text_search_config_probe",
+    "text_search_config_statement",
     "ts_vector_expression",
     "upsert_statement",
 ]
@@ -218,7 +218,7 @@ def text_search_config(name: str, field: str = "text_search_config") -> str:
     identifier -- ``to_tsvector('english', content)``. That is deliberate: the rules forbid a quote
     character, which is what makes interpolating the result into a literal safe without an escaper
     of this module's own. Whether the config exists is a database fact, checked at schema init
-    (:func:`text_search_config_probe`) rather than guessed at here.
+    (:func:`text_search_config_statement`) rather than guessed at here.
     """
     return identifier(name, field)
 
@@ -234,19 +234,32 @@ def ts_vector_expression(ts_config: str) -> str:
     return f"to_tsvector('{text_search_config(ts_config)}', content)"
 
 
-def text_search_config_probe(ts_config: str) -> Tuple[str, Dict[str, Any]]:
+def text_search_config_statement(ts_config: str) -> Tuple[str, Dict[str, Any]]:
     """Ask Postgres whether this configuration resolves, before any DDL uses it.
 
-    ``to_regconfig`` applies the same ``search_path`` resolution the index DDL and the query will,
-    so a name that passes here is a name both of those can use -- which a ``pg_ts_config.cfgname``
-    lookup would not guarantee for a schema-qualified or shadowed config.
+    ``pg_ts_config_is_visible`` is what makes this match how the name will actually be used: a bare
+    ``pg_ts_config.cfgname`` lookup answers "some schema has one", which is a different question
+    from "the DDL and the query will resolve it", and the two disagree exactly when a config is
+    defined outside the connection's ``search_path``. Postgres has no ``to_regconfig``, so the
+    visibility function is the resolution semantics spelled out rather than borrowed.
+
+    Asked as a boolean rather than by casting ``:cfg::regconfig``, which resolves identically but
+    **raises** ``undefined_object`` when it fails -- landing in ``_translated`` as a
+    ``MemoryOperationError``, which is the shape this probe exists to avoid.
 
     Probed rather than left to the DDL because the two failures are different kinds: an
     unrecognised config is a **deployment setting** fault that should name the setting, while the
     ``CREATE INDEX`` it would otherwise break reports an ``undefined_object`` from the middle of
     schema init with no mention of which option caused it.
     """
-    return "SELECT to_regconfig(:ts_config) IS NOT NULL AS present", {"ts_config": text_search_config(ts_config)}
+    # Cast to text for the same reason `create_partition_statement` casts every `format()` argument:
+    # a bare bind is `unknown` to the planner, which cannot pick an overload for it. Caught against
+    # the real engine, not by any double.
+    return (
+        "SELECT EXISTS (SELECT 1 FROM pg_ts_config WHERE cfgname = "
+        f"{cast_param('ts_config', 'text')} AND pg_ts_config_is_visible(oid)) AS present",
+        {"ts_config": text_search_config(ts_config)},
+    )
 
 
 def partition_name(table: str, tenant_id: str) -> str:
@@ -376,14 +389,20 @@ def live_schema_statements(schema: str, table: str) -> List[Tuple[str, Dict[str,
             "AND c.relam = (SELECT oid FROM pg_am WHERE amname = 'hnsw')",
             qualified_name,
         ),
-        # The GIN index's own definition, because the text-search configuration is baked into the
-        # indexed expression and `CREATE INDEX IF NOT EXISTS` will not rebuild it for a changed
-        # setting. Reported rather than refused, matching the HNSW options above and for the same
-        # reason: a stale config still answers *correctly* -- `to_tsvector` is evaluated at query
-        # time either way -- it just stops matching the index expression, so every lexical read
-        # silently drops to a sequential scan.
+        # The GIN index's indexed **expression**, because the text-search configuration is baked
+        # into it and `CREATE INDEX IF NOT EXISTS` will not rebuild it for a changed setting.
+        # Reported rather than refused, matching the HNSW options above and for the same reason: a
+        # stale config still answers *correctly* -- `to_tsvector` is evaluated at query time either
+        # way -- it just stops matching the index expression, so every lexical read silently drops
+        # to a sequential scan.
+        #
+        # `pg_get_expr` rather than `pg_get_indexdef` so the answer is the expression alone, with no
+        # index or table name around it for a config name to be mistaken for. Postgres renders the
+        # literal in its own normalized form -- `'english'::regconfig`, not the `'english'` this
+        # module wrote -- which is why the caller parses the config *name* out rather than comparing
+        # the rendered text: a substring comparison warns on every clean startup.
         (
-            "SELECT c.relname AS name, pg_get_indexdef(i.indexrelid) AS definition FROM pg_class c "
+            "SELECT c.relname AS name, pg_get_expr(i.indexprs, i.indrelid) AS expression FROM pg_class c "
             "JOIN pg_index i ON i.indexrelid = c.oid "
             "WHERE i.indrelid = to_regclass(:qualified) "
             "AND c.relam = (SELECT oid FROM pg_am WHERE amname = 'gin')",
