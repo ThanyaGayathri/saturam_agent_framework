@@ -111,6 +111,10 @@ def _checked_pipeline(candidate: Any) -> Optional["EntityExtractionPipeline"]:
     "consolidate mysteriously stopped extracting" or an ``AttributeError`` deep inside a pass into a
     build-time error. ``None`` passes through -- a provider without entity extraction is the
     default, not a misconfiguration.
+
+    Method presence only, like that same bargain -- a candidate with the right names and wrong
+    behaviour (a bad model, a broken embedder passed through) still passes here and fails at the
+    first ``consolidate``/``aconsolidate`` call, not at construction.
     """
     if candidate is None:
         return None

@@ -121,11 +121,14 @@ print("\nConsolidating acme/bob:")
 print(f"  entities: {provider.consolidate(ACME_BOB).details['entities']}")
 
 
-def entity_nodes(scope):
+def entity_nodes(scope: Scope) -> list[dict]:
     """Read the entity nodes back with Cypher.
 
     The port has no read verb for them: querying the semantic subgraph is SM-G7 (#105) / SM-G9
-    (#107), and inventing one here would ship a surface this ticket cannot test.
+    (#107), and inventing one here would ship a surface this ticket cannot test. ``graph._driver``
+    is reached directly for the same reason -- there is no public read path to demonstrate through,
+    and the integration suite this cookbook mirrors (``tests/integration/memory/neo4j``) does the
+    same for exactly this gap.
     """
     with graph._driver.session(database=graph.database) as session:
         return [

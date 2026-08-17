@@ -165,17 +165,22 @@ def test_an_entity_is_filed_under_its_own_episodes_scope_not_the_passs():
     assert tenant_wide.key() not in filed
 
 
-def test_a_semantic_record_is_refused_rather_than_extracted_from():
+@pytest.mark.parametrize("is_async", [False, True])
+def test_a_semantic_record_is_refused_rather_than_extracted_from(is_async):
     """A distilled fact's entities belong to the episodes it came from.
 
     Extracting from it again would attribute them to a derived row, so the provenance would name
     something that is not an interaction.
+
+    Parametrized to match this file's convention (review finding on PR #89, round 2): the guard
+    lives in ``_selected``, which both ``run`` and ``arun`` call identically, but an unparametrized
+    test here reads as an intentional gap in a file that otherwise covers both halves everywhere.
     """
     pipe, _ = pipeline()
     fact = MemoryRecord(id="f1", tier=MemoryTier.SEMANTIC, content="Acme uses Postgres", scope=ACME)
 
     with pytest.raises(MemoryOperationError) as excinfo:
-        pipe.run(ACME, [fact])
+        asyncio.run(pipe.arun(ACME, [fact])) if is_async else pipe.run(ACME, [fact])
 
     assert excinfo.value.field_name == "tier"
 
@@ -298,6 +303,16 @@ def test_the_two_set_valued_fields_are_sorted_and_deduplicated():
 
     assert write.aliases == ["alpha", "zeta"]
     assert write.source_episode_ids == ["e1", "e2"]
+
+
+def test_the_entity_write_filters_its_own_name_out_of_aliases_at_construction():
+    """B-6.1 (review finding on PR #89, round 2): the filter used to live only at write time
+    (``Neo4jGraphSubstrate._entity_rows``, ``FakeGraph._upsert_entity``), so code reading
+    ``EntityWrite.aliases`` between construction and write -- ``_merged``'s concatenation in
+    ``memory/graph/entities.py`` -- saw the entity's own name as an alias of itself."""
+    write = EntityWrite(name="Acme", entity_type="company", scope=ACME, aliases=["Acme", "Acme Corp", "acme"])
+
+    assert write.aliases == ["Acme Corp", "acme"], "the exact-case own name is filtered; 'acme' is not"
 
 
 def test_the_double_refuses_an_entity_written_under_a_foreign_scope():
@@ -726,3 +741,18 @@ def test_the_stubs_satisfy_the_extractor_port():
     the port would be testing a shape no backend has to implement."""
     assert isinstance(StubExtractor(), EntityExtractor)
     assert isinstance(LLMEntityExtractor(model=object()), EntityExtractor)
+
+
+def test_entity_write_reaches_the_top_level_package():
+    """``EntityWrite``, ``NO_ENTITIES`` and ``normalize_entity_name`` are peers of ``FactWrite``,
+    ``NO_SUPERSEDE`` and ``CONSOLIDATION_KEYS``, all re-exported from ``egpt.memory`` (review
+    finding on PR #89, round 2). Missing them breaks the import pattern every other symbol in
+    ``egpt.memory.types.__all__`` follows here.
+    """
+    from egpt.memory import NO_ENTITIES as TopLevelNoEntities
+    from egpt.memory import EntityWrite as TopLevelEntityWrite
+    from egpt.memory import normalize_entity_name as top_level_normalize
+
+    assert TopLevelEntityWrite is EntityWrite
+    assert TopLevelNoEntities is NO_ENTITIES
+    assert top_level_normalize is normalize_entity_name

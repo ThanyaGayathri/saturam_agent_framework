@@ -610,7 +610,19 @@ class EntityWrite:
         # Sorted, not merely copied: these two are sets by meaning, and an extractor's ordering is
         # whatever the model emitted, so an unsorted copy makes two identical candidates compare
         # unequal and re-write the node for nothing.
-        self.aliases = sorted({alias.strip() for alias in self.aliases if isinstance(alias, str) and alias.strip()})
+        #
+        # The entity's own surface form is never its own alias (review finding on PR #89, round 2):
+        # it is already the merge key, and carrying it in both places makes a candidate look like it
+        # was seen under two spellings when it was seen under one. Filtered here, not only at write
+        # time, so code reading ``.aliases`` between construction and write (``_merged``'s
+        # concatenation in ``memory/graph/entities.py``) never sees it either.
+        self.aliases = sorted(
+            {
+                alias.strip()
+                for alias in self.aliases
+                if isinstance(alias, str) and alias.strip() and alias.strip() != self.name
+            }
+        )
         self.source_episode_ids = sorted(set(self.source_episode_ids))
         self.properties = dict(self.properties or {})
 

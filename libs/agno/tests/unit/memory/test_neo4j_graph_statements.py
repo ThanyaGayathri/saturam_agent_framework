@@ -206,6 +206,18 @@ def test_the_schema_probe_covers_every_declared_property():
         assert f"{name}: " in cypher.SCHEMA_STATEMENTS[0], f"{name} is declared but not registered by the probe"
 
 
+def test_the_entity_key_and_embedding_are_indexed():
+    """Review finding on PR #89, round 2. Without these, SM-G8's (#106) two lookups -- exact-match
+    grouping on ``key`` and similarity matching on ``embedding`` -- are full scans of every
+    ``:Entity`` node across every scope, not just the current one."""
+    statements = " ".join(cypher.SCHEMA_STATEMENTS)
+
+    assert f"INDEX egpt_{cypher.ENTITY.lower()}_key" in statements
+    assert "ON (n.scope_key, n.key)" in statements
+    assert f"VECTOR INDEX egpt_{cypher.ENTITY.lower()}_embedding" in statements
+    assert "ON (n.embedding)" in statements
+
+
 def test_the_entity_row_builder_writes_nothing_outside_the_declared_properties():
     """The :data:`ROW_PROPERTIES` guard, applied to the other shape (SM-G2 #100).
 
@@ -218,6 +230,14 @@ def test_the_entity_row_builder_writes_nothing_outside_the_declared_properties()
 
     written = {key for key in row if key != "props"} | set(row["props"])
     assert written <= set(cypher.ENTITY_PROPERTIES), f"undeclared: {sorted(written - set(cypher.ENTITY_PROPERTIES))}"
+
+    # The two unioned fields must never be *inside* props (review finding on PR #89, round 2):
+    # `upsert_entities_statement` runs `SET n += row.props` before its two union `SET`s, so a field
+    # that entered `props` would be replaced there and the union that runs after would be unioning
+    # against its own just-replaced value -- silently breaking the SM-R7 provenance guarantee with
+    # no failing test, since the membership check above cannot see *where* a key landed.
+    assert "source_episode_ids" not in row["props"], "union semantics break if this enters props"
+    assert "aliases" not in row["props"], "union semantics break if this enters props"
 
 
 def test_an_entity_node_carries_no_bi_temporal_field():

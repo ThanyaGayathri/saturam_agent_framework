@@ -501,6 +501,13 @@ class Neo4jGraphSubstrate:
         # once rather than once per entity. Read-only below (`**scope_props` spreads a copy), so
         # sharing the one dict across rows is safe.
         scope_props = cypher.scope_props(scope)
+        # `scope_key` alone excluded: unlike `_row`'s `SET n = row` (a full overwrite, where every
+        # property including `scope_key` must be present), this shape's `SET n += row.props` is
+        # additive on top of what `MERGE (n:{ENTITY} {scope_key: row.scope_key, name: row.name})`
+        # already bound -- so repeating it in `props` writes the same value MERGE already set.
+        # Review finding on PR #89, round 2. The individual slots (`tenant_id`, etc.) are not
+        # redundant the same way: MERGE binds only `scope_key`, not them.
+        entity_props = {k: v for k, v in scope_props.items() if k != "scope_key"}
         rows = []
         for entity in entities:
             self._reject_foreign_scope(scope, entity.scope)
@@ -515,7 +522,7 @@ class Neo4jGraphSubstrate:
                     # under two spellings when it was seen under one.
                     "aliases": [alias for alias in entity.aliases if alias != entity.name],
                     "props": {
-                        **scope_props,
+                        **entity_props,
                         "key": entity.key,
                         "entity_type": entity.entity_type,
                         "description": entity.description,

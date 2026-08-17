@@ -651,6 +651,27 @@ async def test_ainit_schema_actually_creates_the_schema(async_graph):
     assert created > 0, "ainit_schema issued its statements without them taking effect"
 
 
+def test_init_schema_creates_the_entity_key_and_vector_indexes(graph):
+    """Review finding on PR #89, round 2: without these, SM-G8's (#106) exact-match grouping on
+    ``key`` and similarity match on ``embedding`` are full scans of every ``:Entity`` node across
+    every scope. A string check on the schema statement is not proof it takes effect -- this reads
+    the index back from the engine, including its type.
+    """
+    # Only the two under test, not every index: `egpt_entity_identity` is constraint-backed and
+    # `DROP INDEX` on it fails with `IndexDropFailed` -- it must be dropped as a constraint, which
+    # is a different statement and not what this test is checking.
+    with graph._driver.session(database=graph.database) as session:
+        session.run("DROP INDEX egpt_entity_key IF EXISTS").consume()
+        session.run("DROP INDEX egpt_entity_embedding IF EXISTS").consume()
+
+    graph.init_schema()
+
+    with graph._driver.session(database=graph.database) as session:
+        indexes = {r["name"]: r["type"] for r in session.run("SHOW INDEXES YIELD name, type RETURN name, type")}
+    assert indexes.get("egpt_entity_key") == "RANGE"
+    assert indexes.get("egpt_entity_embedding") == "VECTOR"
+
+
 def test_a_row_whose_json_was_written_out_of_band_is_refused_not_crashed(graph):
     """The read path's half of the error taxonomy the write path already had.
 

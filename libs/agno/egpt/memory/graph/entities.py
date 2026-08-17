@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Sequence,
 
 from pydantic import BaseModel, Field
 
-from egpt.learn.stores.entity_memory import ENTITY_EXTRACTION_INSTRUCTIONS
 from egpt.memory.substrates import GraphSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
@@ -36,6 +35,7 @@ from egpt.memory.types import (
 if TYPE_CHECKING:
     from egpt.knowledge.embedder import Embedder
     from egpt.models.base import Model
+    from egpt.models.message import Message
 
 __all__ = [
     "ENTITY_KEYS",
@@ -67,7 +67,11 @@ ENTITY_KEYS: Tuple[str, ...] = ("extractor", "embedding_version", "complete")
 _RESPONSE_INSTRUCTION = (
     "\n## How to answer\n\n"
     "Return the entities you extracted as structured data. Return an empty list when the "
-    "interaction names no entity worth remembering -- that is a valid answer, not a failure.\n"
+    "interaction names no entity worth remembering -- that is a valid answer, not a failure.\n\n"
+    "Note: the shared prompt above describes `entity_id` as a lowercase-underscored identifier "
+    "(e.g. 'acme_corp'). This schema has no such field -- `name` is the display name as written "
+    "in the interaction (e.g. 'Acme Corp'), not a slug; the normalised grouping key is derived "
+    "downstream and is not yours to produce.\n"
 )
 
 
@@ -123,7 +127,13 @@ class LLMEntityExtractor:
         self.model = model
         self.instructions = instructions
 
-    def _messages(self, episode: MemoryRecord) -> List[Any]:
+    def _messages(self, episode: MemoryRecord) -> List["Message"]:
+        # Both deferred, matching the pattern `memory/adapters/seed.py` already uses for a
+        # cross-service reference (its `LearningStore` import at line 1180): `egpt.learn`'s own
+        # `__init__` eagerly imports its full stack (`LearningMachine`, every store), so a
+        # module-level import here would drag all of it into every `import egpt.memory.graph` --
+        # paid only when a pass actually runs, not when the pipeline is merely imported.
+        from egpt.learn.stores.entity_memory import ENTITY_EXTRACTION_INSTRUCTIONS
         from egpt.models.message import Message
 
         system = ENTITY_EXTRACTION_INSTRUCTIONS + _RESPONSE_INSTRUCTION

@@ -314,6 +314,15 @@ class FakeGraph:
         # `Neo4jGraphSubstrate._entity_rows` -- carrying it in both places would make a candidate
         # look like it was seen under two spellings when it was seen under one.
         new_aliases = [alias for alias in entity.aliases if alias != entity.name]
+        # Ordered `[stored not already in new] + new`, matching `cypher._union` exactly (review
+        # finding on PR #89, round 2) rather than `new + stored`. `EntityWrite.__post_init__`
+        # `sorted(set(...))`s both fields on every construction, including this one, so the two
+        # orderings produce byte-identical output today -- this is matching the real statement for
+        # its own sake, in case a caller ever reads pre-`EntityWrite` intermediate state or the
+        # dedup ever stops being unconditional.
+        stored_aliases = [a for a in (stored.aliases if stored else []) if a not in new_aliases]
+        new_episode_ids = list(entity.source_episode_ids)
+        stored_episode_ids = [e for e in (stored.source_episode_ids if stored else []) if e not in new_episode_ids]
         # A fresh instance rather than a mutation: the caller keeps its own ``EntityWrite``, and a
         # double that stored the object handed to it would let a later mutation rewrite history --
         # the "return copies" rule, applied on the write side where the aliasing starts.
@@ -322,9 +331,9 @@ class FakeGraph:
             entity_type=entity.entity_type,
             scope=entity.scope,
             description=entity.description,
-            aliases=new_aliases + (list(stored.aliases) if stored else []),
+            aliases=stored_aliases + new_aliases,
             properties=dict(entity.properties),
-            source_episode_ids=list(entity.source_episode_ids) + (list(stored.source_episode_ids) if stored else []),
+            source_episode_ids=stored_episode_ids + new_episode_ids,
             embedding=list(entity.embedding) if entity.embedding is not None else None,
             embedding_version=entity.embedding_version,
             confidence=entity.confidence,

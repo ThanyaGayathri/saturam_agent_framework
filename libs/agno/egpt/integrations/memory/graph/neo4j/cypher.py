@@ -309,7 +309,7 @@ ENTITY_PROPERTIES = (
 )
 
 
-def _union(name: str) -> str:
+def _union_clause(name: str) -> str:
     """Append what the batch adds to what the node already has, without duplicating.
 
     ``coalesce`` covers the node an endpoint ``MERGE`` in :func:`upsert_facts_statements` created
@@ -334,6 +334,14 @@ def upsert_entities_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
     ``ON CREATE`` would then never fire again -- the field stays null forever, since nothing else
     sets it. ``coalesce`` fills a null unconditionally, and leaves an already-timestamped node
     alone, so first-sighting semantics hold across both write orders.
+
+    **The three ``SET`` clauses' order is readable but not load-bearing** -- checked directly
+    against the engine rather than assumed: reversing them produces an identical result, because
+    ``created_at``, ``props``, and the two unioned fields are disjoint key sets that never write
+    over one another. That disjointness is the actual invariant: ``props`` must never carry
+    ``created_at``, ``source_episode_ids`` or ``aliases`` (``Neo4jGraphSubstrate._entity_rows`` keeps
+    them out, and ``test_the_entity_row_builder_writes_nothing_outside_the_declared_properties`` pins
+    it) -- that is what would make one clause's ``SET`` overwrite what another already wrote.
     """
     require_scope(scope, method="upsert_entities_statement")
     return (
@@ -341,7 +349,7 @@ def upsert_entities_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
         f"MERGE (n:{ENTITY} {_ENTITY_IDENTITY}) "
         "SET n.created_at = coalesce(n.created_at, row.created_at) "
         "SET n += row.props "
-        f"SET {_union('source_episode_ids')}, {_union('aliases')}"
+        f"SET {_union_clause('source_episode_ids')}, {_union_clause('aliases')}"
     ), _WRITE_BINDS
 
 
@@ -539,4 +547,19 @@ SCHEMA_STATEMENTS = (
     f"CREATE INDEX egpt_{FACT.lower()}_scope IF NOT EXISTS FOR (n:{FACT}) ON (n.tenant_id, n.id)",
     f"CREATE INDEX egpt_rel_scope IF NOT EXISTS FOR ()-[r:{REL}]-() ON (r.tenant_id, r.id)",
     f"CREATE INDEX egpt_{ENTITY.lower()}_scope IF NOT EXISTS FOR (n:{ENTITY}) ON (n.scope_key, n.name)",
+    # SM-G8's (#106) first pass groups exact-match candidates on the normalised `key`, which the
+    # identity index above -- keyed on the surface `name` -- does not back; without this, that pass
+    # is a full scope scan. Review finding on PR #89, round 2.
+    f"CREATE INDEX egpt_{ENTITY.lower()}_key IF NOT EXISTS FOR (n:{ENTITY}) ON (n.scope_key, n.key)",
+    # SM-G8's embedding match over this index; without it, matching one new candidate against a
+    # scope's existing entities is a full scan of every `:Entity` node across every scope. Review
+    # finding on PR #89, round 2.
+    #
+    # `768` is Mode A's dimension (ADR 0003 A.3, `bge-base-en-v1.5`), hardcoded here as the same v1
+    # tradeoff `ddl/schema.sql` makes for `vector(768)` (ADR 0003 section B.4: "blessed for v1, with
+    # a named follow-up" to make it a migration parameter) -- a mixed-dimension deployment needs a
+    # second index under Mode B, which is that same follow-up's to make config-driven rather than a
+    # reason to leave this one unindexed.
+    f"CREATE VECTOR INDEX egpt_{ENTITY.lower()}_embedding IF NOT EXISTS FOR (n:{ENTITY}) ON (n.embedding) "
+    "OPTIONS {indexConfig: {`vector.dimensions`: 768, `vector.similarity_function`: 'cosine'}}",
 )

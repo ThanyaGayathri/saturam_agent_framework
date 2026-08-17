@@ -46,9 +46,11 @@ from egpt.memory.types import (
     CONSOLIDATION_KEYS,
     FUSION_KEYS,
     MAX_LIMIT,
+    NO_ENTITIES,
     NO_SUPERSEDE,
     SCOPE_SLOTS,
     ConsolidationReport,
+    EntityWrite,
     FactWrite,
     MemoryEvent,
     MemoryOperationError,
@@ -64,6 +66,7 @@ from egpt.memory.types import (
     consolidation_details,
     escape_key_slot,
     fusion_diagnostics,
+    normalize_entity_name,
     require_scope,
 )
 from egpt.memory.validation import (
@@ -127,9 +130,12 @@ __all__ = [
     # The seam and its construction path (SM-C1)
     "CONSOLIDATION_KEYS",
     "CoLocatedMemoryProvider",
+    "EntityWrite",
     "FUSION_KEYS",
     "MAX_LIMIT",
+    "NO_ENTITIES",
     "NO_SUPERSEDE",
+    "normalize_entity_name",
     "MemoryProvider",
     "PartialWriteError",
     "MemoryProviderConfig",
