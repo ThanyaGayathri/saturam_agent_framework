@@ -181,6 +181,15 @@ class HybridSearchSubstrate(Protocol):
     import-linter in CI), so without a port here the orchestrator could not name the capability at
     all.
 
+    **That ``isinstance`` check is presence-only, the same limit ``_check`` documents below for**
+    ``VectorSubstrate`` **/** ``GraphSubstrate``. It confirms ``search_candidates`` and
+    ``asearch_candidates`` exist as callables and nothing about their arity or return type -- a
+    backend with the right names and the wrong signature passes the feature-detection and fails
+    inside the call, several frames from whichever branch decided the store was hybrid-capable. Said
+    here rather than only at ``_check`` because SM-H1's orchestrator is the one call site that reads
+    this Protocol as a runtime branch rather than a construction-time gate, so it is the one place
+    the gap actually bites.
+
     **Every leg answers the same question about which rows exist**: the identical conjunctive scope
     predicate, the same resolved tier set, and current belief only (``expired_at IS NULL``) -- all
     exactly as :meth:`VectorSubstrate.search` specifies them. Legs that disagree about eligibility

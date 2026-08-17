@@ -752,3 +752,21 @@ def test_the_two_legs_are_assembled_from_labels_not_positions(substrate):
     candidates = substrate._candidates(calls, [[row("v", distance=0.2)], [], [row("l", rank=0.3)]])
     assert [r.id for r in candidates.vector] == ["v"]
     assert [r.id for r in candidates.lexical] == ["l"]
+
+
+def test_a_lexical_row_without_a_rank_is_refused_rather_than_crashing_on_a_bare_subscript():
+    """``_lexically_ranked`` used to read ``pair[0]["rank"]`` directly, a bare ``KeyError`` on a
+    missing key rather than the named refusal ``_score`` gives the same field, and ``_similar``
+    gives its own sibling field (``distance``) on the vector leg. Aligning the read removes the
+    inconsistency; this pins the refusal it now raises."""
+    with pytest.raises(MemoryOperationError, match="carries no rank"):
+        module._rank_of({"id": "l1"})
+
+
+def test_the_two_rankers_agree_on_what_no_measure_means(substrate):
+    """The property the alignment buys: both rankers refuse a row missing their own field, by the
+    same shape of error, rather than one raising ``KeyError`` and the other a named refusal."""
+    with pytest.raises(MemoryOperationError):
+        substrate._ranked([{"id": "v1"}], [record("v1")])
+    with pytest.raises(MemoryOperationError):
+        substrate._lexically_ranked([{"id": "l1"}], [record("l1")])

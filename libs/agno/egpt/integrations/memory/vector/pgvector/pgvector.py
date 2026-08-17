@@ -181,6 +181,25 @@ def _topics(value: Any, record_id: Any) -> Optional[List[str]]:
         ) from exc
 
 
+def _rank_of(row: Dict[str, Any]) -> float:
+    """A lexical row's ``ts_rank_cd``, read the same defensive way :func:`_score` reads it.
+
+    **A row with no rank is refused, not passed through**, exactly as :func:`_similar` refuses a
+    ranked row with no distance -- the same contract on the lexical leg's own field, so the two
+    rankers cannot come to disagree about what "no rank" means. Unreachable while the lexical
+    statement's ``@@`` predicate stands, since a matched row cannot carry a NULL rank; stated because
+    the guard, not the reachability, is what keeps this aligned with its sibling as either changes.
+    """
+    rank = row.get("rank")
+    if rank is None:
+        raise MemoryOperationError(
+            "A lexical row carries no rank. Only rows the `@@` predicate matched should reach "
+            "here, and a match always has a rank.",
+            field_name="rank",
+        )
+    return float(rank)
+
+
 def _similar(row: Dict[str, Any]) -> bool:
     """Whether a hit is a match at all -- cosine distance strictly under 1.0.
 
@@ -525,7 +544,13 @@ class PgVectorMemorySubstrate:
                 async with self._async_engine().begin() as connection:
                     return [_rows(await connection.execute(text(body), binds)) for body, binds in statements]
             async with self._async_engine().connect() as connection:
-                await connection.execution_options(isolation_level=isolation)
+                # The returned connection is what must be used, not the one bound above: SQLAlchemy
+                # 2.x's `AsyncConnection.execution_options` mutates in place *today*, but nothing in
+                # its signature (`(self, **opt) -> AsyncConnection`) promises that -- it is free to
+                # return a wrapper instead, the way the sync `Connection.execution_options` already
+                # does. Discarding the return value is correct only by an implementation detail this
+                # module does not control.
+                connection = await connection.execution_options(isolation_level=isolation)
                 async with connection.begin():
                     return [_rows(await connection.execute(text(body), binds)) for body, binds in statements]
 
@@ -882,8 +907,14 @@ class PgVectorMemorySubstrate:
         predicate has already removed every non-match -- it has to, because that predicate is what
         makes the GIN index usable -- so the rows that arrive are matches by construction and a
         second filter would only be able to remove ones the server said matched.
+
+        Reads ``rank`` the same defensive way :func:`_score` does -- ``.get`` plus an explicit
+        ``None`` check, rather than a bare subscript -- so the two agree on what "no rank" means
+        instead of one raising and the other returning ``None``. The row is unreachable while the
+        ``@@`` predicate stands, since a matched row cannot carry a NULL rank; this is about not
+        leaving one caller's contract implicit next to the other's stated one.
         """
-        paired = sorted(zip(rows, records), key=lambda pair: (-float(pair[0]["rank"]), *_tiebreak(pair[1])))
+        paired = sorted(zip(rows, records), key=lambda pair: (-_rank_of(pair[0]), *_tiebreak(pair[1])))
         return [record for _, record in paired]
 
     # -- writes ---------------------------------------------------------------
