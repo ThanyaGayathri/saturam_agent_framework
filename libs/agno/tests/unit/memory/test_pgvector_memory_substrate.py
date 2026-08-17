@@ -22,7 +22,14 @@ from egpt.integrations.memory.vector.pgvector import pgvector as module
 from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.substrates import VectorSubstrate
 from egpt.memory.tiers import MemoryTier
-from egpt.memory.types import MemoryOperationError, MemoryRecord, Scope, Substrate
+from egpt.memory.types import (
+    MemoryOperationError,
+    MemoryQuery,
+    MemoryRecord,
+    MemoryScopeRequiredError,
+    Scope,
+    Substrate,
+)
 
 DIM = 8
 URL = "postgresql+psycopg://ai:secret@localhost:5532/ai"
@@ -467,9 +474,9 @@ def test_the_class_carries_every_method_the_hybrid_port_names():
     nothing raising."""
     from egpt.memory.substrates import HybridSearchSubstrate
 
-    assert isinstance(
-        PgVectorMemorySubstrate.__new__(PgVectorMemorySubstrate), HybridSearchSubstrate
-    ), sorted(name for name in vars(HybridSearchSubstrate) if not name.startswith("_"))
+    assert isinstance(PgVectorMemorySubstrate.__new__(PgVectorMemorySubstrate), HybridSearchSubstrate), sorted(
+        name for name in vars(HybridSearchSubstrate) if not name.startswith("_")
+    )
 
 
 @pytest.mark.parametrize("rank", [0.0, 0.001, 0.05, 0.1, 1.0, 12.5, 1e6])
@@ -618,3 +625,55 @@ def test_a_text_search_config_that_could_break_out_of_its_literal_is_refused_at_
             db_url=URL, embedder=StubEmbedder(), text_search_config="eng'lish", auto_init_schema=False
         )
     assert raised.value.field_name == "text_search_config"
+
+
+class _CountingEmbedder(StubEmbedder):
+    """Counts embedding calls, so "the guard ran **first**" is observable rather than assumed."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def get_embedding(self, text):
+        self.calls += 1
+        return super().get_embedding(text)
+
+    async def async_get_embedding(self, text):
+        self.calls += 1
+        return await super().async_get_embedding(text)
+
+
+@pytest.mark.parametrize(
+    "method, args",
+    [
+        ("search", (MemoryQuery(text="anything", limit=5),)),
+        ("asearch", (MemoryQuery(text="anything", limit=5),)),
+        ("search_candidates", (MemoryQuery(text="anything", limit=5),)),
+        ("asearch_candidates", (MemoryQuery(text="anything", limit=5),)),
+        ("upsert", ([record()],)),
+        ("aupsert", ([record()],)),
+        ("scan", (MemoryTier.EPISODIC,)),
+        ("ascan", (MemoryTier.EPISODIC,)),
+    ],
+)
+def test_an_unscoped_call_is_refused_before_the_embedder_is_ever_called(method, args):
+    """SM-C4 (#92) says the guard must be **first**, and "first" is the whole content of the rule:
+    a refusal that arrives after the embedding round trip has already spent the API call it exists
+    to prevent, and on a paid embedder that is the cost the guard was for.
+
+    Asserting only that *something* raises does not test this. The statement layer guards inside
+    ``sql.scope_predicate`` as a backstop, so removing the port method's own guard still raises --
+    just several frames and one API call later. Mutation-checked: deleting either guard passes a
+    raises-only test and fails this one.
+
+    Parametrised over **every** data-access method rather than the two this ticket added, because
+    the one without a test is the one that loses its guard.
+    """
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+    embedder = _CountingEmbedder()
+    substrate = PgVectorMemorySubstrate(db_url=URL, embedder=embedder, auto_init_schema=False)
+
+    with pytest.raises(MemoryScopeRequiredError):
+        result = getattr(substrate, method)(None, *args)
+        if asyncio.iscoroutine(result):
+            asyncio.run(result)
+    assert embedder.calls == 0, f"{method} embedded before refusing an unscoped call"

@@ -363,9 +363,7 @@ def test_the_query_text_is_a_bind_parameter_and_never_statement_text():
     assert statement.count("to_tsquery(") == statement.count("websearch_to_tsquery(")
 
 
-@pytest.mark.parametrize(
-    "bad", ["not a config", "english; DROP TABLE x", "eng'lish", "", "0english", "a" * 64, None]
-)
+@pytest.mark.parametrize("bad", ["not a config", "english; DROP TABLE x", "eng'lish", "", "0english", "a" * 64, None])
 def test_a_text_search_config_that_could_break_out_of_its_literal_is_refused(bad):
     """The value lands as a **literal** inside ``to_tsvector('...', content)``, and this module
     contains no escaper of its own by design. What makes interpolating it safe is that the
