@@ -219,3 +219,30 @@ rather than documented.
 
 **Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
 key; the embedder is local and downloads its weights on first run.
+
+---
+
+### 14_memory_embedding_pipeline.py
+
+**Status:** PASS
+
+**Description:** The memory embedding pipeline (SM-V2 #96). Prints what each deployment mode
+selects, exercises the Mode A air-gap refusal against three remote embedders, shows the version tag
+stamped on every stored vector, embeds a batch on the write path and one query on the read path
+through the same resolved embedder, and finally resolves the real Mode A default.
+
+**Result:** Success. Mode A selects `sentence_transformer` / `BAAI/bge-base-en-v1.5` at 768d and
+Mode B `azure_openai` / `text-embedding-3-large` at 1024d, both from SM-R4's `DECISION.md`.
+`huggingface`, `openai` and `cohere` are each **refused** under Mode A with `field_name="embedder"`
+-- the carried-forward ADR 0003 A.3c item, and refused as a class rather than as the one name the
+ADR happens to mention. The real default resolves to `BAAI/bge-base-en-v1.5/d768/cos/v1` and
+returns a 768-dimension query vector.
+
+**Found by running it:** the first version of the Mode A default recorded 768 but did not pass it to
+the constructor, and `SentenceTransformerEmbedder.dimensions` is 384 whatever model it loads -- so
+the pipeline refused its own default. No unit test could have caught it, because every test double
+declares the width it actually returns, which is the one thing the real class does not do. Fixed by
+passing `dimensions` as a constructor argument, and pinned by
+`test_the_mode_default_tells_its_embedder_the_dimension`.
+
+**Requires:** no database and no API key. Downloads `bge-base` (~440 MB) on first run.

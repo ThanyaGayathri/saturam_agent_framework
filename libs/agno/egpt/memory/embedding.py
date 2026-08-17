@@ -304,10 +304,16 @@ def resolve_memory_embedder(
                 field_name="mode",
             )
         key = str(default["backend"])
-        # The model id is a constructor argument, and the caller's own `options` win over the
-        # default's -- a deployment pinning a different bge revision should not have to stop using
-        # the mode default to do it.
-        options = {"id": default["id"], **(options or {})}
+        # Both the id **and** the dimension are constructor arguments, and the caller's own
+        # `options` win over the default's -- a deployment pinning a different bge revision should
+        # not have to stop using the mode default to do it.
+        #
+        # `dimensions` is passed rather than only recorded because an embedder does not infer it
+        # from the model: `SentenceTransformerEmbedder.dimensions` is 384 whatever it loads, so the
+        # Mode A default resolved to a 768-model declaring 384 and the pipeline refused its own
+        # default. Found by running the cookbook, not by a unit test -- every double declares the
+        # width it returns, which is the one thing the real class does not do.
+        options = {"id": default["id"], "dimensions": int(default["dimensions"]), **(options or {})}
         if declared_dim is None:
             declared_dim = int(default["dimensions"])
     elif isinstance(embedder, str):

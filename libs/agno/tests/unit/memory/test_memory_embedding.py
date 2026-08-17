@@ -102,6 +102,24 @@ def test_the_mode_defaults_carry_the_dimension_SM_R4_sized_the_column_for():
     assert all(default["dimensions"] <= 2000 for default in MODE_DEFAULTS.values())
 
 
+def test_the_mode_default_tells_its_embedder_the_dimension(monkeypatch):
+    """The default's width is a **constructor argument**, not only a recorded number.
+
+    ``SentenceTransformerEmbedder.dimensions`` is 384 whatever model it loads, so a default that
+    named bge-base and recorded 768 built an embedder declaring 384 -- and the pipeline refused its
+    own default at the disagreement check. Every double here declares the width it returns, which
+    is precisely what the real class does not do, so no double could have caught it; the cookbook
+    did. This is the regression test for that.
+    """
+    from egpt.memory import embedding
+
+    seen = {}
+    monkeypatch.setattr(embedding, "_construct", lambda key, options: seen.update(options) or Recorder())
+    for mode, default in embedding.MODE_DEFAULTS.items():
+        resolve_memory_embedder(mode, dimensions=DIM)
+        assert seen["dimensions"] == default["dimensions"]
+
+
 def test_a_caller_option_beats_the_mode_default(monkeypatch):
     """Pinning a different revision must not mean giving up the mode default's other choices."""
     from egpt.memory import embedding

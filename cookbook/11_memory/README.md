@@ -22,7 +22,12 @@ This section demonstrates how EGPT agents persist and use user memories across r
   partition and one HNSW index per tenant, scope isolation down to the user slot, and similarity
   scores in `[0.0, 1.0]` against Postgres + pgvector. Needs `./cookbook/scripts/run_pgvector.sh`;
   no API key (the embedder is the offline `bge-base` ADR 0003 ratifies for Mode A, downloaded on
-  first run).
+  first run). It names no embedder at all -- `mode` selects it, per `14_`.
+- `14_memory_embedding_pipeline.py`: What fills the embedder-shaped hole in `13_` (SM-V2) -- which
+  model each mode selects and at what dimension, why Mode A **refuses** an embedder that reaches
+  the network (ADR 0003 A.3c), the version tag stamped on every stored vector, and the single
+  embedder shared by the write and query paths. No database and no API key; downloads `bge-base`
+  at the end to resolve the real Mode A default.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.
