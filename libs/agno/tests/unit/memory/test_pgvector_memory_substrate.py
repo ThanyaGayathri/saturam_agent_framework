@@ -23,6 +23,7 @@ from egpt.memory.config import MemoryProviderConfigError
 from egpt.memory.substrates import VectorSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import MemoryOperationError, MemoryRecord, Scope, Substrate
+from egpt.providers.model_provider import ProviderMode
 
 DIM = 8
 URL = "postgresql+psycopg://ai:secret@localhost:5532/ai"
@@ -31,9 +32,15 @@ ACME = Scope(tenant_id="acme", user_id="ada")
 
 class StubEmbedder:
     """Deterministic, dimension-declaring, and async-capable -- the three things the substrate asks
-    of an embedder. Which model to use is SM-V2's (#96), so nothing here stands in for one."""
+    of an embedder. Which model to use is SM-V2's (#96), so nothing here stands in for one.
+
+    ``offline_capable`` is the honest answer for an in-process stub that reaches nothing, and it is
+    what lets these tests run under the default Mode A after SM-V2 made offline capability a hard
+    constraint there (ADR 0003 A.3c). A double that quietly bypassed that check would be modelling
+    a deployment the framework refuses."""
 
     dimensions = DIM
+    offline_capable = True
 
     def get_embedding(self, text):
         vector = [0.0] * DIM
@@ -102,10 +109,28 @@ def test_a_plain_postgresql_url_is_accepted_and_pinned_to_the_driver():
     assert PgVectorMemorySubstrate._normalized("postgresql://a:b@h/d").drivername == "postgresql+psycopg"
 
 
-def test_an_absent_embedder_is_refused():
-    """A vector store with no embedder has nothing to index; it would fail at the first write."""
-    with pytest.raises(MemoryProviderConfigError, match="embedder"):
-        PgVectorMemorySubstrate(db_url=URL, embedder=None)
+def test_an_absent_embedder_takes_the_mode_default(monkeypatch):
+    """SM-V1 refused this; SM-V2 (#96) answers it, which is what that refusal said it was waiting for.
+
+    The construction is stubbed rather than run: taking the Mode A default means building
+    ``sentence_transformer``, which downloads a model and needs an SDK the drivers-absent job does
+    not have. What is asserted is the decision -- *which* embedder the mode selects -- not the SDK's
+    ability to load it.
+    """
+    pytest.importorskip("psycopg", reason="create_engine imports the DBAPI when the engine is built")
+    from egpt.memory import embedding
+
+    built = {}
+
+    def _fake_construct(key, options):
+        built["key"], built["options"] = key, options
+        return StubEmbedder()
+
+    monkeypatch.setattr(embedding, "_construct", _fake_construct)
+    store = PgVectorMemorySubstrate(db_url=URL, embedder=None, dim=DIM, auto_init_schema=False)
+    assert built["key"] == embedding.MODE_DEFAULTS[ProviderMode.LOCAL]["backend"]
+    assert built["options"]["id"] == embedding.MODE_DEFAULTS[ProviderMode.LOCAL]["id"]
+    assert store.mode is ProviderMode.LOCAL
 
 
 def test_an_embedder_missing_the_async_half_is_refused():
@@ -114,6 +139,7 @@ def test_an_embedder_missing_the_async_half_is_refused():
 
     class SyncOnly:
         dimensions = DIM
+        offline_capable = True
 
         def get_embedding(self, text):
             return [0.0] * DIM
@@ -134,24 +160,6 @@ def test_a_dimension_disagreeing_with_the_embedder_is_refused():
     the wrong width and every write fails until it is dropped."""
     with pytest.raises(MemoryProviderConfigError, match="dim"):
         PgVectorMemorySubstrate(db_url=URL, embedder=StubEmbedder(), dim=DIM + 1)
-
-
-def test_an_unstated_dimension_is_taken_from_the_embedder():
-    assert PgVectorMemorySubstrate._resolved_dim(None, StubEmbedder()) == DIM
-
-
-def test_an_embedder_declaring_no_dimension_needs_an_explicit_one():
-    class NoDim:
-        dimensions = None
-
-        def get_embedding(self, text):
-            return []
-
-        async def async_get_embedding(self, text):
-            return []
-
-    with pytest.raises(MemoryProviderConfigError, match="dim"):
-        PgVectorMemorySubstrate._resolved_dim(None, NoDim())
 
 
 class _WideEmbedder(StubEmbedder):

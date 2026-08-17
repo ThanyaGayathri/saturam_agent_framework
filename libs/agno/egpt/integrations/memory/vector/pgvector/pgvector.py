@@ -222,7 +222,7 @@ class PgVectorMemorySubstrate:
         # the column they imply (SM-V2 #96). It is also where Mode A's air-gap refusal lives, so
         # resolving it here is what makes `mode` more than a stored attribute.
         self.mode = mode
-        self.pipeline = resolve_memory_embedder(mode, embedder, embedder_options, dim)
+        self.pipeline = resolve_memory_embedder(mode, embedder, embedder_options, dim, dimensions_field="dim")
         #: The raw embedder, unchanged, so anything reading it sees what it saw before the pipeline
         #: was interposed. Writes and queries go through `self.pipeline`, which batches.
         self.embedder = self.pipeline.embedder

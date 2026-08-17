@@ -92,11 +92,19 @@ def _model_id(embedder: Any) -> str:
 def _reject_online_for_local(key: Optional[str], embedder: Any) -> None:
     """Refuse an embedder that reaches the public network when the deployment is air-gapped.
 
-    Checked by registry key when there is one, and otherwise by the resolved class's own module
-    path -- so an *instance* handed in through ``options`` is covered too, which is the path a
-    deployment actually uses once it needs to pass ``device`` or ``trust_remote_code``. Without the
-    second check the rule would hold only for the spelling that names a key, and A.3c's whole point
-    is that the trap is silent.
+    Two ways to be offline-capable, and an instance needs one of them:
+
+    * it was built from a key in :data:`OFFLINE_CAPABLE`, or its class lives in that key's module
+      -- which covers the shipped embedders, including an instance a deployment built itself in
+      order to pass ``device`` or ``trust_remote_code`` (SM-R4 section 5 records that
+      ``SentenceTransformerEmbedder`` has no passthrough for either, so this is a real path);
+    * it **declares** ``offline_capable = True``.
+
+    The declaration is there because a module path is a proxy for the property, not the property. A
+    private in-process model outside this tree is genuinely offline and the proxy cannot tell; left
+    to the proxy alone the rule refuses correct deployments, which is how a safety check gets an
+    ``if`` around it a release later. What A.3c actually forbids is the air gap breaking *silently*,
+    and an explicit attribute on the object is the opposite of silent -- somebody asserted it.
     """
     if key is not None:
         if key in OFFLINE_CAPABLE:
@@ -109,15 +117,17 @@ def _reject_online_for_local(key: Optional[str], embedder: Any) -> None:
             "Inference API client, and selecting it here breaks the air gap silently.",
             field_name="embedder",
         )
+    if getattr(embedder, "offline_capable", False) is True:
+        return
     module = type(embedder).__module__ or ""
-    basename = module.rsplit(".", 1)[-1]
-    if basename in OFFLINE_CAPABLE:
+    if module.rsplit(".", 1)[-1] in OFFLINE_CAPABLE:
         return
     raise MemoryProviderConfigError(
         f"{type(embedder).__name__} (from {module!r}) is not one of the offline-capable embedders, and "
         f"mode={ProviderMode.LOCAL.value!r} (Mode A) is the air-gapped deployment path (ADR 0003 A.3c). "
-        f"Offline-capable: {', '.join(sorted(OFFLINE_CAPABLE))}. Pass one of those, or run this tenant in "
-        f"mode={ProviderMode.FRONTIER.value!r} if reaching a provider is intended.",
+        f"Offline-capable: {', '.join(sorted(OFFLINE_CAPABLE))}. Pass one of those; or set "
+        "offline_capable = True on it, which asserts that it reaches nothing outside the air gap; or run "
+        f"this tenant in mode={ProviderMode.FRONTIER.value!r} if reaching a provider is intended.",
         field_name="embedder",
     )
 
@@ -203,7 +213,7 @@ class MemoryEmbedder:
                     f"{type(self.embedder).__name__} returned a {len(vector)}-dimension vector but this "
                     f"pipeline is configured for {self.dimensions} ({self.embedding_version}). Changing "
                     "dimension is a re-embedding migration, not a restart.",
-                    field_name="dimensions",
+                    field_name=field,
                 )
         return vectors
 
@@ -251,6 +261,7 @@ def resolve_memory_embedder(
     embedder: Any = None,
     options: Optional[Dict[str, Any]] = None,
     dimensions: Optional[int] = None,
+    dimensions_field: str = "dimensions",
 ) -> MemoryEmbedder:
     """The memory embedding pipeline for ``mode`` -- default, named, or injected.
 
@@ -265,6 +276,11 @@ def resolve_memory_embedder(
     ``options`` are constructor keyword arguments and apply only to the first two -- an instance is
     configured by whoever built it, so silently dropping them would leave a deployment's ``device``
     or ``trust_remote_code`` setting inert with nothing to show for it.
+
+    ``dimensions_field`` is the caller's own name for the width, carried onto ``field_name`` of any
+    refusal about it -- the same reason ``resolve_substrate`` takes a ``field``. The vector store
+    spells this ``dim``, and a caller who passed ``dim=`` and is told ``dimensions`` cannot map the
+    refusal back to the argument that caused it.
 
     Raises:
         MemoryProviderConfigError: the mode is unknown, the embedder is not offline-capable under
@@ -329,7 +345,7 @@ def resolve_memory_embedder(
                 field_name="embedder",
             )
 
-    resolved_dim = _resolved_dimensions(resolved, declared_dim)
+    resolved_dim = _resolved_dimensions(resolved, declared_dim, dimensions_field)
     return MemoryEmbedder(
         embedder=resolved,
         dimensions=resolved_dim,
@@ -364,7 +380,7 @@ def _construct(key: str, options: Optional[Dict[str, Any]]) -> Any:
         ) from exc
 
 
-def _resolved_dimensions(embedder: Any, declared: Optional[int]) -> int:
+def _resolved_dimensions(embedder: Any, declared: Optional[int], field: str) -> int:
     """The pipeline's dimension: stated, or taken from the embedder -- and refused when they differ.
 
     A disagreement is a genuine ambiguity rather than a precedence question. The stated value is
@@ -379,18 +395,18 @@ def _resolved_dimensions(embedder: Any, declared: Optional[int]) -> int:
                 f"dimensions is unset and {type(embedder).__name__}.dimensions is "
                 f"{getattr(embedder, 'dimensions', None)!r}, so the vector column has no width. Pass "
                 "dimensions explicitly.",
-                field_name="dimensions",
+                field_name=field,
             )
         return known
     if isinstance(declared, bool) or not isinstance(declared, int) or declared <= 0:
         raise MemoryProviderConfigError(
             f"dimensions must be a positive integer, got {declared!r}.",
-            field_name="dimensions",
+            field_name=field,
         )
     if known is not None and known != declared:
         raise MemoryProviderConfigError(
             f"dimensions is {declared} but {type(embedder).__name__}.dimensions is {known}. One of them "
             "is wrong, and picking either builds a column the other cannot write to.",
-            field_name="dimensions",
+            field_name=field,
         )
     return declared
