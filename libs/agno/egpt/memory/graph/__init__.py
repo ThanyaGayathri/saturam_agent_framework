@@ -14,6 +14,7 @@ from egpt.memory.graph.entities import (
     ExtractedEntities,
     ExtractedEntity,
     LLMEntityExtractor,
+    embedding_text,
     entity_details,
 )
 
@@ -26,5 +27,6 @@ __all__ = [
     "ExtractedEntities",
     "ExtractedEntity",
     "LLMEntityExtractor",
+    "embedding_text",
     "entity_details",
 ]

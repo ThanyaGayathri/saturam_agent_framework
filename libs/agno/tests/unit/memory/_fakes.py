@@ -31,6 +31,7 @@ from egpt.memory.types import (
     EntityWrite,
     FactWrite,
     MemoryEvent,
+    MemoryOperationError,
     MemoryQuery,
     MemoryRecord,
     Scope,
@@ -300,11 +301,19 @@ class FakeGraph:
 
     def _upsert_entity(self, scope: Scope, entity: EntityWrite) -> None:
         if entity.scope != scope:
-            raise ValueError(
+            # `MemoryOperationError`, matching `Neo4jGraphSubstrate._reject_foreign_scope`: a
+            # caller catching that type specifically would not be exercised against a double that
+            # raised a bare `ValueError` for the same refusal.
+            raise MemoryOperationError(
                 f"Entity {entity.name!r} carries scope {entity.scope.key()} but is being written "
-                f"under {scope.key()}. Batch per scope; the two must agree."
+                f"under {scope.key()}. Batch per scope; the two must agree.",
+                field_name="scope",
             )
         stored = self.entities.get((scope.key(), entity.name))
+        # The entity's own surface form is never its own alias, matching
+        # `Neo4jGraphSubstrate._entity_rows` -- carrying it in both places would make a candidate
+        # look like it was seen under two spellings when it was seen under one.
+        new_aliases = [alias for alias in entity.aliases if alias != entity.name]
         # A fresh instance rather than a mutation: the caller keeps its own ``EntityWrite``, and a
         # double that stored the object handed to it would let a later mutation rewrite history --
         # the "return copies" rule, applied on the write side where the aliasing starts.
@@ -313,7 +322,7 @@ class FakeGraph:
             entity_type=entity.entity_type,
             scope=entity.scope,
             description=entity.description,
-            aliases=list(entity.aliases) + (list(stored.aliases) if stored else []),
+            aliases=new_aliases + (list(stored.aliases) if stored else []),
             properties=dict(entity.properties),
             source_episode_ids=list(entity.source_episode_ids) + (list(stored.source_episode_ids) if stored else []),
             embedding=list(entity.embedding) if entity.embedding is not None else None,

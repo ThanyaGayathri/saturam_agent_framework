@@ -497,10 +497,13 @@ class Neo4jGraphSubstrate:
         anything can contradict.
         """
         now = now_epoch_s()
+        # Invariant across the loop -- `scope` is the call scope, not the entity's -- so computed
+        # once rather than once per entity. Read-only below (`**scope_props` spreads a copy), so
+        # sharing the one dict across rows is safe.
+        scope_props = cypher.scope_props(scope)
         rows = []
         for entity in entities:
             self._reject_foreign_scope(scope, entity.scope)
-            scope_props = cypher.scope_props(scope)
             rows.append(
                 {
                     "scope_key": scope_props["scope_key"],

@@ -37,6 +37,7 @@ from egpt.memory.types import (
     MemoryQuery,
     MemoryRecord,
     MemoryScopeRequiredError,
+    PartialWriteError,
     Scope,
     normalize_entity_name,
 )
@@ -305,11 +306,29 @@ def test_the_double_refuses_an_entity_written_under_a_foreign_scope():
     Nothing in the pipeline can reach this -- ``_batches`` writes each entity under its own scope --
     which is exactly why it is asserted directly: an unexercised guard in the double is a guard
     that quietly stops holding, and every provider test here rests on the double.
+
+    Asserted on ``MemoryOperationError``, not the base ``ValueError`` it subclasses (review finding
+    on PR #89): the real ``Neo4jGraphSubstrate._reject_foreign_scope`` raises the narrow type, and
+    ``pytest.raises(ValueError)`` would have passed whether or not the double matched it.
     """
     graph = FakeGraph()
 
-    with pytest.raises(ValueError, match="Batch per scope"):
+    with pytest.raises(MemoryOperationError, match="Batch per scope") as excinfo:
         graph.upsert_entities(ACME, [EntityWrite(name="Acme", entity_type="company", scope=BOB)])
+    assert excinfo.value.field_name == "scope"
+
+
+def test_the_double_does_not_store_an_entitys_own_name_as_its_alias():
+    """Parity with ``Neo4jGraphSubstrate._entity_rows`` (review finding on PR #89): a test asserting
+    the entity's name is absent from its stored aliases would pass on the real backend and fail on
+    the double, since only the real backend filtered it before this fix."""
+    graph = FakeGraph()
+
+    graph.upsert_entities(
+        ACME, [EntityWrite(name="Acme Corp", entity_type="company", scope=ACME, aliases=["Acme Corp", "Acme"])]
+    )
+
+    assert graph.entities[(ACME.key(), "Acme Corp")].aliases == ["Acme"]
 
 
 def test_two_spellings_stay_two_candidates():
@@ -391,6 +410,23 @@ def test_entity_normalization_matches_the_curator():
 
     for text in corpus:
         assert normalize_entity_name(text) == curator._normalize(text), text
+
+
+def test_entity_normalization_additionally_strips_a_punctuation_stripped_edge():
+    """The one point where the two diverge, made explicit rather than left for the corpus above to
+    miss (review finding on PR #89: the prior corpus did not cover a leading/trailing-punctuation
+    input, so the "matches the Curator" claim was weaker than it read).
+
+    ``Curator._normalize`` drops interior punctuation but never re-strips the result, so
+    ``"! hello !"`` -- punctuation-stripped to ``" hello "`` -- keeps its surrounding spaces.
+    ``normalize_entity_name`` strips again, because this is a merge key and a key differing only in
+    whitespace is a key SM-G8 (#106) would have to resolve rather than one that never split.
+    """
+    curator = Curator.__new__(Curator)
+    text = "! hello !"
+
+    assert curator._normalize(text) == " hello "
+    assert normalize_entity_name(text) == "hello"
 
 
 def test_a_mixed_dimension_pass_is_refused():
@@ -494,6 +530,50 @@ def test_consolidate_runs_the_pass_and_reports_it(is_async):
     assert set(report.details["entities"]) >= set(ENTITY_KEYS)
 
 
+class BoomExtractor:
+    """Raises after being asked, so a test can put a failure *after* the fact write commits."""
+
+    def extract(self, episode):
+        raise RuntimeError("extraction blew up")
+
+    async def aextract(self, episode):
+        raise RuntimeError("extraction blew up")
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_an_extraction_failure_after_facts_commit_is_a_partial_write(is_async):
+    """Review finding (PR #89): extraction ran outside the fact-write ``try``, so a failure here
+    propagated as a bare exception with no ``receipt`` -- breaking ``PartialWriteError``'s retry
+    contract exactly where a caller most needs it, since the fact write already landed.
+    """
+    memory, _, graph = provider(extractor=BoomExtractor())
+    memory.write(ACME, [MemoryEvent(content="Acme ships things", scope=ACME, id="e1")])
+
+    with pytest.raises(PartialWriteError) as excinfo:
+        asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME)
+
+    # The fact write is what makes this a *partial* write rather than a plain refusal: something
+    # is already committed, so the caller needs the receipt's ids to retry safely.
+    assert excinfo.value.receipt.accepted >= 1
+    assert excinfo.value.receipt.event_ids
+
+
+def test_an_extraction_failure_on_an_empty_tier_never_reaches_the_extractor():
+    """The other half of the guard's shape, not a second failure mode.
+
+    ``facts`` is empty only when ``episodes`` is, and ``_entities`` short-circuits on an empty
+    episode list before calling the pipeline -- so an empty-tier ``consolidate`` cannot actually
+    reach a failing extractor. Asserted on the extractor never being called, so this stays true if
+    that short-circuit is ever removed rather than passing by accident.
+    """
+    extractor = BoomExtractor()
+    memory, _, _ = provider(extractor=extractor)
+
+    report = memory.consolidate(ACME)  # nothing written; must not raise
+
+    assert report.details["entities"] == NO_ENTITIES
+
+
 def test_consolidate_extracts_from_what_it_kept_rather_than_from_what_it_scanned():
     """``_visible_episodes`` drops episodes that are not valid at the pass instant.
 
@@ -513,6 +593,32 @@ def test_consolidate_extracts_from_what_it_kept_rather_than_from_what_it_scanned
 
     assert report.episodic_scanned == 1
     assert extractor.seen == [], "an episode not yet valid is not an interaction to extract from"
+
+
+@pytest.mark.parametrize("is_async", [False, True])
+def test_consolidate_extracts_from_the_kept_set_even_when_a_fact_is_written(is_async):
+    """The same property as above, on the path the fact write actually takes.
+
+    The prior test's scenario distils no fact -- ``episodes`` and ``scanned`` diverge, but
+    extraction runs on the branch that never wrote anything, so it could not tell a raw-scan
+    regression from a correct one. Here a distillable episode makes ``facts`` non-empty, so
+    extraction runs on the branch guarded by the ``PartialWriteError`` fix, which is the one a
+    raw-scan regression would actually reach.
+    """
+    extractor = StubExtractor(default=[entity()])
+    memory, vector, _ = provider(extractor=extractor)
+    later = now_epoch_s() + 3600
+    vector.upsert(
+        ACME,
+        [
+            MemoryRecord(id="future", tier=MemoryTier.EPISODIC, content="not yet true", scope=ACME, t_valid=later),
+            MemoryRecord(id="now", tier=MemoryTier.EPISODIC, content="Acme ships things", scope=ACME),
+        ],
+    )
+
+    (asyncio.run(memory.aconsolidate(ACME)) if is_async else memory.consolidate(ACME))
+
+    assert extractor.seen == ["now"], "the not-yet-valid episode must not reach the extractor"
 
 
 def test_a_provider_with_no_pipeline_says_so_rather_than_omitting_the_key():

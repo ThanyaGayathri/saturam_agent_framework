@@ -338,6 +338,8 @@ class EntityExtractionPipeline:
                     entity_type=head.entity_type,
                     scope=head.scope,
                     description=head.description,
+                    # Duplicates across members (and the entity's own name) are deduped and sorted
+                    # by `EntityWrite.__post_init__`, not here -- the same rule as `source_episode_ids`.
                     aliases=[alias for member in group for alias in member.aliases],
                     properties=head.properties,
                     source_episode_ids=[eid for member in group for eid in member.source_episode_ids],
@@ -410,7 +412,13 @@ class EntityExtractionPipeline:
         dim: Optional[int] = None
         for entity in self._merged(candidates):
             ready = self._embedded(entity, self.embedder.get_embedding(embedding_text(entity)), dim)
-            dim = len(ready.embedding or [])
+            if ready.embedding is None:
+                raise MemoryOperationError(
+                    f"_embedded returned {ready.name!r} with no embedding; with_embedding "
+                    "always sets one, so this names a bug in this method rather than bad input.",
+                    field_name="embedding",
+                )
+            dim = len(ready.embedding)
             embedded.append(ready)
         for batch_scope, batch in self._batches(embedded):
             self.graph.upsert_entities(batch_scope, batch)
@@ -432,7 +440,13 @@ class EntityExtractionPipeline:
         dim: Optional[int] = None
         for entity in self._merged(candidates):
             ready = self._embedded(entity, await self.embedder.async_get_embedding(embedding_text(entity)), dim)
-            dim = len(ready.embedding or [])
+            if ready.embedding is None:
+                raise MemoryOperationError(
+                    f"_embedded returned {ready.name!r} with no embedding; with_embedding "
+                    "always sets one, so this names a bug in this method rather than bad input.",
+                    field_name="embedding",
+                )
+            dim = len(ready.embedding)
             embedded.append(ready)
         for batch_scope, batch in self._batches(embedded):
             await self.graph.aupsert_entities(batch_scope, batch)

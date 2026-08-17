@@ -327,14 +327,19 @@ def upsert_entities_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
     first as its provenance, which is the fact -> episode audit trail SM-R7 section 7 makes
     load-bearing. Everything else is last-write: a description is a summary, not a running total.
 
-    ``created_at`` is ``ON CREATE`` only, so the first sighting of an entity is when it entered the
-    graph rather than when it was last mentioned; ``updated_at`` carries the latter.
+    ``created_at`` is meant to mark the first sighting -- but ``coalesce``, not ``ON CREATE``,
+    because *this* MERGE is not always the node's creation. ``upsert_facts_statements`` MERGEs the
+    same identity as a triple endpoint and sets no ``created_at`` at all, so a node this method
+    first meets already existing (SM-G3 wrote it first) has a live node with `created_at = null`.
+    ``ON CREATE`` would then never fire again -- the field stays null forever, since nothing else
+    sets it. ``coalesce`` fills a null unconditionally, and leaves an already-timestamped node
+    alone, so first-sighting semantics hold across both write orders.
     """
     require_scope(scope, method="upsert_entities_statement")
     return (
         "UNWIND $rows AS row "
         f"MERGE (n:{ENTITY} {_ENTITY_IDENTITY}) "
-        "ON CREATE SET n.created_at = row.created_at "
+        "SET n.created_at = coalesce(n.created_at, row.created_at) "
         "SET n += row.props "
         f"SET {_union('source_episode_ids')}, {_union('aliases')}"
     ), _WRITE_BINDS

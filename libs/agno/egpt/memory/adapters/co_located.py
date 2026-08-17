@@ -19,7 +19,7 @@ an episode or a fact, which tier consolidation reads and which it writes -- is r
 import asyncio
 import inspect
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple
+from typing import TYPE_CHECKING, Any, Awaitable, Dict, List, Optional, Sequence, Set, Tuple, Union
 from uuid import NAMESPACE_OID, uuid4, uuid5
 
 from egpt.memory.config import (
@@ -79,6 +79,12 @@ _MAX_CONCURRENT_WRITES = 16
 #: Safety cap on one consolidation pass. Not a resumption protocol -- when the cap is hit the
 #: report says ``complete=False``, and draining the rest is SM-L1's (#122).
 _MAX_EPISODES_PER_PASS = 5_000
+
+#: What ``ConsolidationReport.details["entities"]`` holds: an ``entity_details`` payload from a
+#: wired pipeline, or the ``NO_ENTITIES`` sentinel string from an unwired one. Named rather than
+#: left ``Any`` (review finding on PR #89) -- ``Any`` suppresses static analysis on every caller and
+#: hides the ``isinstance(..., dict)`` branch a consumer needs before reading a pipeline field.
+EntitySummary = Union[Dict[str, Any], str]
 
 
 def _positive_int(value: Any, option: str) -> int:
@@ -857,7 +863,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
         episodes: Sequence[MemoryRecord],
         facts: Sequence[FactWrite],
         merged: int,
-        entities: Any,
+        entities: EntitySummary,
     ) -> ConsolidationReport:
         hit_cap = len(scanned) >= self.max_episodes_per_pass
         return ConsolidationReport(
@@ -887,7 +893,7 @@ class CoLocatedMemoryProvider(MemoryProvider):
             ),
         )
 
-    def _entities(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Any:
+    def _entities(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> EntitySummary:
         """Run SM-G2's (#100) entity extraction over the episodes this pass kept.
 
         Over ``episodes`` rather than ``scanned``: an episode the graph has recorded as false is one
@@ -898,12 +904,18 @@ class CoLocatedMemoryProvider(MemoryProvider):
         the lane; running it first would let a provider timeout cost the deterministic dedup that
         had nothing to do with it. A failure here still propagates -- it is not swallowed into a
         report that claims a clean run.
+
+        **Two independent caps, not one.** ``self.max_episodes_per_pass`` bounds what ``scan``
+        reads into this pass; the pipeline's own ``max_episodes_per_pass`` (default 200, well below
+        this class's default 5000) can cut further inside ``EntityExtractionPipeline._selected``.
+        A scheduler reading only the top-level ``details["complete"]`` would miss a truncated
+        extraction -- ``details["entities"]["complete"]`` is the one that says so.
         """
         if self.entity_pipeline is None or not episodes:
             return NO_ENTITIES
         return self.entity_pipeline.run(scope, episodes).details
 
-    async def _aentities(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> Any:
+    async def _aentities(self, scope: Scope, episodes: Sequence[MemoryRecord]) -> EntitySummary:
         """Async variant of :meth:`_entities`, making the same decisions."""
         if self.entity_pipeline is None or not episodes:
             return NO_ENTITIES
@@ -1043,7 +1055,19 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 raise PartialWriteError(receipt) from None
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
-        return self._report(scope, scanned, episodes, facts, merged, self._entities(scope, episodes))
+            # Extraction runs after the fact writes, not inside their `try`: it is not a fact write
+            # and must not be counted as one in `committed_any`. But once facts landed, a failure
+            # here is exactly as much a partial write as a failure in the loop above -- the caller
+            # still needs `receipt` to retry the ids that committed. `receipt` exists only inside
+            # this `if facts:` branch, which is why the guard is here rather than wrapping the
+            # `return` unconditionally.
+            try:
+                entities = self._entities(scope, episodes)
+            except Exception as exc:
+                raise PartialWriteError(receipt) from exc
+        else:
+            entities = self._entities(scope, episodes)
+        return self._report(scope, scanned, episodes, facts, merged, entities)
 
     async def aconsolidate(self, scope: Scope, tiers: Optional[Sequence[MemoryTier]] = None) -> ConsolidationReport:
         require_scope(scope, method="aconsolidate")
@@ -1083,7 +1107,13 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 raise PartialWriteError(receipt) from None
             except Exception as exc:
                 raise PartialWriteError(receipt) from exc
-        return self._report(scope, scanned, episodes, facts, merged, await self._aentities(scope, episodes))
+            try:
+                entities = await self._aentities(scope, episodes)
+            except Exception as exc:
+                raise PartialWriteError(receipt) from exc
+        else:
+            entities = await self._aentities(scope, episodes)
+        return self._report(scope, scanned, episodes, facts, merged, entities)
 
 
 @register_provider("co_located")

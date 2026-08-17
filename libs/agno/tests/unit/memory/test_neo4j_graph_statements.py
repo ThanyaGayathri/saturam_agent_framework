@@ -254,11 +254,17 @@ def test_only_an_entitys_first_sighting_sets_created_at():
 
     Both from ``SET n += row.props`` would make the two the same number on every write, and the
     first-seen ordering SM-G8 (#106) reads would be lost.
+
+    Asserted as ``coalesce``, not literal ``ON CREATE``: review finding on PR #89 -- this MERGE is
+    not always the node's creation, since ``upsert_facts_statements`` merges the same identity as a
+    triple endpoint and sets no ``created_at`` at all. ``ON CREATE`` would then never fire on a node
+    SM-G3 wrote first, leaving ``created_at`` null forever. ``coalesce`` fills a null unconditionally
+    and leaves an already-timestamped node alone, which is what actually holds the invariant.
     """
     text, _ = cypher.upsert_entities_statement(FULL)
 
-    assert "ON CREATE SET n.created_at = row.created_at" in text
-    assert text.index("ON CREATE SET") < text.index("SET n += row.props")
+    assert "SET n.created_at = coalesce(n.created_at, row.created_at)" in text
+    assert text.index("n.created_at = coalesce") < text.index("SET n += row.props")
 
 
 def test_the_live_identity_is_constrained_but_the_logical_id_alone_is_not():

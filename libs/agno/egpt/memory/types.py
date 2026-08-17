@@ -170,10 +170,14 @@ def normalize_entity_name(name: str) -> str:
     the resolution itself. "Acme Corp." and "acme corp" collapse here; "Acme" and "Acme Corporation"
     do not, and merging those is SM-G8's embedding match.
 
-    The rule is ``Curator._normalize``'s (``learn/curate.py``), which SM-G8 is assigned to reuse.
-    Restated rather than imported because that one is a private method on a class needing a wired
-    ``LearningMachine``, and ``test_entity_normalization_matches_the_curator`` fails if the two ever
-    disagree -- a second rule for one concept is how two entities that should have merged stop.
+    The interior transform -- lowercase, drop punctuation, collapse whitespace -- is
+    ``Curator._normalize``'s (``learn/curate.py``), which SM-G8 is assigned to reuse. Restated
+    rather than imported because that one is a private method on a class needing a wired
+    ``LearningMachine``. ``test_entity_normalization_matches_the_curator`` asserts the two agree,
+    including the one point where this function goes further: it strips the surrounding whitespace
+    a stripped-punctuation edge leaves (``"! hi !"`` -> ``"hi"``, not ``" hi "``), because this is a
+    merge key and a key carrying whitespace it need not is a distinct key from one that does not --
+    a second rule for one concept is how two entities that should have merged stop.
     """
     if not isinstance(name, str):
         raise MemoryOperationError(f"An entity name must be a string, got {name!r}.", field_name="name")

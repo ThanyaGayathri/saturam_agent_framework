@@ -828,6 +828,22 @@ def test_the_first_sighting_keeps_created_at_while_updated_at_moves(graph):
     assert second["description"] == "later", "everything outside the two unioned lists is last-write"
 
 
+def test_created_at_is_set_when_a_triple_endpoint_created_the_node_first(graph):
+    """Review finding on PR #89: ``upsert_facts`` MERGEs an entity's endpoint node with no
+    ``created_at`` at all. The literal ``ON CREATE SET n.created_at = row.created_at`` this method
+    used to run never fires on a node that already exists -- so an entity SM-G3 writes before this
+    pipeline extracts it kept ``created_at = null`` forever, permanently breaking SM-G8's (#106)
+    first-seen ordering for every entity that reaches the graph via a relation first.
+    """
+    graph.upsert_facts(ACME, [fact("f1", "ada lives in berlin", subject="ada", predicate="lives_in", object="berlin")])
+    assert read_entity(graph, "ada") is not None  # sanity: the endpoint node exists, created_at unset
+
+    graph.upsert_entities(ACME, [entity_write(name="ada", entity_type="person", source_episode_ids=["e1"])])
+
+    props = read_entity(graph, "ada")
+    assert props["created_at"] is not None
+
+
 def test_an_entity_write_and_a_triple_endpoint_are_the_same_node(graph):
     """The identity claim in the port's docstring, checked rather than asserted in prose.
 
