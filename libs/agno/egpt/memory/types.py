@@ -334,6 +334,18 @@ class ValidWindow:
     valid_to: Optional[int] = None
 
     def __post_init__(self) -> None:
+        # `int`, like every other epoch-seconds field in this module (`_epoch_or_none` enforces it
+        # for `MemoryQuery`'s bounds and every `MemoryRecord` timestamp) -- and `bool` excluded for
+        # the same reason it is there: `bool` is an `int` subclass, so `ValidWindow(True, ...)`
+        # would silently become `ValidWindow(1, ...)`. Constructed directly rather than through
+        # `MemoryQuery`, this type gets none of that module's coercion, so a caller assembling one
+        # for SM-V3's legs from a float timestamp -- a `time.time()` result is the obvious source --
+        # would bind a float into the SQL predicate. `t_invalid > 100.5` and `t_invalid > 100` agree
+        # everywhere except a record stamped exactly `100`, which is precisely the boundary
+        # `test_valid_window.py` exists to get right, and silently disagree only there.
+        for name, value in (("valid_from", self.valid_from), ("valid_to", self.valid_to)):
+            if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
+                raise TypeError(f"ValidWindow.{name} must be an int epoch second, got {value!r}.")
         # `MemoryQuery` rejects the same shape, but this type is exported and constructed directly
         # -- by the tests here, and by whatever assembles a window for SM-V3's legs. An inverted
         # window does not merely match nothing, which would at least be uniform: `overlaps` checks

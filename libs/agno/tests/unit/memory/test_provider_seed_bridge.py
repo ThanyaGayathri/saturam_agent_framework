@@ -668,6 +668,17 @@ def test_a_valid_time_window_is_refused_rather_than_ignored(bounds, field):
     assert excinfo.value.field_name == field
 
 
+def test_the_async_read_refuses_a_valid_time_window_identically():
+    """The guard lives in ``_guard_read``, called from both ``read`` and ``aread`` -- covered here
+    rather than assumed, since a future split into per-verb guards would otherwise drop async
+    coverage with no test going red to say so."""
+    bridge = SeedMemoryProvider(manager=FakeManager(), config=seed_config())
+
+    with pytest.raises(MemoryOperationError, match="valid-time window") as excinfo:
+        asyncio.run(bridge.aread(ACME, MemoryQuery(text="q", valid_from=100, valid_to=200)))
+    assert excinfo.value.field_name == "valid_from/valid_to"
+
+
 def test_the_window_refusal_applies_to_a_tier_the_seed_does_not_serve():
     """The guard sits in ``_guard_read``, not inside a tier branch: a read naming an unserved tier
     used to skip every guard and return ``[]`` with no error."""

@@ -177,3 +177,22 @@ def test_the_point_window_and_every_single_sided_window_still_construct():
     assert ValidWindow(valid_from=100).valid_to is None
     assert ValidWindow(valid_to=100).valid_from is None
     assert ValidWindow() == ValidWindow(None, None)
+
+
+@pytest.mark.parametrize("field", ["valid_from", "valid_to"])
+def test_a_float_bound_is_refused_at_construction(field):
+    """SM-V3's legs build a ``ValidWindow`` directly, with none of ``MemoryQuery``'s coercion. A
+    float bound (a ``time.time()`` result is the obvious source) binds into the SQL predicate as a
+    float, and `t_invalid > 100.5` disagrees with `t_invalid > 100` only at a record stamped
+    exactly 100 -- silently, and only at the one boundary this module's tests exist to get right.
+    """
+    with pytest.raises(TypeError, match=field):
+        ValidWindow(**{field: 100.5})
+
+
+@pytest.mark.parametrize("field", ["valid_from", "valid_to"])
+def test_a_bool_bound_is_refused_like_every_other_epoch_field(field):
+    """``bool`` is an ``int`` subclass, so an unguarded check lets ``True`` silently become ``1``
+    -- the exact defect ``_epoch_or_none`` refuses elsewhere in this module."""
+    with pytest.raises(TypeError, match=field):
+        ValidWindow(**{field: True})

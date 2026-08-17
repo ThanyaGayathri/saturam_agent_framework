@@ -251,6 +251,13 @@ def window_predicate(window: Optional[ValidWindow], alias: str = "") -> Tuple[st
     An unset **record** bound is open at that end, so ``NULL`` passes. Excluding those instead
     would silently drop every record whose valid time was never stamped -- which the write path
     only guarantees for episodes.
+
+    ``None`` and ``ValidWindow()`` (both bounds unset) both return ``("", {})`` -- the first by the
+    early return below, the second because the loop appends no clause for either. Contract, not
+    coincidence: a caller may treat the two as interchangeable "no window" spellings. What it must
+    not do is skip the ``if window_clause:`` guard in :func:`search_predicate` and join this
+    result in unconditionally -- ``" AND ".join([scope_clause, ""])`` leaves a dangling ``AND`` with
+    nothing after it.
     """
     if window is None:
         return "", {}
@@ -344,6 +351,13 @@ def schema_statements(schema: str, table: str, dim: int, m: int, ef_construction
         # `scan` is ordered by `(created_at, id)` and filtered by tier, and it is the read
         # consolidation drains a tier with -- an unindexed one is a full partition scan per pass.
         f"CREATE INDEX IF NOT EXISTS {identifier(f'{table}_scan', 'index')} ON {parent} (tier, created_at, id)",
+        # No index on `t_valid` / `t_invalid` (SM-V4 #98), and that is deliberate rather than an
+        # oversight this predates. `search_predicate`'s window clause reaches these columns only as
+        # a `Filter:` above the HNSW scan, the same place `_CURRENT_BELIEF` already sits -- adding
+        # one here is not adding a plain B-tree, either: the table is partitioned, so it would have
+        # to be a partitioned index, built and measured like the two above it. Nothing has, because
+        # the window predicate has no benchmark yet to say whether the ANN scan's own selectivity
+        # already makes it cheap. Revisit in `benchmarks/memory_vectordb/` before adding one.
     ]
 
 

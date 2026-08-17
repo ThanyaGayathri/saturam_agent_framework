@@ -616,6 +616,12 @@ class CoLocatedMemoryProvider(MemoryProvider):
                 # double it, and reporting it only under `dropped_by_validity` would say "the world
                 # moved on" about rows the caller deliberately excluded. Non-zero here after the
                 # substrate already narrowed means reconciliation tightened a bound.
+                #
+                # Pre-limit, like `dropped_by_validity` above -- so neither key accounts for rows
+                # `visible[:query.limit]` truncated. `returned + dropped_as_superseded +
+                # dropped_outside_window` need not sum to `fused`; the remainder passed every
+                # filter and lost only to the page size. A `dropped_by_limit` key would close that,
+                # and does not exist because nothing here needed it yet.
                 dropped_outside_window=len(current) - len(visible) if requested_window else 0,
                 # Reported by the reconciliation itself, not inferred from the wiring. Inferring
                 # it claimed `True` for a procedural slice, where `_graph_backed` correctly makes

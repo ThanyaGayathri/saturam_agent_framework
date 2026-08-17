@@ -412,3 +412,10 @@ def test_the_composed_predicate_qualifies_every_column_with_the_alias(alias):
         for column in ("tier", "expired_at", "t_valid", "t_invalid", *sql.SCOPE_SLOTS):
             bare = predicate.replace(f"{prefix}{column}", "")
             assert column not in bare.replace(f":{column}", ""), column
+
+
+def test_none_and_an_empty_valid_window_produce_the_same_no_op():
+    """Two spellings of "no window", both taking the caller down the same no-clause path -- via
+    different branches inside ``window_predicate``, so this is what proves they actually agree
+    rather than merely reading as if they should."""
+    assert sql.window_predicate(None) == sql.window_predicate(ValidWindow())
