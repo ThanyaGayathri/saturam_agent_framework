@@ -264,6 +264,68 @@ def test_merge_entities_refuses_a_canonical_from_a_foreign_scope(graph):
         )
 
 
+def test_merge_entities_refuses_a_batch_where_one_merges_canonical_is_anothers_duplicate(graph):
+    """Review finding on PR #96 (round 2): without this guard, merge B's ``DETACH DELETE`` would
+    remove the node merge A's own write in the same batch just upserted -- silent graph corruption
+    rather than the caller error this pins."""
+    graph.upsert_entities(ACME, [entity_write("Acme"), entity_write("Acme Corp"), entity_write("Acme Ltd")])
+
+    with pytest.raises(MemoryOperationError, match="merges"):
+        graph.merge_entities(
+            ACME,
+            [
+                EntityMerge(canonical=entity_write("Acme"), duplicate_names=["Acme Corp"]),
+                EntityMerge(canonical=entity_write("Acme Corp"), duplicate_names=["Acme Ltd"]),
+            ],
+        )
+
+
+def test_a_merge_never_overwrites_the_canonicals_own_mention_position(graph):
+    """Review finding on PR #96 (round 2): an episode mentioning both the canonical and a
+    duplicate must keep the canonical's own edge -- and its ``position`` -- untouched. Re-pointing
+    the duplicate's mention onto the same ``link_id`` would ``SET r = row.props`` over it.
+    """
+    graph.upsert_episodes(ACME, [MemoryEvent(id="e1", content="ep1", scope=ACME, entities=["Acme", "Acme Corp"])])
+    graph.upsert_entities(ACME, [entity_write("Acme"), entity_write("Acme Corp")])
+
+    with graph._driver.session(database=graph.database) as session:
+        before = session.run(
+            "MATCH (e:Episode {id: 'e1'})-[m:MENTIONS]->(n:Entity {name: 'Acme'}) RETURN m.position AS position"
+        ).single()["position"]
+
+    graph.merge_entities(ACME, [EntityMerge(canonical=entity_write("Acme"), duplicate_names=["Acme Corp"])])
+
+    with graph._driver.session(database=graph.database) as session:
+        after = session.run(
+            "MATCH (e:Episode {id: 'e1'})-[m:MENTIONS]->(n:Entity {name: 'Acme'}) RETURN m.position AS position"
+        ).single()["position"]
+    assert after == before == 0
+
+
+def test_a_merge_defaults_a_legacy_mentions_edges_missing_position_to_zero(graph):
+    """Review finding on PR #96 (round 2): a live ``MENTIONS`` edge written before SM-G6 added
+    ``position`` returns ``null`` from Neo4j. ``link_mentions_statement``'s ``SET r = row.props``
+    is a full overwrite, so a ``null`` here would propagate onto the re-created edge and sort last
+    under ``recall_episodes_statement``'s ``ORDER BY position``.
+    """
+    graph.upsert_episodes(ACME, [MemoryEvent(id="e1", content="ep1", scope=ACME, entities=[])])
+    graph.upsert_entities(ACME, [entity_write("Acme"), entity_write("Acme Corp")])
+    with graph._driver.session(database=graph.database) as session:
+        session.run(
+            "MATCH (e:Episode {id: 'e1'}), (n:Entity {name: 'Acme Corp'}) "
+            "CREATE (e)-[:MENTIONS {link_id: 'legacy', episode_id: 'e1', name: 'Acme Corp', scope_key: $sk}]->(n)",
+            sk=ACME.key(),
+        )
+
+    graph.merge_entities(ACME, [EntityMerge(canonical=entity_write("Acme"), duplicate_names=["Acme Corp"])])
+
+    with graph._driver.session(database=graph.database) as session:
+        position = session.run(
+            "MATCH (e:Episode {id: 'e1'})-[m:MENTIONS]->(n:Entity {name: 'Acme'}) RETURN m.position AS position"
+        ).single()["position"]
+    assert position == 0
+
+
 def test_an_empty_merge_batch_is_a_no_op_rather_than_a_round_trip(graph):
     graph.upsert_entities(ACME, [entity_write("Acme")])
     graph.merge_entities(ACME, [])

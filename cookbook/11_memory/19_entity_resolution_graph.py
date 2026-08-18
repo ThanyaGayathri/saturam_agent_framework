@@ -54,77 +54,90 @@ def candidate(name: str, description: str, episode_id: str) -> EntityWrite:
     return write.with_embedding(vector, f"{embedder.id}/d{len(vector)}")
 
 
-# Two episodes, two spellings of one company -- exactly the pair `17_entity_extraction_graph.py`
-# leaves as two nodes.
-graph.upsert_episodes(
-    ACME_ADA,
-    [
-        MemoryEvent(
-            content="Ada is evaluating Acme.",
-            scope=ACME_ADA,
-            id="ep-acme-1",
-            entities=["Acme"],
-        )
-    ],
-)
-graph.upsert_episodes(
-    ACME_ADA,
-    [
-        MemoryEvent(
-            content="Acme Corporation's VP confirmed the pilot.",
-            scope=ACME_ADA,
-            id="ep-acme-2",
-            entities=["Acme Corporation"],
-        )
-    ],
-)
-# The description is the same on purpose: `embedding_text` folds description into what gets
-# embedded, so two candidates for one real company need a similar description to clear the default
-# similarity floor -- differing descriptions of a *shared* entity are ADR 0003's job for a future
-# fact-consolidation pass, not this ticket's exact-name/near-duplicate match.
-candidates = [
-    candidate("Acme", "an enterprise analytics company", "ep-acme-1"),
-    candidate("Acme Corporation", "an enterprise analytics company", "ep-acme-2"),
-]
-graph.upsert_entities(ACME_ADA, candidates)
+def entity_nodes(scope: Scope) -> list[dict]:
+    """Read the entity nodes back with Cypher -- demo narrative only, **not** the public API.
 
-# The three `graph._driver` blocks below are demo narrative only, not the public API: the port has
-# no read verb for entity nodes (querying the semantic subgraph is SM-G7 #105 / SM-G9 #107), the
-# same gap `17_entity_extraction_graph.py`'s own `entity_nodes` helper notes.
-print("Before resolution -- two nodes for one company:")
-with graph._driver.session(database=graph.database) as session:
-    for row in session.run(
-        "MATCH (n:Entity {scope_key: $scope_key}) RETURN n.name AS name ORDER BY n.name",
-        scope_key=ACME_ADA.key(),
-    ):
-        print(f"  {row['name']}")
+    The port has no read verb for entity nodes: querying the semantic subgraph is SM-G7 (#105) /
+    SM-G9 (#107), and inventing one here would ship a surface this ticket cannot test. Mirrors
+    `17_entity_extraction_graph.py`'s own `entity_nodes` helper for the same reason -- one place
+    that reaches `graph._driver` directly, rather than that access spread across the file.
+    """
+    with graph._driver.session(database=graph.database) as session:
+        return [
+            dict(row)
+            for row in session.run(
+                "MATCH (n:Entity {scope_key: $scope_key}) RETURN n.name AS name, "
+                "n.aliases AS aliases, n.source_episode_ids AS episodes ORDER BY n.name",
+                scope_key=scope.key(),
+            )
+        ]
 
-pipeline = EntityResolutionPipeline(graph=graph)
-report = pipeline.run(ACME_ADA, candidates)
-print(
-    f"\nResolution report: {report.candidates} candidates, {report.merged} merged into {report.groups} survivor(s)"
-)
 
-print("\nAfter resolution -- one node, aliases retained:")
-with graph._driver.session(database=graph.database) as session:
-    for row in session.run(
-        "MATCH (n:Entity {scope_key: $scope_key}) RETURN n.name AS name, n.aliases AS aliases, "
-        "n.source_episode_ids AS episodes",
-        scope_key=ACME_ADA.key(),
-    ):
-        print(f"  {row['name']}  aliases={row['aliases']}  from={row['episodes']}")
-
-print("\nBoth episodes' MENTIONS edges now point at the one surviving node:")
-with graph._driver.session(database=graph.database) as session:
-    for episode_id in ("ep-acme-1", "ep-acme-2"):
-        names = [
+def mentioned_by(scope: Scope, episode_id: str) -> list[str]:
+    """The entity names one episode's live `MENTIONS` edges point at -- same caveat as `entity_nodes`."""
+    with graph._driver.session(database=graph.database) as session:
+        return [
             row["name"]
             for row in session.run(
-                "MATCH (e:Episode {scope_key: $scope_key, id: $id})-[:MENTIONS]->(n:Entity) RETURN n.name AS name",
-                scope_key=ACME_ADA.key(),
+                "MATCH (e:Episode {scope_key: $scope_key, id: $id})-[:MENTIONS]->(n:Entity) "
+                "RETURN n.name AS name",
+                scope_key=scope.key(),
                 id=episode_id,
             )
         ]
-        print(f"  {episode_id}: {names}")
 
-graph.close()
+
+try:
+    # Two episodes, two spellings of one company -- exactly the pair
+    # `17_entity_extraction_graph.py` leaves as two nodes.
+    graph.upsert_episodes(
+        ACME_ADA,
+        [
+            MemoryEvent(
+                content="Ada is evaluating Acme.",
+                scope=ACME_ADA,
+                id="ep-acme-1",
+                entities=["Acme"],
+            )
+        ],
+    )
+    graph.upsert_episodes(
+        ACME_ADA,
+        [
+            MemoryEvent(
+                content="Acme Corporation's VP confirmed the pilot.",
+                scope=ACME_ADA,
+                id="ep-acme-2",
+                entities=["Acme Corporation"],
+            )
+        ],
+    )
+    # The description is the same on purpose: `embedding_text` folds description into what gets
+    # embedded, so two candidates for one real company need a similar description to clear the
+    # default similarity floor -- differing descriptions of a *shared* entity are ADR 0003's job
+    # for a future fact-consolidation pass, not this ticket's exact-name/near-duplicate match.
+    candidates = [
+        candidate("Acme", "an enterprise analytics company", "ep-acme-1"),
+        candidate("Acme Corporation", "an enterprise analytics company", "ep-acme-2"),
+    ]
+    graph.upsert_entities(ACME_ADA, candidates)
+
+    print("Before resolution -- two nodes for one company:")
+    for node in entity_nodes(ACME_ADA):
+        print(f"  {node['name']}")
+
+    pipeline = EntityResolutionPipeline(graph=graph)
+    report = pipeline.run(ACME_ADA, candidates)
+    print(
+        f"\nResolution report: {report.candidates} candidates, {report.merged} merged into {report.groups} survivor(s)"
+    )
+
+    print("\nAfter resolution -- one node, aliases retained:")
+    for node in entity_nodes(ACME_ADA):
+        print(f"  {node['name']}  aliases={node['aliases']}  from={node['episodes']}")
+
+    print("\nBoth episodes' MENTIONS edges now point at the one surviving node:")
+    for episode_id in ("ep-acme-1", "ep-acme-2"):
+        print(f"  {episode_id}: {mentioned_by(ACME_ADA, episode_id)}")
+finally:
+    graph.close()

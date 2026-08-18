@@ -868,3 +868,93 @@ async def test_the_no_op_invalidation_branch_rolls_back(half):
         await substrate.ainvalidate(FULL, "never-written", t_invalid=300, at=310)
 
     assert calls == ["rollback"], f"the no-op branch must roll back and not commit, got {calls}"
+
+
+@pytest.mark.parametrize("half", ["sync", "async"])
+async def test_merge_entities_runs_the_read_and_the_write_in_one_transaction(half):
+    """Review finding on PR #96 (round 2): the mentioning-episodes read and the upsert/re-point/
+    delete write must observe one transaction, or a concurrent write between them can be lost --
+    see the ``merge_entities`` port docstring's TOCTOU note. Pinned by counting transactions
+    opened, not by asserting the code structure: a future refactor that reintroduces two separate
+    round trips would open two, and this would catch it regardless of how it did so.
+    """
+    opened = []
+
+    class _Tx:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def run(self, *_args, **_kwargs):
+            return []
+
+        def commit(self):
+            pass
+
+        def rollback(self):
+            pass
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def begin_transaction(self):
+            opened.append("tx")
+            return _Tx()
+
+    class _ATx:
+        async def run(self, *_args, **_kwargs):
+            class _Result:
+                def __aiter__(self):
+                    return self
+
+                async def __anext__(self):
+                    raise StopAsyncIteration
+
+            return _Result()
+
+        async def commit(self):
+            pass
+
+        async def rollback(self):
+            pass
+
+    class _ASession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return False
+
+        async def begin_transaction(self):
+            opened.append("tx")
+            return _ATx()
+
+    class _Driver:
+        def session(self, **_kwargs):
+            return _Session()
+
+    class _ADriver:
+        def session(self, **_kwargs):
+            return _ASession()
+
+    substrate = Neo4jGraphSubstrate.__new__(Neo4jGraphSubstrate)
+    substrate.database, substrate.uri, substrate._adriver = "neo4j", "bolt://x", None
+    substrate._driver = _Driver()
+    merge = EntityMerge(
+        canonical=EntityWrite(name="Acme", entity_type="company", scope=FULL), duplicate_names=["Acme Corp"]
+    )
+
+    if half == "sync":
+        substrate.merge_entities(FULL, [merge])
+    else:
+        substrate._adriver = _ADriver()
+        substrate._async_driver = lambda: substrate._adriver
+        await substrate.amerge_entities(FULL, [merge])
+
+    assert opened == ["tx"], f"expected exactly one transaction, got {len(opened)}"

@@ -510,8 +510,19 @@ def upsert_entities_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
 
 #: The columns :func:`match_entities_by_key_statement` and :func:`match_entities_by_embedding_statement`
 #: both return, so the two lookups produce rows a caller can treat identically before re-ranking
-#: them together.
-_ENTITY_MATCH_RETURN = "name, entity_type, description, aliases, properties, source_episode_ids, confidence, derived_by"
+#: them together. A tuple, not a comma-joined string split back apart at each call site: splitting
+#: a string is one more place the separator has to be spelled identically, and the failure mode is
+#: malformed Cypher built successfully and rejected only when the engine runs it.
+_ENTITY_MATCH_RETURN: Tuple[str, ...] = (
+    "name",
+    "entity_type",
+    "description",
+    "aliases",
+    "properties",
+    "source_episode_ids",
+    "confidence",
+    "derived_by",
+)
 
 
 def match_entities_by_key_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
@@ -523,7 +534,7 @@ def match_entities_by_key_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
     similarity, it is the exact-match case that key exists for (SM-G8 #106).
     """
     require_scope(scope, method="match_entities_by_key_statement")
-    fields = ", ".join(f"n.{field} AS {field}" for field in _ENTITY_MATCH_RETURN.split(", "))
+    fields = ", ".join(f"n.{field} AS {field}" for field in _ENTITY_MATCH_RETURN)
     return (
         f"MATCH (n:{ENTITY} {{scope_key: $scope_key, key: $key}}) WHERE n.name <> $name RETURN {fields}, 1.0 AS score"
     ), {"scope_key": scope.key()}
@@ -536,19 +547,23 @@ _ENTITY_EMBEDDING_INDEX = f"egpt_{ENTITY.lower()}_embedding"
 #: How far past the caller's ``limit`` the vector query asks the index for. ``db.index.vector.
 #: queryNodes`` ranks across **every** scope the index covers -- the index has no tenant column --
 #: so the scope filter below runs after the top-k comes back, and a caller's whole ``limit`` could
-#: be nearest neighbours in a different tenant. 20x is a guess, not a measurement: over-fetching
+#: be nearest neighbours in a different tenant. ``+20`` is a guess, not a measurement -- additive
+#: on top of ``limit`` (``k = limit + EMBEDDING_OVERFETCH``), not a multiplier of it, over-fetching
 #: enough to survive one tenant crowding the global top-k with no data yet to size it against.
 EMBEDDING_OVERFETCH = 20
 
 
-def match_entities_by_embedding_statement(scope: Scope, k: int = 25) -> Tuple[str, Dict[str, Any]]:
-    """The ``k`` nearest live entities to ``$embedding`` in ``scope``, at or above ``$min_score``.
+def match_entities_by_embedding_statement(scope: Scope, k: int = 25, limit: int = 5) -> Tuple[str, Dict[str, Any]]:
+    """The ``k`` nearest live entities to ``$embedding`` in ``scope``, at or above ``$min_score``,
+    capped at ``limit`` rows returned.
 
-    ``k`` is the **index** query size (:data:`EMBEDDING_OVERFETCH` past the caller's ``limit``), so
-    the scope filter below has enough candidates left to fill it -- not the number of rows this
-    statement returns, which is capped by ``$min_score`` and the caller's own ``limit`` afterwards.
-    The default exists only so this builder can be called with ``scope`` alone (introspection,
-    tests); every real caller passes its own ``limit + EMBEDDING_OVERFETCH``.
+    ``k`` is the **index** query size (``limit + EMBEDDING_OVERFETCH``), so the scope filter below
+    has enough candidates left to fill ``limit`` -- the two are different numbers on purpose: without
+    the index-side overfetch, a tenant crowding the global top-k could leave nothing after the scope
+    filter; without the trailing ``LIMIT $limit``, every one of the (scope-filtered, threshold-passing)
+    rows up to ``k`` crosses the driver boundary only to be sliced away in Python. The defaults exist
+    only so this builder can be called with ``scope`` alone (introspection, tests); every real caller
+    passes its own ``limit`` and ``limit + EMBEDDING_OVERFETCH``.
 
     ``score`` comes straight from the index's own ``vector.similarity_function`` (:data:`SCHEMA_
     STATEMENTS`), 'cosine' -- Neo4j reports that as (identical vectors) ``1.0`` down towards
@@ -560,14 +575,15 @@ def match_entities_by_embedding_statement(scope: Scope, k: int = 25) -> Tuple[st
     vector is not reliable past "low", which is a property of the algorithm, not this statement.
     """
     require_scope(scope, method="match_entities_by_embedding_statement")
-    fields = ", ".join(f"node.{field} AS {field}" for field in _ENTITY_MATCH_RETURN.split(", "))
+    fields = ", ".join(f"node.{field} AS {field}" for field in _ENTITY_MATCH_RETURN)
     return (
         f"CALL db.index.vector.queryNodes('{_ENTITY_EMBEDDING_INDEX}', $k, $embedding) "
         "YIELD node, score "
         "WHERE node.scope_key = $scope_key AND node.name <> $name AND score >= $min_score "
         f"RETURN {fields}, score "
-        "ORDER BY score DESC, node.name ASC"
-    ), {"k": k, "scope_key": scope.key()}
+        "ORDER BY score DESC, node.name ASC "
+        "LIMIT $limit"
+    ), {"k": k, "scope_key": scope.key(), "limit": limit}
 
 
 def mentioning_episodes_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:

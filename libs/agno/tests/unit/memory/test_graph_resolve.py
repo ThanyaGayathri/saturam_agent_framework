@@ -136,6 +136,20 @@ def test_a_second_candidate_already_folded_by_the_first_is_skipped_not_re_matche
     assert graph.calls.count("merge_entities") == 1
 
 
+def test_a_repeated_candidate_name_that_wins_its_own_merge_is_not_re_matched():
+    """Review finding on PR #96 (round 2): when the *first* occurrence of a repeated name wins
+    its own merge as canonical, its name never lands in ``merge.duplicate_names`` -- so without
+    also adding ``candidate.name`` to ``folded``, a second literal occurrence of that name in the
+    same batch would be matched again (finding nothing, since its duplicate is already gone, but
+    at the cost of a redundant ``match_entities`` round trip)."""
+    pipe, graph = resolver(min_score=0.9)
+    seeded(graph, ew("Acme"), ew("Acme Corp", vec=(0.99, 0.01, 0.0)))
+
+    pipe.run(ACME, [ew("Acme"), ew("Acme"), ew("Acme Corp", vec=(0.99, 0.01, 0.0))])
+
+    assert graph.calls.count("match_entities") == 1
+
+
 def test_no_match_leaves_the_candidate_exactly_as_its_writer_left_it():
     pipe, graph = resolver()
     seeded(graph, ew("Solo", vec=(1.0, 0.0, 0.0)))

@@ -226,6 +226,11 @@ class EntityResolutionPipeline:
             merge = self._merge_for(candidate, matches)
             self.graph.merge_entities(scope, [merge])
             merges.append(merge)
+            # `candidate.name` too, not only `merge.duplicate_names`: a repeated literal name in
+            # `candidates` that turned out to win its own merge as canonical is not in that set,
+            # and re-matching it finds nothing (its duplicate is already gone) but still issues a
+            # redundant `match_entities` round trip and counts as a second "offered" candidate.
+            folded.add(candidate.name)
             folded.update(merge.duplicate_names)
         return self._report(scope, len(candidates), merges)
 
@@ -246,5 +251,6 @@ class EntityResolutionPipeline:
             merge = self._merge_for(candidate, matches)
             await self.graph.amerge_entities(scope, [merge])
             merges.append(merge)
+            folded.add(candidate.name)
             folded.update(merge.duplicate_names)
         return self._report(scope, len(candidates), merges)
