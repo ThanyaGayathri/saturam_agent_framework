@@ -26,7 +26,8 @@ This section demonstrates how EGPT agents persist and use user memories across r
 - `14_episodic_subgraph.py`: The episodic subgraph (SM-G6) -- raw non-lossy episodes as graph nodes
   linked to the entities they mention, recalled by valid-time window and by mention link. Needs
   `./cookbook/scripts/run_neo4j.sh`; no API key. The entity names are supplied on the event:
-  extracting them from content is SM-G2's.
+  extracting them from content is SM-G2's. Requires `.venv`, not `.venvs/demo` -- `demo_setup.sh`
+  does not install the `neo4j` driver.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

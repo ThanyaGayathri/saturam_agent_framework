@@ -576,7 +576,7 @@ MENTION_PROPERTIES = ("link_id", "episode_id", "name", "position", "created_at",
 #:
 #: Built from the union of both property sets, so a key added to either is registered without
 #: anyone remembering this line -- which is how ``position`` would otherwise have been missed.
-_PROBE_PROPERTIES = (*ROW_PROPERTIES, *(p for p in MENTION_PROPERTIES if p not in ROW_PROPERTIES), "name")
+_PROBE_PROPERTIES = (*ROW_PROPERTIES, *(p for p in MENTION_PROPERTIES if p not in ROW_PROPERTIES))
 _PROBE = (
     "CREATE (p:_EgptSchemaProbe {"
     + ", ".join(

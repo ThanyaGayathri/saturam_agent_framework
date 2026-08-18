@@ -278,7 +278,7 @@ def test_the_double_honours_limit_zero_as_zero_rows_and_none_as_unlimited():
 
     assert graph.recall_episodes(ACME, since=0, limit=0) == []
     assert len(graph.recall_episodes(ACME, since=0, limit=None)) == 2
-    assert graph.recall_requests[-3:][0] == {"entities": None, "since": 0, "until": None, "limit": 0}
+    assert graph.recall_requests[0] == {"entities": None, "since": 0, "until": None, "limit": 0}
 
 
 def test_the_double_matches_a_mention_under_the_rows_own_scope_not_the_readers():

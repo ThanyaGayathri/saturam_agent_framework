@@ -260,23 +260,27 @@ class InMemoryGraph:
         require_time_window(since, until)
         require_recall_limit(limit)
         wanted = None if entities is None else set(entities)
-        hits = [
-            replace(row)
-            for row in self._bucket(scope)
-            if row.tier is MemoryTier.EPISODIC
-            and row.is_current_belief()
-            and scoped(row.scope, scope)
-            and (since is None or (row.t_valid is not None and row.t_valid >= since))
-            and (until is None or (row.t_valid is not None and row.t_valid < until))
-            and (
-                wanted is None
-                or any(
-                    entity_node_id_for(row.scope, name)
-                    in set(row.provenance.get("entity_ids") or [])
-                    for name in wanted
-                )
-            )
-        ]
+        hits = []
+        for row in self._bucket(scope):
+            if (
+                row.tier is not MemoryTier.EPISODIC
+                or not row.is_current_belief()
+                or not scoped(row.scope, scope)
+            ):
+                continue
+            if since is not None and (row.t_valid is None or row.t_valid < since):
+                continue
+            if until is not None and (row.t_valid is None or row.t_valid >= until):
+                continue
+            if wanted is not None:
+                # Built once per row, not once per name in `wanted`: rebuilding it inside the
+                # membership check below would be O(len(wanted)) sets for one row instead of one.
+                linked = set(row.provenance.get("entity_ids") or [])
+                if not any(
+                    entity_node_id_for(row.scope, name) in linked for name in wanted
+                ):
+                    continue
+            hits.append(replace(row))
         # Oldest first, with a null valid time last -- the order Neo4j returns. Ties never break on
         # the uuid before content, so identical episodes do not reorder between runs.
         hits.sort(
