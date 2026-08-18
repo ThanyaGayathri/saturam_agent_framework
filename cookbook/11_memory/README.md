@@ -47,6 +47,10 @@ This section demonstrates how EGPT agents persist and use user memories across r
   `./cookbook/scripts/run_neo4j.sh`; no API key. The entity names are supplied on the event:
   extracting them from content is SM-G2's (see `17_`). Requires `.venv`, not `.venvs/demo` --
   `demo_setup.sh` does not install the `neo4j` driver.
+- `19_entity_resolution_graph.py`: Entity resolution (SM-G8) -- folding "Acme" and "Acme
+  Corporation" into one node via `EntityResolutionPipeline`, re-pointing their `MENTIONS` edges and
+  keeping the losing name as an alias. No API key; needs `./cookbook/scripts/run_neo4j.sh` and a
+  local embedder (`sentence-transformers`, installed by `.venvs/demo`).
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

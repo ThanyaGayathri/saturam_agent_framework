@@ -399,3 +399,33 @@ introduced here.
 took `14_` first; then, while this branch was still catching up, `feat/SM-V4`, `feat/SM-V2` and
 `feat/SM-G2` landed `15_`-`17_` between this branch's two merges of `main`. Per this file's own
 convention, whoever merges second renumbers -- twice, this time.
+
+---
+
+### 19_entity_resolution_graph.py
+
+**Status:** PASS
+
+**Description:** Exercises SM-G8's `EntityResolutionPipeline` against a real Neo4j 5 Community.
+Writes two episodes each mentioning a different spelling of one company ("Acme" / "Acme
+Corporation"), writes both as separate candidate entity nodes (as `17_entity_extraction_graph.py`
+deliberately leaves them), embeds each with a real `sentence-transformers` model, then runs the
+resolution pipeline over both candidates.
+
+**Result:** Success, and all three acceptance criteria are visible in the output. Before
+resolution, two nodes exist for one company. `pipeline.run` reports 2 candidates, 1 merged into 1
+survivor. After resolution, exactly one node remains, carrying `aliases=['Acme Corporation']` and
+the union of both episodes' ids in `source_episode_ids` -- duplicate entities merged, aliases
+retained. Both episodes' `MENTIONS` edges now resolve to the one surviving node's name -- edges
+updated on merge. The two candidates are given the **same** description on purpose: description is
+folded into the embedded text (`entities.embedding_text`), and two real, differently-worded
+descriptions of the same company scored a normalised cosine of ~0.84 against the default
+`min_score=0.92` floor -- correctly refusing to merge on a genuinely weaker signal, but a duller
+demo of the merge path than showing the acceptance criteria succeed.
+
+**Requires:** `./cookbook/scripts/run_neo4j.sh`, and a local `sentence-transformers` embedder --
+installed by `.venvs/demo`, no API key.
+
+**Run twice in a row and the output is identical**: episodes and entities are both written by id,
+so the second run's `upsert_entities` call recreates the "Acme Corporation" node the first run's
+merge had just deleted -- both runs start from the same two-node state and print the same report.

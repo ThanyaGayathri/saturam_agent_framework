@@ -45,11 +45,16 @@ __all__ = [
     "SCOPE_SLOTS",
     "bounds_statements",
     "clear_mentions_statement",
+    "delete_entities_statement",
+    "EMBEDDING_OVERFETCH",
     "episode_probe_statement",
     "expire_statements",
     "insert_bounded_copy_statements",
     "link_mentions_statement",
     "live_row_statements",
+    "match_entities_by_embedding_statement",
+    "match_entities_by_key_statement",
+    "mentioning_episodes_statement",
     "recall_episodes_statement",
     "scope_predicate",
     "scope_props",
@@ -503,6 +508,96 @@ def upsert_entities_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
     ), _WRITE_BINDS
 
 
+#: The columns :func:`match_entities_by_key_statement` and :func:`match_entities_by_embedding_statement`
+#: both return, so the two lookups produce rows a caller can treat identically before re-ranking
+#: them together.
+_ENTITY_MATCH_RETURN = "name, entity_type, description, aliases, properties, source_episode_ids, confidence, derived_by"
+
+
+def match_entities_by_key_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
+    """Live entities in ``scope`` sharing ``$key`` with the candidate, excluding ``$name`` itself.
+
+    Backed by ``egpt_entity_key`` (:data:`SCHEMA_STATEMENTS`), keyed on the normalised form
+    :func:`~egpt.memory.types.normalize_entity_name` derives -- without it this is a scan of every
+    ``:Entity`` in the tenant. Scored ``1.0``: two nodes agreeing on the normalised key is not a
+    similarity, it is the exact-match case that key exists for (SM-G8 #106).
+    """
+    require_scope(scope, method="match_entities_by_key_statement")
+    fields = ", ".join(f"n.{field} AS {field}" for field in _ENTITY_MATCH_RETURN.split(", "))
+    return (
+        f"MATCH (n:{ENTITY} {{scope_key: $scope_key, key: $key}}) WHERE n.name <> $name RETURN {fields}, 1.0 AS score"
+    ), {"scope_key": scope.key()}
+
+
+#: The vector index :data:`SCHEMA_STATEMENTS` registers for entity embeddings. Named once, so the
+#: procedure call below and the schema statement that creates the index cannot spell it two ways.
+_ENTITY_EMBEDDING_INDEX = f"egpt_{ENTITY.lower()}_embedding"
+
+#: How far past the caller's ``limit`` the vector query asks the index for. ``db.index.vector.
+#: queryNodes`` ranks across **every** scope the index covers -- the index has no tenant column --
+#: so the scope filter below runs after the top-k comes back, and a caller's whole ``limit`` could
+#: be nearest neighbours in a different tenant. 20x is a guess, not a measurement: over-fetching
+#: enough to survive one tenant crowding the global top-k with no data yet to size it against.
+EMBEDDING_OVERFETCH = 20
+
+
+def match_entities_by_embedding_statement(scope: Scope, k: int = 25) -> Tuple[str, Dict[str, Any]]:
+    """The ``k`` nearest live entities to ``$embedding`` in ``scope``, at or above ``$min_score``.
+
+    ``k`` is the **index** query size (:data:`EMBEDDING_OVERFETCH` past the caller's ``limit``), so
+    the scope filter below has enough candidates left to fill it -- not the number of rows this
+    statement returns, which is capped by ``$min_score`` and the caller's own ``limit`` afterwards.
+    The default exists only so this builder can be called with ``scope`` alone (introspection,
+    tests); every real caller passes its own ``limit + EMBEDDING_OVERFETCH``.
+
+    ``score`` comes straight from the index's own ``vector.similarity_function`` (:data:`SCHEMA_
+    STATEMENTS`), 'cosine' -- Neo4j reports that as (identical vectors) ``1.0`` down towards
+    (orthogonal) ``0.5`` on ``(1 + cosine_similarity) / 2``, not raw cosine, so a caller reading
+    ``min_score`` as raw cosine will find it more permissive than expected. It already lands in the
+    ``[0.0, 1.0]``, higher-is-better range this port uses everywhere else, so nothing here converts
+    it. The index is HNSW and **approximate**: that formula is exact near the query vector -- where
+    a resolution match lives -- but its score for a genuinely dissimilar (orthogonal or opposite)
+    vector is not reliable past "low", which is a property of the algorithm, not this statement.
+    """
+    require_scope(scope, method="match_entities_by_embedding_statement")
+    fields = ", ".join(f"node.{field} AS {field}" for field in _ENTITY_MATCH_RETURN.split(", "))
+    return (
+        f"CALL db.index.vector.queryNodes('{_ENTITY_EMBEDDING_INDEX}', $k, $embedding) "
+        "YIELD node, score "
+        "WHERE node.scope_key = $scope_key AND node.name <> $name AND score >= $min_score "
+        f"RETURN {fields}, score "
+        "ORDER BY score DESC, node.name ASC"
+    ), {"k": k, "scope_key": scope.key()}
+
+
+def mentioning_episodes_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
+    """Live episodes currently ``MENTIONS``-linked to any of ``$names``, with the edge's position.
+
+    Read before a merge re-points those edges: :func:`link_mentions_statement` needs the episode id
+    and the position the original mention held, and this is the only place either lives -- the
+    merge itself carries neither, having named the entity, not the episode.
+    """
+    require_scope(scope, method="mentioning_episodes_statement")
+    return (
+        f"MATCH (e:{EPISODE} {{scope_key: $scope_key, {LIVE}: true}})-[m:{MENTIONS}]->"
+        f"(n:{ENTITY} {{scope_key: $scope_key}}) WHERE n.name IN $names "
+        "RETURN e.id AS episode_id, n.name AS name, m.position AS position"
+    ), {"scope_key": scope.key()}
+
+
+def delete_entities_statement(scope: Scope) -> Tuple[str, Dict[str, Any]]:
+    """Remove ``$names`` and every edge attached to them, after a merge has re-pointed the ones
+    that mattered. ``DETACH DELETE`` rather than a bare ``DELETE`` -- a duplicate node's own
+    ``MENTIONS`` edges are gone once :func:`link_mentions_statement` re-links the canonical, but an
+    unrelated edge type this port does not yet model (a relation, once SM-G3 #101 ships) must not be
+    left dangling on a node this statement is about to remove.
+    """
+    require_scope(scope, method="delete_entities_statement")
+    return (f"MATCH (n:{ENTITY} {{scope_key: $scope_key}}) WHERE n.name IN $names DETACH DELETE n"), {
+        "scope_key": scope.key()
+    }
+
+
 def live_row_statements(scope: Scope) -> List[Tuple[str, Dict[str, Any]]]:
     """The live row for one id, per **fact** shape -- read before an invalidation.
 
@@ -741,6 +836,6 @@ SCHEMA_STATEMENTS = (
     # a named follow-up" to make it a migration parameter) -- a mixed-dimension deployment needs a
     # second index under Mode B, which is that same follow-up's to make config-driven rather than a
     # reason to leave this one unindexed.
-    f"CREATE VECTOR INDEX egpt_{ENTITY.lower()}_embedding IF NOT EXISTS FOR (n:{ENTITY}) ON (n.embedding) "
+    f"CREATE VECTOR INDEX {_ENTITY_EMBEDDING_INDEX} IF NOT EXISTS FOR (n:{ENTITY}) ON (n.embedding) "
     "OPTIONS {indexConfig: {`vector.dimensions`: 768, `vector.similarity_function`: 'cosine'}}",
 )

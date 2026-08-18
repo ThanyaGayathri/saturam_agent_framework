@@ -19,10 +19,13 @@ emit.
 Deliberately **not** here, each with an owner: entity and relation extraction (SM-G2 #100 /
 SM-G3 #101), contradiction *detection* (SM-G5 #103 -- this ships the primitive, not the decision to
 call it), valid-time extraction from content (SM-G4 #102), append-only enforcement via APOC trigger
-or scheduled audit (SM-G4 #102, options in SM-R10 section 6.1), multi-hop traversal and graph
-enumeration (SM-G9 #107), PPR over a GDS projection (SM-H4 #134), and entity resolution (SM-G8
-#106). Episode-to-entity mention links arrived with SM-G6 (#104); the entity names they link are
-supplied on the event, not extracted here.
+or scheduled audit (SM-G4 #102, options in SM-R10 section 6.1), and multi-hop traversal and graph
+enumeration beyond ``match_entities``' two targeted lookups (SM-G9 #107), PPR over a GDS projection
+(SM-H4 #134). Episode-to-entity mention links arrived with SM-G6 (#104); the entity names they link
+are supplied on the event, not extracted here. **Entity resolution's mechanism, not its policy**
+(SM-G8 #106): ``match_entities`` and ``merge_entities`` are the primitives -- lookup and fold --
+this backend can support; *which* candidates should merge and at what threshold is
+``egpt.memory.graph.resolve.EntityResolutionPipeline``'s decision, not this module's.
 """
 
 import json
@@ -34,9 +37,10 @@ from uuid import uuid4
 
 from egpt.integrations.memory.graph.neo4j import cypher
 from egpt.memory.config import MemoryProviderConfigError
-from egpt.memory.graph.episodic import entity_node_id_for, mention_rows
+from egpt.memory.graph.episodic import entity_node_id_for, mention_link_id, mention_rows
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
+    EntityMerge,
     EntityWrite,
     FactWrite,
     MemoryEvent,
@@ -631,6 +635,175 @@ class Neo4jGraphSubstrate:
         if not entities:
             return
         await self._arun([cypher.upsert_entities_statement(scope)], rows=self._entity_rows(scope, entities))
+
+    # -- entity resolution (SM-G8 #106) ----------------------------------------
+
+    @staticmethod
+    def _entity_from_row(row: Dict[str, Any], scope: Scope) -> EntityWrite:
+        """Rebuild an :class:`EntityWrite` from a matched node's row.
+
+        No ``embedding``: :meth:`match_entities` never returns it, because nothing downstream of a
+        match needs to re-embed the entity it found -- carrying a 768-float list through every
+        matched row would be the one field the caller cannot use, on every row it gets back.
+        """
+        return EntityWrite(
+            name=row["name"],
+            entity_type=row["entity_type"],
+            scope=scope,
+            description=row.get("description"),
+            aliases=list(row.get("aliases") or []),
+            properties=Neo4jGraphSubstrate._from_json(row.get("properties"), "properties", row["name"]),
+            source_episode_ids=list(row.get("source_episode_ids") or []),
+            confidence=row.get("confidence", 1.0),
+            derived_by=row.get("derived_by"),
+        )
+
+    def _matched(self, rows: List[Dict[str, Any]], scope: Scope, limit: int) -> List[Tuple[EntityWrite, float]]:
+        """Union the key and embedding legs, keep the best score per name, rank, and cap at ``limit``."""
+        best: Dict[str, float] = {}
+        by_name: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            name = row["name"]
+            score = float(row["score"])
+            if name not in best or score > best[name]:
+                best[name] = score
+                by_name[name] = row
+        ordered = sorted(by_name, key=lambda name: (-best[name], name))
+        return [(self._entity_from_row(by_name[name], scope), best[name]) for name in ordered[:limit]]
+
+    @staticmethod
+    def _require_embedded(candidate: EntityWrite, method: str) -> None:
+        if candidate.embedding is None:
+            raise MemoryOperationError(
+                f"{method} was given {candidate.name!r} with no embedding. The similarity leg has "
+                "nothing to compare against, and skipping it silently would report a resolution "
+                "pass that checked nothing as one that checked everything.",
+                field_name="embedding",
+            )
+
+    @staticmethod
+    def _match_entities_statements(
+        scope: Scope, candidate: EntityWrite, limit: int, min_score: float
+    ) -> List[Tuple[str, Dict[str, Any]]]:
+        # Narrows for mypy; the caller has already refused a `None` embedding via `_require_embedded`.
+        assert candidate.embedding is not None
+        key_text, key_params = cypher.match_entities_by_key_statement(scope)
+        vector_text, vector_params = cypher.match_entities_by_embedding_statement(
+            scope, k=limit + cypher.EMBEDDING_OVERFETCH
+        )
+        return [
+            (key_text, {**key_params, "name": candidate.name, "key": candidate.key}),
+            (
+                vector_text,
+                {
+                    **vector_params,
+                    "name": candidate.name,
+                    "embedding": list(candidate.embedding),
+                    "min_score": min_score,
+                },
+            ),
+        ]
+
+    def match_entities(
+        self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92
+    ) -> List[Tuple[EntityWrite, float]]:
+        self._reject_foreign_scope(scope, candidate.scope)
+        self._require_embedded(candidate, "match_entities")
+        key_rows, vector_rows = self._run(self._match_entities_statements(scope, candidate, limit, min_score))
+        return self._matched([*key_rows, *vector_rows], scope, limit)
+
+    async def amatch_entities(
+        self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92
+    ) -> List[Tuple[EntityWrite, float]]:
+        self._reject_foreign_scope(scope, candidate.scope)
+        self._require_embedded(candidate, "amatch_entities")
+        key_rows, vector_rows = await self._arun(self._match_entities_statements(scope, candidate, limit, min_score))
+        return self._matched([*key_rows, *vector_rows], scope, limit)
+
+    def _merge_mention_rows(
+        self, scope: Scope, mentions: List[Dict[str, Any]], canonical_by_duplicate: Dict[str, str]
+    ) -> List[Dict[str, Any]]:
+        """The re-pointed edges, in :func:`cypher.link_mentions_statement`'s row shape.
+
+        Deduplicated on ``link_id``: an episode that already separately mentioned the canonical
+        entity by its own name, and now also mentions it through a duplicate being folded in, would
+        otherwise produce two rows for one edge -- harmless to ``MERGE``, but a batch size that
+        should read as "one edge" reading as two.
+        """
+        entity = cypher.scope_props(scope)
+        now = now_epoch_s()
+        seen = set()
+        rows = []
+        for row in mentions:
+            canonical_name = canonical_by_duplicate[row["name"]]
+            link_id = mention_link_id(scope, row["episode_id"], canonical_name)
+            if link_id in seen:
+                continue
+            seen.add(link_id)
+            props = {
+                "scope_key": entity["scope_key"],
+                "link_id": link_id,
+                "episode_id": row["episode_id"],
+                "name": canonical_name,
+                "position": row["position"],
+                **entity,
+                "created_at": now,
+            }
+            rows.append(
+                {
+                    "scope_key": entity["scope_key"],
+                    "episode_id": row["episode_id"],
+                    "name": canonical_name,
+                    "entity": entity,
+                    "props": props,
+                }
+            )
+        return rows
+
+    def _merge_entities_statements(
+        self, scope: Scope, merges: Sequence[EntityMerge], mentions: List[Dict[str, Any]]
+    ) -> List[Tuple[str, Dict[str, Any]]]:
+        """The write half of a merge, once the mentioning episodes have already been read.
+
+        Split from the read for the reason stated on the port: a re-point needs to know, in Python,
+        which episode mentioned which duplicate before it can build the rows the write half binds --
+        there is no one Cypher statement that reads its own input and writes from it in the same
+        breath without either a second round trip or reconstructing the escaping
+        ``mention_link_id`` already owns.
+        """
+        canonical_by_duplicate = {name: merge.canonical.name for merge in merges for name in merge.duplicate_names}
+        statements = [
+            (text, {**bound, "rows": self._entity_rows(scope, [merge.canonical for merge in merges])})
+            for text, bound in (cypher.upsert_entities_statement(scope),)
+        ]
+        mention_rows_ = self._merge_mention_rows(scope, mentions, canonical_by_duplicate)
+        if mention_rows_:
+            text, bound = cypher.link_mentions_statement(scope)
+            statements.append((text, {**bound, "mentions": mention_rows_}))
+        names = list(canonical_by_duplicate)
+        text, params = cypher.delete_entities_statement(scope)
+        statements.append((text, {**params, "names": names}))
+        return statements
+
+    def merge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        if not merges:
+            return
+        for merge in merges:
+            self._reject_foreign_scope(scope, merge.canonical.scope)
+        names = [name for merge in merges for name in merge.duplicate_names]
+        text, params = cypher.mentioning_episodes_statement(scope)
+        (mentions,) = self._run([(text, {**params, "names": names})])
+        self._run(self._merge_entities_statements(scope, merges, mentions))
+
+    async def amerge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        if not merges:
+            return
+        for merge in merges:
+            self._reject_foreign_scope(scope, merge.canonical.scope)
+        names = [name for merge in merges for name in merge.duplicate_names]
+        text, params = cypher.mentioning_episodes_statement(scope)
+        (mentions,) = await self._arun([(text, {**params, "names": names})])
+        await self._arun(self._merge_entities_statements(scope, merges, mentions))
 
     # -- reads ----------------------------------------------------------------
 

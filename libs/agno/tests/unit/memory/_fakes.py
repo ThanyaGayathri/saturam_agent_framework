@@ -35,6 +35,7 @@ from egpt.memory.substrates import GraphSubstrate, VectorSubstrate
 from egpt.memory.tiers import MemoryTier
 from egpt.memory.types import (
     SCOPE_SLOTS,
+    EntityMerge,
     EntityWrite,
     FactWrite,
     MemoryEvent,
@@ -47,6 +48,22 @@ from egpt.memory.types import (
     ValidWindow,
     require_scope,
 )
+
+
+def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
+    """Raw cosine similarity in ``[-1.0, 1.0]``.
+
+    A pure function rather than a numpy dependency: the double's whole point is to be readable
+    without one, and two 768-float lists compared per candidate is not where a test suite's time
+    goes. Callers matching Neo4j's own vector index must normalise the result themselves -- see
+    ``FakeGraph._match_entities``, which does not use this raw value directly.
+    """
+    dot = sum(x * y for x, y in zip(a, b))
+    norm_a = sum(x * x for x in a) ** 0.5
+    norm_b = sum(y * y for y in b) ** 0.5
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
 
 
 async def _yield() -> None:
@@ -391,6 +408,108 @@ class FakeGraph:
         self.entity_batch_sizes.append(len(entities))
         for entity in entities:
             self._upsert_entity(scope, entity)
+
+    # -- entity resolution (SM-G8 #106) ----------------------------------------
+
+    def _match_entities(
+        self, scope: Scope, candidate: EntityWrite, limit: int, min_score: float
+    ) -> List[Tuple[EntityWrite, float]]:
+        if candidate.embedding is None:
+            raise MemoryOperationError(
+                f"match_entities was given {candidate.name!r} with no embedding. The similarity leg "
+                "has nothing to compare against, and skipping it silently would report a resolution "
+                "pass that checked nothing as one that checked everything.",
+                field_name="embedding",
+            )
+        best: Dict[str, float] = {}
+        for (scope_key, name), stored in self.entities.items():
+            if scope_key != scope.key() or name == candidate.name:
+                continue
+            score = None
+            if stored.key == candidate.key:
+                score = 1.0
+            elif stored.embedding is not None:
+                # `(1 + cosine) / 2`, matching Neo4j's own vector index normalisation exactly --
+                # not a clamp of raw cosine. A double scoring orthogonal vectors 0.0 where the real
+                # backend scores them 0.5 would accept and refuse a different set of candidates than
+                # the engine it stands in for, which is the one thing a double must never do.
+                similarity = (1.0 + _cosine(candidate.embedding, stored.embedding)) / 2.0
+                if similarity >= min_score:
+                    score = similarity
+            if score is not None and score > best.get(name, -1.0):
+                best[name] = score
+        ordered = sorted(best, key=lambda name: (-best[name], name))[:limit]
+        return [(self.entities[(scope.key(), name)], best[name]) for name in ordered]
+
+    def match_entities(
+        self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92
+    ) -> List[Tuple[EntityWrite, float]]:
+        require_scope(scope, method="match_entities")
+        self.calls.append("match_entities")
+        return self._match_entities(scope, candidate, limit, min_score)
+
+    async def amatch_entities(
+        self, scope: Scope, candidate: EntityWrite, limit: int = 5, min_score: float = 0.92
+    ) -> List[Tuple[EntityWrite, float]]:
+        require_scope(scope, method="amatch_entities")
+        await _yield()
+        self.calls.append("amatch_entities")
+        return self._match_entities(scope, candidate, limit, min_score)
+
+    def _merge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        canonical_by_duplicate: Dict[str, str] = {}
+        for merge in merges:
+            if merge.canonical.scope != scope:
+                raise MemoryOperationError(
+                    f"EntityMerge.canonical {merge.canonical.name!r} carries scope "
+                    f"{merge.canonical.scope.key()} but is being merged under {scope.key()}. Batch "
+                    "per scope; the two must agree.",
+                    field_name="scope",
+                )
+            self._upsert_entity(scope, merge.canonical)
+            for name in merge.duplicate_names:
+                canonical_by_duplicate[name] = merge.canonical.name
+        if not canonical_by_duplicate:
+            return
+        # Re-point every episode's mention edges from a duplicate's node id to the canonical's,
+        # matching `link_mentions_statement`'s MERGE semantics: a row already mentioning the
+        # canonical is not duplicated.
+        for row in self._bucket(scope):
+            if row.scope != scope or row.tier is not MemoryTier.EPISODIC:
+                continue
+            linked = list(row.provenance.get("entity_ids") or [])
+            if not linked:
+                continue
+            repointed = []
+            seen = set()
+            for entity_id in linked:
+                new_id = entity_id
+                for duplicate_name, canonical_name in canonical_by_duplicate.items():
+                    if entity_id == entity_node_id_for(scope, duplicate_name):
+                        new_id = entity_node_id_for(scope, canonical_name)
+                        break
+                if new_id not in seen:
+                    seen.add(new_id)
+                    repointed.append(new_id)
+            if repointed != linked:
+                row.provenance = {**row.provenance, "entity_ids": repointed}
+        for duplicate_name in canonical_by_duplicate:
+            self.entities.pop((scope.key(), duplicate_name), None)
+
+    def merge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        require_scope(scope, method="merge_entities")
+        self.calls.append("merge_entities")
+        if not merges:
+            return
+        self._merge_entities(scope, merges)
+
+    async def amerge_entities(self, scope: Scope, merges: Sequence[EntityMerge]) -> None:
+        require_scope(scope, method="amerge_entities")
+        await _yield()
+        self.calls.append("amerge_entities")
+        if not merges:
+            return
+        self._merge_entities(scope, merges)
 
     def traverse(self, scope: Scope, query: MemoryQuery, tier: Optional[MemoryTier] = None) -> List[MemoryRecord]:
         require_scope(scope, method="traverse")
