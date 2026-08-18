@@ -465,6 +465,140 @@ def test_a_ranked_row_without_a_distance_is_refused_rather_than_ranked_first():
         module._similar({"id": "e1"})
 
 
+# -- the entry guard, and the valid-time window (SM-V4 #98) -------------------
+
+
+#: The port methods that reach stored rows. ``ensure_partition`` takes a tenant id rather than a
+#: ``Scope``, so it is not one of these. ``search_candidates`` / ``asearch_candidates`` (SM-V3 #97)
+#: joined the list on merge -- they are new data-access methods, and the class this test guards
+#: against is exactly "a method added later without the guard", so it must cover them too rather
+#: than staying frozen at the set this ticket happened to add.
+SCOPED_METHODS = (
+    "upsert",
+    "aupsert",
+    "search",
+    "asearch",
+    "scan",
+    "ascan",
+    "search_candidates",
+    "asearch_candidates",
+)
+
+
+def _invoke(substrate, name, scope):
+    query = MemoryQuery(text="a memory")
+    if name.endswith("upsert"):
+        args = (scope, [record()])
+    elif name.endswith("scan"):
+        args = (scope, MemoryTier.EPISODIC)
+    else:
+        args = (scope, query)
+    call = getattr(substrate, name)(*args)
+    return asyncio.run(call) if name.startswith("a") else call
+
+
+@pytest.mark.parametrize("name", SCOPED_METHODS)
+@pytest.mark.parametrize("unscoped", [None, "acme", {"tenant_id": "acme"}, object()])
+def test_every_scoped_port_method_refuses_an_unscoped_call(substrate, name, unscoped):
+    """SM-C4's rule, discharged here rather than left to ``sql.scope_predicate`` (SM-V4 #98, AC 2).
+
+    The port states this as "the first statement of every method", and until now this backend
+    relied on the predicate builder alone -- which is enough only while every method routes through
+    it. ``CoLocatedMemoryProvider.vector`` is a public attribute, so the seam is not the last line,
+    and ``search`` returns ``[]`` before touching SQL for an empty query or a zero limit: on that
+    path a bad scope reached no builder at all and the call succeeded.
+    """
+    with pytest.raises(MemoryScopeRequiredError) as excinfo:
+        _invoke(substrate, name, unscoped)
+    assert excinfo.value.verb == name
+
+
+@pytest.mark.parametrize("half", ["search", "asearch"])
+def test_the_guard_runs_before_the_short_circuit_that_costs_no_round_trip(substrate, half):
+    """The guard must not sit behind an early return.
+
+    ``search`` answers a blank query or a zero limit without touching SQL, so on that path a bad
+    scope reaches no predicate builder. A guard placed after the check would let through exactly
+    the calls that never see one.
+    """
+    blank = MemoryQuery(text="   ", limit=0)
+    with pytest.raises(MemoryScopeRequiredError):
+        call = getattr(substrate, half)(None, blank)
+        asyncio.run(call) if half.startswith("a") else call
+
+
+@pytest.mark.parametrize("name", ["upsert", "aupsert"])
+def test_an_empty_batch_is_still_scope_checked(substrate, name):
+    """Same shape on the write half: ``upsert`` returns early for an empty batch, and a caller
+    passing a bad scope should hear about it then rather than on the first non-empty call."""
+    with pytest.raises(MemoryScopeRequiredError):
+        call = getattr(substrate, name)(None, [])
+        asyncio.run(call) if name.startswith("a") else call
+
+
+@pytest.mark.parametrize("half", ["search", "asearch"])
+def test_both_halves_send_the_window_to_the_same_statement(substrate, half):
+    """The async twin must build the same SQL, not merely exist. Captured at the statement layer,
+    because the two halves reach the database through different engines."""
+    captured = []
+    substrate._statements = lambda statements: captured.append(statements) or [[]]
+
+    async def _acapture(statements):
+        captured.append(statements)
+        return [[]]
+
+    substrate._astatements = _acapture
+
+    query = MemoryQuery(text="a memory", valid_from=400, valid_to=600)
+    call = getattr(substrate, half)(ACME, query)
+    asyncio.run(call) if half.startswith("a") else call
+
+    statement, binds = captured[0][-1]
+    assert "(t_valid IS NULL OR t_valid < :valid_to)" in statement
+    assert "(t_invalid IS NULL OR t_invalid > :valid_from)" in statement
+    assert binds["valid_from"] == 400 and binds["valid_to"] == 600
+
+
+def test_an_unwindowed_search_sends_no_window_binds(substrate):
+    """A window synthesised from ``now`` would narrow every plain read to the present."""
+    captured = []
+    substrate._statements = lambda statements: captured.append(statements) or [[]]
+    substrate.search(ACME, MemoryQuery(text="a memory"))
+    statement, binds = captured[0][-1]
+    assert ":valid_from" not in statement and ":valid_to" not in statement
+    assert "valid_from" not in binds and "valid_to" not in binds
+
+
+@pytest.mark.parametrize("half", ["search_candidates", "asearch_candidates"])
+def test_both_hybrid_halves_send_the_window_to_the_lexical_leg_too(substrate, half):
+    """AC 3, and the regression test for the merge-time gap this ticket found: SM-V3's lexical leg
+    built its own predicate rather than composing through ``search_predicate``, so it never
+    inherited the window and a windowed hybrid read would have leaked an out-of-window row through
+    it. Captured at the statement layer and checked against the **lexical** statement specifically
+    -- the vector leg's is already covered by ``test_both_halves_send_the_window_to_the_same_statement``.
+    """
+    captured = []
+    substrate._statements = lambda statements, **kwargs: captured.append(statements) or [[], [], []]
+
+    async def _acapture(statements, **kwargs):
+        captured.append(statements)
+        return [[], [], []]
+
+    substrate._astatements = _acapture
+
+    query = MemoryQuery(text="a memory", valid_from=400, valid_to=600)
+    call = getattr(substrate, half)(ACME, query)
+    asyncio.run(call) if half.startswith("a") else call
+
+    # `_statements` receives the bare `(statement, binds)` tuples -- `_candidate_calls` strips the
+    # leg tag before the call, so index 2 here is the lexical statement directly, not a tagged pair.
+    # Order is [tuning, vector, lexical], per `_candidate_calls`.
+    lexical_statement, lexical_binds = captured[0][2]
+    assert "(t_valid IS NULL OR t_valid < :valid_to)" in lexical_statement
+    assert "(t_invalid IS NULL OR t_invalid > :valid_from)" in lexical_statement
+    assert lexical_binds["valid_from"] == 400 and lexical_binds["valid_to"] == 600
+
+
 # -- the hybrid candidate legs (SM-V3 #97) ------------------------------------
 
 

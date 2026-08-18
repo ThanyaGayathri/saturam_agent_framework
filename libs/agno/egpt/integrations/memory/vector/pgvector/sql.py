@@ -23,7 +23,7 @@ interpolated unescaped; hand-rolled quoting is one review round from being right
 from hashlib import md5
 from typing import Any, Dict, List, Optional, Tuple
 
-from egpt.memory.types import Scope, require_scope
+from egpt.memory.types import Scope, ValidWindow, require_scope
 
 __all__ = [
     "COLUMNS",
@@ -41,12 +41,14 @@ __all__ = [
     "scan_statement",
     "schema_statements",
     "scope_predicate",
+    "search_predicate",
     "SettingError",
     "search_statement",
     "text_search_config",
     "text_search_config_statement",
     "ts_vector_expression",
     "upsert_statement",
+    "window_predicate",
 ]
 
 
@@ -313,6 +315,62 @@ def scope_predicate(scope: Scope, alias: str = "") -> Tuple[str, Dict[str, Any]]
     return " AND ".join(clauses), binds
 
 
+def window_predicate(window: Optional[ValidWindow], alias: str = "") -> Tuple[str, Dict[str, Any]]:
+    """The valid-time overlap filter and its binds -- ``("", {})`` when no window is asked for.
+
+    The SQL half of :meth:`ValidWindow.overlaps`, and it must stay the same rule: a window that
+    means one thing in the ``WHERE`` clause and another on the merged set drops a record on one
+    path and keeps it on the other, which reads as a flaky search rather than as a bug.
+    ``test_valid_window.py`` drives this against the Python form over one case table.
+
+    An unset **record** bound is open at that end, so ``NULL`` passes. Excluding those instead
+    would silently drop every record whose valid time was never stamped -- which the write path
+    only guarantees for episodes.
+
+    ``None`` and ``ValidWindow()`` (both bounds unset) both return ``("", {})`` -- the first by the
+    early return below, the second because the loop appends no clause for either. Contract, not
+    coincidence: a caller may treat the two as interchangeable "no window" spellings. What it must
+    not do is skip the ``if window_clause:`` guard in :func:`search_predicate` and join this
+    result in unconditionally -- ``" AND ".join([scope_clause, ""])`` leaves a dangling ``AND`` with
+    nothing after it.
+    """
+    if window is None:
+        return "", {}
+    prefix = f"{alias}." if alias else ""
+    clauses: List[str] = []
+    binds: Dict[str, Any] = {}
+    if window.valid_from is not None:
+        clauses.append(f"({prefix}t_invalid IS NULL OR {prefix}t_invalid > :valid_from)")
+        binds["valid_from"] = window.valid_from
+    if window.valid_to is not None:
+        clauses.append(f"({prefix}t_valid IS NULL OR {prefix}t_valid < :valid_to)")
+        binds["valid_to"] = window.valid_to
+    return " AND ".join(clauses), binds
+
+
+def search_predicate(scope: Scope, window: Optional[ValidWindow], alias: str = "") -> Tuple[str, Dict[str, Any]]:
+    """Every predicate a **ranked** read must apply, as one fragment.
+
+    Scope, tier, current belief and the valid-time window, assembled here rather than at each
+    statement, because ranked reads are about to stop being one statement: SM-V3 (#97) adds a BM25
+    leg and a fused one. A statement that built its own ``WHERE`` would be filtered correctly on
+    the day it was written and one slot short the next time a slot was added -- which is how the
+    tenant predicate gets left off exactly one of three legs. Composing instead of copying is what
+    makes a new leg inherit the filters rather than have to remember them.
+
+    ``:tiers`` and ``:limit`` are bound by the caller: the tier list is resolved from the query and
+    the limit is not a predicate.
+    """
+    scope_clause, binds = scope_predicate(scope, alias)
+    prefix = f"{alias}." if alias else ""
+    clauses = [scope_clause, f"{prefix}tier = ANY({cast_param('tiers', 'text[]')})", f"{prefix}{_CURRENT_BELIEF}"]
+    window_clause, window_binds = window_predicate(window, alias)
+    if window_clause:
+        clauses.append(window_clause)
+        binds.update(window_binds)
+    return " AND ".join(clauses), binds
+
+
 def schema_statements(schema: str, table: str, dim: int, m: int, ef_construction: int, ts_config: str) -> List[str]:
     """Create the extension, the partitioned parent, and the indexes every partition inherits.
 
@@ -373,6 +431,13 @@ def schema_statements(schema: str, table: str, dim: int, m: int, ef_construction
         # `to_tsvector` over the partition.
         f"CREATE INDEX IF NOT EXISTS {identifier(f'{table}_fts', 'index')} ON {parent} "
         f"USING gin ({ts_vector_expression(ts_config)})",
+        # No index on `t_valid` / `t_invalid` (SM-V4 #98), and that is deliberate rather than an
+        # oversight this predates. `search_predicate`'s window clause reaches these columns only as
+        # a `Filter:` above the HNSW scan, the same place `_CURRENT_BELIEF` already sits -- adding
+        # one here is not adding a plain B-tree, either: the table is partitioned, so it would have
+        # to be a partitioned index, built and measured like the two above it. Nothing has, because
+        # the window predicate has no benchmark yet to say whether the ANN scan's own selectivity
+        # already makes it cheap. Revisit in `benchmarks/memory_vectordb/` before adding one.
     ]
 
 
@@ -461,7 +526,9 @@ def upsert_statement(schema: str, table: str) -> str:
     )
 
 
-def search_statement(schema: str, table: str, scope: Scope) -> Tuple[str, Dict[str, Any]]:
+def search_statement(
+    schema: str, table: str, scope: Scope, window: Optional[ValidWindow]
+) -> Tuple[str, Dict[str, Any]]:
     """Rank by cosine distance, scoped, current-belief, tier-filtered, limited server-side.
 
     ``ORDER BY`` is the bare distance operator with no secondary key. Adding a tiebreak column
@@ -480,25 +547,40 @@ def search_statement(schema: str, table: str, scope: Scope) -> Tuple[str, Dict[s
 
     ``as_of`` is **not** applied here and no parameter carries it: valid time is enforced once, on
     the merged set, because it needs the graph's bounds as well (finding F2).
+
+    ``window`` **is** applied here, and the two are not in tension. ``as_of`` asks which of two
+    revisions the graph currently believes, so only the graph can answer it; a window asks which
+    rows are candidates, which every row answers about itself. Deferring it to the merged set would
+    spend the whole ``LIMIT`` on out-of-window rows -- the recall loss SM-V4 decision D1 rejects,
+    and the same shape as the superseded-page argument for ``_CURRENT_BELIEF`` above. The provider
+    re-applies it after reconciliation, because these bounds are a projection and may be stale.
     """
-    predicate, binds = scope_predicate(scope)
+    predicate, binds = search_predicate(scope, window)
     statement = (
         f"SELECT {_READ_COLUMNS}, embedding <=> {_QUERY_VECTOR} AS distance "
         f"FROM {qualified(schema, table)} "
-        f"WHERE {predicate} AND tier = ANY({cast_param('tiers', 'text[]')}) AND {_CURRENT_BELIEF} "
+        f"WHERE {predicate} "
         f"ORDER BY embedding <=> {_QUERY_VECTOR} "
         "LIMIT :limit"
     )
     return statement, binds
 
 
-def lexical_search_statement(schema: str, table: str, scope: Scope, ts_config: str) -> Tuple[str, Dict[str, Any]]:
+def lexical_search_statement(
+    schema: str, table: str, scope: Scope, ts_config: str, window: Optional[ValidWindow]
+) -> Tuple[str, Dict[str, Any]]:
     """Rank by full-text relevance -- the lexical leg SM-H2's fusion consumes (SM-V3 #97).
 
-    **Same scope, tier and current-belief predicate as** :func:`search_statement`, from the same
-    :func:`scope_predicate` helper. Two retrieval legs that disagree about which rows exist do not
-    produce a fusion problem, they produce a leak: a row the vector leg is correctly denied would
-    re-enter the merged result through this one.
+    **Composed from** :func:`search_predicate`, **not rebuilt** -- scope, tier, current belief and
+    the valid-time window (SM-V4 #98), identically to :func:`search_statement`. That function's own
+    docstring names the failure this averts: a leg that built its own ``WHERE`` was filtered
+    correctly the day it was written and one slot short the next time a slot was added. This leg
+    *was* that slot, merged in without the window it should have inherited -- caught only because
+    :func:`test_the_lexical_leg_inherits_the_search_predicate_exactly` compares the two statements'
+    ``WHERE`` text rather than sampling a behaviour. Two retrieval legs that disagree about which
+    rows exist do not produce a fusion problem, they produce a leak: a row the vector leg correctly
+    excludes -- by tenant, by tier, by validity, or now by window -- would re-enter the merged result
+    through this one.
 
     ``websearch_to_tsquery`` rather than ``to_tsquery``: the query text is whatever a user said to
     the agent, and ``to_tsquery`` raises a syntax error on ordinary punctuation. ``websearch_``
@@ -517,13 +599,13 @@ def lexical_search_statement(schema: str, table: str, scope: Scope, ts_config: s
     ``vector_weight ~ 0.4-0.5`` against a real ``rank_bm25`` leg, so that weight does not transfer
     unexamined. Recalibrating it is SM-H2's (#132), which owns the fusion.
     """
-    predicate, binds = scope_predicate(scope)
+    predicate, binds = search_predicate(scope, window)
     document = ts_vector_expression(ts_config)
     query = f"websearch_to_tsquery('{text_search_config(ts_config)}', :query_text)"
     statement = (
         f"SELECT {_READ_COLUMNS}, ts_rank_cd({document}, {query}) AS rank "
         f"FROM {qualified(schema, table)} "
-        f"WHERE {predicate} AND tier = ANY({cast_param('tiers', 'text[]')}) AND {_CURRENT_BELIEF} "
+        f"WHERE {predicate} "
         f"AND {document} @@ {query} "
         f"ORDER BY rank DESC "
         "LIMIT :limit"

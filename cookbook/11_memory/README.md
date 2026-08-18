@@ -28,6 +28,10 @@ This section demonstrates how EGPT agents persist and use user memories across r
   per-leg ranks. Shows the legs disagreeing on length, order, and top hit. Fusing them is SM-H2
   (#132); ADR 0003 section A.6 ratifies weighted fusion for this two-leg case and holds the
   three-leg choice open. Same setup as `13_`.
+- `15_scoped_and_windowed_recall.py`: Scoped, time-windowed recall over the same store (SM-V4) --
+  tenant, user, tier and a valid-time window all applied **inside** the search rather than to the
+  page it returns, and why a window is not a created-at filter: an open-ended memory keeps
+  answering until something bounds it. Same requirements as `13_`.
 
 - `memory_manager/`: Direct `MemoryManager` API examples using PostgreSQL.
 - `optimize_memories/`: Memory optimization strategy examples.

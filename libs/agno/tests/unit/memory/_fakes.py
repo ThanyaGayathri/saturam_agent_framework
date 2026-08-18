@@ -33,9 +33,10 @@ from egpt.memory.types import (
     MemoryQuery,
     MemoryRecord,
     Scope,
-    require_scope,
     Substrate,
     TemporalBounds,
+    ValidWindow,
+    require_scope,
 )
 
 
@@ -132,6 +133,11 @@ class FakeVector:
         #: is vacuous.
         self.search_limits: List[Optional[int]] = []
         self.scan_limits: List[Optional[int]] = []
+        #: Every valid-time window this substrate was *asked* to narrow to, in order. Recorded for
+        #: the same reason as ``search_limits``: a provider that dropped the window on the way down
+        #: still returns the right rows on a corpus that happens to sit inside it, so only the
+        #: request distinguishes filtering in-search from filtering afterwards.
+        self.search_windows: List[Optional[ValidWindow]] = []
 
     def _bucket(self, scope: Scope) -> Dict[str, MemoryRecord]:
         return self.rows.setdefault(scope.tenant_id, {})
@@ -158,13 +164,17 @@ class FakeVector:
         require_scope(scope, method="search")
         self.calls.append("search")
         self.search_limits.append(query.limit)
+        window = query.window()
+        self.search_windows.append(window)
         tiers = {tier} if tier else set(query.resolved_tiers())
         hits = [
             replace(record, score=overlap(query.text, record.content))
             for record in self._matching(scope)
-            # Validity filtered BEFORE ranking, as the port requires: applying `limit` first and
-            # validity second lets a page of invalidated rows consume the whole limit.
-            if record.tier in tiers and current_belief(record)
+            # Validity and the window filtered BEFORE ranking, as the port requires: applying
+            # `limit` first and either second lets a page of excluded rows consume the whole limit.
+            if record.tier in tiers
+            and current_belief(record)
+            and (window is None or window.overlaps(record.t_valid, record.t_invalid))
         ]
         return _ranked(hits, query.limit)
 

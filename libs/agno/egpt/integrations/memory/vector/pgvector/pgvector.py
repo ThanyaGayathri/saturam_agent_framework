@@ -976,7 +976,7 @@ class PgVectorMemorySubstrate:
         reporting recall and p95 together, because SM-R3 shows only that a higher ``ef`` narrows
         the gap at some latency cost -- not that it closes.
         """
-        statement, binds = sql.search_statement(self.schema, self.table, scope)
+        statement, binds = sql.search_statement(self.schema, self.table, scope, query.window())
         binds.update(
             {
                 "tiers": tiers,
@@ -1009,7 +1009,9 @@ class PgVectorMemorySubstrate:
     def _lexical_call(self, scope: Scope, query: MemoryQuery, tiers: List[str]) -> Tuple[str, Dict[str, Any]]:
         """The lexical statement and its binds. No ``SET LOCAL`` precedes it -- ``hnsw.ef_search``
         tunes the vector index and means nothing to GIN."""
-        statement, binds = sql.lexical_search_statement(self.schema, self.table, scope, self.text_search_config)
+        statement, binds = sql.lexical_search_statement(
+            self.schema, self.table, scope, self.text_search_config, query.window()
+        )
         binds.update({"tiers": tiers, "limit": query.limit, "query_text": query.text})
         return statement, binds
 

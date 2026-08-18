@@ -258,3 +258,37 @@ upserts by id.
 
 **Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
 key; the embedder is local and downloads its weights on first run.
+
+---
+
+### 15_scoped_and_windowed_recall.py
+
+**Status:** PASS
+
+**Description:** Exercises the SM-V4 valid-time window through the seam against a real Postgres 18
++ pgvector, on its own table (`cookbook_windowed`) so the reads show this file's five rows rather
+than whatever a shared default table has accumulated. Writes three memories for `acme/ada` and one
+each for `acme/bob` and `globex/ada`, at three different `occurred_at` quarters, then reads the same
+question unwindowed, with an upper bound only, with a lower bound only, and with a full window
+across all three scopes.
+
+**Result:** Success. `valid_to=Q3` returns the two memories that became true before July and
+excludes the Q3 relocation, which starts exactly at the bound -- the window is half-open.
+`valid_from=Q3` returns **all three**, which is the case worth reading: neither earlier memory has
+an end date, so both are open-ended intervals that still overlap the second half of the year. A
+window selects records whose validity *overlaps* it, not records authored inside it, and nothing in
+this file claims the earlier facts ended -- bounding one is the graph's job (SM-G5 #103). The first
+draft of this cookbook framed the same reads as "before and after the move" and was corrected
+rather than documented, because that framing implies a filter the data does not support.
+
+Scope isolation holds under the window: `acme/bob` reads only `bob-q3` and `globex/ada` only
+`other-q3`, though all three rows carry the same relocation content and the same valid time.
+`dropped_outside_window` and `dropped_by_validity` both print 0 for the windowed read, which is the
+design showing through -- the substrate filtered in-search, so the provider had nothing left to
+drop. Setting `as_of` alongside a window is refused with a `ValueError`.
+
+Run **twice in a row and the output is identical**: every event carries an explicit id and the
+substrate upserts by id.
+
+**Requires:** a running Postgres with pgvector (`./cookbook/scripts/run_pgvector.sh`). No model API
+key; the embedder is local and downloads its weights on first run.
